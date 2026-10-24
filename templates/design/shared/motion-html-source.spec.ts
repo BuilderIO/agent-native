@@ -1682,6 +1682,11 @@ describe("HTML Motion source adapter", () => {
   it.each([
     ["Alpine initialization", 'x-init="$el.remove()"'],
     ["Alpine effect", 'x-effect="$el.remove()"'],
+    ["Alpine x-data expression", 'x-data="createScope()"'],
+    [
+      "Alpine x-data init method",
+      "x-data=\"{ init() { document.querySelector('.card > h1')?.remove() } }\"",
+    ],
   ])(
     "rejects positional selectors when %s can remove a sibling",
     (_label, directive) => {
@@ -1695,6 +1700,17 @@ describe("HTML Motion source adapter", () => {
       ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
     },
   );
+
+  it("allows positional selectors when a sibling has static Alpine data", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 x-data="{ open: true }">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
 
   it("allows positional selectors when a sibling only changes its class", () => {
     const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 x-bind:class="active ? 'active' : ''">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;

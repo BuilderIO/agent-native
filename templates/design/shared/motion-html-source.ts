@@ -2085,12 +2085,14 @@ function hasRuntimeHtmlMutation(node: HtmlNode): boolean {
 function hasRuntimeStructuralMutation(node: HtmlNode): boolean {
   return (
     isAlpineStructuralTemplate(node) ||
-    (node.attrs ?? []).some(({ name }) => {
-      const directive = name.toLowerCase().split(/[.:]/, 1)[0]!;
+    (node.attrs ?? []).some(({ name, value }) => {
+      const normalized = name.toLowerCase();
+      const directive = normalized.split(/[.:]/, 1)[0]!;
       return (
         isEventHandlerAttribute(name) ||
         directive === "x-init" ||
-        directive === "x-effect"
+        directive === "x-effect" ||
+        (directive === "x-data" && !isStaticRuntimeScopeData(value))
       );
     })
   );
