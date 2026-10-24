@@ -736,7 +736,7 @@ async function recoverStaleAutomationHistory(
       // Until its claim lease passes, its worker (or the redelivery sweep) can
       // still pick it up, so it is not stale however old the frontmatter lock
       // it inherits is. This reads the stored claim, not the derived status: a
-      // row past the read-liveness ceiling still reports `interrupted`.
+      // claimed row stays live even when its queue age exceeds the ceiling.
       const lastQueueTouch = run.claimedAt ?? run.startedAt;
       const dispatchIsClaimable =
         run.dispatchPending &&

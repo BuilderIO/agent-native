@@ -343,6 +343,63 @@ describe("automation run history", () => {
     expect(run.status).toBe("running");
   });
 
+  it("keeps a queued run running after a late worker claim", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          started_at: Date.now() - 60 * MINUTE,
+          dispatch_pending: 1,
+          claimed_at: Date.now() - 2 * MINUTE,
+        }),
+      ],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("running");
+  });
+
+  it("reports a queued run nobody claimed past the liveness ceiling as interrupted", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          started_at: Date.now() - 60 * MINUTE,
+          dispatch_pending: 1,
+          claimed_at: null,
+        }),
+      ],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("interrupted");
+  });
+
+  it("reports a queued run as interrupted once its claim lease expires", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          started_at: Date.now() - 60 * MINUTE,
+          dispatch_pending: 1,
+          claimed_at: Date.now() - 30 * MINUTE,
+        }),
+      ],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("interrupted");
+  });
+
   it("guards the terminal write on the claim snapshot it read", async () => {
     executeMock
       .mockResolvedValueOnce({ rows: [row({ claimed_at: 1000 })] })
