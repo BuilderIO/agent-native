@@ -578,6 +578,44 @@ describe("a page whose live copy a tab already opened", () => {
     );
   });
 
+  it("defers the page when a tab deleted all of its text, since that empty body is an edit", async () => {
+    const id = await insertPage(stored);
+    await openInTab(id, stored);
+    // Select all and delete: the editor keeps one empty paragraph.
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, await collab.getState(id));
+    const fragment = doc.getXmlFragment("default");
+    const { meta } = initProseMirrorDoc(fragment, editorSchema);
+    const before = Y.encodeStateVector(doc);
+    updateYFragment(
+      doc,
+      fragment,
+      editorSchema.nodeFromJSON({
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      }),
+      meta,
+    );
+    const update = Y.encodeStateAsUpdate(doc, before);
+    doc.destroy();
+    await as(ownerEmail, () => collab.applyUpdate(id, update));
+    const version = await collabVersion(id);
+
+    await expect(
+      as(ownerEmail, () => backfill.convertPageToLiveCopyIfDue(id, { ctx })),
+    ).resolves.toEqual({ status: "deferred", reason: "live_edits" });
+
+    expect(await page(id)).toMatchObject({
+      content: stored,
+      liveBodySwitchedAt: null,
+    });
+    expect(await collabVersion(id)).toBe(version);
+    const live = new Y.Doc();
+    Y.applyUpdate(live, await collab.getState(id));
+    expect(materializeLiveBody(live)).toMatchObject({ kind: "body" });
+    live.destroy();
+  });
+
   it("still lets a manual switch replace that text with the stored body, as before", async () => {
     const id = await insertPage(stored);
     await openInTab(id, stored, "A note typed in a tab.");
@@ -856,6 +894,47 @@ describe("a primary Blocks value on a switched Files row", () => {
     expect(await page(row.id)).toEqual(before);
     expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
   });
+
+  it("refuses it when a source owns the field, as the legacy path does, and leaves the page as it was", async () => {
+    const row = await switchedFilesRow();
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values({
+        id: `source-${row.id}`,
+        ownerEmail,
+        databaseId: row.databaseId,
+        sourceType: "local-table",
+        sourceName: "Upstream",
+        sourceTable: `upstream-${row.id}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: `source-field-${row.id}`,
+        ownerEmail,
+        sourceId: `source-${row.id}`,
+        propertyId: row.propertyId,
+        localFieldKey: row.propertyId,
+        sourceFieldKey: "body",
+        sourceFieldLabel: "Body",
+        sourceFieldType: "text",
+        writeOwner: "source",
+        readOnly: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const before = await page(row.id);
+
+    await expect(
+      setPrimary(row, "A write the source owns.", await fieldRevision(row)),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_NOT_WRITABLE" });
+
+    expect(await page(row.id)).toEqual(before);
+    expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
+  });
 });
 
 describe("the backfill sweep", () => {
@@ -942,6 +1021,47 @@ describe("the backfill sweep", () => {
         retryAfter: new Date(later + 60 * 60_000).toISOString(),
       },
     });
+  });
+
+  it("doesn't hold a page it finished when a sweep dies before the next one", async () => {
+    const [finished, next] = [
+      await insertPage(stored, { id: "dies-between-1" }),
+      await insertPage(stored, { id: "dies-between-2" }),
+    ];
+    let pagesStarted = 0;
+    // The process dies as the sweep moves on to the second page.
+    const dies = {
+      get aborted() {
+        pagesStarted += 1;
+        if (pagesStarted === 2) throw new Error("killed");
+        return false;
+      },
+    } as unknown as AbortSignal;
+    await expect(
+      backfill.runLiveBodyBackfillSweep({
+        deadlineAt: Date.now() + 90_000,
+        signal: dies,
+      }),
+    ).rejects.toThrow("killed");
+    expect(await sweepState()).toMatchObject({
+      after: finished,
+      inFlight: null,
+    });
+
+    const report = await sweep(Date.now() + 2 * 60_000);
+
+    expect(report).toMatchObject({
+      status: "ran",
+      scanned: 1,
+      held: 0,
+      interrupted: null,
+      outcomes: { converted: 1 },
+      passComplete: true,
+    });
+    for (const id of [finished, next]) {
+      expect((await page(id)).liveBodySwitchedAt).not.toBeNull();
+    }
+    expect((await sweepState())?.held).toEqual({});
   });
 
   it("holds a page that keeps failing until its retry time, and the pass goes on without it", async () => {

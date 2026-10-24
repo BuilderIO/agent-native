@@ -191,7 +191,7 @@ const SWEEP_STATE_KEY = "content-live-body-backfill-sweep";
 // Pages read per sweep, in id order. The sweep reads no more than this, so a
 // pass over a large table takes many sweeps rather than one long query.
 const SCAN_BATCH = 200;
-// Pages tried per sweep. Each try writes the sweep state first.
+// Pages tried per sweep. Each try writes the sweep state before and after it.
 const ATTEMPTS_PER_SWEEP = 25;
 // A page saved this recently may still have a tab's save in flight.
 const IDLE_MS = 10 * 60_000;
@@ -503,6 +503,22 @@ export async function runLiveBodyBackfillSweep(context: {
   let attempts = 0;
   let reached: string | null = state.after;
   let stoppedEarly: SweepStop = null;
+  // Saves the last page reached and the one being tried. False when another
+  // sweep took the lease, which stops this one.
+  const saveProgress = async (inFlight: SweepState["inFlight"]) => {
+    try {
+      await save({
+        after: reached,
+        passCompletedAt: state.passCompletedAt,
+        run: state.run,
+        inFlight,
+      });
+      return true;
+    } catch (error) {
+      if (!(error instanceof SweepLeaseLost)) throw error;
+      return false;
+    }
+  };
   // Lists and holds a page that threw. False when the sweep stops instead,
   // because HELD_LIMIT pages are held already.
   const recordFailure = (documentId: string, error: unknown) => {
@@ -587,15 +603,12 @@ export async function runLiveBodyBackfillSweep(context: {
       continue;
     }
     attempts += 1;
-    try {
-      await save({
-        after: reached,
-        passCompletedAt: state.passCompletedAt,
-        run: state.run,
-        inFlight: { documentId: page.id, startedAt: new Date().toISOString() },
-      });
-    } catch (error) {
-      if (!(error instanceof SweepLeaseLost)) throw error;
+    if (
+      !(await saveProgress({
+        documentId: page.id,
+        startedAt: new Date().toISOString(),
+      }))
+    ) {
       stoppedEarly = "lease_lost";
       break;
     }
@@ -611,6 +624,12 @@ export async function runLiveBodyBackfillSweep(context: {
       }
     }
     reached = page.id;
+    // Before the pages after it, so a sweep that dies among them doesn't
+    // hold this one as interrupted.
+    if (!(await saveProgress(null))) {
+      stoppedEarly = "lease_lost";
+      break;
+    }
   }
 
   let passComplete = stoppedEarly === null && pages.length < SCAN_BATCH;

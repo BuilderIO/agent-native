@@ -92,6 +92,8 @@ async function assertPropertyWritableByRowMutation(
 async function setPrimaryBlocksThroughLiveCopy(args: {
   ctx: ActionRunContext | undefined;
   documentId: string;
+  databaseId: string;
+  definition: typeof schema.documentPropertyDefinitions.$inferSelect;
   propertyId: string;
   content: string;
   expectedRevision: number | undefined;
@@ -133,8 +135,9 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
           ...currentAccess(),
           transaction: tx,
         });
+        const db = drizzleOverExec(tx);
         // The commit locked the page's memberships, so this read holds.
-        const [primary] = await drizzleOverExec(tx)
+        const [primary] = await db
           .select({ id: schema.contentDatabases.id })
           .from(schema.contentDatabaseItems)
           .innerJoin(
@@ -147,6 +150,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
           .where(
             and(
               eq(schema.contentDatabaseItems.documentId, args.documentId),
+              eq(schema.contentDatabaseItems.databaseId, args.databaseId),
               eq(
                 schema.contentDatabases.primaryBlocksPropertyId,
                 args.propertyId,
@@ -160,6 +164,11 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
             { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },
           );
         }
+        await assertPropertyWritableByRowMutation(
+          db,
+          args.databaseId,
+          args.definition,
+        );
       },
     });
     return true;
@@ -308,6 +317,8 @@ export default defineAction({
         (await setPrimaryBlocksThroughLiveCopy({
           ctx,
           documentId,
+          databaseId: database.id,
+          definition,
           propertyId,
           content,
           expectedRevision: expectedBlocksFieldRevision,

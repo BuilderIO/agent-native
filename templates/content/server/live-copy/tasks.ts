@@ -277,7 +277,9 @@ const liveCopyTasks = defineLiveCopyTasks({
       if (isRefusal(root)) return root;
       if (parsed.keepLiveEdits) {
         const current = deriveBody(doc, field);
-        // An empty copy holds nothing a tab typed.
+        // An empty copy was never seeded. The editor keeps at least one
+        // block, so a tab that deleted everything left an empty paragraph,
+        // which is compared below.
         if (isRefusal(current)) {
           if (current.reason !== "empty") return current;
         } else if (current !== docToNfm(root.toJSON())) {
