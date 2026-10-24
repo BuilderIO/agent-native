@@ -441,6 +441,54 @@ describe("stage-builder-source-bulk-update", () => {
     ]);
   });
 
+  it("sets an unpushed edit back when staging the value Builder already has", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const stage = (value: string, dryRun: boolean) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun,
+        }),
+      );
+    await stage("Operators", false);
+
+    const preview = await stage("Developers", true);
+    expect(preview.rows[0]).toMatchObject({
+      status: "unchanged",
+      message: expect.stringContaining("goes back"),
+    });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+
+    const response = await stage("Developers", false);
+    expect(response.summary).toMatchObject({ staged: 0, unchanged: 1 });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Developers") }),
+    ]);
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(
+          schema.contentDatabaseSourceChangeSets.id,
+          `change_${seeded.sourceId.slice("src_".length)}`,
+        ),
+      );
+    expect(changeSet).toMatchObject({
+      state: "rejected",
+      fieldChangesJson: "[]",
+    });
+  });
+
   it("stages Builder File URLs through Files & media properties", async () => {
     const seeded = await seedBuilderDatabase({
       propertyType: "files_media",

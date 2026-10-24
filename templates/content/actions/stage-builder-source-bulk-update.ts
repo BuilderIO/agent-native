@@ -307,6 +307,37 @@ async function updateOpenChangeSetsForStagedRows(args: {
   }
 }
 
+async function dropFieldFromOpenChangeSets(args: {
+  source: ContentDatabaseSource;
+  field: ContentDatabaseSourceFieldMapping;
+  documentIds: string[];
+  now: string;
+}) {
+  const db = getDb();
+  for (const documentId of args.documentIds) {
+    const openChangeSet = openChangeSetForDocument(args.source, documentId);
+    if (!openChangeSet) continue;
+    const fieldChanges = openChangeSet.fieldChanges.filter(
+      (change) =>
+        change.sourceFieldKey !== args.field.sourceFieldKey &&
+        change.localFieldKey !== args.field.localFieldKey,
+    );
+    if (fieldChanges.length === openChangeSet.fieldChanges.length) continue;
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({
+        // A change with nothing left to push is closed rather than pushed empty.
+        state:
+          fieldChanges.length === 0 && !openChangeSet.bodyChange
+            ? "rejected"
+            : "pending_push",
+        fieldChangesJson: JSON.stringify(fieldChanges),
+        updatedAt: args.now,
+      })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, openChangeSet.id));
+  }
+}
+
 async function stageBuilderSourceBulkUpdateWithDeps(
   args: StageBuilderSourceBulkUpdateRequest,
 ): Promise<StageBuilderSourceBulkUpdateResponse> {
@@ -359,6 +390,30 @@ async function stageBuilderSourceBulkUpdateWithDeps(
   );
   const results: StageBuilderSourceBulkUpdateRowResult[] = [];
   const previewChangeSets: ContentDatabaseSourceChangeSet[] = [];
+  // A refresh keeps Content's unpushed edit, so a row whose Builder value
+  // already matches can still show a different one until this sets it back.
+  const localValueJsonByDocumentId = new Map(
+    field.propertyId && rows.length > 0
+      ? (
+          await getDb()
+            .select({
+              documentId: schema.documentPropertyValues.documentId,
+              valueJson: schema.documentPropertyValues.valueJson,
+            })
+            .from(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.propertyId, field.propertyId),
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  rows.map((row) => row.document.id),
+                ),
+              ),
+            )
+        ).map((value) => [value.documentId, value.valueJson])
+      : [],
+  );
+  const revertedDocumentIds: string[] = [];
 
   for (const row of rows) {
     const sourceRow = sourceRowsByDocumentId.get(row.document.id);
@@ -392,10 +447,16 @@ async function stageBuilderSourceBulkUpdateWithDeps(
     const sourceValues = parseSourceValues(sourceRow.sourceValues);
     const currentValue = sourceValues[field.sourceFieldKey] ?? null;
     if (sameSourceFieldValue(currentValue, normalizedValue)) {
+      const localValueJson = localValueJsonByDocumentId.get(row.document.id);
+      const revertsLocalEdit =
+        localValueJson !== undefined && localValueJson !== valueJson;
+      if (revertsLocalEdit) revertedDocumentIds.push(row.document.id);
       results.push({
         ...baseResult,
         status: "unchanged",
-        message: "The selected Builder field already has this value.",
+        message: revertsLocalEdit
+          ? "The selected Builder field already has this value, so Content's unpushed edit goes back to it."
+          : "The selected Builder field already has this value.",
       });
       continue;
     }
@@ -434,7 +495,13 @@ async function stageBuilderSourceBulkUpdateWithDeps(
             changeSetId: undefined,
             fieldChange: undefined,
           }
-        : row,
+        : row.status === "unchanged" &&
+            revertedDocumentIds.includes(row.documentId)
+          ? {
+              ...row,
+              message: "The selected Builder field already has this value.",
+            }
+          : row,
     );
     return {
       dryRun,
@@ -452,6 +519,33 @@ async function stageBuilderSourceBulkUpdateWithDeps(
       rows: blockedRows,
       review: null,
     };
+  }
+  if (
+    !dryRun &&
+    summary.blocked === 0 &&
+    revertedDocumentIds.length > 0 &&
+    field.propertyId &&
+    valueJson
+  ) {
+    await upsertPropertyValues({
+      ownerEmail: database.ownerEmail,
+      documentIds: revertedDocumentIds,
+      propertyId: field.propertyId,
+      valueJson,
+      now,
+    });
+    await dropFieldFromOpenChangeSets({
+      source,
+      field,
+      documentIds: revertedDocumentIds,
+      now,
+    });
+    if (summary.staged === 0) {
+      await getDb()
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(eq(schema.contentDatabaseSources.id, source.id));
+    }
   }
   if (!dryRun && summary.blocked === 0 && summary.staged > 0) {
     if (!field.propertyId || !valueJson) {
