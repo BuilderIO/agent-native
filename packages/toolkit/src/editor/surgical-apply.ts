@@ -42,6 +42,11 @@ export type BaseAwareReconcilePlan =
 
 export interface BaseAwareReconcileOptions {
   overlapPolicy?: "conflict" | "prefer-live";
+  /**
+   * The live editor's selection while it has focus. A filler line holding it
+   * stays, so the next keystroke lands where the cursor was.
+   */
+  liveSelection?: { from: number; to: number };
 }
 
 function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
@@ -284,7 +289,15 @@ export function planDocReconcile(
     }
     // Once a paragraph closes the page, the filler is a stray empty line the
     // next save would keep. The editor adds it back when it is needed again.
-    if (liveHasFiller && !endsInEditorFiller(tr.doc)) {
+    const fillerFrom = liveDoc.content.size - liveDoc.lastChild!.nodeSize;
+    const cursorOnFiller =
+      !!options.liveSelection && options.liveSelection.from > fillerFrom;
+    if (
+      liveHasFiller &&
+      !cursorOnFiller &&
+      !endsInEditorFiller(tr.doc) &&
+      isEditorFiller(tr.doc.lastChild)
+    ) {
       const end = tr.doc.content.size;
       tr.delete(end - tr.doc.lastChild!.nodeSize, end);
     }
@@ -300,7 +313,10 @@ export function reconcileDocAgainstBase(
   serverDoc: ProseMirrorNode,
   options: BaseAwareReconcileOptions = {},
 ): BaseAwareReconcileResult {
-  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, options);
+  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, {
+    ...options,
+    liveSelection: editor.isFocused ? editor.state.selection : undefined,
+  });
   if (plan.status !== "applied") return plan;
   try {
     const tr = editor.state.tr;
@@ -379,14 +395,19 @@ function isEmptyParagraph(node: ProseMirrorNode | null): boolean {
 /**
  * Tiptap's TrailingNode keeps an empty paragraph after a last block that is
  * not a paragraph, so there is a line to type on. Saved bodies leave it out.
+ * An empty line someone styled, by indenting or coloring it, is content.
  */
 function endsInEditorFiller(doc: ProseMirrorNode): boolean {
   const count = doc.childCount;
   return (
     count > 1 &&
-    isEmptyParagraph(doc.child(count - 1)) &&
+    isEditorFiller(doc.child(count - 1)) &&
     doc.child(count - 2).type.name !== "paragraph"
   );
+}
+
+function isEditorFiller(node: ProseMirrorNode | null): boolean {
+  return isEmptyParagraph(node) && node!.sameMarkup(node!.type.create());
 }
 
 function withoutLastChild(doc: ProseMirrorNode): ProseMirrorNode {

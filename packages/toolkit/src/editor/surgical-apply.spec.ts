@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
+import { Editor, Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
 
@@ -648,6 +648,91 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
       editor.destroy();
     }
   });
+
+  const StyledLines = Extension.create({
+    name: "styledLines",
+    addGlobalAttributes() {
+      return [
+        {
+          types: ["paragraph"],
+          attributes: { indent: { default: 0 }, color: { default: null } },
+        },
+      ];
+    },
+  });
+
+  it.each([
+    { style: { indent: 1 }, overlapPolicy: "prefer-live" as const },
+    { style: { color: "red" }, overlapPolicy: "prefer-live" as const },
+    { style: { indent: 1 }, overlapPolicy: "conflict" as const },
+    { style: { color: "red" }, overlapPolicy: "conflict" as const },
+  ])(
+    "treats a styled empty closing line as the tab's own edit: $style ($overlapPolicy)",
+    ({ style, overlapPolicy }) => {
+      const editor = new Editor({
+        extensions: [...createRichMarkdownExtensions(), StyledLines],
+        content: "",
+      });
+      try {
+        editor.commands.setContent("# H");
+        editor.commands.setTextSelection(1);
+        const fillerFrom =
+          editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize;
+        editor.view.dispatch(
+          editor.state.tr.setNodeMarkup(fillerFrom, undefined, style),
+        );
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "# H"),
+          parse(editor, "Replacement."),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject(
+          overlapPolicy === "prefer-live"
+            ? { status: "noop", setAside: 1 }
+            : { status: "conflict" },
+        );
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "heading",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.lastChild!.attrs).toMatchObject(style);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    { focused: true, blocks: ["heading", "paragraph", "empty paragraph"] },
+    { focused: false, blocks: ["heading", "paragraph"] },
+  ])(
+    "keeps the empty closing line only while the cursor is typing on it (focused: $focused)",
+    ({ focused, blocks }) => {
+      const base = "Intro.\n\n- One\n- Two";
+      const editor = openPage(base);
+      try {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+        editor.isFocused = focused;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, `${base}\n\n## Added\n\nNew paragraph.`),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc).slice(2)).toEqual(blocks);
+        if (!focused) return;
+        editor.commands.insertContent("Typed.");
+        expect(editor.state.doc.lastChild!.textContent).toBe("Typed.");
+        expect(md(editor)).toContain("New paragraph.\n\nTyped.");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 
   it("still sets aside a server change to a closing block the tab edited", () => {
     const base = "Intro.\n\n- One\n- Two";
