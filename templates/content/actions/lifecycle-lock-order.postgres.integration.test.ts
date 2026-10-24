@@ -3,7 +3,9 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./_document-flush.js", () => ({
-  flushOpenDocumentEditorToSql: vi.fn(async () => undefined),
+  flushOpenDocumentEditorToSql: vi.fn(async () => ({
+    status: "no_open_editor",
+  })),
   saveOpenEditorTitles: vi.fn(async () => undefined),
 }));
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
