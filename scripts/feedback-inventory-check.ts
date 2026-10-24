@@ -17282,7 +17282,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateTestInventory(directWorkAuthorization);
     const unrelatedFollowUpAuthorization = structuredClone(authorizedMagRoot);
     unrelatedFollowUpAuthorization.scope.userRequest =
-      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000. Let me know if you have questions.";
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply. Let me know if you have questions.";
     unrelatedFollowUpAuthorization.scope.narrowingJudgment!.instruction =
       unrelatedFollowUpAuthorization.scope.userRequest;
     validateTestInventory(unrelatedFollowUpAuthorization);
