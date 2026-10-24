@@ -604,6 +604,124 @@ describe("stage-builder-source-bulk-update", () => {
     ]);
   });
 
+  it("refuses to set an edit back when Builder's value changed after the stage read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const sourceRowFilter = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId),
+      eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+    );
+    snapshotRead.after = async () => {
+      const [sourceRow] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(sourceRowFilter);
+      await getDb()
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: JSON.stringify({
+            ...JSON.parse(sourceRow.sourceValuesJson),
+            [seeded.sourceFieldKey]: "Designers",
+          }),
+        })
+        .where(sourceRowFilter);
+    };
+    try {
+      await expect(stage("Developers")).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_bulk_stage_rows_changed",
+      });
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(after).toMatchObject({
+      state: before.state,
+      fieldChangesJson: before.fieldChangesJson,
+    });
+  });
+
+  it("refuses to set an edit back while its review item is being pushed", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const startedAt = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutions)
+      .values({
+        id: `execution_${changeSetId}`,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "running",
+        idempotencyKey: `builder-cms:${seeded.sourceId}:${changeSetId}:autosave`,
+        summary: "Running.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: null,
+        lastError: null,
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      });
+
+    await expect(stage("Developers")).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "builder_execution_running",
+    });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSetId));
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([
+      expect.objectContaining({ proposedValue: "Operators" }),
+    ]);
+  });
+
   it("stages Builder File URLs through Files & media properties", async () => {
     const seeded = await seedBuilderDatabase({
       propertyType: "files_media",
