@@ -1,7 +1,6 @@
 export type { TriggerFrontmatter, TriggerDispatchContext } from "./types.js";
 export {
   initTriggerDispatcher,
-  stopTriggerQueueWorker,
   hasEventAutomation,
   refreshEventSubscriptions,
   parseTriggerFrontmatter,

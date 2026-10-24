@@ -1683,6 +1683,27 @@ Respond to the event.`,
     }
   });
 
+  it("takes no queue work after the worker stops until the dispatcher starts again", async () => {
+    const deps = {
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    };
+    await initTriggerDispatcher(deps);
+    const staleTick = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    expect(staleTick).toEqual(expect.any(Function));
+
+    await stopTriggerQueueWorker();
+    // Other jobs can still be stopping when a late tick or event runs.
+    await staleTick!(new AbortController().signal);
+    expect(triggerQueueMocks.ready).not.toHaveBeenCalled();
+
+    await initTriggerDispatcher(deps);
+    const tick = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    await tick!(new AbortController().signal);
+    expect(triggerQueueMocks.ready).toHaveBeenCalledOnce();
+  });
+
   it("backs off the interval worker when no trigger is claimable", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

@@ -1033,22 +1033,33 @@ function startPollLoop(
   }
 }
 
-export async function stopGoogleDocsPoller(): Promise<void> {
+/**
+ * Stops polling and watch renewal, then retires the shared Drive watch.
+ * With `shuttingDown`, it instead waits for a poll in flight to finish and
+ * leaves the watch registered for the servers still running, or the next
+ * start, to renew or replace.
+ */
+export async function stopGoogleDocsPoller(
+  options: { shuttingDown?: boolean } = {},
+): Promise<void> {
   pollerGeneration += 1;
   activeOptions = null;
   if (pollerStartTimer) {
     clearTimeout(pollerStartTimer);
     pollerStartTimer = null;
   }
-  if (pollerJob) {
-    const running = pollerJob;
-    pollerJob = null;
-    await running.stop();
-  }
   if (watchRenewalTimer) {
     clearTimeout(watchRenewalTimer);
     watchRenewalTimer = null;
   }
+  const running = pollerJob;
+  pollerJob = null;
+  if (options.shuttingDown) {
+    await running?.stop();
+    return;
+  }
+  // Disabling doesn't wait on a slow poll; the stop ends its scheduling.
+  void running?.stop();
   try {
     const stopResult = await stopWatch();
     if (stopResult.status === "retry") {

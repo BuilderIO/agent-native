@@ -3671,11 +3671,12 @@ export function createIntegrationsPlugin(
           googleDocsStartTimer = null;
         }
         if (adapterMap.has("google-docs")) {
-          await runGoogleDocsPollerTransition(() => stopGoogleDocsPoller());
+          await runGoogleDocsPollerTransition(() =>
+            stopGoogleDocsPoller({ shuttingDown: true }),
+          );
         }
       };
       registerBackgroundJobStop(stopIntegrationBackgroundJobs);
-      nitroApp.hooks?.hook?.("close", stopIntegrationBackgroundJobs);
     }
 
     if (process.env.DEBUG)

@@ -56,6 +56,20 @@ describe("background job shutdown", () => {
     expect(finished).toBe(true);
   });
 
+  it("stops waiting for a job that never finishes and names it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const other = vi.fn();
+    registerBackgroundJobStop(function stopStuckJob() {
+      return new Promise<void>(() => {});
+    });
+    registerBackgroundJobStop(other);
+
+    await stopBackgroundJobs(20);
+
+    expect(other).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("stopStuckJob"));
+  }, 2_000);
+
   it("installs the Nitro close hook on production Node hosts", () => {
     vi.stubEnv("NODE_ENV", "production");
     const closeHooks: Array<() => void | Promise<void>> = [];
@@ -69,8 +83,34 @@ describe("background job shutdown", () => {
     expect(closeHooks).toHaveLength(1);
   });
 
-  it("awaits registered stoppers before pausing the database on Nitro close", async () => {
+  it("stops jobs but leaves the database open when a production server closes", async () => {
     vi.stubEnv("NODE_ENV", "production");
+    const stop = vi.fn();
+    registerBackgroundJobStop(stop);
+    const shutdown = vi
+      .spyOn(dbClient, "beginPgliteClientShutdown")
+      .mockImplementation(() => {});
+    const closeDb = vi
+      .spyOn(dbClient, "closeDbExec")
+      .mockResolvedValue(undefined);
+
+    const closeHooks: Array<() => void | Promise<void>> = [];
+    installDevDatabaseCloseHook({
+      hooks: {
+        hook(name: string, handler: () => void | Promise<void>) {
+          if (name === "close") closeHooks.push(handler);
+        },
+      },
+    });
+    await closeHooks[0]!();
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(shutdown).not.toHaveBeenCalled();
+    expect(closeDb).not.toHaveBeenCalled();
+  });
+
+  it("awaits registered stoppers before pausing the database on Nitro close", async () => {
+    vi.stubEnv("NODE_ENV", "development");
     const order: string[] = [];
     let releaseStop!: () => void;
     const stopGate = new Promise<void>((resolve) => {

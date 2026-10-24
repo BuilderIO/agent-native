@@ -70,6 +70,8 @@ export function installDevDatabaseCloseHook(nitroApp: any): void {
   // nothing restarts jobs on resume.
   nitroApp.hooks.hook("close", async () => {
     await stopBackgroundJobs();
-    await closeDevDatabase();
+    // Only the dev server owns its database. In production, detached work
+    // such as a sandbox run can still be saving its result while Nitro closes.
+    if (process.env.NODE_ENV === "development") await closeDevDatabase();
   });
 }

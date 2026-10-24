@@ -287,10 +287,9 @@ function createNitroApp(options?: { withCloseHook?: boolean }) {
         registered.push(callback);
         callbacks.set(name, registered);
       },
+      // Nitro's hooks run one after another in the order they were added.
       async callHook(name: string) {
-        await Promise.all(
-          (callbacks.get(name) ?? []).map((callback) => callback()),
-        );
+        for (const callback of callbacks.get(name) ?? []) await callback();
       },
     },
   };
@@ -510,7 +509,7 @@ describe("integrations plugin routes", () => {
     resumePgliteClientAccess();
   });
 
-  it("stops the Google Docs poller when Nitro closes", async () => {
+  it("stops the Google Docs poller when Nitro closes but keeps the shared watch", async () => {
     const { resumePgliteClientAccess } = await import("../db/client.js");
     const nitroApp = createNitroApp({ withCloseHook: true });
 
@@ -519,7 +518,9 @@ describe("integrations plugin routes", () => {
     })(nitroApp);
     await nitroApp.hooks.callHook("close");
 
-    expect(stopGoogleDocsPollerMock).toHaveBeenCalled();
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledWith({
+      shuttingDown: true,
+    });
     resumePgliteClientAccess();
   });
 
@@ -552,6 +553,23 @@ describe("integrations plugin routes", () => {
     release();
     await closing;
     expect(order).toEqual(["stop-start", "stop-done", "closed"]);
+    resumePgliteClientAccess();
+  });
+
+  it("stops the Google Docs poller only once when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const { stopBackgroundJobs } = await import("../server/background-jobs.js");
+    // Earlier tests leave their plugins' stops in the shared registry.
+    await stopBackgroundJobs();
+    stopGoogleDocsPollerMock.mockClear();
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledOnce();
     resumePgliteClientAccess();
   });
 

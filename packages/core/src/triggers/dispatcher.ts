@@ -338,6 +338,7 @@ export async function initTriggerDispatcher(
 ): Promise<void> {
   _deps = deps;
   resetTriggerQueueWorkerBackoff();
+  _triggerQueueStopping = false;
   // Init runs in an un-awaited Nitro plugin, so on a serverless request
   // function any query here outlives the response and the frozen instance
   // thaws into a timeout. Automations load on the first emitted event instead.
@@ -358,7 +359,6 @@ function startTriggerQueueWorker(): void {
   if (_triggerQueueWorkerStarted || isProductionServerlessFunctionRuntime()) {
     return;
   }
-  _triggerQueueStopping = false;
   _triggerQueueWorkerStarted = true;
   _triggerQueueWorker = startIntervalJob(
     async (signal) => {
@@ -378,17 +378,15 @@ function startTriggerQueueWorker(): void {
 }
 
 export async function stopTriggerQueueWorker(): Promise<void> {
+  // Stays set until initTriggerDispatcher runs again: other jobs may still be
+  // stopping, and an event that lands meanwhile must not start a new drain.
   _triggerQueueStopping = true;
   const worker = _triggerQueueWorker;
   _triggerQueueWorker = null;
   _triggerQueueWorkerStarted = false;
-  try {
-    if (worker) await worker.stop();
-    const drains = [..._drainingTriggers.values()];
-    if (drains.length > 0) await Promise.allSettled(drains);
-  } finally {
-    _triggerQueueStopping = false;
-  }
+  if (worker) await worker.stop();
+  const drains = [..._drainingTriggers.values()];
+  if (drains.length > 0) await Promise.allSettled(drains);
 }
 
 async function drainReadyTriggerQueue(
