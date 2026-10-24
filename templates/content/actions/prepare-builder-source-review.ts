@@ -948,6 +948,16 @@ export default defineAction({
             reviewPreparePriority(b, snapshot),
         )
         .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
+      // Publishing or unpublishing an entry needs edit access to its page, so
+      // one the caller can only view refuses the review before any approval.
+      for (const changeSet of reviewableChanges) {
+        const transition =
+          args.transitions?.[changeSet.id]?.publicationTransition ??
+          args.publicationTransition;
+        if (transition && changeSet.documentId) {
+          await assertAccess("document", changeSet.documentId, "editor");
+        }
+      }
       const authoritativeSnapshot = await withAuthoritativeBuilderTargetRows({
         source: snapshot,
         changeSets: reviewableChanges,
