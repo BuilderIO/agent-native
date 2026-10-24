@@ -3,6 +3,7 @@ import {
   RecentEditHighlights,
   LiveCursorOverlay,
 } from "@agent-native/toolkit/collab-ui";
+import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
 
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { prettyScreenName } from "@/lib/screen-names";
@@ -28,6 +29,10 @@ import type { EditorScreenInspector } from "../domains/use-editor-screen-inspect
 import type { EditorScreenRendering } from "../domains/use-editor-screen-rendering";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
+import {
+  getPrototypeDestinationFrameId,
+  runPrototypeNavigationTransition,
+} from "../prototype-navigation-transition";
 import type { DesignData } from "../types";
 
 export function renderSingleScreenCanvas({
@@ -107,7 +112,6 @@ export function renderSingleScreenCanvas({
   const {
     pendingVisualStyleEdits,
     activeBreakpointWidthState,
-    shaderFillPreview,
     explicitOverviewScreenSelectionRef,
     setSelectedLayerIdsState,
   } = editorHistory;
@@ -165,6 +169,8 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     motionSelectedTarget,
     motionOriginEditing,
     motionDefaultEase,
@@ -434,13 +440,13 @@ export function renderSingleScreenCanvas({
         previewHeightPx={
           responsiveInteractActive ? interactDeviceSize.height : undefined
         }
-        shaderFillPreview={shaderFillPreview}
         onComponentSourceJump={handleComponentSourceJump}
         motionTracks={motionTracksWire}
         motionDefaultEase={motionDefaultEase}
         motionDurationMs={motionDurationMs}
         motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
-        motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+        motionPathTargetNodeId={motionPathTargetNodeId}
+        motionPathTrackId={motionPathTrackId}
         motionOriginEditingEnabled={
           motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
         }
@@ -549,7 +555,12 @@ export function renderSingleScreenCanvas({
         }
         nodeRewriteCanvasTarget
         onRepromptDraftConsumed={handleRepromptDraftConsumed}
-        onPrototypeNavigate={(screen) => {
+        onPrototypeNavigate={(
+          screen,
+          _href,
+          transition: MotionPrototypeTransitionDecodeResult,
+          sourceFrame: HTMLIFrameElement,
+        ) => {
           if (!screen) return;
           const norm = (s: string) =>
             s
@@ -560,14 +571,30 @@ export function renderSingleScreenCanvas({
           if (!target) return;
           const match = files.find((f) => norm(f.filename) === target);
           if (match) {
-            if (mode === "interact") {
-              handleModeChange("interact", {
-                targetFileId: match.id,
-                keepInteractDevice: true,
-              });
-            } else {
-              handleSidebarScreenSelect(match.id);
-            }
+            runPrototypeNavigationTransition(
+              transition.status === "valid" ? transition.transition : undefined,
+              () => {
+                if (mode === "interact") {
+                  handleModeChange("interact", {
+                    targetFileId: match.id,
+                    keepInteractDevice: true,
+                    fromPrototypeNavigation: true,
+                  });
+                } else {
+                  handleSidebarScreenSelect(match.id, {
+                    fromPrototypeNavigation: true,
+                  });
+                }
+              },
+              undefined,
+              {
+                sourceFrame,
+                destinationFrameId: getPrototypeDestinationFrameId(
+                  match.id,
+                  sourceFrame,
+                ),
+              },
+            );
           }
         }}
       />

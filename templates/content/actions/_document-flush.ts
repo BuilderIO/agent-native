@@ -1,576 +1,650 @@
 import { randomUUID } from "node:crypto";
 
-import { ActionContractError } from "@agent-native/core/action";
+import { ActionContractError } from "@agent-native/core";
 import {
   appStateCompareAndSet,
   appStateGet,
+  appStateGetManyEntries,
 } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
-  hasCollabState,
   loadAwarenessRowsStrict,
 } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
+import { parseDocumentRevisionToken } from "../server/lib/document-revision.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import {
-  isLiveBodyWriterPage,
-  liveBodyWriterPageIds,
-} from "../server/lib/live-body-writer.js";
+  DOCUMENT_FLUSH_PROTOCOL,
+  flushAckKey,
+  matchingFlushAck,
+  type DocumentFlushAck,
+  type DocumentFlushRequest,
+  type FlushEditorIdentity,
+} from "../shared/document-flush-protocol.js";
+import { claimedEditorSave } from "../shared/editor-save-state.js";
+import {
+  createDocumentFlushCapture,
+  editorSaveIsInSql,
+  type DocumentFlushSnapshot,
+} from "./_document-save-row.js";
 
 const FLUSH_POLL_INTERVAL_MS = 200;
-const FLUSH_TIMEOUT_MS = 4000;
-const TITLE_FLUSH_PLAN_CONCURRENCY = 10;
+// The required-editor budget covers acquisition and both handshake phases.
+const FLUSH_TIMEOUT_MS = 20_000;
+const BEST_EFFORT_FLUSH_TIMEOUT_MS = 4_000;
 
-// A wait that ends at the deadline rather than a poll interval past it.
-function pollWait(deadline: number) {
-  return new Promise((resolve) =>
-    setTimeout(
-      resolve,
-      Math.max(0, Math.min(FLUSH_POLL_INTERVAL_MS, deadline - Date.now())),
-    ),
+function expiredMailbox(value: Record<string, unknown> | null): boolean {
+  return (
+    !!value &&
+    ((typeof value.expiresAt === "number" && value.expiresAt <= Date.now()) ||
+      (value.expiresAt === undefined &&
+        (value.status === "success" || value.status === "error") &&
+        typeof value.ts === "number" &&
+        Date.now() - value.ts >= FLUSH_TIMEOUT_MS))
   );
 }
 
-/**
- * What a switched page's open editors answered when asked to save its title.
- * `unconfirmed` names pages with an open editor too old to be asked: callers
- * go ahead on it and pass it on, never as `flushed`.
- */
-export type OpenEditorTitleFlush =
-  | { status: "flushed" }
+export type OpenEditorFlushOutcome =
+  | (FlushEditorIdentity & {
+      flush: "answered";
+      prepareToken: string;
+      verifyToken: string;
+    })
+  | { clientId: number; flush: "unconfirmed"; reason: "legacy_editor" };
+export type OpenEditorFlushResult =
   | { status: "no_open_editor" }
-  | { status: "unconfirmed"; reason: "legacy_editor"; documentIds: string[] }
+  | { status: "live_copy" }
   | {
-      status: "failed";
-      reason:
-        | "timeout"
-        | "editor_error"
-        | "request_not_delivered"
-        | "request_not_received"
-        | "acknowledgement_unreadable";
-      documentId: string;
-      code?: string;
-      error?: string;
+      status: "flushed";
+      editors: OpenEditorFlushOutcome[];
+      snapshot?: DocumentFlushSnapshot;
     };
-
-type OpenEditorTitleFlushFailure = Extract<
-  OpenEditorTitleFlush,
-  { status: "failed" }
->;
-
-export type OpenEditorTitleFlushProceed = Exclude<
-  OpenEditorTitleFlush,
-  { status: "failed" }
->;
-
-function parseAwarenessState(state: string): {
-  canFlushDocument?: unknown;
-  canFlushTitle?: unknown;
-  visible?: boolean;
-  user?: { email?: unknown };
-} | null {
-  try {
-    return JSON.parse(state) as {
-      canFlushDocument?: unknown;
-      canFlushTitle?: unknown;
-      visible?: boolean;
-      user?: { email?: unknown };
-    };
-  } catch {
-    return null;
-  }
-}
-
-function awarenessSessionEmail(email: unknown): string | null {
-  return typeof email === "string" && email.trim() ? email.trim() : null;
-}
-
-function awarenessFlushCandidate(entry: {
+type Candidate = {
   clientId: number;
-  state: string;
-}): { sessionEmail: string | null; required: boolean } | null {
-  if (entry.clientId === AGENT_CLIENT_ID) return null;
-  const state = parseAwarenessState(entry.state);
-  if (!state || state.visible === false || !state.user) return null;
-  if (state.canFlushDocument !== true && state.canFlushDocument !== undefined) {
-    return null;
-  }
-  return {
-    sessionEmail: awarenessSessionEmail(state.user.email),
-    required: state.canFlushDocument === true,
-  };
-}
-
-function awarenessTitleFlushCandidate(entry: {
-  clientId: number;
-  state: string;
-}): { sessionEmail: string | null; canFlushTitle: boolean } | null {
-  if (entry.clientId === AGENT_CLIENT_ID) return null;
-  const state = parseAwarenessState(entry.state);
-  if (!state || state.visible === false) return null;
-  // A tab that advertises the title flush is an editor with or without a
-  // user to ask; main's flush skips any other row without one.
-  if (!state.user && state.canFlushTitle !== true) return null;
-  // An editor that can't edit advertises both as false; one too old to know
-  // the title flush leaves canFlushTitle out.
-  if (state.canFlushTitle === false) return null;
-  if (
-    state.canFlushTitle !== true &&
-    state.canFlushDocument !== true &&
-    state.canFlushDocument !== undefined
-  ) {
-    return null;
-  }
-  return {
-    sessionEmail: awarenessSessionEmail(state.user?.email),
-    canFlushTitle: state.canFlushTitle === true,
-  };
-}
-
-/** Writes a flush request into a session's mailbox; false if it stays occupied until the deadline. */
-async function deliverFlushRequest(
-  session: string,
-  flushKey: string,
-  flushValue: Record<string, unknown>,
-  deadline: number,
-): Promise<boolean> {
-  while (Date.now() < deadline) {
-    if (
-      await appStateCompareAndSet(session, flushKey, null, flushValue, {
-        requestSource: "agent",
-      })
-    ) {
-      return true;
-    }
-    const occupied = await appStateGet(session, flushKey);
-    // A title request's server stops waiting within FLUSH_TIMEOUT_MS of its
-    // ts, so an older one, pending or taken, is one whose cleanup failed. A
-    // whole flush can wait up to twice that, so its pending request stays.
-    if (
-      occupied &&
-      (occupied.status === "success" ||
-        occupied.status === "error" ||
-        (occupied.scope === "title" &&
-          (occupied.status === "pending" || occupied.status === "taken"))) &&
-      typeof occupied.ts === "number" &&
-      Date.now() - occupied.ts >= FLUSH_TIMEOUT_MS
-    ) {
-      await appStateCompareAndSet(session, flushKey, occupied, null, {
-        requestSource: "agent",
-      });
-    }
-    await pollWait(deadline);
-  }
-  return false;
-}
-
-async function clearFlushRequests(
-  sessions: readonly string[],
-  flushKey: string,
-  requestId: string,
-) {
-  await Promise.all(
-    sessions.map(async (session) => {
-      try {
-        const current = await appStateGet(session, flushKey);
-        if (current?.requestId === requestId) {
-          await appStateCompareAndSet(session, flushKey, current, null, {
-            requestSource: "agent",
-          });
-        }
-      } catch (error) {
-        console.warn("Failed to clean up a document flush mailbox value", {
-          error,
-          flushKey,
-          requestId,
-          sessionEmail: session,
-        });
-      }
-    }),
-  );
-}
-
-type TitleFlushPlan = {
-  documentId: string;
-  sessions: string[];
-  legacyEditor: boolean;
-  unaddressedEditor: boolean;
+  required: boolean;
+  email: string | null;
+  editorSessionId: string | null;
+  protocol: unknown;
 };
 
-async function planTitleFlush(
-  documentId: string,
-): Promise<TitleFlushPlan | null> {
-  const candidates = (await loadAwarenessRowsStrict(documentId))
-    .map(awarenessTitleFlushCandidate)
-    .filter((candidate): candidate is NonNullable<typeof candidate> => {
-      return candidate !== null;
-    });
-  if (candidates.length === 0) return null;
-  // The mailbox holds one request per session, so a session with any tab
-  // too old for the title flush gets none: that tab would run a whole save.
-  const legacySessions = new Set<string>();
-  let legacyEditor = false;
-  for (const candidate of candidates) {
-    if (candidate.canFlushTitle) continue;
-    legacyEditor = true;
-    if (candidate.sessionEmail) legacySessions.add(candidate.sessionEmail);
-  }
-  const sessions = new Set<string>();
-  let unaddressedEditor = false;
-  for (const candidate of candidates) {
-    if (!candidate.canFlushTitle) continue;
-    if (!candidate.sessionEmail) unaddressedEditor = true;
-    else if (!legacySessions.has(candidate.sessionEmail)) {
-      sessions.add(candidate.sessionEmail);
-    }
-  }
-  return {
-    documentId,
-    sessions: [...sessions],
-    legacyEditor,
-    unaddressedEditor,
-  };
-}
-
-async function requestTitleSave(
-  plan: TitleFlushPlan,
-  deadline: number,
-): Promise<OpenEditorTitleFlushFailure | null> {
-  const { documentId } = plan;
-  if (plan.unaddressedEditor) {
-    return { status: "failed", reason: "request_not_delivered", documentId };
-  }
-  if (Date.now() >= deadline) {
-    return { status: "failed", reason: "timeout", documentId };
-  }
-  const flushKey = `flush-request-${documentId}`;
-  const requestId = randomUUID();
-  const flushValue = {
-    id: documentId,
-    ts: Date.now(),
-    requestId,
-    scope: "title",
-    status: "pending",
-  };
+function candidate(entry: {
+  clientId: number;
+  state: string;
+}): Candidate | null {
+  if (entry.clientId === AGENT_CLIENT_ID) return null;
+  let parsed: unknown;
   try {
-    const delivered = await Promise.allSettled(
-      plan.sessions.map((session) =>
-        deliverFlushRequest(session, flushKey, flushValue, deadline),
-      ),
-    );
-    for (const delivery of delivered) {
-      if (delivery.status === "rejected") {
-        console.error("Failed to ask an open editor to save a page title", {
-          error: delivery.reason,
-          documentId,
-          requestId,
-        });
-      }
-    }
-    if (
-      delivered.some(
-        (delivery) => delivery.status === "rejected" || !delivery.value,
-      )
-    ) {
-      return { status: "failed", reason: "request_not_delivered", documentId };
-    }
-    // A mailbox read that fails counts as no answer yet, as on main's whole
-    // flush; the outcome says so if its session never answers.
-    let unreadable: { error: unknown } | null = null;
-    let notReceived = false;
-    while (Date.now() < deadline) {
-      await pollWait(deadline);
-      const reads = await Promise.allSettled(
-        plan.sessions.map((session) => appStateGet(session, flushKey)),
-      );
-      unreadable = null;
-      notReceived = false;
-      let saved = 0;
-      for (const read of reads) {
-        if (read.status === "rejected") {
-          unreadable = { error: read.reason };
-          continue;
-        }
-        const response = read.value;
-        if (response?.requestId !== requestId) continue;
-        if (response.status === "error") {
-          return {
-            status: "failed",
-            reason: "editor_error",
-            documentId,
-            ...(typeof response.code === "string"
-              ? { code: response.code }
-              : {}),
-            ...(typeof response.error === "string" && response.error.trim()
-              ? { error: response.error }
-              : {}),
-          };
-        }
-        if (response.status === "success") saved += 1;
-        else if (response.status === "pending") notReceived = true;
-      }
-      if (saved === plan.sessions.length) return null;
-    }
-    if (unreadable) {
-      console.error(
-        "Failed to read an open editor's answer about a page title",
-        {
-          error: unreadable.error,
-          documentId,
-          requestId,
-        },
-      );
-      return {
-        status: "failed",
-        reason: "acknowledgement_unreadable",
-        documentId,
-      };
-    }
-    // An editor marks the request taken before it saves, so one still pending
-    // never reached its editor; one taken and left unanswered is a timeout.
-    if (notReceived) {
-      return { status: "failed", reason: "request_not_received", documentId };
-    }
-    return { status: "failed", reason: "timeout", documentId };
-  } finally {
-    // A delivery that threw may still have written the request; this clears
-    // only this request's.
-    await clearFlushRequests(plan.sessions, flushKey, requestId);
+    parsed = JSON.parse(entry.state);
+  } catch {
+    console.warn("Skipping malformed document editor awareness", {
+      clientId: entry.clientId,
+    });
+    return null;
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return null;
+  const state = parsed as Record<string, unknown>;
+  const user =
+    state.user && typeof state.user === "object"
+      ? (state.user as { email?: unknown })
+      : null;
+  const email = user?.email;
+  if (state.canFlushDocument === false) return null;
+  const required = state.canFlushDocument === true;
+  // A known writer stays in the cohort even when hidden; legacy presence is best effort.
+  if (!required && (state.visible === false || !state.user)) return null;
+  return {
+    clientId: entry.clientId,
+    required,
+    email: typeof email === "string" && email.trim() ? email.trim() : null,
+    editorSessionId:
+      typeof state.editorSessionId === "string" && state.editorSessionId
+        ? state.editorSessionId
+        : null,
+    protocol: state.documentFlushProtocol,
+  };
 }
-
-async function saveLiveBodyPageTitles(
-  documentIds: readonly string[],
-): Promise<OpenEditorTitleFlush> {
-  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-  const plans: TitleFlushPlan[] = [];
-  for (
-    let offset = 0;
-    offset < documentIds.length;
-    offset += TITLE_FLUSH_PLAN_CONCURRENCY
-  ) {
-    // A page whose editors weren't read in time may have one open.
-    if (Date.now() >= deadline) {
-      return {
-        status: "failed",
-        reason: "timeout",
-        documentId: documentIds[offset]!,
-      };
-    }
-    const group = documentIds.slice(
-      offset,
-      offset + TITLE_FLUSH_PLAN_CONCURRENCY,
-    );
-    for (const plan of await Promise.all(group.map(planTitleFlush))) {
-      if (plan) plans.push(plan);
-    }
-  }
-  if (plans.length === 0) return { status: "no_open_editor" };
-  const asked = await Promise.allSettled(
-    plans
-      .filter((plan) => plan.sessions.length > 0 || plan.unaddressedEditor)
-      .map((plan) => requestTitleSave(plan, deadline)),
-  );
-  const failures = asked.map((result) => {
-    if (result.status === "rejected") throw result.reason;
-    return result.value;
-  });
-  const failure = failures.find((result) => result !== null);
-  if (failure) return failure;
-  const unconfirmed = plans
-    .filter((plan) => plan.legacyEditor)
-    .map((plan) => plan.documentId);
-  if (unconfirmed.length > 0) {
-    return {
-      status: "unconfirmed",
-      reason: "legacy_editor",
-      documentIds: unconfirmed,
-    };
-  }
-  return { status: "flushed" };
-}
-
-/**
- * Asks the open editors of the pages that take body writes through their
- * live copy to save their titles, under one deadline. Their bodies need no
- * save: each tab's commit already wrote it. Undefined when none of the pages
- * does, so the caller stays on main's path.
- */
-export async function saveOpenEditorTitles(
-  documentIds: readonly string[],
-): Promise<OpenEditorTitleFlush | undefined> {
-  const liveBodyIds = await liveBodyWriterPageIds(documentIds);
-  if (liveBodyIds.size === 0) return undefined;
-  return saveLiveBodyPageTitles(
-    documentIds.filter((id) => liveBodyIds.has(id)),
-  );
-}
-
-function openEditorTitleNotSavedMessage(flush: OpenEditorTitleFlushFailure) {
-  switch (flush.reason) {
-    case "timeout":
-      return `An open editor didn't confirm in time that it saved the title of page ${flush.documentId}.`;
-    case "editor_error":
-      return `An open editor couldn't save the title of page ${flush.documentId}${flush.error ? `: ${flush.error}` : "."}`;
-    case "request_not_delivered":
-      return `Couldn't ask the open editor of page ${flush.documentId} to save its title.`;
-    case "request_not_received":
-      return `An open editor of page ${flush.documentId} never picked up the request to save its title.`;
-    case "acknowledgement_unreadable":
-      return `Couldn't read whether the open editor of page ${flush.documentId} saved its title.`;
-  }
-}
-
-/** Refuses on a title an open editor didn't confirm it saved; nothing has been written yet, so the caller can retry. */
-export function assertOpenEditorTitlesSaved(
-  flush: OpenEditorTitleFlush,
-): OpenEditorTitleFlushProceed {
-  if (flush.status !== "failed") return flush;
-  throw new ActionContractError(
-    `${openEditorTitleNotSavedMessage(flush)} Nothing changed; try again.`,
-    {
-      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-      statusCode: 409,
-      details: {
-        documentId: flush.documentId,
-        reason: flush.reason,
-        ...(flush.code ? { code: flush.code } : {}),
-        ...(flush.error ? { error: flush.error } : {}),
-        retryable: true,
-      },
-    },
-  );
+function failure(
+  errorCode: string,
+  message: string,
+  details: Record<string, unknown> = {},
+) {
+  return new ActionContractError(message, { errorCode, details });
 }
 
 export async function flushOpenDocumentEditorToSql(args: {
   documentId: string;
   ownerEmail?: string | null;
   propertyId?: string;
-}): Promise<OpenEditorTitleFlushProceed | undefined> {
-  if (!(await hasCollabState(args.documentId))) return;
-  // A switched page's body is its live copy, which each tab's commit already
-  // wrote, so its editors save only the title: a whole save would wait on the
-  // body's collab acknowledgment. A Blocks field outside the body still needs
-  // its save.
-  if (!args.propertyId && (await isLiveBodyWriterPage(args.documentId))) {
-    return assertOpenEditorTitlesSaved(
-      await saveLiveBodyPageTitles([args.documentId]),
+}): Promise<OpenEditorFlushResult> {
+  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+  let phase = "discovery";
+  let waitingEditors: FlushEditorIdentity[] = [];
+  let lastEditorError: { clientId: number; errorCode: string } | undefined;
+  const timeout = () =>
+    failure(
+      "open_editor_flush_timeout",
+      "The open document editor did not finish saving before sync timed out.",
+      { documentId: args.documentId, phase, waitingEditors, lastEditorError },
     );
+  async function bounded<T>(promise: Promise<T>): Promise<T> {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw timeout();
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(timeout()), remaining);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer!);
+    }
   }
-
-  const awarenessRows = await loadAwarenessRowsStrict(args.documentId);
-  const flushCandidates = awarenessRows
-    .map(awarenessFlushCandidate)
-    .filter((candidate): candidate is NonNullable<typeof candidate> => {
-      return candidate !== null;
-    });
-  if (args.propertyId && flushCandidates.length > 0) {
-    const exactCandidate = flushCandidates[0];
+  async function finishCleanup(cleanup: Promise<unknown>, requestId: string) {
+    const settled = cleanup.catch((error) =>
+      console.warn("Document flush cleanup failed", { requestId, error }),
+    );
+    if (Date.now() < deadline) {
+      try {
+        await bounded(settled);
+      } catch (error) {
+        console.warn("Document flush cleanup exceeded its deadline", {
+          requestId,
+          error,
+        });
+      }
+    }
+  }
+  const pause = () =>
+    bounded(
+      new Promise<void>((resolve) =>
+        setTimeout(
+          resolve,
+          Math.min(FLUSH_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())),
+        ),
+      ),
+    );
+  try {
+    const candidates = (await bounded(loadAwarenessRowsStrict(args.documentId)))
+      .map(candidate)
+      .filter((value): value is Candidate => value !== null);
     if (
-      flushCandidates.length !== 1 ||
-      exactCandidate?.required !== true ||
-      !exactCandidate.sessionEmail
+      args.propertyId &&
+      candidates.length > 0 &&
+      (candidates.length !== 1 ||
+        !candidates[0]!.required ||
+        !candidates[0]!.email)
     ) {
-      throw new Error(
+      throw failure(
+        "open_editor_field_ambiguous",
         "An exact fresh Blocks field value cannot be established while multiple or legacy editors are open.",
+        { documentId: args.documentId, propertyId: args.propertyId },
       );
     }
-  }
-  if (flushCandidates.length === 0) return;
-  const acknowledgementRequired = flushCandidates.some(
-    (candidate) => candidate.required,
-  );
-  const activeSessionEmails = flushCandidates
-    .map((candidate) => candidate.sessionEmail)
-    .filter((email): email is string => !!email);
-
-  const flushKey = `flush-request-${args.documentId}`;
-  const callerEmail = getRequestUserEmail() || undefined;
-  const targetSessions = Array.from(
-    new Set(
-      (args.propertyId
-        ? activeSessionEmails
-        : [...activeSessionEmails, args.ownerEmail ?? undefined, callerEmail]
-      ).filter((s): s is string => typeof s === "string" && s.length > 0),
-    ),
-  );
-  if (targetSessions.length === 0) {
-    if (!acknowledgementRequired) return;
-    throw new Error("Could not identify the open document editor to flush.");
-  }
-
-  const requestId = randomUUID();
-  const flushValue = {
-    id: args.documentId,
-    ts: Date.now(),
-    requestId,
-    ...(args.propertyId ? { propertyId: args.propertyId } : {}),
-    status: "pending",
-  };
-  const writes = await Promise.allSettled(
-    targetSessions.map(async (session) => {
-      if (
-        await deliverFlushRequest(
-          session,
-          flushKey,
-          flushValue,
-          Date.now() + FLUSH_TIMEOUT_MS,
-        )
-      ) {
-        return;
-      }
-      throw new Error("Timed out waiting to request an open-editor flush.");
-    }),
-  );
-  const writtenSessions = targetSessions.filter(
-    (_session, index) => writes[index]?.status === "fulfilled",
-  );
-  if (writtenSessions.length === 0) {
-    if (!acknowledgementRequired) return;
-    throw new Error("Could not ask the open document editor to save.");
-  }
-
-  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-  let flushError: string | null = null;
-  let acknowledged = false;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, FLUSH_POLL_INTERVAL_MS));
-    const reads = await Promise.allSettled(
-      writtenSessions.map((session) => appStateGet(session, flushKey)),
-    );
-    const responses = reads.flatMap((result) =>
-      result.status === "fulfilled" && result.value ? [result.value] : [],
-    );
-    const failed = responses.find(
-      (
-        value,
-      ): value is {
-        requestId: string;
-        status: "error";
-        error?: string;
-      } => value.requestId === requestId && value.status === "error",
-    );
-    if (failed) {
-      flushError =
-        typeof failed.error === "string" && failed.error.trim()
-          ? failed.error
-          : "The live document could not be saved before syncing.";
-      break;
+    const required = candidates.filter((value) => value.required);
+    if (candidates.length === 0) return { status: "no_open_editor" };
+    // A switched page's body is its live copy, and each tab's commit to it
+    // already wrote SQL, so its editors never answer a body save: asking
+    // would wait out the deadline. Read only with an editor open, so a flush
+    // with none reads nothing beyond main's. A Blocks field outside the body
+    // still needs its save.
+    if (
+      !args.propertyId &&
+      (await bounded(isLiveBodyWriterPage(args.documentId)))
+    ) {
+      return { status: "live_copy" };
     }
-    acknowledged = responses.some(
-      (value) => value.requestId === requestId && value.status === "success",
+    if (required.length === 0) {
+      const sessions = [
+        ...new Set(
+          [
+            ...candidates.map((editor) => editor.email),
+            args.ownerEmail,
+            getRequestUserEmail(),
+          ].filter(
+            (email): email is string => typeof email === "string" && !!email,
+          ),
+        ),
+      ];
+      const mailbox = `flush-request-${args.documentId}`;
+      const request = {
+        id: args.documentId,
+        requestId: randomUUID(),
+        ts: Date.now(),
+        status: "pending",
+      };
+      const written = new Set<string>();
+      try {
+        const acquireUntil = Date.now() + BEST_EFFORT_FLUSH_TIMEOUT_MS;
+        await Promise.allSettled(
+          sessions.map(async (email) => {
+            while (Date.now() < acquireUntil) {
+              const occupied = await bounded(appStateGet(email, mailbox));
+              if (!occupied || expiredMailbox(occupied)) {
+                const operation = appStateCompareAndSet(
+                  email,
+                  mailbox,
+                  occupied,
+                  request,
+                  { requestSource: "agent" },
+                );
+                void operation
+                  .then((changed) => {
+                    if (changed && Date.now() >= deadline)
+                      return appStateCompareAndSet(
+                        email,
+                        mailbox,
+                        request,
+                        null,
+                        { requestSource: "agent" },
+                      );
+                  })
+                  .catch((error) =>
+                    console.warn(
+                      "Document flush late acquisition cleanup failed",
+                      { requestId: request.requestId, error },
+                    ),
+                  );
+                if (await bounded(operation)) {
+                  written.add(email);
+                  return;
+                }
+              }
+              await pause();
+            }
+          }),
+        );
+        const answerUntil = Date.now() + BEST_EFFORT_FLUSH_TIMEOUT_MS;
+        while (written.size > 0 && Date.now() < answerUntil) {
+          await pause();
+          const answers = await bounded(
+            Promise.allSettled(
+              [...written].map((email) => appStateGet(email, mailbox)),
+            ),
+          );
+          const ownAnswers = answers
+            .flatMap((answer) =>
+              answer.status === "fulfilled" ? [answer.value] : [],
+            )
+            .filter((value) => value?.requestId === request.requestId);
+          const failed = ownAnswers.find((value) => value?.status === "error");
+          if (failed)
+            throw failure(
+              "open_editor_flush_failed",
+              "The legacy document editor could not save before syncing.",
+              { documentId: args.documentId },
+            );
+          if (ownAnswers.some((value) => value?.status === "success")) break;
+        }
+      } finally {
+        await finishCleanup(
+          Promise.all(
+            [...written].map(async (email) => {
+              const value = await appStateGet(email, mailbox);
+              if (value?.requestId === request.requestId)
+                await appStateCompareAndSet(email, mailbox, value, null, {
+                  requestSource: "agent",
+                });
+            }),
+          ),
+          request.requestId,
+        );
+      }
+      return {
+        status: "flushed",
+        editors: candidates.map(({ clientId }) => ({
+          clientId,
+          flush: "unconfirmed",
+          reason: "legacy_editor",
+        })),
+      };
+    }
+    for (const editor of required) {
+      if (!editor.email || !editor.editorSessionId)
+        throw failure(
+          "open_editor_unidentified",
+          "Could not identify the open document editor to flush.",
+          { clientId: editor.clientId },
+        );
+      if (editor.protocol !== DOCUMENT_FLUSH_PROTOCOL)
+        throw failure(
+          "open_editor_unsupported",
+          "The open document editor does not support fresh save confirmation.",
+          { clientId: editor.clientId },
+        );
+    }
+    const sessions = [
+      ...new Set(required.map((editor) => editor.email!)),
+    ].sort();
+    waitingEditors = required.map((editor) => ({
+      clientId: editor.clientId,
+      editorSessionId: editor.editorSessionId!,
+    }));
+    const targetsFor = (email: string) =>
+      required
+        .filter((editor) => editor.email === email)
+        .map((editor) => ({
+          clientId: editor.clientId,
+          editorSessionId: editor.editorSessionId!,
+        }));
+    const requestId = randomUUID();
+    const mailbox = `flush-request-${args.documentId}`;
+    const owned = new Map<string, DocumentFlushRequest>();
+    const leaves = new Map<string, Set<string>>();
+    const capture = createDocumentFlushCapture();
+    const requests = (
+      phaseName: "prepare" | "verify",
+      phaseToken: string,
+      prepareToken: string,
+    ): Map<string, DocumentFlushRequest> =>
+      new Map(
+        sessions.map((email) => {
+          const request: DocumentFlushRequest = {
+            protocol: DOCUMENT_FLUSH_PROTOCOL,
+            id: args.documentId,
+            requestId,
+            phase: phaseName,
+            phaseToken,
+            prepareToken,
+            expiresAt: deadline,
+            targets: targetsFor(email),
+            ...(args.propertyId ? { propertyId: args.propertyId } : {}),
+          };
+          const known = leaves.get(email) ?? new Set<string>();
+          request.targets.forEach((target) =>
+            known.add(flushAckKey(request, target.clientId)),
+          );
+          leaves.set(email, known);
+          return [email, request];
+        }),
+      );
+    async function cas(
+      email: string,
+      expected: DocumentFlushRequest | Record<string, unknown> | null,
+      next: DocumentFlushRequest,
+    ) {
+      const operation = appStateCompareAndSet(email, mailbox, expected, next, {
+        requestSource: "agent",
+      });
+      // A database operation can finish after our deadline. It may only release its own value.
+      void operation
+        .then((changed) => {
+          if (changed && Date.now() >= deadline)
+            return appStateCompareAndSet(email, mailbox, next, null, {
+              requestSource: "agent",
+            });
+        })
+        .catch((error) =>
+          console.warn("Document flush late acquisition cleanup failed", {
+            requestId,
+            error,
+          }),
+        );
+      const changed = await bounded(operation);
+      if (changed) owned.set(email, next);
+      return changed;
+    }
+    async function publish(
+      next: Map<string, DocumentFlushRequest>,
+      acquire: boolean,
+    ) {
+      for (const email of sessions) {
+        const request = next.get(email)!;
+        if (!acquire) {
+          if (!(await cas(email, owned.get(email)!, request)))
+            throw failure(
+              "open_editor_flush_contention",
+              "The open editor flush request changed before confirmation.",
+            );
+          continue;
+        }
+        while (true) {
+          const occupied = await bounded(appStateGet(email, mailbox));
+          // Expiry permits mailbox acquisition, never save confirmation.
+          // Legacy terminal values use ts and the same twenty-second budget.
+          const expired = expiredMailbox(occupied);
+          if ((!occupied || expired) && (await cas(email, occupied, request)))
+            break;
+          await pause();
+        }
+      }
+    }
+    async function acknowledgments(
+      requestsByEmail: Map<string, DocumentFlushRequest>,
+    ): Promise<Map<number, DocumentFlushAck>> {
+      const answers = new Map<number, DocumentFlushAck>();
+      waitingEditors = required.map((editor) => ({
+        clientId: editor.clientId,
+        editorSessionId: editor.editorSessionId!,
+      }));
+      while (true) {
+        const reads = await bounded(
+          Promise.all(
+            sessions.map(async (email) => {
+              const request = requestsByEmail.get(email)!;
+              const keys = request.targets.map((target) =>
+                flushAckKey(request, target.clientId),
+              );
+              const known = leaves.get(email) ?? new Set<string>();
+              keys.forEach((key) => known.add(key));
+              leaves.set(email, known);
+              return {
+                email,
+                entries: await appStateGetManyEntries(email, keys),
+              };
+            }),
+          ),
+        );
+        let retry = false;
+        for (const { email, entries } of reads) {
+          const request = requestsByEmail.get(email)!;
+          for (const { key, value } of entries) {
+            if (value === null) continue;
+            const target = request.targets.find(
+              (target) => flushAckKey(request, target.clientId) === key,
+            );
+            if (
+              !target ||
+              !value ||
+              typeof value !== "object" ||
+              Array.isArray(value) ||
+              !matchingFlushAck(value, request, target)
+            )
+              throw failure(
+                "open_editor_flush_invalid_ack",
+                "The open editor returned an unrelated save confirmation.",
+                { key },
+              );
+            if (value.status === "error") {
+              if (typeof value.errorCode !== "string")
+                throw failure(
+                  "open_editor_flush_invalid_ack",
+                  "The open editor returned an unreadable save confirmation.",
+                  { clientId: target.clientId },
+                );
+              lastEditorError = {
+                clientId: target.clientId,
+                errorCode: value.errorCode,
+              };
+              answers.set(target.clientId, value as DocumentFlushAck);
+              retry = true;
+              continue;
+            }
+            if (value.status === "changed") {
+              answers.set(target.clientId, value as DocumentFlushAck);
+              retry = true;
+              continue;
+            }
+            const valid =
+              typeof value.stabilityToken === "string" &&
+              (request.phase === "prepare"
+                ? value.status === "prepared" &&
+                  validClaim(value.claim, args.propertyId)
+                : value.status === "verified");
+            if (!valid)
+              throw failure(
+                "open_editor_flush_invalid_ack",
+                "The open editor returned an unreadable save confirmation.",
+                { clientId: target.clientId },
+              );
+            answers.set(target.clientId, value as DocumentFlushAck);
+          }
+        }
+        waitingEditors = waitingEditors.filter(
+          (editor) => !answers.has(editor.clientId),
+        );
+        if (retry || answers.size === required.length) return answers;
+        await pause();
+      }
+    }
+    try {
+      let acquire = true;
+      while (true) {
+        if (!acquire) await pause();
+        if (Date.now() >= deadline) throw timeout();
+        phase = "prepare";
+        const prepareToken = randomUUID();
+        const prepare = requests("prepare", prepareToken, prepareToken);
+        await publish(prepare, acquire);
+        acquire = false;
+        const prepared = await acknowledgments(prepare);
+        if (
+          [...prepared.values()].some(
+            (ack) => ack.status === "changed" || ack.status === "error",
+          )
+        )
+          continue;
+        phase = "capture";
+        const snapshot = await bounded(
+          capture(args.documentId, args.propertyId),
+        );
+        if (!snapshot)
+          throw failure(
+            "open_editor_flush_missing_document",
+            "The document was removed before save confirmation.",
+          );
+        if (
+          ![...prepared.values()].every(
+            (ack) =>
+              ack.status === "prepared" &&
+              (ack.claim.kind === "property"
+                ? snapshot.kind === "property" &&
+                  snapshot.propertyId === ack.claim.propertyId &&
+                  snapshot.contentHash === ack.claim.contentHash
+                : snapshot.kind === "document" &&
+                  editorSaveIsInSql(
+                    snapshot,
+                    ack.claim.save,
+                    snapshot.contentHash,
+                  )),
+          )
+        )
+          continue;
+        // This token is created only after S exists. Every unchanged prepare-to-verify interval spans S.
+        phase = "verify";
+        const verifyToken = randomUUID();
+        const verify = requests("verify", verifyToken, prepareToken);
+        await publish(verify, false);
+        const verified = await acknowledgments(verify);
+        if (
+          ![...verified.values()].every(
+            (ack) =>
+              ack.status === "verified" &&
+              prepared.get(ack.clientId)?.status === "prepared" &&
+              ack.stabilityToken ===
+                (
+                  prepared.get(ack.clientId) as Extract<
+                    DocumentFlushAck,
+                    { status: "prepared" }
+                  >
+                ).stabilityToken,
+          )
+        )
+          continue;
+        if (Date.now() >= deadline) throw timeout();
+        return {
+          status: "flushed",
+          snapshot,
+          editors: candidates.map((editor) =>
+            editor.required
+              ? {
+                  clientId: editor.clientId,
+                  editorSessionId: editor.editorSessionId!,
+                  flush: "answered",
+                  prepareToken,
+                  verifyToken,
+                }
+              : {
+                  clientId: editor.clientId,
+                  flush: "unconfirmed",
+                  reason: "legacy_editor",
+                },
+          ),
+        };
+      }
+    } finally {
+      const cleanup = Promise.all(
+        sessions.map(async (email) => {
+          const own = owned.get(email);
+          if (own)
+            await appStateCompareAndSet(email, mailbox, own, null, {
+              requestSource: "agent",
+            });
+          const keys = [...(leaves.get(email) ?? [])];
+          for (const { key, value } of await appStateGetManyEntries(
+            email,
+            keys,
+          )) {
+            if (value?.requestId === requestId)
+              await appStateCompareAndSet(email, key, value, null, {
+                requestSource: "agent",
+              });
+          }
+        }),
+      );
+      // Cleanup cannot extend the confirmation deadline or delete a successor's nonce.
+      await finishCleanup(cleanup, requestId);
+    }
+  } catch (error) {
+    if (error instanceof ActionContractError) throw error;
+    throw failure(
+      "open_editor_flush_unreadable",
+      "The open editor save confirmation could not be read or written.",
+      {
+        documentId: args.documentId,
+        phase,
+        cause: error instanceof Error ? error.message : String(error),
+      },
     );
-    if (acknowledged) break;
   }
-
-  await clearFlushRequests(writtenSessions, flushKey, requestId);
-
-  if (flushError) {
-    throw new Error(flushError);
-  }
-  if (!acknowledged && acknowledgementRequired) {
-    throw new Error(
-      "The open document editor did not finish saving before sync timed out.",
+}
+function validClaim(value: unknown, propertyId?: string): boolean {
+  if (!value || typeof value !== "object") return false;
+  const claim = value as Record<string, unknown>;
+  if (propertyId)
+    return (
+      claim.kind === "property" &&
+      claim.propertyId === propertyId &&
+      typeof claim.contentHash === "string" &&
+      /^sha256:[a-f0-9]{64}$/.test(claim.contentHash)
     );
-  }
+  const save =
+    claim.save && typeof claim.save === "object"
+      ? (claim.save as Record<string, unknown>)
+      : null;
+  return (
+    claim.kind === "document" &&
+    !!save &&
+    typeof save.revision === "string" &&
+    parseDocumentRevisionToken(save.revision) !== null &&
+    claimedEditorSave({
+      unsavedEdits: false,
+      savedRevision: save.revision,
+      savedTitle: save.title,
+      savedTitleAt: save.titleUpdatedAt,
+    }) !== null
+  );
 }

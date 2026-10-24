@@ -58,6 +58,10 @@ import type {
 } from "./style-change-types";
 import { BLEND_MODE_OPTIONS, parseNumericValue } from "./style-options";
 
+function cssRadiusUnit(value: string | undefined): "px" | "%" {
+  return /^\s*-?(?:\d+\.?\d*|\.\d+)%/.test(value ?? "") ? "%" : "px";
+}
+
 export function CornerRadiusControl({
   styles,
   onStyleChange,
@@ -111,6 +115,12 @@ export function CornerRadiusControl({
       ? 0
       : cssLengthNumber(cornerSources.bottomLeft),
   };
+  const cornerUnits = {
+    topLeft: cssRadiusUnit(cornerSources.topLeft),
+    topRight: cssRadiusUnit(cornerSources.topRight),
+    bottomRight: cssRadiusUnit(cornerSources.bottomRight),
+    bottomLeft: cssRadiusUnit(cornerSources.bottomLeft),
+  };
   const anyCornerMixed =
     cornerMixed.topLeft ||
     cornerMixed.topRight ||
@@ -128,7 +138,12 @@ export function CornerRadiusControl({
         corners.topRight,
         corners.bottomRight,
         corners.bottomLeft,
-      ]);
+      ]) || new Set(Object.values(cornerUnits)).size > 1;
+  const radiusUnit = cssRadiusUnit(
+    cornersDiffer
+      ? cornerSources.topLeft
+      : styles.borderRadius || cornerSources.topLeft,
+  );
   const [showIndependentCorners, setShowIndependentCorners] =
     useState(cornersDiffer);
   const radiusMixed =
@@ -139,7 +154,7 @@ export function CornerRadiusControl({
       ? corners.topLeft
       : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
   const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
-    const next = `${Math.max(0, Math.round(value))}px`;
+    const next = `${Math.max(0, Math.round(value))}${radiusUnit}`;
     const patch = {
       borderRadius: next,
       borderTopLeftRadius: next,
@@ -169,6 +184,7 @@ export function CornerRadiusControl({
         icon={IconBorderRadius}
         value={radius}
         onChange={commitRadius}
+        unit={radiusUnit}
         mixed={radiusMixed}
         min={0}
         precision={0}
@@ -197,6 +213,7 @@ export function CornerRadiusControl({
                 icon={IconBorderRadius}
                 value={vectorPointRadius.value}
                 onChange={vectorPointRadius.onChange}
+                unit="px"
                 min={0}
                 max={vectorPointRadius.max}
                 precision={0}
@@ -244,10 +261,11 @@ export function CornerRadiusControl({
             ariaLabel="Top left"
             icon={IconRadiusTopLeft}
             value={corners.topLeft}
+            unit={cornerUnits.topLeft}
             onChange={(value, meta) =>
               onStyleChange(
                 "borderTopLeftRadius",
-                `${Math.max(0, Math.round(value))}px`,
+                `${Math.max(0, Math.round(value))}${cornerUnits.topLeft}`,
                 meta,
               )
             }
@@ -263,10 +281,11 @@ export function CornerRadiusControl({
             ariaLabel="Top right"
             icon={IconRadiusTopRight}
             value={corners.topRight}
+            unit={cornerUnits.topRight}
             onChange={(value, meta) =>
               onStyleChange(
                 "borderTopRightRadius",
-                `${Math.max(0, Math.round(value))}px`,
+                `${Math.max(0, Math.round(value))}${cornerUnits.topRight}`,
                 meta,
               )
             }
@@ -281,10 +300,11 @@ export function CornerRadiusControl({
             ariaLabel="Bottom left"
             icon={IconRadiusBottomLeft}
             value={corners.bottomLeft}
+            unit={cornerUnits.bottomLeft}
             onChange={(value, meta) =>
               onStyleChange(
                 "borderBottomLeftRadius",
-                `${Math.max(0, Math.round(value))}px`,
+                `${Math.max(0, Math.round(value))}${cornerUnits.bottomLeft}`,
                 meta,
               )
             }
@@ -300,10 +320,11 @@ export function CornerRadiusControl({
             ariaLabel="Bottom right"
             icon={IconRadiusBottomRight}
             value={corners.bottomRight}
+            unit={cornerUnits.bottomRight}
             onChange={(value, meta) =>
               onStyleChange(
                 "borderBottomRightRadius",
-                `${Math.max(0, Math.round(value))}px`,
+                `${Math.max(0, Math.round(value))}${cornerUnits.bottomRight}`,
                 meta,
               )
             }

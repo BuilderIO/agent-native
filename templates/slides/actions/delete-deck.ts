@@ -13,6 +13,13 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
+  needsApproval: true,
+  allowPersistentApproval: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async ({ id }) => {
     try {
       const access = await assertAccess("deck", id, "admin");

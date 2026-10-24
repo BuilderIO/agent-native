@@ -10,6 +10,7 @@ type TemplateFinalCtaProps = Omit<
   "title"
 > & {
   actions?: ReactNode;
+  contentClassName?: string;
   eyebrow?: ReactNode;
   headerAction?: ReactNode;
   template?: TemplateLandingCtaTemplate;
@@ -20,6 +21,7 @@ export function TemplateFinalCta({
   actions,
   children,
   className = "",
+  contentClassName = "pb-16",
   eyebrow,
   headerAction,
   template,
@@ -46,7 +48,9 @@ export function TemplateFinalCta({
       ) : null}
 
       {children ? (
-        <div className="border-x border-[var(--docs-border)] pb-16">
+        <div
+          className={`border-x border-[var(--docs-border)] ${contentClassName}`}
+        >
           {children}
         </div>
       ) : null}

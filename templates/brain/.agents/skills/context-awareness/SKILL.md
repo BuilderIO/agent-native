@@ -196,6 +196,11 @@ changes. If a command can arrive while a chat stream is rendering, prefer
 `navigate(path, { replace: true, flushSync: true })` over a view-transition
 wrapper so the URL and visible route commit together.
 
+Keep `path` router-local. A segment matching the app mount prefix remains part
+of the local route unless a matching `view` route or explicit `publicPath`
+identifies the mounted URL. Carry the mounted form separately in `publicPath`;
+never infer that `path` is mounted from its prefix alone.
+
 ## Jitter Prevention
 
 Agent-side application-state writes are tagged with

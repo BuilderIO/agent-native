@@ -64,6 +64,12 @@ const SIDEBAR_ROOT = `.agent-sidebar-panel[data-agent-sidebar-state="open"] ${CO
 const ANY_ROOT = `${COMPOSER_ROOT}:visible`;
 export const WATCH_STORAGE_KEY = "__chatReliabilityHits";
 
+interface ComposerControls {
+  input: Locator;
+  send: Locator;
+  stop: Locator;
+}
+
 interface WatchHit {
   label: string;
   excerpt: string;
@@ -647,18 +653,15 @@ export class ChatReliabilitySession {
 
   // ---- composer ------------------------------------------------------
 
-  private async composer(): Promise<{
-    input: Locator;
-    send: Locator;
-    stop: Locator;
-  }> {
+  private async composer(): Promise<ComposerControls> {
     const root =
       (await this.page.locator(SIDEBAR_ROOT).count()) > 0
         ? SIDEBAR_ROOT
         : ANY_ROOT;
+    const composerRoot = this.page.locator(root).first();
     const slot = (name: string) =>
-      this.page
-        .locator(`${root} [data-agent-composer-slot="${name}"]:visible`)
+      composerRoot
+        .locator(`[data-agent-composer-slot="${name}"]:visible`)
         .first();
     return {
       input: slot("editor-input"),
@@ -721,20 +724,22 @@ export class ChatReliabilitySession {
   }
 
   /**
-   * Type until the editor holds the text. Keys typed before the editor settles
-   * are lost or wiped by a re-mount, which leaves send disabled for a prompt
-   * the test believes it entered.
+   * Type until the editor holds the whole prompt. Keys typed before it settles
+   * can be lost or wiped by a re-mount.
    */
-  private async typeIntoComposer(prompt: string): Promise<void> {
-    const { input } = await this.composer();
+  private async typeIntoComposer(
+    prompt: string,
+    input?: Locator,
+  ): Promise<void> {
+    const targetInput = input ?? (await this.composer()).input;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      await input.click();
+      await targetInput.click();
       await this.page.keyboard.press("ControlOrMeta+A");
       await this.page.keyboard.press("Backspace");
-      await input.pressSequentially(prompt, { delay: 6 });
+      await targetInput.pressSequentially(prompt, { delay: 6 });
       const settledBy = Date.now() + 5_000;
       do {
-        if (composerHoldsPrompt(await input.innerText(), prompt)) return;
+        if (composerHoldsPrompt(await targetInput.innerText(), prompt)) return;
         await this.page.waitForTimeout(250);
       } while (Date.now() < settledBy);
       this.note(`composer did not hold the typed text on attempt ${attempt}`);
@@ -759,22 +764,36 @@ export class ChatReliabilitySession {
     token: string,
     { expectTurnPost = true }: { expectTurnPost?: boolean } = {},
   ): Promise<void> {
-    await this.typeIntoComposer(prompt);
-    const { send } = await this.composer();
-    await this.waitUntil(
+    const composer = await this.composer();
+    await this.typeIntoComposer(prompt, composer.input);
+    await this.pollUntil(
       `the send button to enable for the prompt containing ${token}`,
-      (state) => (state.sendEnabled ? null : describeState(state)),
-      { timeoutMs: 15_000 },
+      15_000,
+      async () => {
+        const text = await composer.input.innerText();
+        const enabled = await composer.send.evaluate((element) => {
+          const button = element as HTMLButtonElement;
+          return (
+            !button.disabled && button.getAttribute("aria-disabled") !== "true"
+          );
+        });
+        if (!composerHoldsPrompt(text, prompt)) {
+          return `selected composer no longer holds the complete prompt (${text.length} characters)`;
+        }
+        return enabled ? null : "send button remains disabled";
+      },
     );
     const turnPostsBefore = this.traffic.entries.filter(isTurnPost).length;
-    await send.click();
-    await this.waitUntil(
+    await composer.send.click();
+    await this.pollUntil(
       `the composer to accept the prompt containing ${token}`,
-      (state) =>
-        state.composerText.trim() === ""
+      30_000,
+      async () => {
+        const text = await composer.input.innerText();
+        return text.trim() === ""
           ? null
-          : `composer still holds ${state.composerText.length} characters; ${describeState(state)}`,
-      { timeoutMs: 30_000 },
+          : `composer still holds ${text.length} characters`;
+      },
     );
     if (expectTurnPost) {
       await this.pollUntil(

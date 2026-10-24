@@ -25,6 +25,8 @@ import {
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertEditableDocument } from "./_document-edit-mutation.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
@@ -32,6 +34,7 @@ import {
   normalizedValueJson,
 } from "./_property-utils.js";
 import { validateRelationWrite } from "./_relation-values.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
@@ -69,7 +72,9 @@ async function assertPropertyWritableByRowMutation(
 }
 
 export default defineAction({
-  description: "Set a Notion-style property value on a document.",
+  description:
+    "Set one property value on a Content collection document, including an additional Blocks field. Blocks values are NFM: each line is a block, <br> inserts a hard break, and <empty-block/> preserves an empty paragraph. Plain CommonMark blank lines are not preserved.",
+  mcpTool: true,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -88,17 +93,26 @@ export default defineAction({
         "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID"),
-    value: z.unknown().describe("Value for the property type"),
-    expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
+    value: z
+      .unknown()
+      .describe(
+        "Value for the property type; Blocks fields take an NFM string: one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs. " +
+          NFM_CONTAINER_SYNTAX,
+      ),
+    expectedBlocksFieldRevision: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Expected Blocks field revision from list-content-database-blocks; required for Blocks field writes from anything other than the app's own UI (agents, CLI, automations, HTTP)",
+      ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
-  run: async ({
-    documentId,
-    databaseId,
-    propertyId,
-    value,
-    expectedBlocksFieldRevision,
-  }) => {
+  run: async (
+    { documentId, databaseId, propertyId, value, expectedBlocksFieldRevision },
+    ctx,
+  ) => {
     const db = getDb();
     const [definition] = await db
       .select()
@@ -138,6 +152,28 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      // A whole-field write must name the revision it read, so a stale copy
+      // can't replace newer text. Only the app's own UI (in the browser or an
+      // MCP widget) and internal server calls without a caller are exempt;
+      // agents, CLI runs, automations and HTTP requests are not.
+      const isAppUiCaller =
+        ctx?.caller === "frontend" ||
+        ctx?.caller === "mcp-widget" ||
+        ctx?.caller === "mcp-widget-write";
+      if (
+        ctx !== undefined &&
+        !isAppUiCaller &&
+        expectedBlocksFieldRevision === undefined
+      ) {
+        throw new ActionContractError(
+          "Blocks field writes from outside the app require expectedBlocksFieldRevision from list-content-database-blocks.",
+          {
+            errorCode: "BLOCKS_FIELD_REVISION_REQUIRED",
+            details: { propertyId },
+            statusCode: 400,
+          },
+        );
+      }
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";
@@ -153,6 +189,16 @@ export default defineAction({
           tx as unknown as ReturnType<typeof getDb>,
           documentId,
         );
+        // A Blocks value is the page's body or one of its fields, so a page
+        // in Trash refuses it as edit-document does.
+        await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
+          documentId,
+        ]);
+        const [lockedPage] = await tx
+          .select({ trashedAt: schema.documents.trashedAt })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId));
+        assertEditableDocument(lockedPage);
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)

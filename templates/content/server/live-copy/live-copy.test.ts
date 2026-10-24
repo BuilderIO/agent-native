@@ -2,8 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { appStateGet } from "@agent-native/core/application-state";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
@@ -22,11 +21,6 @@ import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import * as nfm from "../../shared/nfm.js";
-import {
-  answerFlushRequest,
-  openEditorTab,
-  takeFlushRequest,
-} from "../test-support/open-editor-tab.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -490,16 +484,20 @@ describe("switching a page to its live copy", () => {
     expect(await collabVersion("off")).toBeUndefined();
   });
 
-  it("refuses to switch a page whose stored body the parser would drop part of", async () => {
-    const stored = "Hello\n<callout>\nOnly text\n</callout>";
-    await insertPage("drops-on-switch", stored);
+  it("refuses to switch a page whose stored body the parser can't keep in full", async () => {
+    // The parser drops text directly inside a table, so both serializations
+    // of the built tree agree on the shortened body.
+    await insertPage(
+      "parse-loss",
+      "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+    );
+    const before = await page("parse-loss");
 
     await expect(
-      switching.switchPageToLiveCopy("drops-on-switch"),
-    ).rejects.toMatchObject({ code: "build_refused", reason: "lossy" });
-    const row = await page("drops-on-switch");
-    expect(row.content).toBe(stored);
-    expect(row.liveBodySwitchedAt).toBeNull();
+      switching.switchPageToLiveCopy("parse-loss"),
+    ).rejects.toMatchObject({ name: "LiveCopyError", reason: "lossy" });
+    expect(await page("parse-loss")).toEqual(before);
+    expect(await collabVersion("parse-loss")).toBeUndefined();
   });
 
   it("converts again after a legacy write, and the stored body wins over the stale copy", async () => {
@@ -553,6 +551,113 @@ describe("switching a page to its live copy", () => {
       ),
     ).rejects.toMatchObject({ code: "base_changed" });
     expect((await page("moved")).liveBodySwitchedAt).toBeNull();
+  });
+});
+
+describe("GitHub source policy on a live copy", () => {
+  it("keeps mutable and missing legacy collab documents on the ordinary path", async () => {
+    await switchedPage("legacy-mutable-policy", "Canonical body");
+    const update = await appendParagraphUpdate(
+      "legacy-mutable-policy",
+      "Allowed edit",
+    );
+    const version = await collabVersion("legacy-mutable-policy");
+    await setFlags(false);
+    await expect(
+      collab.applyUpdate("legacy-mutable-policy", update),
+    ).resolves.toMatchObject({ liveCopy: "not_derived" });
+    expect((await page("legacy-mutable-policy")).content).toBe(
+      "Canonical body",
+    );
+    expect(await collabVersion("legacy-mutable-policy")).toBe(
+      (version as number) + 1,
+    );
+    await expect(gateFor("missing-policy-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "no_page",
+    });
+    await expect(
+      collab.applyText("missing-policy-page", "Other app body"),
+    ).resolves.toBe("Other app body");
+  });
+
+  it("refuses to switch a GitHub page without changing its body or live copy", async () => {
+    await switchedPage("github-store-fixture", "Other body");
+    await insertPage("github-switch", "Canonical body");
+    await getDb()
+      .update(schema.documents)
+      .set({ sourceMode: "github" })
+      .where(eq(schema.documents.id, "github-switch"));
+    const before = await page("github-switch");
+
+    await expect(
+      switching.switchPageToLiveCopy("github-switch"),
+    ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+    expect(await page("github-switch")).toEqual(before);
+    expect(await collabVersion("github-switch")).toBeUndefined();
+    expect(await history("github-switch")).toEqual([]);
+  });
+
+  it.each(["editor", "server", "unchanged"] as const)(
+    "refuses an existing live copy's %s write after its page becomes GitHub-backed",
+    async (kind) => {
+      const id = `github-${kind}`;
+      await switchedPage(id, "Canonical body");
+      const update = await appendParagraphUpdate(id, "Unapproved edit");
+      const before = await page(id);
+      const version = await collabVersion(id);
+      const previousHistory = await history(id);
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: "github" })
+        .where(eq(schema.documents.id, id));
+
+      await expect(
+        asOwner(async () =>
+          kind === "editor"
+            ? collab.applyUpdate(id, update)
+            : writer.editContentLiveCopy(id, {
+                cause: { operation: "test-source-policy", origin: "test" },
+                edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+                input: {
+                  content:
+                    kind === "unchanged" ? "Canonical body" : "Unapproved edit",
+                  expected: "Canonical body",
+                },
+              }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+      expect(await page(id)).toEqual(before);
+      expect(await collabVersion(id)).toBe(version);
+      expect(await history(id)).toEqual(previousHistory);
+      expect(await bodyIntents(id)).toEqual([]);
+    },
+  );
+
+  it("rechecks source policy when a GitHub link arrives after conversion is built", async () => {
+    const id = "github-conversion-race";
+    await insertPage(id, "Canonical body");
+    const before = await page(id);
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: "github" })
+        .where(eq(schema.documents.id, id));
+      return result;
+    });
+    try {
+      await expect(switching.switchPageToLiveCopy(id)).rejects.toMatchObject({
+        errorCode: "SOURCE_READ_ONLY",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await page(id)).toEqual(before);
+    expect(await collabVersion(id)).toBeUndefined();
+    expect(await history(id)).toEqual([]);
   });
 });
 
@@ -720,6 +825,30 @@ describe("writes through a switched page's live copy", () => {
     ).rejects.toMatchObject({ errorCode: "DOCUMENT_NOT_FOUND" });
     expect((await page("trashed")).content).toBe("Hello there");
     expect(await collabVersion("trashed")).toBe(version);
+  });
+
+  it("refuses a server replacement the parser can't keep in full, and commits nothing", async () => {
+    await switchedPage("parse-loss-edit", "Hello there");
+    const before = await page("parse-loss-edit");
+    const version = await collabVersion("parse-loss-edit");
+
+    await expect(
+      cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
+        collab.mutateLiveCopy(binding.contentLiveCopy, "parse-loss-edit", {
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: {
+            content:
+              "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "LiveCopyError",
+      code: "build_refused",
+      reason: "lossy",
+    });
+    expect(await page("parse-loss-edit")).toEqual(before);
+    expect(await collabVersion("parse-loss-edit")).toBe(version);
   });
 
   it("locks collections, then memberships, then the page, and trashes an inline collection the body dropped", async () => {
@@ -1016,29 +1145,22 @@ describe("a page whose write path changes mid-write", () => {
           args: ["torn"],
         });
       });
-    const db = getDb();
+    const context = getDbExec();
     let reads = 0;
-    const racing = {
-      select: (fields: never) => ({
-        from: (table: never) => ({
-          where: (where: never) => ({
-            limit: async (count: number) => {
-              const rows = await db
-                .select(fields)
-                .from(table)
-                .where(where)
-                .limit(count);
-              if (++reads === 1) await peerCommit();
-              return rows;
-            },
-          }),
-        }),
-      }),
-    } as unknown as NonNullable<Parameters<typeof liveBodyWriterGate>[1]>["db"];
+    const racing: ReturnType<typeof getDbExec> = {
+      transaction: context.transaction?.bind(context),
+      execute: async (statement) => {
+        const result = await context.execute(statement);
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        if (/from\s+"documents"/i.test(sql) && ++reads === 1)
+          await peerCommit();
+        return result;
+      },
+    };
 
-    await expect(liveBodyWriterGate("torn", { db: racing })).resolves.toEqual({
-      writePath: "live_copy",
-    });
+    await expect(
+      withDbExec(racing, () => liveBodyWriterGate("torn")),
+    ).resolves.toEqual({ writePath: "live_copy" });
     await expect(gateFor("torn")).resolves.toEqual({ writePath: "live_copy" });
   });
 });
@@ -1996,8 +2118,8 @@ describe("edit-document on a switched page", () => {
     await switchedPage("drops-text", "Hello");
     const loaded = await page("drops-text");
     const version = await collabVersion("drops-text");
-    // A callout's child must be indented; this one would be dropped.
-    const replace = "Hello\n<callout>\nOnly text\n</callout>";
+    // The parser drops text directly inside a table.
+    const replace = "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>";
 
     await expect(
       agentEdit("drops-text", loaded, [{ find: "Hello", replace }]),
@@ -2273,12 +2395,7 @@ describe("a version restore on a switched page", () => {
         { documentId: id, versionId, expectedUpdatedAt } as never,
         { caller: "tool", userEmail } as never,
       ),
-    ) as Promise<{
-      title: string;
-      content: string;
-      bodyRevision: number;
-      titleFlush?: unknown;
-    }>;
+    ) as Promise<{ title: string; content: string; bodyRevision: number }>;
   }
 
   async function metadata(id: string) {
@@ -2337,7 +2454,6 @@ describe("a version restore on a switched page", () => {
     expect(restored).toMatchObject({
       content: "First draft",
       bodyRevision: before.bodyRevision + 1,
-      titleFlush: { status: "no_open_editor" },
     });
     expect((await page("restore")).content).toBe("First draft");
     expect(await gateFor("restore")).toEqual({ writePath: "live_copy" });
@@ -2678,214 +2794,76 @@ describe("a version restore on a switched page", () => {
     expect((await page("restore-renamed")).content).toBe("Second draft");
   });
 
-  it("has an open tab save its title before it restores, so History keeps the typed title (SF-03)", async () => {
-    await switchedPage("restore-open", "First draft");
-    await serverEdit("restore-open", "Second draft");
-    const versionId = await versionHolding("restore-open", "First draft");
-    const prepared = await metadata("restore-open");
-    await openEditorTab("restore-open", OWNER, { canFlushTitle: true });
-    const tab = answerFlushRequest(
-      "restore-open",
-      OWNER,
-      { status: "success", scope: "title", saved: true },
-      async () => {
-        await getDb()
-          .update(schema.documents)
-          .set({
-            title: "Typed title",
-            updatedAt: new Date(
-              Date.parse(prepared.updatedAt) + 1_000,
-            ).toISOString(),
-          })
-          .where(eq(schema.documents.id, "restore-open"));
-      },
-    );
-
-    const restored = await restore(
-      "restore-open",
-      versionId,
-      prepared.updatedAt,
-    );
-
-    const request = await tab;
-    expect(request).toMatchObject({ scope: "title", status: "pending" });
-    expect(request).not.toHaveProperty("propertyId");
-    expect(restored).toMatchObject({
-      content: "First draft",
-      titleFlush: { status: "flushed" },
+  it("answers a flush with a tab open on a switched page without asking the tab to save", async () => {
+    await switchedPage("flush-open", "Hello there");
+    await collab.loadAwarenessRowsStrict("flush-open");
+    const { DOCUMENT_FLUSH_PROTOCOL } =
+      await import("../../shared/document-flush-protocol.js");
+    await getDbExec().execute({
+      sql: "INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen) VALUES (?, ?, ?, ?)",
+      args: [
+        "flush-open",
+        7,
+        JSON.stringify({
+          user: { email: OWNER },
+          canFlushDocument: true,
+          documentFlushProtocol: DOCUMENT_FLUSH_PROTOCOL,
+          editorSessionId: "flush-open-tab",
+        }),
+        Date.now(),
+      ],
     });
-    const versions = await getDb()
-      .select({
-        title: schema.documentVersions.title,
-        content: schema.documentVersions.content,
-      })
-      .from(schema.documentVersions)
-      .where(eq(schema.documentVersions.documentId, "restore-open"));
-    expect(versions).toContainEqual({
-      title: "Typed title",
-      content: "Second draft",
-    });
-    await expect(
-      appStateGet(OWNER, "flush-request-restore-open"),
-    ).resolves.toBeNull();
-  });
-
-  it("refuses, retryably, when an open tab takes the request and doesn't confirm in time that it saved the title", async () => {
-    await switchedPage("restore-silent", "First draft");
-    await serverEdit("restore-silent", "Second draft");
-    const versionId = await versionHolding("restore-silent", "First draft");
-    await openEditorTab("restore-silent", OWNER, { canFlushTitle: true });
-    const taken = takeFlushRequest("restore-silent", OWNER);
-
-    await expect(
-      restore(
-        "restore-silent",
-        versionId,
-        (await metadata("restore-silent")).updatedAt,
-      ),
-    ).rejects.toMatchObject({
-      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-      statusCode: 409,
-      details: {
-        documentId: "restore-silent",
-        reason: "timeout",
-        retryable: true,
-      },
-    });
-    await expect(taken).resolves.toMatchObject({
-      held: { scope: "title", status: "taken" },
-    });
-    expect((await page("restore-silent")).content).toBe("Second draft");
-    await expect(
-      appStateGet(OWNER, "flush-request-restore-silent"),
-    ).resolves.toBeNull();
-  });
-
-  it("refuses with the tab's code when it couldn't save the title", async () => {
-    await switchedPage("restore-title-conflict", "First draft");
-    await serverEdit("restore-title-conflict", "Second draft");
-    const versionId = await versionHolding(
-      "restore-title-conflict",
-      "First draft",
-    );
-    await openEditorTab("restore-title-conflict", OWNER, {
-      canFlushTitle: true,
-    });
-    const tab = answerFlushRequest("restore-title-conflict", OWNER, {
-      status: "error",
-      scope: "title",
-      code: "title_conflict",
-      error: "The title changed in another tab.",
-    });
-
-    await expect(
-      restore(
-        "restore-title-conflict",
-        versionId,
-        (await metadata("restore-title-conflict")).updatedAt,
-      ),
-    ).rejects.toMatchObject({
-      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-      details: {
-        reason: "editor_error",
-        code: "title_conflict",
-        retryable: true,
-      },
-    });
-    await tab;
-    expect((await page("restore-title-conflict")).content).toBe("Second draft");
-  });
-
-  it("restores with a tab too old for the title flush without waiting on it, and says so (SF-03)", async () => {
-    await switchedPage("restore-legacy-tab", "First draft");
-    await serverEdit("restore-legacy-tab", "Second draft");
-    const versionId = await versionHolding("restore-legacy-tab", "First draft");
-    await openEditorTab("restore-legacy-tab", OWNER);
     const { flushOpenDocumentEditorToSql } =
       await import("../../actions/_document-flush.js");
-    const unconfirmed = {
-      status: "unconfirmed",
-      reason: "legacy_editor",
-      documentIds: ["restore-legacy-tab"],
-    };
+    const { appStateGet } =
+      await import("@agent-native/core/application-state");
     const started = performance.now();
 
     await expect(
       asOwner(() =>
         flushOpenDocumentEditorToSql({
-          documentId: "restore-legacy-tab",
+          documentId: "flush-open",
           ownerEmail: OWNER,
         }),
       ),
-    ).resolves.toEqual(unconfirmed);
-    const restored = await restore(
-      "restore-legacy-tab",
+    ).resolves.toEqual({ status: "live_copy" });
+
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(await appStateGet(OWNER, "flush-request-flush-open")).toBeNull();
+  });
+
+  it("restores with a tab open without waiting on the tab to save (SF-03)", async () => {
+    await switchedPage("restore-open", "First draft");
+    await serverEdit("restore-open", "Second draft");
+    const versionId = await versionHolding("restore-open", "First draft");
+    await collab.loadAwarenessRowsStrict("restore-open");
+    await getDbExec().execute({
+      sql: "INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen) VALUES (?, ?, ?, ?)",
+      args: [
+        "restore-open",
+        7,
+        JSON.stringify({ user: { email: OWNER }, canFlushDocument: true }),
+        Date.now(),
+      ],
+    });
+    const { flushOpenDocumentEditorToSql } =
+      await import("../../actions/_document-flush.js");
+    const started = performance.now();
+
+    await asOwner(() =>
+      flushOpenDocumentEditorToSql({
+        documentId: "restore-open",
+        ownerEmail: OWNER,
+      }),
+    );
+    await restore(
+      "restore-open",
       versionId,
-      (await metadata("restore-legacy-tab")).updatedAt,
+      (await metadata("restore-open")).updatedAt,
     );
 
     expect(performance.now() - started).toBeLessThan(2_000);
-    expect(restored.titleFlush).toEqual(unconfirmed);
-    expect((await page("restore-legacy-tab")).content).toBe("First draft");
-    await expect(
-      appStateGet(OWNER, "flush-request-restore-legacy-tab"),
-    ).resolves.toBeNull();
-  });
-
-  it("restores on main's path, not as a conflict, when the page's flags go off after the title save it asked for", async () => {
-    await switchedPage("restore-left", "First draft");
-    await serverEdit("restore-left", "Second draft");
-    const versionId = await versionHolding("restore-left", "First draft");
-    const prepared = await metadata("restore-left");
-    await openEditorTab("restore-left", OWNER, { canFlushTitle: true });
-    const tab = (async () => {
-      const titleRequest = await answerFlushRequest(
-        "restore-left",
-        OWNER,
-        { status: "success", scope: "title", saved: true },
-        async () => {
-          await getDb()
-            .update(schema.documents)
-            .set({
-              title: "Typed title",
-              updatedAt: new Date(
-                Date.parse(prepared.updatedAt) + 1_000,
-              ).toISOString(),
-            })
-            .where(eq(schema.documents.id, "restore-left"));
-          await setFlags(false);
-        },
-      );
-      // Main's path asks the tab again before it restores.
-      await answerFlushRequest("restore-left", OWNER, { status: "success" });
-      return titleRequest;
-    })();
-
-    const restored = await restore(
-      "restore-left",
-      versionId,
-      prepared.updatedAt,
-    );
-
-    expect(await tab).toMatchObject({ scope: "title" });
-    expect(restored).toMatchObject({
-      content: "First draft",
-      titleFlush: { status: "flushed" },
-    });
-    expect(await gateFor("restore-left")).not.toEqual({
-      writePath: "live_copy",
-    });
-    const versions = await getDb()
-      .select({
-        title: schema.documentVersions.title,
-        content: schema.documentVersions.content,
-      })
-      .from(schema.documentVersions)
-      .where(eq(schema.documentVersions.documentId, "restore-left"));
-    expect(versions).toContainEqual({
-      title: "Typed title",
-      content: "Second draft",
-    });
+    expect((await page("restore-open")).content).toBe("First draft");
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {
@@ -2975,6 +2953,40 @@ describe("a version restore on a switched page", () => {
     });
   });
 
+  it("refuses a legacy restore whose editor access was revoked during its editor flush", async () => {
+    await switchedPage("restore-legacy-revoked", "First draft");
+    await serverEdit("restore-legacy-revoked", "Second draft");
+    const versionId = await versionHolding(
+      "restore-legacy-revoked",
+      "First draft",
+    );
+    await switching.switchPageToLegacy("restore-legacy-revoked");
+    await getDb().insert(schema.documentShares).values({
+      id: "restore-legacy-revoked-share",
+      resourceId: "restore-legacy-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const prepared = await metadata("restore-legacy-revoked");
+    beforeEditorFlush.current = async () => {
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "restore-legacy-revoked-share"));
+    };
+    try {
+      await expect(
+        restore("restore-legacy-revoked", versionId, prepared.updatedAt, OTHER),
+      ).rejects.toThrow("No access to document restore-legacy-revoked");
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect(await metadata("restore-legacy-revoked")).toEqual(prepared);
+    expect((await page("restore-legacy-revoked")).content).toBe("Second draft");
+  });
+
   it("restores through main's path once the page's flags are off (SF-11)", async () => {
     await switchedPage("restore-off", "First draft");
     await serverEdit("restore-off", "Second draft");
@@ -2982,81 +2994,17 @@ describe("a version restore on a switched page", () => {
     const version = await collabVersion("restore-off");
     await setFlags(false);
 
-    const restored = await restore(
+    await restore(
       "restore-off",
       versionId,
       (await metadata("restore-off")).updatedAt,
     );
 
-    expect(restored).not.toHaveProperty("titleFlush");
     expect((await page("restore-off")).content).toBe("First draft");
     expect(await collabVersion("restore-off")).toBe(version);
     expect(await gateFor("restore-off")).not.toEqual({
       writePath: "live_copy",
     });
-  });
-});
-
-describe("pull-document on a switched page", () => {
-  it("refuses, typed and retryable, when an open tab never picks up the request to save the title", async () => {
-    await switchedPage("pull-silent", "Body");
-    await openEditorTab("pull-silent", OWNER, { canFlushTitle: true });
-    const pull = (await import("../../actions/pull-document.js")).default;
-
-    await expect(
-      asOwner(async () =>
-        pull.run({ id: "pull-silent", format: "markdown" } as never),
-      ),
-    ).rejects.toMatchObject({
-      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-      details: {
-        documentId: "pull-silent",
-        reason: "request_not_received",
-        retryable: true,
-      },
-    });
-    await expect(
-      appStateGet(OWNER, "flush-request-pull-silent"),
-    ).resolves.toBeNull();
-  });
-
-  it("reads the page with a tab too old for the title flush open, and says so", async () => {
-    await switchedPage("pull-legacy-tab", "Body");
-    await openEditorTab("pull-legacy-tab", OWNER);
-    const pull = (await import("../../actions/pull-document.js")).default;
-
-    const pulled = await asOwner(async () =>
-      pull.run({ id: "pull-legacy-tab", format: "markdown" } as never),
-    );
-
-    expect(pulled).toMatchObject({
-      content: "Body",
-      titleFlush: {
-        status: "unconfirmed",
-        reason: "legacy_editor",
-        documentIds: ["pull-legacy-tab"],
-      },
-    });
-  });
-
-  it("reads the page as main does once its flags are off (SF-11)", async () => {
-    await switchedPage("pull-off", "Body");
-    await setFlags(false);
-    const pull = (await import("../../actions/pull-document.js")).default;
-
-    const pulled = await asOwner(async () =>
-      pull.run({ id: "pull-off", format: "markdown" } as never),
-    );
-
-    expect(pulled).toMatchObject({ content: "Body" });
-    expect(Object.keys(pulled as object)).toEqual([
-      "id",
-      "title",
-      "description",
-      "content",
-      "format",
-      "deepLink",
-    ]);
   });
 });
 
@@ -3225,6 +3173,62 @@ describe("a browser save to a switched page's body", () => {
     });
   });
 
+  it.each(["authored candidate", "submitted body", "snapshot"] as const)(
+    "keeps an unheld draft when only the %s differs from the live copy",
+    async (kind) => {
+      const id = `unheld-${kind}`;
+      await switchedPage(id, "Canonical body");
+      const loaded = await page(id);
+      const unsent = "Unsent body";
+      await keepDraft(id, unsent);
+      const version = await collabVersion(id);
+      const previousHistory = await history(id);
+      const saved = await browserSave(
+        id,
+        loaded,
+        kind === "submitted body" ? unsent : loaded.content,
+        {
+          authoredCandidateContent:
+            kind === "authored candidate" ? unsent : loaded.content,
+          editorSnapshotTitle: id,
+          editorSnapshotContent: unsent,
+        },
+      );
+      expect(saved).toMatchObject({ bodySave: { matchesLiveCopy: false } });
+      expect(saved).not.toHaveProperty("bodyIntentOutcome");
+      expect(saved).not.toHaveProperty("browserSaveAttempt");
+      expect(await drafts(id)).toEqual([{ content: unsent }]);
+      expect(await receipts(id)).toEqual([]);
+      expect(await bodyIntents(id)).toEqual([]);
+      expect(await page(id)).toEqual(loaded);
+      expect(await collabVersion(id)).toBe(version);
+      expect(await history(id)).toEqual(previousHistory);
+    },
+  );
+
+  it("settles distinct submitted and authored bodies when the live copy holds both", async () => {
+    const id = "distinct-held";
+    await switchedPage(id, "First\n\nSecond");
+    const loaded = await page(id);
+    await typeInTab(id, ["First A\n\nSecond"]);
+    const authored = (await page(id)).content;
+    await typeInTab(id, ["First A\n\nSecond B"]);
+    const current = await page(id);
+    await keepDraft(id, current.content);
+    const saved = await browserSave(id, loaded, current.content, {
+      authoredCandidateContent: authored,
+      editorSnapshotTitle: id,
+      editorSnapshotContent: current.content,
+    });
+    expect(saved).toMatchObject({
+      bodyIntentOutcome: { status: "applied" },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await drafts(id)).toEqual([]);
+    expect(await receipts(id)).toEqual([{ attemptId: `${id}-attempt` }]);
+    expect(await page(id)).toEqual(current);
+  });
+
   it("settles a save the live copy holds, though a peer committed after it", async () => {
     await switchedPage("held", "First\n\nSecond");
     const loaded = await page("held");
@@ -3287,6 +3291,47 @@ describe("a browser save to a switched page's body", () => {
     expect(await drafts("headed")).toEqual([]);
   });
 
+  it("settles an exact title-heading body without an authored comparison", async () => {
+    const id = "heading-exact";
+    await switchedPage(id, `# ${id}\n\nBody`);
+    const loaded = await page(id);
+    const body = loaded.content;
+    await keepDraft(id, body);
+    await expect(
+      browserSave(id, loaded, body, {
+        authoredBaseRevision: undefined,
+        authoredBaseContent: undefined,
+        authoredCandidateContent: undefined,
+        editorSnapshotTitle: id,
+        editorSnapshotContent: body,
+      }),
+    ).resolves.toMatchObject({
+      bodySave: { matchesLiveCopy: true },
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await drafts(id)).toEqual([]);
+    expect(await receipts(id)).toEqual([{ attemptId: `${id}-attempt` }]);
+  });
+
+  it("keeps an unsent title heading even when SQL normalization matches the stored body", async () => {
+    const id = "heading-unsent";
+    await switchedPage(id, "Body");
+    const loaded = await page(id);
+    const candidate = nfm.docToNfm(nfm.nfmToDoc(`# ${id}\n\nBody`));
+    await keepDraft(id, candidate);
+    const result = await browserSave(id, loaded, candidate, {
+      editorSnapshotTitle: id,
+      editorSnapshotContent: candidate,
+    });
+    expect(result).toMatchObject({
+      content: "Body",
+      bodySave: { matchesLiveCopy: false },
+    });
+    expect(result).not.toHaveProperty("bodyIntentOutcome");
+    expect(await drafts(id)).toEqual([{ content: candidate }]);
+    expect(await receipts(id)).toEqual([]);
+  });
+
   it("keeps a tab's draft when only part of its typing reached the live copy", async () => {
     await switchedPage("partial", "Hello");
     const loaded = await page("partial");
@@ -3311,11 +3356,12 @@ describe("a browser save to a switched page's body", () => {
   it("keeps a tab's draft when its save is not its own serialization", async () => {
     await switchedPage("noncanonical", "Hello");
     const loaded = await page("noncanonical");
-    await typeInTab("noncanonical", ["Hello\n<callout>\n</callout>"]);
+    await typeInTab("noncanonical", ["Hello\n*Hi*"]);
     const stored = (await page("noncanonical")).content;
-    // The parse drops the unindented callout child, so this compares as the
-    // empty callout the live copy holds.
-    const candidate = "Hello\n<callout>\nOnly text\n</callout>";
+    // Another spelling of the body the live copy holds, one the editor never
+    // writes.
+    const candidate = "Hello\n_Hi_";
+    expect(candidate).not.toBe(stored);
     expect(nfm.docToNfm(nfm.nfmToDoc(candidate))).toBe(stored);
     await keepDraft("noncanonical", candidate);
 
@@ -3331,17 +3377,16 @@ describe("a browser save to a switched page's body", () => {
     expect(await receipts("noncanonical")).toEqual([]);
   });
 
-  it("keeps a tab's draft when the live copy cannot compare its save in time", async () => {
+  it("keeps a tab's draft when the live copy cannot compare its save within the worker's limits", async () => {
     await switchedPage("unchecked", "Hello there");
     const loaded = await page("unchecked");
     await keepDraft("unchecked", "Hello there\nOnly in tab A");
     const { documentRevisionToken } =
       await import("../../actions/_document-edit-mutation.js");
-    // Unclosed backtick runs, as in the SF-07 deadline test, under the
-    // 500,000-character bound on an authored body.
-    const base = Array.from({ length: 990 }, (_, index) =>
-      "`".repeat(index + 1),
-    ).join(" ");
+    // A 122,000-row table, under the 500,000-character bound on an authored
+    // body. Its parsed form outgrows the worker's heap, which a fast machine
+    // can't outrun; a slow one hits the deadline first.
+    const base = "|a|\n|-|\n" + "|a|\n".repeat(122_000);
 
     const saved = await browserSave(
       "unchecked",
@@ -3383,6 +3428,40 @@ describe("a browser save to a switched page's body", () => {
       content: "Hello there",
       bodyRevision: loaded.bodyRevision,
     });
+  });
+
+  it("refuses a stale title that arrives with a live-copy body save after a rename", async () => {
+    await switchedPage("stale-title", "Hello there");
+    const loaded = await page("stale-title");
+    const titleAndTime = async () => {
+      const [row] = await getDb()
+        .select({
+          title: schema.documents.title,
+          updatedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "stale-title"));
+      return row;
+    };
+    const { updatedAt } = await titleAndTime();
+    await browserSave("stale-title", loaded, "Hello there", {
+      title: "Renamed",
+      baseTitle: "stale-title",
+    });
+    const renamed = await titleAndTime();
+    expect(renamed.title).toBe("Renamed");
+
+    // A save checked by snapshot time carries the title the tab loaded and
+    // no baseTitle.
+    await expect(
+      browserSave("stale-title", loaded, "Hello there", {
+        title: "stale-title",
+        baseRevision: undefined,
+        baseUpdatedAt: updatedAt,
+        browserSaveAttemptId: "stale-title-old",
+      }),
+    ).resolves.toMatchObject({ conflict: true });
+    expect(await titleAndTime()).toEqual(renamed);
   });
 
   it("keeps a recovery replay's receipt only for a body the live copy holds", async () => {
@@ -3951,19 +4030,18 @@ describe("the SF-07 bound on Content's derive and build", () => {
     expect(content.split("\n")).toHaveLength(200_003);
   });
 
-  it("stops building a body of 1,000 unmatched backtick runs at the deadline", async () => {
-    await switchedPage("backticks", "Hello there");
-    // Runs of 1 to 1,000 backticks, none closed. Building it takes over 20 s
-    // with either NFM parser; 1M `[` stopped tripping once the parser got fast.
-    const content = Array.from({ length: 1_000 }, (_, index) =>
-      "`".repeat(index + 1),
-    ).join(" ");
+  it("stops building a paragraph of 500,000 unclosed `$` runs at the deadline", async () => {
+    await switchedPage("dollars", "Hello there");
+    // About 5 s to parse on a fast machine, in under half the worker's heap.
+    // Parser fixes retire inputs like this: 1M `[` and 1,000 unclosed
+    // backtick runs both stopped tripping.
+    const content = "$a ".repeat(500_000);
 
     await expectRefused(
-      "backticks",
+      "dollars",
       () =>
         cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
-          collab.mutateLiveCopy(binding.contentLiveCopy, "backticks", {
+          collab.mutateLiveCopy(binding.contentLiveCopy, "dollars", {
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
             input: { content },
           }),

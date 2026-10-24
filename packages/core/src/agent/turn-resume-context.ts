@@ -1,6 +1,7 @@
 import type { EngineMessage } from "./engine/types.js";
 import {
   buildAssistantMessage,
+  lastUserPromptIndex,
   threadDataToEngineMessages,
 } from "./thread-data-builder.js";
 import {
@@ -30,20 +31,40 @@ export function buildTurnResumeContext(options: {
       const ledgerCallIds = new Set(
         ledgerMessages.flatMap(({ content }) =>
           content.flatMap((part) =>
-            part.type === "tool-call" ? [part.id] : [],
+            part.type === "tool-call" && !part.executionStepId ? [part.id] : [],
           ),
         ),
       );
-      messages = messages.flatMap((message) => {
-        const content = message.content.filter((part) =>
-          part.type === "tool-call"
-            ? !ledgerCallIds.has(part.id)
-            : part.type === "tool-result"
-              ? !ledgerCallIds.has(part.toolCallId)
-              : true,
-        );
-        return content.length > 0 ? [{ ...message, content }] : [];
-      });
+      const ledgerExecutionStepIds = new Set(
+        ledgerMessages.flatMap(({ content }) =>
+          content.flatMap((part) =>
+            (part.type === "tool-call" || part.type === "tool-result") &&
+            part.executionStepId
+              ? [part.executionStepId]
+              : [],
+          ),
+        ),
+      );
+      const currentTurnStart = lastUserPromptIndex(messages);
+      if (currentTurnStart >= 0) {
+        messages = messages.flatMap((message, index) => {
+          if (index < currentTurnStart) return [message];
+          const content = message.content.filter((part) => {
+            if (part.type === "tool-call") {
+              return part.executionStepId
+                ? !ledgerExecutionStepIds.has(part.executionStepId)
+                : !ledgerCallIds.has(part.id);
+            }
+            if (part.type === "tool-result") {
+              return part.executionStepId
+                ? !ledgerExecutionStepIds.has(part.executionStepId)
+                : !ledgerCallIds.has(part.toolCallId);
+            }
+            return true;
+          });
+          return content.length > 0 ? [{ ...message, content }] : [];
+        });
+      }
       messages.push(...ledgerMessages);
     }
   }

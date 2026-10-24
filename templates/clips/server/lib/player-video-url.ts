@@ -5,6 +5,10 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom.js";
+import {
+  youtubeEmbedUrl,
+  youtubeVideoIdForRecording,
+} from "../../shared/youtube.js";
 import { getRecordingAccessTokenResourceId } from "./share-password.js";
 
 type PlayerVideoRecording = {
@@ -35,6 +39,11 @@ export function resolvePlayerVideoUrl(
 ): string | null {
   let resolvedVideoUrl = recording.videoUrl ?? null;
   if (!resolvedVideoUrl) return null;
+
+  // YouTube's player loads the video itself, so the canonical embed URL goes
+  // to the browser as is: there is no Clips media behind it to proxy or gate.
+  const youtubeVideoId = youtubeVideoIdForRecording(recording);
+  if (youtubeVideoId) return youtubeEmbedUrl(youtubeVideoId);
 
   const isLoomSource = isLoomRecordingSource(recording);
   const isLoomNativeMedia =

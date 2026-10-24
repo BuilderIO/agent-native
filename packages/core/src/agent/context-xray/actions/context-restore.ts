@@ -22,6 +22,11 @@ export default defineAction({
     threadId: z.string(),
     segmentId: z.string(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw contextXrayAuthError();

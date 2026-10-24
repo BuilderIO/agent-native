@@ -1,4 +1,5 @@
-import { createGetDb, getDbExec } from "@agent-native/core/db";
+import { createGetDb } from "@agent-native/core/db";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
@@ -24,14 +25,8 @@ registerShareableResource({
     if (!ctx.userEmail || !ctx.orgId || resource?.orgId !== ctx.orgId) {
       return false;
     }
-    const result = await getDbExec().execute({
-      sql: `SELECT 1 FROM org_members
-            WHERE org_id = ? AND LOWER(email) = LOWER(?)
-              AND federation_removal_pending_at IS NULL
-              AND role IN ('owner', 'admin') LIMIT 1`,
-      args: [ctx.orgId, ctx.userEmail],
-    });
-    return result.rows.length > 0;
+    const role = await readOrgMemberRole(ctx.orgId, ctx.userEmail);
+    return role === "owner" || role === "admin";
   },
 });
 

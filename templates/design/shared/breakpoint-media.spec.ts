@@ -240,7 +240,7 @@ describe("set / remove declarations on a document", () => {
       value: "rgb(255, 0, 0)",
     });
     expect(extractManagedBreakpointCss(html)).toContain(
-      "background-color: rgb(255, 0, 0);",
+      "background-color: rgb(255, 0, 0) !important;",
     );
   });
 

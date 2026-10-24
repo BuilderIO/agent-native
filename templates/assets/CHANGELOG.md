@@ -3,6 +3,18 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Added
+
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
+
 ## 2026-10-09
 
 ### Improved

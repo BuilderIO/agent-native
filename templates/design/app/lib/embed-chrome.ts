@@ -1,3 +1,5 @@
+import { isInProcessDesignHost } from "@/host/design-host-channel";
+
 const EMBED_CHROME_QUERY_PARAM = "embedChrome";
 
 function readFromUrl(win: Window): boolean {
@@ -14,5 +16,7 @@ function readFromUrl(win: Window): boolean {
 
 export function isEmbedChromeRequested(): boolean {
   if (typeof window === "undefined") return false;
+  // An in-process host always wants the editor's own chrome.
+  if (isInProcessDesignHost()) return true;
   return readFromUrl(window);
 }

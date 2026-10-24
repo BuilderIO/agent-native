@@ -651,6 +651,15 @@ const ORIGIN_MAIN_PANEL_REPLACEMENTS: readonly FingerprintedPanelReplacement[] =
         "ba2e861c2044e2fec669bcb15a878a675eaf426f51bcfe4db32ebd228d2050f0",
       sql: buildPanel("activation-funnel")!.sql,
     },
+    // The funnel before it joined visitors without analytics consent to
+    // their signup through the session.
+    {
+      id: "activation-funnel",
+      source: "first-party",
+      sha256:
+        "21df6cc1f26862531504c21fb5a558c87b58615118fcd0ad1913a971fa8387a6",
+      sql: buildPanel("activation-funnel")!.sql,
+    },
     {
       id: "retention-over-time",
       source: "bigquery",
@@ -876,6 +885,84 @@ function appendPanelsIntroducedWithRetentionSplit(
   };
 }
 
+/**
+ * Panels added to saved first-party dashboards (canonical and BigQuery) after
+ * they were created. Each id is
+ * recorded in the saved config's `introducedPanels` once delivered (or found
+ * already present), so a panel the owner later deletes is not added back.
+ */
+export const PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS = [
+  "onboarding-ab-section",
+  "onboarding-ab-comparison",
+  "onboarding-ab-connected-trend",
+];
+
+/** New panels land after the last of these, else at the end. */
+const BIGQUERY_INTRODUCED_PANEL_ANCHORS = [
+  "onboarding-setup-choice",
+  "onboarding-step-dropoff",
+  "signup-method-conversion",
+  ...PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
+];
+
+function introducedBigQueryDashboardPanel(id: string): unknown {
+  // The section header is layout only, so it has no catalog metric.
+  if (id !== "onboarding-ab-section") return buildPanel(id);
+  const seedPanels = loadDashboardSeed(FIRST_PARTY_DASHBOARD_ID)?.panels;
+  return Array.isArray(seedPanels)
+    ? seedPanels.find((panel) => (panel as { id?: unknown })?.id === id)
+    : undefined;
+}
+
+function appendPanelsIntroducedToBigQueryDashboards(result: {
+  config: Record<string, unknown>;
+  changed: boolean;
+}): { config: Record<string, unknown>; changed: boolean } {
+  const { config } = result;
+  if (!Array.isArray(config.panels)) return result;
+  const panelId = (panel: unknown) => (panel as { id?: unknown } | null)?.id;
+  const recorded = new Set(
+    Array.isArray(config.introducedPanels)
+      ? config.introducedPanels.filter((id) => typeof id === "string")
+      : [],
+  );
+  const present = new Set(config.panels.map(panelId));
+  const additions: unknown[] = [];
+  const newlyRecorded: string[] = [];
+  for (const id of PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS) {
+    if (recorded.has(id)) continue;
+    if (!present.has(id)) {
+      const panel = introducedBigQueryDashboardPanel(id);
+      // Left unrecorded so a later deploy that ships the panel still delivers it.
+      if (!panel) continue;
+      additions.push(panel);
+    }
+    newlyRecorded.push(id);
+  }
+  if (newlyRecorded.length === 0) return result;
+  const panels = [...config.panels];
+  const anchorIndex = panels.reduce<number>(
+    (last, panel, index) =>
+      BIGQUERY_INTRODUCED_PANEL_ANCHORS.includes(panelId(panel) as string)
+        ? index
+        : last,
+    -1,
+  );
+  panels.splice(
+    anchorIndex < 0 ? panels.length : anchorIndex + 1,
+    0,
+    ...additions,
+  );
+  return {
+    config: {
+      ...config,
+      panels,
+      introducedPanels: [...recorded, ...newlyRecorded],
+    },
+    changed: true,
+  };
+}
+
 export function repairKnownFirstPartyDashboardQueries(
   dashboardId: string,
   config: Record<string, unknown>,
@@ -893,24 +980,30 @@ export function repairKnownFirstPartyDashboardQueries(
     const defaultsRepaired = repairFirstPartyBigQueryDashboardFilterDefaults(
       repaired.config,
     );
-    return {
+    return appendPanelsIntroducedToBigQueryDashboards({
       ...defaultsRepaired,
       changed:
         historical.changed || repaired.changed || defaultsRepaired.changed,
-    };
+    });
   }
   if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
-    return repairFingerprintedPanelQueries(config, [
-      {
-        id: "wau-over-time",
-        source: "bigquery",
-        sha256: fingerprintPanelSql(PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL),
-        sql: FIRST_PARTY_BIGQUERY_WAU_SQL,
-      },
-    ]);
+    return appendPanelsIntroducedToBigQueryDashboards(
+      repairFingerprintedPanelQueries(config, [
+        {
+          id: "wau-over-time",
+          source: "bigquery",
+          sha256: fingerprintPanelSql(
+            PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
+          ),
+          sql: FIRST_PARTY_BIGQUERY_WAU_SQL,
+        },
+      ]),
+    );
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
-    return repairCanonicalFirstPartyDashboardQueries(config);
+    return appendPanelsIntroducedToBigQueryDashboards(
+      repairCanonicalFirstPartyDashboardQueries(config),
+    );
   }
   return { config, changed: false };
 }

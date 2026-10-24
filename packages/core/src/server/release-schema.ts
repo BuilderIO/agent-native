@@ -13,6 +13,7 @@ import { FRAMEWORK_STORES } from "../db/store-registry.generated.js";
 import {
   SchemaNotMigratedError,
   findUnappliedStoreMigrations,
+  orderStoresForRelease,
   withStoreMigrationLock,
 } from "../db/store-registry.js";
 
@@ -24,6 +25,14 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = FRAMEWORK_STORES.map(
 
 export function frameworkSchemaEnsureNames(): string[] {
   return FRAMEWORK_SCHEMA_ENSURES.map(([name]) => name);
+}
+
+/** Every registered store, loaded and ordered by its `after` dependencies. */
+async function orderedFrameworkEnsures(): Promise<SchemaEnsure[]> {
+  const stores = await Promise.all(FRAMEWORK_STORES.map(([, load]) => load()));
+  return orderStoresForRelease(stores).map(
+    (store) => [store.id, () => store.ready()] as const,
+  );
 }
 
 /**
@@ -47,8 +56,12 @@ export async function runFrameworkSchemaEnsures(
       "runFrameworkSchemaEnsures must run inside withMigrationRuntime(); outside it no store is migrated.",
     );
   }
+  const pass =
+    ensures === FRAMEWORK_SCHEMA_ENSURES
+      ? await orderedFrameworkEnsures()
+      : ensures;
   await withStoreMigrationLock(async () => {
-    for (const [name, run] of ensures) {
+    for (const [name, run] of pass) {
       try {
         await run();
       } catch (err) {

@@ -2,6 +2,163 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub 폴더 연결",
+  githubNewCollectionTitle: "GitHub 폴더로 새 컬렉션 만들기",
+  githubLinkDescription:
+    "폴더의 문서가 여기에 보기 전용 페이지로 표시되며, GitHub에서 파일이 바뀌면 자동으로 업데이트됩니다.",
+  githubNewCollectionDescription:
+    "Content가 폴더 이름으로 컬렉션을 만듭니다. 폴더의 문서가 그 컬렉션에 보기 전용 페이지로 표시되며, GitHub에서 파일이 바뀌면 자동으로 업데이트됩니다.",
+  githubLinkUrlLabel: "GitHub 폴더 링크",
+  githubLinkUrlHelp: "GitHub에서 폴더를 연 다음 브라우저의 주소를 복사하세요.",
+  githubLinkCheck: "폴더 확인",
+  githubLinkReading: "GitHub에서 폴더를 읽는 중…",
+  githubConnectChecking: "GitHub 연동 상태를 확인하는 중…",
+  githubConnectPrompt:
+    "Content가 폴더를 읽을 수 있도록 GitHub 계정을 연동하세요.",
+  githubConnect: "GitHub 연동",
+  githubPreviewPagesOne: "페이지 1개",
+  githubPreviewPages: "페이지 {{count}}개",
+  githubPreviewPagesUpTo: "페이지 최대 {{count}}개",
+  githubLinkMore: "기타 {{count}}개",
+  githubLinkNoFiles:
+    "이 폴더에는 Markdown (.md) 파일이 없어 표시할 내용이 없습니다.",
+  githubPreviewColumnsOne: "열 1개",
+  githubPreviewColumns: "열 {{count}}개",
+  githubLinkNoColumns:
+    "이 파일들은 맨 위에 세부 정보가 없어 각 페이지에 제목만 들어갑니다.",
+  githubLinkNotShownOne: "파일 1개는 아직 표시되지 않습니다.",
+  githubLinkNotShown: "파일 {{count}}개는 아직 표시되지 않습니다.",
+  githubLinkPicturesWaiting:
+    "이 파일들의 이미지는 워크스페이스 관리자가 파일 저장소를 설정해야 표시됩니다.",
+  githubShowDetails: "세부 정보 보기",
+  githubHideDetails: "세부 정보 숨기기",
+  githubDetailsPages: "페이지",
+  githubDetailsColumns: "열",
+  githubDetailsColumnsSampled:
+    "파일 {{total}}개 중 처음 {{count}}개에서 읽었습니다. 다른 파일에서 열이 더 추가될 수 있습니다.",
+  githubDetailsNotShown: "아직 표시되지 않는 파일",
+  githubDetailsFrom: "출처",
+  githubDetailsBranchVersion: "{{branch}} 브랜치 · 버전 {{commit}}",
+  githubYes: "예",
+  githubNo: "아니요",
+  githubSkipMdx: "MDX를 사용해서 Content에서 아직 표시할 수 없습니다",
+  githubSkipTooLarge: "너무 커서 Content에서 표시할 수 없습니다",
+  githubSkipNotText: "Content가 읽을 수 있는 텍스트 파일이 아닙니다",
+  githubLinkSubmitOne: "페이지 1개 연결",
+  githubLinkSubmit: "페이지 {{count}}개 연결",
+  githubLinkSubmitUpTo: "페이지 최대 {{count}}개 연결",
+  githubLinking: "연결하는 중…",
+  githubLinkingProgressOne: "GitHub에서 페이지 1개를 가져오는 중…",
+  githubLinkingProgress: "GitHub에서 페이지 {{count}}개를 가져오는 중…",
+  githubLinkedToastOne:
+    "연결했습니다. {{folder}}의 페이지 1개가 추가되었습니다.",
+  githubLinkedToast:
+    "연결했습니다. {{folder}}의 페이지 {{count}}개가 추가되었습니다.",
+  githubLinkedPartialToast:
+    "연결했습니다. 페이지 {{total}}개 중 {{done}}개가 추가되었고, 나머지는 1분 안에 추가됩니다.",
+  githubLinkedSyncFailed:
+    "{{folder}} 폴더를 연결했지만 아직 페이지를 가져오지 못했습니다.",
+  githubLinkInvalidUrl:
+    "GitHub 폴더 링크가 아닙니다. GitHub에서 폴더를 연 다음 브라우저의 주소를 복사하세요.",
+  githubLinkFileUrl: "파일 하나의 링크입니다.",
+  githubLinkUseFolder: "“{{folder}}” 폴더 사용",
+  githubLinkRepositoryNotFound:
+    "“{{repo}}” 저장소를 열 수 없습니다. 철자를 확인하거나 내 GitHub 계정에서 볼 수 있는지 확인하세요.",
+  githubLinkBranchNotFound:
+    "{{repo}}에 “{{branch}}” 브랜치가 없습니다. 링크를 확인하세요.",
+  githubLinkFolderNotFound:
+    "{{repo}}에 “{{folder}}” 폴더가 없습니다. 링크를 확인하세요.",
+  githubLinkForbidden:
+    "내 GitHub 계정으로는 “{{repo}}” 저장소를 열 수 없습니다. 소유자에게 접근 권한을 요청하세요.",
+  githubLinkTooLarge:
+    "이 폴더에는 파일이 {{max}}개보다 많습니다. 그 안에 있는 더 작은 폴더를 선택하세요.",
+  githubLinkUnavailable:
+    "지금은 GitHub에 접속할 수 없습니다. 1분 뒤에 다시 시도하세요.",
+  githubLinkBlockedHasRows:
+    "이 컬렉션에는 이미 페이지가 있어 GitHub 폴더로 채울 수 없습니다.",
+  githubLinkBlockedLinked:
+    "이 컬렉션은 이미 다른 앱에서 페이지를 가져오고 있습니다.",
+  githubLinkBlockedSystem: "이 컬렉션에는 GitHub 폴더를 표시할 수 없습니다.",
+  githubNewCollectionInstead: "GitHub에서 새 컬렉션 만들기",
+  githubRowAvailable: "GitHub 폴더의 문서를 여기에 표시",
+  githubRowConnectFirst: "먼저 GitHub 계정을 연동하세요",
+  githubRowEmptyOnly: "빈 컬렉션에서만 사용 가능",
+  githubRowOtherSource: "이미 {{source}}에서 페이지를 가져오고 있음",
+  githubRowFiles: "“파일”에서는 사용할 수 없음",
+  githubRowSystem: "이 컬렉션에서는 사용할 수 없음",
+  githubRowEditorsOnly: "편집자 전용",
+  githubRowLinked: "{{folder}} 폴더 · {{time}} 업데이트됨",
+  githubRowLinkedNotUpdated: "{{folder}} 폴더 · 아직 업데이트되지 않음",
+  githubRowUnavailableWhileLinked: "GitHub에 연결된 동안에는 사용할 수 없음",
+  githubExplainHasPagesOne:
+    "GitHub 폴더는 컬렉션 전체를 채우므로 페이지가 없는 컬렉션이 필요합니다. 이 컬렉션에는 페이지가 1개 있습니다.",
+  githubExplainHasPages:
+    "GitHub 폴더는 컬렉션 전체를 채우므로 페이지가 없는 컬렉션이 필요합니다. 이 컬렉션에는 페이지가 {{count}}개 있습니다.",
+  githubExplainOtherSource:
+    "컬렉션은 한 곳에서만 페이지를 가져옵니다. 이 컬렉션은 {{source}}에서 가져오고 있습니다.",
+  githubExplainFiles: "“파일” 컬렉션에는 GitHub 폴더를 표시할 수 없습니다.",
+  githubExplainSystem: "이 컬렉션에는 GitHub 폴더를 표시할 수 없습니다.",
+  githubExplainEditorsOnly:
+    "이 컬렉션을 편집할 수 있는 사람만 GitHub 폴더를 연결할 수 있습니다. 소유자에게 편집 권한을 요청하세요.",
+  githubExplainLinked:
+    "이 컬렉션의 페이지는 GitHub에서 가져옵니다. 다른 소스를 사용하려면 폴더 연결을 해제하세요.",
+  githubDetailFolder: "폴더",
+  githubDetailBranch: "브랜치",
+  githubDetailVersion: "버전",
+  githubDetailUpdated: "마지막 업데이트",
+  githubCheckForUpdates: "업데이트 확인",
+  githubOpenFolder: "GitHub에서 열기",
+  githubUnlinkFolder: "폴더 연결 해제…",
+  githubUnlinkTitle: "이 GitHub 폴더의 연결을 해제할까요?",
+  githubUnlinkBodyOne:
+    "페이지 1개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. GitHub의 변경 사항은 더 이상 들어오지 않습니다. 나중에 이 폴더를 다시 연결하려면 새 컬렉션을 사용해야 합니다.",
+  githubUnlinkBody:
+    "페이지 {{count}}개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. GitHub의 변경 사항은 더 이상 들어오지 않습니다. 나중에 이 폴더를 다시 연결하려면 새 컬렉션을 사용해야 합니다.",
+  githubUnlink: "연결 해제",
+  githubUnlinking: "연결 해제하는 중…",
+  githubUnlinkedToast:
+    "연결을 해제했습니다. 페이지는 그대로 남아 있으며 이제 편집할 수 있습니다.",
+  githubUnlinkFailed: "폴더 연결을 해제하지 못했습니다",
+  githubFromFolder: "GitHub의 {{folder}} 폴더에서 가져옴",
+  githubFromRepo: "GitHub의 {{repo}}에서 가져옴",
+  githubUpdatedAgo: "{{time}} 업데이트됨",
+  githubJustNow: "방금",
+  githubNotUpdatedYet: "아직 업데이트되지 않음",
+  githubEditOnGitHub: "GitHub에서 편집",
+  githubDetails: "세부 정보",
+  githubNotShownOne: "파일 1개 표시 안 됨",
+  githubNotShown: "파일 {{count}}개 표시 안 됨",
+  githubNotShownHeading: "표시되지 않음",
+  githubShowingAsOf: "{{time}} 기준 페이지를 표시하고 있습니다.",
+  githubSyncingProgress:
+    "변경 사항을 가져오는 중: 파일 {{total}}개 중 {{done}}개",
+  githubPicturesWaiting:
+    "일부 이미지는 워크스페이스 관리자가 파일 저장소를 설정해야 표시됩니다.",
+  githubPicturesNotSaved:
+    "일부 이미지를 파일 저장소에 저장하지 못했습니다. 동기화할 때마다 다시 시도합니다.",
+  githubReconnect: "GitHub 다시 연동",
+  githubProblemConnection: "업데이트 중지됨: GitHub에 다시 로그인해야 합니다.",
+  githubProblemForbidden:
+    "업데이트 중지됨: 지금은 내 GitHub 계정으로 이 저장소를 열 수 없습니다. 소유자에게 접근 권한을 요청하세요.",
+  githubProblemRepositoryNotFound:
+    "업데이트 중지됨: 저장소가 이동되었거나 이름이 바뀌었거나 비공개로 전환되었습니다.",
+  githubProblemBranchNotFound:
+    "업데이트 중지됨: GitHub에서 “{{branch}}” 브랜치가 사라졌습니다.",
+  githubProblemFolderNotFound:
+    "업데이트 중지됨: 해당 브랜치에서 “{{folder}}” 폴더가 사라졌습니다.",
+  githubProblemPaused: "업데이트가 잠시 멈췄습니다. 자동으로 다시 시작됩니다.",
+  githubProblemTooLarge:
+    "업데이트 중지됨: 이제 폴더의 파일이 {{max}}개를 넘습니다.",
+  githubProblemStorageUnavailable:
+    "워크스페이스 관리자가 파일 저장소를 설정해야 이미지가 표시됩니다.",
+  githubAlreadyUpToDate: "최신 상태입니다.",
+  githubSyncedToastOne: "업데이트했습니다. 페이지 1개가 변경되었습니다.",
+  githubSyncedToast: "업데이트했습니다. 페이지 {{count}}개가 변경되었습니다.",
+  githubSyncPartialToast:
+    "업데이트 중: 지금까지 파일 {{total}}개 중 {{done}}개 완료.",
+  githubSyncBusy:
+    "이미 업데이트를 확인하고 있습니다. 완료되면 변경 사항이 표시됩니다.",
+  emptyCollectionSourceHint: "또는 소스로 채우기",
   formChecked: "선택됨",
   formChooseOption: "옵션 선택",
   formDescription: "아래 질문에 답하여 이 컬렉션에 페이지를 추가하세요.",
@@ -22,6 +179,39 @@ const database = {
   formSubmitted: "응답 제출됨",
   formSubmittedDescription: "새 컬렉션 페이지가 준비되었습니다.",
   formSubmitting: "제출 중...",
+  listRows: "행",
+  listRowsDescription:
+    "프리셋을 고르거나 행의 각 부분에 표시할 내용을 선택하세요.",
+  listRowsEdit: "행 편집",
+  listRowsDone: "완료",
+  listRowsEditOnList: "목록에서 편집",
+  listRowsEditHint: "행의 아무 부분이나 클릭해 변경하세요.",
+  listRowsPresetDefault: "기본값",
+  listRowsPresetChecklist: "체크리스트",
+  listRowsPresetReminders: "미리 알림",
+  listRowsPresetTracker: "트래커",
+  listRowsPresetDigest: "요약",
+  listRowsNeedsCheckbox: "체크박스 속성이 필요합니다",
+  listRowsNeedsStatus: "상태 속성이 필요합니다",
+  listRowsStart: "시작",
+  listRowsTitle: "제목",
+  listRowsLine2: "2번째 줄",
+  listRowsLine3: "3번째 줄",
+  listRowsEnd: "끝",
+  listRowsEndHint: "좁은 화면에서는 제목 아래로 이동합니다.",
+  listRowsChangeSlot: "{{slot}} 변경",
+  listRowsAddSlot: "{{slot}} 추가",
+  listRowsPageIcon: "페이지 아이콘",
+  listRowsCheckbox: "체크박스",
+  listRowsStatus: "상태",
+  listRowsRegular: "보통",
+  listRowsMedium: "중간",
+  listRowsBold: "굵게",
+  listRowsNothing: "없음",
+  listRowsPageText: "페이지 텍스트",
+  listRowsOneLine: "1줄",
+  listRowsLineCount: "{{count}}줄",
+  listRowsNoStatus: "상태 없음",
   addARowTo: "행 추가 대상…",
   addASource: "소스 추가",
   aField: "필드",
@@ -345,7 +535,7 @@ const databaseExactEnglish = {
   sortRowsBy: "排序行依据",
   startDate: "开始日期",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "此集合是本地的。连接来源以将其列映射到这些行。",
+    "다른 앱에서 이 컬렉션으로 페이지를 가져옵니다.",
   thisPropertyHasNoOptionsYet: "此属性还没有选项。",
   thisSourceIsNoLongerConnected: "此来源已不再连接。",
 };
@@ -401,6 +591,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "보기 전용. 이 페이지는 GitHub의 파일을 따르며 푸시할 때마다 업데이트됩니다.",
+  githubSourceOpenFile: "GitHub에서 열기",
   textColor: "텍스트 색상",
   backgroundColor: "배경색",
   defaultColor: "기본값",
@@ -420,8 +613,8 @@ const editor = {
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
   registryBlockUnreadable: "저장된 블록 소스를 읽을 수 없습니다.",
-  blocksFieldRevisionConflict:
-    "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
+  blocksFieldEditMovedToEnd:
+    "이 블록 필드가 다른 곳에서도 변경되었습니다. 같은 위치에 입력한 텍스트는 필드 끝으로 옮겨졌습니다.",
   reconcileConflict:
     "이 페이지가 다른 곳에서 변경되었습니다. 편집 내용은 아직 저장되지 않았습니다.",
   reconcileFailed:
@@ -509,6 +702,7 @@ const editor = {
     imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
     imageLinkHint: "웹의 모든 이미지와 함께 작동합니다.",
     imagePreview: "이미지 미리보기",
+    imageUnavailable: "이미지를 사용할 수 없음",
     imageView: "이미지 보기",
     link: "링크",
     loadingAssetsPicker: "자산 선택기 로드 중",
@@ -956,6 +1150,9 @@ const comments = {
   ...commentAttributionMessagesByLocale["ko-KR"],
   selectTextToComment: "댓글을 추가할 텍스트 선택",
   replyCount_other: "답글 {{count}}개",
+  stackCollapse: "접기",
+  stackShowAll_other: "여기 있는 댓글 {{count}}개 모두 보기",
+  stackMore: "+{{count}}개 더",
   commentActions: "댓글 작업",
   checkSaved: "저장된 댓글 확인",
   edit: "수정",
@@ -968,6 +1165,13 @@ const comments = {
   hideIndicators: "댓글과 강조 표시 숨기기",
   showIndicators: "댓글과 강조 표시 보기",
   unanchored: "강조 표시를 사용할 수 없음",
+  propertyEmpty: "비어 있음",
+  propertyRemoved: "{{name}} (삭제됨)",
+  propertyWas: "이전: {{value}}",
+  commentOnProperty: "{{name}}에 댓글 달기",
+  openPropertyComments_other: "{{name}}의 열린 댓글 {{count}}개",
+  openRowComments_other: "{{title}}의 열린 댓글 {{count}}개",
+  openRow: "행 열기",
   suggestions: "제안",
   suggestionAdd: "추가",
   suggestionDelete: "삭제",
@@ -977,6 +1181,10 @@ const comments = {
   proposalEditCount_other: "편집 {{count}}개",
   acceptRemaining: "나머지 수락",
   rejectRemaining: "나머지 거절",
+  acceptAll: "모두 수락",
+  rejectAll: "모두 거절",
+  suggestionReviewReadOnly:
+    "이 페이지를 편집할 수 있는 사용자만 제안을 수락하거나 거절할 수 있습니다.",
   typeFilter: "유형",
   statusFilter: "상태",
   authorFilter: "사용자",
@@ -988,6 +1196,10 @@ const comments = {
   accepted: "수락됨",
   rejected: "거부됨",
   noFilteredComments: "일치하는 댓글이 없습니다.",
+  tabFilter: "탭",
+  allTabs: "모든 탭",
+  fieldRemoved: "{{name}} (삭제됨)",
+  pageBody: "페이지 본문",
 };
 
 const reviewDiscussions = {
@@ -1173,6 +1385,7 @@ const history = {
   historyGroupAgent: "에이전트 실행",
   historyGroupHuman: "편집 세션",
   historyGroupLegacy: "이전 편집",
+  historyGroupGitHub: "GitHub에서 동기화됨",
   historyGroupOperation: "작업",
   historyGroupRestore: "복원",
   historyLoadError: "버전 기록을 불러오지 못했습니다.",
@@ -1390,12 +1603,33 @@ const overrides = {
     plainText: "일반 텍스트",
     searchLanguages: "언어 검색...",
     noBlocksFields: "Blocks 필드가 없습니다. 속성 메뉴에서 추가하세요.",
-    reorderField: "{{name}} 순서 변경",
-    toggleField: "{{name}} 전환",
+    addBlockField: "필드 추가",
+    blockFieldChanged: "마지막으로 본 이후 변경됨",
+    blockFieldTabs: "필드",
+    blockFieldOpenComments_other: "열린 댓글 {{count}}개",
+    blockFieldMenu: "{{name}} 옵션",
+    blockFieldMenuScope: "이 컬렉션의 모든 행에 공통",
+    blockFieldName: "필드 이름",
+    renameBlockField: "이름 바꾸기",
+    renameBlockFieldFailed: "필드 이름을 바꾸지 못했습니다",
+    deleteBlockField: "삭제",
+    deleteBlockFieldFailed: "필드를 삭제하지 못했습니다",
+    deleteBlockFieldQuestion: "‘{{name}}’을(를) 삭제할까요?",
+    deleteBlockFieldDescription:
+      "이 컬렉션의 모든 행에서 ‘{{name}}’과(와) 그 텍스트가 삭제됩니다. 되돌릴 수 없습니다.",
+    deleteBlockFieldBodyWarning:
+      "‘{{name}}’은(는) 페이지 본문이므로 모든 행의 본문 텍스트도 삭제됩니다.",
   },
   comments: {
     add: "댓글 추가...",
     cancel: "취소",
+    discardCommentQuestion: "작성 중인 댓글을 버릴까요?",
+    discardReplyQuestion: "작성 중인 답글을 버릴까요?",
+    discardEditQuestion: "변경 사항을 버릴까요?",
+    discardDescription: "작성한 내용이 사라집니다.",
+    discardEditDescription: "댓글은 원래대로 유지됩니다.",
+    discard: "버리기",
+    keepEditing: "계속 편집",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",

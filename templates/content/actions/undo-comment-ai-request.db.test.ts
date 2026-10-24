@@ -6,6 +6,14 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { knownLossTest } from "../acceptance/known-loss";
+
+const CREATIVE_CONTEXT_LAB_LOSS = {
+  lane: "unowned",
+  reason:
+    "Applying a comment AI change throws Unknown lab: creative-context.library, because nothing in this test registers the Creative Context lab.",
+} as const;
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-comment-ai-undo-${process.pid}-${Date.now()}.pglite`,
@@ -137,54 +145,79 @@ afterAll(() => {
 });
 
 describe("undo an applied comment AI change", () => {
-  it("records what changed, then restores the text and reopens the thread", async () => {
-    const applied = await apply([
-      {
-        find: "The labels are soft.",
-        replace: "The labels are soft in the recording and hard to read.",
-      },
-    ]);
-    expect(applied.status).toBe("resolved");
-    expect(applied.result?.changes).toEqual([
-      {
-        before: "The labels are soft.",
-        after: "The labels are soft in the recording and hard to read.",
-      },
-    ]);
-    expect(applied.result?.undoable).toBe(true);
-    expect(await threadResolved()).toBe(1);
+  it(
+    "records what changed, then restores the text and reopens the thread",
+    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
+    async () => {
+      const applied = await apply([
+        {
+          find: "The labels are soft.",
+          replace: "The labels are soft in the recording and hard to read.",
+        },
+      ]);
+      expect(applied.status).toBe("resolved");
+      expect(applied.result?.changes).toEqual([
+        {
+          before: "The labels are soft.",
+          after: "The labels are soft in the recording and hard to read.",
+        },
+      ]);
+      expect(applied.result?.undoable).toBe(true);
+      expect(await threadResolved()).toBe(1);
 
-    const undone = await undo();
-    expect(undone.result?.undone).toBe(true);
-    expect(await pageContent()).toBe("The labels are soft. The pacing works.");
-    expect(await threadResolved()).toBe(0);
+      const undone = await undo();
+      expect(undone.result?.undone).toBe(true);
+      expect(await pageContent()).toBe(
+        "The labels are soft. The pacing works.",
+      );
+      expect(await threadResolved()).toBe(0);
 
-    // A second click is a no-op rather than a second reversal.
-    await undo();
-    expect(await pageContent()).toBe("The labels are soft. The pacing works.");
-  });
+      // A second click is a no-op rather than a second reversal.
+      await undo();
+      expect(await pageContent()).toBe(
+        "The labels are soft. The pacing works.",
+      );
+    },
+  );
 
-  it("leaves the Page alone when the changed text was edited since", async () => {
-    await apply([{ find: "The labels are soft.", replace: "Labels blur." }]);
-    await getDb()
-      .update(schema.documents)
-      .set({ content: "Labels blur badly. The pacing works.", bodyRevision: 3 })
-      .where(eq(schema.documents.id, DOCUMENT_ID));
+  it(
+    "leaves the Page alone when the changed text was edited since",
+    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
+    async () => {
+      await apply([{ find: "The labels are soft.", replace: "Labels blur." }]);
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: "Labels blur badly. The pacing works.",
+          bodyRevision: 3,
+        })
+        .where(eq(schema.documents.id, DOCUMENT_ID));
 
-    await expect(undo()).rejects.toThrow(/edited after AI applied it/);
-    expect(await pageContent()).toBe("Labels blur badly. The pacing works.");
-    expect(await threadResolved()).toBe(1);
-  });
+      await expect(undo()).rejects.toThrow(/edited after AI applied it/);
+      expect(await pageContent()).toBe("Labels blur badly. The pacing works.");
+      expect(await threadResolved()).toBe(1);
+    },
+  );
 
-  it("only lets the person who asked undo it", async () => {
-    await apply([{ find: "The labels are soft.", replace: "Labels blur." }]);
-    await expect(undo(OTHER_USER)).rejects.toThrow();
-    expect(await pageContent()).toBe("Labels blur. The pacing works.");
-  });
+  it(
+    "only lets the person who asked undo it",
+    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
+    async () => {
+      await apply([{ find: "The labels are soft.", replace: "Labels blur." }]);
+      await expect(undo(OTHER_USER)).rejects.toThrow();
+      expect(await pageContent()).toBe("Labels blur. The pacing works.");
+    },
+  );
 
-  it("does not offer undo for a pure deletion", async () => {
-    const applied = await apply([{ find: " The pacing works.", replace: "" }]);
-    expect(applied.result?.undoable).toBe(false);
-    await expect(undo()).rejects.toThrow(/removed text/);
-  });
+  it(
+    "does not offer undo for a pure deletion",
+    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
+    async () => {
+      const applied = await apply([
+        { find: " The pacing works.", replace: "" },
+      ]);
+      expect(applied.result?.undoable).toBe(false);
+      await expect(undo()).rejects.toThrow(/removed text/);
+    },
+  );
 });

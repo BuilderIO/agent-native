@@ -7,6 +7,7 @@ import {
   EDGE_HANDLE_HIT_OUTWARD_PX,
   getCornerHandleGeometry,
   getEdgeHandleHitGeometry,
+  getEdgeOutwardReachClearOf,
   HANDLE_MAX_INWARD_FRACTION,
 } from "./handle-hit-zones";
 
@@ -123,5 +124,49 @@ describe("getCornerHandleGeometry", () => {
         expect(inwardY).toBeLessThan(height / 2);
       }
     }
+  });
+});
+
+describe("getEdgeOutwardReachClearOf", () => {
+  const frame = { x: 0, y: 0, width: 1440, height: 1024 };
+
+  it("keeps the full outward reach when no label row is near an edge", () => {
+    expect(
+      getEdgeOutwardReachClearOf(
+        frame,
+        [{ x: 0, y: 1400, width: 1440, height: 147 }],
+        37,
+      ),
+    ).toEqual({ n: 37, s: 37, e: 37, w: 37 });
+  });
+
+  it("stops the south band at the label row of the Screen below", () => {
+    expect(
+      getEdgeOutwardReachClearOf(
+        frame,
+        [{ x: 0, y: 1044, width: 1440, height: 147 }],
+        37,
+      ).s,
+    ).toBe(20);
+  });
+
+  it("drops the south band when the label row reaches into the frame", () => {
+    expect(
+      getEdgeOutwardReachClearOf(
+        frame,
+        [{ x: 0, y: 970, width: 1440, height: 147 }],
+        37,
+      ).s,
+    ).toBe(0);
+  });
+
+  it("stops the east band at a label row beside the frame", () => {
+    expect(
+      getEdgeOutwardReachClearOf(
+        frame,
+        [{ x: 1450, y: 100, width: 1440, height: 147 }],
+        37,
+      ).e,
+    ).toBe(10);
   });
 });

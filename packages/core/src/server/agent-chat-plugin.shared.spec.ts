@@ -17,10 +17,39 @@ import {
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
   trackAgentChatRunLifecycle,
+  trackAgentChatRunStarted,
 } from "./agent-chat-plugin.js";
 import { runWithRequestContext } from "./request-context.js";
 
 describe("agent chat run lifecycle tracking", () => {
+  it("sends one run_started carrying its turn id", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-started-turn-test",
+      track(event) {
+        if (event.name === "run_started") events.push(event);
+      },
+    });
+    try {
+      trackAgentChatRunStarted(
+        "thread-started-1",
+        "run-started-1",
+        "turn-started-1",
+        "owner@example.com",
+        "slides",
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-started-turn-test");
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({
+      thread_id: "thread-started-1",
+      attempt_id: "run-started-1",
+      turn_id: "turn-started-1",
+    });
+  });
+
   it("keys server run events by durable thread and attempt ids", () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
@@ -758,10 +787,7 @@ describe("agent chat process-run failure finalization", () => {
         status: "running",
       })),
       recordRunDiagnostic: vi.fn(async () => {}),
-      setRunError: vi.fn(async () => {}),
-      setRunTerminalReason: vi.fn(async () => {}),
-      updateRunStatusIfRunning: vi.fn(async () => true),
-      ensureTerminalRunEvent: vi.fn(async () => {}),
+      finalizeClaimedBackgroundRunFailure: vi.fn(async () => true),
     };
   }
 
@@ -781,23 +807,29 @@ describe("agent chat process-run failure finalization", () => {
       "route_threw",
       "setup exploded",
     );
-    expect(d.setRunError).toHaveBeenCalledWith(
+    expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledWith(
       "run-claimed",
-      "background_worker_failed",
-      expect.stringContaining("setup exploded"),
+      {
+        errorCode: "background_worker_failed",
+        errorDetail: expect.stringContaining("setup exploded"),
+        event: CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
+      },
     );
-    expect(d.updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-claimed",
-      "errored",
-    );
-    expect(d.setRunTerminalReason).toHaveBeenCalledWith(
-      "run-claimed",
-      "background_worker_failed",
-    );
-    expect(d.ensureTerminalRunEvent).toHaveBeenCalledWith(
-      "run-claimed",
-      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
-    );
+  });
+
+  it("leaves a run alone when atomic finalization loses to stale reaping", async () => {
+    const d = deps("background-processing");
+    d.finalizeClaimedBackgroundRunFailure.mockResolvedValueOnce(false);
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure(
+        "run-reaped-first",
+        new Error("late setup failure"),
+        d,
+      ),
+    ).resolves.toBe(false);
+
+    expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledTimes(1);
   });
 
   it("leaves unclaimed worker failures recoverable by foreground inline fallback", async () => {
@@ -816,10 +848,7 @@ describe("agent chat process-run failure finalization", () => {
       "route_threw",
       "pre-claim failure",
     );
-    expect(d.setRunError).not.toHaveBeenCalled();
-    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
-    expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
-    expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
+    expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
 
   it("leaves the run untouched when the claim read fails transiently", async () => {
@@ -836,10 +865,7 @@ describe("agent chat process-run failure finalization", () => {
       ),
     ).resolves.toBe(false);
 
-    expect(d.setRunError).not.toHaveBeenCalled();
-    expect(d.setRunTerminalReason).not.toHaveBeenCalled();
-    expect(d.updateRunStatusIfRunning).not.toHaveBeenCalled();
-    expect(d.ensureTerminalRunEvent).not.toHaveBeenCalled();
+    expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
 });
 

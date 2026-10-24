@@ -11,10 +11,15 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
-import { documentContentHash } from "../../actions/_document-edit-mutation.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "../../actions/_document-edit-mutation.js";
+import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
+import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
 import {
   documentAttributionActor,
   documentEditAttribution,
@@ -31,6 +36,11 @@ import {
   liveBodyWriterGateForRow,
 } from "../lib/live-body-writer.js";
 import { syncPrivateCalloutReferences } from "../lib/private-icon-references.js";
+import {
+  rebaselinePageForCanonicalBody,
+  type PageRebaselineReport,
+} from "../lib/suggestion-rebaseline.js";
+import { liveCopyAnchorText } from "./anchor-text.js";
 import { drizzleOverExec } from "./exec-db.js";
 import {
   currentContentBodyWriteCause,
@@ -71,13 +81,21 @@ export function persistedContentBodyCommit(
   return persistedCommits.get(tx);
 }
 
-export type LiveBodyConversionErrorCode = "base_changed" | "flag_off";
+export type LiveBodyConversionErrorCode =
+  | "base_changed"
+  | "flag_off"
+  | "rebaseline_blocked";
 
 export class LiveBodyConversionError extends Error {
   constructor(
     readonly code: LiveBodyConversionErrorCode,
     readonly documentId: string,
     message: string,
+    /** For `rebaseline_blocked`: the suggestions or comments that refused it. */
+    readonly blocked?: Omit<
+      Extract<PageRebaselineReport, { status: "blocked" }>,
+      "status"
+    >,
   ) {
     super(message);
     this.name = "LiveBodyConversionError";
@@ -104,6 +122,9 @@ const pageColumns = {
   orgId: schema.documents.orgId,
   updatedAt: schema.documents.updatedAt,
   trashedAt: schema.documents.trashedAt,
+  sourceMode: schema.documents.sourceMode,
+  sourceRootPath: schema.documents.sourceRootPath,
+  sourcePath: schema.documents.sourcePath,
 };
 
 export type PageRow = {
@@ -118,6 +139,9 @@ export type PageRow = {
   orgId: string | null;
   updatedAt: string;
   trashedAt: string | null;
+  sourceMode: string | null;
+  sourceRootPath: string | null;
+  sourcePath: string | null;
 };
 
 type BlocksFields = Awaited<ReturnType<typeof lockPrimaryBlocksFields>>;
@@ -252,7 +276,7 @@ function writePathChanged(documentId: string, reason: string): never {
   );
 }
 
-// A page in Trash refuses body writes, as update-document refuses them.
+// Live-copy commits bypass update-document's mutation checks.
 function assertEditablePage(page: PageRow): void {
   if (page.trashedAt) {
     throw new ActionContractError("Document not found.", {
@@ -260,6 +284,7 @@ function assertEditablePage(page: PageRow): void {
       statusCode: 404,
     });
   }
+  assertSourceAllowsPageEdit(page);
 }
 
 /**
@@ -276,34 +301,6 @@ export async function lockLiveCopyPage(
   const locked = await lockPageForBodyWrite(drizzleOverExec(tx), documentId);
   if (locked) assertEditablePage(locked.page);
   return locked;
-}
-
-/**
- * The inline-collection reconcile soft-deletes collections the body dropped.
- * One created after the lock pass would be locked after the page, which
- * deadlocks against a Trash of the page: Trash locks it first.
- */
-async function assertInlineDatabasesLocked(
-  db: ContentDb,
-  documentId: string,
-  ownerEmail: string,
-  lockedDatabaseIds: ReadonlySet<string>,
-): Promise<void> {
-  const owned = await db
-    .select({ id: schema.contentDatabases.id })
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.ownerDocumentId, documentId),
-        eq(schema.contentDatabases.ownerEmail, ownerEmail),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-  if (owned.some((database) => !lockedDatabaseIds.has(database.id))) {
-    scopeChanged(
-      "An inline collection was added to the document while it saved. Read the document again and retry.",
-    );
-  }
 }
 
 type EditorHistory =
@@ -443,6 +440,12 @@ async function writeBody(args: {
   liveCopyVersion: number;
   cause: ContentBodyWriteCause | undefined;
   extraColumns?: Partial<typeof schema.documents.$inferInsert>;
+  /**
+   * The conversion commit's re-baseline moves comment quotes from the text
+   * the live copy showed; following them from the stored body as well would
+   * move them twice.
+   */
+  rebaselinesAnchors?: true;
 }): Promise<PersistedContentBodyCommit> {
   const { db, documentId, text, cause } = args;
   const { page, blocksFields, lockedDatabaseIds, lockedMembershipIds } =
@@ -523,19 +526,21 @@ async function writeBody(args: {
         now: updatedAt,
       });
     }
-    await assertInlineDatabasesLocked(
-      db,
-      documentId,
-      page.ownerEmail,
-      lockedDatabaseIds,
-    );
     softDeletedDatabaseIds = await reconcileInlineDatabasesForDocumentWithDb({
       db,
       documentId,
       content: text,
       ownerEmail: page.ownerEmail,
       now: updatedAt,
+      lockedDatabaseIds,
     });
+    if (!args.rebaselinesAnchors) {
+      await followCommentAnchors(args.tx, {
+        documentId,
+        before: page.content,
+        after: text,
+      });
+    }
   }
   if (cause?.intent) {
     await recordBodyIntent(db, documentId, page, cause.intent, {
@@ -559,7 +564,10 @@ async function writeBody(args: {
 /**
  * Switches a page whose live copy now holds `text`. Runs in the transaction
  * that committed the copy, or, when the copy already held the body, in the
- * one core opens for the conversion's own persist.
+ * one core opens for the conversion's own persist. The page's pending
+ * suggestions and comment quotes move onto the new body in the same
+ * transaction; when one of them would lose its target, the switch throws
+ * `rebaseline_blocked` and nothing commits.
  */
 export async function persistLiveBodyConversion(
   tx: DbExec,
@@ -585,7 +593,9 @@ export async function persistLiveBodyConversion(
     );
   }
   assertEditablePage(page);
-  return writeBody({
+  const previousLiveText = await liveCopyAnchorText(tx, conversion.documentId);
+  const now = new Date().toISOString();
+  const committed = await writeBody({
     tx,
     db,
     documentId: conversion.documentId,
@@ -593,8 +603,37 @@ export async function persistLiveBodyConversion(
     text,
     liveCopyVersion,
     cause: currentContentBodyWriteCause(),
-    extraColumns: { liveBodySwitchedAt: new Date().toISOString() },
+    extraColumns: { liveBodySwitchedAt: now },
+    rebaselinesAnchors: true,
   });
+  const rebaseline = await rebaselinePageForCanonicalBody(tx, {
+    documentId: conversion.documentId,
+    stored: page.content,
+    canonical: committed.after,
+    storedRevision: documentRevisionToken(page.bodyRevision, page.content),
+    canonicalRevision: documentRevisionToken(
+      committed.bodyRevision,
+      committed.after,
+    ),
+    previousLiveText,
+    now,
+  });
+  if (rebaseline.status === "moved") {
+    throw new LiveBodyConversionError(
+      "base_changed",
+      conversion.documentId,
+      `Suggestion ${rebaseline.ids.join(", ")} changed while page ${conversion.documentId} was being switched to its live copy.`,
+    );
+  }
+  if (rebaseline.status === "blocked") {
+    throw new LiveBodyConversionError(
+      "rebaseline_blocked",
+      conversion.documentId,
+      `Page ${conversion.documentId} can't be switched to its live copy: ${rebaseline.reason} (${rebaseline.ids.join(", ")}).`,
+      { reason: rebaseline.reason, ids: rebaseline.ids },
+    );
+  }
+  return committed;
 }
 
 /**

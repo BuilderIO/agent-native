@@ -216,8 +216,7 @@ test.describe("layers menu structure operations", () => {
     ).toEqual(ALPHA);
   });
 
-  // fixme: product bug: Alpha nests correctly but renders at 0,-40, above the screen's top edge. The inspector reads X -40px / Y -288px relative to the frame, so
-  test.fixme("dragging onto an empty container reparents inside and persists after reload", async ({
+  test("dragging onto an empty container reparents inside and persists after reload", async ({
     app,
   }) => {
     const page = app.page;

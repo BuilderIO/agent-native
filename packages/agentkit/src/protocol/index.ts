@@ -1075,6 +1075,8 @@ export interface AgentRunSnapshot {
   status: AgentRunStatus;
   lastSequence: number;
   activeMessageId?: string;
+  /** A streaming reply from an earlier run that this run continues. */
+  inheritedMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;
@@ -1089,8 +1091,33 @@ export interface AgentQueuedMessage {
   createdAt: string;
   attachments?: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+}
+
+export interface AgentSubmissionReference {
+  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
+  path: string;
+  name: string;
+  source: string;
+  refType?: string;
+  refId?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentQueuedSubmissionReceipt {
+  state: "queued";
+  message: AgentQueuedMessage;
+  activeRunId?: RunId;
+}
+
+export interface AgentQueuedSubmissionStatus {
+  state: "queued" | "submitted" | "removed" | "expired" | "blocked";
+  submittedRunId?: RunId;
 }
 
 export interface ListThreadsInput {
@@ -1140,16 +1167,55 @@ export interface QueueMessageInput {
   text: string;
   attachments?: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+  /** Compact original submit identity used only to hash the durable receipt. */
+  submissionPayload?: AgentSubmissionPayload;
 }
 
-export interface QueueMessageResult {
-  message: AgentQueuedMessage;
+export interface AgentSubmissionFileIdentity {
+  type: "file";
+  name: string;
+  mediaType?: string;
+  fingerprint: string;
 }
+
+export interface AgentSubmissionRequestAttachmentIdentity {
+  type: "image";
+  name: string;
+  contentType?: string;
+  fingerprint: string;
+}
+
+export interface AgentSubmissionPayload {
+  threadId: ThreadId;
+  id: string;
+  text: string;
+  /** Fingerprints keep original attachment identity without retaining file bodies. */
+  attachments?: AgentSubmissionFileIdentity[];
+  requestAttachments?: AgentSubmissionRequestAttachmentIdentity[];
+  references?: AgentSubmissionReference[];
+  metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+}
+
+export type QueueMessageResult =
+  | {
+      message: AgentQueuedMessage;
+      alreadySubmitted?: false;
+      submittedRunId?: never;
+    }
+  | {
+      message: AgentQueuedMessage;
+      alreadySubmitted: true;
+      submittedRunId: RunId;
+    };
 
 export type SteerQueuedMessageResult =
-  | (StartRunResult & { alreadySubmitted?: true })
+  | (AgentRunStartResult & { alreadySubmitted?: true })
   | { alreadyRemoved: true }
   | void;
 
@@ -1190,6 +1256,10 @@ export interface AgentTransportThreadOperations {
     input: ThreadIdInput,
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage[]>;
+  getQueuedSubmissionStatus?(
+    input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedSubmissionStatus | null>;
   queueMessage?(
     input: QueueMessageInput,
     context?: AgentRequestContext,
@@ -1234,7 +1304,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
   resumeRun?(
     input: ResumeRunInput,
     context?: AgentRequestContext,
-  ): Promise<StartRunResult>;
+  ): Promise<AgentRunStartResult>;
   /**
    * Continues a run that stopped before it finished (a time limit, a crashed
    * worker, an error) as a new run in the same turn, so steps the stopped run
@@ -1243,7 +1313,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
   continueRun?(
     input: ContinueRunInput,
     context?: AgentRequestContext,
-  ): Promise<StartRunResult>;
+  ): Promise<AgentRunStartResult>;
   /**
    * @deprecated Implement {@link resumeRun}. Kept as a source-compatible
    * bridge for protocol-v1 transports while consumers migrate to interrupts.
@@ -1286,9 +1356,12 @@ export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+  /** Original submit payload preserved for durable queue/direct admission dedupe. */
+  submissionPayload?: AgentSubmissionPayload;
   queuePromotion?: {
     messageId: string;
     claimId: string;
@@ -1317,10 +1390,19 @@ export interface ContinueRunInput {
   attachments?: FilePart[];
 }
 
-export interface StartRunResult {
+export interface AgentRunStartResult {
   runId: RunId;
   capabilities?: AgentCapabilities;
+  queuedSubmission?: never;
 }
+
+export type StartRunResult =
+  | AgentRunStartResult
+  | {
+      queuedSubmission: AgentQueuedSubmissionReceipt;
+      capabilities?: AgentCapabilities;
+      runId?: never;
+    };
 
 export interface SubscribeToRunInput {
   threadId: ThreadId;
@@ -1395,6 +1477,7 @@ export interface AgentProtocolEnvelope<TPayload = unknown> {
 }
 
 export * from "./validation.js";
+export * from "./submission-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./errors.js";
 export * from "./agui.js";

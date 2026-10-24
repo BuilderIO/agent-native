@@ -1,6 +1,7 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   IconDots,
+  IconLink,
   IconPencil,
   IconPinned,
   IconPinnedOff,
@@ -9,7 +10,15 @@ import {
 } from "@tabler/icons-react";
 import React, { useMemo, useRef, useState } from "react";
 
+import { Skeleton, Tooltip } from "../design-system/components.js";
 import { cn } from "../utils.js";
+
+/** How the viewer got access to a chat; the app supplies the translated copy. */
+export type ChatHistoryAccessBasis =
+  | "owner"
+  | "direct"
+  | "organization"
+  | "public";
 
 export interface ChatHistoryItem {
   id: string;
@@ -17,15 +26,42 @@ export interface ChatHistoryItem {
   titleText?: string;
   subtitle?: React.ReactNode;
   detail?: React.ReactNode;
+  /**
+   * A shared row's owner mark, kept on one line beside the timestamp. Hovering
+   * it shows `ownerLabel` and `accessLabel`, which also head the row menu.
+   */
+  ownerAvatar?: React.ReactNode;
+  /** Already-translated owner name for a shared row. */
+  ownerLabel?: React.ReactNode;
+  /** Already-translated access description, e.g. "Shared with you". */
+  accessLabel?: React.ReactNode;
+  accessBasis?: ChatHistoryAccessBasis;
   timestamp?: React.ReactNode;
   pinned?: boolean;
   disabled?: boolean;
+  /**
+   * The viewer can open the chat but not rename, pin or delete it, e.g. a chat
+   * someone shared. The menu keeps the owner header and Copy link.
+   */
+  readOnly?: boolean;
+  /**
+   * Presentation only: drops the row menu and context menu while the row stays
+   * selectable, e.g. for a draft that has not been saved yet.
+   */
+  hideActions?: boolean;
 }
 
 export interface ChatHistorySection {
   id: string;
   label?: React.ReactNode;
   items: ChatHistoryItem[];
+  /** Section-level states; the section stays visible while any is set. */
+  /** Initial load: skeleton rows until the first rows arrive. */
+  loading?: boolean;
+  /** Shown above any rows already loaded: a failed load never reads as empty. */
+  error?: React.ReactNode;
+  emptyLabel?: React.ReactNode;
+  footer?: React.ReactNode;
 }
 
 export interface ChatHistoryListLabels {
@@ -34,6 +70,7 @@ export interface ChatHistoryListLabels {
   rename: string;
   pin: string;
   unpin: string;
+  copyLink: string;
   delete: string;
 }
 
@@ -47,6 +84,8 @@ export interface ChatHistoryListProps {
   onRename?: (id: string, nextTitle: string) => void;
   renameMaxLength?: number;
   onDelete?: (id: string) => void;
+  /** Shown on every row, read-only ones included. */
+  onCopyLink?: (id: string) => void;
   renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
   renderAdditionalRowActions?: (
     item: ChatHistoryItem,
@@ -79,6 +118,7 @@ const DEFAULT_LABELS: ChatHistoryListLabels = {
   rename: "Rename",
   pin: "Pin to top",
   unpin: "Unpin from top",
+  copyLink: "Copy link",
   delete: "Delete",
 };
 
@@ -92,6 +132,7 @@ export function ChatHistoryList({
   onRename,
   renameMaxLength,
   onDelete,
+  onCopyLink,
   renderRowActions,
   renderAdditionalRowActions,
   searchValue,
@@ -116,9 +157,11 @@ export function ChatHistoryList({
       rename: labels?.rename ?? DEFAULT_LABELS.rename,
       pin: labels?.pin ?? DEFAULT_LABELS.pin,
       unpin: labels?.unpin ?? DEFAULT_LABELS.unpin,
+      copyLink: labels?.copyLink ?? DEFAULT_LABELS.copyLink,
       delete: labels?.delete ?? DEFAULT_LABELS.delete,
     }),
     [
+      labels?.copyLink,
       labels?.delete,
       labels?.options,
       labels?.pin,
@@ -134,6 +177,9 @@ export function ChatHistoryList({
     0,
   );
   const hasSearchValue = Boolean(searchValue?.trim());
+  const hasSectionState = resolvedSections.some((section) =>
+    sectionHasState(section, hasSearchValue),
+  );
 
   return (
     <div
@@ -165,20 +211,54 @@ export function ChatHistoryList({
           </div>
         ) : loading ? (
           <div className="an-chat-history__state">{loadingLabel}</div>
-        ) : totalCount === 0 ? (
+        ) : totalCount === 0 && !hasSectionState ? (
           <div className="an-chat-history__state">
             {hasSearchValue ? emptySearchLabel : emptyLabel}
           </div>
         ) : (
           resolvedSections.map(
             (section) =>
-              section.items.length > 0 && (
-                <div key={section.id} className="an-chat-history__section">
+              (section.items.length > 0 ||
+                sectionHasState(section, hasSearchValue)) && (
+                <div
+                  key={section.id}
+                  className="an-chat-history__section"
+                  data-section-id={section.id}
+                >
                   {section.label && (
                     <div className="an-chat-history__section-label">
                       {section.label}
                     </div>
                   )}
+                  {section.error ? (
+                    <div
+                      className="an-chat-history__state an-chat-history__state--error"
+                      role="alert"
+                    >
+                      {section.error}
+                    </div>
+                  ) : section.loading && section.items.length === 0 ? (
+                    <div
+                      className="an-chat-history__skeletons"
+                      aria-busy="true"
+                      data-testid="chat-history-section-skeleton"
+                    >
+                      {["100%", "80%", "60%"].map((width) => (
+                        <Skeleton
+                          key={width}
+                          shape="line"
+                          width={width}
+                          height={12}
+                        />
+                      ))}
+                    </div>
+                  ) : section.items.length === 0 &&
+                    !hasSearchValue &&
+                    section.emptyLabel ? (
+                    <div className="an-chat-history__state">
+                      {section.emptyLabel}
+                    </div>
+                  ) : null}
                   {section.items.map((item) => (
                     <ChatHistoryRow
                       key={item.id}
@@ -190,11 +270,13 @@ export function ChatHistoryList({
                       onRename={onRename}
                       renameMaxLength={renameMaxLength}
                       onDelete={onDelete}
+                      onCopyLink={onCopyLink}
                       renderRowActions={renderRowActions}
                       renderAdditionalRowActions={renderAdditionalRowActions}
                       labels={resolvedLabels}
                     />
                   ))}
+                  {section.footer}
                 </div>
               ),
           )
@@ -202,6 +284,18 @@ export function ChatHistoryList({
         {footer}
       </div>
     </div>
+  );
+}
+
+function sectionHasState(
+  section: ChatHistorySection,
+  searching: boolean,
+): boolean {
+  return Boolean(
+    section.loading ||
+    section.error ||
+    (!searching && section.emptyLabel) ||
+    section.footer,
   );
 }
 
@@ -214,6 +308,7 @@ type ChatHistoryRowProps = {
   onRename?: (id: string, nextTitle: string) => void;
   renameMaxLength?: number;
   onDelete?: (id: string) => void;
+  onCopyLink?: (id: string) => void;
   renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
   renderAdditionalRowActions?: (
     item: ChatHistoryItem,
@@ -221,6 +316,21 @@ type ChatHistoryRowProps = {
   ) => React.ReactNode;
   labels: ChatHistoryListLabels;
 };
+
+function ChatHistoryOwnerSummary({ item }: { item: ChatHistoryItem }) {
+  return (
+    <span className="an-chat-history-owner">
+      {item.ownerLabel != null && (
+        <span className="an-chat-history-owner__name">{item.ownerLabel}</span>
+      )}
+      {item.accessLabel != null && (
+        <span className="an-chat-history-owner__access">
+          {item.accessLabel}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const ChatHistoryRow = React.memo(function ChatHistoryRow({
   item,
@@ -231,6 +341,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   onRename,
   renameMaxLength,
   onDelete,
+  onCopyLink,
   renderRowActions,
   renderAdditionalRowActions,
   labels,
@@ -240,13 +351,16 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
-  const hasMenu = Boolean(
-    onTogglePin ||
-    onRename ||
-    onDelete ||
-    renderRowActions ||
-    renderAdditionalRowActions,
-  );
+  const editable = !item.readOnly;
+  const hasOwner = item.ownerLabel != null || item.accessLabel != null;
+  const hasMenu =
+    !item.hideActions &&
+    Boolean(
+      (editable && (onTogglePin || onRename || onDelete)) ||
+      onCopyLink ||
+      renderRowActions ||
+      renderAdditionalRowActions,
+    );
 
   function startRename() {
     setDraftTitle(item.titleText ?? "");
@@ -325,6 +439,22 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
         >
           <div className="an-chat-history-row__topline">
             <span className="an-chat-history-row__title">{item.title}</span>
+            {item.ownerAvatar != null && (
+              <Tooltip
+                trigger={
+                  <span
+                    className="an-chat-history-row__owner-mark"
+                    data-access-basis={item.accessBasis}
+                  >
+                    {item.ownerAvatar}
+                  </span>
+                }
+                content={
+                  hasOwner ? <ChatHistoryOwnerSummary item={item} /> : null
+                }
+                disabled={!hasOwner}
+              />
+            )}
             {item.timestamp != null && (
               <span className="an-chat-history-row__timestamp">
                 {item.timestamp}
@@ -369,11 +499,22 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                 side="bottom"
                 sideOffset={4}
               >
+                {hasOwner && (
+                  <div
+                    className="an-chat-history-row__menu-owner"
+                    data-access-basis={item.accessBasis}
+                  >
+                    {item.ownerAvatar != null && (
+                      <span aria-hidden="true">{item.ownerAvatar}</span>
+                    )}
+                    <ChatHistoryOwnerSummary item={item} />
+                  </div>
+                )}
                 {renderRowActions ? (
                   renderRowActions(item)
                 ) : (
                   <>
-                    {onRename && (
+                    {editable && onRename && (
                       <button
                         type="button"
                         role="menuitem"
@@ -384,7 +525,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                         <span>{labels.rename}</span>
                       </button>
                     )}
-                    {onTogglePin && (
+                    {editable && onTogglePin && (
                       <button
                         type="button"
                         role="menuitem"
@@ -402,10 +543,24 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                         <span>{item.pinned ? labels.unpin : labels.pin}</span>
                       </button>
                     )}
+                    {onCopyLink && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="an-chat-history-row__menu-item"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onCopyLink(item.id);
+                        }}
+                      >
+                        <IconLink size={13} strokeWidth={1.8} />
+                        <span>{labels.copyLink}</span>
+                      </button>
+                    )}
                     {renderAdditionalRowActions?.(item, () =>
                       setMenuOpen(false),
                     )}
-                    {onDelete && (
+                    {editable && onDelete && (
                       <button
                         type="button"
                         role="menuitem"

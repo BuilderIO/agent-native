@@ -1,7 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
+  compareAndSetAppState,
   readAppState,
-  writeAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -27,25 +27,47 @@ export default defineAction({
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "owner");
     const key = rewindExtensionKey(args.recordingId);
-    const current = (await readAppState(key)) as RewindExtensionRequest | null;
+    let current = (await readAppState(key)) as RewindExtensionRequest | null;
     if (!current || current.requestId !== args.requestId) {
-      throw new Error("Rewind extension request is no longer current.");
+      fail("Rewind extension request is no longer current.", {
+        errorCode: "rewind_request_changed",
+        statusCode: 409,
+      });
     }
-    const next: RewindExtensionRequest = {
-      ...current,
-      status: args.status,
-      updatedAt: new Date().toISOString(),
-      ...(args.preRollRecordingId
-        ? { preRollRecordingId: args.preRollRecordingId }
-        : {}),
-      ...(args.actualDurationMs
-        ? { actualDurationMs: args.actualDurationMs }
-        : {}),
-      ...(args.preRollWidth ? { preRollWidth: args.preRollWidth } : {}),
-      ...(args.preRollHeight ? { preRollHeight: args.preRollHeight } : {}),
-      ...(args.error ? { error: args.error } : {}),
-    };
-    await writeAppState(key, next);
-    return next;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (
+        ["applying", "applied", "failed"].includes(current.status) ||
+        (current.status === "ready" && args.status === "processing")
+      ) {
+        return current;
+      }
+      const next: RewindExtensionRequest = {
+        ...current,
+        status: args.status,
+        updatedAt: new Date().toISOString(),
+        ...(args.preRollRecordingId
+          ? { preRollRecordingId: args.preRollRecordingId }
+          : {}),
+        ...(args.actualDurationMs
+          ? { actualDurationMs: args.actualDurationMs }
+          : {}),
+        ...(args.preRollWidth ? { preRollWidth: args.preRollWidth } : {}),
+        ...(args.preRollHeight ? { preRollHeight: args.preRollHeight } : {}),
+        ...(args.error ? { error: args.error } : {}),
+      };
+      if (await compareAndSetAppState(key, current, next)) return next;
+      const latest = (await readAppState(key)) as RewindExtensionRequest | null;
+      if (!latest || latest.requestId !== args.requestId) {
+        fail("Rewind extension request is no longer current.", {
+          errorCode: "rewind_request_changed",
+          statusCode: 409,
+        });
+      }
+      current = latest;
+    }
+    fail("Rewind extension request kept changing. Try again.", {
+      errorCode: "rewind_request_changed",
+      statusCode: 409,
+    });
   },
 });

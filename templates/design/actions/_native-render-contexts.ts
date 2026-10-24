@@ -1,0 +1,205 @@
+import { fail } from "@agent-native/core/action";
+import {
+  compareAndSetManyAppState,
+  getCurrentRequestBrowserTabId,
+  readAppState,
+  type AppStateCompareAndSetOperation,
+} from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+
+import {
+  NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+  NATIVE_RENDER_CONTEXT_LIMIT,
+  NATIVE_RENDER_CONTEXT_TTL_MS,
+  nativeLocalExportRevisionKey,
+  nativeLocalExportStateKey,
+  nativeRenderContextLedgerSchema,
+  nativeRenderContextSchema,
+  type NativeRenderContext,
+} from "../shared/native-local-export.js";
+import {
+  classifyNativeLocalExportNavigation,
+  expireNativeLocalExportState,
+  planNativeLocalExportDocumentRegistration,
+  readNativeLocalExportRevision,
+  readNativeLocalExportState,
+} from "./_native-local-export-server.js";
+
+function readLedger(raw: Record<string, unknown> | null): {
+  schemaVersion: 1;
+  contexts: NativeRenderContext[];
+} {
+  if (raw === null) return { schemaVersion: 1, contexts: [] };
+  const parsed = nativeRenderContextLedgerSchema.safeParse(raw);
+  if (!parsed.success)
+    fail("Native editor context state is unreadable.", {
+      errorCode: "native_export_context_unreadable",
+      statusCode: 422,
+    });
+  return parsed.data;
+}
+
+async function navigationMatches(
+  designId: string,
+  tabId: string,
+): Promise<boolean> {
+  const navigation = await readAppState(`navigation:${tabId}`);
+  const state = classifyNativeLocalExportNavigation(navigation, designId);
+  if (state === "unreadable")
+    fail("Native editor navigation state is unreadable.", {
+      errorCode: "native_export_context_unreadable",
+      statusCode: 422,
+    });
+  return state === "matching";
+}
+
+export async function registerNativeRenderContext(
+  designId: string,
+  documentId: string,
+): Promise<NativeRenderContext> {
+  const tabId = getCurrentRequestBrowserTabId();
+  const parsedTabId = nativeRenderContextSchema.shape.tabId.safeParse(tabId);
+  if (!parsedTabId.success)
+    fail("Native export context requires the current browser tab.", {
+      errorCode: "native_export_local_client_required",
+      statusCode: 409,
+    });
+  await assertAccess("design", designId, "viewer");
+  const navigation = await readAppState(`navigation:${parsedTabId.data}`);
+  const state = classifyNativeLocalExportNavigation(navigation, designId);
+  if (state === "unreadable")
+    fail("Native editor navigation state is unreadable.", {
+      errorCode: "native_export_context_unreadable",
+      statusCode: 422,
+    });
+  if (state !== "matching")
+    fail("Open this Design in the current browser tab before registration.", {
+      errorCode: "native_export_local_client_required",
+      statusCode: 409,
+    });
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await readAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY);
+    const ledger = readLedger(raw);
+    const now = Date.now();
+    const context: NativeRenderContext = {
+      tabId: parsedTabId.data,
+      designId,
+      documentId,
+      expiresAt: now + NATIVE_RENDER_CONTEXT_TTL_MS,
+    };
+    const contexts = [
+      context,
+      ...ledger.contexts.filter(
+        (entry) => entry.expiresAt > now && entry.tabId !== context.tabId,
+      ),
+    ];
+    if (contexts.length > NATIVE_RENDER_CONTEXT_LIMIT)
+      fail("The local Design editor context limit is full.", {
+        errorCode: "native_export_context_capacity",
+        statusCode: 409,
+      });
+    const next = { schemaVersion: 1 as const, contexts };
+    const revision = await readNativeLocalExportRevision(
+      designId,
+      parsedTabId.data,
+    );
+    const exportRaw = await readNativeLocalExportState(
+      designId,
+      parsedTabId.data,
+    );
+    const exportCurrent = exportRaw
+      ? await expireNativeLocalExportState(exportRaw)
+      : null;
+    const exportNext = exportCurrent
+      ? planNativeLocalExportDocumentRegistration(exportCurrent, documentId)
+      : null;
+    const operations: AppStateCompareAndSetOperation[] = [
+      {
+        key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+        expectedValue: raw,
+        nextValue: next,
+      },
+      {
+        key: nativeLocalExportRevisionKey(designId, parsedTabId.data),
+        expectedValue: revision,
+        nextValue: { schemaVersion: 1, revision: crypto.randomUUID() },
+      },
+    ];
+    if (exportCurrent && exportNext !== exportCurrent)
+      operations.push({
+        key: nativeLocalExportStateKey(designId, parsedTabId.data),
+        expectedValue: exportCurrent,
+        nextValue: exportNext,
+      });
+    if (await compareAndSetManyAppState(operations)) return context;
+  }
+  fail("Native editor context changed concurrently. Retry.", {
+    errorCode: "native_export_context_conflict",
+    statusCode: 409,
+  });
+}
+
+export async function listNativeRenderContexts(
+  designId: string,
+  targetTabId?: string,
+): Promise<NativeRenderContext[]> {
+  return (await readNativeRenderContextSnapshot(designId, targetTabId))
+    .contexts;
+}
+
+export async function readNativeRenderContextSnapshot(
+  designId: string,
+  targetTabId?: string,
+): Promise<{
+  contexts: NativeRenderContext[];
+  rawLedger: Record<string, unknown> | null;
+}> {
+  await assertAccess("design", designId, "viewer");
+  const rawLedger = await readAppState(NATIVE_RENDER_CONTEXT_LEDGER_KEY);
+  const ledger = readLedger(rawLedger);
+  const now = Date.now();
+  const candidates = ledger.contexts.filter(
+    (entry) =>
+      entry.designId === designId &&
+      entry.expiresAt > now &&
+      (!targetTabId || entry.tabId === targetTabId),
+  );
+  const active = await Promise.all(
+    candidates.map(async (entry) =>
+      (await navigationMatches(designId, entry.tabId)) ? entry : null,
+    ),
+  );
+  return {
+    contexts: active.filter(
+      (entry): entry is NativeRenderContext => entry !== null,
+    ),
+    rawLedger,
+  };
+}
+
+export async function resolveNativeRenderContextTarget(
+  designId: string,
+  targetTabId: string,
+): Promise<{
+  context: NativeRenderContext;
+  rawLedger: Record<string, unknown>;
+}> {
+  const parsedTabId =
+    nativeRenderContextSchema.shape.tabId.safeParse(targetTabId);
+  if (!parsedTabId.success)
+    fail("Native editor tab ID is invalid.", {
+      errorCode: "native_export_context_not_found",
+      statusCode: 404,
+    });
+  const snapshot = await readNativeRenderContextSnapshot(designId, targetTabId);
+  const context = snapshot.contexts.find(
+    (entry) => entry.tabId === targetTabId,
+  );
+  if (!context || !snapshot.rawLedger)
+    fail("No live matching Design editor context was found.", {
+      errorCode: "native_export_context_not_found",
+      statusCode: 404,
+    });
+  return { context, rawLedger: snapshot.rawLedger };
+}

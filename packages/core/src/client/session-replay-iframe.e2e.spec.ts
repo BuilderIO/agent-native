@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 import tailwindcss from "@tailwindcss/vite";
-import { chromium, type Browser, type Route } from "playwright";
+import { chromium, type Browser, type Page, type Route } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -48,10 +48,17 @@ async function launchBrowser(): Promise<Browser> {
 async function startHostServer(): Promise<ViteDevServer> {
   const server = await createServer({
     root: process.cwd(),
-    logLevel: "silent",
+    logLevel: "error",
+    optimizeDeps: {
+      // This page comes from middleware, so Vite cannot crawl its HTML entry.
+      entries: ["src/client/session-replay-iframe.e2e-host.tsx"],
+      // These late template imports otherwise invalidate requests mid-load.
+      include: ["@noble/hashes/sha2.js", "@noble/hashes/utils.js"],
+    },
     resolve: {
       alias: {
         "@": resolve(process.cwd(), "../../templates/design/app"),
+        "@shared": resolve(process.cwd(), "../../templates/design/shared"),
       },
     },
     server: {
@@ -103,6 +110,35 @@ function serverUrl(server: ViteDevServer): string {
   return new URL("/__session-replay-iframe-e2e", url).toString();
 }
 
+function reportHostRequestFailures(page: Page, server: ViteDevServer) {
+  const origin = new URL(serverUrl(server)).origin;
+  let reported = 0;
+  page.on("response", (response) => {
+    if (
+      response.status() < 400 ||
+      new URL(response.url()).origin !== origin ||
+      reported >= 8
+    )
+      return;
+    reported++;
+    console.error(
+      "Session replay host response failed",
+      response.status(),
+      response.statusText(),
+      response.url(),
+    );
+  });
+  page.on("requestfailed", (request) => {
+    if (new URL(request.url()).origin !== origin || reported >= 8) return;
+    reported++;
+    console.error(
+      "Session replay host request failed",
+      request.failure(),
+      request.url(),
+    );
+  });
+}
+
 async function replayBody(route: Route): Promise<Record<string, unknown>> {
   const request = route.request();
   const body = request.postDataBuffer() ?? Buffer.alloc(0);
@@ -118,6 +154,18 @@ describe("session replay iframe recording", () => {
   let browser: Browser;
 
   beforeAll(async () => {
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        resolve(
+          REPO_ROOT,
+          "templates/design/app/components/design/bridge/codegen.ts",
+        ),
+      ],
+      { cwd: resolve(REPO_ROOT, "templates/design"), encoding: "utf8" },
+    );
     server = await startHostServer();
     browser = await launchBrowser();
   }, 60_000);
@@ -128,6 +176,7 @@ describe("session replay iframe recording", () => {
 
   it("records opaque extensions and same-origin email frames with masking", async () => {
     const page = await browser.newPage();
+    reportHostRequestFailures(page, server);
     const uploads: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -182,6 +231,7 @@ describe("session replay iframe recording", () => {
 
   it("records a built-in Design template preview in the parent replay", async () => {
     const page = await browser.newPage();
+    reportHostRequestFailures(page, server);
     const uploads: Array<Record<string, unknown>> = [];
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

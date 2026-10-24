@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import {
   getRequestOrgId,
@@ -32,19 +32,29 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import type {
-  ContentDatabaseBodyHydration,
-  ContentDatabaseItem,
-  ContentDatabaseMembership,
-  ContentDatabaseResponse,
-  ContentDatabaseTableQuery,
-  ContentSidebarViewOrder,
-  DocumentProperty,
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  type ContentDatabaseBodyHydration,
+  type ContentDatabaseItem,
+  type ContentDatabaseMembership,
+  type ContentDatabaseResponse,
+  type ContentDatabaseTableQuery,
+  type ContentSidebarViewOrder,
+  type DocumentProperty,
 } from "../shared/api.js";
+import { contentDatabaseViewsShowPageText } from "../shared/database-item-layout.js";
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
+import {
+  compactContentDatabaseResponse,
+  type ContentDatabaseRowsRead,
+} from "../shared/database-row-properties.js";
+import {
+  buildListRowExcerpt,
+  EXCERPT_SOURCE_CHARS,
+} from "../shared/og-description.js";
 import {
   evaluatePropertyFormula,
   isBlocksPropertyType,
@@ -54,12 +64,19 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
+import { readOpenCommentSummaries } from "./_database-comment-summary.js";
 import {
   databaseRowRevision,
   getDatabaseMutationContract,
@@ -80,6 +97,7 @@ import {
 import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
+  parseDatabaseViewConfig,
   readDatabasePropertySchema,
   serializeDatabase,
   type DatabasePropertySchema,
@@ -146,23 +164,12 @@ export const contentDatabaseTableQuerySchema = z
         z.object({
           key: z.string(),
           label: z.string(),
-          operator: z.enum([
-            "contains",
-            "equals",
-            "does_not_equal",
-            "greater_than",
-            "less_than",
-            "before",
-            "after",
-            "between",
-            "is_checked",
-            "is_unchecked",
-            "is_empty",
-            "is_not_empty",
-          ]),
+          operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
           value: z.string(),
           filterGroupId: z.string().optional(),
           parentFilterGroupId: z.string().optional(),
+          filterGroupMode: z.enum(["and", "or"]).optional(),
+          parentFilterGroupMode: z.enum(["and", "or"]).optional(),
         }),
       )
       .max(50),
@@ -178,6 +185,19 @@ export const contentDatabaseTableQuerySchema = z
     filterMode: z.enum(["and", "or"]),
   })
   .optional();
+
+/** A read's opt-in to compact rows; see `compactContentDatabaseRowsFor`. */
+export const contentDatabaseCompactRowsSchema = z
+  .preprocess(
+    // GET actions receive it as a query string. Other strings stay strings,
+    // so a typo fails validation instead of reading as false.
+    (value) => (value === "true" ? true : value === "false" ? false : value),
+    z.boolean(),
+  )
+  .optional()
+  .describe(
+    "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
+  );
 
 function contentDatabaseTableQueryMode(
   query: ContentDatabaseTableQuery | undefined,
@@ -1019,6 +1039,13 @@ export async function getContentDatabasePageResponse(
     });
   }
 
+  // List rows draw from paged reads. Unpaged reads come from menus and pickers
+  // that never show page text, so they skip the body reads.
+  const includeExcerpts =
+    limit !== null &&
+    contentDatabaseViewsShowPageText(
+      parseDatabaseViewConfig(database.viewConfigJson).views,
+    );
   const documents =
     items.length > 0
       ? await db
@@ -1031,23 +1058,27 @@ export async function getContentDatabasePageResponse(
                 items.map((item) => item.documentId),
               ),
               isNull(schema.documents.trashedAt),
-              database.systemRole === "workspaces"
-                ? workspacesVisibleDocumentIds?.length
-                  ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+              database.systemRole === "favorites"
+                ? favoritesVisibleDocumentQuery
+                  ? inArray(schema.documents.id, favoritesVisibleDocumentQuery)
                   : sql`1 = 0`
-                : database.systemRole === "files" && database.orgId
-                  ? and(
-                      eq(schema.documents.orgId, database.orgId),
-                      or(
-                        eq(schema.documents.visibility, "org"),
-                        eq(schema.documents.visibility, "public"),
-                      ),
-                      or(
-                        eq(schema.documents.hideFromSearch, 0),
-                        isNull(schema.documents.hideFromSearch),
-                      ),
-                    )
-                  : eq(schema.documents.ownerEmail, database.ownerEmail),
+                : database.systemRole === "workspaces"
+                  ? workspacesVisibleDocumentIds?.length
+                    ? inArray(schema.documents.id, workspacesVisibleDocumentIds)
+                    : sql`1 = 0`
+                  : database.systemRole === "files" && database.orgId
+                    ? and(
+                        eq(schema.documents.orgId, database.orgId),
+                        or(
+                          eq(schema.documents.visibility, "org"),
+                          eq(schema.documents.visibility, "public"),
+                        ),
+                        or(
+                          eq(schema.documents.hideFromSearch, 0),
+                          isNull(schema.documents.hideFromSearch),
+                        ),
+                      )
+                    : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];
@@ -1077,6 +1108,7 @@ export async function getContentDatabasePageResponse(
     filesProjection,
     queuedBodyHydrationItemIds,
     workspaceMemberships,
+    commentSummaries,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1144,6 +1176,7 @@ export async function getContentDatabasePageResponse(
             ),
           )
       : [],
+    readOpenCommentSummaries(documentIds),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1182,7 +1215,9 @@ export async function getContentDatabasePageResponse(
     const document = documentById.get(item.documentId);
     if (!document) continue;
     const bodyHydrationQueued = queuedBodyHydrationItemIds.has(item.id);
+    const comments = commentSummaries.get(document.id);
     serializedCandidateItems.push({
+      ...(comments ? { comments } : {}),
       id: item.id,
       databaseId: item.databaseId,
       document: serializeDocument(
@@ -1238,12 +1273,50 @@ export async function getContentDatabasePageResponse(
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
   );
-  const sourceSnapshots =
+  // Reading a collection doesn't open every row's page, so excerpts come only
+  // from pages the reader can view.
+  const excerptDocumentIds = includeExcerpts
+    ? serializedItems
+        .filter((item) => item.document.canView)
+        .map((item) => item.document.id)
+    : [];
+  const [sourceSnapshots, bodyPrefixByDocumentId] = await Promise.all([
     options.includeSources === false
       ? []
-      : await getAllContentDatabaseSourceSnapshots(database, {
+      : getAllContentDatabaseSourceSnapshots(database, {
           documentIds: limit !== null ? [...serializedDocumentIds] : undefined,
-        });
+        }),
+    // Only the start of each returned page's body, and only when a view
+    // shows it. Filters and sorts that run here have already cut the page.
+    // The read takes one character more to tell a longer body from one that
+    // fits.
+    excerptDocumentIds.length > 0
+      ? db
+          .select({
+            id: schema.documents.id,
+            bodyPrefix: sql<
+              string | null
+            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS + 1))})`,
+          })
+          .from(schema.documents)
+          .where(inArray(schema.documents.id, excerptDocumentIds))
+          .then(
+            (rows) =>
+              new Map(rows.map((row) => [row.id, row.bodyPrefix ?? ""])),
+          )
+      : new Map<string, string>(),
+  ]);
+  const pageItems = includeExcerpts
+    ? serializedItems.map((item) => ({
+        ...item,
+        excerpt: item.document.canView
+          ? buildListRowExcerpt({
+              content: bodyPrefixByDocumentId.get(item.document.id),
+              title: item.document.title,
+            })
+          : "",
+      }))
+    : serializedItems;
   const organizationVisibleDocumentIds =
     organizationFilesItemFilter && sourceSnapshots.length > 0
       ? new Set(
@@ -1284,7 +1357,7 @@ export async function getContentDatabasePageResponse(
   const pagedPrimary = pagedSources[0] ?? null;
 
   const federatedItems = federateSources({
-    items: serializedItems,
+    items: pageItems,
     sources: pagedSources,
   });
   const itemsWithOverlay = applyFederatedOverlayValues(
@@ -1413,6 +1486,37 @@ export async function getContentDatabaseResponse(
     configurationRevision: configurationRevision(database),
     setupContract: contracts?.setupContract,
   };
+}
+
+/**
+ * Whether a Collection read or write sends compact rows. A compact row names
+ * each Property by `propertyId`, and the response sends each definition once,
+ * in `properties`; otherwise a select's options repeat in every row, which on
+ * a large Collection runs to megabytes per page. Content's own frontend gets
+ * compact rows unless it passes `compactRows: false`: the server answers a tab
+ * on an older client compatibility version with a 409, so every frontend call
+ * comes from a client whose query cache puts the definitions back. Agents, MCP
+ * and HTTP callers keep rows that carry their definitions unless they pass
+ * `compactRows: true`.
+ */
+export function compactContentDatabaseRowsFor(
+  context: Pick<ActionRunContext, "caller"> | undefined,
+  compactRows?: boolean,
+): boolean {
+  return compactRows ?? context?.caller === "frontend";
+}
+
+/** A Collection read or write result, in the row shape its caller reads. */
+export function contentDatabaseResponseForCaller<
+  T extends ContentDatabaseRowsRead,
+>(
+  response: T,
+  context: Pick<ActionRunContext, "caller"> | undefined,
+  options: { compactRows?: boolean } = {},
+) {
+  return compactContentDatabaseRowsFor(context, options.compactRows)
+    ? compactContentDatabaseResponse(response)
+    : response;
 }
 
 export async function isSoftDeletedDatabaseDocument(documentId: string) {
@@ -1641,15 +1745,40 @@ export async function deleteDatabaseDataForDocument(
       .select({ id: schema.contentDatabaseSources.id })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    const deletedBlobReferences = new Set<string>();
     for (const source of sources) {
       await db
         .delete(schema.contentDatabaseBodyHydrationQueue)
         .where(
           eq(schema.contentDatabaseBodyHydrationQueue.sourceId, source.id),
         );
-      await db
-        .delete(schema.contentDatabaseSourceExecutions)
-        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id));
+      await db.transaction(async (tx) => {
+        const deletedExecutions = await tx
+          .delete(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id))
+          .returning({
+            ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+            payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+            sourceId: schema.contentDatabaseSourceExecutions.sourceId,
+          });
+        for (const row of deletedExecutions) {
+          const reference = builderExecutionPayloadReference(row.payloadJson);
+          if (
+            reference &&
+            isBuilderPrivatePayloadBoundToSource(
+              reference,
+              row.ownerEmail,
+              row.sourceId,
+            )
+          ) {
+            deletedBlobReferences.add(reference);
+            await enqueueBuilderPrivatePayloadCleanup(
+              tx as unknown as ReturnType<typeof getDb>,
+              reference,
+            );
+          }
+        }
+      });
       await db
         .delete(schema.contentDatabaseSourceChangeReviews)
         .where(
@@ -1664,6 +1793,9 @@ export async function deleteDatabaseDataForDocument(
       await db
         .delete(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
+    }
+    for (const reference of deletedBlobReferences) {
+      await cleanupBuilderPrivatePayload(reference, "deleted database source");
     }
     await db
       .delete(schema.contentDatabaseSources)

@@ -36,6 +36,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatDate: (value: string) => value }),
 }));
 
 vi.mock("@/lib/demo-chart-trend", () => ({
@@ -71,6 +72,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
     return null;
   },
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 import { formatSqlChartError, limitChartRows, SqlChart } from "./SqlChart";
@@ -154,7 +156,9 @@ describe("SqlChart refresh feedback", () => {
     expect(
       updatingNotice()?.querySelector("svg")?.getAttribute("aria-hidden"),
     ).toBe("true");
-    expect(updatingNotice()?.querySelector('[role="status"]')).toBeNull();
+    expect(
+      updatingNotice()?.querySelector('[role="status"]')?.textContent,
+    ).toBe("sqlDashboard.updating");
 
     mocks.query.isFetching = false;
     await act(async () => {
@@ -684,13 +688,19 @@ describe("SqlChart refresh feedback", () => {
       expect(mocks.queryReuseCompleted).toBe(true);
       expect(container.textContent).toContain("42");
       expect(loadingSkeleton()).toBeNull();
-      expect(pausedNotice()?.textContent).toBe("sqlDashboard.previousFilters");
+      expect(
+        pausedNotice()?.querySelector(".panel-freshness-text")?.textContent,
+      ).toBe("sqlDashboard.previousFilters");
       expect(pausedNotice()?.getAttribute("data-dashboard-report-paused")).toBe(
         "previous-filters",
       );
       expect(updatingNotice()).toBeNull();
-      expect(container.querySelector('[role="status"]')).toBeNull();
-      expect(pausedNotice()?.querySelector("svg")).toBeNull();
+      expect(
+        pausedNotice()?.querySelector('[role="status"]')?.textContent,
+      ).toBe("sqlDashboard.previousFilters");
+      expect(
+        pausedNotice()?.querySelector("svg")?.getAttribute("aria-hidden"),
+      ).toBe("true");
     });
 
     it("shows no label for an offscreen panel whose own rows are current", async () => {

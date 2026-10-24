@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
   getBuiltinAgents: vi.fn(),
-  getRequestUserEmail: vi.fn(() => "owner@example.test"),
+  getRequestUserEmail: vi.fn<() => string | undefined>(
+    () => "owner@example.test",
+  ),
   resourceGet: vi.fn(),
   resourceListAccessible: vi.fn(async (): Promise<unknown[]> => []),
   parseRemoteAgentManifest: vi.fn(),
@@ -140,5 +142,19 @@ describe("list-connected-agents", () => {
 
     expect(entry).toMatchObject({ id: "mail", source: "workspace" });
     expect(entry).not.toHaveProperty("homeUrl");
+  });
+
+  it("returns a typed authentication error when the session has no user email", async () => {
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.getBuiltinAgents.mockReturnValue([]);
+    mocks.loadWorkspaceAppsManifest.mockResolvedValue(null);
+    mocks.getRequestUserEmail.mockReturnValueOnce(undefined);
+
+    const { default: action } = await import("./list-connected-agents.js");
+
+    await expect(action.run({})).rejects.toMatchObject({
+      statusCode: 401,
+      errorCode: "dispatch_user_identity_missing",
+    });
   });
 });

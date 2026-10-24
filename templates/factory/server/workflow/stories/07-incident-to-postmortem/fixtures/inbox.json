@@ -1,0 +1,24 @@
+{
+  "spikes": {
+    "oneIssue": {
+      "items": [
+        {
+          "id": "issue-4821",
+          "externalId": "4821",
+          "kind": "error",
+          "provider": "sentry",
+          "title": "TypeError in checkout: cannot read 'total' of undefined",
+          "url": "https://sentry.example.test/organizations/example/issues/4821/",
+          "occurredAt": "2026-10-19T11:40:00.000Z",
+          "extras": {
+            "project": "web",
+            "level": "error"
+          }
+        }
+      ]
+    },
+    "none": {
+      "items": []
+    }
+  }
+}

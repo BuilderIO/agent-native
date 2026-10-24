@@ -42,6 +42,10 @@ import {
   type AnyColumn,
 } from "drizzle-orm";
 
+import type {
+  OutputUseApp,
+  SessionRecordingOutputs,
+} from "../../shared/output-use.js";
 import { isScreenshotSize } from "../../shared/png.js";
 import {
   isSessionFrictionSort,
@@ -66,7 +70,16 @@ import {
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
+import {
+  getSessionRecordingOutputs,
+  pruneOutputOutcomes,
+  unusedOutputConditions,
+} from "./output-outcomes.js";
 import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
+import {
+  normalizeReplayOrigin,
+  parseAllowedReplayOrigins,
+} from "./replay-origins.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -161,6 +174,8 @@ export interface SessionReplayListFilters {
   includePerformance?: boolean;
   /** Measured sessions that showed every one of these friction signals. */
   frictionSignals?: SessionFrictionSignal[];
+  /** Sessions that made an output of this app and never used it in time. */
+  unused?: OutputUseApp;
 }
 
 export interface SessionReplayEventReadOptions {
@@ -405,34 +420,6 @@ function replayInteger(value: unknown): number | null {
     return Number(value);
   }
   return null;
-}
-
-function normalizeReplayOrigin(
-  value: string | null | undefined,
-): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-function parseAllowedReplayOrigins(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeReplayOrigin(replayString(item)))
-      .filter((item): item is string => Boolean(item));
-  }
-  if (typeof value !== "string" || !value.trim()) return [];
-  try {
-    return parseAllowedReplayOrigins(JSON.parse(value));
-  } catch {
-    return value
-      .split(/[\n,]/)
-      .map((item) => normalizeReplayOrigin(item.trim()))
-      .filter((item): item is string => Boolean(item));
-  }
 }
 
 function positiveReplayLimit(value: unknown, fallback: number): number {
@@ -728,8 +715,15 @@ async function storeReplayChunkBlob(
     ownerEmail: string;
     orgId: string | null;
   },
-): Promise<NormalizedSessionReplayChunk> {
-  if (chunk.storageKind === "blob" || !chunk.inlineData) return chunk;
+): Promise<{
+  chunk: NormalizedSessionReplayChunk;
+  storedBytes: number | null;
+}> {
+  // A blob the client stored itself declares its own size, which the server
+  // never measures, so it reports no stored size.
+  if (chunk.storageKind === "blob" || !chunk.inlineData) {
+    return { chunk, storedBytes: null };
+  }
 
   const gzipBytes = gzipSync(Buffer.from(chunk.inlineData, "utf8"));
   const handle = await putPrivateBlob({
@@ -759,14 +753,17 @@ async function storeReplayChunkBlob(
       );
     }
     warnInlineReplayFallback();
-    return chunk;
+    return { chunk, storedBytes: chunk.byteLength };
   }
 
   return {
-    ...chunk,
-    storageKind: "blob",
-    storageRef: encodeReplayBlobRef(handle),
-    inlineData: null,
+    chunk: {
+      ...chunk,
+      storageKind: "blob",
+      storageRef: encodeReplayBlobRef(handle),
+      inlineData: null,
+    },
+    storedBytes: gzipBytes.byteLength,
   };
 }
 
@@ -1828,12 +1825,21 @@ export async function recordSessionReplayChunks(
       });
     }
   };
+  // The usage row reserves the request's size while chunks upload, so
+  // concurrent ingests see it, then settles at the gzipped bytes actually
+  // stored. Cross-origin uploads arrive uncompressed and would otherwise count
+  // several times what they cost to keep. A gzipped request can settle a
+  // little above its wire size, since each chunk is gzipped on its own. A
+  // request carrying client-stored blobs keeps its reservation, since their
+  // sizes are only what it declares.
+  const reservedBytes = replayIngestByteLength(clampedInput, context);
+  let storedBytes: number | null = 0;
   try {
     await db.insert(schema.sessionReplayIngests).values({
       id: ingestId,
       publicKeyId: key.id,
       recordingId: recording.id,
-      byteLength: replayIngestByteLength(clampedInput, context),
+      byteLength: reservedBytes,
       createdAt: ingestedAt,
       ownerEmail: key.ownerEmail,
       orgId: key.orgId,
@@ -1860,7 +1866,7 @@ export async function recordSessionReplayChunks(
           413,
         );
       }
-      const chunk = await runWithRequestContext(
+      const stored = await runWithRequestContext(
         { userEmail: key.ownerEmail, orgId: key.orgId ?? undefined },
         () =>
           storeReplayChunkBlob(rawChunk, {
@@ -1870,6 +1876,11 @@ export async function recordSessionReplayChunks(
             orgId: key.orgId,
           }),
       );
+      const chunk = stored.chunk;
+      storedBytes =
+        storedBytes === null || stored.storedBytes === null
+          ? null
+          : storedBytes + stored.storedBytes;
       if (rawChunk.storageKind !== "blob" && chunk.storageKind === "blob") {
         const ref = decodeReplayBlobRef(chunk.storageRef);
         if (ref) uploadedBlobHandles.push(ref.handle);
@@ -2060,6 +2071,13 @@ export async function recordSessionReplayChunks(
       }
       errorCount = persistedErrorCount;
       rageClickCount = persistedRageClickCount;
+      const settledBytes = storedBytes ?? reservedBytes;
+      if (settledBytes !== reservedBytes) {
+        await tx
+          .update(schema.sessionReplayIngests)
+          .set({ byteLength: settledBytes })
+          .where(eq(schema.sessionReplayIngests.id, ingestId));
+      }
     });
     uploadedBlobHandles.length = 0;
   } catch (error) {
@@ -2457,6 +2475,13 @@ export interface SessionRecordingPage {
    * performance aggregates began, or null when they have not.
    */
   performanceCoverageStartedAt?: string | null;
+  /**
+   * With an unused-output filter: each row's outputs by recording id, and
+   * when the viewer's output tracking began, or null before it has.
+   */
+  outputs?: SessionRecordingOutputs["outputs"];
+  omittedOutputs?: SessionRecordingOutputs["omittedOutputs"];
+  outputCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -2669,6 +2694,7 @@ export async function listSessionRecordingsPage(
       didNotEvents: filters.didNotEvents,
     })),
     ...(await slowSessionConditions(scope, filters.slow)),
+    ...(await unusedOutputConditions(scope, filters.unused)),
     ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
@@ -2747,17 +2773,31 @@ export async function listSessionRecordingsPage(
   const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
     rowToSessionRecordingSummary(row),
   );
-  const performance =
+  const [performance, outputs] = await Promise.all([
     filters.slow || filters.includePerformance
-      ? await sessionRecordingPerformance(scope, recordings, {
+      ? sessionRecordingPerformance(scope, recordings, {
           summaries: filters.includePerformance === true,
         })
-      : null;
+      : null,
+    filters.unused
+      ? getSessionRecordingOutputs(
+          scope,
+          recordings.map((recording) => recording.id),
+        )
+      : null,
+  ]);
   return {
     recordings,
     total,
     ...(performance
       ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
+    ...(outputs
+      ? {
+          outputs: outputs.outputs,
+          omittedOutputs: outputs.omittedOutputs,
+          outputCoverageStartedAt: outputs.coverageStartedAt,
+        }
       : {}),
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
@@ -3623,6 +3663,11 @@ export async function runSessionReplayRetentionSweep(
     await prunePerformanceAggregates(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Performance aggregate pruning failed:", err);
+  }
+  try {
+    await pruneOutputOutcomes(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Output outcome pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,

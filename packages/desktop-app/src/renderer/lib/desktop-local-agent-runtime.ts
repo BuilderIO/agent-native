@@ -89,6 +89,11 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
     }
   }
 
+  closeAndClear(): void {
+    this.values.length = 0;
+    this.close();
+  }
+
   next(): Promise<IteratorResult<T>> {
     const value = this.values.shift();
     if (value !== undefined) {
@@ -114,6 +119,7 @@ interface ActiveTurn {
   assistantText: string;
   messageStarted: boolean;
   sawAssistantDelta: boolean;
+  discarded: boolean;
   unsubscribe: (() => void) | null;
   removeAbortListener: (() => void) | null;
   cancelPromise?: Promise<AgentChatRuntimeCancelResult>;
@@ -176,7 +182,7 @@ function runtimeMessageEvent(
 }
 
 function pushAssistantText(active: ActiveTurn, text: string): void {
-  if (!text.trim()) return;
+  if (active.discarded || !text.trim()) return;
   if (!active.messageStarted) {
     active.messageStarted = true;
     active.queue.push(runtimeMessageEvent(active, "message-start"));
@@ -372,6 +378,7 @@ function createSessionView(
       assistantText: "",
       messageStarted: false,
       sawAssistantDelta: false,
+      discarded: false,
       unsubscribe: null,
       removeAbortListener: null,
       finished: false,
@@ -391,6 +398,12 @@ function createSessionView(
       sessionId: state.id,
       runId,
       events: queue,
+      closeEvents: () => {
+        active.discarded = true;
+        active.assistantText = "";
+        active.messageStarted = false;
+        queue.closeAndClear();
+      },
       cancel: (cancelInput) => cancelActiveTurn(cancelInput?.reason),
     };
   };

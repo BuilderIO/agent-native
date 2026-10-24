@@ -485,7 +485,11 @@ function logTail(logs: string[], maxLines = 120): string {
 }
 
 function hasChatMigrations(logs: string[]): boolean {
-  return logTail(logs).includes("Applied migration v1007");
+  const output = logs.join("");
+  return (
+    output.includes("Installed schema snapshot") ||
+    output.includes('migration(s) to store "org"')
+  );
 }
 
 function hasAuthLockFailure(logs: string[]): boolean {
@@ -1175,7 +1179,8 @@ async function waitForChatPage(
         timeoutMs: 60_000,
       });
       const chat = page.locator("section.agentkit-chat");
-      const modelButton = page.locator(
+      const composerFooter = chat.locator(".agentkit-chat-footer");
+      const modelButton = composerFooter.locator(
         '[data-agent-composer-slot="model-button"]',
       );
       await chat.waitFor({ state: "visible", timeout: 15_000 });
@@ -1317,6 +1322,9 @@ async function waitForStableChatSurface(
 
 async function waitForComposerControls(page: Page): Promise<void> {
   const timeout = isCi ? 120_000 : 30_000;
+  const composerFooter = page.locator(
+    "section.agentkit-chat .agentkit-chat-footer",
+  );
   for (const slot of [
     "editor-input",
     "toolbar",
@@ -1326,7 +1334,7 @@ async function waitForComposerControls(page: Page): Promise<void> {
     "voice-button",
     "send-button",
   ]) {
-    await page
+    await composerFooter
       .locator(`[data-agent-composer-slot="${slot}"]`)
       .waitFor({ state: "visible", timeout });
   }
@@ -2987,6 +2995,31 @@ async function assertAgentKitChatAcceptance(
     .locator(".agentkit-message-content strong")
     .filter({ hasText: "Hello, AgentKit Browser!" })
     .waitFor({ state: "visible" });
+  await page.waitForFunction(() =>
+    Array.from(
+      document.querySelectorAll('.agentkit-message[data-role="assistant"]'),
+    ).some(
+      (message) =>
+        message.textContent?.includes("Second response") &&
+        message.getAttribute("aria-busy") === "false",
+    ),
+  );
+  await page
+    .locator('[data-agent-composer-slot="stop-button"]')
+    .waitFor({ state: "hidden" });
+  await waitForLoopbackState(
+    "terminal thread snapshot refresh after the second markdown response",
+    () =>
+      !Array.from(network.inFlightRequests).some((request) => {
+        const url = new URL(request.url());
+        return (
+          request.method() === "GET" &&
+          url.origin === new URL(page.url()).origin &&
+          url.pathname ===
+            `/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}`
+        );
+      }),
+  );
 
   await setDarkMode(page, true);
   await assertViewportContract(page, "desktop dark conversation", {
@@ -3069,7 +3102,15 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await approval.getByRole("button", { name: "Approve" }).click();
-  await approval.waitFor({ state: "detached" });
+  const approvalError = approval.locator(".agentkit-command-error");
+  await Promise.race([
+    approval.waitFor({ state: "detached" }),
+    approvalError.waitFor({ state: "visible" }).then(async () => {
+      throw new Error(
+        `Approval continuation failed: ${await approvalError.innerText()}`,
+      );
+    }),
+  ]);
   const releaseCardMatches = page.getByText("Release accepted", {
     exact: true,
   });

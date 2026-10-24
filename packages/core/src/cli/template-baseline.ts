@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resolveTarExecutable } from "./tar-command.js";
+
 export type BaselineSlot = "baseline" | "pending";
 
 export interface BaselineStore {
@@ -33,6 +35,7 @@ const GIT_IDENTITY = {
   GIT_COMMITTER_NAME: "agent-native",
   GIT_COMMITTER_EMAIL: "noreply@agent-native.com",
 };
+const KEEP_LINE_ENDINGS = ["-c", "core.autocrlf=false", "-c", "core.eol=lf"];
 
 export function resolveBaselineStore(appDir: string): BaselineStore {
   const resolved = realpath(path.resolve(appDir));
@@ -103,7 +106,7 @@ export function writeBaseline(
   if (!store.gitDir) {
     const file = baselineTarballPath(store, slot);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    execFileSync("tar", ["-czf", file, "-C", sourceDir, "."], {
+    execFileSync(resolveTarExecutable(), ["-czf", file, "-C", sourceDir, "."], {
       stdio: "pipe",
     });
     return { kind: "tarball", location: file, configuredRefspecs: [] };
@@ -120,10 +123,19 @@ export function writeBaseline(
 
     const indexFile = path.join(stage, "index");
     const env = { ...process.env, ...GIT_IDENTITY, GIT_INDEX_FILE: indexFile };
-    git(store, ["--work-tree", stageRoot, "add", "-A", "--force", "."], {
-      cwd: stageRoot,
-      env,
-    });
+    git(
+      store,
+      [
+        ...KEEP_LINE_ENDINGS,
+        "--work-tree",
+        stageRoot,
+        "add",
+        "-A",
+        "--force",
+        ".",
+      ],
+      { cwd: stageRoot, env },
+    );
     const tree = git(store, ["write-tree"], { cwd: stageRoot, env }).trim();
 
     const ref = baselineRefName(store, slot);
@@ -197,7 +209,9 @@ export function materializeBaseline(
         fs.rmSync(out, { recursive: true, force: true });
         return null;
       }
-      execFileSync("tar", ["-xzf", file, "-C", out], { stdio: "pipe" });
+      execFileSync(resolveTarExecutable(), ["-xzf", file, "-C", out], {
+        stdio: "pipe",
+      });
       return out;
     }
 
@@ -207,12 +221,19 @@ export function materializeBaseline(
       return null;
     }
     const tarPath = path.join(out, ".baseline.tar");
-    const args = ["archive", "--format=tar", "-o", tarPath, ref];
+    const args = [
+      ...KEEP_LINE_ENDINGS,
+      "archive",
+      "--format=tar",
+      "-o",
+      tarPath,
+      ref,
+    ];
     if (store.prefix) args.push("--", store.prefix);
     git(store, args);
     const strip = store.prefix ? store.prefix.split("/").length : 0;
     execFileSync(
-      "tar",
+      resolveTarExecutable(),
       [
         "-xf",
         tarPath,

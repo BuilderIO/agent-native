@@ -11,8 +11,7 @@ import {
   pageDashboardConfig,
   verifyDashboardPanels,
 } from "../server/lib/dashboard-panel-verification";
-import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import { getDashboard } from "../server/lib/dashboards-store";
+import { openDashboard } from "../server/lib/open-dashboard";
 import { clipHead } from "../shared/panel-render-contract";
 
 const INSPECT_BUDGET_MS = 45_000;
@@ -61,13 +60,12 @@ export default defineAction({
         { errorCode: "invalid_dashboard_id", statusCode: 400 },
       );
     }
-    const dashboard = await getDashboard(args.dashboardId, {
+    const opened = await openDashboard(args.dashboardId, {
       email,
       orgId: getRequestOrgId() || null,
     });
-    // The page falls back to the shipped seed when the dashboard has no row.
-    const seed = dashboard ? null : loadDashboardSeed(args.dashboardId);
-    if (!dashboard && !seed) {
+    const dashboard = opened?.saved;
+    if (!opened) {
       fail(
         `Dashboard "${args.dashboardId}" was not found, or you don't have access to it.`,
         { errorCode: "dashboard_not_found", statusCode: 404 },
@@ -81,7 +79,7 @@ export default defineAction({
     }
 
     const config = pageDashboardConfig(
-      dashboard ? dashboard.config : seed!,
+      dashboard ? dashboard.config : opened.builtin.config,
       args.dashboardId,
     );
     const panels = Array.isArray(config.panels)

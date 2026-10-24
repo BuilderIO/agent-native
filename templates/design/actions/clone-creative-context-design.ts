@@ -21,6 +21,7 @@ import {
   resolveImportDesignId,
   saveImportedDesignFiles,
 } from "../server/lib/import-design-files.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 export default defineAction({
   description:
@@ -153,6 +154,7 @@ export default defineAction({
     );
     return {
       ...saved,
+      _receipt: designOutputWriteReceipt(designId, saved.files.length),
       contextPackId: pack.id,
       source: {
         itemId: root.item.id,

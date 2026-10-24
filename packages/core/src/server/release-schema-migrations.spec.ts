@@ -49,6 +49,9 @@ describe("framework release schema migrations", () => {
     expect(await columns(db, "chat_thread_shares")).toEqual(
       expect.arrayContaining(["resource_id", "principal_id"]),
     );
+    expect(await columns(db, "agent_chat_submission_inbox")).toContain(
+      "retry_count",
+    );
     await db.close();
   });
   it("creates the run and event columns used by failure diagnostics", async () => {
@@ -70,7 +73,31 @@ describe("framework release schema migrations", () => {
       "result_is_string",
     );
     expect(await columns(db, "agent_tool_ledger")).toEqual(
-      expect.arrayContaining(["artifacts_json", "chat_ui_result_json"]),
+      expect.arrayContaining([
+        "artifacts_json",
+        "chat_ui_result_json",
+        "arguments_hash",
+      ]),
+    );
+    expect(await columns(db, "agent_runs")).toContain("worker_generation");
+    expect(await columns(db, "agent_execution_leases")).toEqual(
+      expect.arrayContaining([
+        "thread_id",
+        "turn_id",
+        "generation",
+        "owner_run_id",
+        "lease_expires_at",
+      ]),
+    );
+    expect(await columns(db, "agent_execution_steps")).toEqual(
+      expect.arrayContaining([
+        "step_id",
+        "operation_id",
+        "replay_policy",
+        "status",
+        "generation",
+        "result_json",
+      ]),
     );
     await db.close();
   });

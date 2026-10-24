@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { presentUiCapability } from "./helpers";
+
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
@@ -49,6 +51,7 @@ async function removeDocument(page: Page, id: string): Promise<void> {
     planId: string;
     scopeToken: string;
   };
+  await presentUiCapability(page);
   await page.request.post(
     "/_agent-native/actions/permanently-delete-document",
     { data: { id, planId, scopeToken }, headers: ACTION_HEADERS },

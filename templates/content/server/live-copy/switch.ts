@@ -4,8 +4,10 @@ import {
   readLiveCopy,
   seedLiveCopy,
 } from "@agent-native/core/collab";
+import { ensureSuggestionTables } from "@agent-native/core/review";
 import { eq } from "drizzle-orm";
 
+import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { getDb, schema } from "../db/index.js";
 import {
   liveBodyWriterFlagsOn,
@@ -26,8 +28,11 @@ async function readPage(documentId: string) {
   // guard:allow-unscoped — set-live-body-switch checks editor access before it switches a page.
   const [page] = await getDb()
     .select({
-      ...liveBodyWriterPageColumns,
+      ...liveBodyWriterPageColumns(),
       content: schema.documents.content,
+      sourceMode: schema.documents.sourceMode,
+      sourceRootPath: schema.documents.sourceRootPath,
+      sourcePath: schema.documents.sourcePath,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
@@ -50,6 +55,7 @@ export async function switchPageToLiveCopy(
   for (let attempt = 0; attempt < CONVERSION_ATTEMPTS; attempt += 1) {
     const page = await readPage(documentId);
     if (!page) return { writePath: "legacy", reason: "no_page" };
+    assertSourceAllowsPageEdit(page);
     const gate = await liveBodyWriterGate(documentId);
     if (gate.writePath === "live_copy") return gate;
     if (!(await liveBodyWriterFlagsOn(page))) {
@@ -59,6 +65,9 @@ export async function switchPageToLiveCopy(
         `The live-copy writer is off for page ${documentId}'s owner.`,
       );
     }
+    // The conversion commit re-baselines pending suggestions, and core
+    // creates their tables only outside a transaction.
+    await ensureSuggestionTables();
     const conversion = { documentId, baseRevision: page.bodyRevision };
     try {
       await withLiveBodyConversion(

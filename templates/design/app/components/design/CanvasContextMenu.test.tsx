@@ -283,19 +283,17 @@ describe("CanvasContextMenu edit with agent", () => {
     await view.cleanup();
   });
 
-  it("uses the theme-aware layer hover token for items and submenu triggers", async () => {
+  it("keeps the subtle menu hover instead of the selection highlight", async () => {
     const view = await renderContextMenu({
       selectedCount: 1,
       onAgentPreset: vi.fn(),
     });
     const submenuTrigger = view.findButton("Edit with Agent");
-    expect(submenuTrigger?.className).toContain(
-      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    expect(submenuTrigger).toBeDefined();
+    expect(submenuTrigger?.className ?? "").not.toContain(
+      "--design-editor-selection-color",
     );
-    expect(submenuTrigger?.className).toContain(
-      "data-[state=open]:bg-[var(--design-editor-layer-hover-color)]",
-    );
-    expect(submenuTrigger?.className).not.toContain("focus:bg-accent");
+    expect(submenuTrigger?.className ?? "").not.toContain("focus:text-white");
     await view.cleanup();
   });
 });
@@ -404,7 +402,7 @@ describe("CanvasContextMenu component instance layout", () => {
 });
 
 describe("CanvasContextMenu single layer layout", () => {
-  it("follows the Figma order with Arrange and Transform submenus", async () => {
+  it("places Arrange and Transform at the end of the menu", async () => {
     const view = await renderContextMenu({
       selectedCount: 1,
       onAction: vi.fn(),
@@ -599,27 +597,24 @@ describe("CanvasContextMenu empty canvas", () => {
     });
   }
 
-  it("shows the agent and sharing menu on empty canvas even though the open screen counts as selected", async () => {
+  it("shows the empty canvas menu even though the open screen counts as selected", async () => {
     const onExploreWithAgent = vi.fn();
-    const onCopyLink = vi.fn();
     const view = await renderContextMenu({
       selectedCount: 1,
       onExploreWithAgent,
-      onCopyLink,
+      onCopyLink: vi.fn(),
       onToggleUi: vi.fn(),
       onToggleComments: vi.fn(),
     });
     await rightClick(canvasChild(view));
 
     expect(view.findButton("Explore with Agent")?.disabled).toBe(false);
-    expect(view.findButton("Copy link")?.disabled).toBe(false);
+    expect(view.findButton("Copy link")).toBeUndefined();
     expect(view.findButton("Hide UI")).toBeDefined();
     expect(view.findButton("Bring to front")).toBeUndefined();
 
     view.findButton("Explore with Agent")?.click();
-    view.findButton("Copy link")?.click();
     expect(onExploreWithAgent).toHaveBeenCalledTimes(1);
-    expect(onCopyLink).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
 
@@ -651,6 +646,108 @@ describe("CanvasContextMenu send to", () => {
     const view = await renderContextMenu({ selectedCount: 1 });
 
     expect(view.container.textContent).not.toContain("Copy agent prompt");
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu add animation", () => {
+  const exactButton = (view: { container: HTMLElement }, label: string) =>
+    Array.from(view.container.querySelectorAll("button")).find(
+      (button) => button.textContent === label,
+    );
+  const labelsOf = (view: { container: HTMLElement }, ...labels: string[]) =>
+    labels.map((label) => Boolean(exactButton(view, label)));
+
+  it("lists the offered controls, a More group, and the ready-made choice", async () => {
+    const onSelect = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      motionMenu: {
+        basic: ["translate", "scale", "rotate", "opacity"],
+        more: [
+          "border-radius",
+          "background-color",
+          "border-color",
+          "border-width",
+          "box-shadow",
+        ],
+        onSelect,
+      },
+    });
+
+    expect(view.findButton("Add animation")).toBeDefined();
+    expect(
+      labelsOf(
+        view,
+        "Position",
+        "Scale",
+        "Rotation",
+        "Opacity",
+        "More",
+        "Corner radius",
+        "Fill",
+        "Stroke color",
+        "Stroke weight",
+        "Drop shadow",
+        "Animation style",
+      ),
+    ).toEqual(Array(11).fill(true));
+
+    await act(async () => exactButton(view, "Rotation")?.click());
+    await act(async () => exactButton(view, "Stroke weight")?.click());
+    await act(async () => exactButton(view, "Animation style")?.click());
+    expect(onSelect.mock.calls).toEqual([
+      ["rotate"],
+      ["border-width"],
+      ["ready-made"],
+    ]);
+    await view.cleanup();
+  });
+
+  it("leaves out controls the panel does not offer and hides an empty More group", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      motionMenu: {
+        basic: ["translate", "opacity"],
+        more: [],
+        onSelect: vi.fn(),
+      },
+    });
+
+    expect(labelsOf(view, "Position", "Opacity")).toEqual([true, true]);
+    expect(
+      labelsOf(view, "Scale", "Rotation", "More", "Corner radius", "Fill"),
+    ).toEqual(Array(5).fill(false));
+    expect(exactButton(view, "Animation style")).toBeDefined();
+    await view.cleanup();
+  });
+
+  it("shows only the controls that are offered inside More", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      motionMenu: {
+        basic: ["translate"],
+        more: ["border-radius", "background-color"],
+        onSelect: vi.fn(),
+      },
+    });
+
+    expect(labelsOf(view, "More", "Corner radius", "Fill")).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(
+      labelsOf(view, "Stroke color", "Stroke weight", "Drop shadow"),
+    ).toEqual([false, false, false]);
+    await view.cleanup();
+  });
+
+  it("omits the submenu when no motion menu is provided", async () => {
+    const view = await renderContextMenu({ selectedCount: 1 });
+
+    expect(view.container.textContent).not.toContain("Add animation");
+    expect(view.container.textContent).not.toContain("Animation style");
     await view.cleanup();
   });
 });

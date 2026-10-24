@@ -4,7 +4,7 @@ import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import {
@@ -16,10 +16,20 @@ import { TemplateLandingActions } from "./template-landing/TemplateLandingAction
 import { templates } from "./TemplateCard";
 import { Button } from "./website-redesign/ds/button";
 
+beforeEach(() => {
+  // Attribution storage depends on the visitor's time zone, so pin it.
+  const realOptions = new Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...realOptions,
+    timeZone: "America/Los_Angeles",
+  });
+});
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function renderWithProviders(children: ReactNode) {
@@ -54,9 +64,12 @@ describe("docs popover controls", () => {
 
     for (const name of ["Launch Builder", "Custom launch"]) {
       const link = screen.getByRole("link", { name });
-      expect(link.getAttribute("href")).toBe(
-        "https://builder.io/signup?initialPrompt=true&useFusion=true",
+      const url = new URL(link.getAttribute("href") ?? "");
+      expect(url.origin + url.pathname).toBe("https://builder.io/signup");
+      expect(url.searchParams.get("initialPrompt")).toBe(
+        "Create a new Agent-Native app.",
       );
+      expect(url.searchParams.get("useFusion")).toBe("true");
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     }
@@ -77,7 +90,9 @@ describe("docs popover controls", () => {
     const link = screen.getByRole("link", { name: "Build online" });
     const url = new URL(link.getAttribute("href") ?? "");
     expect(url.origin + url.pathname).toBe("https://builder.io/signup");
-    expect(url.searchParams.get("initialPrompt")).toBe("true");
+    expect(url.searchParams.get("initialPrompt")).toBe(
+      "Create a new Agent-Native app.",
+    );
     expect(url.searchParams.get("useFusion")).toBe("true");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(screen.queryByText(/waitlist/i)).toBeNull();
@@ -99,9 +114,11 @@ describe("docs popover controls", () => {
     fireEvent.click(customizeOnline);
     expect(screen.getByText("Build in the browser")).toBeTruthy();
     const launch = screen.getByRole("link", { name: "Launch Builder" });
-    expect(launch.getAttribute("href")).toBe(
-      "https://builder.io/signup?initialPrompt=true&useFusion=true",
+    const launchUrl = new URL(launch.getAttribute("href") ?? "");
+    expect(launchUrl.searchParams.get("initialPrompt")).toBe(
+      "Customize the Agent-Native Clips template for my workflow.",
     );
+    expect(launchUrl.searchParams.get("useFusion")).toBe("true");
   });
 
   it("passes stored first-touch attribution to demo links", () => {

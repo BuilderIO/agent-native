@@ -60,7 +60,7 @@ export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
 모든 호출자가 반드시 이를 거쳐야 하기 때문입니다.
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {

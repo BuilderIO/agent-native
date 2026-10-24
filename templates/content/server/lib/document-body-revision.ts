@@ -102,7 +102,7 @@ export async function lockLegacyBodyWrites(
   for (let start = 0; start < ids.length; start += LOCK_BATCH) {
     // guard:allow-unscoped — locks pages the writer already resolved, and reads only their write-path columns.
     const rows = await tx
-      .select(liveBodyWriterPageColumns)
+      .select(liveBodyWriterPageColumns())
       .from(documents)
       .where(inArray(documents.id, ids.slice(start, start + LOCK_BATCH)))
       .orderBy(asc(documents.id))

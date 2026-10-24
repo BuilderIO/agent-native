@@ -39,6 +39,7 @@ export default createToolkitAuthPlugin({
     "/api/agent-context.json",
     "/api/agent-transcript.json",
     "/api/agent-frame.jpg",
+    "/api/agent-frames.jpg",
     "/api/agent-app-activity.json",
     "/api/media",
     "/api/clips-latest.json",

@@ -25,7 +25,11 @@ const launcherState = vi.hoisted(() => ({
       },
     ],
     isLoading: false,
-    error: undefined,
+    error: undefined as unknown,
+    errorQueryName: undefined as
+      | "list-workspace-apps"
+      | "list-connected-agents"
+      | undefined,
     openApp: vi.fn(),
     retry: vi.fn(),
   },
@@ -89,6 +93,8 @@ describe("DispatchChatHomeApps", () => {
     ];
     launcherState.value.openApp.mockReset();
     launcherState.value.retry.mockReset();
+    launcherState.value.error = undefined;
+    launcherState.value.errorQueryName = undefined;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -193,5 +199,30 @@ describe("DispatchChatHomeApps", () => {
 
     expect(container.textContent).toContain("Localized Calendar description");
     expect(container.textContent).not.toContain("Default English text");
+  });
+
+  it.each([
+    ["list-workspace-apps", "Workspace apps failed"],
+    ["list-connected-agents", "Connected agents failed"],
+  ] as const)("identifies the failed %s query", async (queryName, message) => {
+    launcherState.value.workspaceApps = [];
+    launcherState.value.error = Object.assign(new Error(message), {
+      statusCode: 503,
+      errorCode: "workspace_gateway_unavailable",
+    });
+    launcherState.value.errorQueryName = queryName;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <DispatchChatHomeApps />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      `${queryName} · HTTP 503 · workspace_gateway_unavailable`,
+    );
+    expect(container.textContent).not.toContain(message);
   });
 });

@@ -52,6 +52,7 @@ import {
   emptyBoardHtml,
 } from "../shared/board-file.js";
 import { parseBoardObjects } from "../shared/board-objects.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const sourceFileColumns = {
   id: schema.designFiles.id,
@@ -137,7 +138,7 @@ export default defineAction({
         if (needsBackfill) {
           const backfilledContent =
             backfillBoardPrimitiveMarkers(originalContent);
-          await writeInlineSourceFile({
+          const write = await writeInlineSourceFile({
             designId,
             file: boardFileRow,
             content: backfilledContent,
@@ -150,6 +151,7 @@ export default defineAction({
             boardFileId: existingBoardFileId,
             reason:
               "boardFileId already set — backfilled missing data-an-primitive markers.",
+            _receipt: designOutputWriteReceipt(designId, write.changed ? 1 : 0),
           };
         }
       }
@@ -159,6 +161,7 @@ export default defineAction({
         migrated: false,
         boardFileId: existingBoardFileId,
         reason: "boardFileId already set — migration already complete.",
+        _receipt: designOutputWriteReceipt(designId, 0),
       };
     }
 
@@ -198,15 +201,17 @@ export default defineAction({
       )
       .limit(1);
     const boardFileId = existingBoardFile?.id ?? reservationId;
+    let outputFileCount = 0;
 
     if (existingBoardFile) {
       const live = await readLiveSourceFile(existingBoardFile);
-      await writeInlineSourceFile({
+      const write = await writeInlineSourceFile({
         designId,
         file: existingBoardFile,
         content: boardHtml,
         expectedVersionHash: live.versionHash,
       });
+      outputFileCount = write.changed ? 1 : 0;
     } else {
       try {
         await withDesignSourceMutationTransaction(designId, (tx) =>
@@ -220,6 +225,7 @@ export default defineAction({
             updatedAt: now,
           }),
         );
+        outputFileCount = 1;
       } catch (error) {
         const [concurrentBoardFile] = await db
           .select({ id: schema.designFiles.id })
@@ -258,6 +264,7 @@ export default defineAction({
         entries.length > 0
           ? `Migrated ${entries.length} board object(s) to board file ${boardFileId}.`
           : `Created empty board file ${boardFileId} (no legacy board objects).`,
+      _receipt: designOutputWriteReceipt(designId, outputFileCount),
     };
   },
 });

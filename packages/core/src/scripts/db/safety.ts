@@ -67,6 +67,7 @@ const SENSITIVE_FRAMEWORK_TABLES = new Set([
   "users",
   "session",
   "sessions",
+  "chat_threads",
   "account",
   "accounts",
   "verification",
@@ -104,7 +105,7 @@ function assertNoSensitiveFrameworkTableTokens(
     const name = token.value.toLowerCase();
     if (!SENSITIVE_FRAMEWORK_TABLES.has(name)) continue;
     fail(
-      `Sensitive framework table "${name}" is not ${sensitiveVerb(operation)} through raw DB tools. Use the framework auth, secrets, or OAuth APIs instead.`,
+      `Sensitive framework table "${name}" is not ${sensitiveVerb(operation)} through raw DB tools. Use the appropriate framework API instead.`,
     );
   }
 }

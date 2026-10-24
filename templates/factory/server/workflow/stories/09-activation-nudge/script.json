@@ -1,0 +1,451 @@
+{
+  "scenarios": {
+    "an-inactive-customer-is-nudged-exactly-three-days-later": {
+      "description": "Enabling primes the Stripe cursor and takes nothing; the next hour a customer subscribes and parks for three days; an hour before the deadline nothing happens; at three days the usage is read, one email goes to the customer and one Slack message to the account owner, and the saved cursor was handed back on every read.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "primed",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterPriming",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterNadia"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "inactive"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "the first run primes the cursor and takes nothing"
+        },
+        {
+          "kind": "tick",
+          "label": "the customer subscribes",
+          "at": "+1h"
+        },
+        {
+          "kind": "tick",
+          "label": "an hour before the three days are up",
+          "at": "+3d"
+        },
+        {
+          "kind": "tick",
+          "label": "three days after subscribing",
+          "at": "+3d1h"
+        },
+        {
+          "kind": "tick",
+          "label": "the hour after the nudge",
+          "at": "+3d2h"
+        }
+      ]
+    },
+    "the-wait-is-exactly-three-days": {
+      "description": "One minute before the deadline the customer is still parked, due at exactly three days after the subscription was taken, and nothing has been read from PostHog.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadia",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterNadia"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "inactive"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "the customer subscribes"
+        },
+        {
+          "kind": "tick",
+          "label": "one minute before the deadline",
+          "at": "+2d23h59m",
+          "manual": true
+        }
+      ]
+    },
+    "an-active-customer-gets-nothing": {
+      "description": "The customer used the product during the three days: no email, no Slack message, dismissed as activated. The same subscription offered again afterwards is not taken again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadia",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterNadia"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "active"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "the customer subscribes"
+        },
+        {
+          "kind": "tick",
+          "label": "three days later",
+          "at": "+3d"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadiaAgain",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "Stripe offers the same subscription again",
+          "at": "+3d1h"
+        }
+      ]
+    },
+    "one-nudge-per-subscription": {
+      "description": "Stripe offers the same subscription on later ticks, while it waits and after it was nudged: it is not taken twice, so there is one email and one Slack message.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadia",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadiaAgain",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterNadia"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "inactive"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "the customer subscribes"
+        },
+        {
+          "kind": "tick",
+          "label": "offered again while it waits",
+          "at": "+1h"
+        },
+        {
+          "kind": "tick",
+          "label": "three days later",
+          "at": "+3d"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadiaAgain",
+          "calls": 1
+        },
+        {
+          "kind": "tick",
+          "label": "offered again after the nudge",
+          "at": "+3d1h"
+        }
+      ]
+    },
+    "a-tick-that-dies-after-the-email-never-sends-a-second-one": {
+      "description": "The process dies after the email went out and before its receipt closed. The next tick finds the receipt open, sends nothing again, and hands the customer to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadia",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterNadia"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "inactive"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "diesAfterSending",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "the customer subscribes"
+        },
+        {
+          "kind": "tick",
+          "label": "three days later, the process dies after the email",
+          "at": "+3d"
+        },
+        {
+          "kind": "tick",
+          "label": "an hour on, after the dead tick's lease ran out",
+          "at": "+3d1h"
+        }
+      ]
+    },
+    "a-failed-usage-lookup-is-never-read-as-inactive": {
+      "description": "PostHog is unavailable when the three days are up. The lookup fails, the customer is not nudged, and the item is set aside and tried again on the ticks after; the third failure hands it to a person.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nadia",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "afterNadia"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "down"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "the customer subscribes"
+        },
+        {
+          "kind": "tick",
+          "label": "three days later, PostHog is down",
+          "at": "+3d"
+        },
+        {
+          "kind": "tick",
+          "label": "an hour on, still down",
+          "at": "+3d1h"
+        },
+        {
+          "kind": "tick",
+          "label": "the third failure",
+          "at": "+3d2h"
+        },
+        {
+          "kind": "tick",
+          "label": "the hour after",
+          "at": "+3d3h"
+        }
+      ]
+    },
+    "an-answer-with-no-count-fails-the-item-instead-of-matching": {
+      "description": "PostHog answers, but with no usable count: no results field, an empty list, text where a number belongs. None of them reads as zero events, so none is nudged; each fails at the filter and goes to a person at once, because the same answer would fail the same way.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "threeCustomers",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.newSubscriptions",
+          "recording": "nothingNew"
+        },
+        {
+          "kind": "serve",
+          "operation": "posthog.usage",
+          "recording": "unusable"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "mail",
+          "recording": "nudge"
+        },
+        {
+          "kind": "tick",
+          "label": "three customers subscribe"
+        },
+        {
+          "kind": "tick",
+          "label": "three days later",
+          "at": "+3d"
+        },
+        {
+          "kind": "tick",
+          "label": "an hour on",
+          "at": "+3d1h"
+        },
+        {
+          "kind": "tick",
+          "label": "the third failure",
+          "at": "+3d2h"
+        }
+      ]
+    },
+    "testing-the-filter-on-pinned-samples": {
+      "description": "The Filter is tested on two pinned customers, one with 1 key event and one with 12, without waiting, reading PostHog, or sending anything: the quiet one goes to Match, the busy one to Otherwise.",
+      "steps": [
+        {
+          "kind": "tick",
+          "label": "test the filter",
+          "mode": "test",
+          "node": "inactive",
+          "sample": [
+            {
+              "id": "sample-quiet",
+              "item": {
+                "title": "quiet@acme-labs.example.test",
+                "extras": {
+                  "customerId": "cus_quiet"
+                }
+              },
+              "nodes": {
+                "usage": {
+                  "results": [[1]]
+                }
+              }
+            },
+            {
+              "id": "sample-busy",
+              "item": {
+                "title": "busy@acme-labs.example.test",
+                "extras": {
+                  "customerId": "cus_busy"
+                }
+              },
+              "nodes": {
+                "usage": {
+                  "results": [[12]]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

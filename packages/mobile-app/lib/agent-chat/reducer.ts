@@ -31,12 +31,13 @@ export function initialTurnState(): ChatTurnState {
   };
 }
 
-function lastAssistantMessage(
+function assistantMessageIndex(
   state: ChatTurnState,
   assistantId: string,
-): ChatMessage | null {
-  const last = state.messages[state.messages.length - 1];
-  return last && last.id === assistantId ? last : null;
+): number {
+  return state.messages.findIndex(
+    (message) => message.role === "assistant" && message.id === assistantId,
+  );
 }
 
 function withUpdatedAssistant(
@@ -44,12 +45,15 @@ function withUpdatedAssistant(
   assistantId: string,
   update: (parts: ChatContentPart[]) => ChatContentPart[],
 ): ChatTurnState {
-  const existing = lastAssistantMessage(state, assistantId);
-  if (existing) {
+  const index = assistantMessageIndex(state, assistantId);
+  if (index >= 0) {
+    const existing = state.messages[index]!;
     const updated: ChatMessage = { ...existing, parts: update(existing.parts) };
+    const messages = [...state.messages];
+    messages[index] = updated;
     return {
       ...state,
-      messages: [...state.messages.slice(0, -1), updated],
+      messages,
     };
   }
   const created: ChatMessage = {
@@ -128,15 +132,16 @@ export function cancelTurnState(
   state: ChatTurnState,
   assistantId: string,
 ): ChatTurnState {
-  const settled = lastAssistantMessage(state, assistantId)
-    ? withUpdatedAssistant(state, assistantId, (parts) =>
-        parts.map((part) =>
-          part.type === "tool-call" && part.status === "running"
-            ? { ...part, status: "cancelled" as const }
-            : part,
-        ),
-      )
-    : state;
+  const settled =
+    assistantMessageIndex(state, assistantId) >= 0
+      ? withUpdatedAssistant(state, assistantId, (parts) =>
+          parts.map((part) =>
+            part.type === "tool-call" && part.status === "running"
+              ? { ...part, status: "cancelled" as const }
+              : part,
+          ),
+        )
+      : state;
   return { ...settled, isStreaming: false, activity: null };
 }
 

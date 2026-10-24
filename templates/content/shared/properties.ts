@@ -203,6 +203,15 @@ export function countWords(content: string | null | undefined): number {
   const text = (content ?? "")
     // Drop fenced code blocks wholesale — they're not prose.
     .replace(/```[\s\S]*?```/g, " ")
+    // Tags such as `<br>` and `<empty-block/>` are markup, not words. A `<`
+    // written in prose is saved escaped (`\<`), so it never starts a tag; a
+    // backslash written in prose is saved escaped too (`\\`), so a tag can
+    // follow an even run of backslashes. The lookahead keeps the backward scan
+    // to positions at a `<`, so a long run of backslashes stays linear.
+    .replace(
+      /(?=<)(?<=(?:^|[^\\])(?:\\\\)*)<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?\/?>/gi,
+      " ",
+    )
     // Strip inline/other markdown punctuation that would split or pad tokens.
     .replace(/[#>*_`~\-+=|[\]()!]/g, " ")
     .replace(/\s+/g, " ")

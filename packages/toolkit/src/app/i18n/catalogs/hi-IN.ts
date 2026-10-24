@@ -170,6 +170,27 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.creditsTitle": "हर महीने 60 मुफ़्त Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsTitleClips":
+    "मुफ़्त वीडियो स्टोरेज और हर महीने 60 Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsActivate": "मुफ़्त क्रेडिट सक्रिय करें",
+  "onboarding.creditsFinePrint":
+    "यह एक मुफ़्त Builder.io खाता बनाएगा। जारी रखने से आप हमारे",
+  "onboarding.creditsMoreInfo": "अधिक जानकारी",
+  "onboarding.creditsSubtitle":
+    "Builder.io से इस ऐप के लिए एक क्लिक में LLMs, Jev, स्टोरेज और बहुत कुछ के लिए मुफ़्त क्रेडिट पाएँ।",
+  "onboarding.creditsLearnMore": "और जानें",
+  "onboarding.creditsSkip": "छोड़ें",
+  "onboarding.creditsSkipConfirmTitle": "क्या आप निश्चित हैं?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native ऐप्स को ज़्यादातर सुविधाओं के लिए एक जुड़ा हुआ LLM चाहिए। इसके बिना ज़्यादातर कार्यक्षमता काम नहीं करेगी।",
+  "onboarding.creditsSkipGoBack": "वापस जाएँ",
+  "onboarding.creditsSkipAnyway": "फिर भी छोड़ें",
+  "onboarding.creditsUseCustomKeys": "कस्टम कीज़ का उपयोग करें",
+  "onboarding.creditsAboutLabel": "मुफ़्त क्रेडिट के बारे में",
+  "onboarding.creditsActivating": "मुफ़्त क्रेडिट सक्रिय हो रहे हैं",
+  "onboarding.creditsActivatingTooltip":
+    "Builder LLMs, Jev, स्टोरेज और बहुत कुछ के लिए मुफ़्त क्रेडिट देता है, ताकि आप अपनी कीज़ के बिना इस ऐप की AI सुविधाओं का उपयोग कर सकें।",
   "onboarding.builderConnect": "Builder.io से कनेक्ट करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
@@ -205,6 +226,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
+  "onboarding.capability.webSearch.label": "वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "वेब खोज",
+  "onboarding.capability.webSearch.why":
+    "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
     "Jev एक वैकल्पिक निर्णय मॉडल है, जो एजेंट के पहले मॉडल अनुरोध से पहले प्रासंगिक टूल और स्किल चुनने में मदद करता है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
@@ -720,6 +745,23 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "history.mine": "मेरी चैट",
+  "history.sharedWithYou": "आपके साथ साझा",
+  "history.showAll": "सभी दिखाएं",
+  "history.showLess": "कम दिखाएं",
+  "history.loadMore": "और लोड करें",
+  "history.loadingMore": "लोड हो रहा है...",
+  "history.retry": "फिर से प्रयास करें",
+  "history.loadFailed": "चैट लोड नहीं की जा सकीं",
+  "history.loadMoreFailed": "और चैट लोड नहीं की जा सकीं",
+  "history.emptyMine": "अभी कोई चैट नहीं है",
+  "history.emptyShared": "आपके साथ कोई चैट साझा नहीं की गई है",
+  "history.ownedBy": "मालिक: {{name}}",
+  "history.accessDirect": "आपके साथ साझा",
+  "history.accessOrganization": "आपके संगठन के साथ साझा",
+  "history.copyLink": "लिंक कॉपी करें",
+  "history.linkCopied": "लिंक कॉपी हो गया",
+  "history.copyLinkFailed": "लिंक कॉपी नहीं हो सका",
   "integrations.availableSection": "उपलब्ध इंटीग्रेशन",
   "integrations.connectedSection": "कनेक्ट किए गए",
   "integrations.goToApiKeys": "API कुंजियों पर जाएं",
@@ -958,7 +1000,25 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, संपर्क, कंपनियाँ, डील, टिकट, ग्राहक एनालिटिक्स",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "जब वर्कस्पेस द्वारा प्रबंधित HubSpot MCP Auth App कॉन्फ़िगर होता है, तो कोई भी सदस्य OAuth और PKCE के साथ अपना व्यक्तिगत HubSpot खाता कनेक्ट कर सकता है। नहीं तो, कनेक्ट करने से पहले HubSpot Developer Platform में ऐप बनाएँ। मौजूदा HubSpot OAuth कनेक्टर ऐप एक्शन के लिए उपलब्ध रहता है।",
+    "वर्कस्पेस का मालिक HubSpot MCP Auth App सेट अप करने के बाद हर व्यक्ति अपना HubSpot खाता जोड़ता है।",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP सेट अप करें",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "वर्कस्पेस का मालिक HubSpot MCP को एक बार सेट अप करता है। इसके बाद हर सदस्य अपना खाता जोड़ता है।",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "वर्कस्पेस सेटअप ज़रूरी है",
+  "mcpIntegrations.hubspot.setupChecking": "वर्कस्पेस सेटअप जाँचा जा रहा है…",
+  "mcpIntegrations.hubspot.setupUnavailable": "सेटअप की स्थिति उपलब्ध नहीं है",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "वर्कस्पेस OAuth सेटिंग जाँची नहीं जा सकी। फिर से कोशिश करें।",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App बनाएँ, फिर Agent-Native settings → API keys में उसका client ID और secret जोड़ें।",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "वर्कस्पेस के मालिक से HubSpot MCP Auth App बनाने और Agent-Native settings → API keys में उसका client ID और secret जोड़ने को कहें। सेटअप के बाद आप अपना HubSpot खाता जोड़ सकते हैं।",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP जोड़ने से पहले किसी वर्कस्पेस से जुड़ें।",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "वर्कस्पेस credentials जोड़ें",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "फिर से जाँचें",
+  "mcpIntegrations.hubspot.retrySetupStatus": "फिर कोशिश करें",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon सपोर्ट डेटा खोजें और अपडेट करें।",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1374,6 +1434,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "दर्शक",
   "share.viewerDescription": "देख सकता है",
   "share.userGroup": "उपयोगकर्ता समूह",
+  "share.ownedByAnyone": "किसी के भी स्वामित्व वाले",
+  "share.ownedByMe": "मेरे स्वामित्व वाले",
+  "share.sharedWithMe": "मेरे साथ साझा",
+  "share.confirmOrganizationTitle": "अपने संगठन के साथ साझा करें?",
+  "share.confirmOrganizationTitleNamed": "{{organization}} के साथ साझा करें?",
+  "share.confirmOrganizationDescription":
+    "आपके संगठन के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmOrganizationDescriptionNamed":
+    "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
+  "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
@@ -1423,6 +1494,10 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "काम किया",
   "tool.workedFor": "{{duration}} तक काम किया",
   "widget.chart": "चार्ट",
+  "widget.chartActions": "चार्ट कार्रवाइयाँ",
+  "widget.chartRowsOmitted": "यह चार्ट उपलब्ध पंक्तियों में से केवल कुछ दिखाता है।",
+  "widget.dataSources": "डेटा स्रोत",
+  "widget.tableActions": "टेबल कार्रवाइयाँ",
   "widget.dataChart": "डेटा चार्ट",
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
@@ -1822,6 +1897,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
+  "settings.audit.approval": "मंज़ूरी",
+  "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
+  "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
+  "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",
   "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",
@@ -1834,9 +1913,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "पिछले 90 दिन",
   "settings.audit.loadFailed": "ऑडिट लॉग लोड नहीं हो सका।",
   "settings.audit.loading": "ऑडिट लॉग लोड हो रहा है",
+  "settings.audit.oauthClient": "OAuth क्लाइंट",
   "settings.audit.onBehalfOf": "की ओर से",
   "settings.audit.range": "समय सीमा",
   "settings.audit.refused": "अस्वीकृत",
+  "settings.audit.reportedClient": "स्वयं बताया गया क्लाइंट",
   "settings.audit.result": "परिणाम",
   "settings.audit.showMore": "{{count}} और दिखाएं",
   "settings.audit.succeeded": "सफल",
@@ -1905,9 +1986,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "अधिक जानकारी",
   "settingsOrg.general.workspaceUrl": "वर्कस्पेस URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "किसी दूसरे डिप्लॉयमेंट से सदस्यों को इस वर्कस्पेस पर भेजें।",
+    "इस संगठन की ऐप डायरेक्टरी को अलग-अलग डिप्लॉयमेंट में जोड़ें।",
   "settingsOrg.general.workspaceUrlHelp":
-    "जो सदस्य किसी दूसरे डिप्लॉयमेंट पर पहुंचते हैं, वे खाली ऐप के बजाय इस वर्कस्पेस पर जाते हैं।",
+    "दूसरे डिप्लॉयमेंट इस URL का उपयोग वर्कस्पेस ऐप खोजने के लिए करते हैं। इससे सदस्य अपने-आप रीडायरेक्ट नहीं होते।",
   "settingsOrg.general.editWorkspaceUrl": "वर्कस्पेस URL संपादित करें",
   "settingsOrg.general.removeWorkspaceUrl": "वर्कस्पेस URL हटाएं",
   "settingsOrg.general.setWorkspaceUrl": "URL सेट करें",
@@ -1924,6 +2005,9 @@ const messages: ToolkitAgentChatTranslation = {
     "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
   "settingsOrg.auth.sharedSecretNotSet":
     "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.memberDelegation": "संगठन सदस्य की पहचान का प्रत्यायोजन",
+  "settingsOrg.auth.memberDelegationHelp":
+    "इस साझा संगठन सीक्रेट वाले कनेक्टेड ऐप्स इस ऐप को कॉल करते समय किसी भी वर्तमान सदस्य की पहचान का दावा कर सकते हैं। यह ऐप लाइव सदस्य सूची की जांच करता है और प्रत्यायोजित संगठन एक्सेस को सदस्य-स्तर की अनुमतियों तक सीमित रखता है।",
   "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
   "settingsOrg.auth.manage": "प्रबंधित करें",
   "settingsOrg.auth.reveal": "दिखाएं",
@@ -1986,6 +2070,12 @@ const messages: ToolkitAgentChatTranslation = {
     "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
   "settingsShell.account.languageAndRegion": "भाषा और क्षेत्र",
   "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
+  "settingsShell.account.appearance": "रूप-रंग",
+  "settingsShell.account.themeFamily": "थीम शैली",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "ऐप के मूल रंग",
+  "settingsShell.account.themeFamilySaveError":
+    "थीम शैली अपडेट नहीं की जा सकी। फिर कोशिश करें।",
   "settingsShell.account.manage": "प्रबंधित करें",
   "settingsShell.account.name": "नाम",
   "settingsShell.account.nameDescription":
@@ -2589,6 +2679,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "ऐप का डिफ़ॉल्ट मॉडल",
   "settingsShell.search.backgroundAgents": "बैकग्राउंड एजेंट",
   "settingsShell.search.browserAutomation": "ब्राउज़र ऑटोमेशन",
+  "settingsShell.search.webSearch": "वेब खोज",
   "settingsShell.search.connectedAgents": "कनेक्ट किए गए एजेंट",
   "settingsShell.search.database": "डेटाबेस",
   "settingsShell.search.defaultModel": "डिफ़ॉल्ट मॉडल",
@@ -2721,6 +2812,8 @@ const messages: ToolkitAgentChatTranslation = {
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
   "settingsInfra.whyBackground": "प्रोडक्शन से कोड में बदलाव करता है।",
   "settingsInfra.whyBrowser": "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsInfra.whyWebSearch":
+    "नई सार्वजनिक जानकारी और आधिकारिक दस्तावेज़ ढूँढता है।",
   "settingsInfra.provider": "प्रदाता",
   "settingsInfra.keyOrg": "संगठन की {{provider}} कुंजी इस्तेमाल करता है।",
   "settingsInfra.manageKey": "कुंजी प्रबंधित करें",
@@ -2879,6 +2972,10 @@ const messages: ToolkitAgentChatTranslation = {
     "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
   "settingsModel.chatgptLocalOnly":
     "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT प्लान एक्सेस के लिए व्यक्तिगत खाते का उपयोग करें। लोकल डेवलपमेंट में, साइन इन करने से पहले access.autoCreateDefaultOrg को false सेट करें।",
+  "settingsModel.chatgptScopeUnresolved":
+    "ऐप आपके खाते का दायरा सत्यापित नहीं कर सका। स्थानीय सेटअप पूरा करें, फिर सेटिंग्स को दोबारा लोड करें।",
   "settingsModel.chatgptNoDirectUse":
     "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
   "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
@@ -3056,6 +3153,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "रिपोर्ट संलग्न नहीं हुई।",
   "reportProblem.agentMessage":
     "ऐप में कुछ गड़बड़ हो गई। संलग्न समस्या रिपोर्ट से बताइए कि क्या हुआ।",
+  "unsupportedDevice.title": "इसे बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDeck": "इस डेक को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.titleDesign": "इस डिज़ाइन को बड़ी स्क्रीन पर खोलें",
+  "unsupportedDevice.body":
+    "{{app}} iPad, टैबलेट और डेस्कटॉप पर चलता है। लिंक खुद को भेजें और वहाँ से आगे बढ़ें।",
+  "unsupportedDevice.email": "मुझे लिंक ईमेल करें",
+  "unsupportedDevice.share": "लिंक शेयर करें",
+  "unsupportedDevice.copy": "लिंक कॉपी करें",
+  "unsupportedDevice.copyFailed": "लिंक कॉपी नहीं हो सका",
+  "unsupportedDevice.copied": "लिंक कॉपी हो गया",
+  "unsupportedDevice.emailSubject": "अपने कंप्यूटर पर {{app}} खोलें",
 };
 
 export default messages;
