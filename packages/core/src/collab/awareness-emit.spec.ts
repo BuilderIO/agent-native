@@ -10,6 +10,10 @@ vi.mock("h3", () => ({
 }));
 
 const mockReadBody = vi.fn();
+const mockGetSession = vi.fn();
+vi.mock("../server/auth.js", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
 }));
@@ -45,6 +49,8 @@ describe("postAwareness SSE fast-path", () => {
   beforeEach(() => {
     getDocAwareness("emit-doc").clear();
     mockReadBody.mockReset();
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue({ email: "collaborator@example.com" });
   });
 
   afterEach(() => {

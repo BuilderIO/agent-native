@@ -20,11 +20,46 @@ import {
   loadAwarenessRows,
   writeAwarenessRow,
 } from "./awareness-store.js";
+import { emailToColor, emailToName } from "./types.js";
 
 const AWARENESS_TIMEOUT = 30_000;
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 const AWARENESS_SCOPE_TIMEOUT = AWARENESS_TIMEOUT + 5_000;
 const MAX_AWARENESS_SCOPES = 10_000;
+
+type BoundAwarenessState =
+  | { ok: true; serialized: string }
+  | { ok: false; reason: "invalid-json" | "not-object" };
+
+function bindAwarenessIdentity(
+  state: string,
+  session: { email: string; name?: string; image?: string },
+  actorEmail: string,
+): BoundAwarenessState {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(state);
+  } catch (error) {
+    return { ok: false, reason: "invalid-json" };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "not-object" };
+  }
+
+  const image = session.image?.trim();
+  return {
+    ok: true,
+    serialized: JSON.stringify({
+      ...(parsed as Record<string, unknown>),
+      user: {
+        name: session.name?.trim() || emailToName(actorEmail),
+        email: actorEmail,
+        color: emailToColor(actorEmail),
+        ...(image ? { avatarUrl: image } : {}),
+      },
+    }),
+  };
+}
 
 export interface AwarenessEntry {
   clientId: number;
@@ -325,12 +360,22 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     return { error: "invalid awareness state or clientSequence" };
   }
 
+  const boundState =
+    state === null
+      ? undefined
+      : bindAwarenessIdentity(state, session, actorEmail);
+  if (boundState && !boundState.ok) {
+    setResponseStatus(event, 400);
+    return { error: "invalid awareness state or clientSequence" };
+  }
+  const serializedState = boundState?.serialized ?? "";
+
   const sequence = clientSequence ?? 0;
   const lastSeen = Date.now();
   const applied = await writeAwarenessRow(
     docId,
     clientId,
-    state ?? "",
+    serializedState,
     lastSeen,
     sequence,
     state === null,

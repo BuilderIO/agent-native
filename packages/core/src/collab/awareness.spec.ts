@@ -30,9 +30,33 @@ import {
   getActiveUsers,
   type AwarenessEntry,
 } from "./awareness.js";
+import { emailToColor, emailToName } from "./types.js";
 
 function event(params: Record<string, string> = {}) {
   return { _params: params, _status: 200 } as any;
+}
+
+function postedAwarenessState(value: string): string {
+  return JSON.stringify({
+    value,
+    user: {
+      name: "Forged identity",
+      email: "peer@example.com",
+      color: "forged-color",
+      avatarUrl: "https://attacker.example/avatar.png",
+    },
+  });
+}
+
+function authenticatedAwarenessState(
+  value: string,
+  email = "collaborator@example.com",
+  name = emailToName(email),
+): string {
+  return JSON.stringify({
+    value,
+    user: { name, email, color: emailToColor(email) },
+  });
 }
 
 describe("getDocAwareness", () => {
@@ -144,6 +168,8 @@ describe("postAwareness handler", () => {
     getDocAwareness("post-doc").clear();
     getDocAwareness("post-doc-actor").clear();
     getDocAwareness("post-doc-agent-id").clear();
+    getDocAwareness("post-doc-identity").clear();
+    getDocAwareness("post-doc-invalid-state").clear();
   });
 
   it("returns 400 when docId is missing", async () => {
@@ -183,7 +209,7 @@ describe("postAwareness handler", () => {
     mockReadBody.mockResolvedValueOnce({
       clientId: 51,
       clientSequence: 1,
-      state: "owner-state",
+      state: postedAwarenessState("owner-state"),
     });
     await postAwareness(event({ docId }));
 
@@ -191,7 +217,7 @@ describe("postAwareness handler", () => {
     mockReadBody.mockResolvedValueOnce({
       clientId: 51,
       clientSequence: 2,
-      state: "forged-state",
+      state: postedAwarenessState("forged-state"),
     });
     const ev = event({ docId });
     await expect(postAwareness(ev)).resolves.toEqual({
@@ -199,7 +225,25 @@ describe("postAwareness handler", () => {
     });
 
     expect(ev._status).toBe(403);
-    expect(getDocAwareness(docId).get(51)?.state).toBe("owner-state");
+    expect(getDocAwareness(docId).get(51)?.state).toBe(
+      authenticatedAwarenessState("owner-state", "owner@example.com"),
+    );
+
+    mockGetSession.mockResolvedValueOnce({ email: "viewer@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 51,
+      clientSequence: 3,
+      state: null,
+    });
+    const clearEv = event({ docId });
+    await expect(postAwareness(clearEv)).resolves.toEqual({
+      error: "Awareness client id belongs to another collaborator",
+    });
+
+    expect(clearEv._status).toBe(403);
+    expect(getDocAwareness(docId).get(51)?.state).toBe(
+      authenticatedAwarenessState("owner-state", "owner@example.com"),
+    );
   });
 
   it("requires an authenticated collaborator to post awareness", async () => {
@@ -236,14 +280,16 @@ describe("postAwareness handler", () => {
     mockReadBody.mockResolvedValue({
       clientId: 6,
       clientSequence: 2_000_000_000_000,
-      state: "client-state",
+      state: postedAwarenessState("client-state"),
     });
 
     const ev = event({ docId: "post-doc" });
     const res = await postAwareness(ev);
 
     expect(ev._status).toBe(200);
-    expect(getDocAwareness("post-doc").get(6)?.state).toBe("client-state");
+    expect(getDocAwareness("post-doc").get(6)?.state).toBe(
+      authenticatedAwarenessState("client-state"),
+    );
     expect(res).toMatchObject({ states: [] });
     vi.useRealTimers();
   });
@@ -253,21 +299,23 @@ describe("postAwareness handler", () => {
     mockReadBody.mockResolvedValue({
       clientId: 15,
       clientSequence: 1,
-      state: "current-state",
+      state: postedAwarenessState("current-state"),
     });
     await postAwareness(event({ docId }));
 
     mockReadBody.mockResolvedValue({
       clientId: 15,
       clientSequence: 1 + 257,
-      state: "out-of-window-state",
+      state: postedAwarenessState("out-of-window-state"),
     });
     const ev = event({ docId });
     await postAwareness(ev);
 
     expect(ev._status).toBe(409);
     expect(ev._headers).toMatchObject({ "x-awareness-client-sequence": "1" });
-    expect(getDocAwareness(docId).get(15)?.state).toBe("current-state");
+    expect(getDocAwareness(docId).get(15)?.state).toBe(
+      authenticatedAwarenessState("current-state"),
+    );
     getDocAwareness(docId).clear();
   });
 
@@ -276,21 +324,23 @@ describe("postAwareness handler", () => {
     mockReadBody.mockResolvedValue({
       clientId: 16,
       clientSequence: 7,
-      state: "current-state",
+      state: postedAwarenessState("current-state"),
     });
     await postAwareness(event({ docId }));
 
     mockReadBody.mockResolvedValue({
       clientId: 16,
       clientSequence: 6,
-      state: "stale-state",
+      state: postedAwarenessState("stale-state"),
     });
     const ev = event({ docId });
     await postAwareness(ev);
 
     expect(ev._status).toBe(409);
     expect(ev._headers).toMatchObject({ "x-awareness-client-sequence": "7" });
-    expect(getDocAwareness(docId).get(16)?.state).toBe("current-state");
+    expect(getDocAwareness(docId).get(16)?.state).toBe(
+      authenticatedAwarenessState("current-state"),
+    );
     getDocAwareness(docId).clear();
   });
 
@@ -298,13 +348,16 @@ describe("postAwareness handler", () => {
     const map = getDocAwareness("post-doc");
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });
 
-    mockReadBody.mockResolvedValue({ clientId: 5, state: "my-state" });
+    mockReadBody.mockResolvedValue({
+      clientId: 5,
+      state: postedAwarenessState("my-state"),
+    });
     const ev = event({ docId: "post-doc" });
     const res = (await postAwareness(ev)) as {
       states: Array<{ clientId: number; state: string }>;
     };
 
-    expect(map.get(5)?.state).toBe("my-state");
+    expect(map.get(5)?.state).toBe(authenticatedAwarenessState("my-state"));
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
@@ -330,7 +383,10 @@ describe("postAwareness handler", () => {
     map.set(7, { clientId: 7, state: "expired", lastSeen: 0 });
 
     vi.setSystemTime(40_000);
-    mockReadBody.mockResolvedValue({ clientId: 5, state: "fresh" });
+    mockReadBody.mockResolvedValue({
+      clientId: 5,
+      state: postedAwarenessState("fresh"),
+    });
     const res = (await postAwareness(event({ docId: "post-doc" }))) as {
       states: Array<{ clientId: number }>;
     };
@@ -338,6 +394,57 @@ describe("postAwareness handler", () => {
 
     expect(map.has(7)).toBe(false);
     expect(res.states).toEqual([]);
+  });
+
+  it("derives displayed identity from the authenticated session", async () => {
+    mockGetSession.mockResolvedValueOnce({
+      email: "Alice@Example.com",
+      name: "Alice Auth",
+      image: "https://profiles.example/alice.png",
+    });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 63,
+      clientSequence: 1,
+      state: JSON.stringify({
+        user: {
+          name: "Bob",
+          email: "bob@example.com",
+          color: "forged-color",
+          avatarUrl: "https://attacker.example/bob.png",
+        },
+        visible: true,
+        pointer: { x: 3, y: 7 },
+      }),
+    });
+
+    await postAwareness(event({ docId: "post-doc-identity" }));
+
+    const stored = JSON.parse(
+      getDocAwareness("post-doc-identity").get(63)!.state,
+    );
+    expect(stored.user).toEqual({
+      name: "Alice Auth",
+      email: "alice@example.com",
+      color: emailToColor("alice@example.com"),
+      avatarUrl: "https://profiles.example/alice.png",
+    });
+    expect(stored).toMatchObject({ visible: true, pointer: { x: 3, y: 7 } });
+  });
+
+  it("rejects unreadable serialized awareness state", async () => {
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 64,
+      clientSequence: 1,
+      state: "not-json",
+    });
+    const ev = event({ docId: "post-doc-invalid-state" });
+
+    await expect(postAwareness(ev)).resolves.toEqual({
+      error: "invalid awareness state or clientSequence",
+    });
+
+    expect(ev._status).toBe(400);
+    expect(getDocAwareness("post-doc-invalid-state").has(64)).toBe(false);
   });
 });
 
