@@ -895,4 +895,145 @@ describe("gong-calls action", () => {
       expect(result.guidance).toContain("transcript text is truncated");
     });
   });
+
+  describe("every branch stays under the result cap", () => {
+    const CAP = 50_000;
+    const size = (value: unknown) => JSON.stringify(value, null, 2).length;
+    const calls = Array.from({ length: 40 }, (_, index) => ({
+      id: `call-${index}`,
+      title: `Acme call ${index}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    const bigTranscript = (callId: string) => ({
+      callId,
+      transcript: [
+        {
+          speakerId: "buyer",
+          sentences: [
+            {
+              start: 0,
+              text: `${"Figma MCP context. ".repeat(4_000)}`,
+            },
+          ],
+        },
+      ],
+    });
+    const gongUsers = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `user-${index}`,
+        emailAddress: `person${index}@example.com`,
+        firstName: "Person",
+        lastName: `${index}`,
+        title: "Account Executive",
+        active: true,
+        created: "2024-01-01T00:00:00Z",
+        settings: { webConferencesRecorded: true, emailsImported: true },
+        spokenLanguages: [{ language: "en-US", primary: true }],
+        personalMeetingUrls: [`https://meet.example.com/person${index}`],
+      }));
+
+    beforeEach(() => {
+      getCallTranscripts.mockImplementation(async (ids: string[]) => ({
+        callTranscripts: ids.map(bigTranscript),
+      }));
+      getCallTranscript.mockResolvedValue({
+        callTranscripts: [bigTranscript("call-1")],
+      });
+      searchCalls.mockResolvedValue({ calls, limit: 40, truncated: false });
+      getCalls.mockResolvedValue({ calls });
+      getAllCalls.mockResolvedValue({ calls, pages: 1 });
+      getUsers.mockResolvedValue(gongUsers(5_000));
+    });
+
+    const branches: [string, Record<string, unknown>][] = [
+      ["users", { users: true }],
+      [
+        "single transcript",
+        { transcript: "call-1", transcriptMaxChars: 100_000 },
+      ],
+      [
+        "single raw transcript",
+        {
+          transcript: "call-1",
+          rawTranscript: true,
+          transcriptMaxChars: 100_000,
+        },
+      ],
+      ["company calls", { company: "Acme", limit: 40 }],
+      [
+        "company transcripts",
+        {
+          company: "Acme",
+          limit: 40,
+          includeTranscripts: true,
+          transcriptLimit: 20,
+        },
+      ],
+      [
+        "company transcript search",
+        { company: "Acme", limit: 40, transcriptQuery: "Figma MCP" },
+      ],
+      ["date-window calls", { limit: 40 }],
+      [
+        "date-window transcripts",
+        { limit: 40, includeTranscripts: true, transcriptLimit: 20 },
+      ],
+      [
+        "date-window transcript search",
+        { limit: 40, transcriptQuery: "Figma MCP" },
+      ],
+      ["exhaustive calls", { exhaustive: true }],
+    ];
+
+    it.each(branches)("%s", async (_name, args) => {
+      for (const cap of [CAP, undefined]) {
+        const result = (await gongCalls.run(
+          args as never,
+          cap ? ({ caller: "agent", maxResultChars: cap } as never) : undefined,
+        )) as Record<string, any>;
+        expect(size(result)).toBeLessThanOrEqual(cap ?? 100_000);
+      }
+    });
+
+    it("trims fields and then trailing users from a 5,000-user workspace", async () => {
+      const result = (await gongCalls.run({ users: true }, agentCtx)) as Record<
+        string,
+        any
+      >;
+
+      expect(size(result)).toBeLessThanOrEqual(CAP);
+      expect(result.total).toBe(5_000);
+      expect(result.users.length).toBeLessThan(5_000);
+      expect(result.usersTrimmed).toBe(5_000 - result.users.length);
+      expect(result.users[0]).toEqual(
+        expect.objectContaining({
+          id: "user-0",
+          emailAddress: "person0@example.com",
+        }),
+      );
+      expect(result.users[0].settings).toBeUndefined();
+      expect(result.guidance).toContain("usersTrimmed");
+      expect(result.guidance).toContain("provider-api-request");
+    });
+
+    it("returns a small user list untouched", async () => {
+      getUsers.mockResolvedValue(gongUsers(3));
+      const result = (await gongCalls.run({ users: true }, agentCtx)) as Record<
+        string,
+        any
+      >;
+
+      expect(result).toEqual({ users: gongUsers(3), total: 3 });
+    });
+
+    it("returns a typed error when even one user cannot fit", async () => {
+      const result = (await gongCalls.run({ users: true }, {
+        caller: "agent",
+        maxResultChars: 20,
+      } as never)) as Record<string, any>;
+
+      expect(result.error).toBe("result_too_large");
+      expect(result.total).toBe(5_000);
+    });
+  });
 });

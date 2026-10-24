@@ -732,6 +732,114 @@ describe("hubspot-deals action", () => {
     expect(result.guidance).toContain("non-overlapping closed-date windows");
   });
 
+  it("keeps the resume offset valid when a size-trimmed page ends at the search ceiling", async () => {
+    const deals = Array.from({ length: 30 }, (_, index) => ({
+      id: `big-${index}`,
+      properties: {
+        dealname: `Big deal ${index} ${"x".repeat(3_000)}`,
+        dealstage: "closed-lost",
+        pipeline: "enterprise-new-business",
+      },
+    }));
+    searchHubSpotObjects.mockResolvedValue({
+      records: deals,
+      total: 10_000,
+      nextAfter: "10000",
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({});
+
+    const result = (await hubspotDeals.run({
+      limit: 30,
+      offset: 9_970,
+    })) as Record<string, any>;
+
+    expect(result.sizeTrimmed).toBe(true);
+    // Trimming always leaves an unread provider row below the ceiling, so the
+    // "resume from nextOffset" guidance never points at a null or invalid offset.
+    expect(result.nextOffset).toBe(9_970 + result.deals.length);
+    expect(result.nextOffset).toBeLessThan(10_000);
+    expect(result.guidance).toContain("Resume from nextOffset");
+  });
+
+  describe("every branch stays under the result cap", () => {
+    const CAP = 50_000;
+    const pipeline = {
+      id: "enterprise-new-business",
+      label: "Enterprise: New Business",
+      stages: [
+        {
+          id: "closed-lost",
+          label: "Closed Lost",
+          displayOrder: 1,
+          metadata: { probability: "0" },
+        },
+      ],
+    };
+    const fatDeals = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `fat-${index}`,
+        properties: {
+          dealname: `Fat deal ${index} ${"x".repeat(3_000)}`,
+          dealstage: "closed-lost",
+          pipeline: "enterprise-new-business",
+        },
+      }));
+
+    beforeEach(() => {
+      getDealPipelines.mockResolvedValue([pipeline]);
+      getDealOwners.mockResolvedValue({});
+    });
+
+    const branches: [
+      string,
+      Record<string, unknown>,
+      { records: unknown[]; total: number; nextAfter: string | null },
+    ][] = [
+      [
+        "query",
+        { query: "Acme", limit: 30 },
+        { records: fatDeals(30), total: 90, nextAfter: "30" },
+      ],
+      [
+        "offset page",
+        { closedStatus: "lost", limit: 30, offset: 60 },
+        { records: fatDeals(30), total: 100, nextAfter: "90" },
+      ],
+      [
+        "unfiltered page",
+        { limit: 30 },
+        { records: fatDeals(30), total: 30, nextAfter: null },
+      ],
+      [
+        "search ceiling",
+        { limit: 30, offset: 9_970 },
+        { records: fatDeals(30), total: 10_000, nextAfter: "10000" },
+      ],
+      ["empty page", { limit: 30 }, { records: [], total: 0, nextAfter: null }],
+    ];
+
+    it.each(branches)("%s", async (_name, args, page) => {
+      searchHubSpotObjects.mockResolvedValue({ ...page, properties: [] });
+      for (const cap of [CAP, undefined]) {
+        const result = (await hubspotDeals.run(
+          args as never,
+          cap ? ({ caller: "agent", maxResultChars: cap } as never) : undefined,
+        )) as Record<string, any>;
+        expect(JSON.stringify(result, null, 2).length).toBeLessThanOrEqual(
+          cap ?? CAP,
+        );
+      }
+    });
+  });
+
   it("rejects impossible closed date filter boundaries", async () => {
     await expect(
       hubspotDeals.run({
