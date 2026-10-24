@@ -427,9 +427,12 @@ Shipping does not independently take ownership of new Slack feedback, except
 when the user explicitly authorizes follow-ups or reactions for a bounded scope.
 For that scope, preserve existing marks and record the authorization. Before
 the ship handoff and final disposition, enumerate every in-scope root with this
-actor's `👀`; each must have a current same-actor status after the latest human
-reply. When the user says all Slack items were replied to, report this complete
-root set. Keep all reactions in place: never remove or clean them up; add
+actor's `👀`, `✅`, or `🎫`; each eligible owned root must have a current
+same-actor status after the latest human reply. Record held-thread skips,
+person-assigned skips, and unowned canonical-linked `Clustered` roots in the
+coverage count without claiming or replying on them. When the user says all
+Slack items were replied to, report this complete root set and its gated skips.
+Keep all reactions in place: never remove or clean them up; add
 `✅` when accepted scope is complete and verified, and `🎫` only for distinct
 remaining work needing follow-up or an owner. Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say

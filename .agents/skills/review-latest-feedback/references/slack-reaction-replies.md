@@ -2,18 +2,25 @@
 
 Use the connected Slack integration for every Slack read and write. Never use a browser, screenshots, or UI automation to operate Slack.
 
-At sweep exit, reconcile every report root in the scoped inventory that has
-this actor's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Every
-root with this actor's `👀` needs a current same-actor status after the latest
-human reply; “all Slack items replied to” means this complete root set. A direct
-reaction read showing another actor's workflow mark or this actor's `:mag:`
-holds a root by default. A direct user instruction may authorize follow-ups or
-reactions for an exact root or bounded sweep scope; record that authorization,
-preserve existing marks, and reconcile those roots as owned work. Without such
-authorization, record the root and safe-skip reason, then stop: do not open the
-thread, inspect reply reactions, write any reaction, or post a status. When this actor owns both `:mag:` and a workflow
-mark, use `mag_opt_out` and preserve the exact direct root reaction-owner
-record as history; the root remains held without a thread read or status reply.
+At sweep exit, enumerate every report root in the scoped inventory that has
+this actor's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Each
+eligible owned root needs a current same-actor status after the latest human
+reply. Unowned canonical-linked `Clustered` roots and checker-verified
+`personAssignedSkip` roots stay unclaimed and receive no reply; they are not
+eligible owned roots. “All Slack items replied to” means every owned root that
+is eligible for reconciliation has a current status. A direct reaction read
+showing another actor's workflow mark or this actor's `:mag:` holds a root by
+default. A direct user instruction may authorize follow-ups or reactions for
+an exact root or bounded sweep scope; list every covered root separately. The
+exact request and each `{channelId, rootTs}` must appear in both
+`scope.authorizedRoots` and the separate orchestrator confirmation file.
+Preserve existing marks and reconcile authorized roots as owned work. Without
+that checker-matched record, record the root and safe-skip reason, then stop:
+do not open the thread, inspect reply reactions, write any reaction, or post a
+status. For an unauthorized root where this actor owns both `:mag:` and a
+workflow mark, use `mag_opt_out` and preserve the exact direct root
+reaction-owner record as history; the root remains held without a thread read
+or status reply.
 Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
@@ -154,9 +161,12 @@ End every new or edited Slack reply with the exact sentence
 not a substitute.
 
 Reactions are permanent history and do not replace the current disposition or
-status reply. For every eligible root this sweep reviews or intentionally skips,
-use root `👀` to show the sweep has taken responsibility for its status. At the
-root, `👀` records this workflow's claim, `✅` marks one or more named scopes
+status reply. For every eligible unowned root this sweep reviews, use root `👀`
+to show the sweep has taken responsibility for its status. Before claiming,
+exclude person-assigned roots and unowned canonical-linked duplicates; record
+the former with exact assignment evidence in `personAssignedSkip`, and link the
+latter with `clusteredUnder`. At the root, `👀` records this workflow's claim,
+`✅` marks one or more named scopes
 that passed direct post-change proof, and `🎫` tracks distinct human/team or
 reporter actions, including actions with no named owner yet. Do not use `🎫` as
 a generic “not reviewed” marker; it never replaces `👀` or a current status. The eye alone
@@ -285,9 +295,11 @@ team handoff, so it does not require or imply an accepted owner in `handoffs[]`.
 When no other person needs to act and only this workflow owns the next step, do
 not add `🎫`.
 
-Resolve duplicate clusters before claiming. Represent non-owner duplicates
-by permalink and **Clustered** in one owner-thread status; do not react or reply
-separately unless a distinct question needs its own disposition. For a late
+Resolve duplicate clusters before claiming. Represent an unowned duplicate
+with its canonical permalink and **Clustered** disposition; do not add a claim
+or status reply. If this actor already owns a workflow mark on the duplicate,
+reconcile that existing mark with one current **Clustered** status. Do not
+react or reply separately unless a distinct question needs its own disposition. For a late
 duplicate that already has `👀`, recheck ownership. If this task still owns it,
 keep the eye and post one concise **Clustered** reply with the owner permalink;
 do not send a second owner update. If another task owns it or ownership is

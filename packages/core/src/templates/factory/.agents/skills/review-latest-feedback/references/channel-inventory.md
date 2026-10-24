@@ -84,6 +84,16 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   validates consistency but cannot authenticate the original user message;
   creating this separate record is an explicit operator verification step. A
   partial default scan or IDs that differ from the inventory also fail.
+- For any held-root authorization, including on the default channel set, record
+  the exact user request in `scope.userRequest` and list each authorized root
+  as `{ "channelId": "C...", "rootTs": "..." }` in
+  `scope.authorizedRoots`. Repeat that exact request, the requested channel IDs,
+  and the same root list in the separate orchestrator confirmation file. A
+  bounded authorization is expanded into its exact in-window root list. Pass
+  this confirmation as the checker's fourth input; without it, held roots stay
+  skipped. The checker verifies the copied request contains an explicit
+  authorization and that every listed root is a directly evidenced held report
+  in the requested window or linked by an in-window reply.
 - Record the actual canonical Slack `channelName` in every channel row. Use
   that name only when validating Slack's echoed channel search query; the
   checker also accepts the exact channel ID and rejects any other name. Never
@@ -243,11 +253,14 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
 - **Held thread:** If the exact root reaction read shows another actor owns any
   workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, hold the root
   by default. A direct user instruction may authorize follow-ups or reactions
-  for an exact root or bounded sweep scope. Record that authorization in the
-  task ledger, preserve every existing reaction, and process authorized roots
-  as owned work without `ownershipSkip`; the checker then requires the normal
-  exact root, thread, reaction, and current-status evidence. Without such
-  authorization, record an `ownershipSkip` with the root timestamp and
+  for an exact root or bounded sweep scope. Record the exact request and every
+  covered root in `scope.userRequest` and `scope.authorizedRoots`, then repeat
+  the same request and root list in the
+  separate orchestrator confirmation file. The checker matches both records,
+  verifies that each target is a held report root, and then requires the normal
+  exact root, thread, reaction, claim, and current-status evidence. The checker
+  cannot independently recover the original prompt; keep the copied request
+  exact. Without such authorization, record an `ownershipSkip` with the root timestamp and
   `foreign_workflow_mark` or `mag_opt_out`; use `Skipped` and leave
   thread-derived fields empty. If this actor also owns a workflow mark, use
   `mag_opt_out` and preserve the exact direct root reaction-owner record as
@@ -323,15 +336,23 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   requested `cursor`, raw response, and `readAt`; the raw response must
   explicitly report cursor exhaustion. The checker compares every page and
   reply against the complete `threadSnapshot`.
-- For every in-scope root classified as a report, pass the ownership gate. If
-  this sweep reviews or intentionally skips the root, claim it with this actor's
-  root `👀` and post or reuse a current status in its root thread. Explicit
-  user authorization for a bounded scope permits this even when another actor
-  has a workflow mark; preserve that mark and record the authorization. The checker rejects an
-  eligible open report without this claim and status. For every root already
-  owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current status
-  after the latest human reply; update it only when new human input, proof,
-  disposition, or next action changes. For **Owned elsewhere**, record another
+- For every in-scope report, pass the ownership gate. Claim eligible unowned
+  reports with this actor's root `👀` before investigating. Do not claim or
+  reply on an unowned `Clustered` duplicate or a person-assigned root. For the
+  latter, record `personAssignedSkip.assigneeId` and the exact
+  `assignmentTs`; the checker verifies that the complete thread read-back
+  assigns the work to that Slack user and that this actor has no workflow claim
+  or reply. Explicit user authorization for an exact held root permits work
+  despite another actor's mark or this actor's `:mag:`; the separate confirmation
+  must match `scope.authorizedRoots`, and the checker requires the normal exact
+  root, thread, reaction, claim, and current-status evidence. The checker
+  rejects an eligible open report without this claim and status. For every root
+  already owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current
+  status after the latest human reply; update it only when new human input,
+  proof, disposition, or next action changes. For an unowned `Clustered` root,
+  keep `clusteredUnder` and do not add a status reply; if this actor already
+  owns a workflow mark on a duplicate, reconcile that existing mark normally.
+  For **Owned elsewhere**, record another
   actor's root `👀` and their latest same-thread open status after the latest
   human reply; do not claim or reply on that root. Do not reply on an
   administrative post or duplicate; record the reason and link a duplicate to
@@ -387,7 +408,7 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   status update that points to the existing ask, then wait silently. Record an
   explicit decision for both `✅` and `🎫`: `present` with its scope, or `none`
   with the reason no mark applies.
-  For every parent with this actor's `👀`, `✅`, or `🎫`, include
+  For every non-held root with this actor's `👀`, `✅`, or `🎫`, include
   `latestRelevantHumanReply`. Set it to `null` only when the root thread has no
   relevant non-sweep human reply. Otherwise record the reply's exact Slack
   timestamp (`ts`), `actorId`, and verbatim `text`; exclude this actor's status
@@ -496,7 +517,8 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   the cutoff filters which messages count, but never ends the cursor chain.
 - Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [scope-confirmation.json]`
   before recapping. Supply `.tmp/feedback-scope-confirmation.json` as the
-  fourth input for narrowed scope; the first three inputs remain required. The
+  fourth input for narrowed scope or held-root authorization; the first three
+  inputs remain required. The
   checker compares the
   independent receipt's channel set, page chain, timestamps, message counts,
   and every source `{ ts, root }` row with the reviewed inventory and raw Slack

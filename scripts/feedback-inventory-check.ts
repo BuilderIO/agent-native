@@ -83,6 +83,16 @@ type OwnershipSkip = {
   reason: "foreign_workflow_mark" | "mag_opt_out";
 };
 
+type PersonAssignedSkip = {
+  assigneeId: string;
+  assignmentTs: string;
+};
+
+type AuthorizedRoot = {
+  channelId: string;
+  rootTs: string;
+};
+
 type ClusteredUnder = {
   channelId: string;
   rootTs: string;
@@ -193,6 +203,8 @@ type Parent = {
   statusReply?: StatusReply;
   // A direct reaction read proves this root is held without opening its thread.
   ownershipSkip?: OwnershipSkip;
+  // A checker-verified assignment to another person that stays unclaimed.
+  personAssignedSkip?: PersonAssignedSkip;
   // Exact canonical report root that owns this duplicate's shared feedback.
   clusteredUnder?: ClusteredUnder;
   // Permanently retained marks whose formerly verified/accepted meaning changed.
@@ -424,6 +436,7 @@ type Inventory = {
   scope: {
     channelIds: string[];
     userRequest?: string;
+    authorizedRoots?: AuthorizedRoot[];
     narrowingJudgment?: {
       instruction: string;
       channelIds: string[];
@@ -852,12 +865,165 @@ function validateOwnershipSkipRecord(
     parent.latestOwnedReply !== undefined ||
     parent.latestRelevantHumanReply !== undefined ||
     parent.otherOwnerEvidence !== undefined ||
+    parent.personAssignedSkip !== undefined ||
     parent.historicalReactionMarks !== undefined ||
     parent.reactionDecision !== undefined
   ) {
     throw new Error(
       `${parentName}: a held thread must record only its exact root and safe-skip reason, with no inferred thread status or work evidence`,
     );
+  }
+  return true;
+}
+
+function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
+  const assigneeMention = new RegExp("<@" + assigneeId + "(?:\\|[^>]+)?>");
+  return text.split(/[.!?;\n]+/).some((clause) => {
+    const mention = clause.match(assigneeMention);
+    if (!mention || mention.index === undefined) return false;
+    const beforeMention = clause.slice(0, mention.index);
+    const afterMention = clause.slice(mention.index + mention[0].length);
+    const assignsNamedPerson =
+      /\b(?:assign(?:s|ed|ing)?|designat(?:e|es|ed|ing))\b[^.!?;\n]{0,80}\b(?:to|for)\s*$/.test(
+        beforeMention,
+      ) ||
+      /^\s+(?:(?:is|was|has been)\s+)?(?:assigned|designated)\b/i.test(
+        afterMention,
+      ) ||
+      /^\s+(?:is|was)\s+(?:the\s+)?(?:assignee|owner)\b/i.test(afterMention) ||
+      /\b(?:this|it|the (?:issue|ticket|task|action|work|report))\s+(?:is|was)\s+yours\s*$/.test(
+        beforeMention,
+      ) ||
+      /\b(?:please\s+)?(?:take|own|handle|pick up|look at|review)\b[^.!?;\n]{0,60}\b(?:this|the (?:issue|ticket|task|action|work|report))\s*$/.test(
+        beforeMention,
+      );
+    const deniesAssignment =
+      /\b(?:(?:not|never|no longer|is\s+not|was\s+not)\s+(?:assigned|designated|assign(?:ed)?|designat(?:e|ed))|(?:did|do|does|will|would|should|can|could|has|have)\s+not\s+(?:assign|designate))\b/i.test(
+        clause,
+      );
+    return assignsNamedPerson && !deniesAssignment;
+  });
+}
+
+function validatePersonAssignedSkipRecord(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+  threadSnapshot: ThreadSnapshot | undefined,
+  requireFreshReads: boolean,
+): boolean {
+  const skip = parent.personAssignedSkip;
+  if (!skip) return false;
+  if (
+    !isSlackUserId(skip.assigneeId) ||
+    skip.assigneeId === sweepActorId ||
+    parent.ts !== parent.threadParentTs ||
+    parent.rootClassification !== "report" ||
+    parent.disposition !== "Skipped" ||
+    parent.ownershipSkip !== undefined ||
+    parent.clusteredUnder !== undefined ||
+    parent.otherOwnerEvidence !== undefined ||
+    parent.latestOwnedReply !== undefined ||
+    parent.statusReply !== undefined ||
+    parent.latestRelevantHumanReply != null ||
+    parent.fixedScopes !== undefined ||
+    parent.unfinishedScopes !== undefined ||
+    parent.handoff !== undefined ||
+    parent.handoffs !== undefined ||
+    parent.reporterRequests !== undefined ||
+    parent.historicalReactionMarks !== undefined ||
+    parent.reactionDecision !== undefined ||
+    parent.unreconciledTicketMark !== undefined ||
+    parent.unreconciledCheckmarkMark !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: a person-assigned skip must be an unclaimed report with no status or follow-up work`,
+    );
+  }
+
+  const workflowOwners = [
+    ...(parent.reactionOwners.eyes ?? []),
+    ...(parent.reactionOwners.white_check_mark ?? []),
+    ...(parent.reactionOwners.ticket ?? []),
+  ];
+  if (
+    workflowOwners.includes(sweepActorId) ||
+    workflowOwners.some((actorId) => actorId !== sweepActorId) ||
+    (parent.reactionOwners.mag ?? []).includes(sweepActorId)
+  ) {
+    throw new Error(
+      `${parentName}: person-assigned roots stay outside all workflow claims; use the reaction-held skip when another workflow mark or this actor's :mag: is present`,
+    );
+  }
+  if (
+    !threadSnapshot ||
+    threadSnapshot.rootTs !== parent.ts ||
+    threadSnapshot.replyCount !== threadSnapshot.replies.length
+  ) {
+    throw new Error(
+      `${parentName}: a person-assigned skip needs a complete read-back containing the exact assignment`,
+    );
+  }
+  validateThreadSnapshotStructure(
+    parentName,
+    parent.ts,
+    threadSnapshot,
+    sweepActorId,
+    requireFreshReads,
+  );
+
+  const assignmentTimestamp = slackTimestamp(
+    skip.assignmentTs,
+    `${parentName}.personAssignedSkip.assignmentTs`,
+  );
+  const rootTimestamp = slackTimestamp(parent.ts, `${parentName}.ts`);
+  let assignmentText: string | undefined;
+  let latestHumanTimestamp = rootTimestamp;
+  for (const [replyIndex, reply] of threadSnapshot.replies.entries()) {
+    const replyTimestamp = slackTimestamp(
+      reply.ts,
+      `${parentName}.threadSnapshot.replies[${replyIndex}].ts`,
+    );
+    if (reply.kind === "sweep" && reply.actorId === sweepActorId) {
+      throw new Error(
+        `${parentName}: a person-assigned skip cannot contain a reply from this actor`,
+      );
+    }
+    if (reply.kind === "human") latestHumanTimestamp = replyTimestamp;
+    if (replyTimestamp === assignmentTimestamp && reply.kind === "human") {
+      assignmentText = reply.text;
+    }
+  }
+  if (assignmentTimestamp === rootTimestamp) {
+    assignmentText = threadSnapshot.rootText;
+    if (threadSnapshot.replies.some((reply) => reply.kind === "human")) {
+      throw new Error(
+        `${parentName}: a root-level assignment is stale once a human has replied`,
+      );
+    }
+  } else if (assignmentTimestamp !== latestHumanTimestamp) {
+    throw new Error(
+      `${parentName}: the named person's assignment must be the latest human reply`,
+    );
+  }
+  if (
+    typeof assignmentText !== "string" ||
+    !messageAssignsNamedPerson(assignmentText, skip.assigneeId)
+  ) {
+    throw new Error(
+      `${parentName}: personAssignedSkip needs an exact root or latest human message assigning work to the named Slack user`,
+    );
+  }
+  if (requireFreshReads) {
+    const readAt = Date.parse(threadSnapshot.readAt);
+    if (
+      !Number.isFinite(readAt) ||
+      new Date(readAt).toISOString() !== threadSnapshot.readAt
+    ) {
+      throw new Error(
+        `${parentName}: assignment read-back needs an ISO read timestamp`,
+      );
+    }
   }
   return true;
 }
@@ -3791,6 +3957,7 @@ function validateOtherOwnerEvidence(
   threadSnapshot: ThreadSnapshot | undefined,
   isInScopeReport: boolean,
   hasOwnedReaction: boolean,
+  explicitlyAuthorized = false,
 ): void {
   const evidence = parent.otherOwnerEvidence;
   const otherEyeOwners = (parent.reactionOwners.eyes ?? []).filter(
@@ -3831,7 +3998,8 @@ function validateOtherOwnerEvidence(
     if (
       isInScopeReport &&
       !hasOwnedReaction &&
-      activeOtherEyeOwners.length > 0
+      activeOtherEyeOwners.length > 0 &&
+      !explicitlyAuthorized
     ) {
       throw new Error(
         `${parentName}: another actor owns this report; do not add this actor's 👀 or reply—record Owned elsewhere with current owner evidence`,
@@ -3955,8 +4123,9 @@ function validateInScopeReportOwnership(
   hasOwnedWorkflowMark: boolean,
   hasOwnershipSkip: boolean,
   isCursorOverlap: boolean,
+  hasPersonAssignedSkip = false,
 ): void {
-  if (hasOwnershipSkip || isCursorOverlap) return;
+  if (hasOwnershipSkip || isCursorOverlap || hasPersonAssignedSkip) return;
   if (parent.disposition === "Owned elsewhere" && !hasOwnedWorkflowMark) return;
   if (parent.disposition === "Clustered" && !hasOwnedWorkflowMark) {
     if (!parent.clusteredUnder) {
@@ -4611,6 +4780,7 @@ function validateSupplementalRootAudit(
   requireFreshReads: boolean,
   finalPageReadAt: number | null,
   requireSourceText = false,
+  explicitlyAuthorized = false,
 ): void {
   const parentName = `${channelName} supplemental root ${rootTs}`;
   validateSlackFiles(`${parentName}.files`, parent.files);
@@ -4699,6 +4869,9 @@ function validateSupplementalRootAudit(
     parent.reactionSummary,
     parent.reactionOwners,
   );
+  if (explicitlyAuthorized) {
+    validateAuthorizedRootTarget(parentName, parent, sweepActorId);
+  }
 
   if (
     validateOwnershipSkipRecord(
@@ -4710,6 +4883,14 @@ function validateSupplementalRootAudit(
     validateOwnershipSkipRootEvidence(parentName, parent, sweepActorId);
     return;
   }
+
+  validatePersonAssignedSkipRecord(
+    parentName,
+    parent,
+    sweepActorId,
+    threadSnapshot,
+    requireFreshReads,
+  );
 
   const rootReactionState = workflowReactionState(
     parent.reactionOwners,
@@ -4739,6 +4920,7 @@ function validateSupplementalRootAudit(
     threadSnapshot,
     false,
     hasOwnedReaction,
+    explicitlyAuthorized,
   );
 
   const {
@@ -5039,12 +5221,14 @@ type OrchestratorScopeConfirmation = {
   decision: "explicitly-requested";
   userRequest: string;
   channelIds: string[];
+  authorizedRoots?: AuthorizedRoot[];
 };
 
 function validateOrchestratorScopeConfirmation(
   confirmation: unknown,
   userRequest: string,
   requestedChannelIds: Set<string>,
+  authorizedRoots: AuthorizedRoot[] = [],
 ): void {
   if (confirmation === undefined) {
     throw new Error(
@@ -5071,6 +5255,35 @@ function validateOrchestratorScopeConfirmation(
       "external scope confirmation must record source=orchestrator and decision=explicitly-requested",
     );
   }
+  const confirmedAuthorizedRoots = record.authorizedRoots ?? [];
+  const rootKey = ({ channelId, rootTs }: AuthorizedRoot) =>
+    `${channelId}\u0000${rootTs}`;
+  const expectedRootKeys = authorizedRoots.map(rootKey).sort();
+  const confirmedRootKeys = Array.isArray(confirmedAuthorizedRoots)
+    ? confirmedAuthorizedRoots.map((root) => {
+        if (
+          !root ||
+          typeof root.channelId !== "string" ||
+          typeof root.rootTs !== "string"
+        ) {
+          return "";
+        }
+        return rootKey(root);
+      })
+    : [];
+  if (
+    !Array.isArray(confirmedAuthorizedRoots) ||
+    confirmedRootKeys.some((key) => !key) ||
+    new Set(confirmedRootKeys).size !== confirmedRootKeys.length ||
+    expectedRootKeys.length !== confirmedRootKeys.length ||
+    expectedRootKeys.some(
+      (key, index) => key !== confirmedRootKeys.sort()[index],
+    )
+  ) {
+    throw new Error(
+      "external scope confirmation must match the inventory's exact authorizedRoots",
+    );
+  }
   const confirmedChannelIds = record.channelIds;
   if (
     confirmedChannelIds.some(
@@ -5085,6 +5298,108 @@ function validateOrchestratorScopeConfirmation(
   ) {
     throw new Error(
       "external scope confirmation must match the inventory's exact userRequest and channelIds",
+    );
+  }
+}
+
+function validateAuthorizedRootsDeclaration(
+  scope: Inventory["scope"],
+  confirmation: unknown,
+  requestedChannelIds: Set<string>,
+): Set<string> {
+  const entries = scope.authorizedRoots ?? [];
+  if (!Array.isArray(entries)) {
+    throw new Error(
+      "scope.authorizedRoots must be an array of exact Slack roots",
+    );
+  }
+  if (entries.length === 0) return new Set();
+  const requestText =
+    typeof scope.userRequest === "string"
+      ? withoutQuotedScopeContext(scope.userRequest)
+      : "";
+  const hasExplicitAuthorization =
+    /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit)\b|\b(?:i|we)\s+(?:give|grant)\s+(?:you\s+)?permission\b|\b(?:you may|you can|go ahead and)\s+(?:read|claim|reply|work|handle|reconcile|take over)\b|\byou have my permission\b/i.test(
+      requestText,
+    );
+  if (
+    typeof scope.userRequest !== "string" ||
+    !scope.userRequest.trim() ||
+    !hasExplicitAuthorization
+  ) {
+    throw new Error(
+      "root authorization needs the exact userRequest with an explicit authorization statement",
+    );
+  }
+
+  const rootKeys = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    if (
+      !entry ||
+      typeof entry.channelId !== "string" ||
+      !requestedChannelIds.has(entry.channelId) ||
+      typeof entry.rootTs !== "string"
+    ) {
+      throw new Error(
+        `scope.authorizedRoots[${index + 1}] must name a requested channel and exact root timestamp`,
+      );
+    }
+    const timestamp = slackTimestamp(
+      entry.rootTs,
+      `scope.authorizedRoots[${index + 1}].rootTs`,
+    );
+    if (slackTimestampFromMicros(timestamp) !== entry.rootTs) {
+      throw new Error(
+        `scope.authorizedRoots[${index + 1}].rootTs must use the exact six-digit Slack timestamp`,
+      );
+    }
+    const key = `${entry.channelId}\u0000${entry.rootTs}`;
+    if (rootKeys.has(key)) {
+      throw new Error("scope.authorizedRoots cannot contain duplicate roots");
+    }
+    rootKeys.add(key);
+  }
+  validateOrchestratorScopeConfirmation(
+    confirmation,
+    scope.userRequest.trim(),
+    requestedChannelIds,
+    entries,
+  );
+  return rootKeys;
+}
+
+function validateAuthorizedRootTarget(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+): void {
+  if (
+    parent.ts !== parent.threadParentTs ||
+    parent.rootClassification !== "report" ||
+    parent.disposition === "Clustered" ||
+    parent.personAssignedSkip !== undefined ||
+    parent.ownershipSkip !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: explicit authorization applies only to a held, non-duplicate report root`,
+    );
+  }
+  const hasForeignWorkflowMark = (
+    ["eyes", "white_check_mark", "ticket"] as const
+  ).some((emoji) =>
+    (parent.reactionOwners[emoji] ?? []).some(
+      (actorId) => actorId !== sweepActorId,
+    ),
+  );
+  const hasOwnMag = (parent.reactionOwners.mag ?? []).includes(sweepActorId);
+  if (!hasForeignWorkflowMark && !hasOwnMag) {
+    throw new Error(
+      `${parentName}: an authorized root must have the exact foreign workflow mark or this actor's :mag: hold that required authorization`,
+    );
+  }
+  if (!(parent.reactionOwners.eyes ?? []).includes(sweepActorId)) {
+    throw new Error(
+      `${parentName}: authorized work needs this actor's exact root 👀 and current status`,
     );
   }
 }
@@ -7899,6 +8214,7 @@ function validateInventory(
     | {
         channelIds?: unknown;
         userRequest?: unknown;
+        authorizedRoots?: unknown;
         narrowingJudgment?: unknown;
       }
     | undefined;
@@ -7916,6 +8232,12 @@ function validateInventory(
     );
   }
   const requestedChannelIds = new Set(scope.channelIds as string[]);
+  const authorizedRootKeys = validateAuthorizedRootsDeclaration(
+    scope as Inventory["scope"],
+    options.scopeConfirmation,
+    requestedChannelIds,
+  );
+  const authorizedRootKeysInScope = new Set<string>();
 
   slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -8524,6 +8846,11 @@ function validateInventory(
           );
         }
         const isRootMessage = timestamp === threadParentTimestamp;
+        if (!isRootMessage && parent.personAssignedSkip) {
+          throw new Error(
+            `${parentName}: personAssignedSkip belongs only on the exact root row`,
+          );
+        }
         const hasOwnershipSkip = validateOwnershipSkipRecord(
           parentName,
           parent,
@@ -8607,6 +8934,25 @@ function validateInventory(
           parent.reactionOwners,
           inventory.sweepActorId,
         );
+        const rootKey = `${channel.channelId}\u0000${slackTimestampFromMicros(threadParentTimestamp)}`;
+        const isAuthorizedRoot =
+          isRootMessage && authorizedRootKeys.has(rootKey);
+        const hasPersonAssignedSkip =
+          isRootMessage &&
+          validatePersonAssignedSkipRecord(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+            threadSnapshot,
+            options.requireFreshReads === true,
+          );
+        if (isAuthorizedRoot) {
+          validateAuthorizedRootTarget(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+          );
+        }
         if (!isRootMessage) {
           validateLegacyReplyReactionReadback(
             parentName,
@@ -8640,6 +8986,7 @@ function validateInventory(
           isRootMessage &&
           hasWorkflowReaction(rootWorkflowState) &&
           !hasOwnershipSkip &&
+          !hasPersonAssignedSkip &&
           !preservesAdministrativeEye;
         let fixedScopes: NonNullable<Parent["fixedScopes"]> = [];
         let fixedScopeNames = new Set<string>();
@@ -8652,6 +8999,9 @@ function validateInventory(
           const isInScopeReport =
             timestamp >= channelCutoff &&
             parent.rootClassification === "report";
+          if (isAuthorizedRoot && isInScopeReport) {
+            authorizedRootKeysInScope.add(rootKey);
+          }
           if (isInScopeReport && !hasOwnershipSkip) {
             validateThreadSnapshotStructure(
               parentName,
@@ -8678,6 +9028,7 @@ function validateInventory(
             threadSnapshot,
             isInScopeReport,
             reconcilesOwnedStatus,
+            isAuthorizedRoot,
           );
           if (isInScopeReport) {
             validateInScopeReportOwnership(
@@ -8687,6 +9038,7 @@ function validateInventory(
               hasWorkflowReaction(rootWorkflowState),
               hasOwnershipSkip,
               isCursorOverlap,
+              hasPersonAssignedSkip,
             );
           }
           const scopeEvidence = validateScopeEvidence(parentName, parent);
@@ -9115,6 +9467,9 @@ function validateInventory(
         options.requireFreshReads === true,
         finalPageReadAt,
         options.requireSourceText === true,
+        authorizedRootKeys.has(
+          `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`,
+        ),
       );
     }
     if (auditedSupplementalRoots.size !== supplementalRoots.size) {
@@ -9305,6 +9660,16 @@ function validateInventory(
         throw new Error(
           `${name} source ${parent.ts}: threadParentTs does not resolve to an in-page root or verified threadRoots entry`,
         );
+      }
+    }
+    for (const rootAudit of channel.threadRootAudits ?? []) {
+      const rootTimestamp = slackTimestamp(
+        rootAudit.ts,
+        `${name}.authorizedRoot.ts`,
+      ).toString();
+      if (referencedSupplementalRoots.has(rootTimestamp)) {
+        const key = `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`;
+        if (authorizedRootKeys.has(key)) authorizedRootKeysInScope.add(key);
       }
     }
     if (referencedSupplementalRoots.size !== supplementalRoots.size) {
@@ -9552,6 +9917,14 @@ function validateInventory(
     );
   }
 
+  const unauthorizedRootTargets = [...authorizedRootKeys].filter(
+    (rootKey) => !authorizedRootKeysInScope.has(rootKey),
+  );
+  if (unauthorizedRootTargets.length > 0) {
+    throw new Error(
+      `scope.authorizedRoots must point to in-window roots or older roots linked by an in-window reply: ${unauthorizedRootTargets.join(", ")}`,
+    );
+  }
   validateClusteredRootLinks(inventory);
 
   const inventoryChannelIds = [...channelIds].sort();
@@ -9631,6 +10004,7 @@ function validateInventory(
       options.scopeConfirmation,
       userRequest,
       requestedChannelIds,
+      (scope.authorizedRoots ?? []) as AuthorizedRoot[],
     );
     summaries.push(
       `External orchestrator confirmation matches narrowed request and channel IDs for ${[
@@ -15811,6 +16185,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       decision: "explicitly-requested",
       userRequest: inventory.scope.userRequest,
       channelIds: [...inventory.scope.channelIds],
+      authorizedRoots: [...(inventory.scope.authorizedRoots ?? [])],
     };
   };
   const validateTestInventory = (
@@ -16588,7 +16963,183 @@ if (args[0] === "--self-test" && args.length === 1) {
           permalink: sourcePermalink(targetRootTs),
         },
       }));
-    validateTestInventory(clusteredRoot(valid, "10.000000"));
+    const unownedClusteredRoot = clusteredRoot(valid, "10.000000");
+    validateTestInventory(unownedClusteredRoot);
+    expectFocusedFailure(
+      "unowned Clustered duplicate cannot have this actor's status",
+      () =>
+        validateInScopeReportOwnership(
+          "C_TEST root 11.000000",
+          {
+            ...unownedClusteredRoot.channels[0]!.pages[0]!.parents[0]!,
+            statusReply: {
+              ts: "13.000000",
+              threadParentTs: "11.000000",
+              actorId: "USWEEPER",
+              disposition: "Clustered",
+              evidence: "the duplicate is linked to the canonical report",
+              text: "Clustered: the duplicate is linked to the canonical report.",
+            },
+          },
+          false,
+          false,
+          false,
+          false,
+        ),
+      "an unowned Clustered report cannot carry this actor's status reply",
+    );
+
+    const personAssignedRoot = withPageRoot(valid, "11.000000", (parent) => ({
+      ...parent,
+      sourceText: "I assigned this report to <@UOTHER>.",
+      disposition: "Skipped",
+      latestRelevantHumanReply: undefined,
+      latestOwnedReply: undefined,
+      statusReply: undefined,
+      reactionSummary: "none",
+      reactionOwners: {},
+      reactionDecision: undefined,
+      clusteredUnder: undefined,
+      personAssignedSkip: {
+        assigneeId: "UOTHER",
+        assignmentTs: "11.000000",
+      },
+    }));
+    validateTestInventory(personAssignedRoot);
+    expectFocusedFailure(
+      "person-assigned skip without a named assignment",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "This report was not assigned to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "person-assigned proof must bind the assignment to the named person",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER2>. Thanks <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "negated assignment is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I did not assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+
+    const authorizedMagRoot = (() => {
+      const userRequest =
+        "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize root 10.000000 despite its :mag: hold.";
+      const inventory = structuredClone(valid);
+      inventory.scope.userRequest = userRequest;
+      inventory.scope.narrowingJudgment!.instruction = userRequest;
+      inventory.scope.authorizedRoots = [
+        { channelId: "C_TEST", rootTs: "10.000000" },
+      ];
+      inventory.channels[0]!.pages[0]!.parents =
+        inventory.channels[0]!.pages[0]!.parents.map((parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                reactionSummary:
+                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; mag (1): USWEEPER",
+                reactionOwners: {
+                  ...parent.reactionOwners,
+                  mag: ["USWEEPER"],
+                },
+              }
+            : parent,
+        );
+      return inventory;
+    })();
+    validateTestInventory(authorizedMagRoot);
+    const deniedAuthorization = structuredClone(authorizedMagRoot);
+    deniedAuthorization.scope.userRequest =
+      "I do not authorize root 10.000000 despite its :mag: hold.";
+    deniedAuthorization.scope.narrowingJudgment!.instruction =
+      deniedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "negated request cannot authorize a held root",
+      () => validateTestInventory(deniedAuthorization),
+      "root authorization needs the exact userRequest with an explicit authorization statement",
+    );
+    const quotedAuthorization = structuredClone(authorizedMagRoot);
+    quotedAuthorization.scope.userRequest =
+      'The quoted text says "I authorize root 10.000000".';
+    quotedAuthorization.scope.narrowingJudgment!.instruction =
+      quotedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "quoted authorization cannot authorize a held root",
+      () => validateTestInventory(quotedAuthorization),
+      "root authorization needs the exact userRequest with an explicit authorization statement",
+    );
+    expectFocusedFailure(
+      "authorized root needs its separate orchestrator confirmation",
+      () => validateInventory(withTestThreadSnapshots(authorizedMagRoot)),
+      "provide a separate orchestrator confirmation file",
+    );
+    expectFocusedFailure(
+      "authorization confirmation must match exact root set",
+      () =>
+        validateTestInventory(authorizedMagRoot, {
+          scopeConfirmation: {
+            ...scopeConfirmationForTestInventory(authorizedMagRoot)!,
+            authorizedRoots: [],
+          },
+        }),
+      "external scope confirmation must match the inventory's exact authorizedRoots",
+    );
+
+    const activeOtherOwner = withTestThreadSnapshots(withOtherOwnerRoot());
+    const activeOtherOwnerRoot = {
+      ...activeOtherOwner.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!,
+      disposition: "In progress",
+      otherOwnerEvidence: undefined,
+    };
+    const activeOtherOwnerSnapshot =
+      activeOtherOwner.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === "10.000000",
+      )!;
+    expectFocusedFailure(
+      "active other owner blocks an unauthorized claim",
+      () =>
+        validateOtherOwnerEvidence(
+          "C_TEST root 10.000000",
+          activeOtherOwnerRoot,
+          "USWEEPER",
+          "10.000000",
+          activeOtherOwnerSnapshot,
+          true,
+          false,
+        ),
+      "another actor owns this report",
+    );
+    validateOtherOwnerEvidence(
+      "C_TEST root 10.000000",
+      activeOtherOwnerRoot,
+      "USWEEPER",
+      "10.000000",
+      activeOtherOwnerSnapshot,
+      true,
+      false,
+      true,
+    );
 
     const ownedClusteredStatus: StatusReply = {
       ts: "13.000000",
@@ -22898,10 +23449,10 @@ if (
   args.length > 4
 ) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope)",
+    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope or exact-root authorization)",
   );
   console.error(
-    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"]}',
+    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"],"authorizedRoots":[{"channelId":"<channel ID>","rootTs":"<exact Slack root timestamp>"}]}',
   );
   process.exit(2);
 }
