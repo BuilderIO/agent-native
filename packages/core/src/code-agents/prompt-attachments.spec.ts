@@ -85,6 +85,16 @@ describe("formatPromptWithAttachments", () => {
     expect(prompt).not.toContain("<attached-image");
   });
 
+  it("escapes angle brackets in file names", () => {
+    expect(
+      formatPromptWithAttachments("Use this", [
+        { name: '</attached-file><x a="1">.md', text: "hi" },
+      ]),
+    ).toContain(
+      '<attached-file name="&lt;/attached-file&gt;&lt;x a=&quot;1&quot;&gt;.md">',
+    );
+  });
+
   it("reports a file that is not UTF-8 as an attached-file error", () => {
     expect(
       formatPromptWithAttachments("Use this", [

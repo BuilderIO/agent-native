@@ -15,7 +15,11 @@ export interface AgentPromptAttachment {
 }
 
 export function escapePromptAttachmentAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function formatPromptWithAttachments(

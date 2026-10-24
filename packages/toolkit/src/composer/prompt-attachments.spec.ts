@@ -469,6 +469,7 @@ describe("prompt attachment helpers", () => {
     ]);
 
     expect(escapePromptAttachmentAttribute('a&"b')).toBe("a&amp;&quot;b");
+    expect(escapePromptAttachmentAttribute("<x>.md")).toBe("&lt;x&gt;.md");
     expect(formatted).toContain("Attached context:");
     expect(formatted).toContain('name="bad&quot;name&amp;.ts"');
     expect(formatted).toContain("<attached-file");
