@@ -1,3 +1,9 @@
+## 0.5.4
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
 ## 0.5.3
 
 ### Patch Changes
