@@ -8,7 +8,7 @@ describe("postAwarenessState", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends the disposal clear after an in-flight presence write", async () => {
+  it("dispatches a disposal clear with a newer client sequence", async () => {
     let finishPresence!: (response: Response) => void;
     const presenceResponse = new Promise<Response>((resolve) => {
       finishPresence = resolve;
@@ -24,20 +24,23 @@ describe("postAwarenessState", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     const clear = postAwarenessState("/collab", "doc-1", 42, null, true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ keepalive: true });
 
     finishPresence(new Response(null, { status: 204 }));
     await Promise.all([presence, clear]);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ keepalive: true });
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    const first = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const second = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(first).toMatchObject({
       clientId: 42,
-      state: null,
+      state: JSON.stringify({ visible: true }),
     });
+    expect(second).toMatchObject({ clientId: 42, state: null });
+    expect(second.clientSequence).toBeGreaterThan(first.clientSequence);
   });
 
-  it("dispatches a keepalive visibility snapshot before the queue settles", async () => {
+  it("dispatches visibility snapshots without waiting for earlier writes", async () => {
     let finishPresence!: (response: Response) => void;
     const presenceResponse = new Promise<Response>((resolve) => {
       finishPresence = resolve;
@@ -45,7 +48,6 @@ describe("postAwarenessState", () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock
       .mockReturnValueOnce(presenceResponse)
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -66,20 +68,23 @@ describe("postAwarenessState", () => {
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ keepalive: true });
 
     const clear = postAwarenessState("/collab", "doc-3", 12, null, true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
     finishPresence(new Response(null, { status: 204 }));
     await Promise.all([presence, visibility, clear]);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
-      clientId: 12,
-      state: JSON.stringify({ visible: false }),
-    });
-    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ keepalive: true });
-    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
-      clientId: 12,
-      state: null,
-    });
+
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    expect(requests.map(({ clientSequence }) => clientSequence)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+    expect(requests[0].clientSequence).toBeLessThan(requests[1].clientSequence);
+    expect(requests[1].clientSequence).toBeLessThan(requests[2].clientSequence);
+    expect(requests[1].state).toBe(JSON.stringify({ visible: false }));
+    expect(requests[2].state).toBeNull();
   });
 
   it("keeps the timeout active until the response body is consumed", async () => {
@@ -104,13 +109,16 @@ describe("postAwarenessState", () => {
       visible: true,
     });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const rejection = expect(post).rejects.toThrow(
+      "awareness response aborted",
+    );
 
     await vi.advanceTimersByTimeAsync(5_000);
 
-    await expect(post).rejects.toThrow("awareness response aborted");
+    await rejection;
   });
 
-  it("lets a queued disposal clear continue after a stalled presence request times out", async () => {
+  it("lets a disposal clear complete when an earlier presence request stalls", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock
@@ -129,14 +137,15 @@ describe("postAwarenessState", () => {
       visible: false,
     });
     const clear = postAwarenessState("/collab", "doc-2", 7, null, true);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const presenceRejection = expect(presence).rejects.toThrow(
+      "awareness request aborted",
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await expect(clear).resolves.toBeInstanceOf(Response);
 
     await vi.advanceTimersByTimeAsync(5_000);
 
-    await expect(presence).rejects.toThrow("awareness request aborted");
-    await expect(clear).resolves.toBeInstanceOf(Response);
+    await presenceRejection;
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

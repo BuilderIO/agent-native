@@ -3,10 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockReadBody = vi.fn();
 const storedRows = vi.hoisted(
   () =>
-    new Map<string, { clientId: number; state: string; lastSeen: number }>(),
-);
-const deletedRows = vi.hoisted(
-  () => [] as Array<{ docId: string; clientId: number; maxLastSeen?: number }>,
+    new Map<
+      string,
+      {
+        clientId: number;
+        state: string;
+        lastSeen: number;
+        clientSequence: number;
+        cleared: boolean;
+      }
+    >(),
 );
 
 vi.mock("h3", () => ({
@@ -22,17 +28,39 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 vi.mock("./awareness-store.js", () => ({
-  deleteAwarenessRow: vi.fn(
-    async (docId: string, clientId: number, maxLastSeen?: number) => {
-      deletedRows.push({ docId, clientId, maxLastSeen });
-    },
-  ),
   loadAwarenessRows: vi.fn(async (docId: string) =>
     Array.from(storedRows.entries())
       .filter(([key]) => key.startsWith(`${docId}:`))
       .map(([, row]) => row),
   ),
-  upsertAwarenessRow: vi.fn(),
+  writeAwarenessRow: vi.fn(
+    async (
+      docId: string,
+      clientId: number,
+      state: string,
+      lastSeen: number,
+      clientSequence: number,
+      cleared: boolean,
+    ) => {
+      const key = rowKey(docId, clientId);
+      const previous = storedRows.get(key);
+      if (
+        previous &&
+        clientSequence <= previous.clientSequence &&
+        !(clientSequence === 0 && previous.clientSequence === 0)
+      ) {
+        return false;
+      }
+      storedRows.set(key, {
+        clientId,
+        state,
+        lastSeen,
+        clientSequence,
+        cleared,
+      });
+      return true;
+    },
+  ),
 }));
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
@@ -56,7 +84,6 @@ describe("awareness clear tombstones", () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
     storedRows.clear();
-    deletedRows.length = 0;
     mockReadBody.mockResolvedValue({
       clientId: 1,
       state: JSON.stringify({ user: { email: "viewer@example.com" } }),
@@ -68,6 +95,7 @@ describe("awareness clear tombstones", () => {
     mockReadBody.mockReset();
     getDocAwareness("tombstone-doc").clear();
     forgetAwarenessClear("tombstone-doc", AGENT_CLIENT_ID);
+    forgetAwarenessClear("tombstone-doc", 7);
   });
 
   it("does not resurrect a stored agent row older than the clear", async () => {
@@ -76,6 +104,8 @@ describe("awareness clear tombstones", () => {
       clientId: AGENT_CLIENT_ID,
       state: JSON.stringify({ user: { email: "agent@system" } }),
       lastSeen: 9_000,
+      clientSequence: 0,
+      cleared: false,
     });
 
     const res = (await postAwareness(event("tombstone-doc"))) as {
@@ -84,10 +114,11 @@ describe("awareness clear tombstones", () => {
 
     expect(res.states).toEqual([]);
     expect(getDocAwareness("tombstone-doc").has(AGENT_CLIENT_ID)).toBe(false);
-    expect(deletedRows).toContainEqual({
-      docId: "tombstone-doc",
-      clientId: AGENT_CLIENT_ID,
-      maxLastSeen: 9_000,
+    expect(
+      storedRows.get(rowKey("tombstone-doc", AGENT_CLIENT_ID)),
+    ).toMatchObject({
+      lastSeen: 9_000,
+      cleared: false,
     });
   });
 
@@ -97,11 +128,55 @@ describe("awareness clear tombstones", () => {
       clientId: AGENT_CLIENT_ID,
       state: JSON.stringify({ user: { email: "agent@system" } }),
       lastSeen: 10_001,
+      clientSequence: 0,
+      cleared: false,
     });
 
     await postAwareness(event("tombstone-doc"));
 
     expect(getDocAwareness("tombstone-doc").has(AGENT_CLIENT_ID)).toBe(true);
-    expect(deletedRows).toEqual([]);
+  });
+
+  it("keeps the final server state when older requests arrive after a clear", async () => {
+    const map = getDocAwareness("tombstone-doc");
+    map.set(7, {
+      clientId: 7,
+      state: JSON.stringify({ visible: true }),
+      lastSeen: 9_000,
+      clientSequence: 10,
+    });
+    storedRows.set(rowKey("tombstone-doc", 7), {
+      clientId: 7,
+      state: JSON.stringify({ visible: true }),
+      lastSeen: 9_000,
+      clientSequence: 10,
+      cleared: false,
+    });
+
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 7,
+      clientSequence: 12,
+      state: null,
+    });
+    await postAwareness(event("tombstone-doc"));
+
+    expect(map.has(7)).toBe(false);
+    expect(storedRows.get(rowKey("tombstone-doc", 7))).toMatchObject({
+      clientSequence: 12,
+      cleared: true,
+    });
+
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 7,
+      clientSequence: 11,
+      state: JSON.stringify({ visible: true }),
+    });
+    await postAwareness(event("tombstone-doc"));
+
+    expect(map.has(7)).toBe(false);
+    expect(storedRows.get(rowKey("tombstone-doc", 7))).toMatchObject({
+      clientSequence: 12,
+      cleared: true,
+    });
   });
 });

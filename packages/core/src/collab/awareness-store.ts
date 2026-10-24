@@ -1,7 +1,7 @@
 import { getDbExec } from "../db/client.js";
-import { ensureTableExists } from "../db/ddl-guard.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
-import type { AwarenessEntry } from "./awareness.js";
+import type { AwarenessRow } from "./awareness.js";
 
 const ROW_TTL_MS = 30_000;
 
@@ -27,6 +27,21 @@ export const collabAwarenessStore = defineStore({
         await ensureTableExists("_collab_awareness", createSql);
       },
     },
+    {
+      name: "client-sequence",
+      run: async () => {
+        await ensureColumnExists(
+          "_collab_awareness",
+          "client_sequence",
+          "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS client_sequence BIGINT NOT NULL DEFAULT 0",
+        );
+        await ensureColumnExists(
+          "_collab_awareness",
+          "cleared",
+          "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS cleared BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+      },
+    },
   ],
 });
 
@@ -47,34 +62,62 @@ export async function upsertAwarenessRow(
   state: string,
   lastSeen: number,
 ): Promise<void> {
-  try {
-    const key = writeKey(docId, clientId);
-    const prev = _lastWrites.get(key);
-    if (
-      prev &&
-      prev.state === state &&
-      lastSeen - prev.writtenAt < WRITE_THROTTLE_MS
-    ) {
-      return;
-    }
-
-    await ensureTable();
-    const client = getDbExec();
-    {
-      await client.execute({
-        sql: `INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen)
-              VALUES (?, ?, ?, ?)
-              ON CONFLICT (doc_id, client_id)
-              DO UPDATE SET state = EXCLUDED.state, last_seen = EXCLUDED.last_seen`,
-        args: [docId, clientId, state, lastSeen],
-      });
-    }
-    _lastWrites.set(key, { state, writtenAt: lastSeen });
-
-    await maybePurge(docId, lastSeen);
-  } catch {
-    // Best-effort — presence never fails a request.
+  const key = writeKey(docId, clientId);
+  const prev = _lastWrites.get(key);
+  if (
+    prev &&
+    prev.state === state &&
+    lastSeen - prev.writtenAt < WRITE_THROTTLE_MS
+  ) {
+    return;
   }
+
+  try {
+    const applied = await writeAwarenessRow(
+      docId,
+      clientId,
+      state,
+      lastSeen,
+      0,
+      false,
+    );
+    if (applied) _lastWrites.set(key, { state, writtenAt: lastSeen });
+  } catch {
+    // Agent presence is best-effort; HTTP awareness writes use the strict API.
+  }
+}
+
+export async function writeAwarenessRow(
+  docId: string,
+  clientId: number,
+  state: string,
+  lastSeen: number,
+  clientSequence: number,
+  cleared: boolean,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `INSERT INTO _collab_awareness
+            (doc_id, client_id, state, last_seen, client_sequence, cleared)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (doc_id, client_id)
+          DO UPDATE SET
+            state = EXCLUDED.state,
+            last_seen = EXCLUDED.last_seen,
+            client_sequence = EXCLUDED.client_sequence,
+            cleared = EXCLUDED.cleared
+          WHERE EXCLUDED.client_sequence > _collab_awareness.client_sequence
+             OR (EXCLUDED.client_sequence = 0 AND _collab_awareness.client_sequence = 0)
+          RETURNING client_id`,
+    args: [docId, clientId, state, lastSeen, clientSequence, cleared],
+  });
+  const applied = rows.length > 0;
+  if (applied) {
+    _lastWrites.delete(writeKey(docId, clientId));
+    await maybePurge(docId, lastSeen);
+  }
+  return applied;
 }
 
 export async function deleteAwarenessRow(
@@ -106,29 +149,30 @@ export async function deleteAwarenessRow(
 export async function loadAwarenessRows(
   docId: string,
   now: number = Date.now(),
-): Promise<AwarenessEntry[]> {
-  try {
-    return await loadAwarenessRowsStrict(docId, now);
-  } catch {
-    return [];
-  }
+): Promise<AwarenessRow[]> {
+  return loadAwarenessRowsStrict(docId, now);
 }
 
 export async function loadAwarenessRowsStrict(
   docId: string,
   now: number = Date.now(),
-): Promise<AwarenessEntry[]> {
+): Promise<AwarenessRow[]> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT client_id, state, last_seen FROM _collab_awareness
-          WHERE doc_id = ? AND last_seen >= ?`,
-    args: [docId, now - ROW_TTL_MS],
+    sql: `SELECT client_id, state, last_seen, client_sequence, cleared
+          FROM _collab_awareness
+          WHERE doc_id = ?
+            AND ((cleared = FALSE AND last_seen >= ?)
+              OR (cleared = TRUE AND last_seen >= ?))`,
+    args: [docId, now - ROW_TTL_MS, now - ROW_TTL_MS * 2],
   });
   return rows.map((row: any) => ({
     clientId: Number(row.client_id),
     state: String(row.state),
     lastSeen: Number(row.last_seen),
+    clientSequence: Number(row.client_sequence ?? 0),
+    cleared: row.cleared === true,
   }));
 }
 

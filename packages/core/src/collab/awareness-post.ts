@@ -1,13 +1,16 @@
 const AWARENESS_POST_TIMEOUT_MS = 5_000;
 
-const inFlightAwarenessPosts = new Map<string, Promise<void>>();
+let lastClientSequence = 0;
 
-function awarenessPostKey(
-  baseUrl: string,
-  docId: string,
-  clientId: number,
-): string {
-  return `${baseUrl}::${docId}::${clientId}`;
+function nextClientSequence(): number {
+  const sequence = Math.max(Date.now() * 1_000, lastClientSequence + 1);
+  if (!Number.isSafeInteger(sequence)) {
+    throw new Error(
+      "awareness client sequence exceeded the safe integer range",
+    );
+  }
+  lastClientSequence = sequence;
+  return sequence;
 }
 
 export function postAwarenessState(
@@ -17,43 +20,29 @@ export function postAwarenessState(
   state: Record<string, unknown> | null,
   keepalive = false,
 ): Promise<Response> {
-  const key = awarenessPostKey(baseUrl, docId, clientId);
-  const previous = inFlightAwarenessPosts.get(key) ?? Promise.resolve();
-  const send = async () => {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      AWARENESS_POST_TIMEOUT_MS,
-    );
-    try {
-      const response = await fetch(`${baseUrl}/${docId}/awareness`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId,
-          state: state ? JSON.stringify(state) : null,
-        }),
-        signal: controller.signal,
-        ...(keepalive ? { keepalive: true } : {}),
-      });
+  const clientSequence = nextClientSequence();
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    AWARENESS_POST_TIMEOUT_MS,
+  );
+
+  return fetch(`${baseUrl}/${docId}/awareness`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clientId,
+      clientSequence,
+      state: state ? JSON.stringify(state) : null,
+    }),
+    signal: controller.signal,
+    ...(keepalive ? { keepalive: true } : {}),
+  })
+    .then(async (response) => {
       await response.clone().arrayBuffer();
       return response;
-    } finally {
+    })
+    .finally(() => {
       clearTimeout(timeout);
-    }
-  };
-  const dispatchImmediately = keepalive && state !== null;
-  const post = dispatchImmediately ? send() : previous.then(send);
-  const orderedPost = dispatchImmediately ? previous.then(send) : undefined;
-  const pending = Promise.allSettled(
-    orderedPost ? [previous, post, orderedPost] : [previous, post],
-  ).then(() => {});
-
-  inFlightAwarenessPosts.set(key, pending);
-  void pending.then(() => {
-    if (inFlightAwarenessPosts.get(key) === pending) {
-      inFlightAwarenessPosts.delete(key);
-    }
-  });
-  return post;
+    });
 }

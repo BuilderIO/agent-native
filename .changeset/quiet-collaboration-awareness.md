@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Bound collaboration awareness writes and clear presence when a document connection is disposed.
+Persist ordered collaboration awareness updates so stale requests cannot restore cleared presence.

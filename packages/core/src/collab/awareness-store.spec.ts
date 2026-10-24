@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbRows = vi.hoisted(
-  () => new Map<string, { state: string; last_seen: number }>(),
+  () =>
+    new Map<
+      string,
+      {
+        state: string;
+        last_seen: number;
+        client_sequence: number;
+        cleared: boolean;
+      }
+    >(),
 );
 const dbAvailable = vi.hoisted(() => ({ value: true }));
 
@@ -26,11 +35,23 @@ vi.mock("../db/client.js", async () => {
         /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
         /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\)/i.test(sql)
       ) {
-        dbRows.set(rowKey(String(args[0]), Number(args[1])), {
-          state: String(args[2]),
-          last_seen: Number(args[3]),
-        });
-        return { rows: [], rowsAffected: 1 };
+        const key = rowKey(String(args[0]), Number(args[1]));
+        const clientSequence = Number(args[4]);
+        const previous = dbRows.get(key);
+        if (
+          !previous ||
+          clientSequence > previous.client_sequence ||
+          (clientSequence === 0 && previous.client_sequence === 0)
+        ) {
+          dbRows.set(key, {
+            state: String(args[2]),
+            last_seen: Number(args[3]),
+            client_sequence: clientSequence,
+            cleared: Boolean(args[5]),
+          });
+          return { rows: [{ client_id: Number(args[1]) }], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
       }
       if (/last_seen <= \?/i.test(sql)) {
         const key = rowKey(String(args[0]), Number(args[1]));
@@ -65,19 +86,27 @@ vi.mock("../db/client.js", async () => {
       }
       if (/^\s*SELECT client_id, state, last_seen/i.test(sql)) {
         const docId = String(args[0]);
-        const min = Number(args[1]);
+        const activeMin = Number(args[1]);
+        const clearMin = Number(args[2]);
         const rows: Array<{
           client_id: number;
           state: string;
           last_seen: number;
+          client_sequence: number;
+          cleared: boolean;
         }> = [];
         for (const [key, row] of dbRows) {
           const [d, c] = key.split("|");
-          if (d === docId && row.last_seen >= min) {
+          if (
+            d === docId &&
+            row.last_seen >= (row.cleared ? clearMin : activeMin)
+          ) {
             rows.push({
               client_id: Number(c),
               state: row.state,
               last_seen: row.last_seen,
+              client_sequence: row.client_sequence,
+              cleared: row.cleared,
             });
           }
         }
@@ -96,6 +125,7 @@ vi.mock("../db/client.js", async () => {
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {
@@ -104,6 +134,7 @@ import {
   loadAwarenessRows,
   loadAwarenessRowsStrict,
   upsertAwarenessRow,
+  writeAwarenessRow,
 } from "./awareness-store.js";
 
 beforeEach(() => {
@@ -121,7 +152,13 @@ describe("awareness-store", () => {
     await upsertAwarenessRow("doc-1", 42, '{"user":{"name":"A"}}', 1000);
     const rows = await loadAwarenessRows("doc-1", 1000);
     expect(rows).toEqual([
-      { clientId: 42, state: '{"user":{"name":"A"}}', lastSeen: 1000 },
+      {
+        clientId: 42,
+        state: '{"user":{"name":"A"}}',
+        lastSeen: 1000,
+        clientSequence: 0,
+        cleared: false,
+      },
     ]);
   });
 
@@ -163,6 +200,39 @@ describe("awareness-store", () => {
     expect(dbRows.has(rowKey("doc-4b", 9))).toBe(false);
   });
 
+  it("rejects stale requests and preserves clear sequences across writes", async () => {
+    await expect(
+      writeAwarenessRow("doc-ordered", 9, "", 2000, 20, true),
+    ).resolves.toBe(true);
+
+    await expect(
+      writeAwarenessRow("doc-ordered", 9, '{"visible":true}', 3000, 19, false),
+    ).resolves.toBe(false);
+
+    const rows = await loadAwarenessRows("doc-ordered", 3000);
+    expect(rows).toEqual([
+      {
+        clientId: 9,
+        state: "",
+        lastSeen: 2000,
+        clientSequence: 20,
+        cleared: true,
+      },
+    ]);
+  });
+
+  it("persists higher sequences even when the awareness payload is unchanged", async () => {
+    await writeAwarenessRow("doc-heartbeat", 3, "{}", 1000, 4, false);
+    await writeAwarenessRow("doc-heartbeat", 3, "{}", 1500, 5, false);
+
+    const rows = await loadAwarenessRows("doc-heartbeat", 1500);
+    expect(rows[0]).toMatchObject({
+      lastSeen: 1500,
+      clientSequence: 5,
+      cleared: false,
+    });
+  });
+
   it("supports Yjs client ids above int32 range", async () => {
     const bigClientId = 3_000_000_000;
     await upsertAwarenessRow("doc-5", bigClientId, "{}", 1000);
@@ -170,13 +240,18 @@ describe("awareness-store", () => {
     expect(rows[0].clientId).toBe(bigClientId);
   });
 
-  it("degrades silently when the DB is unavailable", async () => {
+  it("keeps legacy agent writes best-effort and fails ordered reads and writes loudly", async () => {
     dbAvailable.value = false;
     await expect(
       upsertAwarenessRow("doc-6", 1, "{}", 1000),
     ).resolves.toBeUndefined();
     await expect(deleteAwarenessRow("doc-6", 1)).resolves.toBeUndefined();
-    await expect(loadAwarenessRows("doc-6")).resolves.toEqual([]);
+    await expect(
+      writeAwarenessRow("doc-6", 1, "{}", 1000, 1, false),
+    ).rejects.toThrow("db not configured");
+    await expect(loadAwarenessRows("doc-6")).rejects.toThrow(
+      "db not configured",
+    );
     await expect(loadAwarenessRowsStrict("doc-6")).rejects.toThrow(
       "db not configured",
     );

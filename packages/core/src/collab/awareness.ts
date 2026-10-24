@@ -5,11 +5,7 @@ import type { H3Event } from "h3";
 
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
-import {
-  deleteAwarenessRow,
-  loadAwarenessRows,
-  upsertAwarenessRow,
-} from "./awareness-store.js";
+import { loadAwarenessRows, writeAwarenessRow } from "./awareness-store.js";
 
 const AWARENESS_TIMEOUT = 30_000;
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
@@ -20,6 +16,12 @@ export interface AwarenessEntry {
   clientId: number;
   state: string;
   lastSeen: number;
+  clientSequence?: number;
+}
+
+export interface AwarenessRow extends AwarenessEntry {
+  clientSequence: number;
+  cleared: boolean;
 }
 
 export const AWARENESS_CHANGE_EVENT = "awareness-change" as const;
@@ -122,15 +124,18 @@ export function emitAwarenessChange(
 }
 
 const _awarenessMap = new Map<string, Map<number, AwarenessEntry>>();
-const _awarenessClearTombstones = new Map<string, number>();
+const _awarenessClearTombstones = new Map<
+  string,
+  { clearedAt: number; clientSequence?: number }
+>();
 
 function awarenessKey(docId: string, clientId: number): string {
   return `${docId}\0${clientId}`;
 }
 
 function pruneAwarenessClearTombstones(now: number): void {
-  for (const [key, clearedAt] of _awarenessClearTombstones) {
-    if (now - clearedAt > CLEAR_TOMBSTONE_TTL) {
+  for (const [key, clear] of _awarenessClearTombstones) {
+    if (now - clear.clearedAt > CLEAR_TOMBSTONE_TTL) {
       _awarenessClearTombstones.delete(key);
     }
   }
@@ -140,12 +145,23 @@ export function rememberAwarenessClear(
   docId: string,
   clientId: number,
   clearedAt: number = Date.now(),
+  clientSequence?: number,
 ): void {
   pruneAwarenessClearTombstones(clearedAt);
   const key = awarenessKey(docId, clientId);
   const prev = _awarenessClearTombstones.get(key);
-  if (prev == null || clearedAt > prev) {
-    _awarenessClearTombstones.set(key, clearedAt);
+  if (
+    prev == null ||
+    (clientSequence != null &&
+      (prev.clientSequence == null ||
+        clientSequence > prev.clientSequence ||
+        (clientSequence === prev.clientSequence &&
+          clearedAt > prev.clearedAt))) ||
+    (clientSequence == null &&
+      prev.clientSequence == null &&
+      clearedAt > prev.clearedAt)
+  ) {
+    _awarenessClearTombstones.set(key, { clearedAt, clientSequence });
   }
 }
 
@@ -157,13 +173,18 @@ function isBlockedByAwarenessClear(
   docId: string,
   clientId: number,
   lastSeen: number,
+  clientSequence: number,
   now: number,
 ): boolean {
   pruneAwarenessClearTombstones(now);
   const key = awarenessKey(docId, clientId);
-  const clearedAt = _awarenessClearTombstones.get(key);
-  if (clearedAt == null) return false;
-  if (lastSeen <= clearedAt) return true;
+  const clear = _awarenessClearTombstones.get(key);
+  if (clear == null) return false;
+  if (clear.clientSequence != null) {
+    if (clientSequence <= clear.clientSequence) return true;
+  } else if (lastSeen <= clear.clearedAt) {
+    return true;
+  }
   _awarenessClearTombstones.delete(key);
   return false;
 }
@@ -199,13 +220,39 @@ async function mergeStoredAwareness(
   const now = Date.now();
   const rows = await loadAwarenessRows(docId, now);
   for (const row of rows) {
-    if (isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)) {
-      void deleteAwarenessRow(docId, row.clientId, row.lastSeen);
+    if (row.cleared) {
+      rememberAwarenessClear(
+        docId,
+        row.clientId,
+        row.lastSeen,
+        row.clientSequence > 0 ? row.clientSequence : undefined,
+      );
+      const existing = map.get(row.clientId);
+      if (existing && row.clientSequence >= (existing.clientSequence ?? 0)) {
+        map.delete(row.clientId);
+      }
+      continue;
+    }
+    const rowSequence = row.clientSequence ?? 0;
+    if (
+      isBlockedByAwarenessClear(
+        docId,
+        row.clientId,
+        row.lastSeen,
+        rowSequence,
+        now,
+      )
+    ) {
       continue;
     }
     const existing = map.get(row.clientId);
-    if (!existing || row.lastSeen > existing.lastSeen) {
-      map.set(row.clientId, row);
+    if (
+      !existing ||
+      rowSequence > (existing.clientSequence ?? 0) ||
+      (rowSequence === (existing.clientSequence ?? 0) &&
+        row.lastSeen > existing.lastSeen)
+    ) {
+      map.set(row.clientId, { ...row, clientSequence: rowSequence });
     }
   }
 }
@@ -222,8 +269,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   )?._collabAwarenessScope;
 
   const body = await readBody(event);
-  const { clientId, state } = body as {
+  const { clientId, clientSequence, state } = body as {
     clientId?: number;
+    clientSequence?: number;
     state?: string | null;
   };
 
@@ -231,21 +279,27 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "clientId and state required" };
   }
-
-  const map = getDocAwareness(docId);
-
-  if (state === null) {
-    const clearedAt = Date.now();
-    map.delete(clientId);
-    rememberAwarenessClear(docId, clientId, clearedAt);
-    void deleteAwarenessRow(docId, clientId, clearedAt);
-  } else {
-    forgetAwarenessClear(docId, clientId);
-    const entry = { clientId, state, lastSeen: Date.now() };
-    map.set(clientId, entry);
-    void upsertAwarenessRow(docId, clientId, state, entry.lastSeen);
+  if (
+    (state !== null && typeof state !== "string") ||
+    (clientSequence !== undefined &&
+      (!Number.isSafeInteger(clientSequence) || clientSequence < 0))
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "invalid awareness state or clientSequence" };
   }
 
+  const sequence = clientSequence ?? 0;
+  const lastSeen = Date.now();
+  await writeAwarenessRow(
+    docId,
+    clientId,
+    state ?? "",
+    lastSeen,
+    sequence,
+    state === null,
+  );
+
+  const map = getDocAwareness(docId);
   await mergeStoredAwareness(docId, map);
 
   cleanExpired(map);
