@@ -150,6 +150,7 @@ export {
   listAgentSelection,
   measureAgentSelectElement,
   registerAgentSelectable,
+  registerAgentSelectableSource,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelect,
@@ -157,6 +158,7 @@ export {
   toggleAgentSelectable,
   toggleAgentSelectMode,
   type AgentSelectable,
+  type AgentSelectableSource,
   type AgentSelectBox,
   type AgentSelectionTarget,
   type AgentSelectOptions,
@@ -168,6 +170,7 @@ export { AgentSelectToggle } from "./AgentSelectToggle.js";
 export {
   useAgentSelectable,
   useAgentSelectableSelected,
+  useAgentSelectableSource,
   useAgentSelectMode,
   type UseAgentSelectableOptions,
 } from "./use-agent-select.js";

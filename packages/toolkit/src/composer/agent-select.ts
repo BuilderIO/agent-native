@@ -32,10 +32,23 @@ export interface AgentSelectable {
   /** The context payload the agent receives. Read when the object is picked. */
   getContext(): string;
   /**
-   * The element that outlines and hit-tests this object. It may live in a
-   * same-origin iframe; it is then measured through the frame.
+   * The element, or elements (a slide's canvas and its thumbnail), that
+   * outline and hit-test this object. An element may live in a same-origin
+   * iframe; it is then measured through the frame.
    */
-  getElement(): Element | null;
+  getElement(): Element | readonly Element[] | null;
+}
+
+/**
+ * Resolves content that is too dynamic to register element by element, such
+ * as the nodes of a rendered slide or a design screen, into selectables.
+ */
+export interface AgentSelectableSource {
+  /**
+   * Given the deepest element under the pointer (inside same-origin iframes
+   * too), return the object it belongs to, or null.
+   */
+  resolve(target: Element): AgentSelectable | null;
 }
 
 export type AgentSelectToggleResult =
@@ -47,7 +60,7 @@ export type AgentSelectToggleResult =
 
 export interface AgentSelectSnapshot {
   active: boolean;
-  /** How many selectables are registered; Select is offered only when > 0. */
+  /** Registered selectables and sources; Select is offered only when > 0. */
   available: number;
 }
 
@@ -60,6 +73,9 @@ export interface AgentSelectRejection {
 // linked package) still shares one registry and one pick mode.
 interface AgentSelectStore {
   selectables: Map<string, AgentSelectable>;
+  sources: Set<AgentSelectableSource>;
+  /** Source-resolved objects that were hovered or picked, by context key. */
+  resolved: Map<string, AgentSelectable>;
   listeners: Set<() => void>;
   rejectionListeners: Set<(rejection: AgentSelectRejection) => void>;
   snapshot: AgentSelectSnapshot;
@@ -73,6 +89,8 @@ const MIRROR_DELAY_MS = 150;
 function createStore(): AgentSelectStore {
   return {
     selectables: new Map(),
+    sources: new Set(),
+    resolved: new Map(),
     listeners: new Set(),
     rejectionListeners: new Set(),
     snapshot: { active: false, available: 0 },
@@ -130,6 +148,16 @@ export function subscribeAgentSelectRejections(
   };
 }
 
+function availableCount(current: AgentSelectStore): number {
+  return current.selectables.size + current.sources.size;
+}
+
+function released(current: AgentSelectStore): void {
+  const available = availableCount(current);
+  if (available === 0) setAgentSelectMode(false);
+  emit({ available });
+}
+
 export function registerAgentSelectable(
   selectable: AgentSelectable,
 ): () => void {
@@ -137,16 +165,40 @@ export function registerAgentSelectable(
   const current = store();
   current.selectables.set(key, selectable);
   current.teardownMirror ??= startSelectionMirror();
-  emit({ available: current.selectables.size });
+  emit({ available: availableCount(current) });
   return () => {
     const latest = store();
     // A remount can register the same key before the old cleanup runs.
     if (latest.selectables.get(key) !== selectable) return;
     latest.selectables.delete(key);
-    const available = latest.selectables.size;
-    if (available === 0) setAgentSelectMode(false);
-    emit({ available });
+    released(latest);
   };
+}
+
+export function registerAgentSelectableSource(
+  source: AgentSelectableSource,
+): () => void {
+  const current = store();
+  current.sources.add(source);
+  current.teardownMirror ??= startSelectionMirror();
+  emit({ available: availableCount(current) });
+  return () => {
+    const latest = store();
+    if (!latest.sources.delete(source)) return;
+    released(latest);
+  };
+}
+
+function lookupSelectable(key: string): AgentSelectable | undefined {
+  const current = store();
+  return current.selectables.get(key) ?? current.resolved.get(key);
+}
+
+function selectableElements(selectable: AgentSelectable): Element[] {
+  const result = selectable.getElement();
+  if (!result) return [];
+  const elements = Array.isArray(result) ? result : [result as Element];
+  return elements.filter((element) => element?.isConnected);
 }
 
 export function getAgentSelectables(): AgentSelectable[] {
@@ -231,7 +283,7 @@ export function toggleAgentSelectable(
   id: string,
 ): AgentSelectToggleResult {
   const key = agentSelectionContextKey(kind, id);
-  const selectable = store().selectables.get(key);
+  const selectable = lookupSelectable(key);
   if (isAgentSelectableSelected(kind, id)) {
     removeAgentChatContextItem(key);
     return "removed";
@@ -261,7 +313,7 @@ export function deselectAgentSelectable(kind: string, id: string): void {
 
 export function setAgentSelectMode(active: boolean): void {
   const current = store();
-  const next = active && current.selectables.size > 0;
+  const next = active && availableCount(current) > 0;
   if (next === current.snapshot.active) return;
   if (next) {
     current.teardownPickMode = startPickMode();
@@ -377,36 +429,100 @@ function boxContains(box: AgentSelectBox, x: number, y: number): boolean {
   );
 }
 
+function sameOriginFrameDocument(frame: HTMLIFrameElement): Document | null {
+  try {
+    return frame.contentDocument;
+  } catch {
+    // coercion-ok: a cross-origin frame is opaque; hit testing stops at its host
+    return null;
+  }
+}
+
 /**
- * The innermost registered object under a viewport point, or null when the
- * point is over chrome pick mode ignores or over nothing registered.
+ * The deepest element under a viewport point, descending into same-origin
+ * iframes, or null over chrome pick mode ignores. Pick mode turns iframe
+ * pointer events off, so the top document's hit lands on the frame's host.
+ */
+function deepElementFromPoint(x: number, y: number): Element | null {
+  const top = document.elementFromPoint(x, y);
+  if (!top || top.closest(IGNORE_SELECTOR)) return null;
+  const frames = [
+    ...(top instanceof HTMLIFrameElement ? [top] : []),
+    ...Array.from(top.querySelectorAll("iframe")),
+  ];
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    const frame = frames[index];
+    const box = measureAgentSelectElement(frame);
+    if (!box || !boxContains(box, x, y)) continue;
+    const frameDocument = sameOriginFrameDocument(frame);
+    if (!frameDocument) return top;
+    const scaleX = frame.clientWidth > 0 ? box.width / frame.clientWidth : 1;
+    const scaleY = frame.clientHeight > 0 ? box.height / frame.clientHeight : 1;
+    const inner = frameDocument.elementFromPoint(
+      (x - box.left) / scaleX - frame.clientLeft,
+      (y - box.top) / scaleY - frame.clientTop,
+    );
+    return inner ?? top;
+  }
+  return top;
+}
+
+/** Whether `element` contains `target`, looking out through iframes. */
+function containsAcrossFrames(element: Element, target: Element): boolean {
+  let node: Element | null | undefined = target;
+  while (node) {
+    if (element.contains(node)) return true;
+    node = node.ownerDocument.defaultView?.frameElement;
+  }
+  return false;
+}
+
+/**
+ * The innermost registered or source-resolved object under a viewport point,
+ * or null when the point is over chrome pick mode ignores or over nothing.
  */
 export function hitTestAgentSelectable(
   x: number,
   y: number,
 ): AgentSelectable | null {
-  const top = document.elementFromPoint(x, y);
-  if (!top || top.closest(IGNORE_SELECTOR)) return null;
+  const target = deepElementFromPoint(x, y);
+  if (!target) return null;
+  const current = store();
   let best: AgentSelectable | null = null;
   let bestArea = Number.POSITIVE_INFINITY;
-  for (const selectable of store().selectables.values()) {
-    const element = selectable.getElement();
-    if (!element?.isConnected) continue;
-    const box = measureAgentSelectElement(element);
-    if (!box || !boxContains(box, x, y)) continue;
-    if (element.ownerDocument === document) {
-      if (!element.contains(top)) continue;
-    } else {
-      const frame = element.ownerDocument.defaultView?.frameElement;
-      if (!frame || !(top === frame || top.contains(frame))) continue;
+  const consider = (selectable: AgentSelectable) => {
+    for (const element of selectableElements(selectable)) {
+      if (!containsAcrossFrames(element, target)) continue;
+      const box = measureAgentSelectElement(element);
+      if (!box || !boxContains(box, x, y)) continue;
+      const area = box.width * box.height;
+      if (area < bestArea) {
+        best = selectable;
+        bestArea = area;
+      }
     }
-    const area = box.width * box.height;
-    if (area < bestArea) {
-      best = selectable;
-      bestArea = area;
-    }
+  };
+  for (const selectable of current.selectables.values()) consider(selectable);
+  for (const source of current.sources) {
+    const resolved = source.resolve(target);
+    if (!resolved) continue;
+    current.resolved.set(
+      agentSelectionContextKey(resolved.kind, resolved.id),
+      resolved,
+    );
+    consider(resolved);
   }
   return best;
+}
+
+/** Forget source-resolved objects that are neither picked nor hovered. */
+function pruneResolved(hovered: AgentSelectable | null): void {
+  const keep = new Set(getAgentChatContextState().items.map(({ key }) => key));
+  if (hovered) keep.add(agentSelectionContextKey(hovered.kind, hovered.id));
+  const { resolved } = store();
+  for (const key of resolved.keys()) {
+    if (!keep.has(key)) resolved.delete(key);
+  }
 }
 
 function ensurePickModeStyle(): void {
@@ -485,8 +601,9 @@ function startPickMode(): () => void {
   const render = () => {
     frame = 0;
     if (pointer) hovered = hitTestAgentSelectable(pointer.x, pointer.y);
-    const hoveredBox = hovered?.getElement()
-      ? measureAgentSelectElement(hovered.getElement()!)
+    const hoveredElement = hovered ? selectableElements(hovered)[0] : null;
+    const hoveredBox = hoveredElement
+      ? measureAgentSelectElement(hoveredElement)
       : null;
     if (hovered && hoveredBox) {
       hoverOutline.style.display = "";
@@ -500,26 +617,28 @@ function startPickMode(): () => void {
 
     const seen = new Set<string>();
     for (const item of getAgentChatContextState().items) {
-      const selectable = store().selectables.get(item.key);
-      const element = selectable?.getElement();
-      const box = element?.isConnected
-        ? measureAgentSelectElement(element)
-        : null;
-      if (!box) continue;
-      seen.add(item.key);
-      let outline = selectedOutlines.get(item.key);
-      if (!outline) {
-        outline = createOutline("selected");
-        selectedOutlines.set(item.key, outline);
-        layer.insertBefore(outline, hoverOutline);
-      }
-      placeOutline(outline, box);
+      const selectable = lookupSelectable(item.key);
+      if (!selectable) continue;
+      selectableElements(selectable).forEach((element, index) => {
+        const box = measureAgentSelectElement(element);
+        if (!box) return;
+        const outlineKey = `${item.key}\u0000${index}`;
+        seen.add(outlineKey);
+        let outline = selectedOutlines.get(outlineKey);
+        if (!outline) {
+          outline = createOutline("selected");
+          selectedOutlines.set(outlineKey, outline);
+          layer.insertBefore(outline, hoverOutline);
+        }
+        placeOutline(outline, box);
+      });
     }
     for (const [key, outline] of selectedOutlines) {
       if (seen.has(key)) continue;
       outline.remove();
       selectedOutlines.delete(key);
     }
+    pruneResolved(hovered);
   };
   const scheduleRender = () => {
     frame ||= requestAnimationFrame(render);

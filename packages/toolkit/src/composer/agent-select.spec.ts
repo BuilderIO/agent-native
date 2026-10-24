@@ -19,6 +19,7 @@ import {
   isAgentSelectableSelected,
   listAgentSelection,
   registerAgentSelectable,
+  registerAgentSelectableSource,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelectRejections,
@@ -308,6 +309,37 @@ describe("pick mode", () => {
     expect(
       document.documentElement.hasAttribute("data-agent-select-mode"),
     ).toBe(false);
+  });
+
+  it("resolves dynamic content through a source", () => {
+    const { slide } = setup();
+    const bullet = placedElement(box(40, 100, 200, 20), slide);
+    stubHitTesting([slide, bullet]);
+    registerAgentSelectableSource({
+      resolve: (target) =>
+        target === bullet ? selectable("element", "bullet-1", bullet) : null,
+    });
+    setAgentSelectMode(true);
+
+    pointer("click", 60, 110, bullet);
+    expect(listAgentSelection()).toEqual([
+      { kind: "element", id: "bullet-1", title: "element bullet-1" },
+    ]);
+    // Picked source objects stay toggleable after the pointer moves on.
+    pointer("click", 60, 110, bullet);
+    expect(listAgentSelection()).toEqual([]);
+  });
+
+  it("hit-tests every element of a multi-element object", () => {
+    const canvas = placedElement(box(0, 0, 400, 300));
+    const thumbnail = placedElement(box(0, 400, 80, 60));
+    stubHitTesting([canvas, thumbnail]);
+    registerAgentSelectable({
+      ...selectable("slide", "s1", null),
+      getElement: () => [canvas, thumbnail],
+    });
+    expect(hitTestAgentSelectable(200, 150)?.id).toBe("s1");
+    expect(hitTestAgentSelectable(40, 430)?.id).toBe("s1");
   });
 
   it("outlines hovered and picked objects", async () => {
