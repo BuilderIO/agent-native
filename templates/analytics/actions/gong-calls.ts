@@ -21,7 +21,7 @@ const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
 const MAX_GONG_TRANSCRIPT_LIMIT = 50;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
 const MAX_TRANSCRIPT_MAX_CHARS = 100_000;
-const MAX_AGGREGATE_TRANSCRIPT_CHARS = 60_000;
+const MAX_AGGREGATE_TRANSCRIPT_CHARS = 40_000;
 const DEFAULT_TRANSCRIPT_SCAN_LIMIT = 50;
 const MAX_TRANSCRIPT_SCAN_LIMIT = 200;
 const DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS = MAX_TRANSCRIPT_MAX_CHARS;
@@ -84,10 +84,7 @@ function boundedTranscriptExcerptChars(
   if (transcriptCount <= 0) return requestedChars;
   return Math.min(
     requestedChars,
-    Math.max(
-      1_000,
-      Math.floor(MAX_AGGREGATE_TRANSCRIPT_CHARS / transcriptCount),
-    ),
+    Math.max(500, Math.floor(MAX_AGGREGATE_TRANSCRIPT_CHARS / transcriptCount)),
   );
 }
 
@@ -336,7 +333,7 @@ export function extractTranscriptText(
   const limit = normalizeBoundedInt(
     maxChars,
     DEFAULT_TRANSCRIPT_MAX_CHARS,
-    1_000,
+    500,
     MAX_TRANSCRIPT_MAX_CHARS,
   );
   const lines: string[] = [];
@@ -538,7 +535,7 @@ export default defineAction({
       .max(MAX_TRANSCRIPT_MAX_CHARS)
       .optional()
       .describe(
-        "Max transcript characters per call (default 8000). Batched results also share a 60000-character aggregate excerpt budget. Use the default for analysis; raise it only when the user asks for more quoted detail.",
+        "Max transcript characters per call (default 8000). Batched results also share a 40000-character aggregate excerpt budget. Use the default for analysis; raise it only when the user asks for more quoted detail.",
       ),
     transcriptQuery: z
       .string()
@@ -673,7 +670,10 @@ export default defineAction({
         transcriptErrors.length === 0,
       );
 
+      // Key order is serialization order: keep call records ahead of the bulky
+      // transcripts so the tool-result cap truncates transcripts, not calls.
       return {
+        calls: result.calls,
         ...result,
         total: result.calls.length,
         ...(transcriptSearch
@@ -822,6 +822,7 @@ export default defineAction({
         truncated,
         coverageTruncated: truncated,
         total: returnedCalls.length,
+        calls: returnedCalls,
         ...(transcriptSearch
           ? {
               transcriptSearch: {
@@ -854,7 +855,6 @@ export default defineAction({
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
             : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
         ].join(" "),
-        calls: returnedCalls,
       };
     }
   },

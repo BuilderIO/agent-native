@@ -390,6 +390,9 @@ describe("gong-calls action", () => {
       scanLimited: false,
     });
     expect(result.total).toBe(2);
+    expect(Object.keys(result).indexOf("calls")).toBeLessThan(
+      Object.keys(result).indexOf("transcripts"),
+    );
     expect(result.guidance).toContain("complete coverage");
     expect(result.guidance).toContain("do not fetch these calls again");
   });
@@ -507,9 +510,33 @@ describe("gong-calls action", () => {
       0,
     );
     expect(result.transcripts).toHaveLength(50);
-    expect(transcriptChars).toBeLessThanOrEqual(60_000);
+    expect(transcriptChars).toBeLessThanOrEqual(40_000);
     expect(getCallTranscripts).toHaveBeenCalledTimes(3);
     expect(maxActiveTranscriptRequests).toBe(3);
+  });
+
+  it("serializes date-window calls before transcripts so truncation keeps the call records", async () => {
+    getCalls.mockResolvedValue({
+      calls: [
+        { id: "c1", title: "Acme sync", started: "2026-05-03T10:00:00Z" },
+      ],
+    });
+    getCallTranscripts.mockResolvedValue({
+      callTranscripts: [
+        {
+          callId: "c1",
+          transcript: [{ sentences: [{ start: 0, text: "Evidence." }] }],
+        },
+      ],
+    });
+
+    const result = (await gongCalls.run({
+      days: 30,
+      includeTranscripts: true,
+    })) as Record<string, any>;
+
+    const keys = Object.keys(result);
+    expect(keys.indexOf("calls")).toBeLessThan(keys.indexOf("transcripts"));
   });
 
   it("honors string false for transcript loading from GET query params", async () => {

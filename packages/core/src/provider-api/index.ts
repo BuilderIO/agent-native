@@ -6273,7 +6273,7 @@ function prepareBody(
       JSON.parse(body);
       isJson = true;
     } catch {
-      // Plain text provider request bodies keep their existing content type.
+      // coercion-ok: JSON.parse is a probe; a throw means plain text, which keeps its existing content type.
     }
     if (isJson && !hasContentType) {
       headers["Content-Type"] = "application/json";
