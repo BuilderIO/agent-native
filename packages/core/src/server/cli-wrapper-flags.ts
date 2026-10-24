@@ -104,9 +104,54 @@ function isModuleExports(node: BabelNode): boolean {
   );
 }
 
+function mentions(node: unknown, name: string): boolean {
+  let found = false;
+  forEachNode(node, (child) => {
+    if (child.type === "Identifier" && child.name === name) found = true;
+  });
+  return found;
+}
+
+/**
+ * Whether the module does anything with the exported binding besides
+ * declaring and exporting it. Reassigning, mutating or passing it to another
+ * call can change what the loaders see, so the declaration alone says nothing
+ * certain. A function only has to keep its binding: the loaders read none of
+ * its properties.
+ */
+function isTouched(
+  program: BabelNode,
+  name: string,
+  value: BabelNode | undefined,
+): boolean {
+  if (!value || !FUNCTIONS.has(value.type)) {
+    let count = 0;
+    forEachNode(program, (node) => {
+      if (node.type === "Identifier" && node.name === name) count++;
+    });
+    return count > 2;
+  }
+  let reassigned = false;
+  forEachNode(program, (node) => {
+    const target =
+      node.type === "AssignmentExpression" ||
+      node.type === "ForInStatement" ||
+      node.type === "ForOfStatement"
+        ? node.left
+        : node.type === "UpdateExpression"
+          ? node.argument
+          : undefined;
+    if (target?.type !== "MemberExpression" && mentions(target, name)) {
+      reassigned = true;
+    }
+  });
+  return reassigned;
+}
+
 /**
  * The module's default export (or `module.exports`), followed through a
- * top-level variable. `"unknown"` for a default re-exported from another file.
+ * top-level binding the module leaves alone. `"unknown"` for a default
+ * re-exported from another file or a binding it changes.
  */
 function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
   let value: BabelNode | "unknown" | undefined;
@@ -130,6 +175,7 @@ function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
     }
   }
   if (value === "unknown" || value?.type !== "Identifier") return value;
+  const found: BabelNode[] = [];
   for (const statement of program.body) {
     const declaration =
       statement.type === "ExportNamedDeclaration"
@@ -139,7 +185,7 @@ function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
       FUNCTIONS.has(declaration?.type) &&
       declaration.id?.name === value.name
     ) {
-      return declaration;
+      found.push(declaration);
     }
     if (declaration?.type !== "VariableDeclaration") continue;
     for (const declarator of declaration.declarations) {
@@ -147,21 +193,86 @@ function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
         declarator.id.type === "Identifier" &&
         declarator.id.name === value.name
       ) {
-        return unwrap(declarator.init) ?? value;
+        found.push(unwrap(declarator.init) ?? value);
       }
     }
   }
-  return value;
+  if (found.length > 1 || isTouched(program, value.name, found[0])) {
+    return "unknown";
+  }
+  return found[0] ?? value;
+}
+
+/**
+ * What the module exports by name, each with its value when it's a `const`
+ * or a declared function, and whether it might export more than it names:
+ * a whole file re-exported, or CommonJS `exports.x = ...` writes.
+ */
+function namedExports(program: BabelNode): {
+  names: Map<string, BabelNode | "unknown">;
+  star: boolean;
+} {
+  const names = new Map<string, BabelNode | "unknown">();
+  let star = false;
+  let wholeModuleExports = 0;
+  for (const statement of program.body) {
+    if (statement.type === "ExportAllDeclaration") star = true;
+    if (
+      statement.type === "ExpressionStatement" &&
+      statement.expression.type === "AssignmentExpression" &&
+      isModuleExports(statement.expression.left)
+    ) {
+      wholeModuleExports++;
+    }
+    if (
+      statement.type !== "ExportNamedDeclaration" ||
+      statement.exportKind === "type"
+    ) {
+      continue;
+    }
+    const declaration = statement.declaration;
+    if (declaration?.type === "VariableDeclaration") {
+      for (const declarator of declaration.declarations) {
+        if (declarator.id.type === "Identifier") {
+          const value =
+            declaration.kind === "const" ? unwrap(declarator.init) : undefined;
+          names.set(declarator.id.name, value ?? "unknown");
+        } else {
+          // Destructured: any name in the pattern might be exported.
+          forEachNode(declarator.id, (node) => {
+            if (node.type === "Identifier") names.set(node.name, "unknown");
+          });
+        }
+      }
+    } else if (declaration?.id) {
+      names.set(declaration.id.name, declaration);
+    }
+    for (const spec of statement.specifiers) {
+      const name = spec.exported.name ?? spec.exported.value;
+      if (name !== "default") names.set(name, "unknown");
+    }
+  }
+  // Each `module.exports = value` names `exports` once; any other mention
+  // could be a CommonJS export.
+  let exportsMentions = 0;
+  forEachNode(program, (node) => {
+    if (node.type === "Identifier" && node.name === "exports") {
+      exportsMentions++;
+    }
+  });
+  if (exportsMentions > wholeModuleExports) star = true;
+  return { names, star };
 }
 
 /**
  * The options object passed to the `defineAction` call the module exports as
- * its default (the export every action loader reads), `"unknown"` when the
- * parser can't tell what they are, or null for a module that defines no
- * action. A `defineAction` call that isn't the export proves nothing about
- * the action that is.
+ * its default, `"unknown"` when the parser can't tell what they are, or null
+ * when the default export isn't an action. A `defineAction` call that isn't
+ * the export proves nothing about the action that is.
  */
-function actionOptions(program: BabelNode): BabelNode | "unknown" | null {
+function defaultActionOptions(
+  program: BabelNode,
+): BabelNode | "unknown" | null {
   const names = new Set(["defineAction"]);
   for (const statement of program.body) {
     if (statement.type !== "ImportDeclaration") continue;
@@ -230,23 +341,53 @@ function readOptionFlags(options: BabelNode | "unknown"): ReadFlags {
 }
 
 /**
+ * The flags of the action the module exports, or null for a module that
+ * defines none. The loaders take an action from the default export or from
+ * named `tool` and `run` exports, and don't agree on which comes first, so a
+ * module offering both, or re-exporting a whole file, gets every limit.
+ */
+function actionFlags(program: BabelNode): ReadFlags | null {
+  const fromDefault = defaultActionOptions(program);
+  const { names, star } = namedExports(program);
+  const named = names.has("tool") && names.has("run");
+  if (!named && !star) {
+    return fromDefault === null ? null : readOptionFlags(fromDefault);
+  }
+  if (fromDefault !== null || !named) return { ...UNKNOWN_FLAGS };
+  const flags: ReadFlags = {};
+  for (const name of READ_FLAGS) {
+    const value = names.get(name);
+    if (value === undefined) {
+      if (star) flags[name] = "unknown";
+    } else {
+      flags[name] =
+        value !== "unknown" && value.type === "BooleanLiteral"
+          ? value.value
+          : "unknown";
+    }
+  }
+  return flags;
+}
+
+/**
  * The flags the dev scan reads from an action's source when it can't import
  * the module and falls back to running it through `pnpm action`. It parses
  * the source rather than running it, so it errs toward the safe side: only a
  * literal `needsApproval: false` skips the approval gate, only a literal
  * `persistInBrowser: true` lets the browser keep results, only a literal
  * `uiOnly: false` lets the agent and other callers reach it, and only a
- * literal `toolCallable: true` lets tool calls in. Any other value sets the
- * safe one, and so do options it can't see (spread in, passed by name, built
- * by another helper or re-exported) and a source it can't parse. A module
- * that defines no action gets none of them.
+ * literal `toolCallable: true` lets tool calls in, whether set in the
+ * options or as a named `const` export beside `tool` and `run`. Any other
+ * value sets the safe one, and so do options it can't see (spread in, passed
+ * by name, built by another helper, re-exported, or exported through a
+ * binding the module changes) and a source it can't parse. A module that
+ * defines no action gets none of them.
  */
 export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
   const out: CliWrapperFlags = {};
   const program = parseProgram(src);
-  const options = program ? actionOptions(program) : "unknown";
-  if (options !== null) {
-    const flags = readOptionFlags(options);
+  const flags = program ? actionFlags(program) : { ...UNKNOWN_FLAGS };
+  if (flags !== null) {
     for (const name of READ_FLAGS) {
       const value = flags[name];
       // Only leaving a flag out, or setting it to the literal opposite of

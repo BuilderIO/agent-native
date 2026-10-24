@@ -89,6 +89,31 @@ describe("cliWrapperFlagsFromSource", () => {
         "a default object that isn't an action",
         "export default { needsApproval: false, persistInBrowser: true };",
       ],
+      [
+        "a binding reassigned before the export",
+        "let send = defineAction({ needsApproval: false });\nsend = defineAction({ needsApproval: true });\nexport default send;",
+      ],
+      [
+        "a binding changed after it's declared",
+        "const send = defineAction({ needsApproval: false });\nsend.needsApproval = true;\nexport default send;",
+      ],
+      [
+        "a binding declared twice",
+        "var send = defineAction({ needsApproval: false });\nvar send = defineAction({ needsApproval: true });\nexport default send;",
+      ],
+      [
+        "a default function reassigned to an action",
+        "function send() {}\nsend = defineAction({ needsApproval: true });\nexport default send;",
+      ],
+      [
+        "named tool and run beside a default action",
+        'export const tool = { description: "Send" };\nexport async function run() {}\nexport default defineAction({ needsApproval: false });',
+      ],
+      ["a whole file re-exported", 'export * from "./send-base.js";'],
+      [
+        "CommonJS exports",
+        'exports.tool = { description: "Send" };\nexports.run = async () => ({});\nexports.needsApproval = false;',
+      ],
       ["a source it can't parse", source("  needsApproval: false,,")],
     ] as const) {
       expect(cliWrapperFlagsFromSource(src), label).toEqual(hidden);
@@ -116,6 +141,33 @@ describe("cliWrapperFlagsFromSource", () => {
       );
     expect(read("  needsApproval: false,")).toEqual({});
     expect(read("  needsApproval: true,")).toEqual({ needsApproval: true });
+  });
+
+  it("reads flags exported by name beside tool and run", () => {
+    const read = (flags: string) =>
+      cliWrapperFlagsFromSource(
+        [
+          'export const tool = { description: "Send" };',
+          flags,
+          "export async function run() {",
+          "  return {};",
+          "}",
+        ].join("\n"),
+      );
+    expect(read("")).toEqual({});
+    expect(read("export const needsApproval = false;")).toEqual({});
+    expect(read("export const uiOnly = false;")).toEqual({});
+    expect(read("export const needsApproval = true;")).toEqual({
+      needsApproval: true,
+    });
+    for (const flags of [
+      "export let needsApproval = false;",
+      "export function needsApproval() {\n  return false;\n}",
+      'export { approval as needsApproval } from "./flags.js";',
+    ]) {
+      expect(read(flags), flags).toEqual({ needsApproval: true });
+    }
+    expect(read('export * from "./flags.js";')).toEqual(hidden);
   });
 
   it("keeps UI-only and tool-call limits unless a literal lifts them", () => {
@@ -151,6 +203,7 @@ describe("cliWrapperFlagsFromSource", () => {
       "#!/usr/bin/env node\nconsole.log('cli script');\n",
       "export function getPanelOrder(config) {\n  return [];\n}\n",
       "export default async function main(args) {\n  console.log(args);\n}\n",
+      "async function main(args) {\n  console.log(args);\n}\nrunCli(main);\nexport default main;\n",
     ]) {
       expect(cliWrapperFlagsFromSource(src), src).toEqual({});
     }
