@@ -159,8 +159,34 @@ export interface ActionAutomationContext {
   policyId?: string;
 }
 
+export const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+
+/**
+ * The most characters of a pretty-printed result the agent keeps for a call:
+ * the action's own limit, else the agent-wide limit, else the default, bounded
+ * by any hard limit. The agent loop and actions that fit their own results
+ * resolve it here so they cannot disagree.
+ */
+export function resolveToolMaxResultChars(
+  action: { maxResultChars?: number },
+  limits?: { maxResultChars?: number; hardMaxResultChars?: number },
+): number {
+  const configured =
+    action.maxResultChars ??
+    limits?.maxResultChars ??
+    DEFAULT_TOOL_RESULT_CHARS;
+  return typeof limits?.hardMaxResultChars === "number"
+    ? Math.min(configured, limits.hardMaxResultChars)
+    : configured;
+}
+
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /**
+   * Result cap the agent loop enforces on this call, from
+   * `resolveToolMaxResultChars`. Absent outside the agent loop.
+   */
+  maxResultChars?: number;
   userEmail?: string;
   /**
    * Request headers for server-only actions that must delegate to an
