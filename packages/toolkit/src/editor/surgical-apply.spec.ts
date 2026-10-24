@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
+import { Editor, Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +9,7 @@ import {
   applyDocSurgically,
   defaultParseValue,
   diffTopLevel,
+  planDocReconcile,
   reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
@@ -414,6 +415,345 @@ describe("reconcileDocAgainstBase", () => {
 
       expect(["conflict", "failed"]).toContain(result.status);
       expect(md(editor)).toBe("Same\n\nLocal\n\nSame");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("counts the server changes prefer-live sets aside", () => {
+    const editor = makeEditor("Alpha local\n\nBravo");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Alpha\n\nBravo"),
+        parse(editor, "Alpha server\n\nBravo server"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 1 });
+      expect(md(editor)).toBe("Alpha local\n\nBravo server");
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+// TrailingNode keeps an empty paragraph after a last block that is not a
+// paragraph. Saved Markdown leaves it out, so the base parsed from it has none.
+describe("reconcileDocAgainstBase beside the editor's filler line", () => {
+  function blockTypes(doc: ProseMirrorNode): string[] {
+    return Array.from({ length: doc.childCount }, (_, i) => {
+      const node = doc.child(i);
+      return node.textContent ? node.type.name : `empty ${node.type.name}`;
+    });
+  }
+
+  function openPage(markdown: string): Editor {
+    const editor = makeEditor(markdown);
+    const last = editor.state.doc.lastChild!;
+    if (last.type.name === "paragraph" && last.textContent) return editor;
+    expect(last.type.name, "the editor's filler line").toBe("paragraph");
+    expect(last.content.size).toBe(0);
+    return editor;
+  }
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "keeps an item added to a closing list (%s)",
+    (overlapPolicy) => {
+      const base = "Intro.\n\n1. One\n2. Two";
+      const server = "Intro.\n\n1. One\n2. Two\n3. Three";
+      const editor = openPage(base);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toContain("3. Three");
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "paragraph",
+          "orderedList",
+          "empty paragraph",
+        ]);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps every change when a closing list is replaced beside edits elsewhere", () => {
+    const base = [
+      "# Plan",
+      "Context paragraph.",
+      "## Next steps",
+      "1. Fix the bugs.",
+      "2. Redesign the hand-off.",
+    ].join("\n\n");
+    const server = [
+      "# Plan",
+      "Context paragraph, revised.",
+      "## Next steps",
+      "1. Fix the bugs.\n2. Redesign the hand-off, then run it once.\n3. Answer the open question.",
+    ].join("\n\n");
+    const editor = openPage(base);
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, server),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(md(editor)).toContain("Context paragraph, revised.");
+      expect(md(editor)).toContain("3. Answer the open question.");
+      expect(editor.state.doc.lastChild!.content.size).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a section added after a closing list, without a stray empty line", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const server = "Intro.\n\n- One\n- Two\n\n## Added\n\nNew paragraph.";
+    const editor = openPage(base);
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, server),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(blockTypes(editor.state.doc)).toEqual([
+        "paragraph",
+        "bulletList",
+        "heading",
+        "paragraph",
+      ]);
+      expect(editor.state.doc.lastChild!.textContent).toBe("New paragraph.");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a reworded closing heading and the line after it", () => {
+    const editor = openPage("Intro.\n\n## Old heading");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Intro.\n\n## Old heading"),
+        parse(editor, "Intro.\n\n## New heading"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(md(editor)).toContain("## New heading");
+      expect(blockTypes(editor.state.doc)).toEqual([
+        "paragraph",
+        "heading",
+        "empty paragraph",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      label: "rewording the closing paragraph",
+      base: "# T\n\nOld last line.",
+      server: "# T\n\nNew last line.",
+    },
+    {
+      label: "appending after the closing paragraph",
+      base: "# T\n\nLast line.",
+      server: "# T\n\nLast line.\n\nAppended line.",
+    },
+  ])(
+    "merges a page that ends in a paragraph as before: $label",
+    ({ base, server }) => {
+      const editor = openPage(base);
+      try {
+        expect(editor.state.doc.lastChild!.textContent).not.toBe("");
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe(server);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps a typed empty line after a closing paragraph", () => {
+    const editor = makeEditor("# Title\n\nLast line.");
+    try {
+      editor.commands.insertContentAt(editor.state.doc.content.size, {
+        type: "paragraph",
+      });
+      expect(editor.state.doc.childCount).toBe(3);
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "# Title\n\nLast line."),
+        parse(editor, "# New title\n\nLast line."),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(blockTypes(editor.state.doc)).toEqual([
+        "heading",
+        "paragraph",
+        "empty paragraph",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves a base that really ends in an empty paragraph alone", () => {
+    const editor = openPage("## Heading");
+    try {
+      const { schema } = editor;
+      const heading = editor.state.doc.firstChild!;
+      const empty = schema.nodes.paragraph!.create();
+      const appended = schema.nodes.paragraph!.create(
+        null,
+        schema.text("Appended."),
+      );
+      const plan = planDocReconcile(
+        editor.state.doc,
+        schema.nodes.doc!.create(null, [heading, empty]),
+        schema.nodes.doc!.create(null, [heading, empty, appended]),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(plan).toMatchObject({ status: "applied", setAside: 0 });
+      if (plan.status !== "applied") return;
+      expect(blockTypes(plan.mergedDoc)).toEqual([
+        "heading",
+        "empty paragraph",
+        "paragraph",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  const StyledLines = Extension.create({
+    name: "styledLines",
+    addGlobalAttributes() {
+      return [
+        {
+          types: ["paragraph"],
+          attributes: { indent: { default: 0 }, color: { default: null } },
+        },
+      ];
+    },
+  });
+
+  it.each([
+    { style: { indent: 1 }, overlapPolicy: "prefer-live" as const },
+    { style: { color: "red" }, overlapPolicy: "prefer-live" as const },
+    { style: { indent: 1 }, overlapPolicy: "conflict" as const },
+    { style: { color: "red" }, overlapPolicy: "conflict" as const },
+  ])(
+    "treats a styled empty closing line as the tab's own edit: $style ($overlapPolicy)",
+    ({ style, overlapPolicy }) => {
+      const editor = new Editor({
+        extensions: [...createRichMarkdownExtensions(), StyledLines],
+        content: "",
+      });
+      try {
+        editor.commands.setContent("# H");
+        editor.commands.setTextSelection(1);
+        const fillerFrom =
+          editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize;
+        editor.view.dispatch(
+          editor.state.tr.setNodeMarkup(fillerFrom, undefined, style),
+        );
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "# H"),
+          parse(editor, "Replacement."),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject(
+          overlapPolicy === "prefer-live"
+            ? { status: "noop", setAside: 1 }
+            : { status: "conflict" },
+        );
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "heading",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.lastChild!.attrs).toMatchObject(style);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    { focused: true, blocks: ["heading", "paragraph", "empty paragraph"] },
+    { focused: false, blocks: ["heading", "paragraph"] },
+  ])(
+    "keeps the empty closing line only while the cursor is typing on it (focused: $focused)",
+    ({ focused, blocks }) => {
+      const base = "Intro.\n\n- One\n- Two";
+      const editor = openPage(base);
+      try {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+        editor.isFocused = focused;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, `${base}\n\n## Added\n\nNew paragraph.`),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc).slice(2)).toEqual(blocks);
+        if (!focused) return;
+        editor.commands.insertContent("Typed.");
+        expect(editor.state.doc.lastChild!.textContent).toBe("Typed.");
+        expect(md(editor)).toContain("New paragraph.\n\nTyped.");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("still sets aside a server change to a closing block the tab edited", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const editor = openPage(base);
+    try {
+      editor.commands.insertContentAt(
+        editor.state.doc.child(0).nodeSize +
+          editor.state.doc.child(1).nodeSize -
+          3,
+        " local",
+      );
+      const live = md(editor);
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, "Intro.\n\n- One\n- Two\n- Three"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "noop", setAside: 1 });
+      expect(md(editor)).toBe(live);
     } finally {
       editor.destroy();
     }

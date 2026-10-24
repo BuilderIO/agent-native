@@ -94,6 +94,13 @@ export interface UseCollabReconcileOptions {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  /**
+   * Called once for each newer saved body the base-aware merge takes in, with
+   * how many of its changes were set aside for overlapping this tab's edits
+   * (only `prefer-live` sets any aside). For counting: it runs after the merge
+   * and cannot change it, even by throwing.
+   */
+  onBaseAwareMerge?: (outcome: { setAside: number }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
   /**
@@ -197,6 +204,7 @@ export function useCollabReconcile({
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  onBaseAwareMerge,
   onRemoteSnapshotChange,
   requestInitialSeed,
   quietSeedEditability = false,
@@ -241,6 +249,7 @@ export function useCollabReconcile({
     isEditorFocused,
     isEditorClean,
     onBaseAwareReconcile,
+    onBaseAwareMerge,
     onRemoteSnapshotChange,
   });
   reconcileCallbacksRef.current = {
@@ -251,6 +260,7 @@ export function useCollabReconcile({
     isEditorFocused,
     isEditorClean,
     onBaseAwareReconcile,
+    onBaseAwareMerge,
     onRemoteSnapshotChange,
   };
   const acknowledgedLocalSnapshotRef = useRef<{
@@ -1025,6 +1035,13 @@ export function useCollabReconcile({
               baseRevision: authoritativeBase.revision,
               serverRevision: contentRevision,
             });
+          }
+          try {
+            scheduledCallbacks.onBaseAwareMerge?.({
+              setAside: reconciled.setAside,
+            });
+          } catch {
+            // coercion-ok: counting a merge never changes the merge.
           }
           return;
         }

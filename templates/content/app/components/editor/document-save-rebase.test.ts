@@ -240,6 +240,34 @@ describe("document save ownership after a rejected CAS", () => {
     expect(persist).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps an indented empty closing line as the tab's own edit", async () => {
+    const headingBase = { ...base, content: "## Heading" };
+    const localDraft = "## Heading\n\t<empty-block/>";
+    const replaced = { ...winner, content: "Replacement." };
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: replaced })
+      .mockResolvedValueOnce({ ...replaced, content: localDraft });
+
+    await expect(
+      saveDocumentWithRebase({
+        base: headingBase,
+        content: localDraft,
+        persist,
+        owner: {
+          version: 1,
+          current: () => ({ version: 1, content: localDraft }),
+          canPreferLive: () => true,
+          confirm: vi.fn(),
+        },
+      }),
+    ).resolves.toMatchObject({ status: "saved", content: localDraft });
+    expect(persist).toHaveBeenNthCalledWith(2, localDraft, {
+      content: replaced.content,
+      updatedAt: replaced.updatedAt,
+    });
+  });
+
   it("does not mistake matching content for confirmation of an unsaved title", async () => {
     const document = { ...winner, content: draft, title: "Old title" };
     const saved = { ...document, title: "New title" };

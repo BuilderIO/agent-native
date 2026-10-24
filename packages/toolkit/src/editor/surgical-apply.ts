@@ -21,18 +21,32 @@ export interface TopLevelHunk {
   changedToIndex: number;
 }
 
+/**
+ * `setAside` counts the server's changes left out because they overlapped a
+ * local edit. Only the `prefer-live` overlap policy sets changes aside.
+ */
 export type BaseAwareReconcileResult =
-  | { status: "noop" }
-  | { status: "applied"; mergedDoc: ProseMirrorNode }
+  | { status: "noop"; setAside: number }
+  | { status: "applied"; mergedDoc: ProseMirrorNode; setAside: number }
   | { status: "conflict"; localDraft: ProseMirrorNode }
   | { status: "failed"; reason: "schema" | "ambiguous" | "transaction" };
 
 export type BaseAwareReconcilePlan =
   | Exclude<BaseAwareReconcileResult, { status: "applied" }>
-  | { status: "applied"; mergedDoc: ProseMirrorNode; steps: readonly Step[] };
+  | {
+      status: "applied";
+      mergedDoc: ProseMirrorNode;
+      steps: readonly Step[];
+      setAside: number;
+    };
 
 export interface BaseAwareReconcileOptions {
   overlapPolicy?: "conflict" | "prefer-live";
+  /**
+   * The live editor's selection while it has focus. A filler line holding it
+   * stays, so the next keystroke lands where the cursor was.
+   */
+  liveSelection?: { from: number; to: number };
 }
 
 function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
@@ -202,16 +216,21 @@ export function planDocReconcile(
   ) {
     return { status: "failed", reason: "schema" };
   }
-  const localDiff = diffTopLevelHunks(baseDoc, liveDoc);
+  // The editor's filler line is not a local edit: comparing it would make it
+  // overlap every server change to the base's last block, or after it.
+  const liveHasFiller =
+    endsInEditorFiller(liveDoc) && !isEmptyParagraph(baseDoc.lastChild);
+  const comparedLive = liveHasFiller ? withoutLastChild(liveDoc) : liveDoc;
+  const localDiff = diffTopLevelHunks(baseDoc, comparedLive);
   const serverDiff = diffTopLevelHunks(baseDoc, serverDoc);
   if (!localDiff || !serverDiff) {
     return { status: "failed", reason: "ambiguous" };
   }
   let localHunks = localDiff;
   let serverHunks = serverDiff;
-  if (serverHunks.length === 0) return { status: "noop" };
+  if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
   if (
-    hasUnambiguousReplacementPositions(baseDoc, liveDoc) &&
+    hasUnambiguousReplacementPositions(baseDoc, comparedLive) &&
     hasUnambiguousReplacementPositions(baseDoc, serverDoc)
   ) {
     localHunks = splitReplacementHunks(localHunks);
@@ -221,10 +240,10 @@ export function planDocReconcile(
           (local) =>
             local.baseFromIndex === server.baseFromIndex &&
             local.baseToIndex === server.baseToIndex &&
-            liveDoc.content
+            comparedLive.content
               .cut(
-                positionOfChild(liveDoc, local.changedFromIndex),
-                positionOfChild(liveDoc, local.changedToIndex),
+                positionOfChild(comparedLive, local.changedFromIndex),
+                positionOfChild(comparedLive, local.changedToIndex),
               )
               .eq(
                 serverDoc.content.cut(
@@ -235,7 +254,7 @@ export function planDocReconcile(
         ),
     );
   }
-  if (serverHunks.length === 0) return { status: "noop" };
+  if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
   const overlapsLocal = (server: TopLevelHunk) =>
     localHunks.some((local) => hunksOverlap(local, server));
   if (
@@ -244,12 +263,17 @@ export function planDocReconcile(
   ) {
     return { status: "conflict", localDraft: liveDoc };
   }
+  let setAside = 0;
   if (options.overlapPolicy === "prefer-live") {
-    serverHunks = serverHunks.filter((server) => !overlapsLocal(server));
-    if (serverHunks.length === 0) return { status: "noop" };
+    const kept = serverHunks.filter((server) => !overlapsLocal(server));
+    setAside = serverHunks.length - kept.length;
+    serverHunks = kept;
+    if (serverHunks.length === 0) return { status: "noop", setAside };
   }
 
   try {
+    // Hunks index the compared doc, which matches the live doc up to the
+    // filler, so a change at the base's end lands before the filler.
     const tr = new Transform(liveDoc);
     for (const hunk of [...serverHunks].reverse()) {
       const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
@@ -263,7 +287,21 @@ export function planDocReconcile(
         ),
       );
     }
-    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps };
+    // Once a paragraph closes the page, the filler is a stray empty line the
+    // next save would keep. The editor adds it back when it is needed again.
+    const fillerFrom = liveDoc.content.size - liveDoc.lastChild!.nodeSize;
+    const cursorOnFiller =
+      !!options.liveSelection && options.liveSelection.from > fillerFrom;
+    if (
+      liveHasFiller &&
+      !cursorOnFiller &&
+      !endsInEditorFiller(tr.doc) &&
+      isEditorFiller(tr.doc.lastChild)
+    ) {
+      const end = tr.doc.content.size;
+      tr.delete(end - tr.doc.lastChild!.nodeSize, end);
+    }
+    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps, setAside };
   } catch {
     return { status: "failed", reason: "transaction" };
   }
@@ -275,7 +313,10 @@ export function reconcileDocAgainstBase(
   serverDoc: ProseMirrorNode,
   options: BaseAwareReconcileOptions = {},
 ): BaseAwareReconcileResult {
-  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, options);
+  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, {
+    ...options,
+    liveSelection: editor.isFocused ? editor.state.selection : undefined,
+  });
   if (plan.status !== "applied") return plan;
   try {
     const tr = editor.state.tr;
@@ -283,7 +324,11 @@ export function reconcileDocAgainstBase(
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);
-    return { status: "applied", mergedDoc: editor.state.doc };
+    return {
+      status: "applied",
+      mergedDoc: editor.state.doc,
+      setAside: plan.setAside,
+    };
   } catch {
     return { status: "failed", reason: "transaction" };
   }
@@ -345,6 +390,30 @@ function positionOfChild(doc: ProseMirrorNode, index: number): number {
 
 function isEmptyParagraph(node: ProseMirrorNode | null): boolean {
   return !!node && node.type.name === "paragraph" && node.content.size === 0;
+}
+
+/**
+ * Tiptap's TrailingNode keeps an empty paragraph after a last block that is
+ * not a paragraph, so there is a line to type on. Saved bodies leave it out.
+ * An empty line someone styled, by indenting or coloring it, is content.
+ */
+function endsInEditorFiller(doc: ProseMirrorNode): boolean {
+  const count = doc.childCount;
+  return (
+    count > 1 &&
+    isEditorFiller(doc.child(count - 1)) &&
+    doc.child(count - 2).type.name !== "paragraph"
+  );
+}
+
+function isEditorFiller(node: ProseMirrorNode | null): boolean {
+  return isEmptyParagraph(node) && node!.sameMarkup(node!.type.create());
+}
+
+function withoutLastChild(doc: ProseMirrorNode): ProseMirrorNode {
+  return doc.copy(
+    doc.content.cut(0, doc.content.size - doc.lastChild!.nodeSize),
+  );
 }
 
 function withPreservedTrailingParagraph(
