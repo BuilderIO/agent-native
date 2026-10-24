@@ -41,7 +41,9 @@ function parseProgram(src: string): BabelNode | null {
       return parse(src, { sourceType: "unambiguous", plugins: [...plugins] })
         .program as unknown as BabelNode;
     } catch {
-      // Try the next syntax; a module neither can read is handled by the caller.
+      // coercion-ok: try the next syntax. If neither parses, the null return
+      // makes the caller gate the action and keep its results out of the
+      // browser.
     }
   }
   return null;
