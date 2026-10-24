@@ -305,12 +305,22 @@ export class TrafficRecorder {
       };
       if (isTurnPost(entry)) {
         const body = parseJson(request.postData() ?? "");
-        const threadId =
+        const requestBody =
           body.ok && body.value && typeof body.value === "object"
-            ? (body.value as { threadId?: unknown }).threadId
+            ? (body.value as {
+                threadId?: unknown;
+                agentKitMessageId?: unknown;
+              })
             : undefined;
+        const threadId = requestBody?.threadId;
         if (typeof threadId === "string" && threadId) {
           entry.threadId = threadId;
+        }
+        if (
+          typeof requestBody?.agentKitMessageId === "string" &&
+          requestBody.agentKitMessageId
+        ) {
+          entry.messageId = requestBody.agentKitMessageId;
         }
       }
       this.entries.push(entry);
@@ -318,7 +328,34 @@ export class TrafficRecorder {
     });
     page.on("response", (response) => {
       const entry = this.byRequest.get(response.request());
-      if (entry) entry.status = response.status();
+      if (!entry) return;
+      entry.status = response.status();
+      if (response.status() === 202) {
+        void response
+          .json()
+          .then((value: unknown) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              entry.responseError = "invalid JSON response";
+              return;
+            }
+            const body = value as {
+              state?: unknown;
+              message?: { id?: unknown; threadId?: unknown };
+            };
+            if (typeof body.state === "string") {
+              entry.queuedState = body.state;
+            }
+            if (typeof body.message?.id === "string") {
+              entry.queuedMessageId = body.message.id;
+            }
+            if (typeof body.message?.threadId === "string") {
+              entry.queuedThreadId = body.message.threadId;
+            }
+          })
+          .catch(() => {
+            entry.responseError = "unreadable JSON response";
+          });
+      }
     });
     page.on("requestfailed", (request) => {
       const entry = this.byRequest.get(request);
@@ -806,6 +843,37 @@ export class ChatReliabilitySession {
       );
     }
     this.note(`sent prompt containing ${token}`);
+  }
+
+  /** The busy-run POST was admitted and its durable queued receipt was returned. */
+  async assertQueuedTurnPostReceipt(afterCount: number): Promise<void> {
+    await this.pollUntil(
+      "the busy turn POST to return its durable queued receipt",
+      30_000,
+      async () => {
+        const posts = this.traffic.entries.filter(isTurnPost).slice(afterCount);
+        const post = posts[0];
+        if (!post) return "no turn POST was observed";
+        if (post.status === null) return "the turn POST has no response yet";
+        if (post.status !== 202) {
+          return `the turn POST returned HTTP ${post.status}`;
+        }
+        if (post.responseError) return post.responseError;
+        if (!post.queuedMessageId || post.queuedState !== "queued") {
+          return "the 202 response did not contain a queued message receipt";
+        }
+        if (!post.messageId || !post.threadId) {
+          return "the turn POST did not identify its message and thread";
+        }
+        if (post.queuedMessageId !== post.messageId) {
+          return "the queued receipt ID did not match the submitted message ID";
+        }
+        if (post.queuedThreadId !== post.threadId) {
+          return "the queued receipt thread did not match the submitted thread";
+        }
+        return null;
+      },
+    );
   }
 
   async stop(): Promise<void> {
