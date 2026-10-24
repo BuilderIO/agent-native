@@ -9,7 +9,7 @@ import {
   MAX_ATTACHMENT_RESOURCE_BODY_CHARS,
   MAX_ATTACHMENT_RESOURCE_BODY_TOTAL_CHARS,
   type TextAttachmentStorage,
-  unwrapTextAttachmentEnvelope,
+  unwrapOwnAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
 import {
   createOwnedAttachmentHydrationBudget,
@@ -88,7 +88,7 @@ function compareNewestAttachmentFirst(
 // A truncation note names one path for the rest of the thread, so each
 // request writes its own; the time prefix makes later uploads sort first.
 function attachmentBatchId(): string {
-  return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
+  return `${Date.now().toString(36)}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
 interface StoredAttachmentReference {
@@ -242,13 +242,16 @@ export async function persistTextAttachmentsAsResources(opts: {
     const att = opts.attachments[i];
     if (att.displayOnly === true) continue;
     const decoded = decodeTextAttachmentData(att);
+    // The prompt says an undecodable file's contents were withheld, so no
+    // copy of them may become readable here.
+    if (decoded.kind === "undecodable") continue;
     const text =
       decoded.kind === "text"
         ? decoded.text
         : (isTextLikeMimeType(att.contentType) ||
               isTextLikeFilename(att.name)) &&
             att.text
-          ? unwrapTextAttachmentEnvelope(att.text)
+          ? unwrapOwnAttachmentEnvelope(att.text, att.name)
           : undefined;
     if (!text) continue;
 
@@ -483,12 +486,13 @@ export function createCoreAttachmentActionEntries(): Record<
           const totalChars = content.length;
           // Page edges never split a surrogate pair: start before a low half
           // and stop before a high half, and report the real next offset.
+          const requested = Math.min(offset, totalChars);
           const start =
-            offset > 0 &&
-            offset < totalChars &&
-            isLowSurrogate(content.charCodeAt(offset))
-              ? offset - 1
-              : offset;
+            requested > 0 &&
+            requested < totalChars &&
+            isLowSurrogate(content.charCodeAt(requested))
+              ? requested - 1
+              : requested;
           let end = Math.min(totalChars, start + limit);
           if (
             end < totalChars &&

@@ -433,6 +433,25 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
+  it("does not store text whose payload the prompt reports as undecodable", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          text: "readable-looking fallback",
+          data: `data:text/markdown;base64,${Buffer.from([0xff, 0xfe]).toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.size).toBe(0);
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("does not store display-only attachments the prompt leaves out", async () => {
     const result = await persistTextAttachmentsAsResources({
       attachments: [
@@ -923,6 +942,27 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
 
     expect(result).toMatchObject({ content: "😀", hasMore: true });
     expect(result.note).toContain("offset=2");
+  });
+
+  it("clamps an offset past the end instead of returning a negative limit", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("abc"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-data.csv", offset: "10" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result).toMatchObject({
+      content: "",
+      offset: 3,
+      limit: 0,
+      hasMore: false,
+    });
   });
 
   it("rejects a path outside stored attachments", async () => {

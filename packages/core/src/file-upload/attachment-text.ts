@@ -59,25 +59,44 @@ export function isSvgTextAttachment(att: {
 /**
  * Unwraps the composer's envelope only when it names this very file, so a
  * stored or legacy upload that kept its wrapper reads as its body, while a
- * real document that merely looks like one is left as written.
+ * real document that merely looks like one is left as written. Every path
+ * that reads attachment text uses this one function, so the prompt, the
+ * stored copy and read-attachment offsets agree.
  */
 export function unwrapOwnAttachmentEnvelope(
   text: string,
   name: string | undefined,
 ): string {
+  if (!name) return text;
+  // assistant-ui writes `<attachment name=${name}>` with the name raw and
+  // unquoted, so a name with spaces or ">" only matches as an exact prefix.
+  const open = `<attachment name=${name}>\n`;
+  const close = "\n</attachment>";
+  if (
+    text.length >= open.length + close.length &&
+    text.startsWith(open) &&
+    text.endsWith(close)
+  ) {
+    return text.slice(open.length, text.length - close.length);
+  }
   const match = text.match(
     /^<attachment\b([^>]*)>\n([\s\S]*)\n<\/attachment>$/,
   );
-  if (!match || !name) return text;
+  if (!match) return text;
   const attrName = match[1]!.match(/\bname=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/);
   const wrapped = attrName?.[1] ?? attrName?.[2] ?? attrName?.[3];
-  return wrapped === name ? match[2]! : text;
+  return wrapped !== undefined && decodeXmlAttribute(wrapped) === name
+    ? match[2]!
+    : text;
 }
 
-/** Pasted text arrives wrapped; the model and read-attachment offsets see the body. */
-export function unwrapTextAttachmentEnvelope(text: string): string {
-  const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
-  return match ? match[1] : text;
+function decodeXmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 // A flat character class, not a repeated group: V8 recurses per group

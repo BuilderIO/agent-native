@@ -10,7 +10,7 @@ import {
   isTextLikeFilename,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
   MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
-  unwrapTextAttachmentEnvelope,
+  unwrapOwnAttachmentEnvelope,
 } from "./attachment-text.js";
 import {
   classifyInlineAttachment,
@@ -104,10 +104,20 @@ function readableDocumentMediaType(
   return isTextLikeFilename(att.name) ? "text/plain" : undefined;
 }
 
+/**
+ * How much text the prompt builder will inline for this attachment, following
+ * its branches: a reference, an image or a binary file part sends no text.
+ */
 function inlineTextLength(att: AgentChatAttachment): number {
   const decoded = decodeTextAttachmentData(att);
   if (decoded.kind === "text") return decoded.text.length;
-  return typeof att.text === "string" ? att.text.length : 0;
+  if (decoded.kind === "undecodable") return 0;
+  if (att.referenceOnly === true && typeof att.url === "string") return 0;
+  if (att.type === "image") return 0;
+  if (typeof att.data === "string" && parseBase64DataUrl(att.data)) return 0;
+  return typeof att.text === "string"
+    ? unwrapOwnAttachmentEnvelope(att.text, att.name).length
+    : 0;
 }
 
 function hasSvgFilename(name: string | undefined): boolean {
@@ -400,7 +410,7 @@ export async function preUploadAttachments(opts: {
       // Upload the file body, not the composer's <attachment> wrapper, so a
       // later re-read from storage sees the same text and offsets as now.
       const encoded = Buffer.from(
-        unwrapTextAttachmentEnvelope(att.text),
+        unwrapOwnAttachmentEnvelope(att.text, att.name),
         "utf8",
       ).toString("base64");
       data = `data:${normalizeContentType(att.contentType) || "text/plain"};base64,${encoded}`;

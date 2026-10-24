@@ -823,6 +823,32 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).not.toContain('"DESIGN.md"');
   });
 
+  it("does not let a binary file part use the shared text budget", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const result = await preUploadAttachments({
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          data: `data:application/pdf;base64,${PDF_BASE64}`,
+          text: "x".repeat(70_000),
+        },
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          text: "a".repeat(50_000),
+        },
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toContain("notes.md");
+  });
+
   it("does not call a file readable when the shared text budget cut it", async () => {
     uploadFileMock.mockResolvedValue(null);
 

@@ -102,7 +102,7 @@ import {
   MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
   sliceTextHead,
   type TextAttachmentStorage,
-  unwrapTextAttachmentEnvelope,
+  unwrapOwnAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
 import {
   formatBase64CharBudget,
@@ -3166,7 +3166,7 @@ export function buildUserContentWithAttachments(opts: {
     const rawTextAttachment = isText
       ? decodedText.text
       : typeof att.text === "string"
-        ? unwrapTextAttachmentEnvelope(att.text)
+        ? unwrapOwnAttachmentEnvelope(att.text, att.name)
         : "";
     const attachmentCharBudget = Math.min(
       MAX_TEXT_ATTACHMENT_CHARS,

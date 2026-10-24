@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeTextAttachmentData, sliceTextHead } from "./attachment-text.js";
+import {
+  decodeTextAttachmentData,
+  sliceTextHead,
+  unwrapOwnAttachmentEnvelope,
+} from "./attachment-text.js";
 
 function markdownDataUrl(text: string): string {
   return `data:text/markdown;base64,${Buffer.from(text).toString("base64")}`;
@@ -54,6 +58,21 @@ describe("decodeTextAttachmentData", () => {
         data: markdownDataUrl(wrapped),
       }),
     ).toEqual({ kind: "text", text: wrapped });
+  });
+
+  it("unwraps assistant-ui's raw envelope for a name with spaces and entities", () => {
+    expect(
+      unwrapOwnAttachmentEnvelope(
+        "<attachment name=my notes (v2).md>\nbody\n</attachment>",
+        "my notes (v2).md",
+      ),
+    ).toBe("body");
+    expect(
+      unwrapOwnAttachmentEnvelope(
+        '<attachment name="Q&amp;A.md">\nbody\n</attachment>',
+        "Q&A.md",
+      ),
+    ).toBe("body");
   });
 
   it.each(["aGVs*bG8=", "aGVsbG8", "aG=VsbG8="])(

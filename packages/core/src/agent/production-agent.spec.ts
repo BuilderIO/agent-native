@@ -2042,7 +2042,8 @@ describe("buildUserContentWithAttachments", () => {
       type: "file",
       name: "pasted-text-1718000000000-ab12cd.txt",
       contentType: "text/plain",
-      text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
+      // assistant-ui's envelope names the attachment exactly, unquoted.
+      text: `<attachment name=pasted-text-1718000000000-ab12cd.txt>\n${longBody}\n</attachment>`,
       url: "https://files.example.test/pasted-text.txt",
     };
     const content = buildUserContentWithAttachments({
