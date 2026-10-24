@@ -880,9 +880,9 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
   const assigneeMention = "<@" + assigneeId + "(?:\\|[^>]+)?>";
   const reportSubject =
     "(?:this|the)\\s+(?:report|issue|ticket|task|action|work|root|thread)";
-  const clauses = withoutQuotedScopeContext(text).split(
-    /[.!?;\n]+|,\s*(?=(?:but|and|however|actually|correction|sorry)\b)/i,
-  );
+  const clauses = withoutQuotedScopeContext(text)
+    .split(/[.!?;\n]+|,\s*(?=(?:but|and|however|actually|correction|sorry)\b)/i)
+    .filter((clause) => clause.trim().length > 0);
   const negatedAssignment = new RegExp(
     "\\b(?:i|we)\\s+(?:(?:actually|correction|sorry)\\s+)?(?:did\\s+not|didn't|do\\s+not|don't|never)\\s+assign\\s+" +
       reportSubject +
@@ -17374,6 +17374,17 @@ if (args[0] === "--self-test" && args.length === 1) {
           withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
             ...parent,
             sourceText: "I assigned this report to <@UOTHER>. I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "bare assignment denial after a blank line is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned this report to <@UOTHER>. \nI did not.",
           })),
         ),
       "personAssignedSkip needs an exact root or latest human message assigning work",
