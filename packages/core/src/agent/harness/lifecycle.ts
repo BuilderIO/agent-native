@@ -685,22 +685,19 @@ export async function sweepExpiredAgentHarnessSessions(
     let stoppedGeneration: number | undefined;
     try {
       const current = await getAgentHarnessSession(sessionId);
-      if (!current || current.followUpClaimId != null) {
+      if (!current) {
         liveSessions.delete(sessionId);
         removed += 1;
         continue;
       }
+      if (current.followUpClaimId != null) continue;
       const stopped = await markAgentHarnessSessionStoppedIfUnclaimed(
         sessionId,
         current.status,
         current.generation,
         "stopped",
       );
-      if (!stopped) {
-        liveSessions.delete(sessionId);
-        removed += 1;
-        continue;
-      }
+      if (!stopped) continue;
       stoppedGeneration = stopped.generation;
       liveSessions.delete(sessionId);
       removed += 1;

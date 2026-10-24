@@ -312,13 +312,56 @@ describe("agent harness lifecycle", () => {
       Date.now() + 25 * 60 * 60 * 1_000,
     );
 
-    expect(removed).toBeGreaterThan(0);
+    expect(removed).toBe(0);
     expect(session.stop).not.toHaveBeenCalled();
     expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
     expect(stored).toMatchObject({
       status: "running",
       followUpClaimId: "newer-worker-claim",
     });
+    await stopLiveAgentHarnessSession({
+      sessionId: stored.id,
+      scope: ownerScope(),
+    });
+  });
+
+  it("retains an expired claimed session so a failed follow-up can stop it", async () => {
+    let startStream!: () => void;
+    let failStream!: () => void;
+    const streamStarted = new Promise<void>((resolve) => {
+      startStream = resolve;
+    });
+    const shouldFail = new Promise<void>((resolve) => {
+      failStream = resolve;
+    });
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      startStream();
+      await shouldFail;
+      throw new Error("provider stream failed");
+    });
+    register(stored, session);
+
+    const followUp = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+    await streamStarted;
+
+    const removed = await sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+
+    expect(removed).toBe(0);
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(stored.followUpClaimId).toBeTruthy();
+
+    failStream();
+    await expect(followUp).rejects.toThrow("provider stream failed");
+
+    expect(stored).toMatchObject({ status: "errored", followUpClaimId: null });
+    expect(session.stop).toHaveBeenCalledOnce();
   });
 
   it("preserves a chained approval already persisted during the follow-up", async () => {
