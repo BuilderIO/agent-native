@@ -1611,6 +1611,33 @@ describe("HTML Motion source adapter", () => {
     );
   });
 
+  it.each(["is", "where"])(
+    "fails closed for relational selectors inside :%s()",
+    (pseudo) => {
+      const source = html
+        .replace(
+          "<head>",
+          "<head><style>:" +
+            pseudo +
+            "(main #hero-title) { opacity: 0 !important; }</style>",
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrowError(
+        expect.objectContaining({ code: "unsupported-target" }),
+      );
+    },
+  );
+
   it.each([
     ["animation", "pulse 1s"],
     ["animation-name", "pulse"],

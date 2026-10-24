@@ -1689,6 +1689,7 @@ function reactCssSelectorMayMatchTarget(
     tagName &&
     new RegExp(
       `(?:^|[\\s>+~,(])${tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[.#:[\\s>+~,])`,
+      "i",
     ).test(selector)
   ) {
     return true;
@@ -2400,14 +2401,16 @@ function hasReactRenderStyleMutation(
       ts.isPropertyAccessExpression(node.expression) &&
       ts.isIdentifier(node.expression.expression) &&
       node.expression.expression.text === "Object" &&
-      ["assign", "defineProperty"].includes(node.expression.name.text) &&
-      node.arguments.some(
-        (argument) =>
-          containsStyleAccess(argument) || containsStyleAlias(argument),
-      )
+      ["assign", "defineProperty"].includes(node.expression.name.text)
     ) {
-      found = true;
-      return;
+      const target = node.arguments[0];
+      if (
+        target &&
+        (containsStyleAccess(target) || containsStyleAlias(target))
+      ) {
+        found = true;
+        return;
+      }
     }
     if (
       ts.isCallExpression(node) &&
@@ -3593,15 +3596,49 @@ function hasDynamicCodeExecution(
   while (foundDynamicCodeAlias) {
     foundDynamicCodeAlias = false;
     const collectAliases = (node: TypeScript.Node): void => {
-      if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.initializer &&
-        !dynamicCodeAliases.has(node.name.text) &&
-        isDynamicCodeFunctionValue(node.initializer)
-      ) {
-        dynamicCodeAliases.add(node.name.text);
-        foundDynamicCodeAlias = true;
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        if (
+          ts.isIdentifier(node.name) &&
+          !dynamicCodeAliases.has(node.name.text) &&
+          isDynamicCodeFunctionValue(node.initializer)
+        ) {
+          dynamicCodeAliases.add(node.name.text);
+          foundDynamicCodeAlias = true;
+        } else if (ts.isObjectBindingPattern(node.name)) {
+          const initializerIsGlobal = isReactGlobalObjectReference(
+            node.initializer,
+            sourceFile,
+            new Set(),
+          );
+          const initializerIsDynamic = isDynamicCodeFunctionValue(
+            node.initializer,
+          );
+          for (const element of node.name.elements) {
+            if (
+              !ts.isIdentifier(element.name) ||
+              dynamicCodeAliases.has(element.name.text)
+            ) {
+              continue;
+            }
+            const propertyName = element.propertyName;
+            const key = !propertyName
+              ? element.name.text
+              : ts.isIdentifier(propertyName) ||
+                  ts.isStringLiteralLike(propertyName)
+                ? propertyName.text
+                : ts.isComputedPropertyName(propertyName) &&
+                    ts.isStringLiteralLike(propertyName.expression)
+                  ? propertyName.expression.text
+                  : undefined;
+            if (
+              (initializerIsGlobal && (key === "Function" || key === "eval")) ||
+              (initializerIsDynamic && key === "constructor")
+            ) {
+              dynamicCodeAliases.add(element.name.text);
+              foundDynamicCodeAlias = true;
+            }
+          }
+        }
       }
       ts.forEachChild(node, collectAliases);
     };

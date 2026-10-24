@@ -554,6 +554,23 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("matches uppercase HTML tags in complex important selectors", () => {
+    const generated = apply(source)
+      .source.replace(
+        '<main className="card">',
+        '<main className="card"><style>{".card BUTTON { opacity: 0 !important; }"}</style>',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<button data-agent-native-node-id="hero-title">Hello</button>',
+      );
+
+    expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("decodes escaped CSS property names before checking important overrides", () => {
     const css =
       "#hero { op" + String.fromCharCode(92) + "61 city: 0 !important; }";
@@ -1245,6 +1262,22 @@ function Card(style = { animationName: "fade" }) {
     expect(authored).toContain('transition: "opacity 1s"');
   });
 
+  it("allows read-only Object.assign from a React style prop during render", () => {
+    const authored = source.replace(
+      "function Card() {",
+      'function Card(props) {\n  const mergedStyle = Object.assign({}, props.style, { color: "red" });',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
   it.each([
     [
       "a mutable binding",
@@ -1441,6 +1474,22 @@ function Card(style = { animationName: "fade" }) {
     [
       "render-body dynamic code execution",
       `function Card() { eval("document.querySelector('#hero-title').style.opacity = '0'");`,
+    ],
+    [
+      "render-body Object.assign style mutation",
+      'function Card() { Object.assign(document.querySelector("#hero-title").style, { opacity: "0" });',
+    ],
+    [
+      "destructured Function alias",
+      'function Card() { const { Function: build } = globalThis; build("return 1")();',
+    ],
+    [
+      "computed destructured Function alias",
+      'function Card() { const { ["Function"]: build } = globalThis; build("return 1")();',
+    ],
+    [
+      "destructured constructor of Function",
+      'function Card() { const { constructor: build } = Function; build("return 1")();',
     ],
     [
       "render-body imperative style mutation",

@@ -1860,12 +1860,7 @@ function selectorMatchesCandidate(
 ): SelectorMatch {
   const compound = cssTreeChildren(selector);
   if (compound.some((child) => child.type === "Combinator")) {
-    return {
-      matches: false,
-      dynamic:
-        selectorContainsDynamicPseudoState(selector) ||
-        hasRuntimeMutationInPseudoNeighborhood(node),
-    };
+    return { matches: true, dynamic: true };
   }
   return selectorCompoundMatches(node, compound, targetNodeId);
 }
