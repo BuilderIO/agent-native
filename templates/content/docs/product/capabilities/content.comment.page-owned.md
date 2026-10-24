@@ -80,6 +80,10 @@ Given a Collection row whose Status is Blocked, when a commenter starts a thread
 
 Given a paragraph with five open threads and another with one, the margin shows one stack beside the first paragraph, with the newest thread in front and "+4 more", and the single thread's card unchanged beside its own paragraph. Resting the pointer on another highlight in the first paragraph brings its thread to the front. Clicking it opens the stack on that thread with a Collapse row above; Collapse folds it again with that thread still in front. Commenting on new text in that paragraph opens the composer on top of the folded stack, and the posted comment becomes its front.
 
+### Comment across paragraphs
+
+Given a selection from the end of one paragraph into the start of the next, when a commenter chooses Comment, the composer accepts the comment and posts one thread whose highlight covers the selected text in both paragraphs. After a reload the highlight still covers both parts, and where the thread's quote shows, it reads with a space where the paragraphs meet.
+
 ### Comment on a cell from the table
 
 Given a Collection table and a commenter who cannot edit its rows, when they hover a row's Due cell, a Comment button appears. Posting from the card it opens starts a thread that reads "Due · Nov 2, 2026" without opening the row, and the cell then shows a marker and the row's count goes up. Clicking the marker reopens the card on that thread, where it can be answered, and Open row opens the row's peek on it. When an editor resolves the thread from the same card, the marker and the count clear, and an editor who clicks the cell itself still edits its value.
@@ -143,6 +147,8 @@ A Comment AI proposal now renders in its source thread in place of the receipt r
 A thread can target one Property value. `content-database-comments.db.test.ts` proves the recorded name and value survive a value change, a relation's linked rows are never recorded for other readers, invalid targets are rejected, per-row and per-Property open counts follow row access and resolution, and the Collection-wide Comment read returns only readable rows. `comment-property-target.test.ts` covers how each Property type reads as text. Rich-text Property values do not yet offer a Property target; they keep body-style quoted Comments.
 
 A Block with several open threads stacks in the margin. `comment-stacks.test.ts` covers how threads group by Block and which one fronts a stack; `CommentsSidebar.stacks.test.tsx` covers folding, hover, opening from the card or a highlight, Collapse and focus, one open stack, and new comments on folded and open stacks; `CommentsSidebar.stack-tabs.test.tsx` covers Blocks-field tabs and Property threads. A recorded local run walked the "Read a busy paragraph" story with fake data.
+
+A thread can quote text across Blocks. Its stored quote and anchor context join each Block's text with nothing between, as every anchor does, so the editor, reload, and the server's anchor following all read it the same way; the Comments margin and panel show a space where the highlight crosses a Block. `BubbleToolbar.test.tsx` covers quoting such a selection and `CommentsSidebar.layout.test.ts` covers how its quote reads. Outside the open Page, as in a Collection's Comments or over MCP, the quote reads joined.
 
 ## Proof plan
 
