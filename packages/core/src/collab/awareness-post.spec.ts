@@ -37,6 +37,73 @@ describe("postAwarenessState", () => {
     });
   });
 
+  it("dispatches a keepalive visibility snapshot before the queue settles", async () => {
+    let finishPresence!: (response: Response) => void;
+    const presenceResponse = new Promise<Response>((resolve) => {
+      finishPresence = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockReturnValueOnce(presenceResponse)
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const presence = postAwarenessState("/collab", "doc-3", 12, {
+      visible: true,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const visibility = postAwarenessState(
+      "/collab",
+      "doc-3",
+      12,
+      { visible: false },
+      true,
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ keepalive: true });
+
+    const clear = postAwarenessState("/collab", "doc-3", 12, null, true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    finishPresence(new Response(null, { status: 204 }));
+    await Promise.all([presence, visibility, clear]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      clientId: 12,
+      state: null,
+    });
+  });
+
+  it("keeps the timeout active until the response body is consumed", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>((_input, init) =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener("abort", () => {
+                controller.error(new Error("awareness response aborted"));
+              });
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const post = postAwarenessState("/collab", "doc-4", 3, {
+      visible: true,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(post).rejects.toThrow("awareness response aborted");
+  });
+
   it("lets a queued disposal clear continue after a stalled presence request times out", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>();

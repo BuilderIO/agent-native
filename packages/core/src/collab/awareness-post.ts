@@ -1,6 +1,6 @@
 const AWARENESS_POST_TIMEOUT_MS = 5_000;
 
-const inFlightAwarenessPosts = new Map<string, Promise<Response>>();
+const inFlightAwarenessPosts = new Map<string, Promise<void>>();
 
 function awarenessPostKey(
   baseUrl: string,
@@ -19,42 +19,38 @@ export function postAwarenessState(
 ): Promise<Response> {
   const key = awarenessPostKey(baseUrl, docId, clientId);
   const previous = inFlightAwarenessPosts.get(key) ?? Promise.resolve();
-  const post = previous
-    .catch(() => {})
-    .then(async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(
-        () => controller.abort(),
-        AWARENESS_POST_TIMEOUT_MS,
-      );
-      try {
-        return await fetch(`${baseUrl}/${docId}/awareness`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientId,
-            state: state ? JSON.stringify(state) : null,
-          }),
-          signal: controller.signal,
-          ...(keepalive ? { keepalive: true } : {}),
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-    });
+  const send = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      AWARENESS_POST_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(`${baseUrl}/${docId}/awareness`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId,
+          state: state ? JSON.stringify(state) : null,
+        }),
+        signal: controller.signal,
+        ...(keepalive ? { keepalive: true } : {}),
+      });
+      await response.clone().arrayBuffer();
+      return response;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+  const dispatchImmediately = keepalive && state !== null;
+  const post = dispatchImmediately ? send() : previous.then(send);
+  const pending = Promise.allSettled([previous, post]).then(() => {});
 
-  inFlightAwarenessPosts.set(key, post);
-  void post.then(
-    () => {
-      if (inFlightAwarenessPosts.get(key) === post) {
-        inFlightAwarenessPosts.delete(key);
-      }
-    },
-    () => {
-      if (inFlightAwarenessPosts.get(key) === post) {
-        inFlightAwarenessPosts.delete(key);
-      }
-    },
-  );
+  inFlightAwarenessPosts.set(key, pending);
+  void pending.then(() => {
+    if (inFlightAwarenessPosts.get(key) === pending) {
+      inFlightAwarenessPosts.delete(key);
+    }
+  });
   return post;
 }

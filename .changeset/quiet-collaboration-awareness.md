@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Remove a user's collaboration presence when their final document connection is disposed.
+Bound collaboration awareness writes and clear presence when a document connection is disposed.
