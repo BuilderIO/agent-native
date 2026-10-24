@@ -114,6 +114,6 @@ const urgency = triage.answers["urgency"];
 
 不同提供者與模型支援的問題類型可能不同。decide() 會考量能力，因此不要假設每個提供者都支援所有問題類型。只有在驗證後，才能宣稱某個提供者、模型與問題類型組合受到支援。成功結果會指出作答的提供者與模型。
 
-每個工作區都能個別設定提供者順序。新的客戶工作區預設會將 OpenAI 排在第一位。工作區設定中的 `decisions.providerOrder` 控制提供者順序，`decisions.timeoutMs` 設定每個提供者的逾時時間；對應的環境變數別名為 `DECISIONS_PROVIDER_ORDER`（逗號分隔）和 `DECISIONS_TIMEOUT_MS`。 依提供者設定的門檻或快取鍵必須同時包含提供者與模型，避免將某個模型的校準或結果套用到另一個模型。
+每個工作區都能個別設定提供者順序。預設會依序嘗試 Builder Jev、個人 Jev 金鑰，然後是 OpenAI。若未設定任何提供者，`decide()` 會傳回 `not_configured`。工作區設定中的 `decisions.providerOrder` 控制提供者順序，`decisions.timeoutMs` 設定每個提供者的逾時時間；對應的環境變數別名為 `DECISIONS_PROVIDER_ORDER`（逗號分隔）和 `DECISIONS_TIMEOUT_MS`。依提供者設定的門檻或快取鍵必須同時包含提供者與模型，避免將某個模型的校準或結果套用到另一個模型。
 
 decide() 會回傳由呼叫端解讀的分類或分數。若要進一步變更應用程式資料，請使用另一個經授權的 action。

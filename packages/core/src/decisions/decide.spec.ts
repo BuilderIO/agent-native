@@ -14,7 +14,7 @@ vi.mock("../agent/production-agent.js", () => ({
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
-    decisions: { providerOrder: ["openai", "jev"], timeoutMs: 10_000 },
+    decisions: { providerOrder: ["jev", "openai"], timeoutMs: 10_000 },
   }),
 }));
 vi.mock("../server/request-context.js", () => ({
@@ -112,7 +112,7 @@ describe("decide", () => {
         timeoutMs: 10_000,
       }),
     );
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
   it("maps predicate, choice, and score questions for Jev", async () => {
@@ -303,7 +303,7 @@ describe("decide", () => {
       reason: "credentials_unavailable",
       provider: "openai",
     });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
   it("does not switch providers after a configured provider fails", async () => {
@@ -320,7 +320,7 @@ describe("decide", () => {
       reason: "provider_error",
       provider: "openai",
     });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
   it("rejects JSON input that cannot be serialized", async () => {
@@ -365,7 +365,7 @@ describe("decide", () => {
     expect(result).toEqual({
       status: "not_configured",
       reason: "missing_credentials",
-      providers: ["openai", "jev"],
+      providers: ["jev", "openai"],
     });
   });
 });

@@ -56,10 +56,10 @@ statuses as distinct outcomes; never turn a failure into an answer.
 
 ## Provider routing and caches
 
-Provider order is configurable per workspace. New customer workspaces default
-to OpenAI first. Do not turn that default into a global order. The Jev
-retention decision is unresolved. Do not infer or document Jev as retained or
-removed until Steve records that decision.
+Provider order is configurable per workspace. New customer workspaces try
+Builder Jev first, then a personal Jev key, then OpenAI. Within Jev, the
+Builder gateway is tried before falling back to a direct key. If no provider
+is configured, `decide()` returns `not_configured`.
 
 Key any per-provider threshold or cache by both provider and model. `cacheKey`
 enables caching only when supplied. Cache identity includes the owner,

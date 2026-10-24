@@ -114,6 +114,6 @@ const urgency = triage.answers["urgency"];
 
 不同提供方和模型支持的问题类型可能不同。decide() 会考虑能力，因此不要假定所有提供方都支持所有问题类型。只有在验证后，才能宣传某个提供方、模型和问题类型组合。成功结果会标明作答的提供方和模型。
 
-每个工作区都可以单独配置提供方顺序。新客户工作区默认将 OpenAI 排在第一位。工作区配置中的 `decisions.providerOrder` 控制提供方顺序，`decisions.timeoutMs` 设置每个提供方的超时时间；对应的环境变量别名为 `DECISIONS_PROVIDER_ORDER`（逗号分隔）和 `DECISIONS_TIMEOUT_MS`。 按提供方设置的阈值或缓存键必须同时包含提供方和模型，避免将一个模型的校准结果或缓存结果用于另一个模型。
+每个工作区都可以单独配置提供方顺序。默认按以下顺序尝试：Builder Jev、个人 Jev 密钥，然后是 OpenAI。如果没有配置任何提供方，`decide()` 会返回 `not_configured`。工作区配置中的 `decisions.providerOrder` 控制提供方顺序，`decisions.timeoutMs` 设置每个提供方的超时时间；对应的环境变量别名为 `DECISIONS_PROVIDER_ORDER`（逗号分隔）和 `DECISIONS_TIMEOUT_MS`。按提供方设置的阈值或缓存键必须同时包含提供方和模型，避免将一个模型的校准结果或缓存结果用于另一个模型。
 
 decide() 返回由调用方解释的分类或分数。若要进一步更改应用数据，请使用单独且经过授权的 action。
