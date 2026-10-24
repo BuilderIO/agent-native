@@ -2,7 +2,7 @@
 
 > **Canonical docs:**
 >
-> - **User-facing:** [packages/core/docs/content/authentication.md](../packages/core/docs/content/authentication.md) — what ships on the docs site.
+> - **User-facing:** [packages/core/docs/content/authentication.mdx](../packages/core/docs/content/authentication.mdx) — what ships on the docs site.
 > - **Framework agents:** [.agents/skills/authentication/SKILL.md](../.agents/skills/authentication/SKILL.md) — auth modes, sessions, organizations, BYOA.
 > - **Framework agents:** [.agents/skills/security/SKILL.md](../.agents/skills/security/SKILL.md) — data scoping, access helpers, custom routes.
 >
