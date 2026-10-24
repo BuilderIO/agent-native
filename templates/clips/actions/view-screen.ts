@@ -21,6 +21,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import {
+  contentPageUrls,
+  uploadedFromContent,
+} from "../server/lib/content-uploads.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import {
   isRecordingExpiredForViewer,
@@ -196,10 +200,13 @@ async function fetchBugReportSummary(recordingId: string) {
 async function fetchLibrary({
   folderId,
   shared = false,
+  fromContent = false,
   organizationId,
 }: {
   folderId?: string;
   shared?: boolean;
+  /** The caller's uploads from Content pages, which Library leaves out. */
+  fromContent?: boolean;
   organizationId?: string | null;
 }) {
   const db = getDb();
@@ -226,6 +233,9 @@ async function fetchLibrary({
     if (organizationId) {
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
+    conditions.push(
+      fromContent ? uploadedFromContent() : not(uploadedFromContent()),
+    );
   }
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb
@@ -608,6 +618,21 @@ export default defineAction({
         screen.shared = {
           count: recordings.length,
           recordings,
+        };
+        break;
+      }
+      case "from-content": {
+        const recordings = await fetchLibrary({
+          fromContent: true,
+          organizationId,
+        });
+        const pages = await contentPageUrls(recordings.map((r) => r.id));
+        screen.fromContent = {
+          count: recordings.length,
+          recordings: recordings.map((recording) => ({
+            ...recording,
+            contentPageUrl: pages.get(recording.id) ?? null,
+          })),
         };
         break;
       }

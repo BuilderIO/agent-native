@@ -23,6 +23,10 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import {
+  contentPageUrls,
+  uploadedFromContent,
+} from "../server/lib/content-uploads.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -98,10 +102,18 @@ export function mergeViewCounts(
 
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
   schema: z.object({
     view: z
-      .enum(["library", "shared", "space", "archive", "trash", "all"])
+      .enum([
+        "library",
+        "shared",
+        "space",
+        "archive",
+        "trash",
+        "all",
+        "from-content",
+      ])
       .default("library")
       .describe("Which list to show"),
     folderId: z
@@ -184,8 +196,10 @@ export default defineAction({
 
     // Library = "Your personal recordings in the active org". `accessFilter`
     // admits all owner rows regardless of org, so library must add both the
-    // owner-email and current-org predicates to scope correctly.
-    if (args.view === "library") {
+    // owner-email and current-org predicates to scope correctly. A Clip
+    // uploaded from a Content page lists under From Content instead; one
+    // linked into a page stays in Library.
+    if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
         whereClauses.push(
@@ -195,6 +209,11 @@ export default defineAction({
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
+      whereClauses.push(
+        args.view === "from-content"
+          ? uploadedFromContent()
+          : not(uploadedFromContent()),
+      );
     }
 
     if (args.view === "shared") {
@@ -408,10 +427,15 @@ export default defineAction({
             .groupBy(schema.recordingAgentViews.recordingId),
         ])
       : Promise.resolve(null);
-    const [ownerProfiles, tagRows, viewRows] = await Promise.all([
+    const contentPagesPromise =
+      args.view === "from-content"
+        ? contentPageUrls(ids)
+        : Promise.resolve(new Map<string, string>());
+    const [ownerProfiles, tagRows, viewRows, contentPages] = await Promise.all([
       ownerProfilesPromise,
       tagRowsPromise,
       viewRowsPromise,
+      contentPagesPromise,
     ]);
 
     const tagsByRec: Record<string, string[]> = {};
@@ -475,6 +499,9 @@ export default defineAction({
         ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
+        ...(args.view === "from-content"
+          ? { contentPageUrl: contentPages.get(r.id) ?? null }
+          : {}),
       };
     });
 
