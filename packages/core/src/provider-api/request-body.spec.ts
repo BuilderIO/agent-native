@@ -44,4 +44,20 @@ describe("setBodyValueAtPath", () => {
       "JSON object request body",
     );
   });
+
+  it("treats bracket and dotted indices as the same path and builds arrays", () => {
+    expect(setBodyValueAtPath({}, "a[0].b", 1)).toEqual({ a: [{ b: 1 }] });
+    expect(setBodyValueAtPath({}, "a.0.b", 1)).toEqual({ a: [{ b: 1 }] });
+    expect(setBodyValueAtPath({ filter: {} }, "filter.ids[0]", "x")).toEqual({
+      filter: { ids: ["x"] },
+    });
+  });
+
+  it("keeps sibling array entries when writing one index", () => {
+    const base = { a: [{ b: 1 }, { b: 2 }] };
+    expect(setBodyValueAtPath(base, "a[1].b", 9)).toEqual({
+      a: [{ b: 1 }, { b: 9 }],
+    });
+    expect(base).toEqual({ a: [{ b: 1 }, { b: 2 }] });
+  });
 });
