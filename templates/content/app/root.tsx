@@ -260,6 +260,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {children}
         <ScrollRestoration />
         <Scripts />
+        {/* Sandbox only: the module beacon Cloudflare injects on beta. */}
+        <script
+          type="module"
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+          crossOrigin="anonymous"
+        />
       </body>
     </html>
   );
