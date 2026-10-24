@@ -97,7 +97,8 @@ export function ensureTable(): Promise<void> {
 }
 
 const _lastWrites = new Map<string, { state: string; writtenAt: number }>();
-let _lastPurgeAt = 0;
+// Throttle failed attempts too, or each awareness request retries the purge.
+let _lastPurgeAttemptAt = 0;
 let _purgeInFlight: Promise<void> | undefined;
 
 function writeKey(docId: string, clientId: number): string {
@@ -453,8 +454,9 @@ export async function loadAwarenessClientSequence(
 }
 
 async function maybePurge(now: number): Promise<void> {
-  if (now - _lastPurgeAt < PURGE_INTERVAL_MS) return;
+  if (now - _lastPurgeAttemptAt < PURGE_INTERVAL_MS) return;
   if (_purgeInFlight) return _purgeInFlight;
+  _lastPurgeAttemptAt = now;
   const client = getDbExec();
   const expiredBefore = now - ROW_TTL_MS * 2;
   // Keep actor-bound IDs reserved after their transient presence state expires.
@@ -479,9 +481,7 @@ async function maybePurge(now: number): Promise<void> {
         args: [now, expiredBefore],
       }),
     )
-    .then(() => {
-      _lastPurgeAt = now;
-    })
+    .then(() => undefined)
     .finally(() => {
       _purgeInFlight = undefined;
     });
@@ -501,7 +501,7 @@ async function maybePurgeBestEffort(now: number): Promise<void> {
 
 export function _resetAwarenessStoreForTests(): void {
   _lastWrites.clear();
-  _lastPurgeAt = 0;
+  _lastPurgeAttemptAt = 0;
   _purgeInFlight = undefined;
   collabAwarenessStore.reset();
 }

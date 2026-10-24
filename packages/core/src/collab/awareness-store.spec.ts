@@ -1006,10 +1006,20 @@ describe("awareness-store", () => {
     await expect(
       loadAwarenessRowsStrict("doc-purge-failure", 40_000),
     ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
+    await expect(
+      loadAwarenessRowsStrict("doc-purge-failure", 69_999),
+    ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
     expect(cleanupFailure).toHaveBeenCalledWith(
       "Failed to purge expired collaboration awareness rows",
       expect.any(Error),
     );
+    expect(cleanupFailure).toHaveBeenCalledTimes(1);
+    expect(purgeCalls.count).toBe(1);
+
+    await expect(
+      loadAwarenessRowsStrict("doc-purge-failure", 70_000),
+    ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
+    expect(cleanupFailure).toHaveBeenCalledTimes(2);
     expect(purgeCalls.count).toBe(2);
 
     cleanupFailure.mockRestore();

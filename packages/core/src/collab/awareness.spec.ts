@@ -374,6 +374,7 @@ describe("postAwareness handler", () => {
     const ev = event({ docId });
     await expect(postAwareness(ev)).resolves.toMatchObject({
       error: "Awareness persistence unavailable",
+      failureType: "Error",
     });
 
     expect(ev._status).toBe(503);
@@ -395,6 +396,7 @@ describe("postAwareness handler", () => {
     const ev = event({ docId });
     await expect(postAwareness(ev)).resolves.toMatchObject({
       error: "Awareness persistence unavailable",
+      failureType: "Error",
     });
 
     expect(ev._status).toBe(503);

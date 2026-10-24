@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
+import { runBeforeSignOutCleanups } from "../client/use-session.js";
 import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
@@ -469,6 +470,172 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(result?.ydoc).toBe(initialYdoc);
     expect(stateFetches).toHaveLength(1);
     expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("reuses a cold-load connection after identity resolution", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "Ada",
+      email: "ada@example.test",
+      color: "blue",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const firstRoot = mount(
+      <Probe
+        docId="resolved-registry-identity"
+        onResult={(r) => (first = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+    const coldLoadYdoc = first?.ydoc;
+
+    act(() => {
+      firstRoot.render(
+        <Probe
+          docId="resolved-registry-identity"
+          user={user}
+          onResult={(r) => (first = r)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="resolved-registry-identity"
+        user={user}
+        onResult={(r) => (second = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    expect(first?.ydoc).toBe(coldLoadYdoc);
+    expect(second?.ydoc).toBe(coldLoadYdoc);
+    expect(stateFetches).toHaveLength(1);
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("clears local presence and stops polling before sign-out", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    mount(
+      <Probe
+        docId="sign-out-presence"
+        user={{
+          name: "Ada",
+          email: "ada@example.test",
+          color: "blue",
+        }}
+        onResult={() => {}}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const awarenessRequests = () =>
+      mock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/sign-out-presence/awareness") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+    expect(awarenessRequests()).toHaveLength(1);
+    await act(async () => {
+      await runBeforeSignOutCleanups();
+    });
+
+    expect(awarenessRequests()).toHaveLength(2);
+    expect(JSON.parse(String(awarenessRequests()[1]![1]?.body)).state).toBe(
+      null,
+    );
+    const pollCount = mock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/poll"),
+    ).length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(pollCount);
+  });
+
+  it("retires the authenticated connection when its user signs out", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="signed-out-presence"
+        user={{
+          name: "Ada",
+          email: "ada@example.test",
+          color: "blue",
+        }}
+        onResult={(r) => (result = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result?.ydoc).toBeTruthy();
+    expect(stateFetches).toHaveLength(1);
+
+    const pollCount = mock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/poll"),
+    ).length;
+    act(() => {
+      root.render(
+        <Probe docId="signed-out-presence" onResult={(r) => (result = r)} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const clearPosts = mock.mock.calls.filter(([input, init]) => {
+      if (
+        !String(input).endsWith("/signed-out-presence/awareness") ||
+        (init as RequestInit | undefined)?.method !== "POST"
+      ) {
+        return false;
+      }
+      return JSON.parse(String(init?.body)).state === null;
+    });
+    expect(clearPosts).toHaveLength(1);
+    expect(result?.ydoc).toBeNull();
+    expect(stateFetches).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(pollCount);
+    expect(_collabDocRegistrySizeForTests()).toBe(0);
   });
 
   it("creates a new awareness client identity when the authenticated user changes", async () => {

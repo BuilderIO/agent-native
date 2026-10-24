@@ -12,6 +12,7 @@ import {
   subscribeSyncEvents,
   type SyncEvent,
 } from "../client/use-db-sync.js";
+import { registerBeforeSignOutCleanup } from "../client/use-session.js";
 import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
@@ -304,7 +305,7 @@ class CollabDocConnection {
   constructor(
     readonly docId: string,
     private readonly baseUrl: string,
-    private readonly actorIdentity: string,
+    private actorIdentity: string,
     readonly detached = false,
   ) {
     this.ydoc = new Y.Doc();
@@ -332,6 +333,30 @@ class CollabDocConnection {
     return email
       ? `${this.registryKey}\0${email}\0${this.requestSource ?? ""}`
       : null;
+  }
+
+  bindActorIdentity(actorIdentity: string): boolean {
+    const identity = actorIdentity.trim().toLowerCase();
+    if (!identity || identity === this.actorIdentity) return Boolean(identity);
+    const currentUserIdentity = this.lastSetUser?.email.trim().toLowerCase();
+    if (
+      this.actorIdentity ||
+      (currentUserIdentity && currentUserIdentity !== identity)
+    ) {
+      return false;
+    }
+    const nextKey = collabRegistryKey(this.docId, this.baseUrl, identity);
+    const existing = collabConnectionRegistry.get(nextKey);
+    if (existing && existing !== this && !existing.disposed) return false;
+    if (
+      !this.detached &&
+      collabConnectionRegistry.get(this.registryKey) === this
+    ) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    this.actorIdentity = identity;
+    if (!this.detached) collabConnectionRegistry.set(nextKey, this);
+    return true;
   }
 
   add(id: symbol, sub: CollabDocSubscription): void {
@@ -441,6 +466,32 @@ class CollabDocConnection {
     }
   }
 
+  async clearPresenceBeforeSignOut(): Promise<void> {
+    if (this.disposed) return;
+    this.stopSync();
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (!this.awareness.getLocalState()) return;
+    this.awareness.setLocalState(null);
+    try {
+      const response = await postAwarenessState(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+        null,
+        true,
+      );
+      if (!response.ok) {
+        throw new Error(`Awareness clear returned HTTP ${response.status}`);
+      }
+    } finally {
+      forgetAwarenessClientSequence(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+      );
+    }
+  }
+
   private get effectivePollInterval(): number {
     let min = Infinity;
     for (const sub of this.subscribers.values()) {
@@ -482,6 +533,7 @@ class CollabDocConnection {
 
   setUser(user: CollabUser): void {
     if (this.disposed) return;
+    if (!this.bindActorIdentity(user.email)) return;
     const prev = this.lastSetUser;
     if (prev && prev.email !== user.email) {
       if (this.pendingUpdates.length && this.retiredUpdatesKey) {
@@ -1336,6 +1388,23 @@ const collabConnectionRegistry = new Map<string, CollabDocConnection>();
 // outbox if offline reload recovery becomes supported. No retired retry loop.
 const retiredCollabUpdates = new Map<string, Uint8Array[]>();
 
+registerBeforeSignOutCleanup(async () => {
+  const results = await Promise.allSettled(
+    Array.from(new Set(collabConnectionRegistry.values()), (connection) =>
+      connection.clearPresenceBeforeSignOut(),
+    ),
+  );
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length) {
+    throw new AggregateError(
+      failures,
+      "Some collaboration presence could not be cleared before sign-out",
+    );
+  }
+});
+
 function collabRegistryKey(
   docId: string,
   baseUrl: string,
@@ -1351,6 +1420,14 @@ function getOrCreateCollabConnection(
 ): CollabDocConnection {
   const key = collabRegistryKey(docId, baseUrl, actorIdentity);
   let conn = collabConnectionRegistry.get(key);
+  if (!conn && actorIdentity) {
+    const anonymousKey = collabRegistryKey(docId, baseUrl, "");
+    const anonymous = collabConnectionRegistry.get(anonymousKey);
+    if (anonymous && !anonymous.disposed) {
+      anonymous.bindActorIdentity(actorIdentity);
+      conn = collabConnectionRegistry.get(key);
+    }
+  }
   if (!conn || conn.disposed) {
     conn = new CollabDocConnection(docId, baseUrl, actorIdentity);
     collabConnectionRegistry.set(key, conn);
@@ -1403,35 +1480,26 @@ export function useCollaborativeDoc(
     return { ...user, avatarUrl: storedAvatarUrl };
   }, [storedAvatarUrl, user]);
   const actorIdentity = resolvedUser?.email.trim().toLowerCase() ?? "";
-  const [connectionIdentityState, setConnectionIdentityState] = useState(
-    () => ({
-      connectionIdentity: actorIdentity,
-      lastResolvedIdentity: actorIdentity,
-    }),
+  const [hasSeenAuthenticatedActor, setHasSeenAuthenticatedActor] = useState(
+    () => Boolean(actorIdentity),
   );
-  if (
-    actorIdentity &&
-    actorIdentity !== connectionIdentityState.lastResolvedIdentity
-  ) {
-    setConnectionIdentityState({
-      connectionIdentity: connectionIdentityState.lastResolvedIdentity
-        ? actorIdentity
-        : connectionIdentityState.connectionIdentity,
-      lastResolvedIdentity: actorIdentity,
-    });
+  if (actorIdentity && !hasSeenAuthenticatedActor) {
+    setHasSeenAuthenticatedActor(true);
   }
-  const connectionIdentity = connectionIdentityState.connectionIdentity;
+  const signedOutAfterAuthentication =
+    !actorIdentity && hasSeenAuthenticatedActor;
 
   const [generation, setGeneration] = useState(0);
 
   const conn = useMemo(() => {
     void generation;
-    if (!docId) return null;
+    if (!docId || signedOutAfterAuthentication) return null;
     if (typeof window === "undefined") {
-      return new CollabDocConnection(docId, baseUrl, connectionIdentity, true);
+      return new CollabDocConnection(docId, baseUrl, actorIdentity, true);
     }
-    return getOrCreateCollabConnection(docId, baseUrl, connectionIdentity);
-  }, [docId, baseUrl, connectionIdentity, generation]);
+    return getOrCreateCollabConnection(docId, baseUrl, actorIdentity);
+  }, [docId, baseUrl, actorIdentity, generation, signedOutAfterAuthentication]);
+  const previousActorConnection = useRef({ actorIdentity, conn });
 
   const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
     conn ? conn.snapshot : EMPTY_SNAPSHOT,
@@ -1468,6 +1536,19 @@ export function useCollaborativeDoc(
     if (!conn || conn.detached || !resolvedUser) return;
     conn.setUser(resolvedUser);
   }, [conn, resolvedUser]);
+
+  useEffect(() => {
+    const previous = previousActorConnection.current;
+    if (previous.actorIdentity && !actorIdentity) {
+      void previous.conn?.clearPresenceBeforeSignOut().catch((error) => {
+        console.error(
+          "Unable to clear collaboration presence on sign-out",
+          error,
+        );
+      });
+    }
+    previousActorConnection.current = { actorIdentity, conn };
+  }, [actorIdentity, conn]);
 
   return {
     ydoc: conn && snapshot.initialization.status === "ready" ? conn.ydoc : null,
