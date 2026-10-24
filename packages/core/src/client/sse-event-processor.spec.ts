@@ -872,8 +872,10 @@ describe("SSE replay render pacing", () => {
       { type: "text", text: "working", seq: 0 },
       { type: "stream_keepalive", seq: 1 },
       { type: "clear", seq: 2 },
-      { type: "tool_input_delta", text: "{", seq: 3 },
-      { type: "done", seq: 4 },
+      { type: "model_stream", status: "start", seq: 3 },
+      { type: "model_stream", status: "end", seq: 4 },
+      { type: "tool_input_delta", text: "{", seq: 5 },
+      { type: "done", seq: 6 },
     ];
     const progressBySeq = new Map<number, boolean | undefined>();
 
@@ -891,8 +893,10 @@ describe("SSE replay render pacing", () => {
       [0, true],
       [1, false],
       [2, false],
-      [3, true],
-      [4, true],
+      [3, false],
+      [4, false],
+      [5, true],
+      [6, true],
     ]);
   });
 

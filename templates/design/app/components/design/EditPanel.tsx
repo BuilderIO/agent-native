@@ -242,13 +242,14 @@ import { IconText } from "./inspector/design-icons";
 import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
 import { useRemoveSavedGlslShader } from "./inspector/saved-glsl-shader";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
+import {
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
-import {
-  MotionNativeStyleEditor,
-  type MotionNativeStyleIdentity,
-} from "./MotionNativeStyleEditor";
+import { MotionNativeStyleEditor } from "./MotionNativeStyleEditor";
 import { MotionTextAnimationEditor } from "./MotionTextAnimationEditor";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
@@ -521,6 +522,10 @@ interface EditPanelProps {
   onCreateMotionTrack?: (preset: MotionPropertyPreset) => void;
   onCreateMotionStyle?: (style: MotionAnimationStyle) => void;
   motionNativeStyles?: MotionNativeStyleInstance[];
+  selectedMotionNativeStyle?: MotionNativeStyleIdentity | null;
+  onSelectMotionNativeStyle?: (
+    identity: MotionNativeStyleIdentity | null,
+  ) => void;
   motionEasingVariables?: MotionEasingVariable[];
   onMotionEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   onCreateMotionNativeStyle?: (styleKey: MotionNativeStyleKey) => void;
@@ -2230,6 +2235,8 @@ export const EditPanel = memo(function EditPanel({
   onCreateMotionNativeStyle,
   onMotionNativeStyleChange,
   onRemoveMotionNativeStyle,
+  selectedMotionNativeStyle,
+  onSelectMotionNativeStyle,
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
@@ -2249,6 +2256,37 @@ export const EditPanel = memo(function EditPanel({
   breakpointContext,
 }: EditPanelProps) {
   const t = useT();
+  const inspectorMotionStyle = resolveMotionNativeStyleIdentity(
+    motionNativeStyles,
+    selectedMotionNativeStyle?.targetNodeId ?? motionSelectedTarget?.nodeId,
+    selectedMotionNativeStyle,
+  );
+  const inspectorMotionTargetNodeId =
+    inspectorMotionStyle?.targetNodeId ?? motionSelectedTarget?.nodeId ?? null;
+  const inspectorMotionTargetLabel = inspectorMotionTargetNodeId
+    ? (motionCode?.targets.find(
+        (target) => target.nodeId === inspectorMotionTargetNodeId,
+      )?.label ??
+      motionCode?.nodes.find((node) => node.id === inspectorMotionTargetNodeId)
+        ?.layerName ??
+      (motionSelectedTarget?.nodeId === inspectorMotionTargetNodeId
+        ? motionSelectedTarget.label
+        : inspectorMotionTargetNodeId))
+    : null;
+  const inspectorMotionCode =
+    motionCode &&
+    inspectorMotionTargetNodeId &&
+    inspectorMotionTargetNodeId !== motionSelectedTarget?.nodeId
+      ? {
+          ...motionCode,
+          targets: [
+            {
+              nodeId: inspectorMotionTargetNodeId,
+              label: inspectorMotionTargetLabel ?? inspectorMotionTargetNodeId,
+            },
+          ],
+        }
+      : motionCode;
   const exportPanelRef = useRef<ExportSettingsPanelController>(null);
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
@@ -3166,25 +3204,37 @@ export const EditPanel = memo(function EditPanel({
                           ) : null
                         }
                       >
-                        {motionInspector && !motionSelectedTarget ? (
+                        {motionInspector &&
+                        !motionSelectedTarget &&
+                        !inspectorMotionStyle ? (
                           <p className="px-3 py-2 text-xs text-muted-foreground">
                             {t("designEditor.motion.emptyStateNoSelection")}
                           </p>
                         ) : null}
-                        {motionSelectedTarget ? (
+                        {inspectorMotionTargetNodeId ? (
                           <MotionCodeView
-                            input={motionCode}
+                            input={inspectorMotionCode}
                             hasList={motionNativeStyles.some(
                               (style) =>
                                 style.targetNodeId ===
-                                motionSelectedTarget.nodeId,
+                                inspectorMotionTargetNodeId,
                             )}
                             t={t}
                             list={
                               <MotionNativeStyleEditor
                                 styles={motionNativeStyles}
-                                targetNodeId={motionSelectedTarget.nodeId}
-                                isText={motionSelectedTarget.isText}
+                                targetNodeId={inspectorMotionTargetNodeId}
+                                selectedStyle={selectedMotionNativeStyle}
+                                onSelectedStyleChange={
+                                  onSelectMotionNativeStyle
+                                }
+                                isText={
+                                  motionSelectedTarget?.nodeId ===
+                                  inspectorMotionTargetNodeId
+                                    ? motionSelectedTarget.isText
+                                    : inspectorMotionStyle?.styleKey ===
+                                      "TextStagger"
+                                }
                                 disabled={motionWriteUnavailable}
                                 easingVariables={motionEasingVariables}
                                 onEasingVariablesChange={

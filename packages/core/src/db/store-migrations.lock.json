@@ -43,6 +43,22 @@
     {
       "name": "agent-harness-sessions-generation",
       "checksum": "e93055de6007e793"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim",
+      "checksum": "80b46ffbdbf7f298"
+    },
+    {
+      "name": "agent-harness-sessions-approval-resolution",
+      "checksum": "11882889ef267cdb"
+    },
+    {
+      "name": "agent-harness-sessions-expiry-cleanup",
+      "checksum": "3313363904158445"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim-id",
+      "checksum": "80b46ffbdbf7f298"
     }
   ],
   "agent_runs": [

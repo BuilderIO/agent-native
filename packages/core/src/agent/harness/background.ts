@@ -16,13 +16,12 @@ import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
   resolveAgentHarnessApproval,
   sendAgentHarnessFollowUp,
-  stopLiveAgentHarnessSession,
+  stopAndPersistAgentHarnessSession,
   type AgentHarnessOwnerScope,
 } from "./lifecycle.js";
 import {
   getAgentHarnessSessionByRunId,
   listAgentHarnessSessions,
-  markAgentHarnessSessionStopped,
   type AgentHarnessSessionStatus,
   type StoredAgentHarnessSession,
 } from "./store.js";
@@ -115,6 +114,7 @@ export async function stopAgentHarnessBackgroundRun(
     return missingHarnessRunResult(runId);
   }
   const failures: unknown[] = [];
+  let stoppedSession = session;
   if (session.runId) {
     try {
       await abortRunDurably(session.runId, "user", { allowNotStarted: true });
@@ -123,18 +123,16 @@ export async function stopAgentHarnessBackgroundRun(
     }
   }
   try {
-    await stopLiveAgentHarnessSession({
+    const stopped = await stopAndPersistAgentHarnessSession({
       sessionId: session.id,
       scope: options,
+      status: failures.length > 0 ? "errored" : "stopped",
     });
-  } catch (error) {
-    failures.push(error);
-  }
-  try {
-    await markAgentHarnessSessionStopped(
-      session.id,
-      failures.length > 0 ? "errored" : "stopped",
-    );
+    stoppedSession = stopped ?? {
+      ...session,
+      status: "stopped",
+      stoppedAt: Date.now(),
+    };
   } catch (error) {
     failures.push(error);
   }
@@ -145,11 +143,7 @@ export async function stopAgentHarnessBackgroundRun(
   return {
     ok: true,
     runId,
-    run: toAgentHarnessBackgroundRun({
-      ...session,
-      status: "stopped",
-      stoppedAt: Date.now(),
-    }),
+    run: toAgentHarnessBackgroundRun(stoppedSession),
   };
 }
 
@@ -308,9 +302,9 @@ function backgroundStatus(
   status: AgentHarnessSessionStatus,
   needsApproval: boolean,
 ): BackgroundAgentRun["status"] {
+  if (needsApproval) return "needs-approval";
   if (status === "running") return "running";
   if (status === "errored") return "errored";
-  if (needsApproval) return "needs-approval";
   if (status === "idle") return "paused";
   if (status === "stopped" || status === "destroyed") return "completed";
   return "unknown";

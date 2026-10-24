@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { createMotionNativeStyleIdentity } from "./motion-native-style-identity";
 import {
   formatCurveAxisValue,
   formatMotionRulerTick,
@@ -1551,6 +1552,177 @@ describe("MotionDock — timeline body anatomy", () => {
       "false",
       "true",
     ]);
+  });
+
+  it("keeps a selected native style row from another layer selected", async () => {
+    const otherLayerStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      targetNodeId: "other",
+    };
+    const onNativeStyleSelectionChange = vi.fn();
+    await renderInteractive({
+      nativeStyles: [sampleNativeStyle, otherLayerStyle],
+      onNativeStyleSelectionChange,
+      selectedTarget: { nodeId: "hero", label: "Hero" },
+    });
+
+    const otherLayerRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    await act(async () => {
+      otherLayerRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+
+    expect(otherLayerRow.getAttribute("aria-selected")).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(otherLayerStyle, 1),
+    );
+  });
+
+  it("synchronizes timeline selection for two styles on one layer", async () => {
+    const scaleStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      props: { type: "scaleIn", delay: 0 },
+    };
+    const nativeStyles = [sampleNativeStyle, scaleStyle];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({ nativeStyles, onNativeStyleSelectionChange });
+
+    const positionRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Position"]',
+    )!;
+    const scaleRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      positionRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("true");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("false");
+    expect(onNativeStyleSelectionChange).toHaveBeenCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
+
+    await renderInteractive({
+      nativeStyles,
+      selectedNativeStyle: createMotionNativeStyleIdentity(scaleStyle, 1),
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("keeps the selected native style when an earlier duplicate row is removed", async () => {
+    const first: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0,
+    };
+    const second: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0.4,
+    };
+    const nativeStyles = [first, second];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-motion-native-style-row="Position"]',
+      ),
+    );
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Position"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [second],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    expect(
+      container
+        .querySelector('[data-motion-native-style-row="Position"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(second, 0),
+    );
+  });
+
+  it("does not change selection when removing a middle native style row", async () => {
+    const middle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+    };
+    const last: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Rotation",
+      nameKey: "designEditor.motion.animationStyles.rotation",
+    };
+    const nativeStyles = [sampleNativeStyle, middle, last];
+    const onNativeStyleSelectionChange = vi.fn();
+    const onNativeStyleRemove = vi.fn();
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove,
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-native-style-row]"),
+    );
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Scale"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [sampleNativeStyle, last],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove,
+    });
+
+    const remainingRows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-native-style-row]"),
+    );
+    expect(
+      remainingRows.map((row) => row.getAttribute("aria-selected")),
+    ).toEqual(["true", "false"]);
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
   });
 
   it("shows native style visibility/removal actions and preserves source props", async () => {

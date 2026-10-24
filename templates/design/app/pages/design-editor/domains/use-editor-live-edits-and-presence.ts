@@ -59,6 +59,10 @@ import type { MotionTrackWire } from "@/components/design/design-canvas/motion-t
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
 import { isOutlineDrawingEligible } from "@/components/design/edit-panel/motion-controls";
 import {
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "@/components/design/motion-native-style-identity";
+import {
   type MotionDockLiveState,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
@@ -225,6 +229,8 @@ export function useEditorLiveEditsAndPresence({
   const [motionNativeStyles, setMotionNativeStyles] = useState<
     MotionNativeStyleInstance[]
   >([]);
+  const [motionNativeStyleSelection, setMotionNativeStyleSelection] =
+    useState<MotionNativeStyleIdentity | null>(null);
   const [motionAudioClips, setMotionAudioClips] = useState<MotionAudioClip[]>(
     [],
   );
@@ -998,6 +1004,7 @@ export function useEditorLiveEditsAndPresence({
     setMotionTracks([]);
     setMotionAnimationStyles([]);
     setMotionNativeStyles([]);
+    setMotionNativeStyleSelection(null);
     setMotionAudioClips([]);
     setMotionEasingVariables([]);
     setMotionTextDocument(null);
@@ -1300,6 +1307,29 @@ export function useEditorLiveEditsAndPresence({
     selectedElement?.tagName,
     selectedElementIsOutlineDrawable,
   ]);
+  const previousMotionSelectionTargetRef = useRef(motionSelectedTarget?.nodeId);
+  useEffect(() => {
+    const targetChanged =
+      previousMotionSelectionTargetRef.current !== motionSelectedTarget?.nodeId;
+    previousMotionSelectionTargetRef.current = motionSelectedTarget?.nodeId;
+    const resolvedSelection = resolveMotionNativeStyleIdentity(
+      motionNativeStyles,
+      motionSelectedTarget?.nodeId,
+      targetChanged ? null : motionNativeStyleSelection,
+    );
+    if (
+      resolvedSelection?.key === motionNativeStyleSelection?.key &&
+      resolvedSelection?.sourceInstanceId ===
+        motionNativeStyleSelection?.sourceInstanceId
+    ) {
+      return;
+    }
+    setMotionNativeStyleSelection(resolvedSelection);
+  }, [
+    motionNativeStyles,
+    motionNativeStyleSelection,
+    motionSelectedTarget?.nodeId,
+  ]);
   const [motionOriginEditing, setMotionOriginEditing] = useState(false);
 
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
@@ -1535,6 +1565,8 @@ export function useEditorLiveEditsAndPresence({
     setMotionAnimationStyles,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionAudioClips,
     setMotionAudioClips,
     motionEasingVariables,

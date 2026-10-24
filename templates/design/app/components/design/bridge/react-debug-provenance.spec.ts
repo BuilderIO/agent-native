@@ -36,6 +36,11 @@ interface FrameworkDebugProvenance {
 function loadProvenanceFunctions(): {
   frameworkDebugProvenance: (el: object) => FrameworkDebugProvenance;
   elementDebugProvenance: (el: object) => FrameworkDebugProvenance;
+  sourceFileFromSourceMap: (
+    source: unknown,
+    mapUrl: string,
+    sourceRoot: unknown,
+  ) => string | null;
 } {
   const source = editorChromeBridgeScript;
   const start = source.indexOf("var PROVENANCE_NOISE_SEGMENTS");
@@ -63,15 +68,23 @@ function loadProvenanceFunctions(): {
   }
   if (end === -1) throw new Error("unbalanced frameworkDebugProvenance body");
   return new Function(
-    `${source.slice(start, end)}; return { frameworkDebugProvenance, elementDebugProvenance };`,
+    `${source.slice(start, end)}; return { frameworkDebugProvenance, elementDebugProvenance, sourceFileFromSourceMap };`,
   )() as {
     frameworkDebugProvenance: (el: object) => FrameworkDebugProvenance;
     elementDebugProvenance: (el: object) => FrameworkDebugProvenance;
+    sourceFileFromSourceMap: (
+      source: unknown,
+      mapUrl: string,
+      sourceRoot: unknown,
+    ) => string | null;
   };
 }
 
-const { frameworkDebugProvenance, elementDebugProvenance } =
-  loadProvenanceFunctions();
+const {
+  frameworkDebugProvenance,
+  elementDebugProvenance,
+  sourceFileFromSourceMap,
+} = loadProvenanceFunctions();
 
 function Card() {}
 
@@ -137,6 +150,23 @@ function mappedCardButton(key: string | null) {
 }
 
 describe("editor-chrome bridge — frameworkDebugProvenance", () => {
+  it("keeps a Vite source map's root-relative source path", () => {
+    expect(
+      sourceFileFromSourceMap(
+        "src/App.tsx",
+        "http://localhost:8220/src/App.tsx.map",
+        null,
+      ),
+    ).toBe("src/App.tsx");
+    expect(
+      sourceFileFromSourceMap(
+        "../components/Card.tsx",
+        "http://localhost:8220/src/App.tsx.map",
+        null,
+      ),
+    ).toBe("components/Card.tsx");
+  });
+
   it("reads React <=18 structured _debugSource, which the React 19 stack path cannot see", () => {
     const cardFiber = {
       type: Card,
