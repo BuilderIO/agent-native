@@ -95,6 +95,7 @@ import {
 } from "@agent-native/core/shared";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
+  AgentSelectToggle,
   AgentSuggestionBar,
   agentSuggestionPrompt,
   snapshotComposerContextItems,
@@ -6180,6 +6181,7 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
+              <AgentSelectToggle />
               {props.composerToolbarSlot}
             </>
           }

@@ -1,0 +1,616 @@
+import {
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  getAgentChatContextState,
+  listAgentChatContext,
+  parseAgentSelectionContextKey,
+  removeAgentChatContextItem,
+  setAgentChatContextItem,
+  subscribeAgentChatContext,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "@agent-native/core/client/agent-chat";
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+import {
+  COMPOSER_CONTEXT_MAX_ITEMS,
+  composerContextFits,
+} from "./context-items.js";
+
+/**
+ * An on-screen object the user can pick with the composer's Select mode.
+ * Picked objects become ordinary agent chat context items, keyed by
+ * `agentSelectionContextKey(kind, id)`; there is no second selection store.
+ */
+export interface AgentSelectable {
+  /** Short, stable object type such as `slide`, `element`, `panel`, `screen`. */
+  kind: string;
+  /** Stable id within `kind`. */
+  id: string;
+  /** Chip label. Read when the object is picked. */
+  readonly title: string;
+  /** The context payload the agent receives. Read when the object is picked. */
+  getContext(): string;
+  /**
+   * The element that outlines and hit-tests this object. It may live in a
+   * same-origin iframe; it is then measured through the frame.
+   */
+  getElement(): Element | null;
+}
+
+export type AgentSelectToggleResult =
+  | "added"
+  | "removed"
+  | "too-many-items"
+  | "too-large"
+  | "not-registered";
+
+export interface AgentSelectSnapshot {
+  active: boolean;
+  /** How many selectables are registered; Select is offered only when > 0. */
+  available: number;
+}
+
+export interface AgentSelectRejection {
+  reason: "too-many-items" | "too-large";
+  target: Pick<AgentSelectable, "kind" | "id" | "title">;
+}
+
+// Kept on the window so a toolkit copy bundled twice (an app's own build and a
+// linked package) still shares one registry and one pick mode.
+interface AgentSelectStore {
+  selectables: Map<string, AgentSelectable>;
+  listeners: Set<() => void>;
+  rejectionListeners: Set<(rejection: AgentSelectRejection) => void>;
+  snapshot: AgentSelectSnapshot;
+  teardownPickMode: (() => void) | null;
+  teardownMirror: (() => void) | null;
+}
+
+const STORE_KEY = "__agentNativeAgentSelectStore";
+const MIRROR_DELAY_MS = 150;
+
+function createStore(): AgentSelectStore {
+  return {
+    selectables: new Map(),
+    listeners: new Set(),
+    rejectionListeners: new Set(),
+    snapshot: { active: false, available: 0 },
+    teardownPickMode: null,
+    teardownMirror: null,
+  };
+}
+
+let fallbackStore: AgentSelectStore | null = null;
+
+function store(): AgentSelectStore {
+  if (typeof window === "undefined") {
+    fallbackStore ??= createStore();
+    return fallbackStore;
+  }
+  const host = window as unknown as Record<
+    string,
+    AgentSelectStore | undefined
+  >;
+  host[STORE_KEY] ??= createStore();
+  return host[STORE_KEY];
+}
+
+function emit(next: Partial<AgentSelectSnapshot>): void {
+  const current = store();
+  const snapshot = { ...current.snapshot, ...next };
+  if (
+    snapshot.active === current.snapshot.active &&
+    snapshot.available === current.snapshot.available
+  ) {
+    return;
+  }
+  current.snapshot = snapshot;
+  for (const listener of Array.from(current.listeners)) listener();
+}
+
+export function subscribeAgentSelect(listener: () => void): () => void {
+  store().listeners.add(listener);
+  return () => {
+    store().listeners.delete(listener);
+  };
+}
+
+export function getAgentSelectSnapshot(): AgentSelectSnapshot {
+  return store().snapshot;
+}
+
+/** Called when a pick is refused because the composer context is full. */
+export function subscribeAgentSelectRejections(
+  listener: (rejection: AgentSelectRejection) => void,
+): () => void {
+  store().rejectionListeners.add(listener);
+  return () => {
+    store().rejectionListeners.delete(listener);
+  };
+}
+
+export function registerAgentSelectable(
+  selectable: AgentSelectable,
+): () => void {
+  const key = agentSelectionContextKey(selectable.kind, selectable.id);
+  const current = store();
+  current.selectables.set(key, selectable);
+  current.teardownMirror ??= startSelectionMirror();
+  emit({ available: current.selectables.size });
+  return () => {
+    const latest = store();
+    // A remount can register the same key before the old cleanup runs.
+    if (latest.selectables.get(key) !== selectable) return;
+    latest.selectables.delete(key);
+    const available = latest.selectables.size;
+    if (available === 0) setAgentSelectMode(false);
+    emit({ available });
+  };
+}
+
+export function getAgentSelectables(): AgentSelectable[] {
+  return [...store().selectables.values()];
+}
+
+export function isAgentSelectableSelected(kind: string, id: string): boolean {
+  const key = agentSelectionContextKey(kind, id);
+  return getAgentChatContextState().items.some((item) => item.key === key);
+}
+
+/** Every picked object currently in the composer context, registered or not. */
+export function listAgentSelection(): AgentSelectionStateItem[] {
+  const items: AgentSelectionStateItem[] = [];
+  for (const item of getAgentChatContextState().items) {
+    const reference = parseAgentSelectionContextKey(item.key);
+    if (reference) items.push({ ...reference, title: item.title });
+  }
+  return items;
+}
+
+export type AgentSelectionTarget = Pick<
+  AgentSelectable,
+  "kind" | "id" | "title" | "getContext"
+>;
+
+export interface AgentSelectOptions {
+  /** Release other picked objects of the same kind first. */
+  exclusive?: boolean;
+  openSidebar?: boolean;
+  focus?: boolean;
+}
+
+function addSelection(
+  key: string,
+  target: AgentSelectionTarget,
+  options: AgentSelectOptions = {},
+): AgentSelectToggleResult {
+  const item = {
+    key,
+    title: target.title.trim() || target.id,
+    context: target.getContext(),
+  };
+  const existing = listAgentChatContext().filter(
+    (candidate) =>
+      candidate.key !== key &&
+      !(options.exclusive && isSameKindSelection(candidate.key, target.kind)),
+  );
+  if (!composerContextFits([...existing, item])) {
+    const reason =
+      existing.length >= COMPOSER_CONTEXT_MAX_ITEMS
+        ? "too-many-items"
+        : "too-large";
+    for (const listener of Array.from(store().rejectionListeners)) {
+      listener({ reason, target });
+    }
+    return reason;
+  }
+  if (options.exclusive) {
+    for (const picked of listAgentSelection()) {
+      if (picked.kind === target.kind && picked.id !== target.id) {
+        removeAgentChatContextItem(
+          agentSelectionContextKey(picked.kind, picked.id),
+        );
+      }
+    }
+  }
+  setAgentChatContextItem({
+    ...item,
+    openSidebar: options.openSidebar === true,
+    focus: options.focus ?? false,
+  });
+  return "added";
+}
+
+function isSameKindSelection(key: string, kind: string): boolean {
+  return parseAgentSelectionContextKey(key)?.kind === kind;
+}
+
+export function toggleAgentSelectable(
+  kind: string,
+  id: string,
+): AgentSelectToggleResult {
+  const key = agentSelectionContextKey(kind, id);
+  const selectable = store().selectables.get(key);
+  if (isAgentSelectableSelected(kind, id)) {
+    removeAgentChatContextItem(key);
+    return "removed";
+  }
+  if (!selectable) return "not-registered";
+  return addSelection(key, selectable);
+}
+
+/**
+ * Pick one object outside Select mode, as a plain click on it would. The
+ * target need not be registered, so an app can stage an object it describes.
+ */
+export function selectAgentSelectable(
+  target: AgentSelectionTarget,
+  options: AgentSelectOptions = {},
+): AgentSelectToggleResult {
+  return addSelection(
+    agentSelectionContextKey(target.kind, target.id),
+    target,
+    options,
+  );
+}
+
+export function deselectAgentSelectable(kind: string, id: string): void {
+  removeAgentChatContextItem(agentSelectionContextKey(kind, id));
+}
+
+export function setAgentSelectMode(active: boolean): void {
+  const current = store();
+  const next = active && current.selectables.size > 0;
+  if (next === current.snapshot.active) return;
+  if (next) {
+    current.teardownPickMode = startPickMode();
+  } else {
+    current.teardownPickMode?.();
+    current.teardownPickMode = null;
+  }
+  emit({ active: next });
+}
+
+export function toggleAgentSelectMode(): void {
+  setAgentSelectMode(!store().snapshot.active);
+}
+
+// ---------------------------------------------------------------------------
+// application_state mirror
+// ---------------------------------------------------------------------------
+
+function startSelectionMirror(): () => void {
+  if (typeof window === "undefined") return () => {};
+  let lastWritten: string | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    timer = null;
+    const items = listAgentSelection();
+    const serialized = JSON.stringify(items);
+    if (serialized === lastWritten) return;
+    lastWritten = serialized;
+    const state: AgentSelectionState = { items, updatedAt: Date.now() };
+    void writeClientAppState(AGENT_SELECTION_STATE_KEY, state, {
+      keepalive: true,
+    }).catch((error: unknown) => {
+      // Let the next change retry instead of believing this write landed.
+      lastWritten = null;
+      console.warn("[agent-select] Could not mirror the selection.", error);
+    });
+  };
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(flush, MIRROR_DELAY_MS);
+  };
+  schedule();
+  return subscribeAgentChatContext(schedule);
+}
+
+// ---------------------------------------------------------------------------
+// Pick mode
+// ---------------------------------------------------------------------------
+
+export const AGENT_SELECT_MODE_ATTRIBUTE = "data-agent-select-mode";
+const HOVER_ATTRIBUTE = "data-agent-select-hover";
+/** Mark a region (the agent sidebar, dialogs) that pick mode must not touch. */
+export const AGENT_SELECT_IGNORE_ATTRIBUTE = "data-agent-select-ignore";
+const IGNORE_SELECTOR = `[${AGENT_SELECT_IGNORE_ATTRIBUTE}], .agent-sidebar-panel, [data-agent-composer-slot], [role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]`;
+const STYLE_ID = "agent-native-agent-select-style";
+const OVERLAY_Z_INDEX = "2147483000";
+
+// Iframes swallow pointer events, so pick mode turns them off; hit testing
+// then lands on the frame's host element and measures into the frame.
+const PICK_MODE_CSS = `
+html[${AGENT_SELECT_MODE_ATTRIBUTE}] iframe:not(${IGNORE_SELECTOR.split(", ")
+  .map((selector) => `${selector} iframe`)
+  .join(", ")}) { pointer-events: none !important; }
+html[${HOVER_ATTRIBUTE}] body, html[${HOVER_ATTRIBUTE}] body * { cursor: pointer !important; }
+`;
+
+export interface AgentSelectBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** The element's box in the top document's viewport, through one iframe. */
+export function measureAgentSelectElement(
+  element: Element,
+): AgentSelectBox | null {
+  const rect = element.getBoundingClientRect();
+  const doc = element.ownerDocument;
+  if (doc === document) {
+    return rect.width > 0 || rect.height > 0
+      ? {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        }
+      : null;
+  }
+  const frame = doc.defaultView?.frameElement;
+  if (!frame || frame.ownerDocument !== document) return null;
+  const frameRect = frame.getBoundingClientRect();
+  const layoutWidth = (frame as HTMLElement).clientWidth;
+  const layoutHeight = (frame as HTMLElement).clientHeight;
+  const scaleX = layoutWidth > 0 ? frameRect.width / layoutWidth : 1;
+  const scaleY = layoutHeight > 0 ? frameRect.height / layoutHeight : 1;
+  const originX = frameRect.left + (frame as HTMLElement).clientLeft * scaleX;
+  const originY = frameRect.top + (frame as HTMLElement).clientTop * scaleY;
+  return {
+    left: originX + rect.left * scaleX,
+    top: originY + rect.top * scaleY,
+    width: rect.width * scaleX,
+    height: rect.height * scaleY,
+  };
+}
+
+function boxContains(box: AgentSelectBox, x: number, y: number): boolean {
+  return (
+    x >= box.left &&
+    x <= box.left + box.width &&
+    y >= box.top &&
+    y <= box.top + box.height
+  );
+}
+
+/**
+ * The innermost registered object under a viewport point, or null when the
+ * point is over chrome pick mode ignores or over nothing registered.
+ */
+export function hitTestAgentSelectable(
+  x: number,
+  y: number,
+): AgentSelectable | null {
+  const top = document.elementFromPoint(x, y);
+  if (!top || top.closest(IGNORE_SELECTOR)) return null;
+  let best: AgentSelectable | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const selectable of store().selectables.values()) {
+    const element = selectable.getElement();
+    if (!element?.isConnected) continue;
+    const box = measureAgentSelectElement(element);
+    if (!box || !boxContains(box, x, y)) continue;
+    if (element.ownerDocument === document) {
+      if (!element.contains(top)) continue;
+    } else {
+      const frame = element.ownerDocument.defaultView?.frameElement;
+      if (!frame || !(top === frame || top.contains(frame))) continue;
+    }
+    const area = box.width * box.height;
+    if (area < bestArea) {
+      best = selectable;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+function ensurePickModeStyle(): void {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = PICK_MODE_CSS;
+  document.head.appendChild(style);
+}
+
+function createOutline(kind: "hover" | "selected"): HTMLDivElement {
+  const outline = document.createElement("div");
+  outline.dataset.agentSelectOutline = kind;
+  Object.assign(outline.style, {
+    position: "fixed",
+    pointerEvents: "none",
+    boxSizing: "border-box",
+    borderRadius: "2px",
+    border:
+      kind === "hover"
+        ? "1px solid hsl(var(--ring))"
+        : "2px solid hsl(var(--ring))",
+    background: kind === "selected" ? "hsl(var(--ring) / 0.06)" : "transparent",
+  } satisfies Partial<CSSStyleDeclaration>);
+  return outline;
+}
+
+function placeOutline(outline: HTMLElement, box: AgentSelectBox): void {
+  outline.style.transform = `translate(${box.left}px, ${box.top}px)`;
+  outline.style.left = "0px";
+  outline.style.top = "0px";
+  outline.style.width = `${box.width}px`;
+  outline.style.height = `${box.height}px`;
+}
+
+function startPickMode(): () => void {
+  if (typeof window === "undefined") return () => {};
+  ensurePickModeStyle();
+  const root = document.documentElement;
+  root.setAttribute(AGENT_SELECT_MODE_ATTRIBUTE, "");
+
+  const layer = document.createElement("div");
+  layer.dataset.agentSelectLayer = "";
+  layer.setAttribute("aria-hidden", "true");
+  Object.assign(layer.style, {
+    position: "fixed",
+    inset: "0",
+    pointerEvents: "none",
+    zIndex: OVERLAY_Z_INDEX,
+  } satisfies Partial<CSSStyleDeclaration>);
+  const hoverOutline = createOutline("hover");
+  const hoverLabel = document.createElement("div");
+  hoverLabel.dataset.agentSelectLabel = "";
+  Object.assign(hoverLabel.style, {
+    position: "absolute",
+    bottom: "100%",
+    left: "-1px",
+    marginBottom: "2px",
+    padding: "0 4px",
+    borderRadius: "2px",
+    font: "500 11px/16px system-ui, sans-serif",
+    whiteSpace: "nowrap",
+    background: "hsl(var(--ring))",
+    color: "hsl(var(--background))",
+  } satisfies Partial<CSSStyleDeclaration>);
+  hoverOutline.appendChild(hoverLabel);
+  hoverOutline.style.display = "none";
+  layer.appendChild(hoverOutline);
+  document.body.appendChild(layer);
+
+  const selectedOutlines = new Map<string, HTMLDivElement>();
+  let hovered: AgentSelectable | null = null;
+  let pointer: { x: number; y: number } | null = null;
+  let frame = 0;
+
+  const render = () => {
+    frame = 0;
+    if (pointer) hovered = hitTestAgentSelectable(pointer.x, pointer.y);
+    const hoveredBox = hovered?.getElement()
+      ? measureAgentSelectElement(hovered.getElement()!)
+      : null;
+    if (hovered && hoveredBox) {
+      hoverOutline.style.display = "";
+      placeOutline(hoverOutline, hoveredBox);
+      hoverLabel.textContent = hovered.title;
+      root.setAttribute(HOVER_ATTRIBUTE, "");
+    } else {
+      hoverOutline.style.display = "none";
+      root.removeAttribute(HOVER_ATTRIBUTE);
+    }
+
+    const seen = new Set<string>();
+    for (const item of getAgentChatContextState().items) {
+      const selectable = store().selectables.get(item.key);
+      const element = selectable?.getElement();
+      const box = element?.isConnected
+        ? measureAgentSelectElement(element)
+        : null;
+      if (!box) continue;
+      seen.add(item.key);
+      let outline = selectedOutlines.get(item.key);
+      if (!outline) {
+        outline = createOutline("selected");
+        selectedOutlines.set(item.key, outline);
+        layer.insertBefore(outline, hoverOutline);
+      }
+      placeOutline(outline, box);
+    }
+    for (const [key, outline] of selectedOutlines) {
+      if (seen.has(key)) continue;
+      outline.remove();
+      selectedOutlines.delete(key);
+    }
+  };
+  const scheduleRender = () => {
+    frame ||= requestAnimationFrame(render);
+  };
+
+  const onPointerMove = (event: PointerEvent) => {
+    pointer = { x: event.clientX, y: event.clientY };
+    scheduleRender();
+  };
+  // Swallow the whole press over an object so the app underneath does not
+  // also select, drag, or open it; the click alone toggles the pick.
+  const onPress = (event: MouseEvent) => {
+    if (!hitTestAgentSelectable(event.clientX, event.clientY)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onClick = (event: MouseEvent) => {
+    const target = hitTestAgentSelectable(event.clientX, event.clientY);
+    if (!target) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toggleAgentSelectable(target.kind, target.id);
+    scheduleRender();
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    setAgentSelectMode(false);
+  };
+  const onPointerLeave = () => {
+    pointer = null;
+    hovered = null;
+    scheduleRender();
+  };
+
+  const capture = { capture: true } as const;
+  const passiveCapture = { capture: true, passive: true } as const;
+  window.addEventListener("pointermove", onPointerMove, passiveCapture);
+  window.addEventListener("pointerdown", onPress, capture);
+  window.addEventListener("mousedown", onPress, capture);
+  window.addEventListener("pointerup", onPress, capture);
+  window.addEventListener("mouseup", onPress, capture);
+  window.addEventListener("dblclick", onPress, capture);
+  window.addEventListener("contextmenu", onPress, capture);
+  window.addEventListener("click", onClick, capture);
+  window.addEventListener("keydown", onKeyDown, capture);
+  window.addEventListener("scroll", scheduleRender, passiveCapture);
+  window.addEventListener("resize", scheduleRender);
+  document.documentElement.addEventListener("pointerleave", onPointerLeave);
+  const unsubscribeContext = subscribeAgentChatContext(scheduleRender);
+  const unsubscribeRegistry = subscribeAgentSelect(scheduleRender);
+  // Canvases pan and zoom without scroll events; keep outlines attached.
+  const interval = setInterval(scheduleRender, 250);
+  scheduleRender();
+
+  return () => {
+    window.removeEventListener("pointermove", onPointerMove, passiveCapture);
+    window.removeEventListener("pointerdown", onPress, capture);
+    window.removeEventListener("mousedown", onPress, capture);
+    window.removeEventListener("pointerup", onPress, capture);
+    window.removeEventListener("mouseup", onPress, capture);
+    window.removeEventListener("dblclick", onPress, capture);
+    window.removeEventListener("contextmenu", onPress, capture);
+    window.removeEventListener("click", onClick, capture);
+    window.removeEventListener("keydown", onKeyDown, capture);
+    window.removeEventListener("scroll", scheduleRender, passiveCapture);
+    window.removeEventListener("resize", scheduleRender);
+    document.documentElement.removeEventListener(
+      "pointerleave",
+      onPointerLeave,
+    );
+    unsubscribeContext();
+    unsubscribeRegistry();
+    clearInterval(interval);
+    if (frame) cancelAnimationFrame(frame);
+    layer.remove();
+    root.removeAttribute(AGENT_SELECT_MODE_ATTRIBUTE);
+    root.removeAttribute(HOVER_ATTRIBUTE);
+  };
+}
+
+/** Test-only reset of the shared registry and pick mode. */
+export function _resetAgentSelectForTests(): void {
+  const current = store();
+  current.teardownPickMode?.();
+  current.teardownMirror?.();
+  const fresh = createStore();
+  if (typeof window !== "undefined") {
+    (window as unknown as Record<string, AgentSelectStore>)[STORE_KEY] = fresh;
+  } else {
+    fallbackStore = fresh;
+  }
+}

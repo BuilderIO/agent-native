@@ -5,6 +5,7 @@ import {
   type AgentChatAttachment,
   type MentionItemMedia,
 } from "../agent/types.js";
+import { formatAgentSelectionPreamble } from "../shared/agent-selection.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
@@ -574,11 +575,14 @@ export async function refreshAgentChatContext(): Promise<AgentChatContextState> 
 export function formatAgentChatContextItemsForPrompt(
   items: readonly AgentChatContextItem[],
 ): string {
-  return items
+  const normalized = items
     .map(normalizeAgentChatContextItem)
-    .filter((item): item is AgentChatContextItem => item !== null)
-    .map((item) => [`## ${item.title}`, item.context].join("\n"))
-    .join("\n\n");
+    .filter((item): item is AgentChatContextItem => item !== null);
+  const preamble = formatAgentSelectionPreamble(normalized);
+  return [
+    ...(preamble ? [preamble] : []),
+    ...normalized.map((item) => [`## ${item.title}`, item.context].join("\n")),
+  ].join("\n\n");
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {
