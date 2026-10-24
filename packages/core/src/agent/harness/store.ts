@@ -616,7 +616,8 @@ export async function markAgentHarnessSessionStopped(
   const { rows } = await getDbExec().execute({
     sql: `UPDATE agent_harness_sessions
           SET status = ?, stopped_at = ?, pending_approval = NULL,
-              follow_up_claim_id = NULL, generation = generation + 1,
+              follow_up_claim_id = NULL, approval_resolution_id = NULL,
+              generation = generation + 1,
               updated_at = ?
           WHERE id = ?
           RETURNING *`,
@@ -643,7 +644,6 @@ export async function markAgentHarnessSessionStoppedIfUnclaimed(
               updated_at = ?
           WHERE id = ? AND status = ? AND generation = ?
             AND follow_up_claim_id IS NULL
-            AND approval_resolution_id IS NULL
           RETURNING *`,
     args: [
       status,

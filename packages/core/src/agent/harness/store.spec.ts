@@ -39,6 +39,7 @@ const {
   markAgentHarnessSessionStoppedIfUnclaimed,
   saveAgentHarnessSession,
   startAgentHarnessSessionFollowUpDispatch,
+  updateAgentHarnessSessionAtGeneration,
   updateAgentHarnessSessionIfFollowUpClaim,
 } = await import("./store.js");
 
@@ -570,32 +571,45 @@ describe("agent harness session store", () => {
     });
   });
 
-  it("does not expire a session while an approval resolution owns it", async () => {
+  it("uses generation fencing for approval expiry without retaining stale claims", async () => {
     const id = "session-expired-approval-resolution";
     await saveAgentHarnessSession({
       id,
       harnessName: "fake",
       threadId: "thread-expired-approval-resolution",
       runId: "run-expired-approval-resolution",
-      status: "running",
+      status: "idle",
       pendingApproval: { id: "approval-in-progress" },
-      approvalResolutionId: "approval-in-progress",
       ownerEmail: "owner@example.com",
       orgId: "org-1",
     });
-    const current = await getAgentHarnessSession(id);
+    const initial = await getAgentHarnessSession(id);
+    const resolving = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "idle",
+      initial!.generation,
+      { approvalResolutionId: "approval-in-progress" },
+    );
 
     await expect(
       markAgentHarnessSessionStoppedIfUnclaimed(
         id,
-        current!.status,
-        current!.generation,
+        "idle",
+        initial!.generation,
         "stopped",
       ),
     ).resolves.toBeNull();
-    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
-      status: "running",
-      approvalResolutionId: "approval-in-progress",
+
+    await expect(
+      markAgentHarnessSessionStoppedIfUnclaimed(
+        id,
+        "idle",
+        resolving!.generation,
+        "stopped",
+      ),
+    ).resolves.toMatchObject({
+      status: "stopped",
+      approvalResolutionId: null,
     });
   });
 

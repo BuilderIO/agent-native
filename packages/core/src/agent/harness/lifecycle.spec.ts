@@ -163,8 +163,7 @@ describe("agent harness lifecycle", () => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
-          stored.followUpClaimId != null ||
-          stored.approvalResolutionId != null
+          stored.followUpClaimId != null
         ) {
           return null;
         }
@@ -172,6 +171,7 @@ describe("agent harness lifecycle", () => {
           status,
           pendingApproval: null,
           followUpClaimId: null,
+          approvalResolutionId: null,
           stoppedAt: Date.now(),
         });
       },
@@ -320,6 +320,12 @@ describe("agent harness lifecycle", () => {
       approvalResolutionId: approvalId,
       pendingApproval: { id: approvalId },
     });
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(1);
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(stored.approvalResolutionId).toBeNull();
   });
 
   it("persists detached state from the reserved approval generation", async () => {
