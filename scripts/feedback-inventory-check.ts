@@ -952,6 +952,38 @@ function isBuilderCloudAgentsWaitlistForm(text: string): boolean {
   return index === lines.length;
 }
 
+function isCanonicalPreservedAdministrativeStatus(text: string): boolean {
+  const paragraphs = text.trimEnd().split(/\r?\n\r?\n/);
+  if (
+    paragraphs.length !== 3 ||
+    paragraphs[2] !== "this was sent from a bot."
+  ) {
+    return false;
+  }
+
+  const designWaitlistSummary =
+    "Skipped for this sweep — this is a Cloud Agents waitlist submission to publish a design, not a verified product defect or an endorsed feature request. I did not publish the app or change access. The existing :eyes: is retained as history; no active work is claimed.";
+  const onlineWaitlistSummary =
+    "Skipped for this sweep — this is a Cloud Agents build-online waitlist submission, not a verified product behavior report or an endorsed feature request. The existing :eyes: is retained as history; no active work is claimed. Current-site coverage remains unverified; no product change is made.";
+  const duplicateSummary =
+    /^(?:Skipped as an unendorsed feature request\. The near-identical submission at <https:\/\/[^/|<>]+\/archives\/[A-Z0-9]+\/p\d+\|the later thread> is a duplicate\. I did not change Clips behavior\.|Skipped as a duplicate of <https:\/\/[^/|<>]+\/archives\/[A-Z0-9]+\/p\d+\|the earlier submission> and as an unendorsed feature request\. I did not change Clips behavior\.) The existing :eyes: is retained as history; no active work is claimed\.$/;
+  const designWaitlistDecision =
+    "No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending.";
+  const onlineWaitlistDecision =
+    "No :white_check_mark: — no product fix or verified behavior change is in scope for this waitlist request. No :ticket: — no separate person or team action is pending.";
+  const duplicateDecision =
+    "No :white_check_mark: — no verified behavior change is in scope. No :ticket: — no separate human or team action is pending.";
+
+  return (
+    (paragraphs[0] === designWaitlistSummary &&
+      paragraphs[1] === designWaitlistDecision) ||
+    (paragraphs[0] === onlineWaitlistSummary &&
+      paragraphs[1] === onlineWaitlistDecision) ||
+    (duplicateSummary.test(paragraphs[0] ?? "") &&
+      paragraphs[1] === duplicateDecision)
+  );
+}
+
 function validatePreservedAdministrativeEye(
   parentName: string,
   parent: Parent,
@@ -1075,6 +1107,9 @@ function validatePreservedAdministrativeEye(
     require(reply.actorId === sweepActorId, "read-back actor matches");
     require(reply.kind === "sweep", "read-back identifies a sweep reply");
     require(reply.text === latestReply.text, "read-back text matches");
+    require(isCanonicalPreservedAdministrativeStatus(
+      reply.text,
+    ), "canonical no-work status reply");
     require(replyStartsWithDisposition(
       reply.text,
       "Skipped",
@@ -11320,7 +11355,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     const reason =
       "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.";
     const status =
-      "Skipped for this sweep. The existing :eyes: is retained as history; no active work is claimed. No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending. this was sent from a bot.";
+      "Skipped for this sweep — this is a Cloud Agents waitlist submission to publish a design, not a verified product defect or an endorsed feature request. I did not publish the app or change access. The existing :eyes: is retained as history; no active work is claimed.\n\nNo :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending.\n\nthis was sent from a bot.";
     const reactionOwners =
       mark === "foreign-workflow-marks"
         ? {
@@ -19240,7 +19275,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     const preservedAdministrativeRoot =
       preservedAdministrativeEyeInventory.channels[0]!.pages[0]!.parents[0]!;
     const preservedAdministrativeStatus =
-      "Skipped for this sweep. The existing :eyes: is retained as history; no active work is claimed. No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending. this was sent from a bot.";
+      "Skipped for this sweep — this is a Cloud Agents waitlist submission to publish a design, not a verified product defect or an endorsed feature request. I did not publish the app or change access. The existing :eyes: is retained as history; no active work is claimed.\n\nNo :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending.\n\nthis was sent from a bot.";
     const preservedAdministrativeSource = [
       "New submission: Builder Cloud Agents Waitlist",
       "*Email:* <mailto:person@example.com|person@example.com>",
@@ -19279,41 +19314,105 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
       latestRelevantHumanReply: null,
     });
-    validateTestInventory(preservedAdministrativeEyeInventory);
-    const unexplainedAdministrativeEye = structuredClone(
-      preservedAdministrativeEyeInventory,
+    validateTestInventory(
+      withTestThreadSnapshots(preservedAdministrativeEyeInventory),
     );
-    const unexplainedRoot =
-      unexplainedAdministrativeEye.channels[0]!.pages[0]!.parents[0]!;
-    unexplainedRoot.latestOwnedReply!.text =
-      preservedAdministrativeStatus.replace(
-        "The existing :eyes: is retained as history; no active work is claimed. ",
-        "",
-      );
-    try {
-      validateTestInventory(unexplainedAdministrativeEye);
+    const preservedStatusVariants = [
+      preservedAdministrativeStatus,
+      [
+        "Skipped for this sweep — this is a Cloud Agents build-online waitlist submission, not a verified product behavior report or an endorsed feature request. The existing :eyes: is retained as history; no active work is claimed. Current-site coverage remains unverified; no product change is made.",
+        "No :white_check_mark: — no product fix or verified behavior change is in scope for this waitlist request. No :ticket: — no separate person or team action is pending.",
+        "this was sent from a bot.",
+      ].join("\n\n"),
+      [
+        "Skipped as an unendorsed feature request. The near-identical submission at <https://slack.example.com/archives/CEXAMPLE/p1792705000000000|the later thread> is a duplicate. I did not change Clips behavior. The existing :eyes: is retained as history; no active work is claimed.",
+        "No :white_check_mark: — no verified behavior change is in scope. No :ticket: — no separate human or team action is pending.",
+        "this was sent from a bot.",
+      ].join("\n\n"),
+      [
+        "Skipped as a duplicate of <https://slack.example.com/archives/CEXAMPLE/p1792705000000000|the earlier submission> and as an unendorsed feature request. I did not change Clips behavior. The existing :eyes: is retained as history; no active work is claimed.",
+        "No :white_check_mark: — no verified behavior change is in scope. No :ticket: — no separate human or team action is pending.",
+        "this was sent from a bot.",
+      ].join("\n\n"),
+    ];
+    if (
+      preservedStatusVariants.some(
+        (status) => !isCanonicalPreservedAdministrativeStatus(status),
+      )
+    ) {
+      throw new Error("self-test rejected a canonical preserved status reply");
+    }
+    if (
+      isCanonicalPreservedAdministrativeStatus(
+        `${preservedAdministrativeStatus}\nI will publish the app this week.`,
+      )
+    ) {
       throw new Error(
-        "self-test failed to reject a preserved administrative eye without a current explanation",
+        "self-test accepted a preserved status reply with an added work commitment",
       );
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.startsWith("self-test failed to reject")
-      ) {
-        throw error;
-      }
-      if (
-        !(error instanceof Error) ||
-        !error.message.includes("reply explains the retained 👀")
-      ) {
-        throw error;
-      }
     }
     const preservedAdministrativeSnapshot = withTestThreadSnapshots(
       preservedAdministrativeEyeInventory,
     ).channels[0]!.threadSnapshots!.find(
       (snapshot) => snapshot.rootTs === "11.000000",
     )!;
+    const preservedReplyWithoutEyeExplanation =
+      preservedAdministrativeStatus.replace(
+        "The existing :eyes: is retained as history; no active work is claimed.",
+        "",
+      );
+    expectFocusedFailure(
+      "preserved administrative eye without a current explanation",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            latestOwnedReply: {
+              ...preservedAdministrativeRoot.latestOwnedReply!,
+              text: preservedReplyWithoutEyeExplanation,
+            },
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            replies: preservedAdministrativeSnapshot.replies.map((reply) =>
+              reply.ts === preservedAdministrativeRoot.latestOwnedReply!.ts
+                ? { ...reply, text: preservedReplyWithoutEyeExplanation }
+                : reply,
+            ),
+          },
+        ),
+      "reply explains the retained 👀",
+    );
+    const preservedReplyWithPromise = preservedAdministrativeStatus.replace(
+      "The existing :eyes: is retained as history; no active work is claimed.",
+      "The existing :eyes: is retained as history; no active work is claimed. I will publish the app this week.",
+    );
+    expectFocusedFailure(
+      "preserved administrative status with a work-accepting promise",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            latestOwnedReply: {
+              ...preservedAdministrativeRoot.latestOwnedReply!,
+              text: preservedReplyWithPromise,
+            },
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            replies: preservedAdministrativeSnapshot.replies.map((reply) =>
+              reply.ts === preservedAdministrativeRoot.latestOwnedReply!.ts
+                ? { ...reply, text: preservedReplyWithPromise }
+                : reply,
+            ),
+          },
+        ),
+      "canonical no-work status reply",
+    );
     const releaseAnnouncement =
       "Product release: Workspace routing is now available.";
     expectFocusedFailure(
