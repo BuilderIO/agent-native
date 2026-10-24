@@ -530,7 +530,11 @@ function buildGuidance(options: {
     guidance.push(
       options.query
         ? "The page was trimmed to fit the output size budget, so some matching deals on it were not returned and cannot be resumed with a cursor. Re-run with a smaller limit or a narrower query."
-        : "The page was trimmed to fit the output size budget. Resume from nextOffset (or re-run with a smaller limit) so no deals are skipped.",
+        : options.nextOffset != null
+          ? `The page was trimmed to fit the output size budget. Resume from nextOffset ${options.nextOffset} (or re-run with a smaller limit) so no deals are skipped.`
+          : options.searchCoverageLimited
+            ? "The page was trimmed to fit the output size budget, but HubSpot's 10,000-result search ceiling leaves no nextOffset. Split the cohort into non-overlapping closed-date windows to continue coverage."
+            : "The page was trimmed to fit the output size budget, but no nextOffset is available. Re-run with a smaller limit or narrower filters.",
     );
   }
 

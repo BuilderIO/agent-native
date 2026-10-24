@@ -769,6 +769,52 @@ describe("hubspot-deals action", () => {
     expect(result.guidance).toContain("Resume from nextOffset");
   });
 
+  it("does not recommend a null offset when a trimmed page hits the search ceiling", async () => {
+    // Even an overfull provider page must not advertise a null resume offset.
+    searchHubSpotObjects.mockResolvedValue({
+      records: [
+        {
+          id: "deal-1",
+          properties: {
+            dealname: "First deal",
+            pipeline: "enterprise-new-business",
+          },
+        },
+        {
+          id: "deal-2",
+          properties: {
+            dealname: "Second deal",
+            pipeline: "enterprise-new-business",
+            description: "x".repeat(60_000),
+          },
+        },
+      ],
+      total: 10_000,
+      nextAfter: "10000",
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({});
+
+    const result = (await hubspotDeals.run({
+      limit: 200,
+      offset: 9_999,
+    })) as Record<string, any>;
+
+    expect(result.sizeTrimmed).toBe(true);
+    expect(result.nextOffset).toBe(null);
+    expect(result.guidance).toContain(
+      "10,000-result search ceiling leaves no nextOffset",
+    );
+    expect(result.guidance).not.toContain("Resume from nextOffset");
+  });
+
   describe("every branch stays under the result cap", () => {
     const CAP = 50_000;
     const pipeline = {
