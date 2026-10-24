@@ -2008,24 +2008,28 @@ describe("primary Blocks body writers on a page that takes body writes through i
     };
   }
 
-  it("refuses a primary Blocks property set on a page that takes body writes through its live copy", async () => {
+  it("writes a primary Blocks property set through the live copy of a page that takes body writes there", async () => {
     const { databaseId, primaryId, rowDocumentIds } =
       await primaryRows("Before");
     const [rowDocumentId] = rowDocumentIds;
-    await liveCopy.putPageOnLiveCopy(rowDocumentId);
+    await liveCopy.putPageOnLiveCopy(rowDocumentId, { seeded: true });
     const before = await pageState(rowDocumentId);
 
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        setDocumentPropertyAction.run({
-          documentId: rowDocumentId,
-          databaseId,
-          propertyId: primaryId,
-          value: "After",
-        }),
-      ),
-    ).rejects.toMatchObject(refusal(rowDocumentId, "set-document-property"));
-    expect(await pageState(rowDocumentId)).toEqual(before);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId,
+        propertyId: primaryId,
+        value: "After",
+      }),
+    );
+
+    const after = await pageState(rowDocumentId);
+    expect(after).toMatchObject({
+      content: "After",
+      bodyRevision: before.bodyRevision + 1,
+    });
+    expect(after.liveCopyVersion).toBeGreaterThan(before.liveCopyVersion!);
   });
 
   it("lets a switched page take a primary Blocks property set while its flags are off (SF-11)", async () => {

@@ -1523,6 +1523,11 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_body_steps_document_revision_idx
           ON document_body_steps (document_id, body_revision)`,
     },
+    {
+      version: 129,
+      name: "content-live-body-opt-out",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_opted_out_at TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

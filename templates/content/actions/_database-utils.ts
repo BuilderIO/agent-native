@@ -257,6 +257,7 @@ type DocumentListRow = Omit<
   | "content"
   | "collabBodyRevision"
   | "liveBodySwitchedAt"
+  | "liveBodyOptedOutAt"
   | "liveCopyVersion"
   | "createdBy"
   | "updatedBy"

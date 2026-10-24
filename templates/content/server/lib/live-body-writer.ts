@@ -7,6 +7,7 @@ import {
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import {
+  LIVE_BODY_BACKFILL_FLAG,
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
@@ -220,6 +221,16 @@ export function isLocalFileLinkRefused(
   );
 }
 
+/**
+ * True for a page linked to a local file. The gate keeps it on the legacy
+ * path, and a switch refuses it with `local_file`.
+ */
+export function isLinkedToLocalFile(
+  row: Pick<LiveBodyWriterPageRow, "sourceMode">,
+): boolean {
+  return row.sourceMode === "local-files";
+}
+
 async function gateForMarkers(
   row: LiveBodyWriterPageRow | null | undefined,
   readCollabVersion: (documentId: string) => Promise<unknown>,
@@ -230,7 +241,7 @@ async function gateForMarkers(
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
     return { writePath: "legacy", reason: "not_switched" };
-  if (row.sourceMode === "local-files")
+  if (isLinkedToLocalFile(row))
     return { writePath: "legacy", reason: "local_file" };
   if (row.collabBodyRevision !== row.bodyRevision)
     return { writePath: "legacy", reason: "live_copy_behind" };
@@ -270,6 +281,27 @@ export async function liveBodyWriterFlagsOn(
     ),
   );
   return writer && shadow;
+}
+
+/**
+ * The backfill flag and both of the writer's, for the page's owner and org:
+ * whether the page may be switched without a manual switch. Reads the
+ * backfill flag first, since it is off for nearly every page. Throws like the
+ * gate.
+ */
+export async function liveBodyBackfillFlagsOn(
+  row: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  options: { transaction?: DbExec } = {},
+): Promise<boolean> {
+  if (
+    !(await flagOnForPage(
+      LIVE_BODY_BACKFILL_FLAG.key,
+      row,
+      options.transaction,
+    ))
+  )
+    return false;
+  return liveBodyWriterFlagsOn(row, options);
 }
 
 async function flagOnForPage(

@@ -46,12 +46,21 @@ export interface ContentBodyWriteCause {
   calloutSource?:
     | { kind: "version"; versionId: string }
     | { kind: "document"; documentId: string };
+  /**
+   * Collections the commit locks with the page's own, in the same id-ordered
+   * pass before its memberships and the page, so a writer can check their
+   * rows under those locks. A source-policy change locks its collection
+   * first, so locking that collection after the page could deadlock.
+   */
+  lockCollections?: readonly string[];
 }
 
 /** A page being switched to its live copy, from the body at `baseRevision`. */
 export interface LiveBodyConversion {
   documentId: string;
   baseRevision: number;
+  /** The backfill's: refused `opted_out` for a page sent back to legacy. */
+  unlessOptedOut?: true;
 }
 
 interface WriteScope {
