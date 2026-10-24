@@ -12,7 +12,7 @@ import {
   selectAgentSelectable,
   useAgentSelectable,
   type AgentSelectionTarget,
-} from "@agent-native/toolkit/composer";
+} from "@agent-native/toolkit/app/agent-select";
 import { REAL_DATA_REQUIRED_MARKER } from "@shared/real-data-marker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -176,7 +176,7 @@ export function useDashboardChatContext(
     return panelIds;
   }, [id, items]);
   const selectedPanelIds = isAgentSidebarOpen ? pickedPanelIds : EMPTY_IDS;
-  const selectedPanelId = selectedPanelIds.at(-1) ?? null;
+  const selectedPanelId = selectedPanelIds[selectedPanelIds.length - 1] ?? null;
   const hasSelectedPanel = selectedPanelId !== null;
   const publishedSelectionRef = useRef<SelectedDashboardObject | null>(null);
   const suppressDashboardContextRef = useRef(false);

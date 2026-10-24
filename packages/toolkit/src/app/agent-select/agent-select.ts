@@ -11,11 +11,10 @@ import {
   type AgentSelectionStateItem,
 } from "@agent-native/core/client/agent-chat";
 import { writeClientAppState } from "@agent-native/core/client/hooks";
-
 import {
   COMPOSER_CONTEXT_MAX_ITEMS,
   composerContextFits,
-} from "./context-items.js";
+} from "@agent-native/toolkit/composer";
 
 /**
  * An on-screen object the user can pick with the composer's Select mode.

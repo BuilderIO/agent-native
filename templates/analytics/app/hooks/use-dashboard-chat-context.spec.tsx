@@ -47,7 +47,7 @@ vi.mock("@agent-native/core/client/agent-chat", async () => {
   };
 });
 
-vi.mock("@agent-native/toolkit/composer", () => ({
+vi.mock("@agent-native/toolkit/app/agent-select", () => ({
   selectAgentSelectable: clientMocks.selectAgentSelectable,
   useAgentSelectable: () => false,
 }));

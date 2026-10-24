@@ -139,41 +139,6 @@ export {
   type AgentPromptAttachment,
   type ReadAgentPromptAttachmentOptions,
 } from "./prompt-attachments.js";
-export {
-  AGENT_SELECT_IGNORE_ATTRIBUTE,
-  AGENT_SELECT_MODE_ATTRIBUTE,
-  deselectAgentSelectable,
-  getAgentSelectables,
-  getAgentSelectSnapshot,
-  hitTestAgentSelectable,
-  isAgentSelectableSelected,
-  listAgentSelection,
-  measureAgentSelectElement,
-  registerAgentSelectable,
-  registerAgentSelectableSource,
-  selectAgentSelectable,
-  setAgentSelectMode,
-  subscribeAgentSelect,
-  subscribeAgentSelectRejections,
-  toggleAgentSelectable,
-  toggleAgentSelectMode,
-  type AgentSelectable,
-  type AgentSelectableSource,
-  type AgentSelectBox,
-  type AgentSelectionTarget,
-  type AgentSelectOptions,
-  type AgentSelectRejection,
-  type AgentSelectSnapshot,
-  type AgentSelectToggleResult,
-} from "./agent-select.js";
-export { AgentSelectToggle } from "./AgentSelectToggle.js";
-export {
-  useAgentSelectable,
-  useAgentSelectableSelected,
-  useAgentSelectableSource,
-  useAgentSelectMode,
-  type UseAgentSelectableOptions,
-} from "./use-agent-select.js";
 export { MentionChip, type MentionChipProps } from "./MentionChip.js";
 export { MentionPopover } from "./MentionPopover.js";
 export { useMentionSearch } from "./use-mention-search.js";

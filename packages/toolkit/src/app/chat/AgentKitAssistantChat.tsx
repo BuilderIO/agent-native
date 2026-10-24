@@ -93,9 +93,9 @@ import {
   stripAgentChatContextFromMessage,
   stripInlineAttachmentPayloads,
 } from "@agent-native/core/shared";
+import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
-  AgentSelectToggle,
   AgentSuggestionBar,
   agentSuggestionPrompt,
   snapshotComposerContextItems,

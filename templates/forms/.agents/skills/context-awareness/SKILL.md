@@ -134,7 +134,7 @@ per-app pick mode or a second selection store:
 import {
   useAgentSelectable,
   useAgentSelectableSource,
-} from "@agent-native/toolkit/composer";
+} from "@agent-native/toolkit/app/agent-select";
 
 // One object per component: returns whether it is picked.
 const picked = useAgentSelectable({

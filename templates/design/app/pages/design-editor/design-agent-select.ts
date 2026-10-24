@@ -3,7 +3,7 @@ import {
   registerAgentSelectable,
   useAgentSelectableSource,
   type AgentSelectable,
-} from "@agent-native/toolkit/composer";
+} from "@agent-native/toolkit/app/agent-select";
 import { useEffect } from "react";
 
 import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";

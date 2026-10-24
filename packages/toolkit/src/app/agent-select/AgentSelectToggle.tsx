@@ -1,13 +1,17 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import { IconPointer } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { toast } from "sonner";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import {
   subscribeAgentSelectRejections,
   toggleAgentSelectMode,
 } from "./agent-select.js";
-import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import { useAgentSelectMode } from "./use-agent-select.js";
 
 /**
@@ -15,7 +19,7 @@ import { useAgentSelectMode } from "./use-agent-select.js";
  * a selectable object with `useAgentSelectable`.
  */
 export function AgentSelectToggle() {
-  const t = useComposerRuntimeAdapters().translate!;
+  const t = useT();
   const { active, available } = useAgentSelectMode();
   const offered = available > 0;
 
