@@ -423,11 +423,15 @@ Follow review-latest-feedback for ownership, claims, reporter replies, and the
 exact disposition vocabulary; follow babysit-pr for review comments and merge
 blocking. Use the connected Slack integration for any Slack work; never use
 computer use, a browser, screenshots, or UI automation to operate Slack.
-Shipping does not independently take ownership of new Slack feedback. For
-feedback already owned by review-latest-feedback, keep all reactions in place:
-never remove or clean them up; add `✅` when accepted scope is complete and
-verified, and `🎫` only for distinct remaining work needing follow-up or an
-owner. Keep each Slack reply to one short sentence in plain, non-technical
+Shipping does not independently take ownership of new Slack feedback, except
+when the user explicitly authorizes follow-ups or reactions for a bounded scope.
+For that scope, preserve existing marks and record the authorization. Before
+the ship handoff and final disposition, enumerate every in-scope root with this
+actor's `👀`; each must have a current same-actor status after the latest human
+reply. When the user says all Slack items were replied to, report this complete
+root set. Keep all reactions in place: never remove or clean them up; add
+`✅` when accepted scope is complete and verified, and `🎫` only for distinct
+remaining work needing follow-up or an owner. Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say
 what changed. If `🎫` is used, briefly name what still needs investigation or
 action and its owner when known. Do not explain absent reactions or include

@@ -2,12 +2,16 @@
 
 Use the connected Slack integration for every Slack read and write. Never use a browser, screenshots, or UI automation to operate Slack.
 
-At sweep exit, reconcile every unheld report root in the scoped inventory that
-has this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. A
-root is held when a direct reaction read shows another actor owns any workflow
-mark or this actor owns `:mag:`. For held roots, record the root and safe-skip
-reason, then stop: do not open the thread, inspect reply reactions, write any
-reaction, or post a status. When this actor owns both `:mag:` and a workflow
+At sweep exit, reconcile every report root in the scoped inventory that has
+this actor's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Every
+root with this actor's `👀` needs a current same-actor status after the latest
+human reply; “all Slack items replied to” means this complete root set. A direct
+reaction read showing another actor's workflow mark or this actor's `:mag:`
+holds a root by default. A direct user instruction may authorize follow-ups or
+reactions for an exact root or bounded sweep scope; record that authorization,
+preserve existing marks, and reconcile those roots as owned work. Without such
+authorization, record the root and safe-skip reason, then stop: do not open the
+thread, inspect reply reactions, write any reaction, or post a status. When this actor owns both `:mag:` and a workflow
 mark, use `mag_opt_out` and preserve the exact direct root reaction-owner
 record as history; the root remains held without a thread read or status reply.
 Capture
@@ -133,9 +137,12 @@ End every new or edited Slack reply with the exact sentence
 not a substitute.
 
 Reactions are permanent history and do not replace the current disposition or
-status reply. At the root, `👀` records this workflow's claim, `✅` marks one or
-more named scopes that passed direct post-change proof, and `🎫` tracks distinct
-human/team actions, including actions with no named owner yet. The eye alone
+status reply. For every eligible root this sweep reviews or intentionally skips,
+use root `👀` to show the sweep has taken responsibility for its status. At the
+root, `👀` records this workflow's claim, `✅` marks one or more named scopes
+that passed direct post-change proof, and `🎫` tracks distinct human/team or
+reporter actions, including actions with no named owner yet. Do not use `🎫` as
+a generic “not reviewed” marker; it never replaces `👀` or a current status. The eye alone
 does not mean work remains open. One root `✅` covers every verified scope
 listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 `handoffs[]`, including unassigned, accepted, and completed actions. Completion

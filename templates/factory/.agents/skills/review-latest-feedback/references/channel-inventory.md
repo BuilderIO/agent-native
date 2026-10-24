@@ -241,20 +241,26 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   complete, oldest-first `threadSnapshot`, so a reply cannot predate or
   otherwise contradict its reported root.
 - **Held thread:** If the exact root reaction read shows another actor owns any
-  workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, do not open or
-  read the thread, inspect reply reactions, react, or reply. Record an
-  `ownershipSkip` with the root timestamp and `foreign_workflow_mark` or
-  `mag_opt_out`; use `Skipped` and leave thread-derived fields empty. If this
-  actor also owns a workflow mark, use `mag_opt_out` and preserve the exact
-  direct root reaction-owner record as history. The checker treats it as held
-  and requires no thread snapshot or status. Mark every
+  workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, hold the root
+  by default. A direct user instruction may authorize follow-ups or reactions
+  for an exact root or bounded sweep scope. Record that authorization in the
+  task ledger, preserve every existing reaction, and process authorized roots
+  as owned work without `ownershipSkip`; the checker then requires the normal
+  exact root, thread, reaction, and current-status evidence. Without such
+  authorization, record an `ownershipSkip` with the root timestamp and
+  `foreign_workflow_mark` or `mag_opt_out`; use `Skipped` and leave
+  thread-derived fields empty. If this actor also owns a workflow mark, use
+  `mag_opt_out` and preserve the exact direct root reaction-owner record as
+  history. The checker treats an unauthorized root as held and requires no
+  thread snapshot or status. Mark every
   channel reply linked to that root with the same skip reference. The checker
   requires direct root reaction evidence and the matching skip reason, but no
   full-thread snapshot. For a linked pre-window root without source text, use
   `unclassified`; do not guess from its in-window reply. This boundary also
   applies when the other actor's eye has no visible status reply: ownership is
-  not permission to inspect. The direct root-reaction read must still be fresh
-  and after the final source page; it is the only read allowed for a held root.
+  not permission to inspect without user authorization. The direct root-reaction
+  read must still be fresh and after the final source page; it is the only read
+  allowed for a held root without user authorization.
   Preserve the source's exact file ID, name, and MIME type when its raw search
   result includes `Files:`. If that result omits file metadata, leave the held
   root's `files` field absent to represent unknown; do not record `[]`. For an
@@ -318,8 +324,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   explicitly report cursor exhaustion. The checker compares every page and
   reply against the complete `threadSnapshot`.
 - For every in-scope root classified as a report, pass the ownership gate. If
-  it is still open and no other actor owns it, claim it with this actor's root
-  `👀` and post a current status in its root thread. The checker rejects an
+  this sweep reviews or intentionally skips the root, claim it with this actor's
+  root `👀` and post or reuse a current status in its root thread. Explicit
+  user authorization for a bounded scope permits this even when another actor
+  has a workflow mark; preserve that mark and record the authorization. The checker rejects an
   eligible open report without this claim and status. For every root already
   owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current status
   after the latest human reply; update it only when new human input, proof,
