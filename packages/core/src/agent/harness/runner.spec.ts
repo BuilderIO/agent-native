@@ -540,7 +540,7 @@ describe("startAgentHarnessRun", () => {
     });
   });
 
-  it("leaves a reserved approval for its dispatch instead of checkpointing it idle", async () => {
+  it("waits for a reserved approval before checkpointing idle", async () => {
     const approval: AgentHarnessEvent = {
       type: "approval-request",
       id: "approval-runner-checkpoint",
@@ -565,9 +565,20 @@ describe("startAgentHarnessRun", () => {
       };
       return persistedSession;
     });
-    mocks.getAgentHarnessSession.mockImplementation(
-      async () => persistedSession,
-    );
+    let sessionReads = 0;
+    mocks.getAgentHarnessSession.mockImplementation(async () => {
+      sessionReads += 1;
+      if (sessionReads >= 3 && persistedSession.approvalResolutionId) {
+        persistedSession = {
+          ...persistedSession,
+          pendingApproval: null,
+          approvalResolutionId: null,
+          resolvedApprovalIds: [approval.id],
+          generation: persistedSession.generation + 1,
+        };
+      }
+      return persistedSession;
+    });
     mocks.updateAgentHarnessSession.mockImplementation(async (_id, patch) => {
       persistedSession = {
         ...persistedSession,
@@ -616,11 +627,12 @@ describe("startAgentHarnessRun", () => {
     await capturedRunFn?.(() => {}, new AbortController().signal);
 
     expect(persistedSession).toMatchObject({
-      status: "running",
-      pendingApproval: { id: approval.id },
-      approvalResolutionId: approval.id,
+      status: "idle",
+      pendingApproval: null,
+      approvalResolutionId: null,
+      resolvedApprovalIds: [approval.id],
     });
-    expect(mocks.updateAgentHarnessSession).not.toHaveBeenCalledWith(
+    expect(mocks.updateAgentHarnessSession).toHaveBeenCalledWith(
       "stored-checkpoint-approval",
       expect.objectContaining({ status: "idle" }),
     );
@@ -636,7 +648,7 @@ describe("startAgentHarnessRun", () => {
       mocks.updateAgentHarnessSessionAtGeneration.mock.calls.some(
         (call) => call[3]?.status === "idle",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("does not restore idle after a stop wins the approval checkpoint race", async () => {
@@ -889,6 +901,9 @@ describe("startAgentHarnessRun", () => {
       "native-2",
       "stopped",
     );
+    expect(
+      mocks.markAgentHarnessSessionStopped.mock.invocationCallOrder[0],
+    ).toBeLessThan(session.stop.mock.invocationCallOrder[0]);
   });
 
   it("persists a resumable checkpoint instead of marking a boundary stopped", async () => {
@@ -975,13 +990,17 @@ describe("startAgentHarnessRun", () => {
     );
   });
 
-  it("leaves the reserved approval generation untouched at a runner checkpoint", async () => {
-    mocks.getAgentHarnessSession.mockResolvedValue({
-      status: "idle",
-      generation: 4,
-      pendingApproval: { id: "approval-checkpoint" },
-      approvalResolutionId: "approval-checkpoint",
-      resolvedApprovalIds: [],
+  it("waits for a reserved approval before a chunk checkpoint", async () => {
+    let sessionReads = 0;
+    mocks.getAgentHarnessSession.mockImplementation(async () => {
+      sessionReads += 1;
+      return {
+        status: "idle",
+        generation: 4,
+        pendingApproval: { id: "approval-checkpoint" },
+        approvalResolutionId: sessionReads < 2 ? "approval-checkpoint" : null,
+        resolvedApprovalIds: [],
+      };
     });
     const session = fakeSession(
       "native-checkpoint-during-approval",
@@ -1031,8 +1050,18 @@ describe("startAgentHarnessRun", () => {
     });
 
     expect(session.detach).toHaveBeenCalledOnce();
-    expect(mocks.updateAgentHarnessSessionAtGeneration).not.toHaveBeenCalled();
-    expect(mocks.updateAgentHarnessSession).not.toHaveBeenCalled();
+    expect(mocks.updateAgentHarnessSessionAtGeneration).toHaveBeenCalledWith(
+      "stored-checkpoint-during-approval",
+      "idle",
+      4,
+      expect.objectContaining({ status: "idle" }),
+      undefined,
+      true,
+    );
+    expect(mocks.updateAgentHarnessSession).toHaveBeenCalledWith(
+      "stored-checkpoint-during-approval",
+      expect.objectContaining({ status: "idle" }),
+    );
   });
 
   it("cleans up and marks the session errored when streaming fails", async () => {

@@ -29,6 +29,8 @@ import type {
   AgentHarnessTurnInput,
 } from "./types.js";
 
+const APPROVAL_RESOLUTION_POLL_INTERVAL_MS = 500;
+
 export interface StartAgentHarnessRunOptions {
   runId: string;
   threadId: string;
@@ -163,9 +165,9 @@ export function startAgentHarnessRun(
           }
 
           if (runControl.turnSignal.aborted) {
-            await stopHarnessSession(harnessSession);
-            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
             await markAgentHarnessSessionStopped(storedSessionId, "stopped");
+            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
+            await stopHarnessSession(harnessSession);
             return;
           }
 
@@ -203,17 +205,17 @@ export function startAgentHarnessRun(
             return;
           }
           if (runControl.beginChunk().aborted) {
-            await stopHarnessSession(harnessSession);
-            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
             await markAgentHarnessSessionStopped(storedSessionId, "stopped");
+            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
+            await stopHarnessSession(harnessSession);
             return;
           }
         }
 
         if (runControl.turnSignal.aborted) {
-          await stopHarnessSession(harnessSession);
-          releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
           await markAgentHarnessSessionStopped(storedSessionId, "stopped");
+          releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
+          await stopHarnessSession(harnessSession);
           return;
         }
 
@@ -308,17 +310,23 @@ async function persistHarnessCheckpoint(
   beforeCheckpoint?: () => void,
 ): Promise<void> {
   let conflict: AgentHarnessSessionConflictError | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  let attempt = 0;
+  while (attempt < 3) {
     const stored = await getAgentHarnessSession(sessionId);
     if (
       !stored ||
       stored.status === "stopped" ||
       stored.status === "errored" ||
       stored.status === "destroyed" ||
-      stored.followUpClaimId ||
-      stored.approvalResolutionId
+      stored.followUpClaimId
     ) {
       return;
+    }
+    if (stored.approvalResolutionId) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, APPROVAL_RESOLUTION_POLL_INTERVAL_MS),
+      );
+      continue;
     }
     const pendingApproval = checkpointPendingApproval(stored);
     try {
@@ -335,7 +343,10 @@ async function persistHarnessCheckpoint(
         undefined,
         true,
       );
-      if (!updated) continue;
+      if (!updated) {
+        attempt += 1;
+        continue;
+      }
       refreshLiveAgentHarnessSessionGeneration(
         sessionId,
         session,
@@ -347,6 +358,7 @@ async function persistHarnessCheckpoint(
         throw error;
       }
       conflict = error;
+      attempt += 1;
     }
   }
   throw conflict ?? new AgentHarnessSessionConflictError(sessionId);

@@ -770,8 +770,9 @@ describe("agent harness lifecycle", () => {
       stored.id,
       "errored",
       erroredGeneration,
-      "stopped",
+      "errored",
     );
+    expect(stored.status).toBe("errored");
     expect(session.stop).toHaveBeenCalledTimes(2);
   });
 
@@ -1648,18 +1649,28 @@ describe("agent harness lifecycle", () => {
 
   it("aborts a follow-up when another worker stops its persisted session", async () => {
     let observedSignal: AbortSignal | undefined;
-    let releaseStream: (() => void) | undefined;
+    let releaseNext:
+      | ((next: IteratorResult<AgentHarnessEvent>) => void)
+      | undefined;
+    const iterator = {
+      next: vi.fn(
+        () =>
+          new Promise<IteratorResult<AgentHarnessEvent>>((resolve) => {
+            releaseNext = resolve;
+          }),
+      ),
+      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+    };
     const session = fakeSession();
-    session.streamTurn.mockImplementation(async function* (input: {
-      abortSignal?: AbortSignal;
-    }) {
-      observedSignal = input.abortSignal;
-      await new Promise<void>((resolve) => {
-        releaseStream = resolve;
-      });
-      yield { type: "done" };
+    session.streamTurn.mockImplementation(
+      (input: { abortSignal?: AbortSignal }) => {
+        observedSignal = input.abortSignal;
+        return { [Symbol.asyncIterator]: () => iterator };
+      },
+    );
+    session.stop.mockImplementation(async () => {
+      releaseNext?.({ done: true, value: undefined });
     });
-    session.stop.mockImplementation(async () => releaseStream?.());
     register(stored, session);
 
     const followUp = sendAgentHarnessFollowUp({
@@ -1686,6 +1697,7 @@ describe("agent harness lifecycle", () => {
     expect(observedSignal?.reason).toMatchObject({
       name: "AgentHarnessSessionConflictError",
     });
+    expect(iterator.return).toHaveBeenCalledOnce();
     expect(session.stop).toHaveBeenCalledOnce();
   });
 

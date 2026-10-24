@@ -569,6 +569,7 @@ export async function sendAgentHarnessFollowUp(input: {
     }
     const events: AgentHarnessEvent[] = [];
     const followUpAbort = new AbortController();
+    let iteratorClosePromise: Promise<unknown> | undefined;
     let finalizing = false;
     const stopWatchingClaim = watchFollowUpClaim(
       claimed.id,
@@ -618,6 +619,10 @@ export async function sendAgentHarnessFollowUp(input: {
           firstNext: dispatch.started.firstNext,
           iterator: dispatch.started.iterator,
           liveSession: acquired.live.session,
+          onAbortIteratorClose: (closePromise) => {
+            iteratorClosePromise = closePromise;
+            void closePromise.catch(() => {});
+          },
         },
       );
       if (followUpAbort.signal.aborted) {
@@ -762,6 +767,7 @@ export async function sendAgentHarnessFollowUp(input: {
         const reason = followUpAbort.signal.reason;
         if (isAgentHarnessSessionConflictError(reason)) {
           const latest = await getAgentHarnessSessionByRunId(input.runId);
+          const cleanupErrors: unknown[] = [];
           if (
             !latest ||
             (latest.status === "idle" && latest.followUpClaimId == null) ||
@@ -769,7 +775,27 @@ export async function sendAgentHarnessFollowUp(input: {
             latest.status === "errored" ||
             latest.status === "destroyed"
           ) {
-            await stopAcquiredHarnessSession(session.id, acquired.live.session);
+            try {
+              await stopAcquiredHarnessSession(
+                session.id,
+                acquired.live.session,
+              );
+            } catch (stopError) {
+              cleanupErrors.push(stopError);
+            }
+          }
+          if (iteratorClosePromise) {
+            try {
+              await iteratorClosePromise;
+            } catch (closeError) {
+              cleanupErrors.push(closeError);
+            }
+          }
+          if (cleanupErrors.length > 0) {
+            throw new AggregateError(
+              [reason ?? error, ...cleanupErrors],
+              "Harness follow-up was interrupted and stream cleanup was incomplete.",
+            );
           }
           return failure(
             input.runId,
@@ -795,6 +821,13 @@ export async function sendAgentHarnessFollowUp(input: {
             await stopAcquiredHarnessSession(session.id, acquired.live.session);
           } catch (stopError) {
             failures.push(stopError);
+          }
+        }
+        if (iteratorClosePromise) {
+          try {
+            await iteratorClosePromise;
+          } catch (closeError) {
+            failures.push(closeError);
           }
         }
         if (failures.length > 1) {
@@ -1014,7 +1047,9 @@ export async function sweepExpiredAgentHarnessSessions(
         sessionId,
         current.status,
         live.generation,
-        "stopped",
+        current.status === "errored" || current.status === "destroyed"
+          ? current.status
+          : "stopped",
       );
       if (!stopped) {
         const latest = await getAgentHarnessSession(sessionId);
@@ -1054,7 +1089,7 @@ export async function sweepExpiredAgentHarnessSessions(
       releaseLiveAgentHarnessSession(sessionId, live.session);
       removed += 1;
     } catch (teardownError) {
-      if (stopped) {
+      if (stopped?.status === "stopped") {
         try {
           const errored = await markAgentHarnessSessionStoppedIfUnclaimed(
             sessionId,
@@ -1220,6 +1255,7 @@ async function consumeEvents(
     followUpClaimId?: string;
     iterator?: AsyncIterator<AgentHarnessEvent>;
     liveSession?: AgentHarnessSession;
+    onAbortIteratorClose?: (closePromise: Promise<unknown>) => void;
   },
 ): Promise<void> {
   const iterator = options?.iterator ?? stream[Symbol.asyncIterator]();
@@ -1258,7 +1294,14 @@ async function consumeEvents(
       if (event.type === "error") throw new Error(event.error);
     }
   } catch (error) {
-    if (!options?.abortSignal?.aborted) {
+    if (options?.abortSignal?.aborted) {
+      const closePromise = Promise.resolve(iterator.return?.());
+      if (options.onAbortIteratorClose) {
+        options.onAbortIteratorClose(closePromise);
+      } else {
+        await closePromise;
+      }
+    } else {
       try {
         await iterator.return?.();
       } catch (closeError) {
