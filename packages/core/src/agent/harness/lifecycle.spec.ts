@@ -444,6 +444,23 @@ describe("agent harness lifecycle", () => {
     expect(session.stop).toHaveBeenCalledOnce();
   });
 
+  it("tears down its provider session when stop persistence fails", async () => {
+    const session = fakeSession();
+    const persistError = new Error("database stop failed");
+    register(stored, session);
+    mocks.markStopped.mockRejectedValueOnce(persistError);
+
+    await expect(
+      stopAndPersistAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+        status: "stopped",
+      }),
+    ).rejects.toBe(persistError);
+
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
   it("retries a present-row teardown failure with the refreshed generation", async () => {
     const session = fakeSession();
     session.stop.mockRejectedValueOnce(new Error("provider stop failed"));
@@ -1022,7 +1039,15 @@ describe("agent harness lifecycle", () => {
 
   it("delivers error events before failing a follow-up", async () => {
     const event: AgentHarnessEvent = { type: "error", error: "model failed" };
-    const session = fakeSession([event]);
+    const session = fakeSession();
+    let iteratorClosed = false;
+    session.streamTurn.mockImplementation(async function* () {
+      try {
+        yield event;
+      } finally {
+        iteratorClosed = true;
+      }
+    });
     const onHarnessEvent = vi.fn();
     register(stored, session);
 
@@ -1036,7 +1061,47 @@ describe("agent harness lifecycle", () => {
     ).rejects.toThrow("model failed");
 
     expect(onHarnessEvent).toHaveBeenCalledWith(event);
+    expect(iteratorClosed).toBe(true);
     expect(stored.status).toBe("errored");
+  });
+
+  it("handles a rejected first provider read while dispatch commits", async () => {
+    const session = fakeSession();
+    const firstReadError = new Error("provider read failed");
+    const iterator: AsyncIterator<AgentHarnessEvent> = {
+      next: vi.fn().mockRejectedValue(firstReadError),
+      return: vi.fn().mockResolvedValue({ done: true, value: undefined }),
+    };
+    session.streamTurn.mockReturnValue({
+      [Symbol.asyncIterator]: () => iterator,
+    });
+    const dispatch = mocks.startFollowUpDispatch.getMockImplementation()!;
+    mocks.startFollowUpDispatch.mockImplementationOnce(async (...args) => {
+      const started = await dispatch(...args);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return started;
+    });
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) =>
+      unhandledRejections.push(reason);
+    process.on("unhandledRejection", onUnhandledRejection);
+    register(stored, session);
+
+    try {
+      await expect(
+        sendAgentHarnessFollowUp({
+          runId: stored.runId!,
+          prompt: "continue",
+          scope: ownerScope(),
+        }),
+      ).rejects.toBe(firstReadError);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(unhandledRejections).toEqual([]);
+      expect(session.stop).toHaveBeenCalledOnce();
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
   });
 
   it("does not finalize a newer follow-up claim after a generation conflict", async () => {

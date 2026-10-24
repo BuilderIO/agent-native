@@ -431,10 +431,13 @@ export async function sendAgentHarnessFollowUp(input: {
             abortSignal: followUpAbort.signal,
           });
           const iterator = stream[Symbol.asyncIterator]();
+          const firstNext = nextHarnessEvent(iterator, followUpAbort.signal);
+          // The transaction may commit before consumeEvents can await it.
+          void firstNext.catch(() => {});
           return {
             stream,
             iterator,
-            firstNext: nextHarnessEvent(iterator, followUpAbort.signal),
+            firstNext,
           };
         },
       );
@@ -756,10 +759,23 @@ export async function stopAndPersistAgentHarnessSession(input: {
   scope: AgentHarnessOwnerScope;
   status: "stopped" | "errored";
 }): Promise<StoredAgentHarnessSession | null> {
-  const stopped = await markAgentHarnessSessionStopped(
-    input.sessionId,
-    input.status,
-  );
+  let stopped: StoredAgentHarnessSession | null;
+  try {
+    stopped = await markAgentHarnessSessionStopped(
+      input.sessionId,
+      input.status,
+    );
+  } catch (persistError) {
+    try {
+      await stopLiveAgentHarnessSession(input);
+    } catch (stopError) {
+      throw new AggregateError(
+        [persistError, stopError],
+        "Harness stop persistence and provider teardown failed.",
+      );
+    }
+    throw persistError;
+  }
   if (stopped) {
     refreshLiveAgentHarnessSessionGenerationById(
       input.sessionId,
@@ -975,36 +991,50 @@ async function consumeEvents(
 ): Promise<void> {
   const iterator = options?.iterator ?? stream[Symbol.asyncIterator]();
   let firstNext = options?.firstNext;
-  while (true) {
-    const next = await (firstNext ??
-      nextHarnessEvent(iterator, options?.abortSignal));
-    firstNext = undefined;
-    if (next.done) return;
-    const event = next.value;
-    events.push(event);
-    if (event.type === "approval-request") {
-      const updated = options?.followUpClaimId
-        ? await updateAgentHarnessSessionIfFollowUpClaim(
+  try {
+    while (true) {
+      const next = await (firstNext ??
+        nextHarnessEvent(iterator, options?.abortSignal));
+      firstNext = undefined;
+      if (next.done) return;
+      const event = next.value;
+      events.push(event);
+      if (event.type === "approval-request") {
+        const updated = options?.followUpClaimId
+          ? await updateAgentHarnessSessionIfFollowUpClaim(
+              sessionId,
+              options.followUpClaimId,
+              { pendingApproval: event },
+            )
+          : await updateAgentHarnessSession(sessionId, {
+              pendingApproval: event,
+            });
+        if (options?.followUpClaimId && !updated) {
+          throw new AgentHarnessSessionConflictError(sessionId);
+        }
+        if (updated && options?.liveSession) {
+          refreshLiveAgentHarnessSessionGeneration(
             sessionId,
-            options.followUpClaimId,
-            { pendingApproval: event },
-          )
-        : await updateAgentHarnessSession(sessionId, {
-            pendingApproval: event,
-          });
-      if (options?.followUpClaimId && !updated) {
-        throw new AgentHarnessSessionConflictError(sessionId);
+            options.liveSession,
+            updated.generation,
+          );
+        }
       }
-      if (updated && options?.liveSession) {
-        refreshLiveAgentHarnessSessionGeneration(
-          sessionId,
-          options.liveSession,
-          updated.generation,
+      await onHarnessEvent?.(event);
+      if (event.type === "error") throw new Error(event.error);
+    }
+  } catch (error) {
+    if (!options?.abortSignal?.aborted) {
+      try {
+        await iterator.return?.();
+      } catch (closeError) {
+        throw new AggregateError(
+          [error, closeError],
+          "Harness stream failed and its iterator could not be closed.",
         );
       }
     }
-    await onHarnessEvent?.(event);
-    if (event.type === "error") throw new Error(event.error);
+    throw error;
   }
 }
 
