@@ -517,6 +517,18 @@ export function createCollabPlugin(
         const orgId = orgCtx?.orgId ?? undefined;
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
+          const isWriteAction =
+            (action === "update" && method === "POST") ||
+            (action === "text" && method === "POST") ||
+            (action === "search-replace" && method === "POST") ||
+            (action === "json" && method === "POST") ||
+            (action === "patch" && method === "POST") ||
+            (action === "awareness" && method === "POST");
+
+          if (isWriteAction && event.context) {
+            event.context._collabMaxPayloadBytes = maxPayloadBytes;
+          }
+
           if (resourceType) {
             const resourceId = resolveResourceId
               ? await resolveResourceId(docId)
@@ -591,14 +603,6 @@ export function createCollabPlugin(
             }
           }
 
-          const isWriteAction =
-            (action === "update" && method === "POST") ||
-            (action === "text" && method === "POST") ||
-            (action === "search-replace" && method === "POST") ||
-            (action === "json" && method === "POST") ||
-            (action === "patch" && method === "POST") ||
-            (action === "awareness" && method === "POST");
-
           if (isWriteAction) {
             const contentLength = Number(
               event.headers?.get?.("content-length") ?? NaN,
@@ -608,9 +612,6 @@ export function createCollabPlugin(
               return {
                 error: `Payload too large. Maximum is ${maxPayloadBytes} bytes.`,
               };
-            }
-            if (event.context) {
-              event.context._collabMaxPayloadBytes = maxPayloadBytes;
             }
           }
 

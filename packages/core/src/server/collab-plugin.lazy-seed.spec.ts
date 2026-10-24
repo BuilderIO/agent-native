@@ -404,6 +404,7 @@ describe("collab lazy source seeding", () => {
 
   it("accepts a stale awareness clear after its resource is deleted", async () => {
     const handler = await mountCollabHandler({
+      maxPayloadBytes: 64,
       access: {
         mode: "resource",
         resourceType: "design",
@@ -419,6 +420,7 @@ describe("collab lazy source seeding", () => {
 
     expect(event.status).toBe(204);
     expect(mocks.readCollabBody).toHaveBeenCalledWith(event);
+    expect(event.context._collabMaxPayloadBytes).toBe(64);
     expect(mocks.postAwareness).not.toHaveBeenCalled();
   });
 

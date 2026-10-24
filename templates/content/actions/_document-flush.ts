@@ -169,6 +169,7 @@ export async function flushOpenDocumentEditorToSql(args: {
     );
   try {
     const candidates = (await bounded(loadAwarenessRowsStrict(args.documentId)))
+      .filter((row) => !row.cleared)
       .map(candidate)
       .filter((value): value is Candidate => value !== null);
     if (
