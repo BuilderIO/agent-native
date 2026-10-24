@@ -16,6 +16,11 @@ export default defineAction({
   description:
     "List webhooks on a collection or page, with each one's last few deliveries (status, attempts, last response). Omit both IDs to list the webhooks you registered. Never returns signing secrets. Requires admin access to the collection or page.",
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   schema: z.object({
     databaseId: z
       .string()

@@ -65,6 +65,14 @@ export default defineAction({
   description:
     "Register a webhook: Content sends a signed POST to a public HTTPS URL when a property changes on a collection's rows or on one page, or when a comment there is created or resolved. Returns the signing secret once; store it, because list-content-webhooks never shows it again. Deliveries follow Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature headers), are retried for about a day, and repeat the same event id on every retry. Requires admin access to the collection or page.",
   mcpTool: true,
+  // It adds a webhook and overwrites nothing, but every later change on the
+  // collection or page is sent to the URL it names.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   schema: z.object({
     url: z
       .string()
@@ -115,7 +123,7 @@ export default defineAction({
     const propertyIds = args.propertyIds
       ? [...new Set(args.propertyIds)]
       : null;
-    await assertPropertiesInScope(scope, propertyIds ?? []);
+    if (propertyIds) await assertPropertiesInScope(scope, propertyIds);
 
     const db = getDb();
     const existing = await db

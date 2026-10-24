@@ -14,6 +14,12 @@ export default defineAction({
   description:
     "Remove a webhook by ID. Content stops sending its events at once, drops deliveries still waiting to be retried, and deletes its signing secret. Requires admin access to the collection or page it watches.",
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   schema: z.object({
     id: z.string().describe("Webhook ID from create- or list-content-webhooks"),
   }),

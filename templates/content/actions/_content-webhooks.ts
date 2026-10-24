@@ -140,16 +140,21 @@ export function scheduleContentWebhookDelivery(): void {
 
 type WebhookRow = typeof schema.contentWebhooks.$inferSelect;
 
+/**
+ * Only create-content-webhook writes these columns, from validated arrays, so
+ * anything else is corruption. It throws rather than reading as "no filter",
+ * which would widen a property filter to every property.
+ */
 function parseStringArray(json: string | null): string[] | null {
   if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : null;
-  } catch {
-    return null;
+  const parsed: unknown = JSON.parse(json);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((item) => typeof item === "string")
+  ) {
+    throw new Error("A stored webhook filter is not a list of strings.");
   }
+  return parsed;
 }
 
 export function webhookEvents(webhook: Pick<WebhookRow, "eventsJson">) {
