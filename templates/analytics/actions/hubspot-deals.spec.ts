@@ -509,6 +509,20 @@ describe("hubspot-deals action", () => {
       expect(result.nextOffset).toBe(1);
     });
 
+    it("fits a deal whose pass-1 prefixes alone stay over budget by replacing them with markers", async () => {
+      const props = Object.fromEntries(
+        Array.from({ length: 250 }, (_, i) => [`prop_${i}`, "g".repeat(300)]),
+      );
+      const result = await run(props);
+
+      expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+      expect(result.oversizedDealIds).toBeUndefined();
+      expect(result.deals).toHaveLength(1);
+      const listed = result.truncatedProperties[0].properties as string[];
+      expect(new Set(listed).size).toBe(listed.length);
+      expect(listed.length).toBe(250);
+    });
+
     it("terminates on thousands of short properties and reports the deal as oversized", async () => {
       const props = Object.fromEntries(
         Array.from({ length: 5_000 }, (_, i) => [`p${i}`, "short-value"]),

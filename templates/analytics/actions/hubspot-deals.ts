@@ -404,7 +404,7 @@ function fitLoneDeal<
     const delta = prettyChars(properties[name], 3) - prettyChars(next, 3);
     if (delta <= 0) return;
     properties[name] = next;
-    shortened.push(name);
+    if (!shortened.includes(name)) shortened.push(name);
     excess -= delta;
   };
 
@@ -426,15 +426,15 @@ function fitLoneDeal<
     );
   }
 
-  // Pass 2: replace whole values, largest first, whatever their length.
+  // Pass 2: replace whole values, largest current size first, including ones
+  // pass 1 already shortened. A replacement is only taken when strictly smaller.
   if (excess > 0) {
-    const bySize = Object.entries(deal.properties)
-      .filter(([name]) => !shortened.includes(name))
+    const bySize = Object.entries(properties)
       .map(([name, value]) => [name, prettyChars(value, 3)] as const)
       .sort((x, y) => y[1] - x[1]);
-    for (const [name, size] of bySize) {
+    for (const [name] of bySize) {
       if (excess <= 0) break;
-      replace(name, truncationMarker(size));
+      replace(name, truncationMarker(prettyChars(deal.properties[name], 3)));
     }
   }
 
