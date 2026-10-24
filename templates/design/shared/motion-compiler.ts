@@ -608,7 +608,7 @@ function singleKeyframeDeclaration(
 ): string | null {
   const declarations = [
     ...body.matchAll(
-      new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)\\s*;`, "gim"),
+      new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+?)\\s*(?:;|$)`, "gi"),
     ),
   ];
   if (declarations.length === 0 && optional) return null;

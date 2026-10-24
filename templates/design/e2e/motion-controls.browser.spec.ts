@@ -1033,6 +1033,44 @@ test("Motion inspector states match the editable timeline", async ({
     "motion-controls-auto-key-new-track-midpoint",
   );
   await autoKeyframe.uncheck();
+
+  await selectByText(page, "Second fixture paragraph for selection tests.", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  const addTextStyleSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await addAnimation.click();
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click();
+  const savedTextStyle = await addTextStyleSave;
+  expect(savedTextStyle.ok(), await savedTextStyle.text()).toBe(true);
+  const textStyleRow = dock.locator(
+    '[data-motion-native-style-row="TextStagger"] [data-motion-select-native-style]',
+  );
+  await expect(textStyleRow).toBeVisible();
+
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  await textStyleRow.click();
+  await expect(textStyleRow).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await expect
+    .poll(async () =>
+      page.locator('[role="treeitem"][aria-selected="true"]').allInnerTexts(),
+    )
+    .toEqual(["Rectangle"]);
+  const selectedInspectorStyle = page.locator(
+    '[data-motion-native-style-trigger][aria-pressed="true"]',
+  );
+  await expect(selectedInspectorStyle).toHaveCount(1);
+  await expect(selectedInspectorStyle).toContainText("Text");
+  await captureReferenceState(page, "motion-controls-cross-layer-selection");
 });
 
 test("Motion gallery searches visible names, not hidden categories or tempo", async ({

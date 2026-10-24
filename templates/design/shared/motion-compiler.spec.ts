@@ -920,6 +920,22 @@ describe("compile — normalized SVG Path trim", () => {
     );
   });
 
+  it("accepts a Path keyframe whose final declaration omits its semicolon", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "0% 100%" },
+      { t: 1, value: "50% 75%" },
+    ];
+    const css = compile(timeline).css.replace(
+      /(animation-timing-function:[^;{}]+);(?=\s*})/g,
+      "$1",
+    );
+
+    expect(
+      parse(css)[0]?.keyframes.map(({ t, value }) => ({ t, value })),
+    ).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
   it("rejects malformed semantic trim values", () => {
     const timeline = makeTimeline("path-trim");
     timeline.tracks[0]!.keyframes[1]!.value = "101% 0%";

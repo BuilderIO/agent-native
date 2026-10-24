@@ -273,6 +273,10 @@ function nativeStyleIdentityKey(
   return createMotionNativeStyleIdentity(instance, index).key;
 }
 
+function nativeStyleAdditionKey(instance: MotionNativeStyleInstance): string {
+  return JSON.stringify(instance);
+}
+
 function nativeStyleDisplayLabel(
   instance: MotionNativeStyleInstance,
   t: (key: string) => string,
@@ -648,26 +652,31 @@ export function MotionDock({
     );
     if (addedTrack) setSelectedTrackKey(trackKey(addedTrack));
   }, [tracks]);
-  const previousNativeStyleKeysRef = useRef(
-    new Set(
-      nativeStyles.map((instance, index) =>
-        nativeStyleIdentityKey(instance, index),
-      ),
-    ),
+  const previousNativeStyleAdditionKeysRef = useRef(
+    nativeStyles.map(nativeStyleAdditionKey),
   );
   useEffect(() => {
-    const previousKeys = previousNativeStyleKeysRef.current;
-    const entries = nativeStyles.map((instance, index) => ({
-      key: nativeStyleIdentityKey(instance, index),
-    }));
-    const nextKeys = new Set(entries.map(({ key }) => key));
-    let addedKey: string | null = null;
-    for (const { key } of entries) {
-      if (!previousKeys.has(key)) addedKey = key;
+    const previousKeys = previousNativeStyleAdditionKeysRef.current;
+    const nextKeys = nativeStyles.map(nativeStyleAdditionKey);
+    const remainingPreviousCounts = new Map<string, number>();
+    for (const key of previousKeys) {
+      remainingPreviousCounts.set(
+        key,
+        (remainingPreviousCounts.get(key) ?? 0) + 1,
+      );
     }
-    previousNativeStyleKeysRef.current = nextKeys;
-    if (addedKey) {
-      const addedIndex = entries.findIndex(({ key }) => key === addedKey);
+    const addedIndices: number[] = [];
+    for (const [index, key] of nextKeys.entries()) {
+      const previousCount = remainingPreviousCounts.get(key) ?? 0;
+      if (previousCount > 0) {
+        remainingPreviousCounts.set(key, previousCount - 1);
+      } else {
+        addedIndices.push(index);
+      }
+    }
+    previousNativeStyleAdditionKeysRef.current = nextKeys;
+    if (nextKeys.length > previousKeys.length && addedIndices.length === 1) {
+      const addedIndex = addedIndices[0]!;
       const addedStyle = nativeStyles[addedIndex];
       if (addedStyle) {
         const identity = createMotionNativeStyleIdentity(

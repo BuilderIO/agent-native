@@ -37,8 +37,7 @@ export function resolveMotionNativeStyleIdentity(
       current?.styleKey === selected.styleKey &&
       current.targetNodeId === selected.targetNodeId &&
       (!selected.sourceInstanceId ||
-        current.sourceInstanceId === selected.sourceInstanceId) &&
-      (!targetNodeId || current.targetNodeId === targetNodeId)
+        current.sourceInstanceId === selected.sourceInstanceId)
     ) {
       return createMotionNativeStyleIdentity(current, selected.index);
     }
