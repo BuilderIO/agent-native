@@ -111,6 +111,97 @@ describe("startAgentHarnessRun", () => {
     );
   });
 
+  it("keeps an approval turn running until its stream has finished", async () => {
+    const approval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-paused-stream",
+      message: "Allow the tool?",
+    };
+    let persistedSession: { status?: string; pendingApproval?: unknown } = {};
+    mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
+      persistedSession = {
+        status: input.status,
+        pendingApproval: input.pendingApproval ?? null,
+      };
+      return {};
+    });
+    mocks.getAgentHarnessSession.mockImplementation(
+      async () => persistedSession,
+    );
+    mocks.updateAgentHarnessSession.mockImplementation(async (_id, update) => {
+      persistedSession = { ...persistedSession, ...update };
+      if (update.pendingApproval) signalApprovalStored();
+      return {};
+    });
+
+    let releaseStream: (() => void) | undefined;
+    let signalApprovalStored!: () => void;
+    let signalStreamSuspended!: () => void;
+    const approvalStored = new Promise<void>((resolve) => {
+      signalApprovalStored = resolve;
+    });
+    const streamSuspended = new Promise<void>((resolve) => {
+      signalStreamSuspended = resolve;
+    });
+    const session = fakeSession("native-paused-approval", []);
+    session.streamTurn = async function* () {
+      yield approval;
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+        signalStreamSuspended();
+      });
+    };
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-paused-approval",
+      threadId: "thread-paused-approval",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-paused-approval" },
+    });
+
+    const execution = capturedRunFn?.(() => {}, new AbortController().signal);
+    expect(execution).toBeDefined();
+    try {
+      await Promise.all([approvalStored, streamSuspended]);
+      expect(persistedSession).toMatchObject({
+        status: "running",
+        pendingApproval: { id: approval.id },
+      });
+
+      persistedSession = { ...persistedSession, pendingApproval: null };
+      expect(persistedSession.status).toBe("running");
+    } finally {
+      releaseStream?.();
+      await execution;
+    }
+
+    expect(persistedSession).toMatchObject({
+      status: "idle",
+      pendingApproval: null,
+    });
+  });
+
   it("stops and marks the session when the run signal is aborted", async () => {
     const session = fakeSession("native-2", [
       { type: "text-delta", text: "hi" },

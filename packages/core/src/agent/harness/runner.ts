@@ -123,7 +123,6 @@ export function startAgentHarnessRun(
               if (event.type === "approval-request") {
                 pendingApproval = event;
                 await updateAgentHarnessSession(storedSessionId, {
-                  status: "idle",
                   pendingApproval: event,
                 });
               }
