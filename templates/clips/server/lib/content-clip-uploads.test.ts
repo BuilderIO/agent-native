@@ -235,7 +235,7 @@ function startUpload(bearer: string, body: unknown = START) {
         authorization: `Bearer ${bearer}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: typeof body === "string" ? body : JSON.stringify(body),
     }),
   );
 }
@@ -458,9 +458,14 @@ describe("an editor's upload from a Content page", () => {
       { ...START, sizeBytes: 0 },
       { ...START, blockId: "has spaces" },
       { ...START, extra: true },
+      "{not json",
     ]) {
       expect((await startUpload(bearer, body)).status).toBe(400);
     }
+    expect(
+      (await startUpload(bearer, { ...START, fileName: "a".repeat(20_000) }))
+        .status,
+    ).toBe(413);
     expect(await rows("recordings")).toEqual([]);
   });
 

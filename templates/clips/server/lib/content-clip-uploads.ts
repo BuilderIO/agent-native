@@ -220,15 +220,23 @@ function chunkUrlFor(recordingId: string, query: URLSearchParams): string {
   return `${base}/api/uploads/${encodeURIComponent(recordingId)}/content-chunk?${query}`;
 }
 
-async function readUploadStart(event: H3Event) {
+const invalidStart = () => json({ error: "Invalid upload request" }, 400);
+
+async function readUploadStart(
+  event: H3Event,
+): Promise<z.infer<typeof uploadStartSchema> | Response> {
   let body: unknown;
   try {
     body = await readBodyWithSizeLimit(event, MAX_START_BODY_BYTES);
-  } catch {
-    return null;
+  } catch (error) {
+    if ((error as { statusCode?: unknown }).statusCode === 413) {
+      return json({ error: "Upload request too large" }, 413);
+    }
+    if (error instanceof SyntaxError) return invalidStart();
+    throw error;
   }
   const parsed = uploadStartSchema.safeParse(body);
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? parsed.data : invalidStart();
 }
 
 async function deleteBinding(id: string): Promise<void> {
@@ -273,7 +281,7 @@ export async function handleContentClipUploadStart(
   const uploader = await verifyUploader(event);
   if (uploader instanceof Response) return uploader;
   const start = await readUploadStart(event);
-  if (!start) return json({ error: "Invalid upload request" }, 400);
+  if (start instanceof Response) return start;
 
   const account = await readUploaderAccount(uploader.email);
   if (!account) {
