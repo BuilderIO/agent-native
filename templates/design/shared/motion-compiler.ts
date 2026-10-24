@@ -805,6 +805,8 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     );
     return match?.[1]?.trim();
   };
+  const listItem = (values: string[], index: number) =>
+    values.length > 0 ? values[index % values.length] : undefined;
 
   while ((m = ruleRe.exec(css)) !== null) {
     const targetNodeId = unescAttr(m[1]);
@@ -827,7 +829,7 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     names.forEach((name, index) => {
       if (!name) return;
       const entry: ParsedAnimationRuleEntry = { targetNodeId };
-      const composition = compositions[index] ?? compositions[0];
+      const composition = listItem(compositions, index);
       if (composition !== undefined) {
         if (composition !== "replace" && composition !== "add") {
           throw new MotionCssSourceParseError(
@@ -840,11 +842,11 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
       const translate = declarationOf(body, "translate");
       if (offsetPath) entry.offsetPath = offsetPath;
       if (translate) entry.translate = translate;
-      const duration = parseCssTimeMs(durations[index] ?? durations[0] ?? "");
+      const duration = parseCssTimeMs(listItem(durations, index) ?? "");
       if (duration !== null) entry.durationMs = duration;
-      const delay = parseCssTimeMs(delays[index] ?? delays[0] ?? "");
+      const delay = parseCssTimeMs(listItem(delays, index) ?? "");
       if (delay !== null) entry.delayMs = delay;
-      const timingFunction = timingFunctions[index] ?? timingFunctions[0];
+      const timingFunction = listItem(timingFunctions, index);
       if (timingFunction !== undefined) entry.timingFunction = timingFunction;
       if (byName.has(name)) {
         throw new MotionCssSourceParseError(

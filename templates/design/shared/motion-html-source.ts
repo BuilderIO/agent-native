@@ -1300,6 +1300,9 @@ export function cssDeclarationAffectsMotionProperty(
   }
 
   return Boolean(
+    CSS_LOGICAL_PHYSICAL_PROPERTY_ALIASES[normalizedProperty]?.some((alias) =>
+      motionProperties?.has(alias),
+    ) ||
     CSS_SHORTHANDS_BY_LONGHAND.get(normalizedProperty)?.some((shorthand) =>
       motionProperties?.has(shorthand),
     ) ||
@@ -1308,6 +1311,24 @@ export function cssDeclarationAffectsMotionProperty(
     ),
   );
 }
+
+// The source reader cannot prove the computed writing mode, so logical sizes
+// are checked against both physical dimensions while finding CSS conflicts.
+const CSS_LOGICAL_PHYSICAL_PROPERTY_ALIASES: Record<string, readonly string[]> =
+  {
+    "inline-size": ["width", "height"],
+    "block-size": ["width", "height"],
+    "min-inline-size": ["min-width", "min-height"],
+    "min-block-size": ["min-width", "min-height"],
+    "max-inline-size": ["max-width", "max-height"],
+    "max-block-size": ["max-width", "max-height"],
+    width: ["inline-size", "block-size"],
+    height: ["inline-size", "block-size"],
+    "min-width": ["min-inline-size", "min-block-size"],
+    "min-height": ["min-inline-size", "min-block-size"],
+    "max-width": ["max-inline-size", "max-block-size"],
+    "max-height": ["max-inline-size", "max-block-size"],
+  };
 
 function cssDeclarationCanOverrideMotionProperty(
   property: string,
@@ -1702,7 +1723,9 @@ function selectorCompoundMatches(
         selector,
         targetNodeId,
       );
-      if (!pseudoMatch.matches) return { matches: false, dynamic: false };
+      if (!pseudoMatch.matches && !pseudoMatch.dynamic) {
+        return { matches: false, dynamic: false };
+      }
       dynamic ||= pseudoMatch.dynamic;
       continue;
     }

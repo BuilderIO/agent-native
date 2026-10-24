@@ -1778,6 +1778,34 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
+  it("rejects x-text that can make a nonempty Motion target match :empty", () => {
+    const withConflict = (source: string) =>
+      source
+        .replace(
+          "<head>",
+          "<head><style>#hero-title:empty { opacity: 0 !important; }</style>",
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          '<h1 id="hero-title" data-agent-native-node-id="hero-title" x-data="{ label: \'\' }" x-text="label">Hello</h1>',
+        )
+        .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    const source = withConflict(html);
+    const existingMotion = withConflict(apply(html).source);
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    expect(readMotionHtmlSource(existingMotion)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+  });
+
   it("allows a structural sibling that cannot change the target's :empty state", () => {
     const source = `<!doctype html><html><head><style>#hero-title:not(:empty) { opacity: 0 !important; }</style></head><body x-data="{ active: false }"><h1 id="hero-title" data-agent-native-node-id="hero-title"></h1><template x-if="active"><i></i></template>${ALPINE_CDN}</body></html>`;
 
@@ -3063,6 +3091,8 @@ describe("HTML Motion source adapter", () => {
   });
 
   it.each([
+    ["inline-size", "width", "100px"],
+    ["inline-size", "height", "100px"],
     ["background", "background-color", "red"],
     ["border-color", "border-top-color", "red"],
     ["border-block-color", "border-bottom-color", "red"],
@@ -3111,6 +3141,8 @@ describe("HTML Motion source adapter", () => {
   });
 
   it.each([
+    ["inline-size", "width", "100px"],
+    ["inline-size", "height", "100px"],
     ["background", "background-color", "red"],
     ["border-color", "border-top-color", "red"],
     ["border-block-color", "border-bottom-color", "red"],
