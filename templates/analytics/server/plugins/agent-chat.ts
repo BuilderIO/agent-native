@@ -847,9 +847,89 @@ function projectCompleteDbtRows(
     ) {
       return null;
     }
-    projectedRows.push(projected);
+    const safeProjected: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(projected)) {
+      const safe = projectedEvidenceCell(value);
+      if (!safe.ok) return null;
+      safeProjected[key] = safe.value;
+    }
+    projectedRows.push(safeProjected);
   }
   return projectedRows;
+}
+
+function projectedEvidenceCell(
+  value: unknown,
+): { ok: true; value: unknown } | { ok: false } {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { ok: true, value };
+  }
+  if (typeof value === "string") {
+    const numeric = value.trim();
+    if (
+      /^-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(numeric) &&
+      Number.isFinite(Number(numeric.replace(/,/g, "")))
+    ) {
+      return { ok: true, value: Number(numeric.replace(/,/g, "")) };
+    }
+  }
+  if (value === null || typeof value === "boolean") {
+    return { ok: true, value };
+  }
+  if (typeof value === "string") {
+    const date = value.trim();
+    if (
+      /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(date) &&
+      new Date(`${date}T00:00:00.000Z`).toISOString().startsWith(date)
+    ) {
+      return { ok: true, value: date };
+    }
+  }
+  return { ok: false };
+}
+
+function draftForDbtGuard(context: AgentLoopFinalResponseGuardContext): string {
+  const untrustedCells = new Set<string>();
+  for (const result of context.toolResults ?? []) {
+    const tool = normalizedToolName(result.name);
+    if (tool !== DBT_QUERY_TOOL && tool !== "bigquery") continue;
+    const payload = readDbtPayload(result.content);
+    if (
+      payload === null ||
+      payload === UNREADABLE_DBT_PAYLOAD ||
+      !Array.isArray(payload.rows)
+    ) {
+      continue;
+    }
+    for (const row of payload.rows) {
+      const parsed = actionSummaryRecord(row);
+      const values =
+        parsed.kind === "record"
+          ? Object.values(parsed.record)
+          : Array.isArray(row)
+            ? row
+            : [];
+      for (const value of values) {
+        if (
+          typeof value === "string" &&
+          value.trim() !== "" &&
+          !projectedEvidenceCell(value).ok
+        ) {
+          untrustedCells.add(value.trim());
+        }
+      }
+    }
+  }
+  return [...untrustedCells]
+    .sort((left, right) => right.length - left.length)
+    .filter((value) => context.text.toLowerCase().includes(value.toLowerCase()))
+    .reduce((draft, value) => {
+      const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return draft.replace(
+        new RegExp(`(^|[^\\w])(${escaped})(?=$|[^\\w])`, "gi"),
+        (_match, prefix: string) => `${prefix}[untrusted cell text]`,
+      );
+    }, context.text);
 }
 
 const DBT_FALLBACK_METADATA_TOOLS: ReadonlySet<string> = new Set([
@@ -895,11 +975,7 @@ function projectedDbtFallbackEvidence(
   if (sawWarehouseResult) {
     const warehouseEvidence = explicitWarehouseResultEvidence(context);
     if (!warehouseEvidence) return null;
-    try {
-      evidence.push(JSON.parse(warehouseEvidence) as Record<string, unknown>);
-    } catch {
-      return null;
-    }
+    evidence.push(JSON.parse(warehouseEvidence) as Record<string, unknown>);
   }
   const serialized = JSON.stringify(evidence);
   return serialized.length <= 20_000 ? serialized : null;
@@ -928,7 +1004,7 @@ async function rewriteDbtFallbackSafely(input: {
       input: [
         `QUESTION: ${JSON.stringify(guardUserText(input.context))}`,
         `UNRESOLVED METRIC QUERIES: ${JSON.stringify(dbtMetricQueryPromptEntries(input.queries))}`,
-        `DRAFT: ${JSON.stringify(input.context.text)}`,
+        `DRAFT: ${JSON.stringify(draftForDbtGuard(input.context))}`,
         `PROJECTED DATA EVIDENCE: ${evidenceText}`,
       ].join("\n"),
       maxOutputTokens: 2_048,
@@ -1030,7 +1106,7 @@ function dbtMetricName(
   return typeof payload?.metricName === "string" ? payload.metricName : null;
 }
 
-// A complete empty result clears an earlier failure, but it cannot support a figure.
+// An empty result is a failed metric query for figure-guard purposes.
 function isCompleteDbtResult(result: {
   isError?: boolean;
   content?: unknown;
@@ -1041,7 +1117,8 @@ function isCompleteDbtResult(result: {
   return (
     (payload.nextPage === undefined || payload.nextPage === null) &&
     payload.truncated === false &&
-    Array.isArray(payload.rows)
+    Array.isArray(payload.rows) &&
+    payload.rows.length > 0
   );
 }
 
@@ -1983,12 +2060,118 @@ function unresolvedDbtInputTimeScopeMismatch(
   );
 }
 
-function metricClaimNumbers(text: string, metricName: string): number[] {
+type MetricClaim = {
+  value: number;
+  start: number;
+  end: number;
+  sentenceStart: number;
+  sentenceEnd: number;
+};
+
+function answerNumberRanges(text: string): MetricClaim[] {
+  const withoutPeriods = text
+    .replace(
+      /\b\d{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?\b/g,
+      (match) => " ".repeat(match.length),
+    )
+    .replace(
+      new RegExp("\\b" + MONTH_NAME_PATTERN + "\\s+(?:19|20)\\d{2}\\b", "gi"),
+      (match) => " ".repeat(match.length),
+    )
+    .replace(
+      /\b(?:in|during|for|since|after|before|through|between)\s+(?:19|20)\d{2}\b/gi,
+      (match) => " ".repeat(match.length),
+    );
+  const numberMatches = [...withoutPeriods.matchAll(/-?\d[\d,]*(?:\.\d+)?/g)];
+  const sentenceBoundaries = [...text.matchAll(/[!?;\r\n]|\.(?!\d)/g)];
+  let boundaryIndex = 0;
+  let sentenceStart = 0;
+  return numberMatches.flatMap((match) => {
+    const token = match[0];
+    const start = match.index;
+    if (!token || start === undefined) return [];
+    while (
+      boundaryIndex < sentenceBoundaries.length &&
+      (sentenceBoundaries[boundaryIndex]?.index ?? 0) < start
+    ) {
+      const boundary = sentenceBoundaries[boundaryIndex];
+      if (boundary?.index !== undefined) {
+        sentenceStart = boundary.index + boundary[0].length;
+      }
+      boundaryIndex += 1;
+    }
+    const sentenceEnd = sentenceBoundaries[boundaryIndex]?.index ?? text.length;
+    const value = Number(token.replace(/,/g, ""));
+    return Number.isFinite(value)
+      ? [
+          {
+            value,
+            start,
+            end: start + token.length,
+            sentenceStart,
+            sentenceEnd,
+          },
+        ]
+      : [];
+  });
+}
+
+function metricMentionRanges(
+  text: string,
+  metricName: string,
+): Array<{ start: number; end: number }> {
+  const words = metricMentionWords(metricName);
+  if (words.length === 0) return [];
+  const phrase = words
+    .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[^a-z0-9]+");
+  const matcher = new RegExp(`(^|[^a-z0-9])(${phrase})(?=$|[^a-z0-9])`, "gi");
+  return [...text.matchAll(matcher)].flatMap((match) => {
+    const start = (match.index ?? 0) + (match[1]?.length ?? 0);
+    const spokenMetric = match[2];
+    return spokenMetric ? [{ start, end: start + spokenMetric.length }] : [];
+  });
+}
+
+function metricClaimNumbers(
+  text: string,
+  metricName: string,
+  metricNames: string[],
+): MetricClaim[] {
   const metricKey = dbtMetricIdentity(metricName);
-  return text
-    .split(/(?<=[.!?;])\s+|[\r\n]+/)
-    .filter((sentence) => textMentionsDbtMetric(sentence, metricKey))
-    .flatMap((sentence) => answerResultNumbers(sentence).map(Number));
+  const mentions = metricNames.flatMap((name) =>
+    metricMentionRanges(text, name).map((range) => ({
+      ...range,
+      metricKey: dbtMetricIdentity(name),
+    })),
+  );
+  return answerNumberRanges(text).filter((claim) => {
+    if (claim.start < claim.sentenceStart || claim.end > claim.sentenceEnd) {
+      return false;
+    }
+    const sentenceMentions = mentions.filter(
+      (mention) =>
+        mention.start >= claim.sentenceStart &&
+        mention.end <= claim.sentenceEnd,
+    );
+    const distances = sentenceMentions.map((mention) => ({
+      metricKey: mention.metricKey,
+      distance:
+        claim.end <= mention.start
+          ? mention.start - claim.end
+          : mention.end <= claim.start
+            ? claim.start - mention.end
+            : 0,
+    }));
+    if (distances.length === 0) return false;
+    const closest = Math.min(...distances.map(({ distance }) => distance));
+    const closestMetrics = new Set(
+      distances
+        .filter(({ distance }) => distance === closest)
+        .map(({ metricKey: key }) => key),
+    );
+    return closestMetrics.size === 1 && closestMetrics.has(metricKey);
+  });
 }
 
 type ScopedWarehouseMatch = {
@@ -2087,22 +2270,23 @@ function isExplicitWarehouseCalculation(
     return false;
   }
 
-  const answerNumbers = answerResultNumbers(context.text).map(Number);
+  const answerNumbers = answerNumberRanges(context.text).map(
+    ({ value }) => value,
+  );
   const claimedNumbers: number[] = [];
   for (const match of matches) {
     const metricName = match.failure.query.metricName;
     if (!approvedDataDictionaryMetric(context, metricName)) return false;
-    const claims = metricClaimNumbers(context.text, metricName);
-    const values = match.rows.flatMap((row) =>
-      warehouseMetricNumbers([row], metricName).map(Number),
-    );
+    const claims = metricClaimNumbers(context.text, metricName, metricNames);
     if (
       claims.length === 0 ||
-      claims.some((number) => !values.includes(number))
+      claims.some(
+        (claim) => !metricClaimMatchesWarehouseRow(context, match, claim),
+      )
     ) {
       return false;
     }
-    claimedNumbers.push(...claims);
+    claimedNumbers.push(...claims.map(({ value }) => value));
   }
 
   return (
@@ -2111,7 +2295,113 @@ function isExplicitWarehouseCalculation(
     WAREHOUSE_CALCULATION_DISCLOSURE.test(context.text) &&
     !claimsOwnerApprovedMetric(context.text) &&
     answerNumbers.length > 0 &&
+    answerNumbers.length === claimedNumbers.length &&
     answerNumbers.every((number) => claimedNumbers.includes(number))
+  );
+}
+
+function metricClaimMatchesWarehouseRow(
+  context: AgentLoopFinalResponseGuardContext,
+  match: ScopedWarehouseMatch,
+  claim: MetricClaim,
+): boolean {
+  const dbtCall = pairedDbtCallForResult(context, match.failure.index);
+  const dbtInput = actionSummaryRecord(dbtCall?.input);
+  if (dbtInput.kind !== "record") return false;
+  const rawGroups = dbtInput.record.groupBy;
+  if (rawGroups !== undefined && !Array.isArray(rawGroups)) return false;
+  const groups = Array.isArray(rawGroups)
+    ? rawGroups.flatMap((item) => {
+        const parsed = actionSummaryRecord(item);
+        return parsed.kind === "record" ? [parsed.record] : [];
+      })
+    : [];
+  if (Array.isArray(rawGroups) && groups.length !== rawGroups.length) {
+    return false;
+  }
+  const metricName = match.failure.query.metricName;
+  if (groups.length === 0) {
+    return (
+      match.rows.length === 1 &&
+      warehouseMetricNumbers(match.rows, metricName).some(
+        (value) => Number(value) === claim.value,
+      )
+    );
+  }
+  if (match.rows.length === 1) {
+    return warehouseMetricNumbers(match.rows, metricName).some(
+      (value) => Number(value) === claim.value,
+    );
+  }
+
+  const sentence = context.text.slice(claim.sentenceStart, claim.sentenceEnd);
+  const claimStart = claim.start - claim.sentenceStart;
+  const rows = match.rows.flatMap((row) => {
+    const parsed = actionSummaryRecord(row);
+    if (parsed.kind !== "record") return [];
+    const distances: number[] = [];
+    for (const group of groups) {
+      if (typeof group.name !== "string") return [];
+      let column = group.name;
+      if (group.name === "metric_time") {
+        const sql = actionSummaryRecord(match.queryCall.input);
+        const sqlText =
+          sql.kind === "record" && typeof sql.record.sql === "string"
+            ? sql.record.sql
+            : "";
+        const projection = sqlText.match(
+          /\b(?:DATE_TRUNC|TIMESTAMP_TRUNC)\s*\([^)]*\)\s+AS\s+[`"]?([A-Za-z_]\w*)[`"]?/i,
+        );
+        if (!projection?.[1]) return [];
+        column = projection[1];
+      }
+      const matchingValues = Object.entries(parsed.record).filter(
+        ([key]) =>
+          normalizedSqlIdentifier(key) === normalizedSqlIdentifier(column),
+      );
+      if (matchingValues.length !== 1) return [];
+      const value = matchingValues[0]?.[1];
+      if (
+        value === null ||
+        (typeof value !== "string" &&
+          typeof value !== "number" &&
+          typeof value !== "boolean")
+      ) {
+        return [];
+      }
+      const label = String(value).trim();
+      if (!label) return [];
+      const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const labelMatcher = new RegExp(
+        `(^|[^a-z0-9])(${escapedLabel})(?=$|[^a-z0-9])`,
+        "gi",
+      );
+      const labelStarts = [...sentence.matchAll(labelMatcher)].map(
+        (labelMatch) => (labelMatch.index ?? 0) + (labelMatch[1]?.length ?? 0),
+      );
+      if (labelStarts.length === 0) return [];
+      distances.push(
+        Math.min(
+          ...labelStarts.map((start) =>
+            claimStart >= start && claimStart < start + label.length
+              ? 0
+              : Math.abs(claimStart - (start + label.length / 2)),
+          ),
+        ),
+      );
+    }
+    return [
+      { row, distance: distances.reduce((sum, value) => sum + value, 0) },
+    ];
+  });
+  if (rows.length === 0) return false;
+  const nearest = Math.min(...rows.map(({ distance }) => distance));
+  const nearestRows = rows.filter(({ distance }) => distance === nearest);
+  return (
+    nearestRows.length === 1 &&
+    warehouseMetricNumbers([nearestRows[0]!.row], metricName).some(
+      (value) => Number(value) === claim.value,
+    )
   );
 }
 
@@ -2168,13 +2458,21 @@ function explicitWarehouseResultEvidence(
     }
     const rows = match.rows.map((row) => {
       const parsed = actionSummaryRecord(row);
-      if (parsed.kind !== "record") return {};
-      return Object.fromEntries(
+      if (parsed.kind !== "record") return null;
+      const projected = Object.fromEntries(
         Object.entries(parsed.record).filter(([key]) =>
           outputColumns.has(normalizedSqlIdentifier(key)),
         ),
       );
+      const safe: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(projected)) {
+        const safeValue = projectedEvidenceCell(value);
+        if (!safeValue.ok) return null;
+        safe[key] = safeValue.value;
+      }
+      return safe;
     });
+    if (rows.some((row) => row === null)) return null;
     return {
       metricName: match.failure.query.metricName,
       approvedDefinition: {
@@ -2462,6 +2760,18 @@ export async function dbtFinalResponseGuard(
     unresolvedDbtFailures(context).length > 0;
   if (!checkDraft) return realDataFinalGuard(context);
   const unresolvedMetricQueries = unresolvedDbtMetricQueries(context);
+  if (
+    unresolvedMetricQueries &&
+    isClearDbtConnectionAbstention(context, unresolvedMetricQueries)
+  ) {
+    const failure = failedDataQueryAttemptMessage(
+      context.toolResults,
+      context.toolCalls,
+    );
+    return failure
+      ? { retryMessage: failure, fallbackMessage: failure, maxRetries: 0 }
+      : null;
+  }
   if (isExplicitWarehouseCalculation(context)) {
     const evidence = explicitWarehouseResultEvidence(context);
     if (
@@ -2485,12 +2795,12 @@ export async function dbtFinalResponseGuard(
   }
   const statesFigure = unresolvedMetricQueries
     ? await draftStatesUnresolvedDbtMetric({
-        draft: context.text,
+        draft: draftForDbtGuard(context),
         question: guardUserText(context),
         queries: unresolvedMetricQueries,
         complete,
       })
-    : await draftStatesFigure({ draft: context.text, complete });
+    : await draftStatesFigure({ draft: draftForDbtGuard(context), complete });
   const guard = realDataFinalGuard(context, statesFigure);
   if (
     !guard ||
@@ -2512,6 +2822,48 @@ export async function dbtFinalResponseGuard(
         maxRetries: 0,
       }
     : guard;
+}
+
+function isClearDbtConnectionAbstention(
+  context: AgentLoopFinalResponseGuardContext,
+  queries: DbtGuardQuery[],
+): boolean {
+  if (
+    queries.length !== 1 ||
+    askedForWarehouseNumbers(context) ||
+    answerResultNumbers(context.text).length > 0 ||
+    draftClaimsAnalyticsMetrics(context.text)
+  ) {
+    return false;
+  }
+  const failures = unresolvedDbtFailures(context);
+  if (failures.length !== 1 || !failures[0]?.query) return false;
+  const result = context.toolResults?.[failures[0].index];
+  const payload = readDbtPayload(result?.content);
+  if (
+    payload === null ||
+    payload === UNREADABLE_DBT_PAYLOAD ||
+    payload.status !== "connection_unavailable" ||
+    failures[0].query.querySpecKey !== queries[0]?.querySpecKey ||
+    failures[0].query.metricKey !== queries[0]?.metricKey
+  ) {
+    return false;
+  }
+
+  const withoutLinks = context.text.replace(/\[[^\]]+\]\([^)]+\)/g, "").trim();
+  const [connection, abstention, extra] = withoutLinks
+    .replace(/[.!?]+$/g, "")
+    .split(/[.!?]\s*/);
+  const connectionMatch = connection?.match(
+    /^the dbt semantic layer connection is not connected, so i could not run ([a-z0-9_-]+) and have no value to report$/i,
+  );
+  return (
+    extra === undefined &&
+    connectionMatch?.[1] !== undefined &&
+    normalizedQueryText(connectionMatch[1]) ===
+      normalizedQueryText(queries[0].metricName) &&
+    /^i will not estimate it$/i.test(abstention ?? "")
+  );
 }
 
 // Names dbt only when this turn gives a reason to: the in-turn status check
@@ -4769,7 +5121,10 @@ export function realDataFinalGuard(
       expandToolSurface: true,
     };
   }
-  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  const failedQueryMessage = failedDataQueryAttemptMessage(
+    context.toolResults,
+    context.toolCalls,
+  );
   const failedDbtMetricQuery = hasFailedDbtSemanticMetricQuery(
     context.toolResults,
   );

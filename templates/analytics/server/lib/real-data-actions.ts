@@ -1781,6 +1781,7 @@ function isCompleteDbtMetricResult(result: {
   return (
     record.status === "success" &&
     Array.isArray(record.rows) &&
+    record.rows.length > 0 &&
     record.truncated === false &&
     (record.nextPage === undefined ||
       record.nextPage === null ||
@@ -1789,8 +1790,7 @@ function isCompleteDbtMetricResult(result: {
 }
 
 // A metadata page or an exact-name miss is a lookup step, not an answer. A later
-// complete result under the same metric name clears it, even when the result is empty.
-// A different name is a lead, not a replacement, so the failure stays visible.
+// complete result under the same metric name can clear it only at the same scope.
 const DBT_LOOKUP_STATUSES = new Set([
   "not_found",
   "ambiguous_metric",
@@ -1801,6 +1801,7 @@ function isRecoveredByLaterDbtSuccess(
   result: { name?: string; isError?: boolean; content?: string },
   index: number,
   results: Array<{ name?: string; isError?: boolean; content?: string }>,
+  toolCalls: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
 ): boolean {
   const payload = tryParseJsonContent(String(result.content ?? ""));
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -1808,29 +1809,181 @@ function isRecoveredByLaterDbtSuccess(
   }
   const record = payload as Record<string, unknown>;
   if (!DBT_LOOKUP_STATUSES.has(String(record.status))) return false;
-  return results.slice(index + 1).some((candidate) => {
+  const failedCall = pairedDbtCall(result, index, results, toolCalls);
+  const failedScope = dbtMetricScopeSignature(record, failedCall?.input);
+  if (failedScope === undefined) return false;
+  return results.slice(index + 1).some((candidate, offset) => {
     if (!isCompleteDbtMetricResult(candidate)) return false;
     const answered = tryParseJsonContent(
       String(candidate.content ?? ""),
     ) as Record<string, unknown> | null;
+    const candidateIndex = index + 1 + offset;
+    const candidateCall = pairedDbtCall(
+      candidate,
+      candidateIndex,
+      results,
+      toolCalls,
+    );
+    const candidateScope = dbtMetricScopeSignature(
+      answered,
+      candidateCall?.input,
+    );
     return (
       typeof record.metricName === "string" &&
-      answered?.metricName === record.metricName
+      answered?.metricName === record.metricName &&
+      candidateScope !== undefined &&
+      (failedScope === null || failedScope === candidateScope)
     );
   });
+}
+
+function pairedDbtCall(
+  result: { name?: string; toolCallId?: string },
+  index: number,
+  results: Array<{ name?: string; toolCallId?: string }>,
+  toolCalls: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
+) {
+  const calls = toolCalls.filter((call) =>
+    isDbtSemanticMetricActionName(String(call.name ?? "")),
+  );
+  if (result.toolCallId) {
+    const matches = calls.filter(
+      (call) => call.toolCallId === result.toolCallId,
+    );
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+  const dbtResults = results.filter((candidate) =>
+    isDbtSemanticMetricActionName(String(candidate.name ?? "")),
+  );
+  return calls.length === 1 && dbtResults.length === 1 && index >= 0
+    ? calls[0]
+    : undefined;
+}
+
+function dbtMetricScopeSignature(
+  payload: Record<string, unknown> | null,
+  callInput: unknown,
+): string | null | undefined {
+  const input =
+    callInput !== null &&
+    typeof callInput === "object" &&
+    !Array.isArray(callInput)
+      ? (callInput as Record<string, unknown>)
+      : null;
+  const signature = (
+    record: Record<string, unknown> | null,
+  ): string | null | undefined => {
+    if (!record) return null;
+    const hasScope =
+      record.querySpec !== undefined ||
+      record.groupBy !== undefined ||
+      record.timeRange !== undefined ||
+      record.allTime !== undefined;
+    if (!hasScope) return null;
+    const rawQuerySpec =
+      record.querySpec !== undefined ? record.querySpec : record;
+    if (
+      rawQuerySpec === null ||
+      typeof rawQuerySpec !== "object" ||
+      Array.isArray(rawQuerySpec)
+    ) {
+      return undefined;
+    }
+    const querySpec = rawQuerySpec as Record<string, unknown>;
+    const queryHasScope =
+      querySpec.groupBy !== undefined ||
+      querySpec.timeRange !== undefined ||
+      querySpec.allTime !== undefined;
+    if (!queryHasScope) return undefined;
+    if (querySpec.groupBy !== undefined && !Array.isArray(querySpec.groupBy)) {
+      return undefined;
+    }
+    const groupBy = Array.isArray(querySpec.groupBy)
+      ? querySpec.groupBy.map((item) => {
+          if (
+            item === null ||
+            typeof item !== "object" ||
+            Array.isArray(item) ||
+            typeof (item as Record<string, unknown>).name !== "string"
+          ) {
+            return null;
+          }
+          const group = item as Record<string, unknown>;
+          if (group.grain !== undefined && typeof group.grain !== "string") {
+            return null;
+          }
+          return `${String(group.name).trim().toLowerCase()}:${String(
+            group.grain ?? "",
+          )
+            .trim()
+            .toUpperCase()}`;
+        })
+      : [];
+    if (groupBy.some((group) => group === null)) return undefined;
+    const timeRange = querySpec.timeRange;
+    let normalizedTimeRange: {
+      startDate: string;
+      endDate: string;
+    } | null = null;
+    if (timeRange !== undefined && timeRange !== null) {
+      if (
+        typeof timeRange !== "object" ||
+        Array.isArray(timeRange) ||
+        typeof (timeRange as Record<string, unknown>).startDate !== "string" ||
+        typeof (timeRange as Record<string, unknown>).endDate !== "string"
+      ) {
+        return undefined;
+      }
+      const range = timeRange as Record<string, unknown>;
+      const startDate = String(range.startDate);
+      const endDate = String(range.endDate);
+      const isDate = (value: string) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
+      if (!isDate(startDate) || !isDate(endDate)) return undefined;
+      normalizedTimeRange = { startDate, endDate };
+    }
+    if (
+      (querySpec.allTime !== undefined &&
+        typeof querySpec.allTime !== "boolean") ||
+      (querySpec.allTime === true && normalizedTimeRange !== null)
+    ) {
+      return undefined;
+    }
+    return JSON.stringify({
+      allTime: querySpec.allTime === true,
+      groupBy: (groupBy as string[]).sort(),
+      timeRange: normalizedTimeRange,
+    });
+  };
+
+  const payloadScope = signature(payload);
+  const inputScope = signature(input);
+  if (payloadScope === undefined || inputScope === undefined) return undefined;
+  if (
+    payloadScope !== null &&
+    inputScope !== null &&
+    payloadScope !== inputScope
+  ) {
+    return undefined;
+  }
+  if (payloadScope !== null) return payloadScope;
+  if (inputScope !== null) return inputScope;
+  return input?.nextPage !== undefined ? undefined : null;
 }
 
 function isFailedDataQueryAttempt(
   result: { name?: string; isError?: boolean; content?: string },
   index: number,
   results: Array<{ name?: string; isError?: boolean; content?: string }>,
+  toolCalls: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
 ): boolean {
   const name = String(result.name ?? "");
   if (isDbtSemanticMetricActionName(name)) {
     return (
       dbtSemanticMetricFailure(result) !== null &&
       !isRecoveredDbtContinuation(result, index, results) &&
-      !isRecoveredByLaterDbtSuccess(result, index, results)
+      !isRecoveredByLaterDbtSuccess(result, index, results, toolCalls)
     );
   }
   if (isToolName(name, "query-agent-native-analytics")) {
@@ -1858,9 +2011,16 @@ export function failedDataQueryAttemptMessage(
   toolResults:
     | Array<{ name?: string; isError?: boolean; content?: string }>
     | undefined,
+  toolCalls: Array<{
+    name?: string;
+    toolCallId?: string;
+    input?: unknown;
+  }> = [],
 ): string | null {
   const results = toolResults ?? [];
-  const failed = results.find(isFailedDataQueryAttempt);
+  const failed = results.find((result, index) =>
+    isFailedDataQueryAttempt(result, index, results, toolCalls),
+  );
   if (!failed) return null;
   const name = String(failed.name ?? "data-source query");
   const dbtFailure = dbtSemanticMetricFailure(failed);
