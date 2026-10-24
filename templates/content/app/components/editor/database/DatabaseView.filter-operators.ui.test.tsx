@@ -8,6 +8,7 @@ import {
   byLabel,
   click,
   focus,
+  queryByLabel,
   renderUi,
   typeInto,
 } from "@/test-utils/render-ui";
@@ -157,6 +158,11 @@ describe("filter chips", () => {
       filter("due", "Due", "on_or_after", "2026-10-22"),
       filter("due", "Due", "equals", "tomorrow"),
       filter("due", "Due", "is_within", "next_7_days"),
+      filter("due", "Due", "is_within", "past_2_weeks"),
+      filter("due", "Due", "is_within", "next_1_year"),
+      filter("due", "Due", "is_within", "this_month"),
+      filter("due", "Due", "is_within", "this_day"),
+      filter("due", "Due", "does_not_equal", "2026-10-22"),
       filter("due", "Due", "between", JSON.stringify(["yesterday", "today"])),
     ]);
 
@@ -168,6 +174,11 @@ describe("filter chips", () => {
       "Due: on or after 2026-10-22",
       "Due: is tomorrow",
       "Due: Next 7 days",
+      "Due: Past 2 weeks",
+      "Due: Next 1 year",
+      "Due: This month",
+      "Due: Today",
+      "Due: is not 2026-10-22",
       "Due: yesterday to today",
     ]) {
       button(chip);
@@ -201,7 +212,6 @@ describe("filter operator menus", () => {
     const items = menuItems();
     for (const label of [
       "Is",
-      "Is not",
       "Before",
       "After",
       "On or before",
@@ -215,6 +225,65 @@ describe("filter operator menus", () => {
     }
     expect(items).not.toContain("Starts with");
     expect(items).not.toContain("Does not contain");
+  });
+
+  it("offers a new date rule Notion's nine operators, without is not", async () => {
+    renderBar([filter("due", "Due", "equals")], 0);
+    await click(button("is"));
+    expect(menuItems()).toEqual([
+      "Is",
+      "Before",
+      "After",
+      "On or before",
+      "On or after",
+      "Between",
+      "Is within",
+      "Is empty",
+      "Is not empty",
+    ]);
+  });
+
+  it("leaves is not out of an advanced date rule's menu", async () => {
+    renderBar([advancedRule(filter("due", "Due", "equals"))], null, true);
+    await click(button("is"));
+    expect(menuItems()).toContain("Is within");
+    expect(menuItems()).not.toContain("Is not");
+  });
+
+  it("keeps is not for a date rule that already uses it", async () => {
+    const latest = renderBar(
+      [filter("due", "Due", "does_not_equal", "2026-10-22")],
+      0,
+    );
+    button("Due: is not 2026-10-22");
+    await click(button("is not"));
+    expect(menuItems()).toEqual([
+      "Is",
+      "Is not",
+      "Before",
+      "After",
+      "On or before",
+      "On or after",
+      "Between",
+      "Is within",
+      "Is empty",
+      "Is not empty",
+    ]);
+    // Once the rule moves to another operator, the menu no longer offers it.
+    await chooseMenuItem("Before");
+    expect(latest.filters[0]?.operator).toBe("before");
+    await click(button("before"));
+    expect(menuItems()).not.toContain("Is not");
+  });
+
+  it("keeps is not for an advanced date rule that already uses it", async () => {
+    renderBar(
+      [advancedRule(filter("due", "Due", "does_not_equal", "2026-10-22"))],
+      null,
+      true,
+    );
+    await click(button("is not"));
+    expect(menuItems()).toContain("Is not");
   });
 
   it("keeps the new operators away from numbers", async () => {
@@ -247,7 +316,7 @@ describe("date filter values", () => {
     expect(document.querySelector("input")?.value).toBe("draft");
   });
 
-  it("picks a relative day and clears the value when switching to is within", async () => {
+  it("picks a relative day, then starts is within at the past 7 days", async () => {
     const latest = renderBar(
       [filter("due", "Due", "on_or_before", "2026-10-22")],
       0,
@@ -266,16 +335,9 @@ describe("date filter values", () => {
     await chooseMenuItem("Is within");
     expect(latest.filters[0]).toMatchObject({
       operator: "is_within",
-      value: "",
+      value: "past_7_days",
     });
-
-    await click(button("Choose dates"));
-    await chooseMenuItem("Next 30 days");
-    expect(latest.filters[0]).toMatchObject({
-      operator: "is_within",
-      value: "next_30_days",
-    });
-    button("Due: Next 30 days");
+    button("Due: Past 7 days");
 
     await click(button("is within"));
     await chooseMenuItem("On or after");
@@ -434,5 +496,139 @@ describe("date filter values", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("is within ranges", () => {
+  const count = () => byLabel<HTMLInputElement>("Due filter range count");
+
+  it("picks past, this, or next and a unit in the filter chip", async () => {
+    const latest = renderBar(
+      [filter("due", "Due", "is_within", "past_7_days")],
+      0,
+    );
+    expect(count().value).toBe("7");
+    button("days");
+
+    await click(button("Past"));
+    expect(menuItems()).toEqual(["Past", "This", "Next"]);
+    await chooseMenuItem("Next");
+    expect(latest.filters[0]?.value).toBe("next_7_days");
+
+    await focus(count());
+    await typeInto(count(), "2");
+    expect(latest.filters[0]?.value).toBe("next_2_days");
+
+    await click(button("days"));
+    expect(menuItems()).toEqual(["days", "weeks", "months", "years"]);
+    await chooseMenuItem("weeks");
+    expect(latest.filters[0]?.value).toBe("next_2_weeks");
+    button("Due: Next 2 weeks");
+
+    // This has no count, and keeps the unit.
+    await click(button("Next"));
+    await chooseMenuItem("This");
+    expect(latest.filters[0]?.value).toBe("this_week");
+    expect(queryByLabel("Due filter range count")).toBeNull();
+    button("Due: This week");
+
+    await click(button("week"));
+    expect(menuItems()).toEqual(["day", "week", "month", "year"]);
+    await chooseMenuItem("month");
+    expect(latest.filters[0]?.value).toBe("this_month");
+    button("Due: This month");
+
+    // Leaving This keeps the unit and counts one of it.
+    await click(button("This"));
+    await chooseMenuItem("Past");
+    expect(latest.filters[0]?.value).toBe("past_1_month");
+    expect(count().value).toBe("1");
+    button("month");
+    button("Due: Past 1 month");
+  });
+
+  it("picks past, this, or next and a unit in the advanced filter", async () => {
+    const latest = renderBar(
+      [advancedRule(filter("due", "Due", "is_within", "next_30_days"))],
+      null,
+      true,
+    );
+    expect(count().value).toBe("30");
+
+    await click(button("Next"));
+    await chooseMenuItem("Past");
+    expect(latest.filters[0]?.value).toBe("past_30_days");
+
+    await focus(count());
+    await typeInto(count(), "3");
+    expect(latest.filters[0]?.value).toBe("past_3_days");
+
+    await click(button("days"));
+    await chooseMenuItem("months");
+    expect(latest.filters[0]?.value).toBe("past_3_months");
+
+    await click(button("Past"));
+    await chooseMenuItem("This");
+    expect(latest.filters[0]?.value).toBe("this_month");
+    expect(queryByLabel("Due filter range count")).toBeNull();
+
+    await click(button("This"));
+    await chooseMenuItem("Next");
+    expect(latest.filters[0]?.value).toBe("next_1_month");
+    expect(count().value).toBe("1");
+  });
+
+  it("passes a typed count on only from 1 to 999", async () => {
+    const latest = renderBar(
+      [filter("due", "Due", "is_within", "past_2_weeks")],
+      0,
+    );
+    await focus(count());
+
+    for (const typed of ["0", "1000", "1.5", ""]) {
+      await typeInto(count(), typed);
+      expect(count().getAttribute("aria-invalid"), typed).toBe("true");
+      expect(latest.filters[0]?.value).toBe("past_2_weeks");
+    }
+
+    await typeInto(count(), "1");
+    expect(count().getAttribute("aria-invalid")).toBe("false");
+    expect(latest.filters[0]?.value).toBe("past_1_week");
+    // The unit reads in the number the count takes.
+    button("week");
+
+    await typeInto(count(), "999");
+    expect(latest.filters[0]?.value).toBe("past_999_weeks");
+
+    // Leaving the field drops an unfinished edit.
+    await typeInto(count(), "1000");
+    await focus(button("Past"));
+    expect(count().value).toBe("999");
+    expect(latest.filters[0]?.value).toBe("past_999_weeks");
+
+    // So does choosing from a menu, whether or not the field lost focus.
+    await focus(count());
+    await typeInto(count(), "1000");
+    await click(button("weeks"));
+    await chooseMenuItem("days");
+    expect(latest.filters[0]?.value).toBe("past_999_days");
+    expect(count().value).toBe("999");
+  });
+
+  it("shows an empty range as the past 7 days, greyed, until one is chosen", async () => {
+    const latest = renderBar([filter("due", "Due", "is_within")], 0);
+    const greyed = () =>
+      button("Past")
+        .querySelector("span")
+        ?.classList.contains("text-muted-foreground");
+    expect(greyed()).toBe(true);
+    expect(count().value).toBe("");
+    expect(count().placeholder).toBe("7");
+
+    await click(button("Past"));
+    await chooseMenuItem("Past");
+    expect(latest.filters[0]?.value).toBe("past_7_days");
+    expect(greyed()).toBe(false);
+    button("Due: Past 7 days");
   });
 });

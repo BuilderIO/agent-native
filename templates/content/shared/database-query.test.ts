@@ -7,12 +7,17 @@ import type {
 } from "./api";
 import {
   applyContentDatabaseTableQuery,
+  contentDatabaseDateFilterCheck,
+  contentDatabaseDateFilterValueError,
   contentDatabaseFilterGroupMode,
   contentDatabaseFilterInstant,
   contentDatabaseFilterIsRelative,
+  contentDatabaseFilterMenuOperatorsForType,
   contentDatabaseFilterOperatorsForType,
   contentDatabaseFilterToday,
   contentDatabaseFilterTree,
+  contentDatabaseRelativeDateRange,
+  contentDatabaseRelativeDateRangeToken,
   contentDatabaseTableQueryUsesProperties,
   materializeContentDatabaseFilterGroupModes,
   withContentDatabaseFilterGroupMode,
@@ -880,7 +885,7 @@ describe("content database date filters", () => {
     ]);
   });
 
-  it("runs weeks from Sunday to Saturday", () => {
+  it("runs this week from Sunday to Saturday", () => {
     const items = [
       datedItem("sat-10", "2026-10-10"),
       datedItem("sun-11", "2026-10-11"),
@@ -891,22 +896,22 @@ describe("content database date filters", () => {
       datedItem("sat-31", "2026-10-31"),
       datedItem("sun-nov-1", "2026-11-01"),
     ];
-    expect(dateMatches("is_within", "last_week", items)).toEqual([
-      "sun-11",
-      "sat-17",
-    ]);
     expect(dateMatches("is_within", "this_week", items)).toEqual([
       "sun-18",
       "sat-24",
     ]);
-    expect(dateMatches("is_within", "next_week", items)).toEqual([
-      "sun-25",
-      "sat-31",
+    // A week counted back from today is the past seven days, not this week.
+    expect(dateMatches("is_within", "past_1_week", items)).toEqual([
+      "sat-17",
+      "sun-18",
     ]);
   });
 
   it("matches nothing for a range it does not know", () => {
     expect(dateMatches("is_within", "next_fortnight")).toEqual([]);
+    // The calendar weeks either side of this one are no longer ranges.
+    expect(dateMatches("is_within", "last_week")).toEqual([]);
+    expect(dateMatches("is_within", "next_week")).toEqual([]);
   });
 
   it("marks only filters that depend on the day as relative", () => {
@@ -959,6 +964,251 @@ describe("content database date filters", () => {
       expect(operators).not.toContain("on_or_after");
       expect(operators).not.toContain("is_within");
     }
+  });
+
+  it("leaves is not out of a date's menu unless the rule already uses it", () => {
+    for (const type of ["date", "created_time", "last_edited_time"] as const) {
+      expect(contentDatabaseFilterMenuOperatorsForType(type)).toEqual([
+        "equals",
+        "before",
+        "after",
+        "on_or_before",
+        "on_or_after",
+        "between",
+        "is_within",
+        "is_empty",
+        "is_not_empty",
+      ]);
+      expect(
+        contentDatabaseFilterMenuOperatorsForType(type, "before"),
+      ).not.toContain("does_not_equal");
+      expect(
+        contentDatabaseFilterMenuOperatorsForType(type, "does_not_equal"),
+      ).toEqual(contentDatabaseFilterOperatorsForType(type));
+    }
+    for (const type of ["text", "number", "select", "person"] as const) {
+      expect(contentDatabaseFilterMenuOperatorsForType(type)).toEqual(
+        contentDatabaseFilterOperatorsForType(type),
+      );
+    }
+  });
+});
+
+describe("content database relative date ranges", () => {
+  const parse = contentDatabaseRelativeDateRange;
+  const token = contentDatabaseRelativeDateRangeToken;
+  const isWithin = (value: string) =>
+    ({
+      key: "due",
+      label: "Due",
+      operator: "is_within",
+      value,
+    }) as const;
+  // The first and last day an is_within token covers when read on `today`.
+  const days = (value: string, today: string) => {
+    const check = contentDatabaseDateFilterCheck(isWithin(value), today);
+    if (check?.op !== "between") return null;
+    if (!("day" in check.start) || !("day" in check.end)) return null;
+    return [check.start.day, check.end.day];
+  };
+
+  it("reads past, this, and next tokens with the unit in either number", () => {
+    expect(parse("past_7_days")).toEqual({
+      direction: "past",
+      count: 7,
+      unit: "day",
+    });
+    expect(parse("next_1_week")).toEqual({
+      direction: "next",
+      count: 1,
+      unit: "week",
+    });
+    expect(parse("past_1_months")).toEqual({
+      direction: "past",
+      count: 1,
+      unit: "month",
+    });
+    expect(parse("next_12_year")).toEqual({
+      direction: "next",
+      count: 12,
+      unit: "year",
+    });
+    expect(parse("this_day")).toEqual({ direction: "this", unit: "day" });
+    expect(parse("this_week")).toEqual({ direction: "this", unit: "week" });
+    expect(parse("this_month")).toEqual({ direction: "this", unit: "month" });
+    expect(parse("this_year")).toEqual({ direction: "this", unit: "year" });
+  });
+
+  it("writes the unit singular for one and plural for more", () => {
+    expect(token({ direction: "past", count: 1, unit: "day" })).toBe(
+      "past_1_day",
+    );
+    expect(token({ direction: "past", count: 2, unit: "week" })).toBe(
+      "past_2_weeks",
+    );
+    expect(token({ direction: "next", count: 1, unit: "month" })).toBe(
+      "next_1_month",
+    );
+    expect(token({ direction: "next", count: 999, unit: "year" })).toBe(
+      "next_999_years",
+    );
+    expect(token({ direction: "this", unit: "week" })).toBe("this_week");
+    // A token written in the other number reads back in the fitting one.
+    expect(token(parse("past_1_days")!)).toBe("past_1_day");
+    expect(token(parse("next_3_week")!)).toBe("next_3_weeks");
+  });
+
+  it("counts from 1 to 999 and reads nothing else", () => {
+    expect(parse("past_1_day")).not.toBeNull();
+    expect(parse("next_999_days")).not.toBeNull();
+    for (const value of [
+      "past_0_days",
+      "next_1000_days",
+      "past_-1_days",
+      "past_07_days",
+      "past_1.5_days",
+      "past_days",
+      "past_7_hours",
+      "Past_7_days",
+      "this_weeks",
+      "this_2_weeks",
+      "last_week",
+      "next_week",
+      "next_fortnight",
+      "",
+    ]) {
+      expect(parse(value), value).toBeNull();
+    }
+  });
+
+  it("names the token grammar when it rejects a range", () => {
+    expect(
+      contentDatabaseDateFilterValueError(isWithin("next_week"), "date"),
+    ).toBe(
+      'Filter on "due" uses is_within with "next_week"; use past_<n>_<unit> or next_<n>_<unit> with n from 1 to 999, or this_<unit>, where the unit is day, week, month, or year, such as past_7_days, next_1_month, past_2_weeks, or this_year.',
+    );
+    expect(
+      contentDatabaseDateFilterValueError(
+        isWithin("past_1000_days"),
+        "created_time",
+      ),
+    ).toContain('uses is_within with "past_1000_days"');
+    for (const value of ["past_2_weeks", " this_month ", "next_1_days", ""]) {
+      expect(
+        contentDatabaseDateFilterValueError(
+          isWithin(value),
+          "last_edited_time",
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("counts past and next ranges in whole days, today included", () => {
+    expect(days("past_1_day", TODAY)).toEqual(["2026-10-22", "2026-10-22"]);
+    expect(days("next_1_day", TODAY)).toEqual(["2026-10-22", "2026-10-22"]);
+    expect(days("past_7_days", TODAY)).toEqual(["2026-10-16", "2026-10-22"]);
+    expect(days("next_7_days", TODAY)).toEqual(["2026-10-22", "2026-10-28"]);
+    expect(days("past_30_days", TODAY)).toEqual(["2026-09-23", "2026-10-22"]);
+    expect(days("next_30_days", TODAY)).toEqual(["2026-10-22", "2026-11-20"]);
+    expect(days("past_1_week", TODAY)).toEqual(["2026-10-16", "2026-10-22"]);
+    expect(days("past_2_weeks", TODAY)).toEqual(["2026-10-09", "2026-10-22"]);
+    expect(days("next_2_weeks", TODAY)).toEqual(["2026-10-22", "2026-11-04"]);
+    expect(days("past_1_month", TODAY)).toEqual(["2026-09-23", "2026-10-22"]);
+    expect(days("next_3_months", TODAY)).toEqual(["2026-10-22", "2027-01-21"]);
+    expect(days("past_1_year", TODAY)).toEqual(["2025-10-23", "2026-10-22"]);
+    expect(days("next_2_years", TODAY)).toEqual(["2026-10-22", "2028-10-21"]);
+    expect(days("past_999_days", TODAY)).toEqual(["2024-01-28", "2026-10-22"]);
+  });
+
+  it("covers today, this week, this month, and this year", () => {
+    expect(days("this_day", TODAY)).toEqual(["2026-10-22", "2026-10-22"]);
+    expect(days("this_week", TODAY)).toEqual(["2026-10-18", "2026-10-24"]);
+    expect(days("this_month", TODAY)).toEqual(["2026-10-01", "2026-10-31"]);
+    expect(days("this_year", TODAY)).toEqual(["2026-01-01", "2026-12-31"]);
+  });
+
+  it("starts a week on Sunday, even across a month or year", () => {
+    // Sunday the 18th and Saturday the 24th each sit in their own week.
+    expect(days("this_week", "2026-10-18")).toEqual([
+      "2026-10-18",
+      "2026-10-24",
+    ]);
+    expect(days("this_week", "2026-10-24")).toEqual([
+      "2026-10-18",
+      "2026-10-24",
+    ]);
+    expect(days("this_week", "2026-10-25")).toEqual([
+      "2026-10-25",
+      "2026-10-31",
+    ]);
+    // Thursday 31 December's week ends on Saturday 2 January.
+    expect(days("this_week", "2026-12-31")).toEqual([
+      "2026-12-27",
+      "2027-01-02",
+    ]);
+  });
+
+  it("takes a shorter month's last day when a month lands past it", () => {
+    // 31 March less a month is 28 February, so the month counted back to
+    // today starts on 1 March.
+    expect(days("past_1_month", "2026-03-31")).toEqual([
+      "2026-03-01",
+      "2026-03-31",
+    ]);
+    expect(days("past_1_month", "2026-03-15")).toEqual([
+      "2026-02-16",
+      "2026-03-15",
+    ]);
+    expect(days("past_3_months", "2026-05-31")).toEqual([
+      "2026-03-01",
+      "2026-05-31",
+    ]);
+    // 31 January plus a month is 28 February, so the month ends the day before.
+    expect(days("next_1_month", "2026-01-31")).toEqual([
+      "2026-01-31",
+      "2026-02-27",
+    ]);
+    expect(days("next_1_month", "2026-12-31")).toEqual([
+      "2026-12-31",
+      "2027-01-30",
+    ]);
+    expect(days("this_month", "2026-02-10")).toEqual([
+      "2026-02-01",
+      "2026-02-28",
+    ]);
+  });
+
+  it("counts a leap day", () => {
+    expect(days("this_month", "2028-02-10")).toEqual([
+      "2028-02-01",
+      "2028-02-29",
+    ]);
+    expect(days("past_7_days", "2028-03-02")).toEqual([
+      "2028-02-25",
+      "2028-03-02",
+    ]);
+    expect(days("past_1_month", "2028-03-30")).toEqual([
+      "2028-03-01",
+      "2028-03-30",
+    ]);
+    // 29 February a year on or back is 28 February.
+    expect(days("past_1_year", "2028-02-29")).toEqual([
+      "2027-03-01",
+      "2028-02-29",
+    ]);
+    expect(days("next_1_year", "2028-02-29")).toEqual([
+      "2028-02-29",
+      "2029-02-27",
+    ]);
+    expect(days("this_year", "2028-02-29")).toEqual([
+      "2028-01-01",
+      "2028-12-31",
+    ]);
+  });
+
+  it("reads no range from a token it does not know", () => {
+    expect(days("last_week", TODAY)).toBeNull();
+    expect(days("past_0_days", TODAY)).toBeNull();
   });
 });
 

@@ -51,21 +51,27 @@ import { contentDatabaseFormQuestions } from "@shared/database-form";
 import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 import {
   applyContentDatabaseTableQuery,
-  CONTENT_DATABASE_RELATIVE_DATE_RANGES,
+  CONTENT_DATABASE_RELATIVE_DATE_DIRECTIONS,
+  CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT,
+  CONTENT_DATABASE_RELATIVE_DATE_UNITS,
   CONTENT_DATABASE_RELATIVE_DATES,
   contentDatabaseDateValueHasTime,
   contentDatabaseFilterDateBound,
   contentDatabaseFilterDateRangeValues,
   contentDatabaseFilterGroupMode,
   contentDatabaseFilterIsActive,
+  contentDatabaseFilterMenuOperatorsForType,
   contentDatabaseFilterOperatorNeedsValue,
   contentDatabaseFilterOperatorsForType,
   contentDatabaseFilterToday,
+  contentDatabaseRelativeDateRange,
+  contentDatabaseRelativeDateRangeToken,
   contentDatabaseRequiredFilters,
   type ContentDatabaseRelativeDate,
+  type ContentDatabaseRelativeDateDirection,
   type ContentDatabaseRelativeDateRange,
+  type ContentDatabaseRelativeDateUnit,
   isContentDatabaseRelativeDate,
-  isContentDatabaseRelativeDateRange,
   materializeContentDatabaseFilterGroupModes,
   withContentDatabaseFilterGroupMode,
 } from "@shared/database-query";
@@ -7460,7 +7466,11 @@ function DatabaseAdvancedFilterRuleRow({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-44">
-              {filterOperatorsForKey(filter.key, properties).map((operator) => (
+              {filterMenuOperatorsForKey(
+                filter.key,
+                properties,
+                filter.operator,
+              ).map((operator) => (
                 <DropdownMenuItem
                   key={operator}
                   onSelect={() => onUpdateFilter({ operator })}
@@ -7812,25 +7822,27 @@ function DatabaseInlineFilterControl({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-44">
-                {filterOperatorsForKey(filter.key, properties).map(
-                  (operator) => (
-                    <DropdownMenuItem
-                      key={operator}
-                      onSelect={() => updateFilter({ operator })}
-                    >
-                      <span className="flex-1">
-                        {databaseFilterOperatorLabel(
-                          operator,
-                          filter.key,
-                          properties,
-                        )}
-                      </span>
-                      {filter.operator === operator ? (
-                        <IconCheck className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  ),
-                )}
+                {filterMenuOperatorsForKey(
+                  filter.key,
+                  properties,
+                  filter.operator,
+                ).map((operator) => (
+                  <DropdownMenuItem
+                    key={operator}
+                    onSelect={() => updateFilter({ operator })}
+                  >
+                    <span className="flex-1">
+                      {databaseFilterOperatorLabel(
+                        operator,
+                        filter.key,
+                        properties,
+                      )}
+                    </span>
+                    {filter.operator === operator ? (
+                      <IconCheck className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -18406,20 +18418,50 @@ const FILTER_OPERATOR_LABEL_KEYS: Record<FilterOperator, DatabaseMessageKey> = {
 };
 
 const RELATIVE_DATE_LABEL_KEYS: Record<
-  ContentDatabaseRelativeDate | ContentDatabaseRelativeDateRange,
+  ContentDatabaseRelativeDate,
   DatabaseMessageKey
 > = {
   today: "filterDateToday",
   tomorrow: "filterDateTomorrow",
   yesterday: "filterDateYesterday",
-  past_7_days: "filterDatePast7Days",
-  next_7_days: "filterDateNext7Days",
-  past_30_days: "filterDatePast30Days",
-  next_30_days: "filterDateNext30Days",
-  last_week: "filterDateLastWeek",
-  this_week: "filterDateThisWeek",
-  next_week: "filterDateNextWeek",
 };
+
+const RELATIVE_DATE_DIRECTION_LABEL_KEYS: Record<
+  ContentDatabaseRelativeDateDirection,
+  DatabaseMessageKey
+> = {
+  past: "filterDatePast",
+  this: "filterDateThis",
+  next: "filterDateNext",
+};
+
+// One unit, then more than one.
+const RELATIVE_DATE_UNIT_LABEL_KEYS: Record<
+  ContentDatabaseRelativeDateUnit,
+  readonly [DatabaseMessageKey, DatabaseMessageKey]
+> = {
+  day: ["filterDateDay", "filterDateDays"],
+  week: ["filterDateWeek", "filterDateWeeks"],
+  month: ["filterDateMonth", "filterDateMonths"],
+  year: ["filterDateYear", "filterDateYears"],
+};
+
+const RELATIVE_DATE_THIS_LABEL_KEYS: Record<
+  ContentDatabaseRelativeDateUnit,
+  DatabaseMessageKey
+> = {
+  day: "filterDateToday",
+  week: "filterDateThisWeek",
+  month: "filterDateThisMonth",
+  year: "filterDateThisYear",
+};
+
+// What "is within" starts with, as in Notion.
+const DEFAULT_RELATIVE_DATE_RANGE = {
+  direction: "past",
+  count: 7,
+  unit: "day",
+} as const satisfies ContentDatabaseRelativeDateRange;
 
 function databaseFilterOperatorLabel(
   operator: FilterOperator,
@@ -18448,8 +18490,9 @@ function isDateFilterPropertyType(type: DocumentPropertyType) {
 }
 
 // Only "is within" holds a relative range, so a value never carries across
-// that operator in either direction. Leaving "between" keeps the range's start;
-// a single date already reads as the start of a range.
+// that operator in either direction: switching to it starts at the past 7 days.
+// Leaving "between" keeps the range's start; a single date already reads as the
+// start of a range.
 function databaseFilterNextValue(
   current: DatabaseFilter,
   next: Partial<DatabaseFilter>,
@@ -18458,7 +18501,9 @@ function databaseFilterNextValue(
   if (!contentDatabaseFilterOperatorNeedsValue(operator)) return "";
   if (next.value !== undefined) return next.value;
   if ((operator === "is_within") !== (current.operator === "is_within")) {
-    return "";
+    return operator === "is_within"
+      ? contentDatabaseRelativeDateRangeToken(DEFAULT_RELATIVE_DATE_RANGE)
+      : "";
   }
   if (current.operator === "between" && operator !== "between") {
     return contentDatabaseFilterDateRangeValues(current.value)[0];
@@ -18476,15 +18521,36 @@ function databaseFilterExactDay(relative: ContentDatabaseRelativeDate) {
 }
 
 // Day words sit mid-phrase in a chip ("on or before today"); ranges stand
-// alone ("Due: Next 7 days"), so they keep their capital.
+// alone ("Due: Past 2 weeks"), so they keep their capital.
 function databaseFilterDateValueLabel(value: string) {
   if (isContentDatabaseRelativeDate(value)) {
     return dbText(RELATIVE_DATE_LABEL_KEYS[value]).toLowerCase();
   }
-  if (isContentDatabaseRelativeDateRange(value)) {
-    return dbText(RELATIVE_DATE_LABEL_KEYS[value]);
+  const range = contentDatabaseRelativeDateRange(value);
+  return range ? databaseFilterRelativeDateRangeLabel(range) : value;
+}
+
+function databaseFilterRelativeDateRangeLabel(
+  range: ContentDatabaseRelativeDateRange,
+) {
+  if (range.direction === "this") {
+    return dbText(RELATIVE_DATE_THIS_LABEL_KEYS[range.unit]);
   }
-  return value;
+  return dbText(
+    range.direction === "past" ? "filterDatePastRange" : "filterDateNextRange",
+    {
+      count: range.count,
+      unit: databaseFilterRelativeDateUnitLabel(range.unit, range.count),
+    },
+  );
+}
+
+function databaseFilterRelativeDateUnitLabel(
+  unit: ContentDatabaseRelativeDateUnit,
+  count: number,
+) {
+  const [one, more] = RELATIVE_DATE_UNIT_LABEL_KEYS[unit];
+  return dbText(count === 1 ? one : more);
 }
 
 function databaseFilterOperatorInlineLabel(
@@ -18501,6 +18567,18 @@ function filterOperatorsForKey(
 ): readonly FilterOperator[] {
   return contentDatabaseFilterOperatorsForType(
     filterPropertyTypeForKey(key, properties),
+  );
+}
+
+// A rule's menu also lists its own operator when the menu no longer offers it.
+function filterMenuOperatorsForKey(
+  key: string,
+  properties: DocumentProperty[],
+  current: FilterOperator,
+): readonly FilterOperator[] {
+  return contentDatabaseFilterMenuOperatorsForType(
+    filterPropertyTypeForKey(key, properties),
+    current,
   );
 }
 
@@ -18660,6 +18738,10 @@ function DatabaseDateValueField({
   );
 }
 
+// Notion's relative range: past, this, or next, and for past and next how many
+// days, weeks, months, or years. Each choice saves the whole range, so the
+// filter applies as soon as it changes. A value that isn't a range shows the
+// default, greyed out, until something is chosen.
 function DatabaseDateRangeFilterValueControl({
   filter,
   onValueChange,
@@ -18667,36 +18749,129 @@ function DatabaseDateRangeFilterValueControl({
   filter: DatabaseFilter;
   onValueChange: (value: string) => void;
 }) {
-  const value = filter.value.trim();
-  const selected = isContentDatabaseRelativeDateRange(value) ? value : null;
+  const saved = contentDatabaseRelativeDateRange(filter.value.trim());
+  const range = saved ?? DEFAULT_RELATIVE_DATE_RANGE;
+  // "This" is one of its unit, so leaving it starts the count at 1.
+  const count = range.direction === "this" ? 1 : range.count;
+  // A typed count is passed on only once a range can hold it, and leaving the
+  // field or choosing from a menu drops an unfinished edit, as a typed date
+  // does. A menu doesn't always take focus first, and "This" hides the field.
+  const [draft, setDraft] = useState<string | null>(null);
+  const typedCount = (text: string) => {
+    const typed = Number(text);
+    return Number.isInteger(typed) &&
+      typed >= 1 &&
+      typed <= CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT
+      ? typed
+      : null;
+  };
+  const change = (next: ContentDatabaseRelativeDateRange) =>
+    onValueChange(contentDatabaseRelativeDateRangeToken(next));
+  const choose = (next: ContentDatabaseRelativeDateRange) => {
+    setDraft(null);
+    change(next);
+  };
 
+  // An advanced rule's value is too narrow for all three, so there the unit
+  // drops below the others, as a "between" range stacks its ends.
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      <DatabaseRelativeDateRangeMenu
+        choices={CONTENT_DATABASE_RELATIVE_DATE_DIRECTIONS}
+        selected={range.direction}
+        muted={!saved}
+        className="shrink-0"
+        label={(direction) =>
+          dbText(RELATIVE_DATE_DIRECTION_LABEL_KEYS[direction])
+        }
+        onSelect={(direction) =>
+          choose(
+            direction === "this"
+              ? { direction, unit: range.unit }
+              : { direction, count, unit: range.unit },
+          )
+        }
+      />
+      {range.direction === "this" ? null : (
+        <Input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT}
+          step={1}
+          value={draft ?? (saved ? String(count) : "")}
+          placeholder={String(count)}
+          aria-label={`${filter.label} filter range count`}
+          aria-invalid={draft !== null && typedCount(draft) === null}
+          onChange={(event) => {
+            const next = event.target.value;
+            setDraft(next);
+            const typed = typedCount(next);
+            if (typed !== null) {
+              change({
+                direction: range.direction,
+                count: typed,
+                unit: range.unit,
+              });
+            }
+          }}
+          onBlur={() => setDraft(null)}
+          className="h-9 w-16 shrink-0 text-sm focus-visible:border-database-blue focus-visible:ring-database-blue/25"
+        />
+      )}
+      <DatabaseRelativeDateRangeMenu
+        choices={CONTENT_DATABASE_RELATIVE_DATE_UNITS}
+        selected={range.unit}
+        muted={!saved}
+        className="min-w-18 flex-1"
+        label={(unit) => databaseFilterRelativeDateUnitLabel(unit, count)}
+        onSelect={(unit) => choose({ ...range, unit })}
+      />
+    </div>
+  );
+}
+
+function DatabaseRelativeDateRangeMenu<Choice extends string>({
+  choices,
+  selected,
+  muted,
+  className,
+  label,
+  onSelect,
+}: {
+  choices: readonly Choice[];
+  selected: Choice;
+  muted: boolean;
+  className: string;
+  label: (choice: Choice) => string;
+  onSelect: (choice: Choice) => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-9 w-full min-w-0 items-center rounded border border-input bg-background px-2 text-left text-xs hover:bg-muted/50 data-[state=open]:bg-muted/50"
+          className={cn(
+            "flex h-9 items-center rounded border border-input bg-background px-2 text-left text-xs hover:bg-muted/50 data-[state=open]:bg-muted/50",
+            className,
+          )}
         >
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
-              !selected && "text-muted-foreground",
+              muted && "text-muted-foreground",
             )}
           >
-            {selected
-              ? dbText(RELATIVE_DATE_LABEL_KEYS[selected])
-              : dbText("filterChooseDates")}
+            {label(selected)}
           </span>
           <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        {CONTENT_DATABASE_RELATIVE_DATE_RANGES.map((range) => (
-          <DropdownMenuItem key={range} onSelect={() => onValueChange(range)}>
-            <span className="flex-1">
-              {dbText(RELATIVE_DATE_LABEL_KEYS[range])}
-            </span>
-            {range === selected ? (
+      <DropdownMenuContent align="start" className="w-40">
+        {choices.map((choice) => (
+          <DropdownMenuItem key={choice} onSelect={() => onSelect(choice)}>
+            <span className="flex-1">{label(choice)}</span>
+            {choice === selected ? (
               <IconCheck className="size-4 text-muted-foreground" />
             ) : null}
           </DropdownMenuItem>

@@ -100,11 +100,32 @@ const NUMBER_FILTER_COMPARISONS: Partial<
   less_than_or_equal: (current, target) => current <= target,
 };
 
+// Dates still take "is not", so saved views and agent calls keep working, but
+// their menu leaves it out to match Notion's date operators.
+const UNLISTED_DATE_FILTER_OPERATORS: ReadonlySet<ContentDatabaseFilterOperator> =
+  new Set(["does_not_equal"]);
+
 // Listed in menu order; the first entry is the operator a new filter starts with.
 export function contentDatabaseFilterOperatorsForType(
   type: DocumentPropertyType,
 ): readonly ContentDatabaseFilterOperator[] {
   return FILTER_OPERATORS_BY_TYPE[type] ?? DEFAULT_FILTER_OPERATORS;
+}
+
+/**
+ * The operators a filter menu offers for `type`: the ones it takes, less any
+ * kept only for saved filters, unless `current`, the rule's own, is one.
+ */
+export function contentDatabaseFilterMenuOperatorsForType(
+  type: DocumentPropertyType,
+  current?: ContentDatabaseFilterOperator,
+): readonly ContentDatabaseFilterOperator[] {
+  const operators = contentDatabaseFilterOperatorsForType(type);
+  if (!DATE_PROPERTY_TYPES.has(type)) return operators;
+  return operators.filter(
+    (operator) =>
+      operator === current || !UNLISTED_DATE_FILTER_OPERATORS.has(operator),
+  );
 }
 
 export function contentDatabaseFilterOperatorNeedsValue(
@@ -141,45 +162,61 @@ export const CONTENT_DATABASE_RELATIVE_DATES = [
 export type ContentDatabaseRelativeDate =
   (typeof CONTENT_DATABASE_RELATIVE_DATES)[number];
 
-/** The values an `is_within` date filter holds. */
-export const CONTENT_DATABASE_RELATIVE_DATE_RANGES = [
-  "past_7_days",
-  "next_7_days",
-  "past_30_days",
-  "next_30_days",
-  "last_week",
-  "this_week",
-  "next_week",
+/** Where an `is_within` range sits: ending today, around today, or from today. */
+export const CONTENT_DATABASE_RELATIVE_DATE_DIRECTIONS = [
+  "past",
+  "this",
+  "next",
 ] as const;
 
+export type ContentDatabaseRelativeDateDirection =
+  (typeof CONTENT_DATABASE_RELATIVE_DATE_DIRECTIONS)[number];
+
+export const CONTENT_DATABASE_RELATIVE_DATE_UNITS = [
+  "day",
+  "week",
+  "month",
+  "year",
+] as const;
+
+export type ContentDatabaseRelativeDateUnit =
+  (typeof CONTENT_DATABASE_RELATIVE_DATE_UNITS)[number];
+
+/** The most units a past or next range can count. */
+export const CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT = 999;
+
+/**
+ * The range an `is_within` date filter holds, written as a token:
+ * `past_<n>_<unit>` or `next_<n>_<unit>`, with the unit plural unless n is 1
+ * (`past_7_days`, `next_1_month`), or `this_<unit>` (`this_week`).
+ */
 export type ContentDatabaseRelativeDateRange =
-  (typeof CONTENT_DATABASE_RELATIVE_DATE_RANGES)[number];
+  | {
+      direction: "past" | "next";
+      count: number;
+      unit: ContentDatabaseRelativeDateUnit;
+    }
+  | { direction: "this"; unit: ContentDatabaseRelativeDateUnit };
+
+const RELATIVE_DATE_UNIT_PATTERN =
+  CONTENT_DATABASE_RELATIVE_DATE_UNITS.join("|");
+
+// Reads a unit in either number, so "past_1_days" and "next_3_week" still mean
+// what they say; tokens are written with the one that fits.
+const RELATIVE_DATE_RANGE_TOKEN = new RegExp(
+  `^(?:(past|next)_([1-9]\\d{0,2})_(${RELATIVE_DATE_UNIT_PATTERN})s?|this_(${RELATIVE_DATE_UNIT_PATTERN}))$`,
+);
+
+const RELATIVE_DATE_RANGE_GRAMMAR =
+  "past_<n>_<unit> or next_<n>_<unit> with n from 1 to " +
+  `${CONTENT_DATABASE_RELATIVE_DATE_MAX_COUNT}, or this_<unit>, where the unit ` +
+  "is day, week, month, or year, such as past_7_days, next_1_month, " +
+  "past_2_weeks, or this_year";
 
 const RELATIVE_DATE_OFFSETS: Record<ContentDatabaseRelativeDate, number> = {
   yesterday: -1,
   today: 0,
   tomorrow: 1,
-};
-
-// Each "N days" range is N calendar days counting today. Weeks start on
-// Sunday, like the calendar view's grid.
-const RELATIVE_DATE_RANGES: Record<
-  ContentDatabaseRelativeDateRange,
-  (today: string, weekStart: string) => [string, string]
-> = {
-  past_7_days: (today) => [addDays(today, -6), today],
-  next_7_days: (today) => [today, addDays(today, 6)],
-  past_30_days: (today) => [addDays(today, -29), today],
-  next_30_days: (today) => [today, addDays(today, 29)],
-  last_week: (_today, weekStart) => [
-    addDays(weekStart, -7),
-    addDays(weekStart, -1),
-  ],
-  this_week: (_today, weekStart) => [weekStart, addDays(weekStart, 6)],
-  next_week: (_today, weekStart) => [
-    addDays(weekStart, 7),
-    addDays(weekStart, 13),
-  ],
 };
 
 const DATE_COMPARISONS = {
@@ -207,12 +244,81 @@ export function isContentDatabaseRelativeDate(
   return (CONTENT_DATABASE_RELATIVE_DATES as readonly string[]).includes(value);
 }
 
-export function isContentDatabaseRelativeDateRange(
-  value: string,
-): value is ContentDatabaseRelativeDateRange {
-  return (CONTENT_DATABASE_RELATIVE_DATE_RANGES as readonly string[]).includes(
-    value,
-  );
+/** The range an `is_within` token stands for, or null when it isn't one. */
+export function contentDatabaseRelativeDateRange(
+  token: string,
+): ContentDatabaseRelativeDateRange | null {
+  const match = RELATIVE_DATE_RANGE_TOKEN.exec(token);
+  if (!match) return null;
+  const [, direction, count, unit, thisUnit] = match;
+  if (thisUnit) {
+    return {
+      direction: "this",
+      unit: thisUnit as ContentDatabaseRelativeDateUnit,
+    };
+  }
+  return {
+    direction: direction as "past" | "next",
+    count: Number(count),
+    unit: unit as ContentDatabaseRelativeDateUnit,
+  };
+}
+
+/** The token an `is_within` filter saves for `range`. */
+export function contentDatabaseRelativeDateRangeToken(
+  range: ContentDatabaseRelativeDateRange,
+) {
+  if (range.direction === "this") return `this_${range.unit}`;
+  const unit = range.count === 1 ? range.unit : `${range.unit}s`;
+  return `${range.direction}_${range.count}_${unit}`;
+}
+
+// Ranges are whole calendar days. Past N units end today and next N units
+// start today, each N units long counting today, so the past 7 days are today
+// and the six before it. A month or year that lands on a day its month doesn't
+// have, such as 31 February, takes that month's last day. Weeks start on
+// Sunday, like the calendar view's grid.
+function relativeDateRangeDays(
+  range: ContentDatabaseRelativeDateRange,
+  today: string,
+): [string, string] {
+  if (range.direction === "past") {
+    return [addDays(addUnits(today, -range.count, range.unit), 1), today];
+  }
+  if (range.direction === "next") {
+    return [today, addDays(addUnits(today, range.count, range.unit), -1)];
+  }
+  switch (range.unit) {
+    case "day":
+      return [today, today];
+    case "week": {
+      const weekStart = addDays(today, -dayDate(today).getUTCDay());
+      return [weekStart, addDays(weekStart, 6)];
+    }
+    case "month": {
+      const monthStart = `${today.slice(0, 7)}-01`;
+      return [monthStart, addDays(addMonths(monthStart, 1), -1)];
+    }
+    case "year":
+      return [`${today.slice(0, 4)}-01-01`, `${today.slice(0, 4)}-12-31`];
+  }
+}
+
+function addUnits(
+  day: string,
+  count: number,
+  unit: ContentDatabaseRelativeDateUnit,
+) {
+  switch (unit) {
+    case "day":
+      return addDays(day, count);
+    case "week":
+      return addDays(day, count * 7);
+    case "month":
+      return addMonths(day, count);
+    case "year":
+      return addMonths(day, count * 12);
+  }
 }
 
 /**
@@ -478,8 +584,8 @@ export function contentDatabaseDateFilterValueError(
   if (!DATE_PROPERTY_TYPES.has(type)) return null;
   if (filter.operator === "is_within") {
     const token = filter.value.trim();
-    return token && !isContentDatabaseRelativeDateRange(token)
-      ? `Filter on "${filter.key}" uses is_within with "${token}"; use one of ${CONTENT_DATABASE_RELATIVE_DATE_RANGES.join(", ")}.`
+    return token && !contentDatabaseRelativeDateRange(token)
+      ? `Filter on "${filter.key}" uses is_within with "${token}"; use ${RELATIVE_DATE_RANGE_GRAMMAR}.`
       : null;
   }
   if (!contentDatabaseFilterComparesDates(filter)) return null;
@@ -536,10 +642,9 @@ export function contentDatabaseDateFilterCheck(
   timeZone?: string,
 ): ContentDatabaseDateFilterCheck | null {
   if (filter.operator === "is_within") {
-    const token = filter.value.trim();
-    if (!isContentDatabaseRelativeDateRange(token)) return null;
-    const weekStart = addDays(today, -dayDate(today).getUTCDay());
-    const [start, end] = RELATIVE_DATE_RANGES[token](today, weekStart);
+    const range = contentDatabaseRelativeDateRange(filter.value.trim());
+    if (!range) return null;
+    const [start, end] = relativeDateRangeDays(range, today);
     return { op: "between", start: { day: start }, end: { day: end } };
   }
   if (filter.operator === "between") {
@@ -581,6 +686,17 @@ function addDays(day: string, days: number) {
   const date = dayDate(day);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+/** `day` moved by whole months, on its month's last day if it's shorter. */
+function addMonths(day: string, months: number) {
+  const [year, month, date] = day.split("-").map(Number);
+  const target = new Date(Date.UTC(year!, month! - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(date!, lastDay));
+  return target.toISOString().slice(0, 10);
 }
 
 export function applyContentDatabaseTableQuery(

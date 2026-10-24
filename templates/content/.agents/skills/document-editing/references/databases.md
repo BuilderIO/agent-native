@@ -176,8 +176,9 @@ mode, per-view hidden property IDs, column widths, and (for table, list,
 gallery, and board views) grouping property or (for calendar/timeline views)
 date property: text-like fields can use contains, does not contain, is, is
 not, starts with, ends with, and empty filters (all ignore case), numbers
-support comparisons, dates support is, is not, before, after, on or before, on
-or after, between, and is within, and checkboxes support checked/unchecked.
+support comparisons, dates support is, before, after, on or before, on or
+after, between, and is within (and is not, for rules that already use it), and
+checkboxes support checked/unchecked.
 Users can reorder stacked sort and filter conditions from the collection
 toolbar menus, and sort priority follows the same top-to-bottom order shown in
 the menu. "Does not contain" matches rows with an empty value; starts with and
@@ -189,13 +190,21 @@ or `+02:00`), or a relative token. Other formats, such as `10/22/2026` or
 `2026-10`, are not read.
 `equals`, `does_not_equal`, `before`, `after`, `on_or_before`, `on_or_after`,
 and each end of a `between` pair accept `today`, `tomorrow`, or `yesterday`;
-`is_within` takes `past_7_days`, `next_7_days`, `past_30_days`,
-`next_30_days`, `last_week`, `this_week`, or `next_week`. The 7- and 30-day
-windows count today as their first or last day, so `next_7_days` runs from
-today through six days from now; weeks run Sunday to Saturday. Store the
-token, not a date: it is resolved each time the view is read, in the caller's
-time zone (the browser's, or the `x-user-timezone` request header on the
-server, falling back to the server's zone). `update-content-database-view`
+`is_within` takes a relative range, as Notion's does: `past_<n>_<unit>`,
+`next_<n>_<unit>`, or `this_<unit>`, where n is a whole number from 1 to 999
+and the unit is `day`, `week`, `month`, or `year`, singular when n is 1 and
+plural otherwise (`past_7_days`, `next_1_week`, `past_2_months`,
+`this_year`). Either number reads, but write the fitting one. Ranges are
+whole calendar days counting today: `past_7_days` is today and the six days
+before it, `next_1_month` runs from today through the day before the same date
+next month, and a month or year that lands past a shorter month's end, such as
+a month back from 31 March, takes that month's last day. `this_day` is today,
+`this_week` runs Sunday to Saturday, and `this_month` and `this_year` are the
+calendar month and year. Store the token, not a date: it is resolved each time
+the view is read, in the caller's time zone (the browser's, or the
+`x-user-timezone` request header on the server, falling back to the server's
+zone). Dates still take `does_not_equal`, though the UI's date menu offers it
+only to a rule that already uses it. `update-content-database-view`
 and `update-content-database-personal-view` reject an unknown `is_within`
 token and a date they cannot read, such as `2026-02-30`, in every form they
 accept; an empty value or an unfinished `between` end still saves, and such a
@@ -244,8 +253,8 @@ filter value pickers are searchable, can create a new option from the typed
 query, and can be cleared without removing the whole filter row. Date
 filters, and each end of a `between` range, choose an exact date or a relative
 day; a value with a time is edited as text so the time isn't dropped.
-`is_within` chooses a relative range, and number properties use numeric
-inputs.
+`is_within` chooses Past, This, or Next, a count for Past and Next, and a
+unit, and number properties use numeric inputs.
 
 Column header menus can add or clear column sorts, add or replace type-aware
 quick filters (including checked/unchecked for checkbox fields), clear
