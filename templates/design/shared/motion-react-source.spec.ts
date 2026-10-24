@@ -532,6 +532,25 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("decodes escaped CSS property names before checking important overrides", () => {
+    const css =
+      "#hero { op" + String.fromCharCode(92) + "61 city: 0 !important; }";
+    const generated = apply(source)
+      .source.replace(
+        '<main className="card">',
+        '<main className="card"><style>{String.raw`' + css + "`}</style>",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero" data-agent-native-node-id="hero-title">',
+      );
+
+    expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("treats dynamic JSX class names as possible authored CSS matches", () => {
     const generated = apply(source)
       .source.replace(
@@ -1395,6 +1414,10 @@ function Card(style = { animationName: "fade" }) {
     [
       "render-body aliased style mutation",
       `function Card() { const targetStyle = document.querySelector("#hero-title").style; targetStyle.opacity = "0";`,
+    ],
+    [
+      "render-body local helper style mutation",
+      `function Card() { function mutateTargetStyle() { document.querySelector("#hero-title").style.opacity = "0"; } mutateTargetStyle();`,
     ],
   ])("rejects %s in a Motion component", (_label, prefix) => {
     const authored = source.replace("function Card() {", prefix);

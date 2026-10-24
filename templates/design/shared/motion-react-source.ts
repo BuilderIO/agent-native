@@ -8,6 +8,7 @@ import postcss from "postcss";
 import type * as TypeScript from "typescript";
 
 import {
+  decodeMotionCssIdentifier,
   importAuthoredCssAnimations,
   mergeAuthoredCssMotionDocument,
   parseMotionAuthoredCssSimpleSelector,
@@ -1534,7 +1535,9 @@ function hasUnsupportedReactImportantCssOverride(
         const selectors = rule.selectors;
         rule.walkDecls((declaration) => {
           if (unsupported || !declaration.important) return;
-          const property = declaration.prop.toLowerCase();
+          const property = decodeMotionCssIdentifier(
+            declaration.prop,
+          ).toLowerCase();
           for (const target of targets) {
             const targetProperties = motionPropertiesByTarget.get(
               target.nodeId,
@@ -2265,9 +2268,42 @@ function inspectReactStyleMutationBody(
 function hasReactRenderStyleMutation(
   body: TypeScript.ConciseBody,
   sourceFile: TypeScript.SourceFile,
+  resolvingHelpers = new Set<TypeScript.Node>(),
 ): boolean {
   let found = false;
   const styleAliases = new Set<string>();
+  const localFunctions = new Map<
+    string,
+    { declaration: TypeScript.Node; body: TypeScript.ConciseBody }[]
+  >();
+  const collectLocalFunctions = (node: TypeScript.Node): void => {
+    let name: string | undefined;
+    let declaration: TypeScript.Node | undefined;
+    let helperBody: TypeScript.ConciseBody | undefined;
+    if (ts.isFunctionDeclaration(node)) {
+      name = node.name?.text;
+      declaration = node;
+      helperBody = node.body;
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) ||
+        ts.isFunctionExpression(node.initializer))
+    ) {
+      name = node.name.text;
+      declaration = node.initializer;
+      helperBody = node.initializer.body;
+    }
+    if (name && declaration && helperBody) {
+      const functions = localFunctions.get(name) ?? [];
+      functions.push({ declaration, body: helperBody });
+      localFunctions.set(name, functions);
+    }
+    if (node !== body && isFunctionBoundary(node)) return;
+    ts.forEachChild(node, collectLocalFunctions);
+  };
+  collectLocalFunctions(body);
   const containsStyleAccess = (expression: TypeScript.Expression): boolean => {
     let contains = false;
     const visit = (node: TypeScript.Node): void => {
@@ -2378,6 +2414,28 @@ function hasReactRenderStyleMutation(
     ts.forEachChild(node, visit);
   };
   visit(body);
+  if (found) return true;
+
+  const inspectLocalHelperCalls = (node: TypeScript.Node): void => {
+    if (found || (node !== body && isFunctionBoundary(node))) return;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      for (const helper of localFunctions.get(node.expression.text) ?? []) {
+        if (resolvingHelpers.has(helper.declaration)) continue;
+        if (
+          hasReactRenderStyleMutation(
+            helper.body,
+            sourceFile,
+            new Set(resolvingHelpers).add(helper.declaration),
+          )
+        ) {
+          found = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(node, inspectLocalHelperCalls);
+  };
+  inspectLocalHelperCalls(body);
   return found;
 }
 
