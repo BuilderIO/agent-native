@@ -463,6 +463,64 @@ function runtimeObjectBindingHasDynamicValues(value: string): boolean {
   });
 }
 
+function runtimeObjectBindingHasImportantMotionStyle(
+  name: string,
+  value: string,
+  motionProperties: ReadonlySet<string> | undefined,
+): boolean {
+  const directive = name.toLowerCase().split(/[.:]/, 1)[0]!;
+  if (directive !== "x-bind" && directive !== "v-bind") return false;
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return false;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return false;
+  return entries.some((entry) => {
+    const property =
+      /^(?:([A-Za-z_$][\w$]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'))\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    if (!property) return false;
+    const propertyName =
+      property[1] ?? readStaticJavaScriptString(property[2]!);
+    if (propertyName === null || propertyName === undefined) {
+      return /!\s*important\b/i.test(property[3]!);
+    }
+    if (propertyName.toLowerCase() !== "style") return false;
+    const styleValue = readStaticJavaScriptString(property[3]!);
+    if (styleValue === null && isStaticRuntimeScopeValue(property[3]!.trim())) {
+      return false;
+    }
+    return (
+      styleValue === null ||
+      hasInlineMotionDeclarations(styleValue, motionProperties)
+    );
+  });
+}
+
+function readStaticJavaScriptString(expression: string): string | null {
+  let program: unknown;
+  try {
+    program = parseJavaScript(expression, { ecmaVersion: "latest" });
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return null;
+  }
+  if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return null;
+  const [statement, ...rest] = program.body;
+  if (
+    rest.length > 0 ||
+    !isJavaScriptNode(statement) ||
+    statement.type !== "ExpressionStatement" ||
+    !isJavaScriptNode(statement.expression)
+  ) {
+    return null;
+  }
+  const value = statement.expression;
+  return value.type === "Literal" && typeof value.value === "string"
+    ? value.value
+    : null;
+}
+
 function runtimeObjectBindingMayWriteAttribute(
   value: string,
   attributeName: string,
@@ -1240,6 +1298,91 @@ function cssDeclarationAffectsMotionProperty(
   );
 }
 
+function cssDeclarationCanOverrideMotionProperty(
+  property: string,
+  value: string,
+  motionProperties: ReadonlySet<string> | undefined,
+): boolean {
+  const normalizedProperty = decodeMotionCssIdentifier(property).toLowerCase();
+  const standardProperty = normalizedProperty.replace(
+    /^-(?:webkit|moz|ms|o)-/i,
+    "",
+  );
+  if (/^(?:-(?:webkit|moz|ms|o)-)?animation(?:-|$)/i.test(normalizedProperty)) {
+    return Boolean(motionProperties?.size);
+  }
+  if (standardProperty === "transition-property") {
+    return cssTransitionValueAffectsMotionProperty(
+      value,
+      motionProperties,
+      false,
+    );
+  }
+  if (standardProperty === "transition") {
+    return cssTransitionValueAffectsMotionProperty(
+      value,
+      motionProperties,
+      true,
+    );
+  }
+  if (/^transition-/i.test(standardProperty)) {
+    return Boolean(motionProperties?.size);
+  }
+  return cssDeclarationAffectsMotionProperty(
+    normalizedProperty,
+    motionProperties,
+  );
+}
+
+function cssTransitionValueAffectsMotionProperty(
+  value: string,
+  motionProperties: ReadonlySet<string> | undefined,
+  shorthand: boolean,
+): boolean {
+  if (!motionProperties?.size) return false;
+  const normalized = decodeMotionCssIdentifier(value).toLowerCase();
+  if (/\b(?:var|env)\s*\(/.test(normalized)) return true;
+  if (/\bnone\b/.test(normalized)) return false;
+  if (
+    /\b(?:all|initial|inherit|unset|revert|revert-layer)\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  const withoutTimes = normalized.replace(
+    /-?(?:\d+(?:\.\d*)?|\.\d+)(?:ms|s)\b/g,
+    " ",
+  );
+  const tokens = withoutTimes.match(/[a-z_][a-z0-9_-]*/g) ?? [];
+  if (
+    tokens.some((token) =>
+      cssDeclarationAffectsMotionProperty(token, motionProperties),
+    )
+  ) {
+    return true;
+  }
+  if (!shorthand) return false;
+
+  const nonPropertyKeywords = new Set([
+    "ease",
+    "ease-in",
+    "ease-out",
+    "ease-in-out",
+    "linear",
+    "step-start",
+    "step-end",
+    "allow-discrete",
+    "normal",
+    "cubic-bezier",
+    "steps",
+    "frames",
+  ]);
+  if (tokens.some((token) => !nonPropertyKeywords.has(token))) return false;
+  return [...normalized.matchAll(/(-?(?:\d+(?:\.\d*)?|\.\d+))(ms|s)\b/g)].some(
+    ([, amount, unit]) => Number(amount) * (unit === "s" ? 1000 : 1) > 0,
+  );
+}
+
 function hasUnsafeMotionCssRule(
   nodes: readonly HtmlNode[],
   targetNodeIds: readonly string[],
@@ -1285,10 +1428,6 @@ function hasUnsafeMotionCssRule(
             );
           });
           if (relevantDeclarations.length === 0) return;
-          const hasImportantDeclaration = relevantDeclarations.some(
-            (declaration) =>
-              declaration.important === true && !insideReducedMotionMedia,
-          );
           const affectedTargets = targetNodeIds.filter((targetNodeId) => {
             const targetProperties = motionPropertiesByTarget.get(targetNodeId);
             return relevantDeclarations.some((declaration) => {
@@ -1308,6 +1447,8 @@ function hasUnsafeMotionCssRule(
             if (selector.type !== "Selector") continue;
             if (
               affectedTargets.some((targetNodeId) => {
+                const targetProperties =
+                  motionPropertiesByTarget.get(targetNodeId);
                 const target = nodes.find((candidate) =>
                   isMotionTargetNode(
                     candidate,
@@ -1321,8 +1462,36 @@ function hasUnsafeMotionCssRule(
                   target,
                   targetNodeId,
                 );
+                const hasImportantConflict = relevantDeclarations.some(
+                  (declaration) =>
+                    declaration.important === true &&
+                    !insideReducedMotionMedia &&
+                    declaration.property !== undefined &&
+                    cssDeclarationCanOverrideMotionProperty(
+                      declaration.property,
+                      cssTree.generate(declaration.value as never),
+                      targetProperties,
+                    ),
+                );
+                const hasDynamicMotionControlDeclaration =
+                  relevantDeclarations.some(
+                    (declaration) =>
+                      declaration.property !== undefined &&
+                      MOTION_CONTROL_CSS_PROPERTY.test(
+                        decodeMotionCssIdentifier(
+                          declaration.property,
+                        ).toLowerCase(),
+                      ) &&
+                      cssDeclarationCanOverrideMotionProperty(
+                        declaration.property,
+                        cssTree.generate(declaration.value as never),
+                        targetProperties,
+                      ),
+                  );
                 return (
-                  effect.matches && (effect.dynamic || hasImportantDeclaration)
+                  effect.matches &&
+                  (hasImportantConflict ||
+                    (effect.dynamic && hasDynamicMotionControlDeclaration))
                 );
               })
             ) {
@@ -1390,6 +1559,7 @@ type CssTreeSelectorNode = {
   type: string;
   name?: string;
   property?: string;
+  value?: CssTreeSelectorNode;
   important?: boolean;
   children?: { toArray(): CssTreeSelectorNode[] };
   prelude?: CssTreeSelectorNode;
@@ -3544,6 +3714,19 @@ function assertTargetsExist(
         sourceError(
           "unsupported-target",
           `Motion target "${nodeId}" ${onTarget ? "uses" : "has an ancestor using"} ${attribute.name}, which replaces its content when Alpine runs.`,
+        );
+      }
+      const importantRuntimeStyle = target.attrs?.find(({ name, value }) =>
+        runtimeObjectBindingHasImportantMotionStyle(
+          name,
+          value,
+          motionPropertiesByTarget.get(nodeId),
+        ),
+      );
+      if (importantRuntimeStyle) {
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" uses ${importantRuntimeStyle.name} with an important style declaration that overrides CSS Motion.`,
         );
       }
       const inlineStyle = target.attrs?.find(({ name }) => name === "style");

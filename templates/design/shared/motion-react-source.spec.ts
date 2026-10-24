@@ -501,6 +501,37 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("rejects important authored CSS that overrides an imported Motion property", () => {
+    const authored = `function Card() {
+  return <main>
+    <style>{\`#hero { opacity: 0 !important; animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <h1 id="hero" data-agent-native-node-id="hero-title">Hello</h1>
+  </main>;
+}`;
+
+    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(() => apply(authored, { modulePath: "src/Card.tsx" })).toThrow(
+      MotionReactSourceError,
+    );
+  });
+
+  it("allows important authored CSS on a property outside the Motion tracks", () => {
+    const authored = `function Card() {
+  return <main>
+    <style>{\`#hero { color: rebeccapurple !important; animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <h1 id="hero" data-agent-native-node-id="hero-title">Hello</h1>
+  </main>;
+}`;
+
+    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
   it("rejects authored CSS that targets a repeated mapped JSX host", () => {
     const authored = `function Card({ items }) {
   return <main>
@@ -1118,6 +1149,22 @@ function Card(style = { animationName: "fade" }) {
       `const motionStyles = { color: "red" }; const schedule = setTimeout; schedule("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'", 0);`,
     ],
     [
+      "a destructured string timer",
+      `const motionStyles = { color: "red" }; const { setTimeout: schedule } = window; schedule("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'", 0);`,
+    ],
+    [
+      "a bound string timer",
+      `const motionStyles = { color: "red" }; const schedule = window.setTimeout.bind(window); schedule("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'", 0);`,
+    ],
+    [
+      "a timer with a bound string callback",
+      `const motionStyles = { color: "red" }; const schedule = window.setTimeout.bind(window, "motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'"); schedule();`,
+    ],
+    [
+      "a string timer called through call",
+      `const motionStyles = { color: "red" }; window.setTimeout.call(window, "motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'", 0);`,
+    ],
+    [
       "a timer string passed through a parameter",
       `const motionStyles = { color: "red" }; function schedule(code: string) { setTimeout(code, 0); }`,
     ],
@@ -1179,10 +1226,27 @@ function Card(style = { animationName: "fade" }) {
     },
   );
 
-  it("allows an aliased timer with a static callback", () => {
+  it.each([
+    [
+      "an aliased arrow callback",
+      `const timerCallback = () => {}; const schedule = setTimeout; schedule(timerCallback, 0);`,
+    ],
+    [
+      "a named callback",
+      `function timerCallback() {} const schedule = setTimeout; schedule(timerCallback, 0);`,
+    ],
+    [
+      "a bound named callback",
+      `function timerCallback() {} const schedule = setTimeout; schedule(timerCallback.bind(window), 0);`,
+    ],
+    [
+      "a destructured React state setter",
+      `const [, setCount] = React.useState(0); const schedule = setTimeout.bind(window); schedule(setCount, 0);`,
+    ],
+  ])("allows %s with an aliased timer", (_label, callback) => {
     const authored = source.replace(
-      'import React from "react";',
-      `import React from "react";\n\nconst timerCallback = () => {}; const schedule = setTimeout; schedule(timerCallback, 0);`,
+      "function Card() {",
+      `function Card() {\n  ${callback}`,
     );
 
     expect(
@@ -1193,6 +1257,34 @@ function Card(style = { animationName: "fade" }) {
         moduleVersionHash: "a".repeat(64),
       }),
     ).toMatchObject({ status: "supported" });
+  });
+
+  it.each([
+    [
+      "render-body dynamic code execution",
+      `function Card() { eval("document.querySelector('#hero-title').style.opacity = '0'");`,
+    ],
+    [
+      "render-body imperative style mutation",
+      `function Card() { document.querySelector("#hero-title").style.opacity = "0";`,
+    ],
+    [
+      "render-body aliased style mutation",
+      `function Card() { const targetStyle = document.querySelector("#hero-title").style; targetStyle.opacity = "0";`,
+    ],
+  ])("rejects %s in a Motion component", (_label, prefix) => {
+    const authored = source.replace("function Card() {", prefix);
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
   });
 
   it("rejects motion properties inside wrapped nested style aliases", () => {
