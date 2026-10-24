@@ -532,6 +532,102 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("treats dynamic JSX class names as possible authored CSS matches", () => {
+    const generated = apply(source)
+      .source.replace(
+        '<main className="card">',
+        '<main className="card"><style>{`.hidden { opacity: 0 !important; }`}</style>',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 className={active ? "hidden" : "shown"} data-agent-native-node-id="hero-title">',
+      );
+
+    expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it.each([
+    ["border radius", "border-radius", "border-top-left-radius"],
+    ["path trim", "path-trim", "stroke-dasharray"],
+  ])(
+    "rejects important authored %s longhands that override Motion",
+    (_label, motionProperty, authoredProperty) => {
+      const timeline: MotionTimeline = {
+        ...makeTimeline(),
+        tracks: [
+          {
+            ...makeTimeline().tracks[0]!,
+            property: motionProperty,
+            keyframes:
+              motionProperty === "path-trim"
+                ? [
+                    { t: 0, value: "0% 100%", ease: "linear" },
+                    { t: 1, value: "0% 0%", ease: "ease-out" },
+                  ]
+                : makeTimeline().tracks[0]!.keyframes,
+          },
+        ],
+      };
+      const generated = apply(source, { timeline })
+        .source.replace(
+          '<main className="card">',
+          `<main className="card"><style>{\`.hero { ${authoredProperty}: 0 !important; }\`}</style>`,
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 className="hero" data-agent-native-node-id="hero-title">',
+        );
+
+      expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+    },
+  );
+
+  it("rejects important motion-path CSS properties on a translated target", () => {
+    const pathTimeline: MotionTimeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          ...makeTimeline().tracks[0]!,
+          property: "translate",
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              ease: "ease-in",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 30, y: 90 },
+                control2: { x: -25, y: 10 },
+              },
+            },
+            { t: 1, value: "120px 40px", ease: "ease-out" },
+          ],
+        },
+      ],
+    };
+    const generated = apply(source, { timeline: pathTimeline })
+      .source.replace(
+        '<main className="card">',
+        '<main className="card"><style>{`.hero { offset-distance: 0 !important; }`}</style>',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 className="hero" data-agent-native-node-id="hero-title">',
+      );
+
+    expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("rejects authored CSS that targets a repeated mapped JSX host", () => {
     const authored = `function Card({ items }) {
   return <main>
@@ -1257,6 +1353,34 @@ function Card(style = { animationName: "fade" }) {
         moduleVersionHash: "a".repeat(64),
       }),
     ).toMatchObject({ status: "supported" });
+  });
+
+  it.each([
+    [
+      "an inline arrow",
+      `window.setTimeout(() => { document.querySelector("#hero-title")!.style.opacity = "0"; }, 0);`,
+    ],
+    [
+      "a named callback",
+      `function mutateTargetStyle() { document.querySelector("#hero-title")!.style.opacity = "0"; } window.setTimeout(mutateTargetStyle, 0);`,
+    ],
+  ])("rejects timer callback style mutation in %s", (_label, callback) => {
+    const authored = source.replace(
+      "function Card() {",
+      `function Card() {\n  ${callback}`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
   });
 
   it.each([

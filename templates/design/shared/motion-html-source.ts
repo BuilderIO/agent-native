@@ -1274,6 +1274,15 @@ const CSS_SHORTHAND_LONGHANDS: Readonly<Record<string, readonly string[]>> = {
     "text-decoration-thickness",
   ],
 };
+const CSS_SHORTHANDS_BY_LONGHAND = new Map<string, string[]>();
+
+for (const [shorthand, longhands] of Object.entries(CSS_SHORTHAND_LONGHANDS)) {
+  for (const longhand of longhands) {
+    const shorthands = CSS_SHORTHANDS_BY_LONGHAND.get(longhand) ?? [];
+    shorthands.push(shorthand);
+    CSS_SHORTHANDS_BY_LONGHAND.set(longhand, shorthands);
+  }
+}
 
 function cssDeclarationAffectsMotionProperty(
   property: string,
@@ -1291,10 +1300,13 @@ function cssDeclarationAffectsMotionProperty(
     return true;
   }
 
-  return (
+  return Boolean(
+    CSS_SHORTHANDS_BY_LONGHAND.get(normalizedProperty)?.some((shorthand) =>
+      motionProperties?.has(shorthand),
+    ) ||
     CSS_SHORTHAND_LONGHANDS[normalizedProperty]?.some((longhand) =>
       motionProperties?.has(longhand),
-    ) ?? false
+    ),
   );
 }
 

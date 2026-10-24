@@ -3044,6 +3044,20 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("rejects an important inline border radius longhand for animated border radius", () => {
+    const timeline = makePropertyTimeline("border-radius", "0px", "12px");
+    const generated = apply(html, { timeline }).source;
+    const source = generated.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" style="border-top-left-radius: 0 !important">Hello</h1>',
+    );
+
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
   it.each([
     ["background", "background-color", "red"],
     ["border-color", "border-top-color", "red"],
