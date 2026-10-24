@@ -231,6 +231,7 @@ describe("postAwareness handler", () => {
       ["post-doc-outage-delayed-write", 74],
       ["post-doc-outage-sequence-cap", 66],
       ["post-doc-outage-local-stale-sequence", 75],
+      ["post-doc-resync-reconciles-presence", 76],
     ] as const) {
       docAwareness(docId).clear();
       forgetAwarenessClear(scopedDocId(docId), clientId);
@@ -606,6 +607,47 @@ describe("postAwareness handler", () => {
     expect(docAwareness(docId).get(75)?.state).toBe("local-state");
   });
 
+  it("reconciles outage presence after the database accepts a resynchronized write", async () => {
+    const docId = "post-doc-resync-reconciles-presence";
+    const persistedState = authenticatedAwarenessState("resynchronized-state");
+    docAwareness(docId).set(76, {
+      clientId: 76,
+      state: authenticatedAwarenessState("outage-state"),
+      lastSeen: Date.now(),
+      clientSequence: 10,
+      clientSequenceRaw: 0,
+      actorEmail: "collaborator@example.com",
+      clearTokenHash: null,
+    });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 76,
+      clientSequence: 1,
+      state: postedAwarenessState("resynchronized-state"),
+    });
+    mockWriteAwarenessRow.mockResolvedValueOnce(true);
+    mockLoadAwarenessRows.mockResolvedValueOnce([
+      {
+        clientId: 76,
+        state: persistedState,
+        lastSeen: Date.now(),
+        clientSequence: 1,
+        clientSequenceRaw: 0,
+        actorEmail: "collaborator@example.com",
+        clearTokenHash: null,
+        cleared: false,
+      },
+    ]);
+
+    const ev = event({ docId });
+    await postAwareness(ev);
+
+    expect(ev._status).toBe(200);
+    expect(docAwareness(docId).get(76)).toMatchObject({
+      state: persistedState,
+      clientSequence: 1,
+    });
+  });
+
   it("does not restore local presence when an older successful write resumes after a clear", async () => {
     const docId = "post-doc-outage-delayed-write";
     let markFirstWriteStarted!: () => void;
@@ -662,7 +704,18 @@ describe("postAwareness handler", () => {
       expect(clearEvent._status).toBe(503);
       expect(docAwareness(docId).has(74)).toBe(false);
 
-      mockLoadAwarenessRows.mockResolvedValueOnce([]);
+      mockLoadAwarenessRows.mockResolvedValueOnce([
+        {
+          clientId: 74,
+          state: authenticatedAwarenessState("old-state"),
+          lastSeen: Date.now(),
+          clientSequence: 1,
+          clientSequenceRaw: 0,
+          actorEmail: "collaborator@example.com",
+          clearTokenHash: "clear-token-hash",
+          cleared: false,
+        },
+      ]);
       finishFirstWrite(true);
       await delayedPresence;
 

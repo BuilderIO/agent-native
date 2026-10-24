@@ -1,5 +1,9 @@
 import { getDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
@@ -88,6 +92,31 @@ export const collabAwarenessStore = defineStore({
           "_collab_awareness",
           "actor_email_expires_at",
           "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS actor_email_expires_at BIGINT",
+        );
+      },
+    },
+    {
+      name: "expiry-indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "_collab_awareness_active_actor_expiry_idx",
+          `CREATE INDEX IF NOT EXISTS _collab_awareness_active_actor_expiry_idx
+           ON _collab_awareness (last_seen)
+           WHERE actor_email IS NOT NULL AND state <> ''`,
+        );
+        await ensureIndexExists(
+          "_collab_awareness_actor_reservation_expiry_idx",
+          `CREATE INDEX IF NOT EXISTS _collab_awareness_actor_reservation_expiry_idx
+           ON _collab_awareness (
+             (COALESCE(actor_email_expires_at, last_seen + ${ACTOR_RESERVATION_TTL_MS}))
+           )
+           WHERE actor_email IS NOT NULL`,
+        );
+        await ensureIndexExists(
+          "_collab_awareness_anonymous_expiry_idx",
+          `CREATE INDEX IF NOT EXISTS _collab_awareness_anonymous_expiry_idx
+           ON _collab_awareness (last_seen)
+           WHERE actor_email IS NULL`,
         );
       },
     },
