@@ -2488,7 +2488,14 @@ async function processBuilderBodyHydrationJob(
           });
           return;
         }
-        await materializeBodyReadFieldValues(tx, { row, sourceValues, now });
+        await materializeBodyReadFieldValues(tx, {
+          sourceId: row.sourceId,
+          ownerEmail: row.ownerEmail,
+          rows: [
+            { documentId: row.documentId, previousSourceValues: sourceValues },
+          ],
+          now,
+        });
         const [deleted] = await tx
           .delete(schema.contentDatabaseBodyHydrationQueue)
           .where(queueRowCas)
@@ -2722,7 +2729,14 @@ async function processBuilderBodyHydrationJob(
       });
       return;
     }
-    await materializeBodyReadFieldValues(tx, { row, sourceValues, now });
+    await materializeBodyReadFieldValues(tx, {
+      sourceId: row.sourceId,
+      ownerEmail: row.ownerEmail,
+      rows: [
+        { documentId: row.documentId, previousSourceValues: sourceValues },
+      ],
+      now,
+    });
     const [deleted] = await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(queueRowCas)
@@ -2780,31 +2794,34 @@ async function processBuilderBodyHydrationJob(
  * A live body read also returns Builder's current field values, which can be
  * newer than the refresh that queued it. The row's properties follow them as
  * a refresh's do; otherwise the next refresh would take a property left
- * behind for Content's edit. Call it under the row's membership lock.
+ * behind for Content's edit. Call it under the rows' membership locks, after
+ * their source rows are written.
  */
 async function materializeBodyReadFieldValues(
   tx: any,
   args: {
-    row: ContentDatabaseBodyHydrationQueueRowDb;
-    sourceValues: Record<string, DocumentPropertyValue>;
+    sourceId: string;
+    ownerEmail: string;
+    rows: Array<{
+      documentId: string;
+      previousSourceValues: Record<string, DocumentPropertyValue>;
+    }>;
     now: string;
   },
 ) {
   await materializeSourceFieldPropertyValues({
-    database: { ownerEmail: args.row.ownerEmail },
-    sourceId: args.row.sourceId,
+    database: { ownerEmail: args.ownerEmail },
+    sourceId: args.sourceId,
     fields: await tx
       .select()
       .from(schema.contentDatabaseSourceFields)
-      .where(
-        eq(schema.contentDatabaseSourceFields.sourceId, args.row.sourceId),
-      ),
-    documentIds: [args.row.documentId],
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId)),
+    documentIds: args.rows.map((row) => row.documentId),
     now: args.now,
     db: tx,
-    previousSourceValuesByDocumentId: new Map([
-      [args.row.documentId, args.sourceValues],
-    ]),
+    previousSourceValuesByDocumentId: new Map(
+      args.rows.map((row) => [row.documentId, row.previousSourceValues]),
+    ),
   });
 }
 
@@ -2813,6 +2830,7 @@ type PreparedPristineBuilderBodyHydration = {
   sourceRow: ContentDatabaseSourceRecordRowDb;
   documentContent: string;
   content: string;
+  previousSourceValues: Record<string, DocumentPropertyValue>;
   sourceValues: Record<string, DocumentPropertyValue>;
   sourceValuesJson: string;
   lastSourceUpdatedAt: string;
@@ -2954,6 +2972,7 @@ async function preparePristineBuilderBodyHydration(args: {
     sourceRow,
     documentContent: documentContent ?? "",
     content,
+    previousSourceValues: sourceValues,
     sourceValues: nextValues,
     sourceValuesJson: JSON.stringify(nextValues),
     lastSourceUpdatedAt: entryWithBody.updatedAt ?? new Date().toISOString(),
@@ -3122,14 +3141,24 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           );
         }
         for (const sourceId of new Set(batch.map((row) => row.job.sourceId))) {
+          const sourceBatch = batch.filter(
+            (row) => row.job.sourceId === sourceId,
+          );
           await writeBuilderStatusValues(tx, {
             sourceId,
-            rows: batch
-              .filter((row) => row.job.sourceId === sourceId)
-              .map((row) => ({
-                documentId: row.job.documentId,
-                sourceValues: row.sourceValues,
-              })),
+            rows: sourceBatch.map((row) => ({
+              documentId: row.job.documentId,
+              sourceValues: row.sourceValues,
+            })),
+            now,
+          });
+          await materializeBodyReadFieldValues(tx, {
+            sourceId,
+            ownerEmail: sourceBatch[0].job.ownerEmail,
+            rows: sourceBatch.map((row) => ({
+              documentId: row.job.documentId,
+              previousSourceValues: row.previousSourceValues,
+            })),
             now,
           });
         }

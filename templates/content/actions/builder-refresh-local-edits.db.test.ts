@@ -22,6 +22,8 @@ const builder = vi.hoisted(() => ({
     string,
     { title: string; author: string; updatedAt: string }
   >(),
+  // Builder can leave out the time an entry last changed.
+  bodyReadOmitsUpdateTime: false,
 }));
 
 vi.mock("./_builder-cms-read-client.js", async () => {
@@ -51,10 +53,43 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       { name: "title", type: "string", required: true },
       { name: "author", type: "string", required: false },
     ]),
-    readBuilderCmsContentEntries: vi.fn(async () => {
-      const entries = [...builder.entries].map(([id, entry]) =>
-        toEntry(id, entry),
-      );
+    readBuilderCmsContentEntries: vi.fn(async (args?: any) => {
+      const entries = [...builder.entries].map(([id, entry]) => {
+        if (!args?.includeBodies) return toEntry(id, entry);
+        const { updatedAt, ...withoutUpdateTime } = toEntry(id, entry);
+        const { lastUpdated, ...valuesWithoutUpdateTime } =
+          withoutUpdateTime.sourceValues;
+        const timed = !builder.bodyReadOmitsUpdateTime;
+        return {
+          ...withoutUpdateTime,
+          ...(timed ? { updatedAt } : {}),
+          sourceValues: timed
+            ? withoutUpdateTime.sourceValues
+            : valuesWithoutUpdateTime,
+          rawEntry: {
+            id,
+            model: MODEL,
+            name: entry.title,
+            ...(timed ? { lastUpdated } : {}),
+            data: {
+              title: entry.title,
+              url: `/blog/${id}`,
+              author: entry.author,
+              blocks: [
+                {
+                  "@type": "@builder.io/sdk:Element",
+                  "@version": 2,
+                  id: `text-${id}`,
+                  component: {
+                    name: "Text",
+                    options: { text: `<p>Body ${id}</p>` },
+                  },
+                },
+              ],
+            },
+          },
+        };
+      });
       return {
         state: "live",
         entries,
@@ -555,4 +590,31 @@ it("moves an unedited property to the value a body read brings and flags an edit
   await hydrateBody("entry-a", "Body A, theirs");
   expect(await localAuthor("entry-a")).toBe("Ada, Countess");
   expect(await editConflicts("entry-a")).toEqual(["data.author"]);
+});
+
+it("moves unedited properties to the values a bulk body read brings and flags an edited one", async () => {
+  const ids = Array.from({ length: 20 }, (_, index) => `entry-bulk-${index}`);
+  for (const id of ids) {
+    builder.entries.set(id, { title: id, author: "Old", updatedAt: tick() });
+  }
+  await refresh();
+  await editAuthor("entry-bulk-1", "Mine");
+  for (const id of ids) editInBuilder(id, { author: "New" });
+  // Without an update time the read can't show it is the version the
+  // refresh saw, so nothing but the values says what changed.
+  builder.bodyReadOmitsUpdateTime = true;
+  try {
+    await utils.processBuilderBodyHydrationQueue({
+      sourceId: SOURCE_ID,
+      limit: 50,
+      preloadBodies: true,
+    });
+  } finally {
+    builder.bodyReadOmitsUpdateTime = false;
+  }
+
+  expect(await localBody("entry-bulk-0")).toContain("Body entry-bulk-0");
+  expect(await localAuthor("entry-bulk-0")).toBe("New");
+  expect(await localAuthor("entry-bulk-1")).toBe("Mine");
+  expect(await editConflicts("entry-bulk-1")).toEqual(["data.author"]);
 });
