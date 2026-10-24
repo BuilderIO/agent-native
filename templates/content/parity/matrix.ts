@@ -693,6 +693,32 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.change-webhooks",
+    surface: "database",
+    label:
+      "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
+    status: "action-backed",
+    actions: [
+      "create-content-webhook",
+      "list-content-webhooks",
+      "delete-content-webhook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-webhooks.db.test.ts",
+      "server/lib/content-webhook-signature.test.ts",
+    ],
+  },
+  {
     id: "source-sync.database-source-bindings",
     surface: "source-sync",
     label:

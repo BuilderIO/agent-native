@@ -1117,4 +1117,77 @@ export const documentBlocks = table(
   ],
 );
 
+/**
+ * An owner-registered URL that receives a signed POST when something changes
+ * on one database's rows or on one page. The signing secret lives in app
+ * secrets under `secret_key`; this row keeps only the reference.
+ */
+export const contentWebhooks = table(
+  "content_webhooks",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    /** "database" (every row of `scope_id`) or "document" (one page). */
+    scopeType: text("scope_type").notNull(),
+    scopeId: text("scope_id").notNull(),
+    url: text("url").notNull(),
+    eventsJson: text("events_json").notNull(),
+    /** Null delivers changes to every property. */
+    propertyIdsJson: text("property_ids_json"),
+    description: text("description"),
+    secretScope: text("secret_scope").notNull(),
+    secretScopeId: text("secret_scope_id").notNull(),
+    secretKey: text("secret_key").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (webhook) => [
+    index("content_webhooks_scope_idx").on(webhook.scopeType, webhook.scopeId),
+  ],
+);
+
+/**
+ * The outbox: one row per event per webhook, written in the same transaction
+ * as the change it reports, so an event exists exactly when its change
+ * committed. The row id is the event id receivers dedupe on; every retry
+ * sends it again.
+ */
+export const contentWebhookDeliveries = table(
+  "content_webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    /** BIGSERIAL: for one page and property, a later commit has a larger value. */
+    sequence: integer("sequence"),
+    webhookId: text("webhook_id").notNull(),
+    eventType: text("event_type").notNull(),
+    documentId: text("document_id").notNull(),
+    databaseId: text("database_id"),
+    /** The event body without `id`, `webhookId`, and `sequence`. */
+    payloadJson: text("payload_json").notNull(),
+    /** "pending" until a 2xx ("delivered") or the last retry ("failed"). */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull(),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: text("lease_expires_at"),
+    lastStatusCode: integer("last_status_code"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    deliveredAt: text("delivered_at"),
+  },
+  (delivery) => [
+    index("content_webhook_deliveries_due_idx").on(
+      delivery.status,
+      delivery.nextAttemptAt,
+    ),
+    index("content_webhook_deliveries_webhook_idx").on(
+      delivery.webhookId,
+      delivery.createdAt,
+    ),
+  ],
+);
+
 export const documentShares = createSharesTable("document_shares");
