@@ -125,7 +125,12 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { getRunById, readBackgroundRunClaim } from "../agent/run-store.js";
+import {
+  AgentRunJournalUnreadableError,
+  getRunById,
+  readBackgroundRunClaim,
+  retryRunThreadProjection,
+} from "../agent/run-store.js";
 import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
@@ -7062,6 +7067,46 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const canEditThread = (threadId: string) =>
             callerHasThreadAccess(owner, threadId, "editor", { orgId });
 
+          // Route: POST /runs/:id/retry-projection
+          // An editor may retry a quarantined fold after repairing its source.
+          const retryProjectionMatch =
+            url.match(/\/runs\/([^/?]+)\/retry-projection(?:[/?]|$)/) ||
+            url.match(/^\/([^/?]+)\/retry-projection(?:[/?]|$)/);
+          if (retryProjectionMatch && method === "POST") {
+            const runId = decodeURIComponent(retryProjectionMatch[1]);
+            if (!(await canEditRun(runId))) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            const run = await getRunById(runId);
+            if (!run) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            if (!run.threadProjectionErrorCode) {
+              setResponseStatus(event, 409);
+              return { error: "Run projection is not quarantined" };
+            }
+            try {
+              const result = await retryRunThreadProjection(runId);
+              if (result.state === "untracked") {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              return { ok: true, ...result };
+            } catch (error) {
+              if (error instanceof AgentRunJournalUnreadableError) {
+                setResponseStatus(event, 422);
+                return {
+                  ok: false,
+                  error: "Projection source remains unreadable",
+                  threadProjectionErrorCode: error.errorCode,
+                };
+              }
+              throw error;
+            }
+          }
+
           // Route: POST /runs/turn/:turnId/abort
           // Covers the short window where the client has sent a turn but the
           // server has not yet created its background run id.
@@ -7856,6 +7901,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   errorCode,
                   abortReason,
                   terminalReason,
+                  threadProjectionErrorCode,
                 }) => ({
                   id,
                   status,
@@ -7864,6 +7910,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   errorCode,
                   abortReason,
                   terminalReason,
+                  threadProjectionErrorCode,
                 }),
               ),
             };

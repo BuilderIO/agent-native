@@ -21,8 +21,9 @@ function readThreadRepository(
   turnId: string,
   threadData: string,
 ) {
+  let repository: unknown;
   try {
-    return normalizeThreadRepository(JSON.parse(threadData || "{}"));
+    repository = JSON.parse(threadData || "{}");
   } catch (cause) {
     throw new AgentRunJournalUnreadableError(
       threadId,
@@ -32,6 +33,48 @@ function readThreadRepository(
       { cause },
     );
   }
+
+  const unreadable = (message: string) =>
+    new AgentRunJournalUnreadableError(
+      threadId,
+      turnId,
+      0,
+      "invalid_thread_data",
+      { cause: new Error(message) },
+    );
+  if (
+    typeof repository !== "object" ||
+    repository === null ||
+    Array.isArray(repository)
+  ) {
+    throw unreadable("Stored thread data is not a repository object");
+  }
+  const messages = (repository as { messages?: unknown }).messages;
+  if (
+    messages !== undefined &&
+    (!Array.isArray(messages) ||
+      !messages.every((entry) => {
+        if (
+          typeof entry !== "object" ||
+          entry === null ||
+          Array.isArray(entry)
+        ) {
+          return false;
+        }
+        const storedMessage = (entry as { message?: unknown }).message;
+        const message = storedMessage ?? entry;
+        return (
+          typeof message === "object" &&
+          message !== null &&
+          !Array.isArray(message) &&
+          typeof (message as { id?: unknown }).id === "string" &&
+          (message as { id: string }).id.length > 0
+        );
+      }))
+  ) {
+    throw unreadable("Stored thread data has malformed messages");
+  }
+  return normalizeThreadRepository(repository);
 }
 
 /**

@@ -93,6 +93,14 @@
     {
       "name": "agent-run-thread-projection-retry-fairness",
       "checksum": "36150eae08f95f3d"
+    },
+    {
+      "name": "agent-run-thread-projection-quarantine",
+      "checksum": "8eb065e2325e20ea"
+    },
+    {
+      "name": "thread-projection-retry-quarantine-runtime-schema",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [

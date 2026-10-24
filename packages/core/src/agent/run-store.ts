@@ -289,7 +289,8 @@ export const agentRunsStore = defineStore({
           peak_rss_mb BIGINT,
           continuation_order BIGINT,
           thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE,
-          thread_projection_retry_order BIGINT
+          thread_projection_retry_order BIGINT,
+          thread_projection_error_code TEXT
         )
       `;
         const agentRunEventsCreateSql = `
@@ -356,6 +357,7 @@ export const agentRunsStore = defineStore({
           ["auto_continue_of", "TEXT"],
           ["thread_projection_pending", "BOOLEAN NOT NULL DEFAULT FALSE"],
           ["thread_projection_retry_order", "BIGINT"],
+          ["thread_projection_error_code", "TEXT"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -411,6 +413,22 @@ export const agentRunsStore = defineStore({
       },
     },
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
+    {
+      name: "thread-projection-retry-quarantine-runtime-schema",
+      run: async (exec) => {
+        await exec.execute({
+          sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
+        });
+        await exec.execute({
+          sql: "CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq",
+        });
+        await exec.execute({
+          sql: `CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx
+                ON agent_runs (thread_projection_retry_order ASC NULLS FIRST, completed_at ASC, id ASC)
+                WHERE thread_projection_pending IS TRUE`,
+        });
+      },
+    },
   ],
 });
 
@@ -1092,7 +1110,21 @@ export async function getCompletedAgentExecutionSteps(
               AND step_id IN (${batch.map(() => "?").join(", ")})`,
       args: [threadId, turnId, ...batch],
     });
-    for (const raw of rows.rows) {
+    for (const [batchRowIndex, raw] of rows.rows.entries()) {
+      const rowIndex = offset + batchRowIndex;
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new AgentRunJournalUnreadableError(
+          threadId,
+          turnId,
+          rowIndex,
+          "invalid_execution_step",
+          {
+            cause: new Error(
+              "Completed execution-step lookup returned an invalid row",
+            ),
+          },
+        );
+      }
       const row = raw as {
         step_id?: unknown;
         operation_id?: unknown;
@@ -1101,18 +1133,36 @@ export async function getCompletedAgentExecutionSteps(
         result_json?: unknown;
       };
       if (typeof row.step_id !== "string" || !batch.includes(row.step_id)) {
-        throw new Error(
-          "Completed execution-step lookup returned an invalid step id",
+        throw new AgentRunJournalUnreadableError(
+          threadId,
+          turnId,
+          rowIndex,
+          "invalid_execution_step",
+          {
+            cause: new Error(
+              "Completed execution-step lookup returned an invalid step id",
+            ),
+          },
         );
       }
       if (
         typeof row.operation_id !== "string" ||
+        row.operation_id.trim().length === 0 ||
         typeof row.tool_name !== "string" ||
+        row.tool_name.trim().length === 0 ||
         typeof row.input_json !== "string" ||
         typeof row.result_json !== "string"
       ) {
-        throw new Error(
-          `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+        throw new AgentRunJournalUnreadableError(
+          threadId,
+          turnId,
+          rowIndex,
+          "invalid_execution_step",
+          {
+            cause: new Error(
+              `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+            ),
+          },
         );
       }
       completed.push({
@@ -4558,11 +4608,12 @@ export async function getRunById(runId: string): Promise<{
   errorCode: string | null;
   errorDetail: string | null;
   terminalReason: string | null;
+  threadProjectionErrorCode: string | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, status, started_at, error_code, error_detail, terminal_reason FROM agent_runs WHERE id = ?`,
+    sql: `SELECT id, thread_id, status, started_at, error_code, error_detail, terminal_reason, thread_projection_error_code FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
   if (rows.length === 0) return null;
@@ -4574,6 +4625,7 @@ export async function getRunById(runId: string): Promise<{
     error_code?: string | null;
     error_detail?: string | null;
     terminal_reason?: string | null;
+    thread_projection_error_code?: string | null;
   };
   return {
     id: r.id,
@@ -4583,6 +4635,7 @@ export async function getRunById(runId: string): Promise<{
     errorCode: r.error_code ?? null,
     errorDetail: r.error_detail ?? null,
     terminalReason: r.terminal_reason ?? null,
+    threadProjectionErrorCode: r.thread_projection_error_code ?? null,
   };
 }
 
@@ -4874,6 +4927,7 @@ export interface AgentRunSummary {
   dispatchMode: string | null;
   terminalReason: string | null;
   diagStage: string | null;
+  threadProjectionErrorCode: string | null;
   inFlightSince: number | null;
 }
 
@@ -4896,7 +4950,7 @@ export async function listRunsForThread(
       ? ` AND id IN (${batch.map(() => "?").join(", ")})`
       : "";
     return {
-      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage, in_flight_since
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage, thread_projection_error_code, in_flight_since
             FROM agent_runs
             WHERE thread_id = ?${runIdFilter}${batch ? "" : " ORDER BY started_at DESC LIMIT ?"}`,
       args: [threadId, ...(batch ?? []), ...(batch ? [] : [limit])],
@@ -4946,6 +5000,7 @@ export async function listRunsForThread(
       dispatch_mode?: string | null;
       terminal_reason?: string | null;
       diag_stage?: string | null;
+      thread_projection_error_code?: string | null;
       in_flight_since?: number | string | null;
     };
     return {
@@ -4963,6 +5018,7 @@ export async function listRunsForThread(
       dispatchMode: row.dispatch_mode ?? null,
       terminalReason: row.terminal_reason ?? null,
       diagStage: row.diag_stage ?? null,
+      threadProjectionErrorCode: row.thread_projection_error_code ?? null,
       inFlightSince:
         row.in_flight_since == null ? null : Number(row.in_flight_since),
     };
@@ -5861,6 +5917,16 @@ async function projectRunThread(
   try {
     disposition = await foldReapedRunIntoThread(runId);
   } catch (error) {
+    if (error instanceof AgentRunJournalUnreadableError) {
+      await getDbExec().execute({
+        sql: `UPDATE agent_runs
+              SET thread_projection_error_code = 'tool_call_journal_unreadable',
+                  thread_projection_retry_order = NULL
+              WHERE id = ? AND thread_projection_pending IS TRUE`,
+        args: [runId],
+      });
+      throw error;
+    }
     try {
       await bumpRunThreadProjectionRetryOrder(runId);
     } catch (retryOrderError) {
@@ -5879,7 +5945,8 @@ async function projectRunThread(
   await getDbExec().execute({
     sql: `UPDATE agent_runs
           SET thread_projection_pending = FALSE,
-              thread_projection_retry_order = NULL
+              thread_projection_retry_order = NULL,
+              thread_projection_error_code = NULL
           WHERE id = ? AND thread_projection_pending IS TRUE`,
     args: [runId],
   });
@@ -5892,6 +5959,7 @@ export type RunThreadProjectionRetry =
   | { state: "projected" }
   | { state: "deferred" };
 
+/** Retry after repairing persisted source data; until success, the marker keeps later same-turn runs gated. */
 export async function retryRunThreadProjection(
   runId: string,
 ): Promise<RunThreadProjectionRetry> {
@@ -6099,6 +6167,7 @@ async function retryPendingStaleRunThreadProjections(
   const { rows } = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE thread_projection_pending IS TRUE
+            AND thread_projection_error_code IS NULL
             AND ${earlierTurnProjectionPendingSql()}
           ORDER BY thread_projection_retry_order ASC NULLS FIRST,
                    completed_at ASC, id ASC

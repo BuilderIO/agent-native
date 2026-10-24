@@ -157,4 +157,11 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
         WHERE thread_projection_pending IS TRUE
     `,
   },
+  {
+    version: 11,
+    name: "agent-run-thread-projection-quarantine",
+    sql: `
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT
+    `,
+  },
 ];

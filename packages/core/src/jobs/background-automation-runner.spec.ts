@@ -1033,6 +1033,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         threadData: JSON.stringify({
           messages: [
             {
+              id: "automation-prompt",
               role: "user",
               content: [{ type: "text", text: "Send the reminders." }],
               metadata: { custom: { submittedTurnId: turnId } },
@@ -2955,79 +2956,105 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     }
   });
 
-  it("records an outcome when a resumed predecessor has corrupt projected thread data", async () => {
-    const runStore = await import("../agent/run-store.js");
-    const history = await import("./run-history.js");
-    const { runAgentLoopDirectWithSoftTimeout } =
-      await import("../agent/run-loop-with-resume.js");
-    const automation = precondition("corrupt-predecessor-projection");
-    const threadId = `thread-corrupt-projection-${Date.now()}`;
-    const turnId = `turn-corrupt-projection-${Date.now()}`;
-    const previousRunId = `run-corrupt-projection-${Date.now()}`;
-    const historyId = await history.startAutomationRun({
-      owner: automation.resource.owner,
-      automation: automation.name,
-      path: automation.resource.path,
-      runId: previousRunId,
-      threadId,
-    });
-    await runStore.insertRun(previousRunId, threadId, turnId);
-    await runStore.insertRunEvent(
-      previousRunId,
-      0,
-      JSON.stringify({ type: "text", text: "Persisted assistant output" }),
-    );
-    await pglite
-      .prepare(
-        `UPDATE agent_runs
+  it.each([
+    ["invalid JSON", "not valid JSON"],
+    ["non-array messages", JSON.stringify({ messages: "corrupt" })],
+    [
+      "malformed message before the valid prompt",
+      JSON.stringify({
+        messages: [
+          { message: { role: "assistant", content: "lost" } },
+          {
+            message: {
+              id: "current-prompt",
+              role: "user",
+              content: [{ type: "text", text: "Continue" }],
+            },
+          },
+        ],
+      }),
+    ],
+  ])(
+    "records an outcome when a resumed predecessor has corrupt projected thread data (%s)",
+    async (_description, threadData) => {
+      const runStore = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const automation = precondition("corrupt-predecessor-projection");
+      const threadId = `thread-corrupt-projection-${Date.now()}`;
+      const turnId = `turn-corrupt-projection-${Date.now()}`;
+      const previousRunId = `run-corrupt-projection-${Date.now()}`;
+      const historyId = await history.startAutomationRun({
+        owner: automation.resource.owner,
+        automation: automation.name,
+        path: automation.resource.path,
+        runId: previousRunId,
+        threadId,
+      });
+      await runStore.insertRun(previousRunId, threadId, turnId);
+      await runStore.insertRunEvent(
+        previousRunId,
+        0,
+        JSON.stringify({ type: "text", text: "Persisted assistant output" }),
+      );
+      await pglite
+        .prepare(
+          `UPDATE agent_runs
          SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
          WHERE id = ?`,
-      )
-      .run(Date.now(), previousRunId);
-    getThreadMock.mockResolvedValueOnce({
-      id: threadId,
-      title: "Interrupted",
-      preview: "",
-      messageCount: 1,
-      threadData: "not valid JSON",
-    });
-    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+        )
+        .run(Date.now(), previousRunId);
+      getThreadMock.mockResolvedValueOnce({
+        id: threadId,
+        title: "Interrupted",
+        preview: "",
+        messageCount: 1,
+        threadData,
+      });
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
 
-    await expect(
-      runBackgroundAutomation(
-        runOptions(automation, {
-          historyId,
-          resume: {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
             historyId,
-            threadId,
-            turnId,
-            previousRunId,
-            hardDeadlineAt: Date.now() + 60_000,
-          },
-        }),
-        standardDeps,
-      ),
-    ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
+            resume: {
+              historyId,
+              threadId,
+              turnId,
+              previousRunId,
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
 
-    expect(await history.getAutomationRun(historyId)).toMatchObject({
-      runId: previousRunId,
-      status: "error",
-      finishedAt: expect.any(Number),
-      errorCode: "tool_call_journal_unreadable",
-    });
-    const marker = (await pglite
-      .prepare(
-        `SELECT thread_projection_pending, thread_projection_retry_order
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        runId: previousRunId,
+        status: "error",
+        finishedAt: expect.any(Number),
+        errorCode: "tool_call_journal_unreadable",
+      });
+      const marker = (await pglite
+        .prepare(
+          `SELECT thread_projection_pending, thread_projection_retry_order,
+                  thread_projection_error_code
          FROM agent_runs WHERE id = ?`,
-      )
-      .get(previousRunId)) as {
-      thread_projection_pending: boolean;
-      thread_projection_retry_order: number | null;
-    };
-    expect(marker.thread_projection_pending).toBe(true);
-    expect(marker.thread_projection_retry_order).not.toBeNull();
-    expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
-  });
+        )
+        .get(previousRunId)) as {
+        thread_projection_pending: boolean;
+        thread_projection_retry_order: number | null;
+        thread_projection_error_code: string | null;
+      };
+      expect(marker.thread_projection_pending).toBe(true);
+      expect(marker.thread_projection_retry_order).toBeNull();
+      expect(marker.thread_projection_error_code).toBe(
+        "tool_call_journal_unreadable",
+      );
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     "reassigned",

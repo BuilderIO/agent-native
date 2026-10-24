@@ -15,6 +15,7 @@ const sweepHarness = vi.hoisted(() => ({
     truncated: false,
   } as { scanned: number; reaped: number; failed: number; truncated: boolean },
   staleReapError: null as Error | null,
+  runAccess: true,
 }));
 
 const inboxHarness = vi.hoisted(() => ({
@@ -83,6 +84,7 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
   return {
     ...actual,
     getRunById: vi.fn(async () => null),
+    retryRunThreadProjection: vi.fn(async () => ({ state: "projected" })),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
     reapAllStaleRuns: vi.fn(async () => {
       if (sweepHarness.staleReapError) throw sweepHarness.staleReapError;
@@ -134,7 +136,7 @@ vi.mock("../agent/run-ownership.js", async (importOriginal) => {
     await importOriginal<typeof import("../agent/run-ownership.js")>();
   return {
     ...actual,
-    callerHasRunAccess: () => true,
+    callerHasRunAccess: () => sweepHarness.runAccess,
     callerHasThreadAccess: () => true,
   };
 });
@@ -327,7 +329,11 @@ vi.mock("../scripts/dev/index.js", () => ({
   createDevScriptRegistry: async () => ({}),
 }));
 
-import { getRunById } from "../agent/run-store.js";
+import {
+  AgentRunJournalUnreadableError,
+  getRunById,
+  retryRunThreadProjection,
+} from "../agent/run-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
@@ -368,6 +374,29 @@ async function createSweepHandler() {
     );
 }
 
+async function mountAgentChatRoutes() {
+  const h3App = createApp();
+  createAgentChatPlugin({
+    actions: () => ({}),
+    a2aAgentDelegation: false,
+    frameworkTools: "minimal",
+    leanPrompt: true,
+    mcp: { enabled: false },
+  })({
+    h3App,
+    hooks: {
+      hook(name, callback) {
+        if (name === "close") sweepHarness.closeHooks.push(callback);
+      },
+    },
+  });
+  const initPromise = sweepHarness.initPromises.at(-1);
+  if (!initPromise)
+    throw new Error("Agent chat initialization was not registered");
+  await initPromise;
+  return h3App;
+}
+
 describe("queued submission inbox recurring sweep", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "test");
@@ -384,6 +413,7 @@ describe("queued submission inbox recurring sweep", () => {
       truncated: false,
     };
     sweepHarness.staleReapError = null;
+    sweepHarness.runAccess = true;
     inboxHarness.admissions.length = 0;
     inboxHarness.admissionOwnerContexts.length = 0;
     inboxHarness.admissionAttempts.length = 0;
@@ -400,6 +430,10 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.failActiveRunCheckThreadId = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(retryRunThreadProjection).mockReset();
+    vi.mocked(retryRunThreadProjection).mockResolvedValue({
+      state: "projected",
+    });
   });
 
   afterEach(async () => {
@@ -2178,4 +2212,98 @@ describe("queued submission inbox recurring sweep", () => {
     expect(inboxHarness.turnAbort).toHaveBeenCalledTimes(2);
     expect(inboxHarness.turnAbort).toHaveBeenLastCalledWith(runId, "user");
   }, 20_000);
+  describe("run thread projection recovery route", () => {
+    const runId = "run-projection-quarantine";
+
+    const retry = (app: ReturnType<typeof createApp>) =>
+      app.fetch(
+        new Request(
+          `http://example.test/_agent-native/agent-chat/runs/${runId}/retry-projection`,
+          { method: "POST" },
+        ),
+      );
+
+    it("requires editor access without revealing an inaccessible run", async () => {
+      const h3App = await mountAgentChatRoutes();
+      sweepHarness.runAccess = false;
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(404);
+      expect(getRunById).not.toHaveBeenCalled();
+      expect(retryRunThreadProjection).not.toHaveBeenCalled();
+    }, 20_000);
+
+    it("lets an editor retry a quarantined projection", async () => {
+      const h3App = await mountAgentChatRoutes();
+      vi.mocked(getRunById).mockResolvedValue({
+        id: runId,
+        threadId: "thread-projection-quarantine",
+        status: "completed",
+        startedAt: 1,
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        state: "projected",
+      });
+      expect(retryRunThreadProjection).toHaveBeenCalledWith(runId);
+    }, 20_000);
+
+    it("does not retry a projection without an operator quarantine", async () => {
+      const h3App = await mountAgentChatRoutes();
+      vi.mocked(getRunById).mockResolvedValue({
+        id: runId,
+        threadId: "thread-projection-quarantine",
+        status: "completed",
+        startedAt: 1,
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+        threadProjectionErrorCode: null,
+      });
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(409);
+      expect(retryRunThreadProjection).not.toHaveBeenCalled();
+    }, 20_000);
+
+    it("keeps unreadable source data quarantined after an explicit retry", async () => {
+      const h3App = await mountAgentChatRoutes();
+      vi.mocked(getRunById).mockResolvedValue({
+        id: runId,
+        threadId: "thread-projection-quarantine",
+        status: "completed",
+        startedAt: 1,
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+      vi.mocked(retryRunThreadProjection).mockRejectedValue(
+        new AgentRunJournalUnreadableError(
+          "thread-projection-quarantine",
+          undefined,
+          0,
+          "invalid_thread_data",
+        ),
+      );
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+    }, 20_000);
+  });
 });
