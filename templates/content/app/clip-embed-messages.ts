@@ -40,6 +40,8 @@ const en = {
   linkChecking: "Checking link…",
   uploadEditRequired: "Only the page's editors can upload videos to it.",
   uploadFailed: "The video didn't upload. Try again.",
+  uploadStatusFailed:
+    "Clips couldn't check where to save this video. Try again.",
   uploadType: "Clips takes MP4, WebM, and MOV videos.",
   uploadTooLarge:
     "This video is too large. Clips takes videos up to {{size}} here.",
@@ -119,6 +121,8 @@ const translations: Record<
     uploadEditRequired:
       "Solo los editores de la página pueden subir videos a ella.",
     uploadFailed: "El video no se subió. Inténtalo de nuevo.",
+    uploadStatusFailed:
+      "Clips no pudo comprobar dónde guardar este video. Inténtalo de nuevo.",
     uploadType: "Clips admite videos MP4, WebM y MOV.",
     uploadTooLarge:
       "Este video es demasiado grande. Aquí Clips admite videos de hasta {{size}}.",
@@ -192,6 +196,8 @@ const translations: Record<
     uploadEditRequired:
       "Seuls les éditeurs de la page peuvent y importer des vidéos.",
     uploadFailed: "La vidéo n'a pas été importée. Réessayez.",
+    uploadStatusFailed:
+      "Clips n'a pas pu vérifier où enregistrer cette vidéo. Réessayez.",
     uploadType: "Clips accepte les vidéos MP4, WebM et MOV.",
     uploadTooLarge:
       "Cette vidéo est trop volumineuse. Ici, Clips accepte les vidéos jusqu'à {{size}}.",
@@ -266,6 +272,8 @@ const translations: Record<
     linkChecking: "Link wird geprüft…",
     uploadEditRequired: "Nur Bearbeiter der Seite können Videos hochladen.",
     uploadFailed: "Das Video wurde nicht hochgeladen. Versuche es erneut.",
+    uploadStatusFailed:
+      "Clips konnte nicht prüfen, wo dieses Video gespeichert wird. Versuche es erneut.",
     uploadType: "Clips nimmt MP4-, WebM- und MOV-Videos an.",
     uploadTooLarge:
       "Dieses Video ist zu groß. Clips nimmt hier Videos bis {{size}} an.",
@@ -338,6 +346,8 @@ const translations: Record<
     uploadEditRequired:
       "Só os editores da página podem enviar vídeos para ela.",
     uploadFailed: "O vídeo não foi enviado. Tente de novo.",
+    uploadStatusFailed:
+      "O Clips não conseguiu verificar onde salvar este vídeo. Tente de novo.",
     uploadType: "O Clips aceita vídeos MP4, WebM e MOV.",
     uploadTooLarge:
       "Este vídeo é grande demais. Aqui o Clips aceita vídeos de até {{size}}.",
@@ -406,6 +416,7 @@ const translations: Record<
     linkChecking: "正在检查链接…",
     uploadEditRequired: "只有此页面的编辑者可以向其上传视频。",
     uploadFailed: "视频未上传。请重试。",
+    uploadStatusFailed: "Clips 无法确认此视频的保存位置。请重试。",
     uploadType: "Clips 支持 MP4、WebM 和 MOV 视频。",
     uploadTooLarge: "此视频太大。此处 Clips 支持最大 {{size}} 的视频。",
     savedAsClip: "已保存为 Clip",
@@ -473,6 +484,7 @@ const translations: Record<
     linkChecking: "正在檢查連結…",
     uploadEditRequired: "只有此頁面的編輯者可以上傳影片到這裡。",
     uploadFailed: "影片未上傳。請再試一次。",
+    uploadStatusFailed: "Clips 無法確認此影片的儲存位置。請再試一次。",
     uploadType: "Clips 支援 MP4、WebM 和 MOV 影片。",
     uploadTooLarge: "此影片太大。這裡的 Clips 支援最大 {{size}} 的影片。",
     savedAsClip: "已儲存為 Clip",
@@ -545,6 +557,8 @@ const translations: Record<
       "このページに動画をアップロードできるのは編集者だけです。",
     uploadFailed:
       "動画をアップロードできませんでした。もう一度お試しください。",
+    uploadStatusFailed:
+      "Clips でこの動画の保存先を確認できませんでした。もう一度お試しください。",
     uploadType: "Clips は MP4、WebM、MOV の動画に対応しています。",
     uploadTooLarge:
       "この動画は大きすぎます。ここでは Clips は {{size}} までの動画に対応しています。",
@@ -614,6 +628,8 @@ const translations: Record<
     linkChecking: "링크 확인 중…",
     uploadEditRequired: "이 페이지의 편집자만 동영상을 업로드할 수 있습니다.",
     uploadFailed: "동영상이 업로드되지 않았습니다. 다시 시도하세요.",
+    uploadStatusFailed:
+      "Clips에서 이 동영상을 저장할 위치를 확인하지 못했습니다. 다시 시도하세요.",
     uploadType: "Clips는 MP4, WebM, MOV 동영상을 지원합니다.",
     uploadTooLarge:
       "이 동영상은 너무 큽니다. 여기서 Clips는 최대 {{size}}의 동영상을 지원합니다.",
@@ -683,6 +699,8 @@ const translations: Record<
     linkChecking: "लिंक जांचा जा रहा है…",
     uploadEditRequired: "केवल इस पेज के संपादक इसमें वीडियो अपलोड कर सकते हैं।",
     uploadFailed: "वीडियो अपलोड नहीं हुआ। फिर से कोशिश करें।",
+    uploadStatusFailed:
+      "Clips यह जाँच नहीं कर सका कि यह वीडियो कहाँ सहेजा जाए। फिर से कोशिश करें।",
     uploadType: "Clips MP4, WebM और MOV वीडियो लेता है।",
     uploadTooLarge:
       "यह वीडियो बहुत बड़ा है। यहां Clips {{size}} तक के वीडियो लेता है।",
@@ -751,6 +769,8 @@ const translations: Record<
     linkChecking: "جارٍ التحقق من الرابط…",
     uploadEditRequired: "يمكن لمحرري الصفحة فقط رفع مقاطع فيديو إليها.",
     uploadFailed: "لم يُرفع الفيديو. حاول مرة أخرى.",
+    uploadStatusFailed:
+      "تعذّر على Clips التحقق من مكان حفظ هذا الفيديو. حاول مرة أخرى.",
     uploadType: "يقبل Clips مقاطع فيديو MP4 وWebM وMOV.",
     uploadTooLarge:
       "هذا الفيديو كبير جدًا. يقبل Clips هنا مقاطع فيديو حتى {{size}}.",

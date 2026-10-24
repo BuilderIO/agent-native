@@ -61,7 +61,7 @@ function readAnswer(status: number, body: unknown): CreateClipUploadResult {
     }
   }
   console.warn("[content-clips] unreadable upload start answer", { status });
-  failClip(CLIP_UPLOAD_ERRORS.unreachable);
+  failClip(CLIP_UPLOAD_ERRORS.failed);
 }
 
 export default defineAction({

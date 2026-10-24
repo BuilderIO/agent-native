@@ -220,14 +220,18 @@ describe("the Upload tab while Clips in pages is on", () => {
     expect(text()).not.toContain("onboarding.fileStorage");
   });
 
-  it("says why when Clips can't say where the video would go", () => {
-    state.storageError = Object.assign(new Error("down"), {
-      errorCode: "clips_unreachable",
-    });
-    render();
-    expect(text()).toContain("clipEmbed.unreachable");
-    expect(text()).not.toContain("clipEmbed.savedAsClip");
-  });
+  it.each([
+    ["clips_unreachable", "clipEmbed.unreachable"],
+    ["clip_upload_failed", "clipEmbed.uploadStatusFailed"],
+  ])(
+    "says why when Clips can't say where the video would go: %s",
+    (errorCode, message) => {
+      state.storageError = Object.assign(new Error("down"), { errorCode });
+      render();
+      expect(text()).toContain(message);
+      expect(text()).not.toContain("clipEmbed.savedAsClip");
+    },
+  );
 
   it("uploads to Clips and swaps the block for the Clip it made", async () => {
     state.callAction.mockResolvedValue(ticket);

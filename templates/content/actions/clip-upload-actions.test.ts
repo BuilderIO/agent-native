@@ -192,7 +192,7 @@ describe("get-clip-upload-status", () => {
     });
   });
 
-  it("fails as unreachable on a storage state it can't read, and passes Clips' own failures on", async () => {
+  it("fails on a storage state it can't read, and passes Clips' own failures on", async () => {
     mocks.requestClipsUpload.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -200,7 +200,7 @@ describe("get-clip-upload-status", () => {
     });
     await expect(
       failureOf(getClipUploadStatus.run({ documentId: "doc_1" })),
-    ).resolves.toMatchObject({ errorCode: "clips_unreachable" });
+    ).resolves.toMatchObject({ errorCode: "clip_upload_failed" });
 
     mocks.requestClipsUpload.mockResolvedValueOnce({
       ok: false,
@@ -289,7 +289,7 @@ describe("create-clip-upload", () => {
       body: { ...ticket, chunkUrl },
     });
     await expect(failureOf(createClipUpload.run(start))).resolves.toEqual({
-      errorCode: "clips_unreachable",
+      errorCode: "clip_upload_failed",
       statusCode: 502,
     });
   });

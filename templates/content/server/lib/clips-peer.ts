@@ -396,7 +396,7 @@ export async function requestClipsUpload(input: {
       }
   }
   if (!UPLOAD_ANSWER_STATUSES.has(answer.status) || !answer.body.readable) {
-    return { ok: false, code: CLIP_UPLOAD_ERRORS.unreachable };
+    return { ok: false, code: CLIP_UPLOAD_ERRORS.failed };
   }
   return { ok: true, status: answer.status, body: answer.body.value };
 }

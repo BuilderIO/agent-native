@@ -170,6 +170,8 @@ export const CLIP_UPLOAD_ERRORS = {
   /** Too many uploads in progress, or too many requests. */
   rateLimited: CLIP_PLAYBACK_ERRORS.rateLimited,
   unreachable: CLIP_PLAYBACK_ERRORS.unreachable,
+  /** Clips answered, but with a refusal or an answer Content can't read. */
+  failed: "clip_upload_failed",
 } as const;
 
 export type ClipUploadErrorCode =

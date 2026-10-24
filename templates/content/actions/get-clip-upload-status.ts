@@ -41,7 +41,7 @@ export default defineAction({
       console.warn("[content-clips] unreadable upload status answer", {
         status: answer.status,
       });
-      failClip(CLIP_UPLOAD_ERRORS.unreachable);
+      failClip(CLIP_UPLOAD_ERRORS.failed);
     }
     return parsed.data;
   },

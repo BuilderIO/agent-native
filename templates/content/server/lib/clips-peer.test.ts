@@ -504,10 +504,10 @@ describe("requestClipsUpload", () => {
     [401, { error: "Unauthorized" }, "clip_token_refused"],
     [429, { code: "too_many_uploads" }, "clip_rate_limited"],
     [503, { code: "content_clips_not_configured" }, "clips_not_configured"],
-    [503, { error: "down" }, "clips_unreachable"],
-    [400, { error: "Invalid upload request" }, "clips_unreachable"],
-    [500, { error: "boom" }, "clips_unreachable"],
-    [302, {}, "clips_unreachable"],
+    [503, { error: "down" }, "clip_upload_failed"],
+    [400, { error: "Invalid upload request" }, "clip_upload_failed"],
+    [500, { error: "boom" }, "clip_upload_failed"],
+    [302, {}, "clip_upload_failed"],
   ])("maps Clips %i %j to %s", async (status, body, code) => {
     vi.stubGlobal(
       "fetch",
@@ -516,7 +516,7 @@ describe("requestClipsUpload", () => {
     await expect(ask(true)).resolves.toEqual({ ok: false, code });
   });
 
-  it("reports Clips unreachable when the request fails or the answer can't be read", async () => {
+  it("tells a failed request apart from an answer it can't read", async () => {
     vi.stubGlobal(
       "fetch",
       vi
@@ -530,7 +530,7 @@ describe("requestClipsUpload", () => {
     });
     await expect(ask()).resolves.toEqual({
       ok: false,
-      code: "clips_unreachable",
+      code: "clip_upload_failed",
     });
   });
 

@@ -86,6 +86,10 @@ const FAILURES: Record<
     statusCode: 502,
     message: "Clips did not answer",
   },
+  [CLIP_UPLOAD_ERRORS.failed]: {
+    statusCode: 502,
+    message: "Clips answered with an error",
+  },
 };
 
 export function failClip(

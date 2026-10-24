@@ -33,6 +33,7 @@ const UPLOAD_ERROR_MESSAGES: Record<ClipUploadErrorCode, string> = {
   clip_token_refused: "clipEmbed.refused",
   clip_rate_limited: "clipEmbed.rateLimited",
   clips_unreachable: "clipEmbed.unreachable",
+  clip_upload_failed: "clipEmbed.uploadFailed",
 };
 
 function uploadErrorKey(error: unknown): string {
@@ -40,6 +41,14 @@ function uploadErrorKey(error: unknown): string {
   return isClipUploadErrorCode(code)
     ? UPLOAD_ERROR_MESSAGES[code]
     : "clipEmbed.uploadFailed";
+}
+
+/** Why a check on where uploads go failed: nothing has uploaded yet. */
+function storageErrorKey(error: unknown): string {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return code === "clip_upload_failed"
+    ? "clipEmbed.uploadStatusFailed"
+    : uploadErrorKey(error);
 }
 
 function canUpload(storage: ContentClipStorage | undefined): boolean {
@@ -151,7 +160,7 @@ export function useClipFileUpload(input: {
         )
       ).storage;
     } catch (error) {
-      toast.error(t(uploadErrorKey(error)));
+      toast.error(t(storageErrorKey(error)));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -196,7 +205,7 @@ export function ClipUploadHint({
 }) {
   const t = useT();
   const text = error
-    ? t(uploadErrorKey(error))
+    ? t(storageErrorKey(error))
     : storage?.state === "free"
       ? storage.remaining === 1
         ? t("clipEmbed.savedAsClipFreeOne")
