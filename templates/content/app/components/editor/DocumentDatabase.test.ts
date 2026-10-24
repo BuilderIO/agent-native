@@ -61,6 +61,7 @@ import {
   databaseNavigationState,
   databaseAttachedBuilderModelNames,
   databaseAttachedBuilderSource,
+  databaseBuilderReviewAfterExecution,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -1219,6 +1220,87 @@ describe("Builder source settings helpers", () => {
       status: "failed",
       message: "Builder push failed. The change remains retryable.",
     });
+  });
+
+  it("builds a pushed review from every row's own execution response", () => {
+    const rowSource = (
+      id: string,
+      changeSet: Partial<ContentDatabaseSourceChangeSet> = {},
+    ) =>
+      builderSource({
+        capabilities: {
+          ...builderSource().capabilities,
+          liveWritesEnabled: true,
+        },
+        rows: [
+          {
+            ...builderSource().rows[0],
+            id: `row-source-${id}`,
+            databaseItemId: `item-${id}`,
+            documentId: id,
+            sourceDisplayKey: `Builder ${id}`,
+          },
+        ],
+        changeSets: [
+          builderChangeSet({
+            id: `change-${id}`,
+            databaseItemId: `item-${id}`,
+            documentId: id,
+            fieldChanges: [],
+            ...changeSet,
+          }),
+        ],
+      });
+    const prepared = [rowSource("first"), rowSource("second")];
+    const preparedReview = buildClientBuilderReviewPayload(
+      { ...prepared[1], rows: prepared.flatMap((source) => source.rows) },
+      prepared.flatMap((source) => source.changeSets),
+    );
+    const pushed = ["first", "second"].map((id) => ({
+      changeSetId: `change-${id}`,
+      source: rowSource(id, {
+        state: "applied",
+        executions: [
+          builderExecution({ changeSetId: `change-${id}`, state: "succeeded" }),
+        ],
+      }),
+    }));
+
+    const review = databaseBuilderReviewAfterExecution(preparedReview, pushed);
+
+    expect(
+      review?.rows.map((row) => [
+        row.changeSetId,
+        row.title,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "Builder first", "succeeded"],
+      ["change-second", "Builder second", "succeeded"],
+    ]);
+    expect(review?.result).toMatchObject({
+      status: "succeeded",
+      message: "Pushed to Builder and reconciled locally.",
+    });
+    expect(
+      databaseBuilderReviewAfterExecution(preparedReview, [
+        pushed[0]!,
+        { changeSetId: "change-second", source: pushed[0]!.source },
+      ]),
+    ).toBeNull();
+
+    const skipped = databaseBuilderReviewAfterExecution(
+      preparedReview,
+      pushed.slice(1),
+    );
+    expect(
+      skipped?.rows.map((row) => [row.changeSetId, row.execution?.state]),
+    ).toEqual([
+      ["change-first", preparedReview.rows[0]!.execution?.state],
+      ["change-second", "succeeded"],
+    ]);
+    expect(skipped?.result.status).toBe("succeeded");
+    expect(skipped?.summary).toBe(preparedReview.summary);
   });
 });
 

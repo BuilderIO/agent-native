@@ -1517,6 +1517,8 @@ const overrides = {
     failedToCreateRow: "建立行失敗",
     pageCreatedCollectionRefreshFailed:
       "已建立頁面，但此集合無法重新整理。請重新載入以查看。",
+    builderPushResultNotLoaded:
+      "更新已送達 Builder，但此審閱無法載入結果。請重新載入以查看。",
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",
     failedToDuplicateEverySelectedRow: "未能複製所有選取行",

@@ -2807,16 +2807,12 @@ function DatabaseTable({
 
     setBuilderReviewCheckedAt(null);
     setBuilderReviewError(null);
-    let preparedReviewForError = activeBuilderReview;
     try {
-      let nextReview = preparedReview;
-      preparedReviewForError = nextReview;
-
       const executableRows = builderReviewExecutableRows(
-        nextReview,
+        preparedReview,
         selectedChangeSetIdSet,
       );
-      let executedResponse: ContentDatabaseResponsePayload | null = null;
+      const executions: DatabaseBuilderRowExecution[] = [];
       for (const row of executableRows) {
         if (!row.execution?.idempotencyKey) continue;
         if (
@@ -2828,12 +2824,12 @@ function DatabaseTable({
           return;
         }
         const transition = selection.transitions[row.changeSetId];
-        executedResponse = await executeBuilderExecution.mutateAsync({
+        const executedResponse = await executeBuilderExecution.mutateAsync({
           documentId: document.id,
           sourceId: session.sourceId,
           changeSetId: row.changeSetId,
           idempotencyKey: row.execution.idempotencyKey,
-          pushModeConfirmation: nextReview.pushMode,
+          pushModeConfirmation: preparedReview.pushMode,
           publicationTransition: transition?.publicationTransition,
           confirmUnpublish: transition?.confirmUnpublish,
         });
@@ -2845,44 +2841,32 @@ function DatabaseTable({
         ) {
           return;
         }
-      }
-      const executedSource = executedResponse
-        ? databaseAttachedBuilderSource(
-            databaseAttachedSources(
-              executedResponse.sources,
-              executedResponse.source,
-            ),
+        const executedSource = databaseAttachedBuilderSource(
+          databaseAttachedSources(
+            executedResponse.sources,
             executedResponse.source,
-            { sourceId: session.sourceId },
-          )
-        : null;
-      if (executedSource) {
-        const reviewedIds = new Set(
-          nextReview.rows.map((row) => row.changeSetId),
+          ),
+          executedResponse.source,
+          { sourceId: session.sourceId },
         );
-        const reviewedChangeSets = executedSource.changeSets.filter(
-          (changeSet) => reviewedIds.has(changeSet.id),
-        );
-        if (reviewedChangeSets.length > 0) {
-          nextReview = buildClientBuilderReviewPayload(
-            executedSource,
-            reviewedChangeSets,
-          );
-        }
+        executions.push({
+          changeSetId: row.changeSetId,
+          source: executedSource ?? null,
+        });
       }
-
-      if (
-        !databaseBuilderReviewSessionIsCurrent(
-          builderReviewSessionRef.current,
-          session,
-        )
-      ) {
+      const nextReview = databaseBuilderReviewAfterExecution(
+        preparedReview,
+        executions,
+      );
+      setPreparedBuilderReviewConfirmation(null);
+      if (!nextReview) {
+        setBuilderReviewError(dbText("builderPushResultNotLoaded"));
+        toast.error(dbText("builderPushResultNotLoaded"));
         return;
       }
       setBuilderReviewResult(nextReview);
       setBuilderReviewCheckedAt(new Date().toISOString());
       setBuilderReviewError(null);
-      setPreparedBuilderReviewConfirmation(null);
       if (nextReview.result.status === "running") {
         toast.info(dbText("working"), {
           description: dbText("builderPushAlreadyRunning"),
@@ -2910,7 +2894,7 @@ function DatabaseTable({
         error instanceof Error ? error.message : dbText("tryAgain");
       setPreparedBuilderReviewConfirmation(null);
       const ambiguousReview = databaseBuilderReviewAfterExecutionError(
-        preparedReviewForError,
+        preparedReview,
         message,
       );
       if (ambiguousReview) {
@@ -4632,6 +4616,55 @@ export function databaseBuilderReviewAfterExecutionError(
     };
   }
   return null;
+}
+
+export type DatabaseBuilderRowExecution = {
+  changeSetId: string;
+  source: ContentDatabaseSource | null;
+};
+
+/**
+ * The review after a push, built from the Builder source each execution
+ * returned. Each execution answers for its own row; null when an executed
+ * row's change set did not come back. Rows the push skipped keep their
+ * prepared state.
+ */
+export function databaseBuilderReviewAfterExecution(
+  review: ContentDatabaseSourceReviewPayload,
+  executions: DatabaseBuilderRowExecution[],
+) {
+  const sources = executions.flatMap(({ source }) => (source ? [source] : []));
+  const latestSource = sources[sources.length - 1];
+  if (!latestSource) return null;
+  const changeSetsById = new Map(
+    sources.flatMap((source) =>
+      source.changeSets.map((changeSet) => [changeSet.id, changeSet] as const),
+    ),
+  );
+  const changeSets = executions.flatMap(({ changeSetId }) => {
+    const changeSet = changeSetsById.get(changeSetId);
+    return changeSet ? [changeSet] : [];
+  });
+  if (changeSets.length !== executions.length) return null;
+  const rowsById = new Map(
+    sources.flatMap((source) =>
+      source.rows.map((row) => [row.id, row] as const),
+    ),
+  );
+  const pushed = buildClientBuilderReviewPayload(
+    { ...latestSource, rows: [...rowsById.values()] },
+    changeSets,
+  );
+  const pushedRows = new Map(
+    pushed.rows.map((row) => [row.changeSetId, row] as const),
+  );
+  return {
+    ...pushed,
+    summary: review.summary,
+    riskLevel: review.riskLevel,
+    riskReasons: review.riskReasons,
+    rows: review.rows.map((row) => pushedRows.get(row.changeSetId) ?? row),
+  };
 }
 
 export function databaseBuilderReviewBelongsToSource(

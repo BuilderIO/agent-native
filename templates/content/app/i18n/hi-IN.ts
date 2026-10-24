@@ -322,6 +322,8 @@ const database = {
   failedToCreateRow: "पंक्ति बनाने में विफल",
   pageCreatedCollectionRefreshFailed:
     "पृष्ठ बन गया, लेकिन यह संग्रह रीफ़्रेश नहीं हो सका. इसे देखने के लिए पुनः लोड करें.",
+  builderPushResultNotLoaded:
+    "अपडेट Builder तक पहुँच गया, लेकिन यह समीक्षा परिणाम लोड नहीं कर सकी. इसे देखने के लिए पुनः लोड करें.",
   failedToDeleteRow: "पंक्ति हटाने में विफल",
   failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
   failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
