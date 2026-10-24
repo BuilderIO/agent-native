@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   updateIfFollowUpClaim: vi.fn(),
   failFollowUp: vi.fn(),
+  failApprovalResolution: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
   claimApprovalResolution: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSession: mocks.update,
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
   failAgentHarnessSessionFollowUp: mocks.failFollowUp,
+  failAgentHarnessSessionApprovalResolution: mocks.failApprovalResolution,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
   claimAgentHarnessSessionApprovalResolution: mocks.claimApprovalResolution,
@@ -156,6 +158,31 @@ describe("agent harness lifecycle", () => {
       };
       return stored;
     });
+    mocks.failApprovalResolution.mockImplementation(
+      async ({ sessionId, approvalId }) => {
+        if (
+          stored.id !== sessionId ||
+          stored.approvalResolutionId !== approvalId
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          pendingApproval: null,
+          approvalResolutionId: null,
+          approvalResolutionClaimExpiresAt: null,
+          resolvedApprovalIds: [
+            ...(stored.resolvedApprovalIds ?? []).filter(
+              (id) => id !== approvalId,
+            ),
+            approvalId,
+          ],
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
+      },
+    );
     mocks.updateAtGeneration.mockImplementation(
       async (
         _id,
@@ -201,7 +228,7 @@ describe("agent harness lifecycle", () => {
           status: "running",
           followUpClaimId: claimId,
           followUpId: intent.followUpId,
-          followUpPrompt: intent.prompt,
+          followUpPromptPresent: true,
           followUpMetadata: intent.metadata,
           followUpClaimExpiresAt: intent.claimExpiresAt,
           followUpDeadlineAt: intent.deadlineAt,
@@ -654,6 +681,14 @@ describe("agent harness lifecycle", () => {
     ).resolves.toEqual({ recovered: 1, truncated: false });
     expect(session.stop).not.toHaveBeenCalled();
     expect(stored.approvalResolutionId).toBeNull();
+
+    const afterRecovery = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+    expect(afterRecovery).toMatchObject({ ok: true, idempotent: true });
+    expect(session.approve).toHaveBeenCalledOnce();
   });
 
   it("persists detached state from the reserved approval generation", async () => {
@@ -708,6 +743,12 @@ describe("agent harness lifecycle", () => {
     const onHarnessEvent = vi.fn(async (event: AgentHarnessEvent) => {
       order.push(`publish:${event.type}`);
     });
+    const finalizeApproval =
+      mocks.finalizeApprovalResolution.getMockImplementation()!;
+    mocks.finalizeApprovalResolution.mockImplementation(async (input) => {
+      order.push("finalize");
+      return finalizeApproval(input);
+    });
     register(stored, session);
 
     const result = await resolveAgentHarnessApproval({
@@ -723,16 +764,60 @@ describe("agent harness lifecycle", () => {
     ).toEqual([
       { type: "text", text: "Approval accepted" },
       { type: "tool_start", tool: "write_file", input: { path: "notes.txt" } },
-      { type: "done" },
     ]);
     expect(order).toEqual([
       "persist:text",
       "publish:text-delta",
       "persist:tool_start",
       "publish:tool-start",
-      "persist:done",
+      "finalize",
       "publish:done",
     ]);
+  });
+
+  it("releases an approval claim after a persisted stream error", async () => {
+    const { approve: _approve, ...baseSession } = fakeSession();
+    const session = {
+      ...baseSession,
+      continueTurn: vi.fn(async function* () {
+        yield {
+          type: "error",
+          error: "provider returned an error",
+        } as AgentHarnessEvent;
+      }),
+    };
+    const approvalId = "approval-stream-error";
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+    const order: string[] = [];
+    mocks.persistApprovalEvent.mockImplementation(async () => {
+      order.push("persist:error");
+    });
+    const onHarnessEvent = vi.fn(async () => {
+      order.push("publish:error");
+    });
+    mocks.failApprovalResolution.mockImplementationOnce(async (input) => {
+      order.push("release:claim");
+      const defaultFailure =
+        mocks.failApprovalResolution.getMockImplementation()!;
+      return defaultFailure(input);
+    });
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+        onHarnessEvent,
+      }),
+    ).rejects.toThrow("provider returned an error");
+
+    expect(order).toEqual(["persist:error", "publish:error", "release:claim"]);
+    expect(stored).toMatchObject({
+      approvalResolutionId: null,
+      pendingApproval: null,
+      resolvedApprovalIds: [approvalId],
+    });
   });
 
   it("persists detached state after a follow-up claim clears during approval", async () => {
@@ -836,7 +921,7 @@ describe("agent harness lifecycle", () => {
       new Error("provider could not resume"),
     );
     mocks.resolveAdapter.mockReturnValue(adapter);
-    mocks.updateIfFollowUpClaim.mockImplementationOnce(async () => {
+    mocks.failFollowUp.mockImplementationOnce(async () => {
       throw new Error("temporary database write failure");
     });
 
@@ -851,7 +936,16 @@ describe("agent harness lifecycle", () => {
       errorCode: "unavailable",
       session: { status: "idle", followUpClaimId: null },
     });
-    expect(mocks.updateIfFollowUpClaim).toHaveBeenCalledTimes(2);
+    expect(mocks.failFollowUp).toHaveBeenCalledTimes(2);
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "not_dispatched",
+        errorEvent: expect.objectContaining({
+          type: "error",
+          errorCode: "harness_follow_up_not_dispatched",
+        }),
+      }),
+    );
   });
 
   it("does not let an expired process stop a newer follow-up claim", async () => {

@@ -36,6 +36,7 @@ const {
   claimAgentHarnessSessionApprovalResolution,
   claimAgentHarnessSessionFollowUp: claimAgentHarnessSessionFollowUpInStore,
   finalizeAgentHarnessSessionApprovalResolution,
+  failAgentHarnessSessionApprovalResolution,
   finishAgentHarnessSessionExpiryCleanup,
   failAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
@@ -79,6 +80,24 @@ function claimAgentHarnessSessionFollowUp(
 }
 
 describe("agent harness session store", () => {
+  it("indexes run ID lookup used by the transcript order trigger", async () => {
+    __resetStoreLedgerSnapshotForTests();
+    await saveAgentHarnessSession({
+      id: "session-run-id-index",
+      harnessName: "fake",
+      threadId: "thread-run-id-index",
+      runId: "run-run-id-index",
+      status: "idle",
+    });
+
+    const { rows } = await rawClient.execute({
+      sql: "SELECT indexdef FROM pg_indexes WHERE indexname = ?",
+      args: ["agent_harness_sessions_run_id_idx"],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.indexdef).toContain("(run_id, id)");
+  });
+
   it("allows only one follow-up claim for a session generation", async () => {
     __resetStoreLedgerSnapshotForTests();
     await saveAgentHarnessSession({
@@ -189,7 +208,8 @@ describe("agent harness session store", () => {
       "claim-dispatched",
       {
         followUpId: "follow-up-dispatched",
-        prompt: "Run the requested action",
+        prompt:
+          "/workspace/project/packages/core/src/agent/harness/store.ts 123e4567-e89b-12d3-a456-426614174000",
         claimExpiresAt: now + 60_000,
         deadlineAt: now + 24 * 60 * 60 * 1_000,
       },
@@ -198,14 +218,22 @@ describe("agent harness session store", () => {
     expect(claim).toMatchObject({
       status: "running",
       followUpId: "follow-up-dispatched",
-      followUpPrompt: "Run the requested action",
+      followUpPromptPresent: true,
       followUpClaimId: "claim-dispatched",
     });
+    const { rows: promptRows } = await rawClient.execute({
+      sql: "SELECT follow_up_prompt FROM agent_harness_sessions WHERE id = ?",
+      args: [id],
+    });
+    expect(promptRows[0]?.follow_up_prompt).toBe("present");
     await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
       {
         operationId: "follow-up:follow-up-dispatched",
         seq: 0,
-        event: { type: "user_input", text: "Run the requested action" },
+        event: {
+          type: "user_input",
+          text: "/workspace/project/packages/core/src/agent/harness/store.ts 123e4567-e89b-12d3-a456-426614174000",
+        },
       },
     ]);
 
@@ -243,7 +271,10 @@ describe("agent harness session store", () => {
     });
     const transcript = await listAgentHarnessSessionEvents(id);
     expect(transcript.map((entry) => entry.event)).toEqual([
-      { type: "user_input", text: "Run the requested action" },
+      {
+        type: "user_input",
+        text: "/workspace/project/packages/core/src/agent/harness/store.ts 123e4567-e89b-12d3-a456-426614174000",
+      },
       { type: "text", text: "Provider response" },
       expect.objectContaining({
         type: "error",
@@ -297,6 +328,62 @@ describe("agent harness session store", () => {
     ]);
   });
 
+  it("keeps a persisted provider error and atomically releases a failed follow-up", async () => {
+    const id = "session-follow-up-provider-error";
+    const followUpId = "follow-up-provider-error";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-provider-error",
+      runId: "run-follow-up-provider-error",
+      status: "idle",
+    });
+    const initial = await getAgentHarnessSession(id);
+    await claimAgentHarnessSessionFollowUpInStore(
+      id,
+      initial!.generation,
+      "claim-provider-error",
+      {
+        followUpId,
+        prompt: "continue",
+        claimExpiresAt: Date.now() + 60_000,
+        deadlineAt: Date.now() + 60_000,
+      },
+    );
+    await persistAgentHarnessFollowUpEvent(
+      id,
+      followUpId,
+      "claim-provider-error",
+      {
+        type: "error",
+        error: "provider returned an error",
+        errorCode: "provider_error",
+      },
+    );
+
+    const failed = await failAgentHarnessSessionFollowUp({
+      sessionId: id,
+      claimId: "claim-provider-error",
+      outcome: "unknown",
+    });
+
+    expect(failed).toMatchObject({
+      status: "errored",
+      followUpClaimId: null,
+      followUpOutcome: "unknown",
+    });
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      { event: { type: "user_input", text: "continue" } },
+      {
+        event: {
+          type: "error",
+          error: "provider returned an error",
+          errorCode: "provider_error",
+        },
+      },
+    ]);
+  });
+
   it("keeps long journal text replayable while redacting embedded credentials", async () => {
     const id = "session-long-journal-text";
     await saveAgentHarnessSession({
@@ -325,6 +412,114 @@ describe("agent harness session store", () => {
     expect(events[1]?.event).toEqual({
       type: "text",
       text: `${"x".repeat(12_000)} Authorization: Bearer [redacted]`,
+    });
+  });
+
+  it("truncates oversized tool payloads without failing transcript persistence", async () => {
+    const id = "session-oversized-tool-payload";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-oversized-tool-payload",
+      runId: "run-oversized-tool-payload",
+      status: "idle",
+    });
+    const initial = await getAgentHarnessSession(id);
+    await claimAgentHarnessSessionFollowUpInStore(
+      id,
+      initial!.generation,
+      "claim-oversized-tool-payload",
+      {
+        followUpId: "follow-up-oversized-tool-payload",
+        prompt: "continue",
+        claimExpiresAt: Date.now() + 60_000,
+        deadlineAt: Date.now() + 60_000,
+      },
+    );
+
+    await expect(
+      persistAgentHarnessFollowUpEvent(
+        id,
+        "follow-up-oversized-tool-payload",
+        "claim-oversized-tool-payload",
+        {
+          type: "tool_done",
+          tool: "mcp.create",
+          result: "completed",
+          input: { destination: "document-1" },
+          mcpApp: {
+            serverId: "server-1",
+            toolName: "create",
+            originalToolName: "create",
+            resourceUri: "resource://document-1",
+            toolInput: {},
+            toolResult: { content: "x".repeat(600 * 1024) },
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      persistAgentHarnessFollowUpEvent(
+        id,
+        "follow-up-oversized-tool-payload",
+        "claim-oversized-tool-payload",
+        {
+          type: "tool_done",
+          tool: "mcp.aggregate",
+          result: "saved",
+          mcpApp: {
+            serverId: "server-2",
+            toolName: "aggregate",
+            originalToolName: "aggregate",
+            resourceUri: "resource://aggregate",
+            toolInput: {},
+            toolResult: {
+              first: "a".repeat(300 * 1024),
+              second: "b".repeat(300 * 1024),
+            },
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      persistAgentHarnessFollowUpEvent(
+        id,
+        "follow-up-oversized-tool-payload",
+        "claim-oversized-tool-payload",
+        {
+          type: "tool_start",
+          tool: "write_file",
+          input: { content: "y".repeat(600 * 1024) },
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    const events = await listAgentHarnessSessionEvents(id);
+    const boundedResult = events[1]?.event;
+    expect(boundedResult).toMatchObject({
+      type: "tool_done",
+      tool: "mcp.create",
+      result: "completed",
+      mcpApp: {
+        toolResult: {
+          content: expect.stringContaining("more chars"),
+        },
+      },
+    });
+    expect(
+      Buffer.byteLength(JSON.stringify(boundedResult), "utf8"),
+    ).toBeLessThan(512_000);
+    expect(events[2]?.event).toMatchObject({
+      type: "tool_done",
+      tool: "mcp.aggregate",
+      result: "saved",
+      journalTruncated: true,
+      journalPreview: expect.any(String),
+    });
+    expect(events[3]?.event).toMatchObject({
+      type: "tool_start",
+      tool: "write_file",
+      input: { content: expect.stringContaining("more chars") },
     });
   });
 
@@ -1160,6 +1355,93 @@ describe("agent harness session store", () => {
     });
     const events = await listAgentHarnessSessionEvents(id);
     expect(events.map((entry) => entry.event)).toEqual([{ type: "done" }]);
+  });
+
+  it("releases an errored approval resolution without adding a second error", async () => {
+    const id = "session-approval-provider-error";
+    const approvalId = "approval-provider-error";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-approval-provider-error",
+      runId: "run-approval-provider-error",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+    });
+    const initial = await getAgentHarnessSession(id);
+    await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+    await persistAgentHarnessApprovalEvent(id, approvalId, {
+      type: "error",
+      error: "provider returned an error",
+      errorCode: "provider_error",
+    });
+
+    const failed = await failAgentHarnessSessionApprovalResolution({
+      sessionId: id,
+      approvalId,
+    });
+
+    expect(failed).toMatchObject({
+      approvalResolutionId: null,
+      approvalResolutionClaimExpiresAt: null,
+      resolvedApprovalIds: [approvalId],
+    });
+    expect(failed?.pendingApproval ?? null).toBeNull();
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      {
+        event: {
+          type: "error",
+          error: "provider returned an error",
+          errorCode: "provider_error",
+        },
+      },
+    ]);
+  });
+
+  it("commits an unknown approval outcome with claim release when no event exists", async () => {
+    const id = "session-approval-failure-cleanup";
+    const approvalId = "approval-failure-cleanup";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-approval-failure-cleanup",
+      runId: "run-approval-failure-cleanup",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+    });
+    const initial = await getAgentHarnessSession(id);
+    await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+
+    const failed = await failAgentHarnessSessionApprovalResolution({
+      sessionId: id,
+      approvalId,
+    });
+
+    expect(failed).toMatchObject({
+      approvalResolutionId: null,
+      resolvedApprovalIds: [approvalId],
+    });
+    expect(failed?.pendingApproval ?? null).toBeNull();
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      {
+        event: {
+          type: "error",
+          errorCode: "harness_approval_outcome_unknown",
+        },
+      },
+    ]);
   });
 
   it("recovers a durable approval completion without adding an unknown outcome", async () => {

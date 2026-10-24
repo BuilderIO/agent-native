@@ -417,6 +417,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     "CREATE INDEX idx_feedback_type_created ON public.agent_feedback USING btree (feedback_type, created_at);",
     "CREATE INDEX idx_feedback_user ON public.agent_feedback USING btree (user_id, created_at);",
     "CREATE INDEX idx_agent_harness_session_events_session ON public.agent_harness_session_events USING btree (session_id, seq);",
+    "CREATE INDEX agent_harness_sessions_run_id_idx ON public.agent_harness_sessions USING btree (run_id, id) WHERE (run_id IS NOT NULL);",
     "CREATE INDEX idx_agent_harness_follow_up_recovery ON public.agent_harness_sessions USING btree (follow_up_claim_expires_at) WHERE (follow_up_claim_id IS NOT NULL);",
     "CREATE INDEX idx_agent_harness_sessions_owner ON public.agent_harness_sessions USING btree (owner_email, updated_at);",
     "CREATE INDEX idx_agent_harness_sessions_status ON public.agent_harness_sessions USING btree (status, updated_at);",

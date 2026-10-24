@@ -29,6 +29,19 @@ describe("redactArgsToJson", () => {
     expect(JSON.parse(json!).note).toBe("[redacted]");
   });
 
+  it("preserves UUIDs and paths when generic opaque values are disabled", () => {
+    const values = {
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      path: "/workspace/project/packages/core/src/agent/harness/store.ts",
+    };
+
+    expect(
+      JSON.parse(
+        redactArgsToJson(values, { redactGenericOpaqueStrings: false })!,
+      ),
+    ).toEqual(values);
+  });
+
   it("redacts webhook URLs under a generic field, regardless of key", () => {
     expect(
       __test.looksSecret(

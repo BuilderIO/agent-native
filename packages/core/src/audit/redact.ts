@@ -22,9 +22,8 @@ const MAX_ARRAY = 100;
 const MAX_JSON = 8000;
 const MARKER_SLACK = 32;
 
-function looksSecret(value: string): boolean {
+function looksCredential(value: string): boolean {
   if (/^bearer\s+\S/i.test(value)) return true;
-  if (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value)) return true;
   if (/^(sk|pk|rk|ghp|gho|xox[baprs]|AKIA|AIza|ya29)[-_]/i.test(value)) {
     return true;
   }
@@ -38,12 +37,25 @@ function looksSecret(value: string): boolean {
   return false;
 }
 
+function looksSecret(value: string): boolean {
+  return (
+    looksCredential(value) ||
+    (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value))
+  );
+}
+
 function redactString(
   value: string,
   limits: Required<Pick<RedactLimits, "maxString" | "overflow">> &
-    Pick<RedactLimits, "redactEmbeddedSecrets">,
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">,
 ): string {
-  if (looksSecret(value)) return REDACTED;
+  if (
+    limits.redactGenericOpaqueStrings === false
+      ? looksCredential(value)
+      : looksSecret(value)
+  ) {
+    return REDACTED;
+  }
   if (value.length > limits.maxString) {
     if (limits.overflow === "throw") {
       throw new Error("Redacted value exceeds the configured string limit.");
@@ -71,7 +83,7 @@ function redact(
       "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
     >
   > &
-    Pick<RedactLimits, "redactEmbeddedSecrets">,
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">,
 ): unknown {
   if (value == null) return value;
   if (typeof value === "string") return redactString(value, limits);
@@ -123,6 +135,7 @@ export interface RedactLimits {
   maxArray?: number;
   overflow?: "truncate" | "throw";
   redactEmbeddedSecrets?: boolean;
+  redactGenericOpaqueStrings?: boolean;
 }
 
 export function redactArgsToJson(
@@ -137,13 +150,14 @@ export function redactArgsToJson(
     maxArray: limits?.maxArray ?? MAX_ARRAY,
     overflow: limits?.overflow ?? "truncate",
     redactEmbeddedSecrets: limits?.redactEmbeddedSecrets,
+    redactGenericOpaqueStrings: limits?.redactGenericOpaqueStrings,
   } satisfies Required<
     Pick<
       RedactLimits,
       "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
     >
   > &
-    Pick<RedactLimits, "redactEmbeddedSecrets">;
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">;
   try {
     if (args == null) return null;
     const redacted = redact(args, 0, normalizedLimits);
