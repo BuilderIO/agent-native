@@ -613,7 +613,7 @@ describe("runQuery cancellation", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        runQuery(`SELECT 'incomplete_${_case.replaceAll(" ", "_")}' AS value`),
+        runQuery(`SELECT 'incomplete_${_case.replace(/ /g, "_")}' AS value`),
       ).resolves.toMatchObject({
         rows: [{ value: "first" }],
         truncated: true,
