@@ -5405,7 +5405,7 @@ function userRequestAuthorizesExactRoot(
     "i",
   );
   const negationOrCondition =
-    /\b(?:not|never|unless|if|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|read[\s-]?only|view[\s-]?only|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+    /\b(?:not|never|unless|if|whenever|when|as\s+long\s+as|so\s+long\s+as|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|read[\s-]?only|view[\s-]?only|(?:claim(?:ing)?|reply(?:ing)?)[\s-]*only|only\s+(?:to\s+)?(?:claim(?:ing)?|reply(?:ing)?)|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
   if (negationOrCondition.test(unquotedRequest)) return false;
 
@@ -17194,6 +17194,14 @@ if (args[0] === "--self-test" && args.length === 1) {
         "I authorize you to work on Slack root C_TEST 10.000000 only if it is assigned to you.",
       ],
       [
+        "work authorization conditioned on when cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 when it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on as long as cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 as long as it is assigned to you.",
+      ],
+      [
         "a later condition cannot qualify held-root authorization",
         "I authorize you to work on Slack root C_TEST 10.000000. Only if it is assigned to you.",
       ],
@@ -17208,6 +17216,22 @@ if (args[0] === "--self-test" && args.length === 1) {
       [
         "trailing no-write qualifier cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000 with no writes.",
+      ],
+      [
+        "trailing claim-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim-only.",
+      ],
+      [
+        "trailing claim only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim only.",
+      ],
+      [
+        "trailing reply-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply-only.",
+      ],
+      [
+        "trailing reply only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply only.",
       ],
     ] as const;
     for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
