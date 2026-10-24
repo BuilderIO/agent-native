@@ -5,6 +5,10 @@ import {
   documentScopedQueryFilter,
   useContentActionMutation,
 } from "./use-content-action-mutation";
+import {
+  contentDatabaseExcerptContainingDocumentFilter,
+  contentDatabaseItemsContainingDocumentFilter,
+} from "./use-content-database";
 
 type ConvertPageToLiveCopyResponse = {
   id: string;
@@ -25,10 +29,16 @@ export function useConvertPageToLiveCopyOnOpen(
     ConvertPageToLiveCopyResponse,
     { id: string }
   >("convert-page-to-live-copy-if-due", {
-    // A switch re-baselines the page's suggestions and comments too.
+    // A switch re-baselines the page's suggestions and comments too, and
+    // collection rows that list the page, its Files row among them, show its
+    // body and when it changed.
     invalidates: (data, variables) =>
       data.status === "converted"
-        ? [documentScopedQueryFilter(variables.id)]
+        ? [
+            documentScopedQueryFilter(variables.id),
+            contentDatabaseItemsContainingDocumentFilter(variables.id),
+            contentDatabaseExcerptContainingDocumentFilter(variables.id),
+          ]
         : [],
     onError: (error, variables) => {
       console.error(

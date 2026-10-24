@@ -52,6 +52,8 @@ export interface ContentBodyWriteCause {
 export interface LiveBodyConversion {
   documentId: string;
   baseRevision: number;
+  /** The backfill's: refused `opted_out` for a page sent back to legacy. */
+  unlessOptedOut?: true;
 }
 
 interface WriteScope {

@@ -53,13 +53,18 @@ async function readPage(documentId: string) {
  * refuses the switch with `live_edits` instead.
  * Throws `LiveBodyConversionError` `flag_off` unless both flags are on for
  * the page's owner, `local_file` for a page linked to a local file,
+ * `opted_out` with `unlessOptedOut` for a page sent back to legacy,
  * `ineligible` while another writer that reaches the page can't write through
  * the live copy (`liveBodySwitchBlockers`), and
  * `base_changed` when the body keeps moving.
  */
 export async function switchPageToLiveCopy(
   documentId: string,
-  options: { ctx?: ActionRunContext; keepLiveEdits?: true } = {},
+  options: {
+    ctx?: ActionRunContext;
+    keepLiveEdits?: true;
+    unlessOptedOut?: true;
+  } = {},
 ): Promise<LiveBodyWriterGate> {
   for (let attempt = 0; attempt < CONVERSION_ATTEMPTS; attempt += 1) {
     const page = await readPage(documentId);
@@ -82,7 +87,11 @@ export async function switchPageToLiveCopy(
     // The conversion commit re-baselines pending suggestions, and core
     // creates their tables only outside a transaction.
     await ensureSuggestionTables();
-    const conversion = { documentId, baseRevision: page.bodyRevision };
+    const conversion = {
+      documentId,
+      baseRevision: page.bodyRevision,
+      ...(options.unlessOptedOut ? { unlessOptedOut: true as const } : {}),
+    };
     try {
       await withLiveBodyConversion(
         conversion,
@@ -153,16 +162,19 @@ export async function switchPageToLiveCopy(
 }
 
 /**
- * Sends a page's body writes back to the legacy path. Its live copy stays;
- * the first legacy body write leaves it behind, so switching back converts
- * the page again.
+ * Sends a page's body writes back to the legacy path, and keeps the backfill
+ * from switching it again. Its live copy stays; the first legacy body write
+ * leaves it behind, so switching back converts the page again.
  */
 export async function switchPageToLegacy(
   documentId: string,
 ): Promise<LiveBodyWriterGate> {
   await getDb()
     .update(schema.documents)
-    .set({ liveBodySwitchedAt: null })
+    .set({
+      liveBodySwitchedAt: null,
+      liveBodyOptedOutAt: new Date().toISOString(),
+    })
     .where(eq(schema.documents.id, documentId));
   return liveBodyWriterGate(documentId);
 }

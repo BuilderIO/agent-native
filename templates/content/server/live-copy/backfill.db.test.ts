@@ -294,6 +294,19 @@ function convertOnOpen(id: string, email = ownerEmail) {
   );
 }
 
+/**
+ * Someone switched page `id` on and back off, then left it idle, so only
+ * that choice keeps the backfill off it.
+ */
+async function sendBackToLegacy(id: string) {
+  await as(ownerEmail, () => setSwitch.run({ id, switched: true }, ctx));
+  await as(ownerEmail, () => setSwitch.run({ id, switched: false }, ctx));
+  await getDb()
+    .update(schema.documents)
+    .set({ updatedAt: LONG_AGO })
+    .where(eq(schema.documents.id, id));
+}
+
 describe("an editor's open", () => {
   it("reads a due page without switching it: get-document commits nothing", async () => {
     const id = await insertPage(stored);
@@ -630,7 +643,7 @@ describe("a Notion link racing a switch", () => {
     expect((await page(id)).liveBodySwitchedAt).not.toBeNull();
   });
 
-  it("names the Notion page it made when its page switched meanwhile, and links nothing", async () => {
+  it("keeps the link to the Notion page it made when its page switched meanwhile, and says so", async () => {
     const id = await insertPage(stored);
     switchMidway(id);
 
@@ -651,8 +664,15 @@ describe("a Notion link racing a switch", () => {
         operation: "Notion link",
         remotePageId: notionApi.createdPageId,
       },
+      message: expect.stringContaining("and linked it"),
     });
-    expect(await linkRow(id)).toBeUndefined();
+    // A retry finds this link instead of making another Notion page.
+    expect(await linkRow(id)).toMatchObject({
+      remotePageId: notionApi.createdPageId,
+    });
+    const switched = await page(id);
+    expect(switched.liveBodySwitchedAt).not.toBeNull();
+    expect(switched.content).not.toBe(notionApi.remoteContent);
   });
 
   it("refuses the next pull and push, typed, on a switched page that has a link anyway", async () => {
@@ -695,6 +715,146 @@ describe("a Notion link racing a switch", () => {
       remotePageId: notionApi.linkedPageId,
     });
     expect((await page(id)).content).toBe(notionApi.remoteContent);
+  });
+});
+
+describe("a page sent back to legacy", () => {
+  it("stays there when an editor opens it", async () => {
+    const id = await insertPage(stored);
+    await sendBackToLegacy(id);
+    const before = await page(id);
+    expect(before.liveBodyOptedOutAt).not.toBeNull();
+
+    await expect(convertOnOpen(id)).resolves.toEqual({
+      id,
+      status: "skipped",
+      reason: "opted_out",
+    });
+    expect(await page(id)).toEqual(before);
+  });
+
+  it("is skipped before its owner's flags are read, so opening it never tries a switch", async () => {
+    const id = await insertPage(stored);
+    await sendBackToLegacy(id);
+    const flagsOn = vi.fn(async () => true);
+
+    await expect(
+      as(ownerEmail, () =>
+        backfill.convertPageToLiveCopyIfDue(id, { ctx, flagsOn }),
+      ),
+    ).resolves.toEqual({ status: "skipped", reason: "opted_out" });
+    expect(flagsOn).not.toHaveBeenCalled();
+  });
+
+  it("is refused under the page lock when it went back after the backfill checked", async () => {
+    const id = await insertPage(stored);
+    await sendBackToLegacy(id);
+    const before = await page(id);
+
+    const refusal = await as(ownerEmail, () =>
+      switching.switchPageToLiveCopy(id, {
+        ctx,
+        keepLiveEdits: true,
+        unlessOptedOut: true,
+      }),
+    ).catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(persist.LiveBodyConversionError);
+    expect(refusal).toMatchObject({ code: "opted_out" });
+    expect(await page(id)).toEqual(before);
+  });
+
+  it("takes the backfill again once someone switches it on", async () => {
+    const id = await insertPage(stored);
+    await sendBackToLegacy(id);
+
+    await as(ownerEmail, () => setSwitch.run({ id, switched: true }, ctx));
+
+    const switched = await page(id);
+    expect(switched.liveBodySwitchedAt).not.toBeNull();
+    expect(switched.liveBodyOptedOutAt).toBeNull();
+  });
+});
+
+describe("a primary Blocks value on a switched Files row", () => {
+  // A Files row's primary Blocks field is the page's body, which the
+  // collection bulk editor and agents write with set-document-property.
+  async function switchedFilesRow() {
+    const id = await insertPage(stored);
+    await addToCollection(id, "files");
+    await insertPage("", { id: `database-page-${id}` });
+    const { seedDefaultBlocksField } =
+      await import("../../actions/_property-utils.js");
+    const propertyId = await seedDefaultBlocksField({
+      databaseId: `database-${id}`,
+      ownerEmail,
+      orgId: null,
+      now: new Date().toISOString(),
+    });
+    await as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx }));
+    return { id, databaseId: `database-${id}`, propertyId: propertyId! };
+  }
+
+  async function setPrimary(
+    row: Awaited<ReturnType<typeof switchedFilesRow>>,
+    value: string,
+    expectedBlocksFieldRevision?: number,
+  ) {
+    const setProperty = (await import("../../actions/set-document-property.js"))
+      .default;
+    return as(ownerEmail, () =>
+      setProperty.run(
+        {
+          documentId: row.id,
+          databaseId: row.databaseId,
+          propertyId: row.propertyId,
+          value,
+          expectedBlocksFieldRevision,
+        },
+        ctx,
+      ),
+    );
+  }
+
+  async function fieldRevision(
+    row: Awaited<ReturnType<typeof switchedFilesRow>>,
+  ) {
+    const { readBlocksFieldIdentity } =
+      await import("../../actions/_blocks-field-identity.js");
+    const identity = await readBlocksFieldIdentity({
+      documentId: row.id,
+      propertyId: row.propertyId,
+      markdown: (await page(row.id)).content,
+    });
+    return identity.revision;
+  }
+
+  it("writes it through the page's live copy instead of refusing it", async () => {
+    const row = await switchedFilesRow();
+    const before = await page(row.id);
+    const revision = await fieldRevision(row);
+
+    await setPrimary(row, "The bulk editor wrote this.", revision);
+
+    const after = await page(row.id);
+    expect(after.content).toBe("The bulk editor wrote this.");
+    expect(after.bodyRevision).toBeGreaterThan(before.bodyRevision);
+    expect(after.collabBodyRevision).toBe(after.bodyRevision);
+    expect(after.liveCopyVersion).toBe(await collabVersion(row.id));
+    expect(after.liveCopyVersion).toBeGreaterThan(before.liveCopyVersion!);
+    expect(await fieldRevision(row)).toBeGreaterThan(revision);
+  });
+
+  it("refuses a write that names a stale field revision, and leaves the page as it was", async () => {
+    const row = await switchedFilesRow();
+    const before = await page(row.id);
+
+    await expect(
+      setPrimary(row, "A stale write.", (await fieldRevision(row)) + 1),
+    ).rejects.toThrow(/Blocks field revision conflict/);
+
+    expect(await page(row.id)).toEqual(before);
+    expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
   });
 });
 
@@ -905,6 +1065,23 @@ describe("the backfill sweep", () => {
       status: "ran",
       scanned: 6,
     });
+  });
+
+  it("passes over a page sent back to legacy, so it stays there", async () => {
+    const id = await insertPage(stored);
+    await sendBackToLegacy(id);
+    const before = await page(id);
+
+    const report = await sweep();
+
+    expect(report).toMatchObject({
+      status: "ran",
+      scanned: 1,
+      passedOver: 1,
+      outcomes: {},
+      failed: [],
+    });
+    expect(await page(id)).toEqual(before);
   });
 
   it("reads 200 pages a sweep and resumes after the last one it reached", async () => {

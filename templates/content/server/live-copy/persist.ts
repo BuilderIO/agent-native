@@ -92,6 +92,7 @@ export type LiveBodyConversionErrorCode =
   | "ineligible"
   | "live_edits"
   | "local_file"
+  | "opted_out"
   | "rebaseline_blocked";
 
 export class LiveBodyConversionError extends Error {
@@ -141,6 +142,7 @@ const pageColumns = {
   bodyRevision: schema.documents.bodyRevision,
   collabBodyRevision: schema.documents.collabBodyRevision,
   liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+  liveBodyOptedOutAt: schema.documents.liveBodyOptedOutAt,
   liveCopyVersion: schema.documents.liveCopyVersion,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
@@ -158,6 +160,7 @@ export type PageRow = {
   bodyRevision: number;
   collabBodyRevision: number | null;
   liveBodySwitchedAt: string | null;
+  liveBodyOptedOutAt: string | null;
   liveCopyVersion: number | null;
   ownerEmail: string;
   orgId: string | null;
@@ -609,6 +612,13 @@ export async function persistLiveBodyConversion(
       `Page ${conversion.documentId} changed while it was being switched to its live copy.`,
     );
   }
+  if (conversion.unlessOptedOut && page.liveBodyOptedOutAt) {
+    throw new LiveBodyConversionError(
+      "opted_out",
+      conversion.documentId,
+      `Page ${conversion.documentId} was sent back to its legacy writer, so the backfill leaves it there.`,
+    );
+  }
   if (isLinkedToLocalFile(page)) {
     throw new LiveBodyConversionError(
       "local_file",
@@ -640,7 +650,7 @@ export async function persistLiveBodyConversion(
     text,
     liveCopyVersion,
     cause: currentContentBodyWriteCause(),
-    extraColumns: { liveBodySwitchedAt: now },
+    extraColumns: { liveBodySwitchedAt: now, liveBodyOptedOutAt: null },
     rebaselinesAnchors: true,
   });
   const rebaseline = await rebaselinePageForCanonicalBody(tx, {

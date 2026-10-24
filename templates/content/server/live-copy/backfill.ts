@@ -43,7 +43,7 @@ export type LiveBodyBackfillOutcome =
   | { status: "current" }
   | {
       status: "skipped";
-      reason: "no_page" | "trashed" | "flag_off" | "local_file";
+      reason: "no_page" | "trashed" | "flag_off" | "local_file" | "opted_out";
     }
   | {
       status: "skipped";
@@ -64,7 +64,10 @@ export type LiveBodyBackfillOutcome =
   /** Switched, but the gate no longer puts it on its live copy. */
   | { status: "deferred"; reason: "gate_moved"; gate: LiveBodyLegacyReason };
 
-type BackfillPageRow = LiveBodyWriterPageRow & { trashedAt: string | null };
+type BackfillPageRow = LiveBodyWriterPageRow & {
+  trashedAt: string | null;
+  liveBodyOptedOutAt: string | null;
+};
 
 type FlagsOn = (
   page: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
@@ -91,6 +94,7 @@ async function readPage(
     .select({
       ...liveBodyWriterPageColumns(),
       trashedAt: schema.documents.trashedAt,
+      liveBodyOptedOutAt: schema.documents.liveBodyOptedOutAt,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
@@ -103,6 +107,7 @@ function conversionRefusal(error: unknown): LiveBodyBackfillOutcome {
     switch (error.code) {
       case "flag_off":
       case "local_file":
+      case "opted_out":
         return { status: "skipped", reason: error.code };
       case "ineligible":
         if (!error.blockers) throw error;
@@ -149,6 +154,9 @@ export async function convertPageToLiveCopyIfDue(
   const page = await readPage(documentId);
   if (!page) return { status: "skipped", reason: "no_page" };
   if (page.trashedAt) return { status: "skipped", reason: "trashed" };
+  if (page.liveBodyOptedOutAt) {
+    return { status: "skipped", reason: "opted_out" };
+  }
   if (!(await (options.flagsOn ?? liveBodyBackfillFlagsOn)(page))) {
     return { status: "skipped", reason: "flag_off" };
   }
@@ -167,6 +175,7 @@ export async function convertPageToLiveCopyIfDue(
     gate = await switchPageToLiveCopy(documentId, {
       ctx: options.ctx,
       keepLiveEdits: true,
+      unlessOptedOut: true,
     });
   } catch (error) {
     return conversionRefusal(error);
@@ -354,7 +363,7 @@ export type LiveBodyBackfillSweepReport =
   | {
       status: "ran";
       scanned: number;
-      /** Pages the sweep read but didn't try: switched, in Trash, ineligible, linked to a local file, recently saved. */
+      /** Pages the sweep read but didn't try: switched, sent back to legacy, in Trash, ineligible, linked to a local file, recently saved. */
       passedOver: number;
       /** Pages passed over because they're held until a later try. */
       held: number;
@@ -461,6 +470,7 @@ export async function runLiveBodyBackfillSweep(context: {
     .select({
       ...liveBodyWriterPageColumns(),
       trashedAt: schema.documents.trashedAt,
+      liveBodyOptedOutAt: schema.documents.liveBodyOptedOutAt,
       updatedAt: schema.documents.updatedAt,
       eligible:
         sql<number>`CASE WHEN ${liveBodySwitchEligibleSql()} THEN 1 ELSE 0 END`.as(
@@ -538,6 +548,7 @@ export async function runLiveBodyBackfillSweep(context: {
     }
     if (
       page.trashedAt ||
+      page.liveBodyOptedOutAt ||
       eligible === 0 ||
       isLinkedToLocalFile(page) ||
       (page.liveBodySwitchedAt && page.collabBodyRevision === page.bodyRevision)

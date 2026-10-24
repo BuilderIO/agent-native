@@ -103,11 +103,35 @@ describe("useConvertPageToLiveCopyOnOpen", () => {
     expect(container.textContent).toBe("Page page-1");
   });
 
-  it("refetches the page's reads only when it switched", async () => {
+  it("refetches the page's reads, and the collection rows that list it, only when it switched", async () => {
     const page = ["action", "get-document", { id: "page-1" }];
     const otherPage = ["action", "get-document", { id: "page-2" }];
+    const filesRows = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files" },
+    ];
+    const otherRows = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "notes" },
+    ];
+    const excerpts = [
+      "action",
+      "get-content-database",
+      { databaseId: "files" },
+    ];
     queryClient.setQueryData(page, { id: "page-1" });
     queryClient.setQueryData(otherPage, { id: "page-2" });
+    queryClient.setQueryData(filesRows, {
+      items: [{ document: { id: "page-1" } }],
+    });
+    queryClient.setQueryData(otherRows, {
+      items: [{ document: { id: "page-2" } }],
+    });
+    queryClient.setQueryData(excerpts, {
+      items: [{ document: { id: "page-1" }, excerpt: "The old body." }],
+    });
     render("page-1", true);
     const invalidated = (key: unknown[]) =>
       queryClient.getQueryState(key)?.isInvalidated;
@@ -116,13 +140,18 @@ describe("useConvertPageToLiveCopyOnOpen", () => {
       { id: "page-1", status: "skipped" },
       { id: "page-1" },
     );
-    expect(invalidated(page)).toBe(false);
+    for (const key of [page, filesRows, excerpts]) {
+      expect(invalidated(key)).toBe(false);
+    }
 
     await mutation.options?.onSuccess?.(
       { id: "page-1", status: "converted" },
       { id: "page-1" },
     );
-    expect(invalidated(page)).toBe(true);
+    for (const key of [page, filesRows, excerpts]) {
+      expect(invalidated(key)).toBe(true);
+    }
     expect(invalidated(otherPage)).toBe(false);
+    expect(invalidated(otherRows)).toBe(false);
   });
 });

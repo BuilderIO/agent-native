@@ -19,6 +19,9 @@ const SWITCH_REFUSALS: Record<LiveBodyConversionErrorCode, string> = {
   base_changed: "LIVE_BODY_SWITCH_CONFLICT",
   // Only the backfill keeps live edits; this switch lets the stored body win.
   live_edits: "LIVE_BODY_SWITCH_CONFLICT",
+  // Only the backfill's switch leaves a page sent back to legacy; this one
+  // switches it and clears that.
+  opted_out: "LIVE_BODY_SWITCH_CONFLICT",
   rebaseline_blocked: "LIVE_BODY_SWITCH_BLOCKED",
 };
 

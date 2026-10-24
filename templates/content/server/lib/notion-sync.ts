@@ -1648,32 +1648,18 @@ export async function createAndLinkNotionPage(
     icon: document.icon,
   });
 
-  try {
-    await installSyncLink({
-      owner,
-      documentId,
-      remotePageId: newPage.id,
-      state: "linked",
-      lastPushedLocalUpdatedAt: document.updatedAt,
-      lastSyncedContentHash: hashContent(document.content),
-      warnings: [],
-      hasConflict: false,
-    });
-  } catch (error) {
-    if (!isUnsupportedBodyWriter(error)) throw error;
-    throw new ActionContractError(
-      `Created Notion page ${newPage.id} from page ${documentId}, but the page took its live copy meanwhile, so it isn't linked: a page on its live copy can't take Notion's copy of its body yet.`,
-      {
-        errorCode: error.errorCode,
-        statusCode: 409,
-        details: {
-          documentId,
-          operation: "Notion link",
-          remotePageId: newPage.id,
-        },
-      },
-    );
-  }
+  // Not installSyncLink: Notion has the new page now, so the link goes in
+  // even if the page switched meanwhile.
+  await upsertSyncLink({
+    owner,
+    documentId,
+    remotePageId: newPage.id,
+    state: "linked",
+    lastPushedLocalUpdatedAt: document.updatedAt,
+    lastSyncedContentHash: hashContent(document.content),
+    warnings: [],
+    hasConflict: false,
+  });
 
   try {
     return await pullDocumentFromNotion(owner, documentId, true);

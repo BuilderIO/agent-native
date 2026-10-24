@@ -51,7 +51,9 @@ function blockerConditions(): Record<LiveBodySwitchBlocker, SQL> {
     source_owned: sql`${page.sourceMode} IS NOT NULL AND ${page.sourceMode} NOT IN ('database', 'local-files')`,
     notion: sql`EXISTS (SELECT 1 FROM ${links} WHERE ${links.documentId} = ${page.id})`,
     // A membership whose collection is missing counts: only a system
-    // collection is known to be out of those writers' reach.
+    // collection is known to be out of those writers' reach. Its primary
+    // Blocks field is the page's body, which set-document-property writes
+    // through the live copy, and block mutations refuse system collections.
     database_row: sql`EXISTS (SELECT 1 FROM ${memberships} LEFT JOIN ${collections} ON ${collections.id} = ${memberships.databaseId} WHERE ${memberships.documentId} = ${page.id} AND ${collections.systemRole} IS NULL)`,
   };
 }

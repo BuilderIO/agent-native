@@ -344,7 +344,6 @@ import { DatabaseListRowsSetting } from "./ListItemLayout";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
-  databaseBulkEditableProperties,
   databaseNavigationStateFitsKeepaliveBudget,
   databaseVisibleItemSummaries,
   fitDatabaseNavigationState,
@@ -4455,6 +4454,16 @@ export function databaseSelectionCapabilities(args: {
             !databaseItemIsSourceBacked(item, args.sources),
         ),
   };
+}
+
+export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
+  return properties.filter(
+    (property) =>
+      property.editable &&
+      !isComputedPropertyType(property.definition.type) &&
+      // Row mutations do not accept relation values yet.
+      property.definition.type !== "relation",
+  );
 }
 
 export function databaseBuilderBulkUpdateSource(

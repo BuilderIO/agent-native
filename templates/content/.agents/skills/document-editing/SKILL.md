@@ -160,7 +160,8 @@ Only pages Content owns outright take it: a page linked to a local file,
 Notion, GitHub or Builder, a shared copy of a local file, and a row of a
 collection someone made stay on the legacy writer. Every page is also a row of
 its space's Files collection, which doesn't count. `edit-document` writes those
-bodies. Other writers, such as `update-document --content`, a property or
+bodies, and so does `set-document-property` for a primary Blocks field, which
+is the page's body. Other writers, such as `update-document --content`, a
 collection block stored in the body, row migrations, and Notion or Builder
 syncs, refuse with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in
 Content. Retrying that writer won't help: make the body change with

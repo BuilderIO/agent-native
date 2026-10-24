@@ -1757,10 +1757,10 @@ describe("a page that takes body writes through its live copy", () => {
   });
 
   it.each([
-    ["puts back the link it had", true],
+    ["keeps the link it had", true],
     ["leaves it unlinked", false],
   ])(
-    "when the page takes its live copy while it links to a Notion page, refuses and %s",
+    "when the page takes its live copy while it links to a Notion page, refuses before it links and %s",
     async (_name, linked) => {
       const { linkDocumentToNotionPage } = await import("./notion-sync.js");
       liveCopyPages.delete("doc-1");
@@ -1786,9 +1786,10 @@ describe("a page that takes body writes through its live copy", () => {
         linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
       ).rejects.toMatchObject({
         errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
-        details: { documentId: "doc-1", operation: "Notion sync" },
+        details: { documentId: "doc-1", operation: "Notion link" },
       });
 
+      expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
       expect(testState.document).toEqual(page);
       if (link) {
         expect(testState.link).toMatchObject({
@@ -1813,12 +1814,9 @@ describe("a page that takes body writes through its live copy", () => {
       const { linkDocumentToNotionPage } = await import("./notion-sync.js");
       liveCopyPages.delete("doc-1");
       if (!linked) testState.link = null;
-      notionMocks.fetchNotionPage.mockImplementationOnce(async () => {
-        liveCopyPages.add("doc-1");
-        return {
-          id: "other-page",
-          last_edited_time: "2026-06-01T10:30:00.000Z",
-        };
+      notionMocks.fetchNotionPage.mockResolvedValueOnce({
+        id: "other-page",
+        last_edited_time: "2026-06-01T10:30:00.000Z",
       });
       const newerLink = {
         documentId: "doc-1",
@@ -1828,7 +1826,9 @@ describe("a page that takes body writes through its live copy", () => {
         lastSyncedContentHash: hashContentForTest("Third body"),
         updatedAt: "2026-06-01T11:00:00.000Z",
       };
+      // The page switches after the link went in, so the pull refuses.
       notionMocks.readNotionPageAsDocument.mockImplementationOnce(async () => {
+        liveCopyPages.add("doc-1");
         testState.link = { ...testState.link, ...newerLink };
         return {
           pageId: "other-page",
@@ -1842,8 +1842,12 @@ describe("a page that takes body writes through its live copy", () => {
 
       await expect(
         linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
-      ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        details: { documentId: "doc-1", operation: "Notion sync" },
+      });
 
+      expect(notionMocks.readNotionPageAsDocument).toHaveBeenCalledTimes(1);
       expect(testState.document).toEqual(page);
       expect(testState.link).toMatchObject(newerLink);
     },
