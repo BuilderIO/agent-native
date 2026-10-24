@@ -2619,6 +2619,33 @@ describe("HTML Motion source adapter", () => {
   });
 
   it.each([
+    ["Vue object v-bind innerHTML", 'v-bind="{ innerHTML: content }"'],
+    ["Vue object v-bind outerHTML", 'v-bind="{ outerHTML: content }"'],
+    ["unresolved Vue object v-bind", 'v-bind="attributes"'],
+  ])("rejects %s while Motion targets exist", (_label, binding) => {
+    const source = apply(html).source.replace(
+      "</body>",
+      `<aside ${binding}></aside>\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("v-bind may inject a stylesheet"),
+    });
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+  });
+
+  it.each([
     [
       "native ancestor handler",
       `onclick="document.querySelector('[data-agent-native-node-id=hero-title]').style.transition = 'opacity 1s'"`,
@@ -2919,6 +2946,8 @@ describe("HTML Motion source adapter", () => {
     ["border-block-color", "border-bottom-color", "red"],
     ["border-block-start", "border-left-width", "1px solid red"],
     ["border-image", "border-image-source", "url(border.svg)"],
+    ["mask-border", "mask-border-source", "url(mask.svg)"],
+    ["-webkit-mask-position", "mask-position", "left"],
     ["font-variant", "font-variant-caps", "small-caps"],
     ["margin", "margin-inline-start", "2px"],
   ])(
@@ -2951,6 +2980,8 @@ describe("HTML Motion source adapter", () => {
     ["border-block-color", "border-bottom-color", "red"],
     ["border-block-start", "border-left-width", "1px solid red"],
     ["border-image", "border-image-source", "url(border.svg)"],
+    ["mask-border", "mask-border-source", "url(mask.svg)"],
+    ["-webkit-mask-position", "mask-position", "left"],
     ["font-variant", "font-variant-caps", "small-caps"],
     ["margin", "margin-inline-start", "2px"],
   ])(

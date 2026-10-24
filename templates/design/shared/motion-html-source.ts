@@ -1128,6 +1128,7 @@ const CSS_SHORTHAND_LONGHANDS: Readonly<Record<string, readonly string[]>> = {
     "mask-composite",
     ...CSS_MASK_BORDER_LONGHANDS,
   ],
+  "mask-border": CSS_MASK_BORDER_LONGHANDS,
   "-webkit-mask": [
     "-webkit-mask-image",
     "-webkit-mask-position",
@@ -1220,16 +1221,20 @@ function cssDeclarationAffectsMotionProperty(
   property: string,
   motionProperties: ReadonlySet<string> | undefined,
 ): boolean {
+  const normalizedProperty = property.replace(
+    /^-webkit-(mask(?:-.*)?)$/i,
+    "$1",
+  );
   if (
-    property === "all" ||
-    MOTION_CONTROL_CSS_PROPERTY.test(property) ||
-    motionProperties?.has(property)
+    normalizedProperty === "all" ||
+    MOTION_CONTROL_CSS_PROPERTY.test(normalizedProperty) ||
+    motionProperties?.has(normalizedProperty)
   ) {
     return true;
   }
 
   return (
-    CSS_SHORTHAND_LONGHANDS[property]?.some((longhand) =>
+    CSS_SHORTHAND_LONGHANDS[normalizedProperty]?.some((longhand) =>
       motionProperties?.has(longhand),
     ) ?? false
   );
@@ -1764,7 +1769,9 @@ function hasAlpineStructuralSibling(node: HtmlNode): boolean {
 
 function hasAlpineContentReplacement(node: HtmlNode): boolean {
   return (
-    node.attrs?.some(({ name }) => isAlpineContentReplacement(name)) ?? false
+    node.attrs?.some(({ name, value }) =>
+      isAlpineContentReplacement(name, value),
+    ) ?? false
   );
 }
 
@@ -2013,7 +2020,9 @@ function assertExecutableScriptsSafe(
 
     const markupSink =
       targetNodeIds.length > 0 &&
-      node.attrs?.find(({ name }) => isAlpineMarkupInjection(name));
+      node.attrs?.find(({ name, value }) =>
+        isAlpineMarkupInjection(name, value),
+      );
     if (markupSink) {
       sourceError(
         "unsupported-target",
@@ -2111,22 +2120,25 @@ function isRenderedByAlpine(node: HtmlNode): boolean {
   return false;
 }
 
-function isAlpineMarkupInjection(name: string): boolean {
+function isAlpineMarkupInjection(name: string, value = ""): boolean {
   const directive = name.toLowerCase().split(".", 1)[0]!;
   return (
     directive === "x-html" ||
     directive === "v-html" ||
     ["innerhtml", "outerhtml"].includes(
       dynamicBoundAttributeName(directive) ?? "",
-    )
+    ) ||
+    (["x-bind", "v-bind"].includes(directive) &&
+      (runtimeObjectBindingMayWriteAttribute(value, "innerHTML") ||
+        runtimeObjectBindingMayWriteAttribute(value, "outerHTML")))
   );
 }
 
-function isAlpineContentReplacement(name: string): boolean {
+function isAlpineContentReplacement(name: string, value = ""): boolean {
   const directive = name.toLowerCase().split(".", 1)[0]!;
   return (
     directive === "x-text" ||
-    isAlpineMarkupInjection(directive) ||
+    isAlpineMarkupInjection(directive, value) ||
     ["textcontent", "innertext"].includes(
       dynamicBoundAttributeName(directive) ?? "",
     )
@@ -2145,9 +2157,11 @@ function findContentReplacement(
   ) {
     // x-text on the target only replaces its text, which CSS Motion does not
     // depend on; Motion Text refuses dynamic text on its own.
-    const replaces =
-      current === target ? isAlpineMarkupInjection : isAlpineContentReplacement;
-    const attribute = current.attrs?.find(({ name }) => replaces(name));
+    const attribute = current.attrs?.find(({ name, value }) =>
+      current === target
+        ? isAlpineMarkupInjection(name, value)
+        : isAlpineContentReplacement(name, value),
+    );
     if (attribute) return { attribute, onTarget: current === target };
   }
   return undefined;

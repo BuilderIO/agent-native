@@ -2980,26 +2980,23 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
       isDynamicCodeExecutionReference(node);
     const dynamicCodeProperty =
       (ts.isPropertyAccessExpression(node) &&
-        ["Function", "eval"].includes(node.name.text)) ||
+        ["Function", "eval", "constructor"].includes(node.name.text)) ||
       (ts.isElementAccessExpression(node) &&
         node.argumentExpression &&
         ts.isStringLiteralLike(node.argumentExpression) &&
-        ["Function", "eval"].includes(node.argumentExpression.text));
+        ["Function", "eval", "constructor"].includes(
+          node.argumentExpression.text,
+        ));
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const directEval = ts.isIdentifier(callee) && callee.text === "eval";
       const functionConstructor =
         ts.isIdentifier(callee) && callee.text === "Function";
-      const timerName = ts.isIdentifier(callee)
-        ? callee.text
-        : ts.isPropertyAccessExpression(callee)
-          ? callee.name.text
-          : null;
       const timerCode = node.arguments[0];
       const dynamicTimer =
-        ["setTimeout", "setInterval"].includes(timerName ?? "") &&
+        isReactTimerFunctionReference(callee, sourceFile) &&
         timerCode !== undefined &&
-        isStaticallyStringExpression(timerCode, sourceFile);
+        !isStaticFunctionCallback(timerCode, sourceFile);
       if (
         directEval ||
         functionConstructor ||
@@ -3029,6 +3026,127 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
   return found;
 }
 
+function isReactTimerFunctionReference(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving = new Set<string>(),
+): boolean {
+  if (ts.isParenthesizedExpression(expression)) {
+    return isReactTimerFunctionReference(
+      expression.expression,
+      sourceFile,
+      resolving,
+    );
+  }
+  if (
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression)
+  ) {
+    return isReactTimerFunctionReference(
+      expression.expression,
+      sourceFile,
+      resolving,
+    );
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return ["setTimeout", "setInterval"].includes(expression.name.text);
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    return (
+      expression.argumentExpression !== undefined &&
+      ts.isStringLiteralLike(expression.argumentExpression) &&
+      ["setTimeout", "setInterval"].includes(expression.argumentExpression.text)
+    );
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  if (["setTimeout", "setInterval"].includes(expression.text)) {
+    return true;
+  }
+  if (resolving.has(expression.text)) return false;
+
+  const declarations: TypeScript.VariableDeclaration[] = [];
+  const findDeclarations = (node: TypeScript.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === expression.text
+    ) {
+      declarations.push(node);
+    }
+    ts.forEachChild(node, findDeclarations);
+  };
+  findDeclarations(sourceFile);
+  if (declarations.length === 0) return false;
+
+  const nextResolving = new Set(resolving).add(expression.text);
+  return declarations.every(
+    (declaration) =>
+      declaration.initializer !== undefined &&
+      isReactTimerFunctionReference(
+        declaration.initializer,
+        sourceFile,
+        nextResolving,
+      ),
+  );
+}
+
+function isStaticFunctionCallback(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving = new Set<string>(),
+): boolean {
+  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
+    return true;
+  }
+  if (ts.isParenthesizedExpression(expression)) {
+    return isStaticFunctionCallback(
+      expression.expression,
+      sourceFile,
+      resolving,
+    );
+  }
+  if (
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression)
+  ) {
+    return isStaticFunctionCallback(
+      expression.expression,
+      sourceFile,
+      resolving,
+    );
+  }
+  if (!ts.isIdentifier(expression) || resolving.has(expression.text)) {
+    return false;
+  }
+
+  let found = false;
+  let safe = true;
+  const visit = (node: TypeScript.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === expression.text
+    ) {
+      found = true;
+      const declarationList = node.parent;
+      safe &&=
+        declarationList !== undefined &&
+        ts.isVariableDeclarationList(declarationList) &&
+        (declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        node.initializer !== undefined &&
+        isStaticFunctionCallback(
+          node.initializer,
+          sourceFile,
+          new Set(resolving).add(expression.text),
+        );
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found && safe;
+}
+
 function isDynamicCodeExecutionReference(node: TypeScript.Identifier): boolean {
   let child: TypeScript.Node = node;
   for (
@@ -3051,56 +3169,6 @@ function isDynamicCodeExecutionReference(node: TypeScript.Identifier): boolean {
     }
   }
   return true;
-}
-
-function isStaticallyStringExpression(
-  expression: TypeScript.Expression,
-  sourceFile: TypeScript.SourceFile,
-  resolving = new Set<string>(),
-): boolean {
-  if (ts.isStringLiteralLike(expression)) return true;
-  if (ts.isParenthesizedExpression(expression)) {
-    return isStaticallyStringExpression(
-      expression.expression,
-      sourceFile,
-      resolving,
-    );
-  }
-  if (
-    ts.isAsExpression(expression) ||
-    ts.isTypeAssertionExpression(expression)
-  ) {
-    return isStaticallyStringExpression(
-      expression.expression,
-      sourceFile,
-      resolving,
-    );
-  }
-  if (!ts.isIdentifier(expression) || resolving.has(expression.text)) {
-    return false;
-  }
-
-  const nextResolving = new Set(resolving).add(expression.text);
-  let found = false;
-  const visit = (node: TypeScript.Node): void => {
-    if (found) return;
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === expression.text &&
-      node.initializer
-    ) {
-      found = isStaticallyStringExpression(
-        node.initializer,
-        sourceFile,
-        nextResolving,
-      );
-      if (found) return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return found;
 }
 
 function resolveReactStyleExpression(

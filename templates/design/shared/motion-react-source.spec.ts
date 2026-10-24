@@ -1114,6 +1114,18 @@ function Card(style = { animationName: "fade" }) {
       `const motionStyles = { color: "red" }; let timerCode = "motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'"; setTimeout(timerCode, 0);`,
     ],
     [
+      "an aliased string timer",
+      `const motionStyles = { color: "red" }; const schedule = setTimeout; schedule("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'", 0);`,
+    ],
+    [
+      "a timer string passed through a parameter",
+      `const motionStyles = { color: "red" }; function schedule(code: string) { setTimeout(code, 0); }`,
+    ],
+    [
+      "a chained Function constructor",
+      `const motionStyles = { color: "red" }; [].constructor.constructor("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'")();`,
+    ],
+    [
       "a dynamic Function constructor alias",
       `const motionStyles = { color: "red" }; const run = Function; run("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'")();`,
     ],
@@ -1166,6 +1178,22 @@ function Card(style = { animationName: "fade" }) {
       }
     },
   );
+
+  it("allows an aliased timer with a static callback", () => {
+    const authored = source.replace(
+      'import React from "react";',
+      `import React from "react";\n\nconst timerCallback = () => {}; const schedule = setTimeout; schedule(timerCallback, 0);`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
 
   it("rejects motion properties inside wrapped nested style aliases", () => {
     const declaration = `const motionStyles = ({ nested: { animationName: "pulse", animationDuration: "1s" } } as const);`;
