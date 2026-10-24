@@ -1611,6 +1611,63 @@ describe("HTML Motion source adapter", () => {
     );
   });
 
+  it.each([
+    ":nth-child(1)",
+    ":nth-child(2n + 1)",
+    ":nth-last-child(1)",
+    ":nth-last-child(2)",
+    ":first-of-type",
+    ":nth-of-type(1)",
+    ":nth-last-of-type(1)",
+    ":nth-child(-n + 3 of p)",
+    ":only-of-type",
+  ])(
+    "allows a structural !important rule that does not match: %s",
+    (pseudo) => {
+      const source = `<!doctype html><html><head><style>.card > h1${pseudo} { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><p>Details</p><h1>Outro</h1></main></body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+      expect(readMotionHtmlSource(apply(source).source)).toMatchObject({
+        status: "valid",
+      });
+    },
+  );
+
+  it.each([
+    ":nth-child(2)",
+    ":nth-child(2n)",
+    ":nth-last-child(3)",
+    ":nth-of-type(2)",
+    ":nth-of-type(2n)",
+    ":nth-child(2 of h1)",
+    ":nth-child(2n of h1)",
+  ])("rejects a structural !important rule that matches: %s", (pseudo) => {
+    const source = `<!doctype html><html><head><style>.card > h1${pseudo} { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><p>Details</p><h1>Outro</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects nth-child rules filtered by the target node ID", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1 of [data-agent-native-node-id="hero-title"]) { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><p>Details</p><h1>Outro</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it.each(["is", "where"])(
     "fails closed for relational selectors inside :%s()",
     (pseudo) => {

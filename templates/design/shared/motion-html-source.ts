@@ -1594,6 +1594,13 @@ type CssTreeSelectorNode = {
   value?: CssTreeSelectorNode;
   important?: boolean;
   children?: { toArray(): CssTreeSelectorNode[] };
+  nth?: {
+    type: string;
+    name?: string;
+    a?: string | null;
+    b?: string | null;
+  };
+  selector?: CssTreeSelectorNode;
   prelude?: CssTreeSelectorNode;
   block?: CssTreeSelectorNode;
 };
@@ -1659,6 +1666,7 @@ function selectorEffectOnTarget(
   selector: CssTreeSelectorNode,
   target: HtmlNode,
   targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null = target,
 ): SelectorMatch {
   const compounds: CssTreeSelectorNode[][] = [[]];
   const combinators: string[] = [];
@@ -1682,6 +1690,7 @@ function selectorEffectOnTarget(
         candidate,
         compounds[index]!,
         targetNodeId,
+        virtualNodeIdTarget,
       );
       return match.matches ? [{ candidate, match }] : [];
     });
@@ -1700,6 +1709,7 @@ function selectorCompoundMatches(
   node: HtmlNode,
   compound: readonly CssTreeSelectorNode[],
   targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null,
 ): SelectorMatch {
   if (node.tagName === "template" && isAlpineStructuralTemplate(node)) {
     for (const contentNode of descendants(node.content)) {
@@ -1707,6 +1717,7 @@ function selectorCompoundMatches(
         contentNode,
         compound,
         targetNodeId,
+        virtualNodeIdTarget,
       );
       if (contentMatch.matches) {
         return { matches: true, dynamic: true };
@@ -1722,6 +1733,7 @@ function selectorCompoundMatches(
         node,
         selector,
         targetNodeId,
+        virtualNodeIdTarget,
       );
       if (!pseudoMatch.matches && !pseudoMatch.dynamic) {
         return { matches: false, dynamic: false };
@@ -1746,6 +1758,7 @@ function selectorCompoundMatches(
             ? simple.name
             : null;
     const virtualNodeIdMatch =
+      node === virtualNodeIdTarget &&
       simple.kind === "attribute" &&
       simple.name === NODE_ID_ATTRIBUTE &&
       simple.value === targetNodeId;
@@ -1769,6 +1782,7 @@ function selectorPseudoMatchesNode(
   node: HtmlNode,
   pseudo: CssTreeSelectorNode,
   targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null,
 ): SelectorMatch {
   const name = pseudo.name?.toLowerCase() ?? "";
   if (name === "is" || name === "where" || name === "not") {
@@ -1778,7 +1792,12 @@ function selectorPseudoMatchesNode(
     if (!selectorList) return { matches: true, dynamic: true };
 
     const matches = cssTreeChildren(selectorList).map((selector) =>
-      selectorMatchesCandidate(node, selector, targetNodeId),
+      selectorMatchesCandidate(
+        node,
+        selector,
+        targetNodeId,
+        virtualNodeIdTarget,
+      ),
     );
     const anyMatch = matches.some((match) => match.matches);
     const dynamic = matches.some((match) => match.dynamic);
@@ -1790,27 +1809,79 @@ function selectorPseudoMatchesNode(
   }
 
   if (STRUCTURAL_BROWSER_PSEUDO_CLASSES.has(name)) {
-    const siblings = htmlElementSiblings(node);
-    const siblingIndex = siblings.indexOf(node);
-    const matches =
-      name === "empty"
-        ? !(node.childNodes ?? []).some(
-            (child) => child.tagName || child.nodeName === "#text",
-          )
-        : name === "first-child"
-          ? siblingIndex === 0
-          : name === "last-child"
-            ? siblingIndex === siblings.length - 1
-            : name === "only-child"
-              ? siblings.length === 1
-              : true;
-    return {
-      matches,
-      dynamic:
-        name === "empty"
-          ? hasAlpineContentReplacement(node)
-          : hasAlpineStructuralSibling(node),
-    };
+    if (name === "empty") {
+      return {
+        matches: !(node.childNodes ?? []).some(
+          (child) => child.tagName || child.nodeName === "#text",
+        ),
+        dynamic: hasAlpineContentReplacement(node),
+      };
+    }
+
+    const sameType = name.endsWith("of-type");
+    let siblings = htmlElementSiblings(node);
+    if (sameType) {
+      siblings = siblings.filter(
+        (sibling) =>
+          sibling.tagName?.toLowerCase() === node.tagName?.toLowerCase(),
+      );
+    }
+
+    const nthArgument = cssTreeChildren(pseudo).find(
+      (child) => child.type === "Nth",
+    );
+    let dynamic = hasAlpineStructuralSibling(node);
+    if (nthArgument?.selector) {
+      const siblingMatches = siblings.map((sibling) => {
+        const matches = cssTreeChildren(nthArgument.selector)
+          .filter((selector) => selector.type === "Selector")
+          .map((selector) =>
+            selectorEffectOnTarget(
+              selector,
+              sibling,
+              targetNodeId,
+              virtualNodeIdTarget,
+            ),
+          );
+        return {
+          matches: matches.some((match) => match.matches),
+          dynamic: matches.some((match) => match.dynamic),
+        };
+      });
+      if (
+        siblingMatches.some(
+          (match, index) =>
+            match.dynamic || hasRuntimeMutationOnSelectorPath(siblings[index]!),
+        )
+      ) {
+        return { matches: true, dynamic: true };
+      }
+      siblings = siblings.filter((_, index) => siblingMatches[index]!.matches);
+    }
+
+    const index = siblings.indexOf(node);
+    if (index === -1) return { matches: false, dynamic };
+    const position =
+      name.startsWith("nth-last-") ||
+      name === "last-child" ||
+      name === "last-of-type"
+        ? siblings.length - index
+        : index + 1;
+    let matches: boolean;
+    if (name === "first-child" || name === "first-of-type") {
+      matches = index === 0;
+    } else if (name === "last-child" || name === "last-of-type") {
+      matches = index === siblings.length - 1;
+    } else if (name === "only-child" || name === "only-of-type") {
+      matches = siblings.length === 1;
+    } else {
+      const expression = nthArgument?.nth;
+      const nthMatch = matchesNthPosition(expression, position);
+      if (nthMatch === null) return { matches: true, dynamic: true };
+      matches = nthMatch;
+    }
+    dynamic ||= siblings.some(hasAlpineStructuralSibling);
+    return { matches, dynamic };
   }
   if (DYNAMIC_BROWSER_PSEUDO_CLASSES.has(name)) {
     return { matches: true, dynamic: true };
@@ -1834,7 +1905,12 @@ function selectorPseudoMatchesNode(
       }
       return descendants(node).some(
         (candidate) =>
-          selectorCompoundMatches(candidate, compound, targetNodeId).dynamic,
+          selectorCompoundMatches(
+            candidate,
+            compound,
+            targetNodeId,
+            virtualNodeIdTarget,
+          ).dynamic,
       );
     });
     const dynamicSibling =
@@ -1853,6 +1929,7 @@ function selectorPseudoMatchesNode(
           candidate,
           compound,
           targetNodeId,
+          virtualNodeIdTarget,
         );
         return match.matches && !match.dynamic;
       });
@@ -1876,16 +1953,49 @@ function selectorPseudoMatchesNode(
   };
 }
 
+function matchesNthPosition(
+  expression: CssTreeSelectorNode["nth"] | undefined,
+  position: number,
+): boolean | null {
+  if (!expression) return null;
+  if (expression.type === "Identifier") {
+    const keyword = expression.name?.toLowerCase();
+    if (keyword === "odd") return position % 2 === 1;
+    if (keyword === "even") return position % 2 === 0;
+    return null;
+  }
+  if (expression.type !== "AnPlusB") return null;
+
+  const a =
+    expression.a === null || expression.a === undefined
+      ? 0
+      : Number(expression.a);
+  const b =
+    expression.b === null || expression.b === undefined
+      ? 0
+      : Number(expression.b);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (a === 0) return position === b;
+  const n = (position - b) / a;
+  return n >= 0 && Number.isInteger(n);
+}
+
 function selectorMatchesCandidate(
   node: HtmlNode,
   selector: CssTreeSelectorNode,
   targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null,
 ): SelectorMatch {
   const compound = cssTreeChildren(selector);
   if (compound.some((child) => child.type === "Combinator")) {
     return { matches: true, dynamic: true };
   }
-  return selectorCompoundMatches(node, compound, targetNodeId);
+  return selectorCompoundMatches(
+    node,
+    compound,
+    targetNodeId,
+    virtualNodeIdTarget,
+  );
 }
 
 function selectorContainsDynamicPseudoState(
