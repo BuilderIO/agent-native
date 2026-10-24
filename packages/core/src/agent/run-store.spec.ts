@@ -1135,7 +1135,8 @@ describe("run store", () => {
     );
     expect(repair?.args[4]).toBe("missing_api_key");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-missing-key-event");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-missing-key-event");
   });
 
   it("keeps an earlier stream error from reconciling as a later successful terminal event", async () => {
@@ -1169,7 +1170,8 @@ describe("run store", () => {
     expect(repair?.args[3]).toBe("model returned 500");
     expect(repair?.args[4]).toBe("error:provider_failed");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-error-then-done");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-error-then-done");
     const eventLookup = execCalls.find((call) =>
       /SELECT seq, event_data, event_at/i.test(call.sql),
     );
@@ -1203,7 +1205,8 @@ describe("run store", () => {
     expect(repair?.args[2]).toBe("missing_credentials");
     expect(repair?.args[4]).toBe("missing_api_key");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-missing-then-done");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-missing-then-done");
   });
 
   it("still repairs a synthetic stale-run event when a later done event was persisted", async () => {
@@ -1233,7 +1236,8 @@ describe("run store", () => {
     expect(repair?.args[3]).toBeNull();
     expect(repair?.args[4]).toBe("done");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-stale-then-done");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-stale-then-done");
   });
 
   it("reconciles legacy terminal events without stamping repair time", async () => {
@@ -1563,6 +1567,33 @@ describe("run store", () => {
     ).toEqual(["agent-native:run-slot:thread-queued-order"]);
   });
 
+  it("defers an ordinary run claim while a tool approval is pending", async () => {
+    const hasPendingApproval = vi.fn(async (tx) => {
+      expect(tx).toBe(mockTxDb);
+      return true;
+    });
+
+    const result = await tryClaimRunSlot(
+      "thread-approval-order",
+      "run-direct",
+      undefined,
+      { hasPendingApproval },
+    );
+
+    expect(result).toEqual({
+      claimed: false,
+      activeRunId: null,
+      approvalPending: true,
+    });
+    expect(hasPendingApproval).toHaveBeenCalledTimes(1);
+    expect(
+      execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+    ).toBe(false);
+    expect(
+      execCalls.find((call) => /pg_advisory_xact_lock/i.test(call.sql))?.args,
+    ).toEqual(["agent-native:run-slot:thread-approval-order"]);
+  });
+
   it("tryClaimRunSlot persists a byte-free dispatch payload", async () => {
     const dispatchPayload = JSON.stringify({
       messages: [{ role: "user", content: "Create an ad" }],
@@ -1768,15 +1799,17 @@ describe("run store", () => {
     });
   });
 
-  it("replays a completed turn before deferring to a pending queued submission", async () => {
+  it("replays a completed turn before deferring to pending work", async () => {
     completedTurnRows = [{ id: "run-completed" }];
     const hasPendingQueuedSubmission = vi.fn(async () => true);
+    const hasPendingApproval = vi.fn(async () => true);
 
     await expect(
       tryClaimRunSlot("thread-completed-with-queue", "run-retry", undefined, {
         turnId: "turn-completed",
         replayCompletedTurn: true,
         hasPendingQueuedSubmission,
+        hasPendingApproval,
       }),
     ).resolves.toEqual({
       claimed: false,
@@ -1784,6 +1817,7 @@ describe("run store", () => {
       completedRunId: "run-completed",
     });
     expect(hasPendingQueuedSubmission).not.toHaveBeenCalled();
+    expect(hasPendingApproval).not.toHaveBeenCalled();
   });
 
   it("tryClaimRunSlot does not replay a completed continuation chunk", async () => {
@@ -1861,7 +1895,8 @@ describe("run store", () => {
     expect(update).toBeDefined();
     expect(update?.args[0]).toBe("completed");
     expect(update?.args[2]).toBe(false);
-    expect(update?.args[3]).toBe("run-alive");
+    expect(update?.args[3]).toBe(false);
+    expect(update?.args[4]).toBe("run-alive");
   });
 
   it("getRunStatus returns the current status string for a run", async () => {
@@ -2377,7 +2412,7 @@ describe("run store", () => {
     await updateRunStatusIfRunning("run-terminal-if-running", "errored");
 
     const update = execCalls.find((call) =>
-      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL,\s*thread_projection_pending = CASE WHEN \? THEN TRUE ELSE thread_projection_pending END\s*WHERE id = \? AND status = 'running'/i.test(
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL,\s*thread_projection_retry_order = CASE WHEN \? THEN COALESCE\(thread_projection_retry_order, nextval\('agent_run_projection_retry_order_seq'\)\) ELSE thread_projection_retry_order END,\s*thread_projection_pending = CASE WHEN \? THEN TRUE ELSE thread_projection_pending END\s*WHERE id = \? AND status = 'running'/i.test(
         call.sql,
       ),
     );
@@ -2385,6 +2420,7 @@ describe("run store", () => {
     expect(update?.args).toEqual([
       "errored",
       expect.any(Number),
+      false,
       false,
       "run-terminal-if-running",
     ]);

@@ -392,6 +392,7 @@ import {
   beginAgentExecutionStep,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
+  resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
   recordLateAgentExecutionStepOutcome,
   type AgentExecutionStepIntent,
@@ -428,6 +429,8 @@ import { normalizeSubmissionDeadlineMetadata } from "./submission-deadline.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  ensureAgentToolApprovalTable,
+  hasPendingAgentToolApproval,
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
@@ -8994,6 +8997,8 @@ export async function runAgentLoop(opts: {
       let toolDoneEmitted = false;
       let toolDonePersistenceFailed = false;
       let executionStepFinalizationAttempted = false;
+      let executionStepDispatched = false;
+      let executionStepDispatchWrite: Promise<void> | undefined;
       let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
@@ -10116,6 +10121,7 @@ export async function runAgentLoop(opts: {
         if (cacheKey && cachedResult) {
           if (executionStepIntent) {
             await markAgentExecutionStepDispatched(executionStepIntent);
+            executionStepDispatched = true;
           }
           const previousResult = cachedResult.content;
           const visible = isCachedToolResultVisibleInContext(
@@ -10269,7 +10275,12 @@ export async function runAgentLoop(opts: {
               throw new Error("Run aborted");
             }
             if (executionStepIntent) {
-              await markAgentExecutionStepDispatched(executionStepIntent);
+              executionStepDispatchWrite = markAgentExecutionStepDispatched(
+                executionStepIntent,
+              ).then(() => {
+                executionStepDispatched = true;
+              });
+              await executionStepDispatchWrite;
             }
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
@@ -10623,7 +10634,7 @@ export async function runAgentLoop(opts: {
           thrown = err;
           toolReportedError = false;
           toolResultLost =
-            signal.aborted ||
+            (signal.aborted && actionInvoked) ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
@@ -10720,9 +10731,17 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        if (executionStepIntent) {
+        if (
+          executionStepIntent &&
+          (executionStepDispatched || executionStepDispatchWrite)
+        ) {
           executionStepFinalizationAttempted = true;
-          if (toolResultLost || callEffect === "unknown") {
+          if (!actionInvoked) {
+            // The dispatch marker can persist while cancellation wins; it does
+            // not prove the action handler started.
+            await executionStepDispatchWrite?.catch(() => {});
+            await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
+          } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
           } else {
             await completeAgentExecutionStep(
@@ -15270,6 +15289,9 @@ export function createProductionAgentHandler(
         const queuedSubmissionStore = shouldPreserveQueuedOrder
           ? await import("../chat-threads/store.js")
           : undefined;
+        if (ownerEmail && !isAuthorizedApprovalContinuation) {
+          await ensureAgentToolApprovalTable();
+        }
         // The inbox read runs under the slot lock, but its schema must be ready first.
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
@@ -15295,6 +15317,16 @@ export function createProductionAgentHandler(
                     tx,
                     runThreadId,
                   ),
+              }
+            : {}),
+          ...(ownerEmail && !isAuthorizedApprovalContinuation
+            ? {
+                hasPendingApproval: (tx) =>
+                  hasPendingAgentToolApproval(tx, {
+                    ownerEmail,
+                    orgId: getRequestOrgId() ?? null,
+                    threadId: runThreadId,
+                  }),
               }
             : {}),
         });

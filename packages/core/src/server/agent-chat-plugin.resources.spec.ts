@@ -449,6 +449,7 @@ describe("agent chat thread read route", () => {
         errorCode: "run_timeout",
         abortReason: null,
         terminalReason: "run_timeout",
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
       },
     ]);
 
@@ -480,6 +481,7 @@ describe("agent chat thread read route", () => {
           errorCode: "run_timeout",
           abortReason: null,
           terminalReason: "run_timeout",
+          threadProjectionErrorCode: "tool_call_journal_unreadable",
         },
       ],
     });

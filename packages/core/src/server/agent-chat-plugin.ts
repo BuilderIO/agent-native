@@ -128,7 +128,12 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { getRunById, readBackgroundRunClaim } from "../agent/run-store.js";
+import {
+  AgentRunJournalUnreadableError,
+  getRunById,
+  readBackgroundRunClaim,
+  retryRunThreadProjection,
+} from "../agent/run-store.js";
 import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
@@ -146,6 +151,7 @@ import {
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
+import { denyAgentToolApproval } from "../agent/tool-approval-store.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
@@ -7065,6 +7071,42 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const canEditThread = (threadId: string) =>
             callerHasThreadAccess(owner, threadId, "editor", { orgId });
 
+          // Route: POST /runs/:id/retry-projection
+          // An editor may retry a pending fold after repairing its source.
+          const retryProjectionMatch =
+            url.match(/\/runs\/([^/?]+)\/retry-projection(?:[/?]|$)/) ||
+            url.match(/^\/([^/?]+)\/retry-projection(?:[/?]|$)/);
+          if (retryProjectionMatch && method === "POST") {
+            const runId = decodeURIComponent(retryProjectionMatch[1]);
+            if (!(await canEditRun(runId))) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            const run = await getRunById(runId);
+            if (!run) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            try {
+              const result = await retryRunThreadProjection(runId);
+              if (result.state === "untracked") {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              return { ok: true, ...result };
+            } catch (error) {
+              if (error instanceof AgentRunJournalUnreadableError) {
+                setResponseStatus(event, 422);
+                return {
+                  ok: false,
+                  error: "Projection source remains unreadable",
+                  threadProjectionErrorCode: error.errorCode,
+                };
+              }
+              throw error;
+            }
+          }
+
           // Route: POST /runs/turn/:turnId/abort
           // Covers the short window where the client has sent a turn but the
           // server has not yet created its background run id.
@@ -7859,6 +7901,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   errorCode,
                   abortReason,
                   terminalReason,
+                  threadProjectionErrorCode,
                 }) => ({
                   id,
                   status,
@@ -7867,6 +7910,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   errorCode,
                   abortReason,
                   terminalReason,
+                  threadProjectionErrorCode,
                 }),
               ),
             };
@@ -7874,6 +7918,71 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
+            if (
+              method === "POST" &&
+              isThreadSubroute("approval-resolution") &&
+              threadTail.length === 1
+            ) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread || !threadMatchesRequestedScope(thread)) {
+                return threadNotFound();
+              }
+              const body = await readBody(event);
+              const record =
+                body &&
+                typeof body === "object" &&
+                !Array.isArray(body) &&
+                (body as Record<string, unknown>);
+              const approvalId =
+                typeof record?.approvalId === "string"
+                  ? record.approvalId.trim()
+                  : "";
+              if (!approvalId || record?.decision !== "deny") {
+                setResponseStatus(event, 400);
+                return { error: "Invalid approval resolution" };
+              }
+              const resolved = await denyAgentToolApproval({
+                approvalId,
+                ownerEmail: owner,
+                orgId,
+                threadId,
+              });
+              if (resolved === "not_applied") {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Approval denial could not be applied",
+                  code: "approval_denial_not_applied",
+                  retryable: false,
+                };
+              }
+              if (resolved === "already_resolved") {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Approval is no longer pending",
+                  code: "approval_not_pending",
+                  retryable: false,
+                };
+              }
+              scheduleQueuedSubmissionInboxDrain({
+                threadId,
+                turnContinues: false,
+                waitUntil: getRequestRunContext()?.waitUntil,
+                drain: drainQueuedSubmissionInbox,
+                onError: (error) => {
+                  console.error(
+                    `[agent-chat] denied-approval inbox drain failed for ${threadId}:`,
+                    error,
+                  );
+                },
+              });
+              return { ok: true };
+            }
+
             if (
               method === "GET" &&
               threadTail[0] === "queue" &&
@@ -9982,6 +10091,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const staleRunReapIncomplete =
+              staleRunsReaped === null ||
+              staleRunsReaped.failed > 0 ||
+              staleRunsReaped.truncated;
             const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
               event,
             ).catch((error: unknown) => {
@@ -10055,6 +10168,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             if (!triggerAvailability.available) {
               if (
+                staleRunReapIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10066,6 +10180,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               return {
                 ok:
+                  !staleRunReapIncomplete &&
                   appSweepHandlers.failed.length === 0 &&
                   automationFailureAlerts !== null &&
                   queuedSubmissionDrain !== null &&
@@ -10086,6 +10201,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             try {
               await processRecurringJobs(schedulerDeps);
               if (
+                staleRunReapIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
