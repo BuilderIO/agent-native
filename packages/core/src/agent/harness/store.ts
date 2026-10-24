@@ -643,6 +643,7 @@ export async function markAgentHarnessSessionStoppedIfUnclaimed(
               updated_at = ?
           WHERE id = ? AND status = ? AND generation = ?
             AND follow_up_claim_id IS NULL
+            AND approval_resolution_id IS NULL
           RETURNING *`,
     args: [
       status,

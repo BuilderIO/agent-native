@@ -218,28 +218,23 @@ export async function resolveAgentHarnessApproval(input: {
       );
     }
 
-    let detachedResumeState: unknown;
     const nextPending = events.find(
       (
         event,
       ): event is Extract<AgentHarnessEvent, { type: "approval-request" }> =>
         event.type === "approval-request",
     );
-    const followUpOwnsSession = Boolean(session.followUpClaimId);
-    if (continued && !nextPending && !followUpOwnsSession) {
-      if (live.session.detach) {
-        const detached = await live.session.detach();
-        if (detached !== undefined) detachedResumeState = detached;
-      }
-    }
+    const detachResumeState =
+      continued && !nextPending && live.session.detach
+        ? () => live.session.detach!()
+        : undefined;
     let updated: StoredAgentHarnessSession | null;
     try {
       updated = await persistResolvedApproval({
-        session,
         runId: input.runId,
         approvalId: input.approval.id,
         nextPending,
-        detachedResumeState,
+        detachResumeState,
         liveSession: live.session,
       });
     } catch (error) {
@@ -286,14 +281,15 @@ export async function resolveAgentHarnessApproval(input: {
 }
 
 async function persistResolvedApproval(input: {
-  session: StoredAgentHarnessSession;
   runId: string;
   approvalId: string;
   nextPending?: Extract<AgentHarnessEvent, { type: "approval-request" }>;
-  detachedResumeState?: unknown;
+  detachResumeState?: () => Promise<unknown>;
   liveSession: AgentHarnessSession;
 }): Promise<StoredAgentHarnessSession | null> {
   let conflict: AgentHarnessSessionConflictError | undefined;
+  let hasDetachedResumeState = false;
+  let detachedResumeState: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const latest = await getAgentHarnessSessionByRunId(input.runId);
     if (!latest) return null;
@@ -315,6 +311,16 @@ async function persistResolvedApproval(input: {
           ? null
           : (input.nextPending ?? null)
         : latest.pendingApproval;
+    let resumeStatePatch: { resumeState?: unknown } = {};
+    if (!latest.followUpClaimId && input.detachResumeState) {
+      if (!hasDetachedResumeState) {
+        detachedResumeState = await input.detachResumeState();
+        hasDetachedResumeState = true;
+      }
+      if (detachedResumeState !== undefined) {
+        resumeStatePatch = { resumeState: detachedResumeState };
+      }
+    }
     try {
       const updated = await updateAgentHarnessSessionAtGeneration(
         latest.id,
@@ -329,11 +335,7 @@ async function persistResolvedApproval(input: {
             : [...resolvedIds, input.approvalId].slice(
                 -RESOLVED_APPROVAL_LIMIT,
               ),
-          ...(input.detachedResumeState !== undefined &&
-          latest.generation === input.session.generation &&
-          !latest.followUpClaimId
-            ? { resumeState: input.detachedResumeState }
-            : {}),
+          ...resumeStatePatch,
         },
         latest.followUpClaimId ?? undefined,
       );
@@ -909,7 +911,12 @@ export async function sweepExpiredAgentHarnessSessions(
         removed += 1;
         continue;
       }
-      if (current.followUpClaimId != null) continue;
+      if (
+        current.followUpClaimId != null ||
+        current.approvalResolutionId != null
+      ) {
+        continue;
+      }
       if (current.generation !== live.generation) {
         await detachStaleLiveSession(live, current.status);
         releaseLiveAgentHarnessSession(sessionId, live.session);
@@ -931,7 +938,12 @@ export async function sweepExpiredAgentHarnessSessions(
           removed += 1;
           continue;
         }
-        if (latest.followUpClaimId != null) continue;
+        if (
+          latest.followUpClaimId != null ||
+          latest.approvalResolutionId != null
+        ) {
+          continue;
+        }
         if (latest.generation !== live.generation) {
           await detachStaleLiveSession(live, latest.status);
           releaseLiveAgentHarnessSession(sessionId, live.session);

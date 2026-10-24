@@ -570,6 +570,35 @@ describe("agent harness session store", () => {
     });
   });
 
+  it("does not expire a session while an approval resolution owns it", async () => {
+    const id = "session-expired-approval-resolution";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expired-approval-resolution",
+      runId: "run-expired-approval-resolution",
+      status: "running",
+      pendingApproval: { id: "approval-in-progress" },
+      approvalResolutionId: "approval-in-progress",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const current = await getAgentHarnessSession(id);
+
+    await expect(
+      markAgentHarnessSessionStoppedIfUnclaimed(
+        id,
+        current!.status,
+        current!.generation,
+        "stopped",
+      ),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      approvalResolutionId: "approval-in-progress",
+    });
+  });
+
   it("stops the session even after a concurrent generation advance", async () => {
     const id = "session-follow-up-stop-race";
     await saveAgentHarnessSession({

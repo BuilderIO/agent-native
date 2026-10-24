@@ -163,7 +163,8 @@ describe("agent harness lifecycle", () => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
-          stored.followUpClaimId != null
+          stored.followUpClaimId != null ||
+          stored.approvalResolutionId != null
         ) {
           return null;
         }
@@ -321,6 +322,78 @@ describe("agent harness lifecycle", () => {
     });
   });
 
+  it("persists detached state from the reserved approval generation", async () => {
+    const { approve: _approve, ...baseSession } = fakeSession();
+    const session = {
+      ...baseSession,
+      continueTurn: vi.fn(async function* () {
+        yield { type: "done" } as AgentHarnessEvent;
+      }),
+    };
+    const approvalId = "approval-detached-resume-state";
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.detach).toHaveBeenCalledOnce();
+    expect(stored.resumeState).toEqual({ token: "next" });
+  });
+
+  it("persists detached state after a follow-up claim clears during approval", async () => {
+    let finishContinuation!: () => void;
+    let continuationStarted!: () => void;
+    const continuationGate = new Promise<void>((resolve) => {
+      finishContinuation = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      continuationStarted = resolve;
+    });
+    const { approve: _approve, ...baseSession } = fakeSession();
+    const session = {
+      ...baseSession,
+      continueTurn: vi.fn(async function* () {
+        continuationStarted();
+        await continuationGate;
+        yield { type: "done" } as AgentHarnessEvent;
+      }),
+    };
+    session.detach.mockResolvedValue({ token: "after-approval" });
+    const approvalId = "approval-active-follow-up";
+    stored = {
+      ...stored,
+      status: "running",
+      followUpClaimId: "active-follow-up",
+      pendingApproval: approvalEvent(approvalId),
+    };
+    register(stored, session);
+
+    const resolution = resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+    await started;
+    stored = {
+      ...stored,
+      status: "idle",
+      followUpClaimId: null,
+      generation: stored.generation + 1,
+      resumeState: { token: "stale" },
+    };
+
+    finishContinuation();
+    await expect(resolution).resolves.toMatchObject({ ok: true });
+
+    expect(session.detach).toHaveBeenCalledOnce();
+    expect(stored.resumeState).toEqual({ token: "after-approval" });
+  });
+
   it("runs a follow-up through a live session and persists detached state", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);
@@ -416,6 +489,41 @@ describe("agent harness lifecycle", () => {
       sessionId: stored.id,
       scope: ownerScope(),
     });
+  });
+
+  it("keeps an expired session registered while approval resolution is active", async () => {
+    const session = fakeSession();
+    const approvalId = "approval-expiry-in-progress";
+    stored.pendingApproval = approvalEvent(approvalId);
+    let finishApproval!: () => void;
+    let approvalStarted!: () => void;
+    const approvalGate = new Promise<void>((resolve) => {
+      finishApproval = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      approvalStarted = resolve;
+    });
+    session.approve.mockImplementation(async () => {
+      approvalStarted();
+      await approvalGate;
+    });
+    register(stored, session);
+
+    const resolution = resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+    await started;
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(0);
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
+
+    finishApproval();
+    await expect(resolution).resolves.toMatchObject({ ok: true });
   });
 
   it("detaches an expired local session after a remote generation advance", async () => {
