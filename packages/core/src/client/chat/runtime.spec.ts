@@ -7207,16 +7207,22 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("resolves a denied approval without starting another agent run", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        {
-          type: "approval_required",
-          tool: "publish-release",
-          approvalKey: "publish-release:{}",
-        },
-        { type: "done" },
-      ]),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-denied",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
     const runtime = createAgentNativeChatRuntime({
       apiUrl: "/_agent-native/agent-chat",
       threadId: "thread-denial",
@@ -7229,7 +7235,7 @@ describe("createAgentNativeChatRuntime", () => {
     const continuation = await session.continueTurn?.({
       turnId: first.id,
       approval: {
-        id: "publish-release:{}",
+        id: "agent-tool-approval-denied",
         approved: false,
       },
     });
@@ -7237,7 +7243,108 @@ describe("createAgentNativeChatRuntime", () => {
     expect(await drain(continuation!.events)).toEqual([
       { type: "done", reason: "complete" },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "/_agent-native/agent-chat/threads/thread-denial/approval-resolution",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      approvalId: "agent-tool-approval-denied",
+      decision: "deny",
+    });
+  });
+
+  it("does not complete a denied approval when the server did not apply it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-denied",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval denial could not be applied",
+            code: "approval_denial_not_applied",
+            retryable: false,
+          }),
+          {
+            status: 409,
+          },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    await expect(
+      session.continueTurn?.({
+        turnId: first.id,
+        approval: {
+          id: "agent-tool-approval-denied",
+          approved: false,
+        },
+      }),
+    ).rejects.toThrow("Approval denial could not be applied");
+  });
+
+  it("dismisses a denial card when the approval was already resolved", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-resolved",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval is no longer pending",
+            code: "approval_not_pending",
+            retryable: false,
+          }),
+          { status: 409 },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "agent-tool-approval-resolved",
+        approved: false,
+      },
+    });
+
+    expect(continuation).toBeDefined();
+    expect(await drain(continuation!.events)).toEqual([
+      { type: "done", reason: "complete" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
