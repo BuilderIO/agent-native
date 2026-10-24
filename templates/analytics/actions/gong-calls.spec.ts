@@ -808,8 +808,8 @@ describe("gong-calls action", () => {
 
     expect(getCallTranscript).toHaveBeenCalledWith("call-1");
     expect(result.callId).toBe("call-1");
-    // One text field: the old `transcript` alias doubled the payload.
-    expect(result.transcript).toBeUndefined();
+    // `transcriptText` is the documented field; `transcript` is its alias.
+    expect(result.transcript).toEqual(result.transcriptText);
     expect(result.transcriptText.text.length).toBeLessThanOrEqual(8_000);
     expect(result.transcriptText.truncated).toBe(true);
     expect(result.guidance).toContain("compact transcript text only");
@@ -836,7 +836,7 @@ describe("gong-calls action", () => {
       rawTranscript: true,
     })) as Record<string, any>;
 
-    expect(result.transcript).toBeUndefined();
+    expect(result.transcript).toBe(result.transcriptText);
     expect(result.rawTranscriptPayload).toBe(transcriptPayload);
     expect(result.transcriptText.text).toContain("Legal is reviewing.");
     expect(result.guidance).toContain("raw Gong transcript payload");
@@ -879,6 +879,21 @@ describe("gong-calls action", () => {
       expect(result.rawTranscriptOmitted).toBe(true);
       expect(result.transcriptText.truncated).toBe(false);
       expect(result.guidance).toContain("raw Gong payload was omitted");
+    });
+
+    it("counts the transcript alias in the size fit so the cap holds with both fields", async () => {
+      getCallTranscript.mockResolvedValue(transcriptPayload(6_000));
+
+      const result = (await gongCalls.run(
+        { transcript: "call-1", transcriptMaxChars: 100_000 },
+        agentCtx,
+      )) as Record<string, any>;
+
+      expect(result.transcriptText.text).toContain("ok budget");
+      expect(result.transcript).toEqual(result.transcriptText);
+      expect(JSON.stringify(result, null, 2).length).toBeLessThanOrEqual(
+        50_000,
+      );
     });
 
     it("trims a text that alone exceeds the cap", async () => {

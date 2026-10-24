@@ -370,6 +370,11 @@ function buildHubSpotDealFilters(options: {
 
 const DEALS_JSON_CHAR_BUDGET = 40_000;
 const MIN_DEALS_JSON_CHAR_BUDGET = 1_000;
+
+interface DealsFit {
+  budget: number;
+  labelsOmitted: boolean;
+}
 const MAX_LISTED_TRUNCATED_PROPERTIES = 20;
 
 // The agent pretty-prints (2-space indent) the whole result before applying its
@@ -786,7 +791,7 @@ export default defineAction({
         Object.entries(deal.properties).filter(([, value]) => value != null),
       ),
     }));
-    const buildResult = (dealsBudget: number) => {
+    const buildResult = ({ budget: dealsBudget, labelsOmitted }: DealsFit) => {
       const { deals, truncatedProperties, oversizedDealIds } = fitDealsToBudget(
         allDeals,
         dealsBudget,
@@ -862,22 +867,37 @@ export default defineAction({
           oversizedDealIds,
         }),
         searchedProperties: dealResult.properties,
-        stageLabels: lookups.stageLabels,
-        pipelineLabels: lookups.pipelineLabels,
+        // Each deal already carries stage_name and pipeline_name.
+        ...(labelsOmitted
+          ? { labelsOmitted: true }
+          : {
+              stageLabels: lookups.stageLabels,
+              pipelineLabels: lookups.pipelineLabels,
+            }),
       };
     };
 
     // Fit the complete result, not just `deals`: shrink the deals budget by the
-    // overage (a second time if the first cut was not enough).
-    const shrinkDealsBudget: FitStep<number> = (budget, { overage }) =>
-      Math.max(MIN_DEALS_JSON_CHAR_BUDGET, budget - overage - 500);
+    // overage (a second time if the first cut was not enough). The label maps go
+    // first, and only when they would not fit alongside even the smallest page.
+    const shrinkDealsBudget: FitStep<DealsFit> = (fit, { overage }) => ({
+      ...fit,
+      budget: Math.max(MIN_DEALS_JSON_CHAR_BUDGET, fit.budget - overage - 500),
+    });
+    const omitDominantLabels: FitStep<DealsFit> = (fit, { fits }) =>
+      fits({ ...fit, budget: MIN_DEALS_JSON_CHAR_BUDGET })
+        ? fit
+        : { ...fit, labelsOmitted: true };
     return fitResult({
-      initial: Math.min(DEALS_JSON_CHAR_BUDGET, resultCap - 10_000),
+      initial: {
+        budget: Math.min(DEALS_JSON_CHAR_BUDGET, resultCap - 10_000),
+        labelsOmitted: false,
+      },
       build: buildResult,
-      steps: [shrinkDealsBudget, shrinkDealsBudget],
+      steps: [omitDominantLabels, shrinkDealsBudget, shrinkDealsBudget],
       summarize: () => ({ total: matchedTotal, limit, offset }),
       guidance:
-        "The page does not fit the output size budget even after trimming deals. Lower the limit or narrow the filters and retry; do not treat this as an empty result.",
+        "The page does not fit the output size budget even with the deals trimmed to a minimum page and the stage and pipeline label maps omitted. Request fewer properties or narrow the filters and retry; do not treat this as an empty result.",
       cap: resultCap,
     });
   },

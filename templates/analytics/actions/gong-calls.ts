@@ -215,6 +215,10 @@ interface SingleTranscriptFit {
 const dropRawTranscriptPayload: FitStep<SingleTranscriptFit> = (fit) =>
   fit.raw === undefined ? fit : { ...fit, raw: undefined, rawOmitted: true };
 
+// `transcriptText` and its `transcript` alias both carry the trimmed text, so
+// every character cut from it shrinks the result twice.
+const SINGLE_TRANSCRIPT_TEXT_COPIES = 2;
+
 const trimSingleTranscriptText: FitStep<SingleTranscriptFit> = (
   fit,
   { overage },
@@ -223,7 +227,8 @@ const trimSingleTranscriptText: FitStep<SingleTranscriptFit> = (
   if (textChars === 0) return fit;
   const keep = Math.max(
     0,
-    (textChars - overage - FIT_MARGIN_CHARS) / textChars,
+    (textChars - overage / SINGLE_TRANSCRIPT_TEXT_COPIES - FIT_MARGIN_CHARS) /
+      textChars,
   );
   const text = fit.text.text.slice(0, Math.floor(fit.text.text.length * keep));
   return text.length < fit.text.text.length
@@ -822,12 +827,14 @@ async function planGongResult(
       build: (fit: SingleTranscriptFit) => ({
         callId: args.transcript,
         transcriptText: fit.text,
+        transcript: fit.text,
         ...(fit.raw !== undefined ? { rawTranscriptPayload: fit.raw } : {}),
         ...(fit.rawOmitted ? { rawTranscriptOmitted: true } : {}),
         guidance: [
           rawRequested && !fit.rawOmitted
             ? "Returned compact transcript text and the raw Gong transcript payload. Avoid passing the raw payload into save-analysis; preserve call IDs and short excerpts instead."
             : "Returned compact transcript text only. Set rawTranscript=true only for debugging or export.",
+          "The transcript field is a backward-compatible alias for transcriptText; read transcriptText.",
           fit.rawOmitted
             ? "The raw Gong payload was omitted (rawTranscriptOmitted) because it did not fit the output size budget."
             : "",
@@ -1152,7 +1159,7 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   maxResultChars: GONG_MAX_RESULT_CHARS,
   description:
-    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded call search; without --company, lists calls in the date window. For broad keyword, tracker, cross-account, or absence-sensitive work, stage the raw Gong API response via provider-api-catalog/provider-api-docs/provider-api-request, then use query-staged-dataset or a Data Program; use provider-corpus-job only for durable scans that require raw transcript bodies.",
+    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript (the text is in transcriptText; transcript is a backward-compatible alias with the same trimmed text), or --company for a bounded call search; without --company, lists calls in the date window. For broad keyword, tracker, cross-account, or absence-sensitive work, stage the raw Gong API response via provider-api-catalog/provider-api-docs/provider-api-request, then use query-staged-dataset or a Data Program; use provider-corpus-job only for durable scans that require raw transcript bodies.",
   schema: gongCallsSchema,
   http: { method: "GET" },
   grounding: true,

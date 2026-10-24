@@ -886,6 +886,70 @@ describe("hubspot-deals action", () => {
     });
   });
 
+  it("omits the label maps when they alone would push the page past the cap", async () => {
+    const stages = Array.from({ length: 1_500 }, (_, index) => ({
+      id: `stage-${index}`,
+      label: `Stage label ${index} ${"x".repeat(30)}`,
+      displayOrder: index,
+      metadata: { probability: "0.5" },
+    }));
+    getDealPipelines.mockResolvedValue([
+      { id: "enterprise-new-business", label: "Enterprise", stages },
+    ]);
+    getDealOwners.mockResolvedValue({});
+    searchHubSpotObjects.mockResolvedValue({
+      records: [
+        {
+          id: "deal-1",
+          properties: {
+            dealname: "Acme",
+            dealstage: "stage-7",
+            pipeline: "enterprise-new-business",
+          },
+        },
+      ],
+      total: 1,
+      nextAfter: null,
+      properties: [],
+    });
+
+    const result = (await hubspotDeals.run({ limit: 5 })) as Record<
+      string,
+      any
+    >;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThanOrEqual(50_000);
+    expect(result.error).toBeUndefined();
+    expect(result.labelsOmitted).toBe(true);
+    expect(result.stageLabels).toBeUndefined();
+    expect(result.pipelineLabels).toBeUndefined();
+    expect(result.deals[0].properties.dealstage).toBe("stage-7");
+    expect(result.deals[0].properties.stage_name).toContain("Stage label 7");
+  });
+
+  it("keeps the label maps when they fit", async () => {
+    getDealPipelines.mockResolvedValue([
+      { id: "enterprise-new-business", label: "Enterprise", stages: [] },
+    ]);
+    getDealOwners.mockResolvedValue({});
+    searchHubSpotObjects.mockResolvedValue({
+      records: [],
+      total: 0,
+      nextAfter: null,
+      properties: [],
+    });
+
+    const result = (await hubspotDeals.run({ limit: 5 })) as Record<
+      string,
+      any
+    >;
+
+    expect(result.labelsOmitted).toBeUndefined();
+    expect(result.pipelineLabels).toEqual({
+      "enterprise-new-business": "Enterprise",
+    });
+  });
+
   it("rejects impossible closed date filter boundaries", async () => {
     await expect(
       hubspotDeals.run({
