@@ -569,6 +569,44 @@ describe("agent harness lifecycle", () => {
     expect(session.stop).not.toHaveBeenCalled();
   });
 
+  it("retries finalization after the claim store exhausts its conflict retries", async () => {
+    const session = fakeSession([{ type: "text-delta", text: "done" }]);
+    register(stored, session);
+    const updateIfClaim = mocks.updateIfFollowUpClaim.getMockImplementation()!;
+    let conflicted = false;
+    mocks.updateIfFollowUpClaim.mockImplementation(
+      async (id, claimId, patch) => {
+        if (typeof patch === "function" && !conflicted) {
+          conflicted = true;
+          stored = {
+            ...stored,
+            generation: stored.generation + 1,
+            updatedAt: Date.now(),
+          };
+          throw Object.assign(
+            new Error("Harness session changed concurrently."),
+            { name: "AgentHarnessSessionConflictError" },
+          );
+        }
+        return updateIfClaim!(id, claimId, patch);
+      },
+    );
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(conflicted).toBe(true);
+    expect(result).toMatchObject({
+      ok: true,
+      session: { status: "idle", followUpClaimId: null },
+    });
+    expect(mocks.updateIfFollowUpClaim).toHaveBeenCalledTimes(2);
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
   it("delivers error events before failing a follow-up", async () => {
     const event: AgentHarnessEvent = { type: "error", error: "model failed" };
     const session = fakeSession([event]);

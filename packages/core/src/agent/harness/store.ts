@@ -113,7 +113,6 @@ export const agentHarnessSessionsStore = defineStore({
           "resolved_approval_ids",
           "owner_email",
           "org_id",
-          "follow_up_claim_id",
         ] as const) {
           await ensureColumnExists(
             "agent_harness_sessions",

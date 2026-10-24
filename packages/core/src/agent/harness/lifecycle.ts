@@ -408,41 +408,66 @@ export async function sendAgentHarnessFollowUp(input: {
       const updated = await withSessionLock(input.runId, async () => {
         let detachedResumeState: unknown;
         let hasDetachedResumeState = false;
-        const updatedSession = await updateAgentHarnessSessionIfFollowUpClaim(
-          session.id,
-          claimId,
-          async (latest) => {
-            const currentApproval =
-              approvalRequest &&
-              !latest.resolvedApprovalIds?.includes(approvalRequest.id)
-                ? approvalRequest
-                : undefined;
-            const persistedApproval = asPendingApproval(latest.pendingApproval);
-            const pending =
-              currentApproval ??
-              (persistedApproval &&
-              !latest.resolvedApprovalIds?.includes(persistedApproval.id)
-                ? persistedApproval
-                : undefined);
-            let resumeState = latest.resumeState ?? session.resumeState;
-            if (!pending && acquired.live.session.detach) {
-              if (!hasDetachedResumeState) {
-                detachedResumeState = await acquired.live.session.detach();
-                hasDetachedResumeState = true;
-              }
-              if (detachedResumeState !== undefined) {
-                resumeState = detachedResumeState;
-              }
+        finalizing = true;
+        let updatedSession: StoredAgentHarnessSession | null;
+        while (true) {
+          try {
+            updatedSession = await updateAgentHarnessSessionIfFollowUpClaim(
+              session.id,
+              claimId,
+              async (latest) => {
+                const currentApproval =
+                  approvalRequest &&
+                  !latest.resolvedApprovalIds?.includes(approvalRequest.id)
+                    ? approvalRequest
+                    : undefined;
+                const persistedApproval = asPendingApproval(
+                  latest.pendingApproval,
+                );
+                const pending =
+                  currentApproval ??
+                  (persistedApproval &&
+                  !latest.resolvedApprovalIds?.includes(persistedApproval.id)
+                    ? persistedApproval
+                    : undefined);
+                let resumeState = latest.resumeState ?? session.resumeState;
+                if (!pending && acquired.live.session.detach) {
+                  if (!hasDetachedResumeState) {
+                    detachedResumeState = await acquired.live.session.detach();
+                    hasDetachedResumeState = true;
+                  }
+                  if (detachedResumeState !== undefined) {
+                    resumeState = detachedResumeState;
+                  }
+                }
+                return {
+                  status: "idle",
+                  resumeState,
+                  pendingApproval: pending ?? null,
+                  followUpClaimId: null,
+                };
+              },
+            );
+            break;
+          } catch (error) {
+            if (!isAgentHarnessSessionConflictError(error)) throw error;
+            const current = await getAgentHarnessSessionByRunId(input.runId);
+            if (
+              current?.status === "running" &&
+              current.followUpClaimId === claimId
+            ) {
+              continue;
             }
-            finalizing = true;
-            return {
-              status: "idle",
-              resumeState,
-              pendingApproval: pending ?? null,
-              followUpClaimId: null,
-            };
-          },
-        );
+            return failure(
+              input.runId,
+              current ?? session,
+              current ? "unavailable" : "not_found",
+              current
+                ? "The harness follow-up no longer owns the active session claim."
+                : "Harness session disappeared before the follow-up completed.",
+            );
+          }
+        }
         if (!updatedSession) {
           const current = await getAgentHarnessSessionByRunId(input.runId);
           return failure(
