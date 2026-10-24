@@ -893,12 +893,15 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
   );
   const pronounRetraction =
     /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
+  const ellipticalRetraction =
+    /\b(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   let assigned = false;
   for (const rawClause of clauses) {
     const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
     if (
       negatedAssignment.test(clause) ||
-      (assigned && pronounRetraction.test(clause))
+      (assigned &&
+        (pronounRetraction.test(clause) || ellipticalRetraction.test(clause)))
     ) {
       assigned = false;
       continue;
@@ -5350,6 +5353,9 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
     /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
       statement,
     ) ||
+    /\b(?:but|however|though|except|only)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+      statement,
+    ) ||
     /\b(?:do\s+not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:add|post|send|leave|use|react|mark)\b[^.!?;\n]{0,80}\b(?:emojis?|reactions?|marks?)\b/i.test(
       statement,
     )
@@ -5364,7 +5370,7 @@ function hasExplicitAuthorizationRevocation(text: string): boolean {
     /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
       text,
     ) ||
-    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:that\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:(?:this|that|my|our)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
       text,
     )
   );
@@ -17329,6 +17335,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       "personAssignedSkip needs an exact root or latest human message assigning work",
     );
     expectFocusedFailure(
+      "elliptical assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, that is wrong. I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
       "unrelated work cannot establish a report assignment",
       () =>
         validateTestInventory(
@@ -17613,6 +17631,17 @@ if (args[0] === "--self-test" && args.length === 1) {
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
+    const inlineNoReactionAuthorization = structuredClone(authorizedMagRoot);
+    inlineNoReactionAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but no reactions.";
+    inlineNoReactionAuthorization.scope.narrowingJudgment!.instruction =
+      inlineNoReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "inline no-reaction qualifier blocks exact-root write authorization",
+      () => validateTestInventory(inlineNoReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
     const unrelatedNoReactionText = structuredClone(authorizedMagRoot);
     unrelatedNoReactionText.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions are needed for the demo.";
@@ -17628,6 +17657,17 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectFocusedFailure(
       "later revocation cancels an exact-root write authorization",
       () => validateTestInventory(revokedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const withdrawnAuthorization = structuredClone(authorizedMagRoot);
+    withdrawnAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, I withdraw this authorization.";
+    withdrawnAuthorization.scope.narrowingJudgment!.instruction =
+      withdrawnAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "withdrawn authorization cancels an exact-root write grant",
+      () => validateTestInventory(withdrawnAuthorization),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
@@ -24238,7 +24278,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 61} negative cases; 41 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 11 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 64} negative cases; 41 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 13 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
