@@ -31,6 +31,7 @@ mod shortcuts;
 mod silence_detector;
 mod speech_capture_ownership;
 mod state;
+mod step_capture;
 mod system_audio;
 mod tray;
 mod tray_meetings;
@@ -361,6 +362,16 @@ pub fn run() {
             accessibility::read_focused_field_text,
             accessibility::accessibility_check_permission,
             accessibility::accessibility_request_permission,
+            step_capture::step_capture_start,
+            step_capture::step_capture_stop,
+            step_capture::step_capture_status,
+            step_capture::step_capture_set_paused,
+            step_capture::step_capture_finish,
+            step_capture::step_guide_load,
+            step_capture::step_guide_save,
+            step_capture::step_guide_export_pdf,
+            step_capture::step_guide_open,
+            step_capture::step_guide_share,
             system_audio::system_audio_request_permission,
             system_audio::system_audio_version_status,
             system_audio::system_audio_open_privacy_settings,

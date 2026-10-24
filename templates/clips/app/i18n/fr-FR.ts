@@ -1264,6 +1264,22 @@ const messages = {
     paginationNext: "Suivant",
     paginationPage: "Page {{page}} sur {{totalPages}}",
   },
+  stepGuide: {
+    pageTitle: "Guide pas à pas · Clips",
+    viewAsGuide: "Afficher comme guide",
+    guide: "Guide",
+    stepCount_one: "{{count}} étape",
+    stepCount_many: "{{count}} étapes",
+    stepCount_other: "{{count}} étapes",
+    step: "Étape {{number}}",
+    copyMarkdown: "Copier en Markdown",
+    copied: "Guide copié en Markdown",
+    copyFailed: "Impossible de copier le guide",
+    imageAccessNote:
+      "Les images du Markdown renvoient vers Clips : seules les personnes autorisées à ouvrir ces captures les voient.",
+    empty: "Aucune capture dans ce dossier pour l’instant.",
+    openStep: "Ouvrir l’étape {{number}}",
+  },
   notificationsRoute: {
     pageTitle: "Alertes · Clips",
     title: "Notifications",

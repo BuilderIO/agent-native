@@ -1210,6 +1210,21 @@ const messages = {
     paginationNext: "अगला",
     paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
   },
+  stepGuide: {
+    pageTitle: "गाइड · Clips",
+    viewAsGuide: "गाइड के रूप में देखें",
+    guide: "गाइड",
+    stepCount_one: "{{count}} चरण",
+    stepCount_other: "{{count}} चरण",
+    step: "चरण {{number}}",
+    copyMarkdown: "Markdown कॉपी करें",
+    copied: "गाइड Markdown के रूप में कॉपी हुई",
+    copyFailed: "गाइड कॉपी नहीं हो सकी",
+    imageAccessNote:
+      "Markdown में चित्र Clips से लिंक होते हैं, इसलिए ये केवल उन लोगों को दिखते हैं जो इन स्क्रीनशॉट को खोल सकते हैं।",
+    empty: "इस फ़ोल्डर में अभी कोई स्क्रीनशॉट नहीं है।",
+    openStep: "चरण {{number}} खोलें",
+  },
   notificationsRoute: {
     pageTitle: "सूचनाएं · Clips",
     title: "सूचनाएं",

@@ -164,6 +164,113 @@ fn safe_ax_url(url: String, remaining: &mut usize) -> Option<String> {
     safe_ax_text(Some(url), remaining)
 }
 
+/// What Accessibility reports under a screen point, for a step capture label.
+///
+/// `NotTrusted`, `NoElement` and `Failed` mean the label could not be read;
+/// `Unlabeled` means it was read and there is none. Callers must keep these
+/// apart rather than flattening them to an empty string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AxHitTest {
+    NotTrusted,
+    NoElement,
+    Failed(i32),
+    Labeled { role: String, label: String },
+    Unlabeled { role: String },
+    Redacted { role: String },
+}
+
+/// One element on the path from the hit element up to its nearest container,
+/// innermost first, with the raw label it exposes (if any).
+#[derive(Debug, Clone)]
+pub(crate) struct AxHitNode {
+    pub role: String,
+    pub label: Option<String>,
+}
+
+/// Roles whose AXValue is text the user typed, never a control label.
+const AX_TEXT_INPUT_ROLES: &[&str] = &["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"];
+
+/// Containers whose title names a window or page, not the clicked control.
+const AX_HIT_TEST_BOUNDARY_ROLES: &[&str] = &[
+    "AXApplication",
+    "AXDrawer",
+    "AXSheet",
+    "AXWebArea",
+    "AXWindow",
+];
+
+fn ax_hit_test_from_path(path: &[AxHitNode]) -> AxHitTest {
+    let Some(hit) = path.first() else {
+        return AxHitTest::NoElement;
+    };
+    for node in path {
+        if role_is_secure(&node.role) {
+            return AxHitTest::Redacted {
+                role: node.role.clone(),
+            };
+        }
+        let Some(raw) = node.label.as_deref() else {
+            continue;
+        };
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let mut remaining = MAX_AX_STRING_BYTES;
+        return match safe_ax_text(Some(raw.to_string()), &mut remaining) {
+            Some(label) => AxHitTest::Labeled {
+                role: node.role.clone(),
+                label,
+            },
+            None => AxHitTest::Redacted {
+                role: node.role.clone(),
+            },
+        };
+    }
+    AxHitTest::Unlabeled {
+        role: hit.role.clone(),
+    }
+}
+
+/// The Accessibility element under a global point (top-left origin, points).
+/// Never prompts for permission.
+pub(crate) fn element_at_position(x: f64, y: f64) -> AxHitTest {
+    #[cfg(target_os = "macos")]
+    {
+        macos::element_at_position_impl(x, y)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (x, y);
+        AxHitTest::Failed(0)
+    }
+}
+
+/// The frontmost app window under a global top-left point, read from the same
+/// window list as [`active_window_context`]; Clips and system chrome are skipped.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WindowAtPoint {
+    pub id: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub owner_name: Option<String>,
+    pub owner_pid: Option<i32>,
+    pub title: Option<String>,
+}
+
+pub(crate) fn window_at_point(x: f64, y: f64) -> Option<WindowAtPoint> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::window_at_point_impl(x, y)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (x, y);
+        None
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveWindowContext {
@@ -251,6 +358,54 @@ mod tests {
         assert!(safe_ax_text(Some("another title".into()), &mut remaining).is_none());
     }
 
+    fn node(role: &str, label: Option<&str>) -> AxHitNode {
+        AxHitNode {
+            role: role.into(),
+            label: label.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn hit_test_labels_the_nearest_labeled_ancestor() {
+        let path = [node("AXImage", None), node("AXButton", Some("Save"))];
+        assert_eq!(
+            ax_hit_test_from_path(&path),
+            AxHitTest::Labeled {
+                role: "AXButton".into(),
+                label: "Save".into()
+            }
+        );
+    }
+
+    #[test]
+    fn hit_test_keeps_unlabeled_apart_from_redacted() {
+        let path = [node("AXGroup", Some("  ")), node("AXGroup", None)];
+        assert_eq!(
+            ax_hit_test_from_path(&path),
+            AxHitTest::Unlabeled {
+                role: "AXGroup".into()
+            }
+        );
+        let secure = [node("AXSecureTextField", Some("hunter2"))];
+        assert_eq!(
+            ax_hit_test_from_path(&secure),
+            AxHitTest::Redacted {
+                role: "AXSecureTextField".into()
+            }
+        );
+        let tokenish = [node(
+            "AXStaticText",
+            Some("abcdefghijklmnopqrstuvwxyz0123456789"),
+        )];
+        assert_eq!(
+            ax_hit_test_from_path(&tokenish),
+            AxHitTest::Redacted {
+                role: "AXStaticText".into()
+            }
+        );
+        assert_eq!(ax_hit_test_from_path(&[]), AxHitTest::NoElement);
+    }
+
     #[test]
     fn credential_shaped_text_is_not_retained() {
         let mut remaining = MAX_AX_TOTAL_BYTES;
@@ -280,8 +435,9 @@ mod tests {
 #[cfg(target_os = "macos")]
 pub(crate) mod macos {
     use super::{
-        role_is_secure, safe_ax_text, safe_ax_url, AccessibilityFingerprint,
-        AccessibilitySemanticNode, ActiveWindowContext, MAX_AX_DEPTH, MAX_AX_LABELS, MAX_AX_NODES,
+        ax_hit_test_from_path, role_is_secure, safe_ax_text, safe_ax_url, AccessibilityFingerprint,
+        AccessibilitySemanticNode, ActiveWindowContext, AxHitNode, AxHitTest, WindowAtPoint,
+        AX_HIT_TEST_BOUNDARY_ROLES, AX_TEXT_INPUT_ROLES, MAX_AX_DEPTH, MAX_AX_LABELS, MAX_AX_NODES,
         MAX_AX_TOTAL_BYTES,
     };
     use core_foundation::array::CFArray;
@@ -309,6 +465,9 @@ pub(crate) mod macos {
     type AXError = i32;
 
     const AX_ERROR_SUCCESS: AXError = 0;
+    const AX_ERROR_FAILURE: AXError = -25200;
+    const AX_ERROR_NO_VALUE: AXError = -25212;
+    const MAX_HIT_TEST_ANCESTORS: usize = 3;
 
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
     const IGNORED_WINDOW_OWNERS: &[&str] = &[
@@ -326,6 +485,12 @@ pub(crate) mod macos {
         fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> Boolean;
         fn AXUIElementCreateSystemWide() -> AXUIElementRef;
         fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
+        fn AXUIElementCopyElementAtPosition(
+            application: AXUIElementRef,
+            x: f32,
+            y: f32,
+            element: *mut AXUIElementRef,
+        ) -> AXError;
         fn AXUIElementCopyAttributeValue(
             element: AXUIElementRef,
             attribute: CFStringRef,
@@ -523,6 +688,70 @@ pub(crate) mod macos {
 
             has_text_role || (is_web_area && is_editable && (has_selected_range || has_value))
         }
+    }
+
+    pub(crate) fn element_at_position_impl(x: f64, y: f64) -> AxHitTest {
+        unsafe {
+            if !is_trusted(false) {
+                return AxHitTest::NotTrusted;
+            }
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return AxHitTest::Failed(AX_ERROR_FAILURE);
+            }
+            let mut hit: AXUIElementRef = ptr::null();
+            let error = AXUIElementCopyElementAtPosition(system, x as f32, y as f32, &mut hit);
+            CFRelease(system as CFTypeRef);
+            if error == AX_ERROR_NO_VALUE || (error == AX_ERROR_SUCCESS && hit.is_null()) {
+                return AxHitTest::NoElement;
+            }
+            if error != AX_ERROR_SUCCESS {
+                return AxHitTest::Failed(error);
+            }
+
+            let mut path = Vec::new();
+            let mut element = hit;
+            for depth in 0..=MAX_HIT_TEST_ANCESTORS {
+                let role = ax_string_attribute(element, "AXRole")
+                    .unwrap_or_else(|| "AXUnknown".to_string());
+                if depth > 0 && AX_HIT_TEST_BOUNDARY_ROLES.contains(&role.as_str()) {
+                    break;
+                }
+                let label = hit_node_label(element, &role);
+                path.push(AxHitNode { role, label });
+                let parent = copy_ax_element_attribute(element, "AXParent");
+                if element != hit {
+                    CFRelease(element as CFTypeRef);
+                }
+                match parent {
+                    Some(parent) => element = parent,
+                    None => {
+                        element = hit;
+                        break;
+                    }
+                }
+            }
+            if element != hit {
+                CFRelease(element as CFTypeRef);
+            }
+            CFRelease(hit as CFTypeRef);
+            ax_hit_test_from_path(&path)
+        }
+    }
+
+    /// The text that names a control: its title, then its description, then
+    /// a static value. Typed text in an input is content, not a label.
+    unsafe fn hit_node_label(element: AXUIElementRef, role: &str) -> Option<String> {
+        let non_empty = |value: Option<String>| value.filter(|text| !text.trim().is_empty());
+        non_empty(ax_string_attribute(element, "AXTitle"))
+            .or_else(|| non_empty(ax_string_attribute(element, "AXDescription")))
+            .or_else(|| {
+                if AX_TEXT_INPUT_ROLES.contains(&role) {
+                    None
+                } else {
+                    non_empty(ax_string_attribute(element, "AXValue"))
+                }
+            })
     }
 
     pub fn semantic_fingerprint_for_pid_impl(pid: i32) -> Option<AccessibilityFingerprint> {
@@ -753,7 +982,11 @@ pub(crate) mod macos {
         bundle_id: Option<String>,
     }
 
-    fn active_window_from_core_graphics() -> Option<WindowInfo> {
+    /// Walk on-screen layer-0 windows front to back, skipping ignored owners,
+    /// until `pick` accepts one.
+    fn find_app_window<T>(
+        mut pick: impl FnMut(&CFDictionary<CFString, CFType>, Option<String>) -> Option<T>,
+    ) -> Option<T> {
         unsafe {
             let raw = CGWindowListCopyWindowInfo(
                 kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
@@ -781,16 +1014,53 @@ pub(crate) mod macos {
                 {
                     continue;
                 }
-                let title = dict_string(&window, "kCGWindowName");
-                return Some(WindowInfo {
-                    app_name: owner,
-                    window_title: title,
-                    owner_pid: dict_number_i64(&window, "kCGWindowOwnerPID")
-                        .and_then(|pid| i32::try_from(pid).ok()),
-                });
+                if let Some(found) = pick(&window, owner) {
+                    return Some(found);
+                }
             }
         }
         None
+    }
+
+    fn active_window_from_core_graphics() -> Option<WindowInfo> {
+        find_app_window(|window, owner| {
+            Some(WindowInfo {
+                app_name: owner,
+                window_title: dict_string(window, "kCGWindowName"),
+                owner_pid: dict_number_i64(window, "kCGWindowOwnerPID")
+                    .and_then(|pid| i32::try_from(pid).ok()),
+            })
+        })
+    }
+
+    pub(crate) fn window_at_point_impl(x: f64, y: f64) -> Option<WindowAtPoint> {
+        find_app_window(|window, owner| {
+            let key = CFString::from_static_string("kCGWindowBounds");
+            let bounds = window.find(&key)?.downcast::<CFDictionary>()?;
+            // SAFETY: kCGWindowBounds is documented as a CFString-keyed dictionary.
+            let bounds: CFDictionary<CFString, CFType> =
+                unsafe { TCFType::wrap_under_get_rule(bounds.as_concrete_TypeRef()) };
+            let (left, top) = (
+                dict_number_f64(&bounds, "X")?,
+                dict_number_f64(&bounds, "Y")?,
+            );
+            let width = dict_number_f64(&bounds, "Width")?;
+            let height = dict_number_f64(&bounds, "Height")?;
+            if x < left || y < top || x >= left + width || y >= top + height {
+                return None;
+            }
+            Some(WindowAtPoint {
+                id: u32::try_from(dict_number_i64(window, "kCGWindowNumber")?).ok()?,
+                x: left,
+                y: top,
+                width,
+                height,
+                owner_name: owner,
+                owner_pid: dict_number_i64(window, "kCGWindowOwnerPID")
+                    .and_then(|pid| i32::try_from(pid).ok()),
+                title: dict_string(window, "kCGWindowName"),
+            })
+        })
     }
 
     fn frontmost_application() -> Option<AppInfo> {
@@ -854,6 +1124,11 @@ pub(crate) mod macos {
     fn dict_number_i64(dict: &CFDictionary<CFString, CFType>, key: &'static str) -> Option<i64> {
         let key = CFString::from_static_string(key);
         dict.find(&key)?.downcast::<CFNumber>()?.to_i64()
+    }
+
+    fn dict_number_f64(dict: &CFDictionary<CFString, CFType>, key: &'static str) -> Option<f64> {
+        let key = CFString::from_static_string(key);
+        dict.find(&key)?.downcast::<CFNumber>()?.to_f64()
     }
 
     fn is_ignored_window_owner(owner: &str) -> bool {
