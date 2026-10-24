@@ -473,6 +473,7 @@ function sourceValuesKeepingUnpublishedChanges(
     ...(bodyKept && recorded.liveBlocksHash
       ? { liveBlocksHash: recorded.liveBlocksHash }
       : {}),
+    ...(bodyKept && recorded.liveBodyEmpty ? { liveBodyEmpty: true } : {}),
     ...(bodyKept && recorded.liveBodyLastUpdated !== undefined
       ? { liveBodyLastUpdated: recorded.liveBodyLastUpdated }
       : {}),

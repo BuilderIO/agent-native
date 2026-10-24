@@ -1613,6 +1613,34 @@ describe("database source helpers", () => {
     expect(change).toBeNull();
   });
 
+  it("proposes a Content body over a known-empty Builder body, not over an unread one", async () => {
+    const bodyChange = (sourceValues: Record<string, unknown>) =>
+      builderBodyChangeForSourceSnapshotDocument({
+        row: {
+          documentId: "doc-empty",
+          sourceRowId: "entry-empty",
+          sourceQualifiedId: "builder-cms://blog-article/entry-empty",
+          provenance: "Builder CMS read adapter",
+          sourceValuesJson: JSON.stringify({
+            published: "draft",
+            ...sourceValues,
+          }),
+        },
+        isHydrated: true,
+        allowUnsourcedCreate: false,
+        localContent: "Body written in Content.",
+      });
+
+    expect(
+      await bodyChange({ [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0 }),
+    ).toMatchObject({
+      currentHash: null,
+      proposedHash: expect.any(String),
+      proposedContent: "Body written in Content.",
+    });
+    expect(await bodyChange({})).toBeNull();
+  });
+
   it("converts a rich unsourced local body into a create-draft body payload", async () => {
     const localContent = [
       "Opening paragraph.",
