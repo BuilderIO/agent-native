@@ -1,12 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
-  MAX_AGENT_REQUEST_ATTACHMENTS,
+  parseQueueMessageInput,
+  persistableFilePart,
+  fingerprintAgentSubmissionAttachment,
+  submissionAttachmentsMatch,
+  type AgentQueuedMessage,
+  type AgentRequestAttachment,
+  type AgentRunOptions,
+  type AgentSubmissionReference,
   type AgentSubmissionPayload,
   type AgentSuggestion,
+  type FilePart,
 } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -40,6 +49,7 @@ import {
   isAgentActionStopError,
   isAgentConnectionRequiredError,
   actionCallIntent,
+  ActionInputValidationError,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -100,6 +110,7 @@ import {
   type OwnedImageReadFailureCode,
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { uploadFile } from "../file-upload/registry.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import {
   derivedTool,
@@ -381,6 +392,7 @@ import {
   beginAgentExecutionStep,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
+  resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
   recordLateAgentExecutionStepOutcome,
   type AgentExecutionStepIntent,
@@ -406,6 +418,7 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
+import { setRunTurnIdHeader } from "./run-turn-id-header.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   claimSetupResume,
@@ -416,6 +429,8 @@ import { normalizeSubmissionDeadlineMetadata } from "./submission-deadline.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  ensureAgentToolApprovalTable,
+  hasPendingAgentToolApproval,
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
@@ -471,6 +486,8 @@ import {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
+  type ToolErrorClass,
+  type UnknownWriteCause,
 } from "./types.js";
 import {
   mergeFinalResponseGuards,
@@ -1145,6 +1162,54 @@ function runSlotBusy(
     retryable: true,
     activeRunId,
   };
+}
+
+function queuedSubmissionResponse(
+  event: Parameters<typeof setResponseStatus>[0],
+  message: AgentQueuedMessage,
+  activeRunId?: string | null,
+) {
+  setResponseStatus(event, 202);
+  setResponseHeader(event, "Content-Type", "application/json");
+  return {
+    state: "queued" as const,
+    message,
+    ...(activeRunId ? { activeRunId } : {}),
+  };
+}
+
+const QUEUED_REASONING_EFFORTS = new Set<
+  NonNullable<AgentRunOptions["reasoningEffort"]>
+>(["none", "minimal", "low", "medium", "high", "xhigh"]);
+
+function effectiveQueuedRunOptions(
+  options: AgentRunOptions | undefined,
+  model: unknown,
+  effort: unknown,
+  mode: AgentExecutionMode | undefined,
+): AgentRunOptions | undefined {
+  const effective = options ? { ...options } : undefined;
+  let result = effective;
+  if (typeof model === "string" && model.trim()) {
+    result ??= {};
+    result.model = model;
+  }
+  if (
+    typeof effort === "string" &&
+    QUEUED_REASONING_EFFORTS.has(
+      effort as NonNullable<AgentRunOptions["reasoningEffort"]>,
+    )
+  ) {
+    result ??= {};
+    result.reasoningEffort = effort as NonNullable<
+      AgentRunOptions["reasoningEffort"]
+    >;
+  }
+  if (mode !== undefined) {
+    result ??= {};
+    result.mode = mode;
+  }
+  return result;
 }
 
 /**
@@ -2067,6 +2132,7 @@ export interface ProductionAgentOptions {
     send: (event: AgentChatEvent) => void,
     threadId: string,
     runId: string,
+    turnId: string,
   ) => void | Promise<void>;
   /**
    * Called when the run's engine, model, and effort resolve, and again before
@@ -4830,6 +4896,7 @@ function* historyToolResults(
             : {}),
           readOnly: readOnlyCalls.has(callPart),
           dedupe: actions[callPart.name]?.dedupe !== false,
+          input: callPart.input,
         },
       };
     }
@@ -5090,6 +5157,9 @@ export interface TerminalActionStop {
   transcriptMessage?: string;
   errorCode?: string;
   details?: string;
+  /** For `write_tool_outcome_unknown`: the call held back, and why. */
+  blockedTool?: string;
+  blockedBy?: UnknownOutcomeCause;
 }
 
 const LOOP_BREAKER_STOP_CODES = new Set([
@@ -5104,37 +5174,181 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
 }
 
 /**
- * Earlier calls whose outcome is unknown, counted by tool and by the exact
- * arguments each was prepared with. Any of them holds back every later write
- * of its tool, whatever its arguments; a read only when it is prepared
- * exactly as one of them was, which a call recorded without an identity
- * never is.
+ * Earlier calls whose outcome is unknown, counted by tool, by the exact
+ * arguments each was prepared with, by the arguments the model sent, and by
+ * tool again for those recorded without an identity. A call prepared exactly
+ * as one of them was stops the turn: running it again could apply it twice.
+ * So does a write sent with the same arguments, which a default can prepare
+ * differently, and any write of a tool with an unidentified one, which it may
+ * repeat. A write of the tool with other arguments is declined, and the turn
+ * goes on.
  */
 interface UnknownOutcomes {
   tools: Map<string, number>;
   calls: Map<string, number>;
+  inputs: Map<string, number>;
+  unidentified: Map<string, number>;
+  /**
+   * What made one unknown, under each key it is counted by in `calls`,
+   * `inputs` and `unidentified`, so a call names the cause of the earlier
+   * call it repeats, not of another call of its tool. `null` where calls
+   * sharing a key recorded different causes: none speaks for the key.
+   */
+  causes: Map<string, UnknownOutcomeCause | null>;
+  /**
+   * Keys a call was noted under with no cause, where no other source
+   * describes that call. A call with a cause beside it makes the key
+   * ambiguous.
+   */
+  uncaused: Set<string>;
+  /**
+   * Causes another source gave for a call this one counted, by its prepared
+   * or sent arguments: they fill in that key where this source recorded
+   * none and it counts only that call.
+   */
+  restated: Map<string, UnknownOutcomeCause>;
 }
+
+function recordUnknownCause(
+  causes: Map<string, UnknownOutcomeCause | null>,
+  key: string,
+  cause: UnknownOutcomeCause | null,
+): void {
+  const recorded = causes.get(key);
+  causes.set(key, recorded === undefined || recorded === cause ? cause : null);
+}
+
+/** The keys an unknown outcome is counted, and its cause recorded, under. */
+function unknownOutcomeKeys(
+  tool: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): { call?: string; input?: string; unidentified?: string } {
+  return {
+    ...(argumentsHash
+      ? { call: preparedToolCallKey(tool, argumentsHash) }
+      : { unidentified: tool }),
+    ...(input !== undefined ? { input: toolCallCacheKey(tool, input) } : {}),
+  };
+}
+
+type UnknownOutcomeCause = UnknownWriteCause;
 
 function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
   argumentsHash: string | undefined,
+  /** `undefined` when nothing recorded why. */
+  cause: UnknownOutcomeCause | undefined,
+  input?: unknown,
+  /**
+   * Another source describes the same call, as the history does a call the
+   * journal recorded: a cause missing here says nothing about its cause.
+   */
+  describedElsewhere = false,
 ): void {
   outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
-  if (!argumentsHash) return;
-  const key = preparedToolCallKey(tool, argumentsHash);
-  outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
+  const keys = unknownOutcomeKeys(tool, argumentsHash, input);
+  for (const [kind, map] of [
+    ["call", outcomes.calls],
+    ["input", outcomes.inputs],
+    ["unidentified", outcomes.unidentified],
+  ] as const) {
+    const key = keys[kind];
+    if (key === undefined) continue;
+    map.set(key, (map.get(key) ?? 0) + 1);
+    const causeKey = `${kind}:${key}`;
+    if (describedElsewhere) {
+      // Only its own key: a shared one may hold another call's.
+      if (cause && kind !== "unidentified") {
+        outcomes.restated.set(causeKey, cause);
+      }
+    } else if (cause) {
+      recordUnknownCauseBeside(outcomes, causeKey, cause);
+    } else {
+      markUncaused(outcomes, causeKey);
+    }
+  }
+}
+
+function markUncaused(outcomes: UnknownOutcomes, causeKey: string): void {
+  outcomes.uncaused.add(causeKey);
+  if (outcomes.causes.has(causeKey)) outcomes.causes.set(causeKey, null);
+}
+
+function recordUnknownCauseBeside(
+  outcomes: UnknownOutcomes,
+  causeKey: string,
+  cause: UnknownOutcomeCause | null,
+): void {
+  if (cause === null || outcomes.uncaused.has(causeKey)) {
+    outcomes.causes.set(causeKey, null);
+  } else {
+    recordUnknownCause(outcomes.causes, causeKey, cause);
+  }
+}
+
+/**
+ * Why a repeat of a call whose outcome is unknown did not run; `cause`
+ * `undefined` when the attempts it counts do not share one.
+ */
+function unknownRepeatResult(
+  tool: string,
+  cause: UnknownOutcomeCause | undefined,
+  times?: number,
+): string {
+  const count = times === undefined ? "" : ` ${times} time(s)`;
+  const happened =
+    cause === undefined
+      ? `has ${times ?? 1} earlier attempt(s) whose outcome is unknown`
+      : cause === "rejection"
+        ? `failed${count} without confirming whether it saved changes`
+        : cause === "unattributed"
+          ? `ran${count}, but I could not confirm what it changed`
+          : times === undefined
+            ? "was interrupted and its result is unknown"
+            : `was interrupted${count}, and I could not recover its result`;
+  return (
+    `The ${tool} action ${happened}. ` +
+    "I stopped without running it again. Check whether it completed before asking me to retry."
+  );
+}
+
+/** Why a write of a tool with an unknown earlier call did not run. */
+function unknownSiblingResult(tool: string): string {
+  return `Not run: an earlier ${tool} call in this turn may have already applied, and its result is unknown. Running ${tool} again could apply the change twice. Check the current state with a read, then tell the user what you found instead of calling ${tool} again in this turn.`;
 }
 
 function noUnknownOutcomes(): UnknownOutcomes {
-  return { tools: new Map(), calls: new Map() };
+  return {
+    tools: new Map(),
+    calls: new Map(),
+    inputs: new Map(),
+    unidentified: new Map(),
+    causes: new Map(),
+    uncaused: new Set(),
+    restated: new Map(),
+  };
 }
 
 /** Each count in `from` that is larger than the one in `into`. */
 function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
-  for (const kind of ["tools", "calls"] as const) {
+  for (const kind of ["tools", "calls", "inputs", "unidentified"] as const) {
     for (const [key, count] of from[kind]) {
       into[kind].set(key, Math.max(into[kind].get(key) ?? 0, count));
+    }
+  }
+  for (const [key, cause] of from.causes) {
+    recordUnknownCauseBeside(into, key, cause);
+  }
+  for (const key of from.uncaused) markUncaused(into, key);
+  for (const [key, cause] of from.restated) {
+    // Only for the one call it restates: another call under the same key
+    // may have no cause, or another.
+    const [kind, ...rest] = key.split(":");
+    const counted = kind === "call" ? into.calls : into.inputs;
+    if (!into.causes.has(key) && (counted.get(rest.join(":")) ?? 0) <= 1) {
+      into.causes.set(key, cause);
     }
   }
 }
@@ -5152,11 +5366,22 @@ function seedUnknownOutcomes(
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
-  interrupted: readonly { tool: string; argumentsHash?: string }[],
+  interrupted: readonly {
+    tool: string;
+    argumentsHash?: string;
+    input?: unknown;
+    unknownCause?: UnknownOutcomeCause;
+  }[],
 ): void {
   const fromJournal = noUnknownOutcomes();
   for (const entry of interrupted) {
-    noteUnknownOutcome(fromJournal, entry.tool, entry.argumentsHash);
+    noteUnknownOutcome(
+      fromJournal,
+      entry.tool,
+      entry.argumentsHash,
+      entry.unknownCause,
+      entry.input,
+    );
   }
   mergeUnknownOutcomes(outcomes, fromJournal);
   if (!isInternalContinuationTurn(messages)) return;
@@ -5197,6 +5422,9 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
+        part.unknownCause,
+        call.input,
+        effect !== undefined,
       );
     }
   }
@@ -5215,8 +5443,10 @@ function seedUnknownOutcomes(
     }
   }
 
-  const ambiguousUnknownCalls = new Set<
-    Extract<EngineContentPart, { type: "tool-call" }>
+  // Each call, with the cause its results recorded, when they agree.
+  const ambiguousUnknownCalls = new Map<
+    Extract<EngineContentPart, { type: "tool-call" }>,
+    UnknownOutcomeCause | undefined
   >();
   for (const message of turnMessages) {
     if (message.role === "assistant") continue;
@@ -5236,15 +5466,26 @@ function seedUnknownOutcomes(
       const namedCandidates = candidates.filter(
         (call) => call.name === part.toolName,
       );
-      for (const call of namedCandidates.length > 0
-        ? namedCandidates
-        : candidates) {
-        if (!readOnlyCalls.has(call)) ambiguousUnknownCalls.add(call);
+      const owners = namedCandidates.length > 0 ? namedCandidates : candidates;
+      // The result is one candidate's; its cause can stand only where every
+      // candidate shares the keys it would be recorded under.
+      const ownerInputs = new Set(
+        owners.map((call) => toolCallCacheKey(call.name, call.input)),
+      );
+      const partCause = ownerInputs.size === 1 ? part.unknownCause : undefined;
+      for (const call of owners) {
+        if (readOnlyCalls.has(call)) continue;
+        const cause = ambiguousUnknownCalls.has(call)
+          ? ambiguousUnknownCalls.get(call) === partCause
+            ? partCause
+            : undefined
+          : partCause;
+        ambiguousUnknownCalls.set(call, cause);
       }
     }
   }
-  for (const call of ambiguousUnknownCalls) {
-    noteUnknownOutcome(fromHistory, call.name, undefined);
+  for (const [call, cause] of ambiguousUnknownCalls) {
+    noteUnknownOutcome(fromHistory, call.name, undefined, cause, call.input);
   }
 
   mergeUnknownOutcomes(outcomes, fromHistory);
@@ -6655,6 +6896,23 @@ function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
   return intent?.valid === true && intent.readOnly === true;
 }
 
+function isBoundedTaskWait(toolName: string, input: unknown): boolean {
+  if (toolName !== "agent-teams" || !input || typeof input !== "object") {
+    return false;
+  }
+  const args = input as Record<string, unknown>;
+  // Only these operations honor the task reader's bounded wait contract.
+  return (
+    (args.action === "status" || args.action === "read-result") &&
+    typeof args.taskId === "string" &&
+    args.taskId.trim().length > 0 &&
+    typeof args.waitMs === "number" &&
+    Number.isInteger(args.waitMs) &&
+    args.waitMs > 0 &&
+    args.waitMs <= 20_000
+  );
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -6864,6 +7122,44 @@ function notifyModelInputObserver(
   } catch {
     // coercion-ok: observer failures cannot change agent execution.
   }
+}
+
+export type QueuedRunInterruptBoundaryResult = "none" | "aborted" | "pending";
+
+export function createRunSafeBoundaryGuards(input: {
+  signal: AbortSignal;
+  flushEvents: () => Promise<void>;
+  interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+}): {
+  beforeModelDispatch: BeforeModelDispatch;
+  beforeWrite: () => Promise<void>;
+} {
+  return {
+    beforeModelDispatch: async <T>(dispatch: () => T) => {
+      await input.flushEvents();
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
+        return { started: false as const };
+      }
+      return { started: true as const, value: dispatch() };
+    },
+    beforeWrite: async () => {
+      await input.flushEvents();
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
+        throw new Error("Run aborted at a safe boundary");
+      }
+    },
+  };
+}
+
+export async function confirmQueuedRunInterrupt(input: {
+  abort: () => Promise<boolean>;
+  defer: () => Promise<unknown>;
+}): Promise<Exclude<QueuedRunInterruptBoundaryResult, "none">> {
+  if (await input.abort()) return "aborted";
+  await input.defer();
+  return "pending";
 }
 
 export async function runAgentLoop(opts: {
@@ -7402,6 +7698,10 @@ export async function runAgentLoop(opts: {
     priorCallIdentities,
   );
   const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
+  // A recovered retry (a team attempt after a crash, an A2A redelivery)
+  // re-plans from the task text, so a repeated write gets a new step id and
+  // only these journal entries show it may already have run. Approval
+  // continuations stay out: their paused call is interrupted by design.
   seedUnknownOutcomes(
     unknownOutcomes,
     messages,
@@ -7409,30 +7709,30 @@ export async function runAgentLoop(opts: {
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
-    internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
+    internalContinuationTurn || opts.recoverCompletedExecutionSteps === true
+      ? (toolCallJournal?.interrupted ?? [])
+      : [],
   );
   if (internalContinuationTurn) {
     for (const entry of toolCallJournal?.completed ?? []) {
       if (!journalEntriesAmbiguous.has(entry.key)) continue;
-      unknownOutcomes.tools.set(
+      const seeded = noUnknownOutcomes();
+      noteUnknownOutcome(
+        seeded,
         entry.tool,
-        Math.max(unknownOutcomes.tools.get(entry.tool) ?? 0, 1),
+        entry.argumentsHash,
+        undefined,
+        entry.input,
       );
-      if (entry.argumentsHash) {
-        const key = preparedToolCallKey(entry.tool, entry.argumentsHash);
-        unknownOutcomes.calls.set(
-          key,
-          Math.max(unknownOutcomes.calls.get(key) ?? 0, 1),
-        );
-      }
+      mergeUnknownOutcomes(unknownOutcomes, seeded);
     }
   }
-  // Names a caller shares between its own loops hold back writes, as before.
+  // Names a caller shares between its own loops carry no identity, so they
+  // hold back every write of the tool.
   for (const tool of opts.unknownWriteToolNames ?? []) {
-    unknownOutcomes.tools.set(
-      tool,
-      Math.max(unknownOutcomes.tools.get(tool) ?? 0, 1),
-    );
+    const seeded = noUnknownOutcomes();
+    noteUnknownOutcome(seeded, tool, undefined, undefined, undefined, true);
+    mergeUnknownOutcomes(unknownOutcomes, seeded);
   }
   const {
     sameArguments: repeatedToolErrors,
@@ -7504,6 +7804,8 @@ export async function runAgentLoop(opts: {
       error: stop.message,
       errorCode: stop.errorCode ?? "tool_failed",
       ...(stop.details ? { details: stop.details } : {}),
+      ...(stop.blockedTool ? { blockedTool: stop.blockedTool } : {}),
+      ...(stop.blockedBy ? { blockedBy: stop.blockedBy } : {}),
       recoverable: false,
     });
   };
@@ -8362,10 +8664,11 @@ export async function runAgentLoop(opts: {
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
-      if (
-        followUpResults.length > 0 &&
-        (terminalStopReason === "tool_use" || hasEmptyFinalResponse)
-      ) {
+      if (followUpResults.length > 0 && terminalStopReason === "tool_use") {
+        if (streamedAssistantText) send({ type: "clear" });
+        continue;
+      }
+      if (followUpResults.length > 0 && hasEmptyFinalResponse) {
         flushUnstreamedAssistantText();
         continue;
       }
@@ -8506,6 +8809,9 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    let requestedActionStopTranscriptSent = false;
+    const approvalTranscriptCallIds = new Set<string>();
+    const sentApprovalTranscriptTexts = new Set<string>();
     let requestedConnection:
       | {
           requestId: string;
@@ -8625,11 +8931,13 @@ export async function runAgentLoop(opts: {
         actionEntry && intent?.valid
           ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
           : false;
-      const repeatGuardStopFromThisCall = noteRepeatedToolCall(
-        toolCall.name,
-        toolCall.input,
-        toolCall.id,
-      );
+      const repeatGuardStopFromThisCall =
+        actionIsReadOnly &&
+        actionEntry?.dedupe === false &&
+        intent?.valid === true &&
+        isBoundedTaskWait(toolCall.name, preparedCallArguments(intent))
+          ? null
+          : noteRepeatedToolCall(toolCall.name, toolCall.input, toolCall.id);
       const rollbackRepeatedToolCall = () => {
         const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const repeatCall = inFlightRepeatToolCalls.get(toolCall.id);
@@ -8658,10 +8966,15 @@ export async function runAgentLoop(opts: {
       let toolDoneEmitted = false;
       let toolDonePersistenceFailed = false;
       let executionStepFinalizationAttempted = false;
+      let executionStepDispatched = false;
+      let executionStepDispatchWrite: Promise<void> | undefined;
       let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
       const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
+      // Unset when nothing recorded why, so the call cannot overwrite a cause
+      // another call recorded under a key they share.
+      let unknownOutcomeCause: UnknownOutcomeCause | undefined;
       const ranEffect = (settled: Parameters<typeof invocationEffect>[2]) =>
         actionInvoked && actionEntry
           ? invocationEffect(actionEntry, actionExecutionOutcome, {
@@ -8680,7 +8993,13 @@ export async function runAgentLoop(opts: {
         // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
           opts.unknownWriteToolNames?.add(toolCall.name);
-          noteUnknownOutcome(unknownOutcomes, toolCall.name, argumentsHash);
+          noteUnknownOutcome(
+            unknownOutcomes,
+            toolCall.name,
+            argumentsHash,
+            unknownOutcomeCause,
+            toolCall.input,
+          );
         }
         // A write that errored after it was invoked may still have committed,
         // retry-safe or not, so cached reads of its target are stale.
@@ -8699,6 +9018,9 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(event.outcomeUnknown && unknownOutcomeCause
+              ? { unknownCause: unknownOutcomeCause }
+              : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
@@ -8885,6 +9207,7 @@ export async function runAgentLoop(opts: {
       const declineToolCall = (
         guidance: string,
         isError = false,
+        errorClass?: ToolErrorClass,
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -8902,6 +9225,7 @@ export async function runAgentLoop(opts: {
             result,
             isError: true,
             completedSideEffect: false,
+            ...(errorClass ? { errorClass } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9022,6 +9346,7 @@ export async function runAgentLoop(opts: {
             toolCallTruncatedByOutputCap,
           ),
           true,
+          "input_invalid",
         );
       }
       const rawToolInputError = validateRawToolInput(
@@ -9038,6 +9363,7 @@ export async function runAgentLoop(opts: {
             toolCallTruncatedByOutputCap,
           ),
           true,
+          "input_invalid",
         );
       }
       if (!intent?.valid) {
@@ -9052,7 +9378,11 @@ export async function runAgentLoop(opts: {
           },
           intent?.error,
         );
-        return declineToolCall(thrownToolResult(intent?.error), true);
+        return declineToolCall(
+          thrownToolResult(intent?.error),
+          true,
+          "input_invalid",
+        );
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -9108,6 +9438,21 @@ export async function runAgentLoop(opts: {
           }
         }
         if (mustApprove) {
+          const approvalCallMessage = [...messages]
+            .reverse()
+            .find(
+              (message) =>
+                message.role === "assistant" &&
+                message.content.some(
+                  (part) =>
+                    part.type === "tool-call" && part.id === toolCall.id,
+                ),
+            );
+          if (!approvalCallMessage) {
+            throw new Error(
+              `Approval call ${toolCall.id} is missing from assistant history.`,
+            );
+          }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
           await send({
@@ -9152,8 +9497,27 @@ export async function runAgentLoop(opts: {
           }
           const result =
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
-            `NOT execute — a human must approve this specific call before it ` +
-            `can run. The turn is paused; do not retry.`;
+            `NOT execute. The turn is paused until this specific call is ` +
+            `approved; do not retry it before then. Once approved, re-emit ` +
+            `this exact call once so it can run, then summarize its result.`;
+          requestedActionStop ??= {
+            message: `Waiting for your approval to run ${toolCall.name}.`,
+            errorCode: "needs-approval",
+          };
+          const transcriptText = `Waiting for your approval to run ${toolCall.name}.`;
+          // Keep the note with its tool call so the next turn can pair the result.
+          if (!approvalTranscriptCallIds.has(toolCall.id)) {
+            approvalCallMessage.content.push({
+              type: "text",
+              text: transcriptText,
+            });
+            approvalTranscriptCallIds.add(toolCall.id);
+          }
+          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
+            await send({ type: "text", text: transcriptText });
+            sentApprovalTranscriptTexts.add(transcriptText);
+          }
+          requestedActionStopTranscriptSent = true;
           await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
@@ -9165,10 +9529,6 @@ export async function runAgentLoop(opts: {
           });
           recordToolResult(result, false);
           turnYieldedToUser = true;
-          requestedActionStop ??= {
-            message: `Waiting for your approval to run ${toolCall.name}.`,
-            errorCode: "needs-approval",
-          };
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -9384,9 +9744,43 @@ export async function runAgentLoop(opts: {
         return replayDurableExecutionStep(executionStepAdmission.resultJson);
       }
       if (executionStepAdmission?.status === "unknown") {
-        const result =
-          `The ${toolCall.name} action was interrupted and its result is unknown. ` +
-          "I stopped without running it again. Check whether it completed before asking me to retry.";
+        // The step records no cause. Its own journal entry may; then its
+        // prepared arguments; then its sent arguments, only when one earlier
+        // call sent them, so they can only be this call prepared anew. A key
+        // with no single cause stops the search.
+        const inputKey = toolCallCacheKey(toolCall.name, toolCall.input);
+        const keyedCause = (key: string) =>
+          unknownOutcomes.causes.has(key)
+            ? unknownOutcomes.causes.get(key)
+            : unknownOutcomes.uncaused.has(key)
+              ? null
+              : undefined;
+        const [recordedCause, attempts] = (
+          [
+            () => [interruptedStep?.unknownCause, 1],
+            () => [
+              keyedCause(`call:${preparedCallKey}`),
+              unknownOutcomes.calls.get(preparedCallKey),
+            ],
+            () =>
+              (unknownOutcomes.inputs.get(inputKey) ?? 0) <= 1
+                ? [keyedCause(`input:${inputKey}`), 1]
+                : [undefined, undefined],
+          ] as Array<
+            () => [UnknownOutcomeCause | null | undefined, number | undefined]
+          >
+        )
+          .map((read) => read())
+          .find(([cause]) => cause !== undefined) ?? [undefined, undefined];
+        unknownOutcomeCause = recordedCause ?? undefined;
+        // Attempts that disagree get no cause-specific wording.
+        const result = unknownRepeatResult(
+          toolCall.name,
+          recordedCause === null
+            ? undefined
+            : (unknownOutcomeCause ?? "interruption"),
+          recordedCause === null ? attempts : undefined,
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9408,6 +9802,8 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message: result,
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: toolCall.name,
+          blockedBy: unknownOutcomeCause ?? "interruption",
         };
         return {
           type: "tool-result" as const,
@@ -9488,11 +9884,30 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      // An unknown write cannot become fresh work merely by rewording its
-      // arguments, or by eliding its tool pair from the replayed history.
-      const priorInterruptionsBeforeStepReplay = actionIsReadOnly
-        ? (unknownOutcomes.calls.get(preparedCallKey) ?? 0)
-        : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
+      // Running an unknown call again exactly as it was prepared could apply
+      // it twice. A write with no identity to compare cannot be told from a
+      // repeat, whatever its arguments, nor can one whose tool pair was
+      // elided from the replayed history.
+      const repeatKeys = {
+        call: preparedCallKey,
+        input: toolCallCacheKey(toolCall.name, toolCall.input),
+        unidentified: toolCall.name,
+      };
+      const repeated = (
+        [
+          ["call", unknownOutcomes.calls],
+          ["input", unknownOutcomes.inputs],
+          ["unidentified", unknownOutcomes.unidentified],
+        ] as const
+      ).filter(
+        ([kind, map]) =>
+          (!actionIsReadOnly || kind === "call") &&
+          (map.get(repeatKeys[kind]) ?? 0) > 0,
+      );
+      const priorInterruptionsBeforeStepReplay = Math.max(
+        0,
+        ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
+      );
       const priorInterruptions = ambiguousLegacyWrite
         ? Math.max(1, priorInterruptionsBeforeStepReplay)
         : (interruptedCallMatchesStep ||
@@ -9502,10 +9917,23 @@ export async function runAgentLoop(opts: {
           ? 0
           : priorInterruptionsBeforeStepReplay;
 
+      // Another write of a tool whose earlier call may have applied could
+      // apply the same change twice, so it does not run; the turn goes on,
+      // and only an exact repeat stops it.
+      if (
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        priorInterruptionsBeforeStepReplay === 0 &&
+        (unknownOutcomes.tools.get(toolCall.name) ?? 0) > 0
+      ) {
+        return declineToolCall(unknownSiblingResult(toolCall.name), true);
+      }
+
       if (priorInterruptions > 0) {
-        // Only a result recorded for these exact arguments is recovered. Any
-        // other leaves the earlier attempt unknown, so the call stops below
-        // instead of running again.
+        // Only a result recorded for these exact arguments is recovered, so
+        // a result found is the interrupted call's own. Any other leaves the
+        // earlier attempt unknown, so the call stops below instead of
+        // running again.
         const ledgerResult =
           !ambiguousLegacyWrite && opts.threadId && !executionStepIntent
             ? await waitForInterruptedToolLedgerEntry({
@@ -9574,9 +10002,30 @@ export async function runAgentLoop(opts: {
             content: result,
           };
         }
-        const result =
-          `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
-          `I stopped without running it again. Check whether it completed before asking me to retry.`;
+        // The most specific key matched speaks for the call's cause; a
+        // broader one can name a different call that shares it. The count
+        // is every attempt the guard held back for, any of which may have
+        // saved changes.
+        const [specific] = repeated;
+        // `null` when attempts under the key disagree; `undefined` when none
+        // recorded a cause, which reads as an interruption.
+        const specificCause = specific
+          ? unknownOutcomes.causes.get(
+              `${specific[0]}:${repeatKeys[specific[0]]}`,
+            )
+          : undefined;
+        const blockedBy = specificCause ?? "interruption";
+        // Its cause speaks for the count only when the key has one and every
+        // attempt counted is under it.
+        const causeCoversCount =
+          specific !== undefined &&
+          specificCause !== null &&
+          specific[1].get(repeatKeys[specific[0]]) === priorInterruptions;
+        const result = unknownRepeatResult(
+          toolCall.name,
+          causeCoversCount ? blockedBy : undefined,
+          priorInterruptions,
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9598,6 +10047,8 @@ export async function runAgentLoop(opts: {
             `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
             `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: toolCall.name,
+          blockedBy,
         };
         return {
           type: "tool-result" as const,
@@ -9639,6 +10090,7 @@ export async function runAgentLoop(opts: {
         if (cacheKey && cachedResult) {
           if (executionStepIntent) {
             await markAgentExecutionStepDispatched(executionStepIntent);
+            executionStepDispatched = true;
           }
           const previousResult = cachedResult.content;
           const visible = isCachedToolResultVisibleInContext(
@@ -9740,6 +10192,8 @@ export async function runAgentLoop(opts: {
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
         let toolResultLost = false;
+        // It returned an error result rather than throwing one.
+        let toolReportedError = false;
         let toolErrorCode: string | undefined;
         let toolErrorDetailsLine = "";
         let mcpApp:
@@ -9790,7 +10244,12 @@ export async function runAgentLoop(opts: {
               throw new Error("Run aborted");
             }
             if (executionStepIntent) {
-              await markAgentExecutionStepDispatched(executionStepIntent);
+              executionStepDispatchWrite = markAgentExecutionStepDispatched(
+                executionStepIntent,
+              ).then(() => {
+                executionStepDispatched = true;
+              });
+              await executionStepDispatchWrite;
             }
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
@@ -9992,6 +10451,7 @@ export async function runAgentLoop(opts: {
             (mcpResult.raw as Record<string, unknown>).isError === true
           ) {
             isError = true;
+            toolReportedError = true;
           }
           mcpApp = mcpResult?.mcpApp;
           let resultForAgent: unknown = rawForAgent;
@@ -10141,8 +10601,9 @@ export async function runAgentLoop(opts: {
             throw err;
           }
           thrown = err;
+          toolReportedError = false;
           toolResultLost =
-            signal.aborted ||
+            (signal.aborted && actionInvoked) ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
@@ -10156,9 +10617,22 @@ export async function runAgentLoop(opts: {
         const call = actionExecutionOutcome.record;
         const { effect: callEffect, changed: callChanged } = ranEffect(
           isError
-            ? { failed: { error: thrown, lost: toolResultLost } }
+            ? {
+                failed: {
+                  error: thrown,
+                  lost: toolResultLost,
+                  reported: toolReportedError,
+                },
+              }
             : { receipt },
         );
+        const toolErrorClass: ToolErrorClass | undefined = !isError
+          ? undefined
+          : thrown instanceof ActionInputValidationError
+            ? "input_invalid"
+            : callEffect === "none" && !actionIsReadOnly
+              ? "rejected"
+              : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -10226,9 +10700,17 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        if (executionStepIntent) {
+        if (
+          executionStepIntent &&
+          (executionStepDispatched || executionStepDispatchWrite)
+        ) {
           executionStepFinalizationAttempted = true;
-          if (toolResultLost || callEffect === "unknown") {
+          if (!actionInvoked) {
+            // The dispatch marker can persist while cancellation wins; it does
+            // not prove the action handler started.
+            await executionStepDispatchWrite?.catch(() => {});
+            await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
+          } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
           } else {
             await completeAgentExecutionStep(
@@ -10262,6 +10744,11 @@ export async function runAgentLoop(opts: {
         }
 
         toolDonePersistenceFailed = true;
+        unknownOutcomeCause = toolResultLost
+          ? "interruption"
+          : isError
+            ? "rejection"
+            : "unattributed";
         await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
@@ -10270,6 +10757,7 @@ export async function runAgentLoop(opts: {
           result,
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
+          ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"
@@ -10315,6 +10803,7 @@ export async function runAgentLoop(opts: {
       } finally {
         if (!toolDoneEmitted && !toolDonePersistenceFailed) {
           const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
+          unknownOutcomeCause = "interruption";
           toolDonePersistenceFailed = true;
           await emitToolDone({
             type: "tool_done",
@@ -10483,7 +10972,7 @@ export async function runAgentLoop(opts: {
       terminalActionStop = stop;
       if (requestedConnection) {
         send({ type: "connection_required", ...requestedConnection });
-      } else {
+      } else if (!requestedActionStopTranscriptSent) {
         sendTerminalActionStop(stop);
       }
       break;
@@ -11366,8 +11855,138 @@ interface AdmittedQueuedMessagePromotion {
   text: string;
   attachments?: unknown[];
   requestAttachments?: Record<string, unknown>[];
+  references?: AgentSubmissionReference[];
   metadata?: Record<string, unknown>;
-  options?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}
+
+interface QueueableAttachments {
+  attachments: FilePart[];
+  requestAttachments: AgentRequestAttachment[];
+}
+
+function requestAttachmentIndexes(
+  submission: AgentSubmissionPayload,
+  attachments: AgentChatAttachment[],
+): Set<number> | null {
+  const unmatched = new Set(attachments.map((_, index) => index));
+  for (const identity of submission.attachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
+        identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+  }
+
+  const requestIndexes = new Set<number>();
+  for (const identity of submission.requestAttachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        attachments[index]?.type === "image" &&
+        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
+          identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+    requestIndexes.add(match);
+  }
+  return requestIndexes;
+}
+
+async function queueableAttachments(
+  attachments: AgentChatAttachment[],
+  ownerEmail: string | null,
+  requestAttachmentIndexes: ReadonlySet<number>,
+): Promise<QueueableAttachments | null> {
+  const files: FilePart[] = [];
+  const requestFiles: AgentRequestAttachment[] = [];
+  for (const [index, attachment] of attachments.entries()) {
+    if (attachment.displayOnly === true) continue;
+    if (
+      attachment.type !== "image" &&
+      attachment.type !== "file" &&
+      attachment.type !== "document"
+    ) {
+      return null;
+    }
+    if (typeof attachment.name !== "string") {
+      return null;
+    }
+    const record = attachment as AgentChatAttachment & {
+      id?: unknown;
+      fileId?: unknown;
+      storageUploadFailed?: unknown;
+    };
+    const mediaType =
+      typeof attachment.contentType === "string" && attachment.contentType
+        ? attachment.contentType
+        : typeof attachment.mediaType === "string"
+          ? attachment.mediaType
+          : undefined;
+    const inlineData =
+      typeof attachment.data === "string"
+        ? attachment.data
+        : typeof attachment.text === "string"
+          ? `data:${mediaType ?? "text/plain"};base64,${Buffer.from(attachment.text, "utf8").toString("base64")}`
+          : typeof attachment.url === "string" &&
+              attachment.url.startsWith("data:")
+            ? attachment.url
+            : undefined;
+    let part = persistableFilePart({
+      type: "file",
+      name: attachment.name,
+      ...(mediaType ? { mediaType } : {}),
+      ...(typeof attachment.url === "string" ? { url: attachment.url } : {}),
+      ...(typeof record.fileId === "string"
+        ? { fileId: record.fileId }
+        : typeof record.id === "string"
+          ? { fileId: record.id }
+          : {}),
+    });
+    if (
+      !part.fileId &&
+      inlineData &&
+      (!part.url || !record.uploadProvider || record.storageUploadFailed)
+    ) {
+      const parsedData = parseBase64DataUrl(inlineData);
+      if (parsedData) {
+        const uploaded = await uploadFile({
+          data: new Uint8Array(Buffer.from(parsedData.data, "base64")),
+          filename: attachment.name,
+          mimeType: mediaType ?? parsedData.mediaType,
+          ownerEmail: ownerEmail ?? undefined,
+        });
+        if (uploaded) {
+          attachment.url = uploaded.url;
+          attachment.uploadProvider = uploaded.provider;
+          part = persistableFilePart({
+            type: "file",
+            name: attachment.name,
+            ...(mediaType ? { mediaType } : {}),
+            url: uploaded.url,
+          });
+        }
+      }
+    }
+    if (requestAttachmentIndexes.has(index)) {
+      if (!part.url || !hasDurableAttachmentUrl(part.url)) return null;
+      const referenceUrl = attachment.referenceUrl;
+      if (referenceUrl && !hasDurableAttachmentUrl(referenceUrl)) return null;
+      requestFiles.push({
+        type: "image",
+        name: attachment.name,
+        ...(mediaType ? { contentType: mediaType } : {}),
+        url: part.url,
+        ...(referenceUrl ? { referenceUrl } : {}),
+      });
+      continue;
+    }
+    if (!part.url && !part.fileId) return null;
+    files.push(part);
+  }
+  return { attachments: files, requestAttachments: requestFiles };
 }
 
 function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
@@ -11379,9 +11998,7 @@ function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
 function validateQueuedPromotionRequestAttachments(
   value: unknown,
 ): Record<string, unknown>[] | null {
-  if (!Array.isArray(value) || value.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
-    return null;
-  }
+  if (!Array.isArray(value)) return null;
 
   let totalDataChars = 0;
   const attachments: Record<string, unknown>[] = [];
@@ -11438,7 +12055,8 @@ function validateQueuedPromotionRequestAttachments(
   return attachments;
 }
 
-async function readAdmittedQueuedMessagePromotion(opts: {
+/** @internal exported for unit tests only */
+export async function readAdmittedQueuedMessagePromotion(opts: {
   ownerEmail: string | null;
   orgId: string | null;
   threadId?: string;
@@ -11517,6 +12135,9 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   const options = hasOwn(queuedMessage, "options")
     ? queuedMessage.options
     : undefined;
+  const references = hasOwn(queuedMessage, "references")
+    ? queuedMessage.references
+    : undefined;
   if (
     (attachments !== undefined && !Array.isArray(attachments)) ||
     (Array.isArray(attachments) &&
@@ -11529,16 +12150,25 @@ async function readAdmittedQueuedMessagePromotion(opts: {
     (metadata !== undefined &&
       (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
     (options !== undefined &&
-      (!options || typeof options !== "object" || Array.isArray(options)))
+      (!options || typeof options !== "object" || Array.isArray(options))) ||
+    (references !== undefined && !Array.isArray(references))
   ) {
     return null;
   }
+  parseQueueMessageInput(
+    { ...queuedMessage, threadId: opts.threadId },
+    "queuedMessagePromotion",
+    { allowLegacyQueueCount: true },
+  );
 
   return {
     id: messageId,
     text: queuedMessage.text,
     ...(Array.isArray(attachments) ? { attachments } : {}),
     ...(requestAttachments ? { requestAttachments } : {}),
+    ...(Array.isArray(references)
+      ? { references: references as AgentSubmissionReference[] }
+      : {}),
     ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
     ...(options ? { options: options as Record<string, unknown> } : {}),
   };
@@ -11644,6 +12274,7 @@ export function queuedPromotionAttachments(
         : {}),
       ...(data ? { data } : {}),
       ...(imageUrl ? { url: imageUrl } : {}),
+      ...(referenceUrl ? { referenceUrl } : {}),
       ...(fileId ? { id: fileId } : {}),
     } as AgentChatAttachment;
     const replacementIndex =
@@ -12358,6 +12989,7 @@ export function createProductionAgentHandler(
       model: submittedModel,
       engine: submittedEngine,
       effort: submittedEffort,
+      options: submittedRunOptions,
       browserTabId,
       scope,
       harness: submittedHarness,
@@ -12372,6 +13004,12 @@ export function createProductionAgentHandler(
     let requestModel = submittedModel;
     let requestEngine = submittedEngine;
     let requestEffort = submittedEffort;
+    let requestOptions =
+      submittedRunOptions &&
+      typeof submittedRunOptions === "object" &&
+      !Array.isArray(submittedRunOptions)
+        ? (submittedRunOptions as AgentRunOptions)
+        : undefined;
     let internalContinuation = submittedInternalContinuation;
     let requestHarness = submittedHarness;
     let requestSkipPendingSelectionContext = skipPendingSelectionContext;
@@ -12436,7 +13074,68 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 400);
         return { error: "submissionPayload does not match this message" };
       }
-      submissionPayload = candidate;
+      let validatedSubmissionPayload: AgentSubmissionPayload | undefined;
+      try {
+        validatedSubmissionPayload = parseQueueMessageInput(
+          {
+            threadId: candidate.threadId,
+            id: candidate.id,
+            text: candidate.text,
+            submissionPayload: candidate,
+          },
+          "submissionPayload",
+        ).submissionPayload;
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      if (!validatedSubmissionPayload) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      submissionPayload = validatedSubmissionPayload;
+      if (
+        validatedSubmissionPayload.text !==
+          (typeof message === "string" ? message : "") ||
+        !isDeepStrictEqual(
+          validatedSubmissionPayload.references ?? [],
+          submittedReferences,
+        ) ||
+        !isDeepStrictEqual(
+          validatedSubmissionPayload.options ?? {},
+          requestOptions ?? {},
+        )
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "submissionPayload does not match this message" };
+      }
+    }
+    let requestMode: AgentExecutionMode =
+      body.mode === "plan" || requestOptions?.mode === "plan" ? "plan" : "act";
+    requestOptions = effectiveQueuedRunOptions(
+      requestOptions,
+      requestModel,
+      requestEffort,
+      body.mode !== undefined || requestOptions?.mode !== undefined
+        ? requestMode
+        : undefined,
+    );
+    if (submissionPayload) {
+      const metadata =
+        submissionPayload.metadata === undefined && requestEngine === undefined
+          ? undefined
+          : {
+              ...submissionPayload.metadata,
+              ...(requestEngine === undefined ? {} : { engine: requestEngine }),
+            };
+      submissionPayload = {
+        ...submissionPayload,
+        ...(requestOptions === undefined ? {} : { options: requestOptions }),
+        ...(metadata === undefined ? {} : { metadata }),
+      };
+      requestMetadata = normalizeSubmissionDeadlineMetadata(
+        submissionPayload.metadata,
+      );
     }
 
     const backgroundRunMarker =
@@ -12559,7 +13258,6 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    let requestMode: AgentExecutionMode = body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
     let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -12569,6 +13267,20 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
+    const submissionAttachmentsAreConsistent =
+      submissionPayload !== undefined &&
+      submissionAttachmentsMatch(submissionPayload, requestAttachments);
+    if (submissionPayload && !submissionAttachmentsAreConsistent) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
+    const submissionRequestAttachmentIndexes = submissionPayload
+      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+      : new Set<number>();
+    if (!submissionRequestAttachmentIndexes) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -12588,6 +13300,245 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
+    const busySubmissionQueueEligible = Boolean(
+      submissionPayload &&
+      agentKitMessageId &&
+      threadId &&
+      ownerEmail &&
+      !internalContinuation &&
+      !continueOf &&
+      !queuedMessageId &&
+      !queuedMessageClaimId &&
+      !isBackgroundWorker &&
+      submittedInternalContinuation !== true &&
+      typeof requestedAutoContinueOfRunId !== "string" &&
+      typeof requestedContinueOfRunId !== "string" &&
+      !hasOwn(body, "approvedToolCalls") &&
+      !hasOwn(body, "approvedToolCallAskIds") &&
+      !hasOwn(body, "resume"),
+    );
+    const busySubmissionAttachmentsAreQueueable = requestAttachments.every(
+      (attachment) =>
+        attachment.displayOnly === true ||
+        ((attachment.type === "image" ||
+          attachment.type === "file" ||
+          attachment.type === "document") &&
+          typeof attachment.name === "string"),
+    );
+    const tryAdmitBusySubmission = async (): Promise<unknown | null> => {
+      if (
+        !submissionPayload ||
+        !agentKitMessageId ||
+        !threadId ||
+        !ownerEmail ||
+        internalContinuation ||
+        continueOf ||
+        queuedMessageId ||
+        queuedMessageClaimId ||
+        isBackgroundWorker ||
+        submittedInternalContinuation === true ||
+        typeof requestedAutoContinueOfRunId === "string" ||
+        typeof requestedContinueOfRunId === "string" ||
+        hasOwn(body, "approvedToolCalls") ||
+        hasOwn(body, "approvedToolCallAskIds") ||
+        hasOwn(body, "resume")
+      ) {
+        return null;
+      }
+
+      const { resolveThreadAccess } = await import("../chat-threads/store.js");
+      const accessibleThread = await resolveThreadAccess(
+        ownerEmail,
+        threadId,
+        "editor",
+        { orgId: getRequestOrgId() ?? undefined },
+      );
+      if (!accessibleThread) {
+        setResponseStatus(event, 404);
+        return { error: "Thread not found" };
+      }
+      const attachmentsForQueue = await queueableAttachments(
+        requestAttachments,
+        ownerEmail,
+        submissionRequestAttachmentIndexes,
+      );
+      if (!attachmentsForQueue) {
+        if (
+          requestAttachments.some(
+            (attachment) =>
+              attachment.displayOnly !== true &&
+              (attachment.type === "image" ||
+                attachment.type === "file" ||
+                attachment.type === "document"),
+          )
+        ) {
+          setResponseStatus(event, 503);
+          return {
+            error: "The attachment could not be saved for later delivery",
+            code: "queued_attachment_reference_unavailable",
+            retryable: true,
+          };
+        }
+        return null;
+      }
+      const queueText =
+        typeof message === "string" && message.trim()
+          ? message
+          : "Use the attached context.";
+      let parsedMessage: ReturnType<typeof parseQueueMessageInput>;
+      try {
+        parsedMessage = parseQueueMessageInput(
+          {
+            threadId,
+            id: agentKitMessageId,
+            text: queueText,
+            ...(attachmentsForQueue.attachments.length
+              ? { attachments: attachmentsForQueue.attachments }
+              : {}),
+            ...(attachmentsForQueue.requestAttachments.length
+              ? { requestAttachments: attachmentsForQueue.requestAttachments }
+              : {}),
+            ...(submittedReferences.length
+              ? { references: submittedReferences }
+              : {}),
+            ...(requestMetadata ? { metadata: requestMetadata } : {}),
+            ...(requestOptions ? { options: requestOptions } : {}),
+            ...(submissionPayload.interruptActiveRun === true
+              ? { interruptActiveRun: true }
+              : {}),
+          },
+          "agentChatSubmission",
+        );
+      } catch {
+        setResponseStatus(event, 400);
+        return {
+          error: "This submission cannot be saved for later delivery",
+          code: "queued_submission_invalid",
+          retryable: false,
+        };
+      }
+      if (!parsedMessage.text.trim()) {
+        setResponseStatus(event, 400);
+        return {
+          error: "This submission cannot be saved for later delivery",
+          code: "queued_submission_invalid",
+          retryable: false,
+        };
+      }
+
+      const { mutateThreadQueuedMessages, QueuedSubmissionAdmissionError } =
+        await import("../chat-threads/store.js");
+      const requestContext = getRequestContext();
+      const actor = {
+        email: requestContext?.userEmail ?? ownerEmail,
+        ...(requestContext?.authUserId
+          ? { authUserId: requestContext.authUserId }
+          : {}),
+        ...(requestContext?.identityAuthenticatedAtMs !== undefined
+          ? {
+              identityAuthenticatedAtMs:
+                requestContext.identityAuthenticatedAtMs,
+            }
+          : {}),
+        ...(requestContext?.userName ? { name: requestContext.userName } : {}),
+        orgId: requestContext?.orgId ?? null,
+        orgScope: requestContext?.orgScope ?? null,
+        anonymous: requestContext?.agentRunAnonymous === true,
+      };
+      const queuedMessage: AgentQueuedMessage = {
+        ...parsedMessage,
+        id: agentKitMessageId,
+        threadId,
+        createdAt: new Date().toISOString(),
+        ...(attachmentsForQueue.attachments.length
+          ? { attachments: attachmentsForQueue.attachments }
+          : {}),
+        ...(attachmentsForQueue.requestAttachments.length
+          ? { requestAttachments: attachmentsForQueue.requestAttachments }
+          : {}),
+      };
+      let result;
+      try {
+        result = await mutateThreadQueuedMessages(
+          threadId,
+          {
+            type: "append",
+            message: queuedMessage,
+            hashInput: submissionPayload,
+          },
+          { actor },
+        );
+      } catch (error) {
+        if (!(error instanceof QueuedSubmissionAdmissionError)) throw error;
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID is no longer available for submission",
+          code: error.code,
+          retryable: false,
+        };
+      }
+      if (!result) return null;
+      if (result.receiptUnavailable) {
+        setResponseStatus(event, 503);
+        return {
+          error: "The queued submission receipt could not be saved",
+          code: "queued_submission_receipt_unavailable",
+          retryable: true,
+        };
+      }
+      if (result.receiptConflict) {
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID was already used for a different submission",
+          code: "queued_message_id_conflict",
+          retryable: false,
+        };
+      }
+      if (result.submissionExpired) {
+        setResponseStatus(event, 409);
+        return {
+          error: "This submission expired before it could be queued",
+          code: "submission_expired",
+          retryable: false,
+        };
+      }
+      if (result.alreadySubmitted && result.submittedRunId) {
+        const stream = subscribeToRun(result.submittedRunId, 0);
+        if (!stream) {
+          setResponseStatus(event, 503);
+          return {
+            error: "The accepted submission run is no longer replayable",
+            code: "queued_message_run_unavailable",
+            retryable: true,
+          };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", result.submittedRunId);
+        setRunTurnIdHeader(event, getRun(result.submittedRunId)?.turnId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
+      if (!result.message) {
+        setResponseStatus(event, 503);
+        return {
+          error: "The queued submission receipt could not be read",
+          code: "queued_submission_receipt_unavailable",
+          retryable: true,
+        };
+      }
+      return queuedSubmissionResponse(
+        event,
+        {
+          ...result.message,
+          id: agentKitMessageId,
+          threadId,
+          createdAt: result.message.createdAt ?? queuedMessage.createdAt,
+        } as AgentQueuedMessage,
+        await getSlotHoldingRunId(threadId),
+      );
+    };
     if (
       submissionPayload &&
       ownerEmail &&
@@ -12599,6 +13550,7 @@ export function createProductionAgentHandler(
     ) {
       const {
         getQueuedSubmissionReceipt,
+        getQueuedSubmissionReceiptStatus,
         hashQueuedSubmissionPayload,
         resolveThreadAccess,
       } = await import("../chat-threads/store.js");
@@ -12640,8 +13592,26 @@ export function createProductionAgentHandler(
             retryable: false,
           };
         }
-        if (receipt.state === "submitted") {
-          if (!receipt.submittedRunId) {
+        let receiptState = receipt.state;
+        let submittedRunId = receipt.submittedRunId;
+        if (receipt.state === "queued") {
+          const status = await getQueuedSubmissionReceiptStatus(
+            threadId,
+            receipt.messageId,
+          );
+          if (!status) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt could not be read",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          receiptState = status.state;
+          submittedRunId = status.submittedRunId;
+        }
+        if (receiptState === "submitted") {
+          if (!submittedRunId) {
             setResponseStatus(event, 503);
             return {
               error: "The accepted submission has no replayable run",
@@ -12649,7 +13619,7 @@ export function createProductionAgentHandler(
               retryable: true,
             };
           }
-          const stream = subscribeToRun(receipt.submittedRunId, 0);
+          const stream = subscribeToRun(submittedRunId, 0);
           if (!stream) {
             setResponseStatus(event, 503);
             return {
@@ -12661,12 +13631,32 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Content-Type", "text/event-stream");
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
-          setResponseHeader(event, "X-Run-Id", receipt.submittedRunId);
+          setResponseHeader(event, "X-Run-Id", submittedRunId);
+          setRunTurnIdHeader(event, getRun(submittedRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
-        if (receipt.state === "queued") {
-          return runSlotBusy(event, null);
+        if (receiptState === "queued") {
+          if (!receipt.message) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt has no replayable message",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          return queuedSubmissionResponse(
+            event,
+            {
+              ...receipt.message,
+              id: receipt.messageId,
+              threadId,
+              createdAt:
+                receipt.message.createdAt ??
+                new Date(receipt.createdAt).toISOString(),
+            } as AgentQueuedMessage,
+            await getSlotHoldingRunId(threadId),
+          );
         }
         setResponseStatus(event, 409);
         return {
@@ -12819,6 +13809,11 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const isAuthorizedApprovalContinuation = Boolean(
+      submittedInternalContinuation === true &&
+      requestedApprovedToolCallAskIds?.length &&
+      resolvedApprovalTurnId,
+    );
     // The continuation marker is client-controlled. Defer setup admission only
     // for automatic successors when the named stop and turn can be checked
     // under the run-slot lock. A user's manual Continue starts new work and
@@ -12859,7 +13854,8 @@ export function createProductionAgentHandler(
         admittedQueuedMessage.requestAttachments,
       );
       hasAttachments = requestAttachments.length > 0;
-      requestReferences = [];
+      requestReferences = admittedQueuedMessage.references ?? [];
+      requestOptions = promotionOptions;
       requestHistory = [];
       requestStructuredHistory = undefined;
       internalContinuation = false;
@@ -12895,6 +13891,7 @@ export function createProductionAgentHandler(
       mutableBody.history = requestHistory;
       delete mutableBody.structuredHistory;
       mutableBody.metadata = requestMetadata;
+      mutableBody.options = requestOptions;
       mutableBody.model = requestModel;
       if (requestEngine === undefined) {
         delete mutableBody.engine;
@@ -12908,7 +13905,6 @@ export function createProductionAgentHandler(
       delete mutableBody.continueOfRunId;
       delete mutableBody.harness;
       delete mutableBody.parentId;
-      delete mutableBody.options;
       delete mutableBody.skipPendingSelectionContext;
     }
     const recordUnstartedTurn = async (failure: {
@@ -12997,6 +13993,14 @@ export function createProductionAgentHandler(
       }
     }
     setupMark("aiGate");
+    if (hasOwn(body, "queuedMessageClaimId") && !admittedQueuedMessage) {
+      setResponseStatus(event, 409);
+      return {
+        error: "This queued message can no longer be promoted",
+        code: "queued_message_claim_invalid",
+        retryable: false,
+      };
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -13214,6 +14218,27 @@ export function createProductionAgentHandler(
     }
     workerStep("db_request_ctx");
 
+    if (
+      hasAttachments &&
+      threadId &&
+      !isBackgroundWorker &&
+      requestAttachments.some(
+        (attachment) =>
+          attachment.displayOnly !== true &&
+          (attachment.type === "image" ||
+            attachment.type === "file" ||
+            attachment.type === "document"),
+      )
+    ) {
+      const activeRunId = await getSlotHoldingRunId(threadId);
+      if (
+        activeRunId &&
+        (!busySubmissionQueueEligible || !busySubmissionAttachmentsAreQueueable)
+      ) {
+        return runSlotBusy(event, activeRunId);
+      }
+    }
+
     workerStep("attach_start");
     if (
       hasAttachments &&
@@ -13223,13 +14248,6 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
-      // A busy thread refuses this message (409) and the client sends it again
-      // once the thread frees up; uploading first would store every
-      // attachment again on each refusal.
-      if (threadId && !isBackgroundWorker) {
-        const activeRunId = await getSlotHoldingRunId(threadId);
-        if (activeRunId) return runSlotBusy(event, activeRunId);
-      }
       try {
         attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
         const preUpload = await preUploadAttachments({
@@ -13251,6 +14269,14 @@ export function createProductionAgentHandler(
         requestMessage = requestMessage
           ? `${requestMessage}\n\n${describeAttachmentPreUploadWarning()}`
           : describeAttachmentPreUploadWarning();
+      }
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, activeRunId);
+        }
       }
     }
 
@@ -14222,6 +15248,21 @@ export function createProductionAgentHandler(
       }
       let slot;
       try {
+        const runThreadId = threadId;
+        const shouldPreserveQueuedOrder = Boolean(
+          !isAuthorizedApprovalContinuation &&
+          !queuedMessageId &&
+          !queuedMessageClaimId &&
+          !isBackgroundWorker,
+        );
+        const queuedSubmissionStore = shouldPreserveQueuedOrder
+          ? await import("../chat-threads/store.js")
+          : undefined;
+        if (ownerEmail && !isAuthorizedApprovalContinuation) {
+          await ensureAgentToolApprovalTable();
+        }
+        // The inbox read runs under the slot lock, but its schema must be ready first.
+        await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
           ...(turnInitiator ? { turnInitiator } : {}),
@@ -14238,6 +15279,25 @@ export function createProductionAgentHandler(
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
+          ...(queuedSubmissionStore
+            ? {
+                hasPendingQueuedSubmission: (tx) =>
+                  queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                    tx,
+                    runThreadId,
+                  ),
+              }
+            : {}),
+          ...(ownerEmail && !isAuthorizedApprovalContinuation
+            ? {
+                hasPendingApproval: (tx) =>
+                  hasPendingAgentToolApproval(tx, {
+                    ownerEmail,
+                    orgId: getRequestOrgId() ?? null,
+                    threadId: runThreadId,
+                  }),
+              }
+            : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -14269,11 +15329,21 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        // The client leaves a replay's turn out unless named here, and this
+        // replay was found by its turn, so the stored turn is known.
+        setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
+        if (slot.queuedSubmissionPending) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, null);
+        }
+        const queued = await tryAdmitBusySubmission();
+        if (queued !== null) return queued;
         return runSlotBusy(event, slot.activeRunId);
       }
       foregroundRunRowInserted = true;
@@ -14549,6 +15619,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
@@ -14667,6 +15738,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", runId);
+          setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
           return stream;
         }
@@ -14994,6 +16066,90 @@ export function createProductionAgentHandler(
           rawSend(event);
           updateTrackedProgressFromEvent(event);
         };
+        const interruptQueuedRunAtBoundary =
+          async (): Promise<QueuedRunInterruptBoundaryResult> => {
+            if (!threadId) return "none";
+            const {
+              clearQueuedSubmissionInterruptRun,
+              listQueuedSubmissionReceipts,
+              mutateThreadQueuedMessages,
+              recordQueuedSubmissionInterruptRun,
+              retryQueuedSubmissionReceipt,
+            } = await import("../chat-threads/store.js");
+            const pending = await listQueuedSubmissionReceipts({
+              limit: 25,
+              threadId,
+              interruptActiveRun: true,
+            });
+            for (const receipt of pending) {
+              if (receipt.message?.interruptActiveRun !== true) continue;
+              const claimId = randomUUID();
+              let claimed = false;
+              try {
+                const claim = await mutateThreadQueuedMessages(threadId, {
+                  type: "claimFromInbox",
+                  receipt,
+                  claimId,
+                });
+                if (!claim?.claimedMessage) continue;
+                claimed = true;
+                if (
+                  receipt.interruptRunId &&
+                  receipt.interruptRunId !== runId
+                ) {
+                  const { getRunById } = await import("./run-store.js");
+                  const interruptedRun = await getRunById(
+                    receipt.interruptRunId,
+                  );
+                  if (interruptedRun?.status === "running") continue;
+                  const cleared = await clearQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId: receipt.interruptRunId,
+                    claimId,
+                  });
+                  if (!cleared) continue;
+                }
+                if (
+                  !(await recordQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId,
+                    claimId,
+                  }))
+                ) {
+                  continue;
+                }
+                const aborted = await confirmQueuedRunInterrupt({
+                  abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
+                  defer: () =>
+                    retryQueuedSubmissionReceipt(
+                      threadId,
+                      receipt.messageId,
+                      Date.now() + 10_000,
+                      { claimId },
+                    ),
+                });
+                if (aborted === "pending") return "pending";
+              } finally {
+                if (claimed) {
+                  await mutateThreadQueuedMessages(threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                }
+              }
+              return "aborted";
+            }
+            return "none";
+          };
+        const { beforeModelDispatch, beforeWrite } =
+          createRunSafeBoundaryGuards({
+            signal,
+            flushEvents: control.flushEvents,
+            interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+          });
 
         if (selfChainBudget?.skipToBoundary) {
           await recordRunDiagnostic(
@@ -15028,7 +16184,12 @@ export function createProductionAgentHandler(
         }
 
         if (options.onRunStart) {
-          await options.onRunStart(send, threadId ?? runId, runId);
+          await options.onRunStart(
+            send,
+            threadId ?? runId,
+            runId,
+            effectiveTurnId,
+          );
         }
 
         const unknownOutcomes = noUnknownOutcomes();
@@ -15120,7 +16281,8 @@ export function createProductionAgentHandler(
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
                   durableStepIdForToolCall: namespacedDurableStepId,
-                  beforeWrite: control.flushEvents,
+                  beforeModelDispatch,
+                  beforeWrite,
                   unknownOutcomes,
                   internalContinuation,
                   ...(shouldRecoverCompletedExecutionSteps
@@ -15323,7 +16485,8 @@ export function createProductionAgentHandler(
             : {}),
           systemSections: contextXraySystemSections,
           actions: requestActions,
-          beforeWrite: control.flushEvents,
+          beforeModelDispatch,
+          beforeWrite,
           unknownOutcomes,
           internalContinuation,
           send,
@@ -15524,6 +16687,7 @@ export function createProductionAgentHandler(
                 loopOpts: agentLoopOpts,
                 runId,
                 threadId: threadId ?? null,
+                turnId: effectiveTurnId,
                 userId: ownerEmail,
                 config: obsConfig,
                 spanName:
@@ -15637,10 +16801,12 @@ export function createProductionAgentHandler(
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
         executionLease: true,
+        // An anonymous run is not a user; `run_started` does not name one either.
+        userId: turnInitiator?.anonymous
+          ? undefined
+          : (ownerEmail ?? undefined),
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
-        // No userId here: `ownerEmail` is the only identity known at this
-        // scope and is PII (email), which the terminal event must not carry.
         model: effectiveModel,
         engineName: engine.name,
         attemptCount: backgroundContinuationCount,
@@ -15662,6 +16828,7 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
+    setRunTurnIdHeader(event, effectiveTurnId);
     setResponseHeader(
       event,
       "X-Dispatch-Mode",

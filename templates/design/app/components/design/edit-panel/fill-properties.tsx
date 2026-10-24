@@ -7,7 +7,6 @@ import {
 import {
   IconEye,
   IconEyeOff,
-  IconLayoutGrid,
   IconMinus,
   IconPlus,
   IconWaveSine,
@@ -20,6 +19,7 @@ import {
   PopoverAnchor,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
@@ -49,10 +49,6 @@ import {
   showsChevron,
   showsOpacity,
 } from "../inspector/fill-field-reading";
-import {
-  findFillShader,
-  type GlslShaderPanelContext,
-} from "../inspector/GlslShaderPanel";
 import { InspectorControlPopoverContent } from "../inspector/InspectorControlPopover";
 import { nativeCatalogDefinitionKey } from "../inspector/native-catalog-display";
 import {
@@ -60,7 +56,9 @@ import {
   persistNativeShaderEdit,
   selectedNativeInstances,
 } from "../inspector/NativeShaderPanel";
+import { useSavedGlslFill } from "../inspector/saved-glsl-shader";
 import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import type { ElementInfo } from "../types";
 import { useDesignColorTokenSource } from "./design-color-tokens";
 import { paletteColorValue, selectionColorValues } from "./document-colors";
@@ -200,7 +198,7 @@ export function FillProperties({
   onStyleChange,
   onStylesChange,
   documentColorPalette = [],
-  glslShaderContext,
+  shaderContext,
   onRemoveShaderFill,
   motionKeyframeContext,
   breakpointOverrideContext,
@@ -217,7 +215,7 @@ export function FillProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   documentColorPalette?: string[];
-  glslShaderContext?: GlslShaderPanelContext;
+  shaderContext?: ShaderEditorContext;
   /**
    * Takes the element's shader off, with the fallback color it was painted
    * over. The fill row's remove button calls it instead of clearing the color
@@ -263,32 +261,31 @@ export function FillProperties({
     [isTextFillElement, contrastContext, styles.fontSize, styles.fontWeight, t],
   );
   const isVectorFillElement = isVectorShapeSelection(element);
-  const fillShader = useMemo(
-    () =>
-      isVectorFillElement || isTextFillElement
-        ? null
-        : findFillShader(glslShaderContext),
-    [glslShaderContext, isTextFillElement, isVectorFillElement],
-  );
+  const savedFill = useSavedGlslFill(shaderContext);
+  const readsSavedFill =
+    !isVectorFillElement &&
+    !isTextFillElement &&
+    Boolean(shaderContext?.nodeId);
+  const fillShader = readsSavedFill ? savedFill.fill : null;
   const isNativeVectorFillElement =
     isVectorFillElement &&
     element.tagName.toLowerCase() === "svg" &&
-    Boolean(glslShaderContext?.fileId) &&
-    !glslShaderContext?.editSource;
+    Boolean(shaderContext?.fileId) &&
+    !shaderContext?.editSource;
   const nativeFill = useMemo(
     () =>
       (isVectorFillElement && !isNativeVectorFillElement) || isTextFillElement
         ? { instances: [], definitions: [], errors: [] }
         : selectedNativeInstances(
-            glslShaderContext?.content,
-            glslShaderContext?.nodeId,
+            shaderContext?.content,
+            shaderContext?.nodeId,
             "fill",
-            glslShaderContext?.selector,
+            shaderContext?.selector,
           ),
     [
-      glslShaderContext?.content,
-      glslShaderContext?.nodeId,
-      glslShaderContext?.selector,
+      shaderContext?.content,
+      shaderContext?.nodeId,
+      shaderContext?.selector,
       isTextFillElement,
       isVectorFillElement,
       isNativeVectorFillElement,
@@ -305,10 +302,10 @@ export function FillProperties({
     instanceId: string,
     operation: Parameters<typeof persistNativeShaderEdit>[1],
   ) => {
-    if (!glslShaderContext) return;
+    if (!shaderContext) return;
     setNativeBusyId(instanceId);
     try {
-      await persistNativeShaderEdit(glslShaderContext, operation);
+      await persistNativeShaderEdit(shaderContext, operation);
       if (operation.kind === "remove") setNativeControlsOpenId(null);
     } catch (error) {
       toast.error(
@@ -460,34 +457,11 @@ export function FillProperties({
     ? hasAuthoredFill
     : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
   const hasVisibleFill =
-    hasBaseFill || hasBackgroundLayer || nativeFillInstances.length > 0;
-  // Legacy Shader conversion replaces its CSS paint layer. Keep it out of
-  // the sibling picker when native Fill instances already occupy their own slots.
-  const layerShaderContext = useMemo(
-    () =>
-      glslShaderContext &&
-      !isTextFillElement &&
-      !isVectorFillElement &&
-      !hasBaseFill &&
-      nativeFillInstances.length === 0 &&
-      backgroundLayers.length === 1
-        ? {
-            ...glslShaderContext,
-            replacesBackgroundLayers: true,
-            onFillShaderApplied: () =>
-              setOpenFillPickerKey(`${fillStashKey}:base`),
-          }
-        : undefined,
-    [
-      glslShaderContext,
-      isTextFillElement,
-      isVectorFillElement,
-      hasBaseFill,
-      nativeFillInstances.length,
-      backgroundLayers.length,
-      fillStashKey,
-    ],
-  );
+    hasBaseFill ||
+    hasBackgroundLayer ||
+    nativeFillInstances.length > 0 ||
+    Boolean(fillShader) ||
+    (readsSavedFill && savedFill.status !== "ready");
   const pendingConversion = pendingConvertedLayerRef.current;
   if (
     pendingConversion?.elementKey === fillStashKey &&
@@ -707,7 +681,7 @@ export function FillProperties({
   };
 
   const addFill = () => {
-    if (nativeFillInstances.length > 0 && glslShaderContext && !onAddFill) {
+    if (nativeFillInstances.length > 0 && shaderContext && !onAddFill) {
       setNativeAddOpen(true);
       return;
     }
@@ -793,15 +767,6 @@ export function FillProperties({
       emptyTitleActionLabel={t("editPanel.labels.addFill")}
       actions={
         <>
-          {/* design color-styles affordance (grid icon) to the left of "+".
-              Not yet implemented — disabled with a "Coming soon" tooltip
-              rather than a dead, silently-no-op click. */}
-          <SectionIconButton
-            label={t("editPanel.labels.stylesComingSoon")}
-            disabled
-          >
-            <IconLayoutGrid className="size-3.5" />
-          </SectionIconButton>
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
             <Popover open={nativeAddOpen} onOpenChange={setNativeAddOpen}>
               <PopoverAnchor asChild>
@@ -814,7 +779,7 @@ export function FillProperties({
                   </SectionIconButton>
                 </span>
               </PopoverAnchor>
-              {nativeFillInstances.length > 0 && glslShaderContext ? (
+              {nativeFillInstances.length > 0 && shaderContext ? (
                 <InspectorControlPopoverContent
                   title={t("editPanel.shaders.shader")}
                   icon={<IconWaveSine className="size-4" />}
@@ -822,7 +787,7 @@ export function FillProperties({
                   bodyClassName="max-h-[70vh] overflow-y-auto p-0"
                 >
                   <NativeShaderPanel
-                    context={glslShaderContext}
+                    context={shaderContext}
                     placement="fill"
                     catalogOnly
                     onChanged={() => setNativeAddOpen(false)}
@@ -957,9 +922,9 @@ export function FillProperties({
                   className="w-[min(320px,calc(100vw-2rem))]"
                   bodyClassName="max-h-[70vh] overflow-y-auto p-0"
                 >
-                  {glslShaderContext ? (
+                  {shaderContext ? (
                     <NativeShaderPanel
-                      context={glslShaderContext}
+                      context={shaderContext}
                       placement="fill"
                       instanceId={instance.id}
                       showCatalog={false}
@@ -971,6 +936,43 @@ export function FillProperties({
               </Popover>
             );
           })}
+          {readsSavedFill && savedFill.status !== "ready" ? (
+            <InspectorPaintRow>
+              <InspectorGridCell span={28}>
+                {savedFill.status === "pending" ? (
+                  <Skeleton className="h-6 w-full" />
+                ) : (
+                  <div
+                    role="alert"
+                    className="text-muted-foreground !text-[11px]"
+                  >
+                    {t("common.genericError")}
+                  </div>
+                )}
+              </InspectorGridCell>
+            </InspectorPaintRow>
+          ) : null}
+          {fillShader && onRemoveShaderFill ? (
+            <InspectorPaintRow>
+              <InspectorGridCell span={20}>
+                <div className="flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px]">
+                  <IconWaveSine className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                    {fillShader.name}
+                  </span>
+                </div>
+              </InspectorGridCell>
+              <InspectorGridCell span={4} className="flex justify-center" />
+              <InspectorGridCell span={4} className="flex justify-center">
+                <SectionIconButton
+                  label={t("editPanel.labels.removeLayer")}
+                  onClick={onRemoveShaderFill}
+                >
+                  <IconMinus className="size-3.5" />
+                </SectionIconButton>
+              </InspectorGridCell>
+            </InspectorPaintRow>
+          ) : null}
           {hasBaseFill ? (
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
@@ -1066,14 +1068,11 @@ export function FillProperties({
                       element.tagName,
                     fillProperty,
                   ].join(":")}
-                  glslShaderContext={
-                    (isVectorFillElement && !isNativeVectorFillElement) ||
-                    isTextFillElement ||
-                    nativeFillInstances.length > 0
+                  shaderContext={
+                    isTextFillElement || nativeFillInstances.length > 0
                       ? undefined
-                      : glslShaderContext
+                      : shaderContext
                   }
-                  fillShader={fillShader}
                   authoredValue={
                     authoredFillValue ? storedPaint.stops[0]!.color : undefined
                   }
@@ -1100,10 +1099,6 @@ export function FillProperties({
                 <SectionIconButton
                   label={t("editPanel.labels.removeLayer")}
                   onClick={() => {
-                    if (fillShader && onRemoveShaderFill) {
-                      onRemoveShaderFill();
-                      return;
-                    }
                     commitStylePatch(
                       removeBaseFillPatch(fillProperty, element.inlineStyles),
                       onStyleChange,
@@ -1501,7 +1496,9 @@ export function FillProperties({
                             ? TEXT_GRADIENT_PAINT_TYPES
                             : EXISTING_LAYER_PAINT_TYPES
                         }
-                        glslShaderContext={layerShaderContext}
+                        shaderContext={
+                          isTextFillElement ? undefined : shaderContext
+                        }
                         backgroundImage={layer}
                         backgroundSize={backgroundSizeLayers[index]}
                         backgroundRepeat={backgroundRepeatLayers[index]}

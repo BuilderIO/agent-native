@@ -28,6 +28,7 @@ export interface NativePreviewViewportResponse {
   maxViewportWidth: number | null;
   maxViewportHeight: number | null;
   displayScale: number;
+  hostDevicePixelRatio?: number;
   error?: { code: string; message: string };
 }
 
@@ -96,6 +97,14 @@ export function isNativePreviewViewportResponse(
     !Number.isFinite(response.displayScale) ||
     response.displayScale <= 0 ||
     response.displayScale > 100
+  )
+    return false;
+  if (
+    response.hostDevicePixelRatio !== undefined &&
+    (typeof response.hostDevicePixelRatio !== "number" ||
+      !Number.isFinite(response.hostDevicePixelRatio) ||
+      response.hostDevicePixelRatio <= 0 ||
+      response.hostDevicePixelRatio > 4)
   )
     return false;
   if (response.error !== undefined) {
@@ -174,6 +183,13 @@ function viewportResponse(
   try {
     const parent = frame.ownerDocument.defaultView;
     if (!parent) throw new RangeError("The preview host is unavailable.");
+    const hostDevicePixelRatio = parent.devicePixelRatio;
+    if (
+      !Number.isFinite(hostDevicePixelRatio) ||
+      hostDevicePixelRatio <= 0 ||
+      hostDevicePixelRatio > 4
+    )
+      throw new RangeError("The preview host pixel ratio is unsupported.");
     const display = frame.getBoundingClientRect();
     const clips: NativePreviewBox[] = [
       { x: 0, y: 0, width: parent.innerWidth, height: parent.innerHeight },
@@ -244,6 +260,7 @@ function viewportResponse(
       maxViewportWidth: planned?.maxViewportWidth ?? null,
       maxViewportHeight: planned?.maxViewportHeight ?? null,
       displayScale,
+      hostDevicePixelRatio,
     };
   } catch (error) {
     return {

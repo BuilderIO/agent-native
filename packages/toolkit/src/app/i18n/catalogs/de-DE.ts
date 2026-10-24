@@ -480,6 +480,9 @@ const messages: ToolkitAgentChatTranslation = {
   "history.ownedBy": "Eigentümer: {{name}}",
   "history.accessDirect": "Mit dir geteilt",
   "history.accessOrganization": "Mit deiner Organisation geteilt",
+  "history.copyLink": "Link kopieren",
+  "history.linkCopied": "Link kopiert",
+  "history.copyLinkFailed": "Link konnte nicht kopiert werden",
   "integrations.availableSection": "Verfügbare Integrationen",
   "integrations.connectedSection": "Verbunden",
   "integrations.goToApiKeys": "Zu den API-Schlüsseln",
@@ -1069,6 +1072,8 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "{{duration}} verarbeitet",
   "widget.chart": "Diagramm",
   "widget.chartActions": "Diagrammaktionen",
+  "widget.chartRowsOmitted":
+    "Dieses Diagramm zeigt nur einen Teil der verfügbaren Zeilen.",
   "widget.dataSources": "Datenquellen",
   "widget.tableActions": "Tabellenaktionen",
   "widget.dataChart": "Datendiagramm",

@@ -35,10 +35,12 @@ const {
   ensureSuggestionTables,
   insertSuggestion,
   getSuggestion,
+  getSuggestions,
   listSuggestions,
   getSuggestionByCreationKey,
   recordSuggestionCreation,
   amendSuggestion,
+  rebaseSuggestion,
   recordDecision,
   __resetSuggestionTablesForTests,
 } = await import("./store.js");
@@ -135,6 +137,39 @@ describe("suggestion store", () => {
         detail: null,
       }),
     ).rejects.toThrow("different decision");
+  });
+
+  it("rebases a pending suggestion onto a new base as an amendment", async () => {
+    const original = await insertSuggestion(input);
+    const operations = [{ ...input.operations[0], before: "OLD" }];
+    const rebased = await rawClient.transaction((tx) =>
+      rebaseSuggestion(tx, original, {
+        operations,
+        baseRevision: "rev-2",
+        idempotencyKey: "rebase-key",
+        reason: "canonical-form",
+      }),
+    );
+    expect(rebased).toMatchObject({
+      revision: 2,
+      baseRevision: "rev-2",
+      summary: original.summary,
+      status: "pending",
+    });
+    expect(rebased?.operations[0]).toMatchObject({ before: "OLD" });
+    expect(await getSuggestion(original.id)).toEqual(rebased);
+    // A reader holding the old revision is refused rather than overwritten.
+    expect(
+      await rawClient.transaction((tx) =>
+        rebaseSuggestion(tx, original, {
+          operations,
+          baseRevision: "rev-3",
+          idempotencyKey: "rebase-key-2",
+          reason: "canonical-form",
+        }),
+      ),
+    ).toBeNull();
+    expect((await getSuggestion(original.id))?.baseRevision).toBe("rev-2");
   });
 
   it("keeps the original creation result and converges a competing receipt", async () => {
@@ -263,5 +298,33 @@ describe("suggestion store", () => {
       suggestions.map((suggestion) => suggestion.operations[0]?.after),
     ).toEqual(["new", "newer"]);
     expect(rawClient.execute).toHaveBeenCalledOnce();
+  });
+
+  it("loads several suggestions by id in two queries, in the order asked", async () => {
+    const first = await insertSuggestion(input);
+    const second = await insertSuggestion({
+      ...input,
+      threadId: "thread-2",
+      summary: "Second suggestion",
+      operations: [
+        { ...input.operations[0], ordinal: 1, after: "newest" },
+        { ...input.operations[0], ordinal: 0, after: "newer" },
+      ],
+    });
+    const expected = [
+      await getSuggestion(second.id),
+      null,
+      await getSuggestion(first.id),
+    ];
+    rawClient.execute.mockClear();
+
+    const loaded = await getSuggestions([second.id, "missing", first.id]);
+
+    expect(loaded).toEqual(expected);
+    expect(loaded[0]?.operations.map((operation) => operation.after)).toEqual([
+      "newer",
+      "newest",
+    ]);
+    expect(rawClient.execute).toHaveBeenCalledTimes(2);
   });
 });

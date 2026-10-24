@@ -142,6 +142,9 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 import { LIQUID_GLASS_EFFECT } from "@shared/native-effect-liquid-glass-v3";
 import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
+import { PULSING_BORDER_EFFECT } from "@shared/native-effect-pulsing-border";
+import { PULSING_BORDER_V3_EFFECT } from "@shared/native-effect-pulsing-border-v3";
+import { PULSING_BORDER_V4_EFFECT } from "@shared/native-effect-pulsing-border-v4";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
   applyNativeEffectToHtml,
@@ -151,7 +154,7 @@ import {
 
 import { runShaderSourceEdit } from "@/pages/design-editor/commands/shader-source-edit";
 
-import { isShaderWriteInFlight } from "./GlslShaderPanel";
+import { isShaderWriteInFlight } from "../shader-source-coordination";
 import { nativeCatalogPropertyKey } from "./native-catalog-display";
 import {
   NativeShaderEffectSection,
@@ -933,6 +936,46 @@ describe("NativeShaderPanel catalog", () => {
     ).toBeNull();
     expect(host.textContent).not.toMatch(/preset|radius/i);
   });
+
+  it.each([
+    PULSING_BORDER_V3_EFFECT,
+    PULSING_BORDER_V4_EFFECT,
+    PULSING_BORDER_EFFECT,
+  ])(
+    "keeps Pulsing Border version $version groups and only exposes Glow spread from version 4",
+    async (definition) => {
+      const applied = applyNativeEffectToHtml(
+        '<html><body><div data-agent-native-node-id="shape"></div></body></html>',
+        { nodeId: "shape", definition, placement: "fill" },
+      );
+      expect(applied.errors).toEqual([]);
+      await act(async () => {
+        root.render(
+          <NativeShaderPanel
+            context={{
+              designId: "design-1",
+              fileId: "file-1",
+              content: applied.html,
+              nodeId: "shape",
+            }}
+            placement="fill"
+            showCatalog={false}
+          />,
+        );
+      });
+      const smokeGroup = [...host.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes(
+          "editPanel.shaders.nativeCatalog.properties.smoke",
+        ),
+      );
+      expect(smokeGroup?.getAttribute("aria-expanded")).toBe("false");
+      expect(
+        host.querySelector(
+          'input[aria-label="editPanel.shaders.nativeCatalog.properties.glowSpread"]',
+        ) !== null,
+      ).toBe(definition.version >= 4);
+    },
+  );
 
   it("groups Folded Mesh controls and opens a group with the keyboard", async () => {
     const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(

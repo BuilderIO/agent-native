@@ -3,10 +3,16 @@
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { createMotionNativeStyleInstance } from "@shared/motion-native-style-runtime";
-import { act } from "react";
+import { act, useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  createMotionNativeStyleIdentity,
+  removeMotionNativeStyleAndReconcileSelection,
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 import {
   MotionEasingPicker,
   MotionNativeStyleEditor,
@@ -35,6 +41,52 @@ const positionStyle: MotionNativeStyleInstance = {
 };
 
 describe("MotionNativeStyleEditor", () => {
+  it("resolves source-identified styles after the list shifts", () => {
+    const styles = [
+      { ...positionStyle, sourceInstanceId: "first" },
+      { ...positionStyle, sourceInstanceId: "selected" },
+      { ...positionStyle, sourceInstanceId: "last" },
+    ];
+    const selection = createMotionNativeStyleIdentity(styles[1]!, 1);
+    const currentStyles = [styles[1]!, styles[2]!];
+
+    expect(
+      resolveMotionNativeStyleIdentity(currentStyles, "target-1", selection),
+    ).toEqual(createMotionNativeStyleIdentity(styles[1]!, 0));
+  });
+
+  it("keeps a stale selection on its original target when the canvas target changes", () => {
+    const staleSelection = {
+      ...createMotionNativeStyleIdentity(
+        { ...positionStyle, sourceInstanceId: undefined },
+        0,
+      ),
+      index: 0,
+    };
+    const currentStyles = [
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        targetNodeId: "target-2",
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        styleKey: "Rotation" as const,
+        targetNodeId: "target-1",
+      },
+      { ...positionStyle, sourceInstanceId: undefined },
+    ];
+
+    expect(
+      resolveMotionNativeStyleIdentity(
+        currentStyles,
+        "target-2",
+        staleSelection,
+      ),
+    ).toEqual(createMotionNativeStyleIdentity(currentStyles[2]!, 2));
+  });
+
   let container: HTMLDivElement;
   let root: Root;
 
@@ -446,6 +498,347 @@ describe("MotionNativeStyleEditor", () => {
     expect(
       curveGroup?.querySelectorAll('[data-curve-handle][role="button"]'),
     ).toHaveLength(2);
+  });
+
+  it("syncs selection from either pane and keeps a closed style popover closed", async () => {
+    const scaleStyle = createMotionNativeStyleInstance({
+      styleKey: "Scale",
+      targetNodeId: "target-1",
+    });
+    const scaleIdentity = createMotionNativeStyleIdentity(scaleStyle, 1);
+    const styles = [positionStyle, scaleStyle];
+
+    function SelectionHarness() {
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(null);
+      const [, setRevision] = useState(0);
+
+      return (
+        <>
+          <button
+            type="button"
+            data-motion-select-native-style
+            data-test-select-scale
+            onClick={() => setSelectedStyle(scaleIdentity)}
+          >
+            Select Scale from timeline
+          </button>
+          <button
+            type="button"
+            data-test-rerender
+            onClick={() => setRevision((revision) => revision + 1)}
+          >
+            Rerender
+          </button>
+          <MotionNativeStyleEditor
+            styles={styles}
+            targetNodeId="target-1"
+            selectedStyle={selectedStyle ? { ...selectedStyle } : null}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={vi.fn()}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<SelectionHarness />));
+
+    const styleRow = (label: string) =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("li > button"),
+      ).find((button) => button.textContent?.trim() === label);
+    const selectScaleFromTimeline = container.querySelector<HTMLButtonElement>(
+      "[data-test-select-scale]",
+    )!;
+    const positionRow = styleRow(
+      "designEditor.motion.animationStyles.position",
+    )!;
+    const scaleRow = styleRow("designEditor.motion.animationStyles.scale")!;
+    await act(async () => positionRow.click());
+    expect(positionRow.getAttribute("aria-pressed")).toBe("true");
+    expect(scaleRow.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => scaleRow.click());
+    expect(scaleRow.getAttribute("aria-pressed")).toBe("true");
+    expect(positionRow.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Scale"][data-state="open"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => positionRow.click());
+    expect(positionRow.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Position"][data-state="open"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      selectScaleFromTimeline.focus();
+      selectScaleFromTimeline.click();
+    });
+    expect(scaleRow.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      styleRow("designEditor.motion.animationStyles.position")?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("false");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).toBeNull();
+
+    await act(async () =>
+      styleRow("designEditor.motion.animationStyles.scale")!.click(),
+    );
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).not.toBeNull();
+    await act(async () =>
+      styleRow("designEditor.motion.animationStyles.scale")!.click(),
+    );
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-rerender]")!
+        .click(),
+    );
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.type"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("reconciles a removed or previous-target selection to the current styles", async () => {
+    const styles = [
+      createMotionNativeStyleInstance({
+        styleKey: "Position",
+        targetNodeId: "target-1",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Scale",
+        targetNodeId: "target-1",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Rotation",
+        targetNodeId: "target-2",
+      }),
+      createMotionNativeStyleInstance({
+        styleKey: "Opacity",
+        targetNodeId: "target-2",
+      }),
+    ];
+    const initialSelection = createMotionNativeStyleIdentity(styles[0]!, 0);
+
+    function ReconciliationHarness() {
+      const [currentStyles, setStyles] = useState(styles);
+      const [targetNodeId, setTargetNodeId] = useState("target-1");
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(initialSelection);
+      const previousTargetNodeIdRef = useRef(targetNodeId);
+      useEffect(() => {
+        const targetChanged = previousTargetNodeIdRef.current !== targetNodeId;
+        previousTargetNodeIdRef.current = targetNodeId;
+        const resolvedSelection = resolveMotionNativeStyleIdentity(
+          currentStyles,
+          targetNodeId,
+          targetChanged ? null : selectedStyle,
+        );
+        if (
+          resolvedSelection?.key === selectedStyle?.key &&
+          resolvedSelection?.sourceInstanceId ===
+            selectedStyle?.sourceInstanceId
+        ) {
+          return;
+        }
+        setSelectedStyle(resolvedSelection);
+      }, [currentStyles, selectedStyle, targetNodeId]);
+
+      return (
+        <>
+          <button
+            type="button"
+            data-test-switch-target
+            onClick={() => setTargetNodeId("target-2")}
+          >
+            Switch target
+          </button>
+          <button
+            type="button"
+            data-test-remove-selected-style
+            onClick={() => {
+              if (!selectedStyle) return;
+              setStyles((current) =>
+                current.filter((_, index) => index !== selectedStyle.index),
+              );
+            }}
+          >
+            Remove selected style
+          </button>
+          <output data-test-selected-style>
+            {selectedStyle
+              ? `${selectedStyle.targetNodeId}:${selectedStyle.styleKey}`
+              : "none"}
+          </output>
+          <MotionNativeStyleEditor
+            styles={currentStyles}
+            targetNodeId={targetNodeId}
+            selectedStyle={selectedStyle}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={vi.fn()}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<ReconciliationHarness />));
+    const selection = () =>
+      container.querySelector("[data-test-selected-style]")?.textContent;
+    const styleRow = (label: string) =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("li > button"),
+      ).find((button) => button.textContent?.trim() === label);
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-switch-target]")!
+        .click(),
+    );
+    expect(selection()).toBe("target-2:Opacity");
+    expect(
+      styleRow("designEditor.motion.animationStyles.opacity")?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Opacity"]',
+      ),
+    ).toBeNull();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-remove-selected-style]")!
+        .click(),
+    );
+    expect(selection()).toBe("target-2:Rotation");
+    expect(
+      styleRow("designEditor.motion.animationStyles.rotation")?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-test-remove-selected-style]")!
+        .click(),
+    );
+    expect(selection()).toBe("none");
+    expect(
+      document.body.querySelector(
+        '[data-motion-native-style-settings="Rotation"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps the selected inspector style when an earlier same-type row is removed", async () => {
+    const styles = [
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 10 },
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 20 },
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 30 },
+      },
+    ];
+
+    function RemovalHarness() {
+      const [currentStyles, setStyles] =
+        useState<MotionNativeStyleInstance[]>(styles);
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(
+          createMotionNativeStyleIdentity(styles[1]!, 1),
+        );
+
+      return (
+        <>
+          <output data-test-selected-distance>
+            {String(
+              currentStyles[selectedStyle?.index ?? -1]?.props.distance ??
+                "none",
+            )}
+          </output>
+          <MotionNativeStyleEditor
+            styles={currentStyles}
+            targetNodeId="target-1"
+            selectedStyle={selectedStyle}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={(identity) => {
+              const result = removeMotionNativeStyleAndReconcileSelection(
+                currentStyles,
+                selectedStyle,
+                identity,
+                "target-1",
+              );
+              setStyles(result.styles);
+              setSelectedStyle(result.selection);
+            }}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<RemovalHarness />));
+    const positionRows = Array.from(
+      container.querySelectorAll<HTMLElement>("li"),
+    );
+    await act(async () => {
+      positionRows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label^="designEditor.motion.animationStyles.removeAnimation"]',
+        )!
+        .click();
+    });
+
+    expect(
+      container.querySelector("[data-test-selected-distance]")?.textContent,
+    ).toBe("20");
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "button[data-motion-native-style-trigger]",
+        ),
+      ).map((button) => button.getAttribute("aria-pressed")),
+    ).toEqual(["true", "false"]);
   });
 
   it("edits native TextStagger controls without discarding source props", async () => {
@@ -1727,6 +2120,56 @@ describe("MotionNativeStyleEditor", () => {
           easing: positionStyle.props.easing,
           futureProperty: positionStyle.props.futureProperty,
         }),
+      }),
+      expect.objectContaining({ styleKey: "Position", index: 0 }),
+    );
+  });
+
+  it("keeps sequential Text, Position, and Scale style changes selectable", async () => {
+    const textStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const onTextChange = vi.fn();
+    await render({ styles: [textStyle], onChange: onTextChange });
+    await openStyleDetails();
+    await selectOption(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.text"]',
+      )!,
+      "designEditor.motion.animationStyles.position",
+    );
+
+    const position = onTextChange.mock.lastCall?.[0];
+    expect(position).toMatchObject({
+      styleKey: "Position",
+      props: {
+        type: "slide_in",
+        direction: "left",
+        distance: 200,
+      },
+    });
+    if (!position) throw new Error("Text style did not switch to Position");
+    const onPositionChange = vi.fn();
+    await render({ styles: [position], onChange: onPositionChange });
+    if (
+      !document.body.querySelector(
+        'button[aria-label="designEditor.motion.animationStyles.position"]',
+      )
+    ) {
+      await openStyleDetails();
+    }
+    await selectOption(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.position"]',
+      )!,
+      "designEditor.motion.animationStyles.scale",
+    );
+
+    expect(onPositionChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        styleKey: "Scale",
+        props: expect.objectContaining({ type: "scaleIn", amount: 120 }),
       }),
       expect.objectContaining({ styleKey: "Position", index: 0 }),
     );

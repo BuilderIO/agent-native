@@ -187,8 +187,8 @@ test("a drawn Screen keeps W/H geometry and exposes its auto-layout controls", a
   );
   await expect(persistedShell).toHaveCSS("width", "360px");
   await persistedShell.locator("[data-frame-title]").click();
-  await expect(width).toHaveValue("360px");
-  await expect(height).toHaveValue("315px");
+  await expect(width).toHaveValue("360");
+  await expect(height).toHaveValue("315");
   await expect(layoutHeading).toBeVisible();
   await expect(designFrameForScreen(page, screenId).locator("body")).toHaveCSS(
     "gap",
@@ -204,7 +204,7 @@ test("a drawn Screen keeps W/H geometry and exposes its auto-layout controls", a
     final.files?.find((file) => file.id === firstScreen.id)?.content,
     "drawing and laying out the new Screen leaves the first Screen untouched",
   ).toBe(firstScreen.content);
-  await expectGapField(layout, "24px");
+  await expectGapField(layout, "24");
 });
 
 function designFrameForScreen(page: Page, screenId: string) {
@@ -275,6 +275,6 @@ test("Screen Shift+A saves inferred padding with layout in one undoable edit", a
     page
       .getByRole("heading", { name: "Auto layout", exact: true })
       .locator("xpath=ancestor::section"),
-    "20px",
+    "20",
   );
 });

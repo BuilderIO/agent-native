@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbExec = vi.hoisted(() => {
@@ -1006,6 +1007,7 @@ describe("requestMatchesEmbedTarget", () => {
     const responseHeaders = new Headers();
     return {
       path,
+      url: requestUrl,
       req: {
         url: requestUrl.href,
         headers: requestHeaders,
@@ -1024,6 +1026,16 @@ describe("requestMatchesEmbedTarget", () => {
       responseHeaders,
     } as any;
   }
+
+  it.each([
+    "/page/github%3Aowner%2Frepo",
+    "/page/local-file%3Adocs%2Freadme%2emd",
+  ])("matches encoded embed target %s on h3's pathname", (target) => {
+    const event = fakeEvent(target);
+    event.url = new H3Event(new Request(event.req.url)).url;
+    expect(requestMatchesEmbedTarget(event, target)).toBe(true);
+    expect(requestMatchesEmbedTarget(event, "/page/unrelated")).toBe(false);
+  });
 
   it("allows the route produced by an embedded open deep link", () => {
     expect(

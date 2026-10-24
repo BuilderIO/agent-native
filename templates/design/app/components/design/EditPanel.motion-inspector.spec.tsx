@@ -21,6 +21,8 @@ vi.mock("@agent-native/core/client/uploads", async (importOriginal) => ({
   }),
 }));
 
+import { createMotionNativeStyleInstance } from "@shared/motion-native-style-runtime";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { EditPanel } from "./EditPanel";
@@ -272,6 +274,46 @@ describe("EditPanel Motion inspector context", () => {
     ).not.toBeNull();
     expect(
       container.querySelector('button[data-motion-css-property="scale"]'),
+    ).toBeNull();
+  });
+
+  it("does not infer a Motion target from styles when nothing is selected", async () => {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TooltipProvider>
+            <EditPanel
+              selectedElement={selectedElement}
+              viewMode="single"
+              mode="edit"
+              motionInspector
+              motionNativeStyles={[
+                createMotionNativeStyleInstance({
+                  styleKey: "Position",
+                  targetNodeId: "first-target",
+                }),
+                createMotionNativeStyleInstance({
+                  styleKey: "Scale",
+                  targetNodeId: "last-target",
+                }),
+              ]}
+              onStyleChange={vi.fn()}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        '[data-design-inspector-section] h3[aria-label="designEditor.motion.animations"]',
+      ),
+    ).not.toBeNull();
+    expect(container.textContent).toContain(
+      "designEditor.motion.emptyStateNoSelection",
+    );
+    expect(
+      container.querySelector("[data-motion-native-style-trigger]"),
     ).toBeNull();
   });
 });

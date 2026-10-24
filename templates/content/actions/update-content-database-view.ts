@@ -18,7 +18,10 @@ import {
   setupAuditSummary,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   contentDatabaseItemLayoutSchema,
   runReplaceContentDatabaseViews,
@@ -47,6 +50,8 @@ const filterSchema = z
     value: z.string(),
     filterGroupId: z.string().optional(),
     parentFilterGroupId: z.string().optional(),
+    filterGroupMode: z.enum(["and", "or"]).optional(),
+    parentFilterGroupMode: z.enum(["and", "or"]).optional(),
   })
   .strict();
 
@@ -263,7 +268,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
+      context,
+    );
   },
   link: ({ result }) => {
     const receipt = (

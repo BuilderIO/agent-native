@@ -19,6 +19,7 @@ import { createServer, type ViteDevServer } from "vite";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime";
 import { e2eBaseURL } from "./base-url";
 import {
   appPath,
@@ -32,6 +33,7 @@ import {
 const baseURL = e2eBaseURL();
 const sourcePath = "index.html";
 const nodeId = "motion-target";
+const nativeNodeId = "motion-native-target";
 const alpineTransitionNodeId = "alpine-transition-target";
 const inlineAnimationNodeId = "inline-animation-target";
 const source = `<!doctype html>
@@ -53,6 +55,7 @@ const source = `<!doctype html>
     <main x-data="{ open: true }">
       <button id="alpine-toggle" type="button" @click="open = !open">Toggle visibility</button>
       <section id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open">Motion target</section>
+      <section id="${nativeNodeId}" data-agent-native-node-id="${nativeNodeId}" x-show="open">Native Motion target</section>
       <section id="${alpineTransitionNodeId}" data-agent-native-node-id="${alpineTransitionNodeId}" x-show="open" x-transition.opacity>Alpine transition target</section>
       <section id="${inlineAnimationNodeId}" data-agent-native-node-id="${inlineAnimationNodeId}" style="animation: pulse 1s infinite">Inline animation target</section>
     </main>
@@ -127,6 +130,7 @@ async function getAction(
 async function selectHtmlNodeFromCanvas(
   page: import("@playwright/test").Page,
   targetScreenId: string,
+  targetNodeId = nodeId,
 ): Promise<void> {
   await enterDirectMode(page, {
     screenId: targetScreenId,
@@ -138,7 +142,7 @@ async function selectHtmlNodeFromCanvas(
     `iframe[data-design-preview-iframe][data-screen-iframe-id="${targetScreenId}"]`,
   );
   const frame = iframe.contentFrame();
-  const target = frame.locator(`#${nodeId}`);
+  const target = frame.locator(`#${targetNodeId}`);
   const targetRect = await target.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return {
@@ -176,7 +180,7 @@ async function selectHtmlNodeFromCanvas(
               payload.sourceId === expectedNodeId
             );
           }) ?? null,
-        nodeId,
+        targetNodeId,
       ),
     )
     .toMatchObject({ type: "element-select" });
@@ -297,6 +301,36 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await expect(iframe).toBeVisible();
     let frame = iframe.contentFrame();
     const target = frame.locator(`#${nodeId}`);
+    const alpineOpenState = () =>
+      frame
+        .locator("main")
+        .evaluate((main) => (window as any).Alpine?.$data(main)?.open);
+    const verifyAlpineRuntime = async () => {
+      const runtimePage = await page.context().newPage();
+      try {
+        await runtimePage.goto(devServerUrl, { waitUntil: "domcontentloaded" });
+        const runtimeMain = runtimePage.locator("main");
+        const runtimeOpenState = () =>
+          runtimeMain.evaluate(
+            (main) => (window as any).Alpine?.$data(main)?.open,
+          );
+        const runtimeTarget = runtimePage.locator(`#${nodeId}`);
+        await expect.poll(runtimeOpenState, { timeout: 15_000 }).toBe(true);
+        await expect(runtimeTarget).toBeVisible();
+        await runtimePage
+          .getByRole("button", { name: "Toggle visibility", exact: true })
+          .click();
+        await expect.poll(runtimeOpenState).toBe(false);
+        await expect(runtimeTarget).toBeHidden();
+        await runtimePage
+          .getByRole("button", { name: "Toggle visibility", exact: true })
+          .click();
+        await expect.poll(runtimeOpenState).toBe(true);
+        await expect(runtimeTarget).toBeVisible();
+      } finally {
+        await runtimePage.close();
+      }
+    };
     await expect(target).toHaveText("Motion target");
     await expect(frame.locator("main")).toHaveAttribute(
       "x-data",
@@ -308,6 +342,9 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       "x-transition.opacity",
       "",
     );
+    await expect.poll(alpineOpenState, { timeout: 15_000 }).toBe(true);
+    await expect(target).toBeVisible();
+    await verifyAlpineRuntime();
 
     const initialSourceHash = createHash("sha256")
       .update(fs.readFileSync(path.join(rootPath, sourcePath), "utf8"))
@@ -432,6 +469,113 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       source,
     );
 
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    const rejectUnsafeSource = async (
+      unsafeSource: string,
+      expectedError: string,
+      verifyRenderedBoundary?: () => Promise<void>,
+    ) => {
+      const unsafeHash = createHash("sha256")
+        .update(unsafeSource)
+        .digest("hex");
+      fs.writeFileSync(sourceFilePath, unsafeSource);
+      try {
+        await expect(target).toHaveAttribute(
+          "data-agent-native-motion-source-hash",
+          unsafeHash,
+          { timeout: 20_000 },
+        );
+        await verifyRenderedBoundary?.();
+
+        const refused = await request.post(
+          `${baseURL}/_agent-native/actions/apply-motion-edit`,
+          {
+            data: {
+              designId,
+              fileId: screenId,
+              sourceRef: screenId,
+              localSource: {
+                connectionId,
+                modulePath: sourcePath,
+                moduleVersionHash: unsafeHash,
+                timelineVersionHash: unsafeHash,
+                renderedNodeIds: [nodeId],
+              },
+              tracks: [
+                {
+                  targetNodeId: nodeId,
+                  property: "opacity",
+                  keyframes: [
+                    { t: 0, value: "0", ease: "linear" },
+                    { t: 1, value: "1", ease: "linear" },
+                  ],
+                },
+              ],
+              durationMs: 500,
+              playbackMode: "once",
+              defaultEase: "linear",
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        expect(refused.ok()).toBe(false);
+        expect(await refused.text()).toContain(expectedError);
+        expect(fs.readFileSync(sourceFilePath, "utf8")).toBe(unsafeSource);
+      } finally {
+        fs.writeFileSync(sourceFilePath, source);
+      }
+      await expect(target).toHaveAttribute(
+        "data-agent-native-motion-source-hash",
+        initialSourceHash,
+        { timeout: 20_000 },
+      );
+    };
+
+    const alpineMarkupMutationSource = source.replace(
+      "</main>",
+      `      <div x-html="'&lt;style&gt;#${nodeId} { opacity: 0 !important; }&lt;/style&gt;'"></div>\n    </main>`,
+    );
+    expect(alpineMarkupMutationSource).not.toBe(source);
+    await rejectUnsafeSource(alpineMarkupMutationSource, "x-html", async () => {
+      await expect(frame.locator("main style")).toHaveCount(1);
+    });
+
+    const importantInlineAnimationSource = source.replace(
+      `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open"`,
+      `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open" style="opacity: 0 !important"`,
+    );
+    expect(importantInlineAnimationSource).not.toBe(source);
+    await rejectUnsafeSource(
+      importantInlineAnimationSource,
+      "uses style that conflicts with CSS Motion",
+      async () => {
+        const runtimePage = await page.context().newPage();
+        try {
+          await runtimePage.goto(devServerUrl, {
+            waitUntil: "domcontentloaded",
+          });
+          const runtimeTarget = runtimePage.locator(`#${nodeId}`);
+          await expect(runtimeTarget).toHaveAttribute(
+            "data-agent-native-motion-source-hash",
+            createHash("sha256")
+              .update(importantInlineAnimationSource)
+              .digest("hex"),
+            { timeout: 20_000 },
+          );
+          const animationState = await runtimeTarget.evaluate((element) => ({
+            animationName: getComputedStyle(element).animationName,
+            computedOpacity: getComputedStyle(element).opacity,
+          }));
+          expect(animationState).toEqual({
+            animationName: "pulse",
+            computedOpacity: "0",
+          });
+        } finally {
+          await runtimePage.close();
+        }
+      },
+    );
+
     const expectedTrack = {
       targetNodeId: nodeId,
       property: "translate",
@@ -479,6 +623,9 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await expect(frame.locator("style[data-agent-native-motion]")).toHaveCount(
       1,
     );
+    await expect.poll(alpineOpenState, { timeout: 15_000 }).toBe(true);
+    await expect(target).toBeVisible();
+    await verifyAlpineRuntime();
 
     await gotoEditor(page, designId);
     await selectHtmlNodeFromCanvas(page, screenId);
@@ -819,6 +966,222 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       opacity: "0.75",
       transformY: 6,
       translate: "15px",
+    });
+    await page.getByRole("button", { name: "Toggle visibility" }).click();
+    await expect(browserTarget).toBeHidden();
+    await page.getByRole("button", { name: "Toggle visibility" }).click();
+    await expect(browserTarget).toBeVisible();
+  });
+
+  test("round-trips direct native Position and Scale CSS edits with Alpine", async ({
+    page,
+    request,
+  }) => {
+    if (!screenId) {
+      const opened = await postAction(request, "add-localhost-screens", {
+        connectionId,
+        designId,
+        paths: ["/"],
+      });
+      screenId = opened.screens?.[0]?.id;
+    }
+    if (!screenId) throw new Error("HTML Motion screen is not registered");
+
+    await postAction(request, "grant-localhost-write-consent", {
+      designId,
+      connectionId,
+    });
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    const sourceBefore = fs.readFileSync(sourceFilePath, "utf8");
+    const sourceHash = createHash("sha256").update(sourceBefore).digest("hex");
+    const existing = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    const currentTimeline = existing.timelines?.[0];
+    const tracks = currentTimeline?.tracks ?? [];
+    const nativeStyles = [
+      ...(currentTimeline?.nativeStyles ?? []),
+      {
+        ...createMotionNativeStyleInstance({
+          styleKey: "Position",
+          targetNodeId: nativeNodeId,
+        }),
+        sourceStyleId: "html-roundtrip-position",
+        sourceInstanceId: "html-roundtrip-position-instance",
+      },
+      {
+        ...createMotionNativeStyleInstance({
+          styleKey: "Scale",
+          targetNodeId: nativeNodeId,
+        }),
+        sourceStyleId: "html-roundtrip-scale",
+        sourceInstanceId: "html-roundtrip-scale-instance",
+      },
+    ];
+    const renderedNodeIds = [
+      ...new Set([
+        ...tracks.map((track: { targetNodeId: string }) => track.targetNodeId),
+        ...nativeStyles.map(
+          (style: { targetNodeId: string }) => style.targetNodeId,
+        ),
+      ]),
+    ];
+    const seeded = await postAction(request, "apply-motion-edit", {
+      designId,
+      fileId: screenId,
+      sourceRef: screenId,
+      localSource: {
+        connectionId,
+        modulePath: sourcePath,
+        moduleVersionHash: sourceHash,
+        timelineVersionHash: sourceHash,
+        renderedNodeIds,
+      },
+      tracks,
+      nativeStyles,
+      durationMs: currentTimeline?.durationMs ?? 1000,
+      playbackMode: currentTimeline?.playbackMode ?? "once",
+      defaultEase: currentTimeline?.defaultEase ?? "linear",
+    });
+    expect(seeded).toMatchObject({
+      persisted: true,
+      sourceType: "localhost",
+      sourcePatched: true,
+    });
+
+    const seededSource = fs.readFileSync(sourceFilePath, "utf8");
+    const directSource = seededSource
+      .replace("translate: -200px 0px;", "translate: -240px 0px;")
+      .replace("scale: 1.2 1.2;", "scale: 1.5 1.5;");
+    expect(directSource).not.toBe(seededSource);
+    fs.writeFileSync(sourceFilePath, directSource);
+    const directHash = createHash("sha256").update(directSource).digest("hex");
+
+    await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+      waitUntil: "domcontentloaded",
+    });
+    await selectHtmlNodeFromCanvas(page, screenId, nativeNodeId);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const iframe = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    );
+    const frame = iframe.contentFrame();
+    const target = frame.locator(`#${nativeNodeId}`);
+    await expect(target).toHaveAttribute("x-show", "open");
+    await expect(target).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      directHash,
+      { timeout: 20_000 },
+    );
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            sourceVersionHash: directHash,
+            nativeStyles: expect.arrayContaining([
+              expect.objectContaining({
+                sourceStyleId: "html-roundtrip-position",
+                styleKey: "Position",
+                props: expect.objectContaining({ distance: 240 }),
+              }),
+              expect.objectContaining({
+                sourceStyleId: "html-roundtrip-scale",
+                styleKey: "Scale",
+                props: expect.objectContaining({ amount: 150 }),
+              }),
+            ]),
+          },
+        ],
+      });
+
+    const durationInput = page.getByRole("textbox", {
+      name: "Duration",
+      exact: true,
+    });
+    const nextDuration = Number(await durationInput.inputValue()) + 100;
+    const saved = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await durationInput.fill(String(nextDuration));
+    await durationInput.press("Enter");
+    const savedResponse = await saved;
+    expect(savedResponse.ok(), await savedResponse.text()).toBe(true);
+
+    const savedSource = fs.readFileSync(sourceFilePath, "utf8");
+    const savedHash = createHash("sha256").update(savedSource).digest("hex");
+    expect(savedSource).toContain('x-data="{ open: true }"');
+    expect(savedSource).toContain("x-transition.opacity");
+    expect(savedSource).toContain("translate: -240px 0px;");
+    expect(savedSource).toContain("scale: 1.5 1.5;");
+    await expect(target).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      savedHash,
+      { timeout: 20_000 },
+    );
+    expect(
+      await getAction(request, "get-motion-timeline", {
+        designId,
+        sourceRef: screenId,
+      }),
+    ).toMatchObject({
+      timelines: [
+        {
+          sourceVersionHash: savedHash,
+          durationMs: nextDuration,
+          nativeStyles: expect.arrayContaining([
+            expect.objectContaining({
+              sourceStyleId: "html-roundtrip-position",
+              styleKey: "Position",
+              props: expect.objectContaining({ distance: 240 }),
+            }),
+            expect.objectContaining({
+              sourceStyleId: "html-roundtrip-scale",
+              styleKey: "Scale",
+              props: expect.objectContaining({ amount: 150 }),
+            }),
+          ]),
+        },
+      ],
+    });
+
+    await page.goto(devServerUrl, { waitUntil: "load" });
+    const browserTarget = page.locator(`#${nativeNodeId}`);
+    await expect(browserTarget).toBeVisible();
+    const browserKeyframes = await browserTarget.evaluate((element) => {
+      const keyframes = element.getAnimations().flatMap((animation) => {
+        animation.pause();
+        return (
+          (animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []
+        );
+      });
+      return {
+        position: keyframes
+          .map((keyframe) => keyframe.translate)
+          .filter((value): value is string => typeof value === "string"),
+        scale: keyframes
+          .map((keyframe) => keyframe.scale)
+          .filter((value): value is string => typeof value === "string"),
+        alpineOpen: (window as any).Alpine?.$data(
+          document.querySelector("main"),
+        )?.open,
+      };
+    });
+    expect(browserKeyframes).toEqual({
+      position: ["-240px", "0px"],
+      scale: ["1.5", "1"],
+      alpineOpen: true,
     });
     await page.getByRole("button", { name: "Toggle visibility" }).click();
     await expect(browserTarget).toBeHidden();

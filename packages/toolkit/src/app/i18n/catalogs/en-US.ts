@@ -769,6 +769,9 @@ const messages = {
   "history.ownedBy": "Owner: {{name}}",
   "history.accessDirect": "Shared with you",
   "history.accessOrganization": "Shared with your organization",
+  "history.copyLink": "Copy link",
+  "history.linkCopied": "Link copied",
+  "history.copyLinkFailed": "Couldn't copy the link",
   "integrations.availableSection": "Available integrations",
   "integrations.connectedSection": "Connected",
   "integrations.goToApiKeys": "Go to API keys",
@@ -1514,6 +1517,8 @@ const messages = {
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
   "widget.chartActions": "Chart actions",
+  "widget.chartRowsOmitted":
+    "This chart shows only some of the available rows.",
   "widget.dataSources": "Data sources",
   "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",

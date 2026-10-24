@@ -136,6 +136,8 @@ const database = {
   githubSyncingProgress: "Trayendo cambios: {{done}} de {{total}} archivos",
   githubPicturesWaiting:
     "Algunas imágenes no se mostrarán hasta que un administrador del espacio de trabajo configure el almacenamiento de archivos.",
+  githubPicturesNotSaved:
+    "Algunas imágenes no se pudieron guardar en el almacenamiento de archivos. Cada sincronización vuelve a intentarlo.",
   githubReconnect: "Volver a conectar GitHub",
   githubProblemConnection:
     "Actualización detenida: GitHub necesita que vuelvas a iniciar sesión.",
@@ -213,6 +215,7 @@ const database = {
   listRowsMedium: "Media",
   listRowsBold: "Negrita",
   listRowsNothing: "Nada",
+  listRowsPageText: "Texto de la página",
   listRowsOneLine: "1 línea",
   listRowsLineCount: "{{count}} líneas",
   listRowsNoStatus: "Sin estado",
@@ -1434,6 +1437,11 @@ const comments = {
   replyCount_one: "{{count}} respuesta",
   replyCount_many: "{{count}} respuestas",
   replyCount_other: "{{count}} respuestas",
+  stackCollapse: "Contraer",
+  stackShowAll_one: "Mostrar {{count}} comentario aquí",
+  stackShowAll_many: "Mostrar los {{count}} comentarios aquí",
+  stackShowAll_other: "Mostrar los {{count}} comentarios aquí",
+  stackMore: "+{{count}} más",
   commentActions: "Acciones del comentario",
   checkSaved: "Comprobar comentario guardado",
   edit: "Editar",
@@ -1468,6 +1476,10 @@ const comments = {
   proposalEditCount_other: "{{count}} cambios",
   acceptRemaining: "Aceptar restantes",
   rejectRemaining: "Rechazar restantes",
+  acceptAll: "Aceptar todas",
+  rejectAll: "Rechazar todas",
+  suggestionReviewReadOnly:
+    "Solo quienes pueden editar esta página pueden aceptar o rechazar sus sugerencias.",
   typeFilter: "Tipo",
   statusFilter: "Estado",
   authorFilter: "Persona",
@@ -1922,6 +1934,13 @@ const overrides = {
   comments: {
     add: "Añadir comentario...",
     cancel: "Cancelar",
+    discardCommentQuestion: "¿Descartar el comentario?",
+    discardReplyQuestion: "¿Descartar la respuesta?",
+    discardEditQuestion: "¿Descartar los cambios?",
+    discardDescription: "Se perderá lo que has escrito.",
+    discardEditDescription: "Tu comentario se quedará como estaba.",
+    discard: "Descartar",
+    keepEditing: "Seguir editando",
     submit: "Comentar",
     askAi: "Preguntar a la IA",
     aiBadge: "IA",

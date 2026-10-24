@@ -8,7 +8,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -492,7 +493,21 @@ export default defineAction({
     };
     classifyPlans(initialSnapshot);
 
-    if (!dryRun) {
+    const rebindsExistingPage = (plan: (typeof plans)[number]) =>
+      !!plan.existing &&
+      !plan.conflict &&
+      !plan.keepContent &&
+      (plan.applyIncoming ||
+        plan.existing.sourcePath !== plan.file.path ||
+        plan.existing.sourceRootPath !== target.source.sourceTable);
+
+    if (dryRun) {
+      // The sync refuses as a whole when it would link a page switched to its
+      // live copy, so its preview does too.
+      for (const plan of plans) {
+        if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
+      }
+    } else {
       await db.transaction(async (tx: any) => {
         const claimedSources = await tx
           .update(schema.contentDatabaseSources)
@@ -667,11 +682,8 @@ export default defineAction({
               ownerEmail: userEmail,
               orgId: target.database.orgId,
             });
-          } else if (
-            plan.applyIncoming ||
-            plan.existing.sourcePath !== plan.file.path ||
-            plan.existing.sourceRootPath !== target.source.sourceTable
-          ) {
+          } else if (rebindsExistingPage(plan)) {
+            await assertLocalFileLinkable(plan.id, { transaction: tx });
             const versionId = opaqueId(
               "content_document_version",
               `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
@@ -694,14 +706,20 @@ export default defineAction({
                 updatedAt: now,
               })
               .onConflictDoNothing();
+            const legacy = plan.applyIncoming
+              ? await lockLegacyBodyWrites(tx, [plan.id], {
+                  operation: "sync-local-folder-source",
+                  content: plan.file.content,
+                })
+              : undefined;
             const reboundDocuments = await tx
               .update(schema.documents)
               .set({
-                ...(plan.applyIncoming
+                ...(legacy
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
-                      bodyRevision: bodyRevisionForContent(plan.file.content),
+                      bodyRevision: legacy.bodyRevision(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,

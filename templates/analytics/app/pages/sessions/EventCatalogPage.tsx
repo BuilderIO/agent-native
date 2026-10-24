@@ -82,6 +82,9 @@ export default function EventCatalogPage() {
   const automaticOnlyApps = (data?.apps ?? []).filter(
     (item) => item.onlyAutomaticEvents,
   );
+  const noUsedItApps = (data?.apps ?? [])
+    .filter((item) => item.makesOutputs && !item.usedItEvents.length)
+    .map((item) => item.app || t("sessions.unknownApp"));
   const sessionsHref = `/sessions${
     range !== "30d" || app
       ? `?${new URLSearchParams({
@@ -190,7 +193,7 @@ export default function EventCatalogPage() {
           </Button>
         </div>
 
-        {automaticOnlyApps.length ? (
+        {automaticOnlyApps.length || noUsedItApps.length ? (
           <Alert role="status">
             <IconInfoCircle />
             <AlertDescription>
@@ -201,6 +204,13 @@ export default function EventCatalogPage() {
                   })}
                 </p>
               ))}
+              {noUsedItApps.length ? (
+                <p>
+                  {t("sessions.catalogNoUsedIt", {
+                    apps: noUsedItApps.join(", "),
+                  })}
+                </p>
+              ) : null}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -281,6 +291,13 @@ function CatalogRow({
           {entry.stoppedFiring ? (
             <Badge variant="outline">
               {t("sessions.catalogStoppedFiring")}
+            </Badge>
+          ) : null}
+          {entry.outputRole ? (
+            <Badge variant="outline">
+              {entry.outputRole === "made"
+                ? t("sessions.catalogMadeIt")
+                : t("sessions.catalogUsedIt")}
             </Badge>
           ) : null}
         </span>

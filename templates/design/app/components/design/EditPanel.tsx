@@ -1,11 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { recorder } from "@agent-native/core/client/recorder";
 import { readVisualScrubInputs } from "@agent-native/toolkit/design-tweaks";
-import {
-  alphaToOpacity,
-  normalizeCssColor,
-  parseCssColor,
-} from "@shared/color-utils";
+import { alphaToOpacity, parseCssColor } from "@shared/color-utils";
 import {
   listInteractionStates,
   readResolvedStateStyles,
@@ -26,21 +22,29 @@ import type {
 } from "@shared/motion-native-style";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import type { MotionPropertyPreset } from "@shared/motion-timeline";
-import { removeShaderFill } from "@shared/shader-fills";
 import {
+  IconAngle,
+  IconArrowUpRight,
   IconChevronDown,
   IconChevronRight,
+  IconCircle,
   IconCode,
   IconComponents,
   IconDeviceMobile,
   IconExternalLink,
   IconFrame,
   IconGridDots,
+  IconLine,
   IconPhoto,
   IconPlus,
   IconRefresh,
+  IconRotateClockwise,
+  IconSquare,
+  IconSquareDashed,
+  IconStar,
   IconTarget,
   IconTrash,
+  IconTriangle,
   IconVector,
 } from "@tabler/icons-react";
 import {
@@ -91,7 +95,6 @@ import {
   elementHtmlPreview,
   highlightedHtml,
   isBooleanPropValue,
-  normalizedElementTagName,
   openingTagOf,
   parseAlpineDataObject,
   replaceAlpineDataKeyValue,
@@ -112,9 +115,6 @@ import {
   extractDocumentColorPalette,
   type SelectionColorScope,
   selectionColorValues,
-  selectionFillAddedStyles,
-  selectionFillInspectorStyles,
-  selectionFillModel,
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
@@ -122,6 +122,7 @@ import {
   elementIsComponentSelection,
   inspectorObjectTitle,
   isBoxlessText,
+  isLineElement,
   isContainerElement,
   isTextElement,
   commitElementMinMax,
@@ -151,7 +152,11 @@ import {
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
 import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
-import { SectionIconButton } from "./edit-panel/inspector-controls";
+import {
+  InspectorIconButton,
+  InspectorSegment,
+  SectionIconButton,
+} from "./edit-panel/inspector-controls";
 import {
   authoredStyleValue,
   elementWithInteractionStateStyles,
@@ -222,6 +227,7 @@ import {
   DesignColorPicker,
   SizingField,
   type ScrubInputChangeMeta,
+  type ExportSettingsPanelController,
   type ExportSettingsValue,
   type FrameSizePreset,
   InteractionStatePanel,
@@ -234,20 +240,16 @@ import {
 } from "./inspector/color-picker-fill-field";
 import { IconText } from "./inspector/design-icons";
 import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
-import {
-  usePersistShaderEdit,
-  type GlslShaderPanelContext,
-  type ShaderSourceEditResult,
-  type ShaderSourceTransform,
-} from "./inspector/GlslShaderPanel";
+import { useRemoveSavedGlslShader } from "./inspector/saved-glsl-shader";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
+import {
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
-import {
-  MotionNativeStyleEditor,
-  type MotionNativeStyleIdentity,
-} from "./MotionNativeStyleEditor";
+import { MotionNativeStyleEditor } from "./MotionNativeStyleEditor";
 import { MotionTextAnimationEditor } from "./MotionTextAnimationEditor";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
@@ -259,6 +261,11 @@ import {
 } from "./multi-screen/screen-sizing";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
+import type {
+  ShaderEditorContext,
+  ShaderSourceEditResult,
+  ShaderSourceTransform,
+} from "./shader-source-coordination";
 import type { StatesPanelProps } from "./StatesPanel";
 import type { ElementInfo, TextEditingState } from "./types";
 
@@ -271,18 +278,6 @@ function elementInspectorKey(
 
 // guard:allow-raw-color — authored selections need a concrete CSS color fallback.
 const DEFAULT_AUTHORED_COLOR = "#000000";
-
-function lastCssColor(value: string): string | undefined {
-  const tokens =
-    value.match(
-      /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)|\boklch\([^()]*\)|\bcolor\(\s*(?:display-p3|srgb)\s[^()]*\)/gi,
-    ) ?? [];
-  for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    const normalized = normalizeCssColor(tokens[index] ?? "");
-    if (normalized) return normalized;
-  }
-  return undefined;
-}
 
 export {
   alpineDataValueLiteral,
@@ -340,7 +335,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
+const NO_SHADER_CONTEXT: ShaderEditorContext = {};
 
 /**
  * The Fill section with its shader removal wired. Removing a shader fill takes
@@ -351,18 +346,14 @@ const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
 function ShaderAwareFillProperties(
   props: ComponentProps<typeof FillProperties>,
 ) {
-  const { persist } = usePersistShaderEdit(
-    props.glslShaderContext ?? NO_SHADER_CONTEXT,
+  const { remove } = useRemoveSavedGlslShader(
+    props.shaderContext ?? NO_SHADER_CONTEXT,
   );
-  const nodeId = props.glslShaderContext?.nodeId;
+  const nodeId = props.shaderContext?.nodeId;
   return (
     <FillProperties
       {...props}
-      onRemoveShaderFill={
-        nodeId
-          ? () => void persist((html) => removeShaderFill(html, nodeId))
-          : undefined
-      }
+      onRemoveShaderFill={nodeId ? () => void remove("fill") : undefined}
     />
   );
 }
@@ -395,7 +386,7 @@ interface EditPanelProps {
   onScreenGeometryChange?: (
     screenId: string,
     next: Partial<
-      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height" | "rotation">
     >,
   ) => void;
   onScreenHeightModeChange?: (screenId: string, mode: ScreenHeightMode) => void;
@@ -433,10 +424,6 @@ interface EditPanelProps {
   canSelectSelectionColorTarget?: (color: string) => boolean;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
   readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
-  onGroupFillStylesChange?: (
-    styles: Record<string, string>,
-    meta?: StyleChangeMeta,
-  ) => boolean;
   zoom?: number;
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
@@ -510,20 +497,16 @@ interface EditPanelProps {
   aiActions?: ReactNode;
   activeTool?: string;
   scaleToolControls?: ScaleToolControls;
-  onCreateScreenFromPreset?: (preset: {
-    name: string;
-    width: number;
-    height: number;
-  }) => void;
+  onCreateScreenFromPreset?: (preset: FrameSizePreset) => void;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
   alignSelectionDisabled?: boolean;
+  alignSelectionDisabledReason?: string;
   onInteractionStateChange?: (state: ActiveInteractionState) => void;
   availableInteractionStates?: readonly InteractionState[];
-  onEditCode?: (shaderId: string) => void;
   motionKeyframeState?: {
     hasTimeline: boolean;
     keyframedProperties: readonly string[];
@@ -539,6 +522,10 @@ interface EditPanelProps {
   onCreateMotionTrack?: (preset: MotionPropertyPreset) => void;
   onCreateMotionStyle?: (style: MotionAnimationStyle) => void;
   motionNativeStyles?: MotionNativeStyleInstance[];
+  selectedMotionNativeStyle?: MotionNativeStyleIdentity | null;
+  onSelectMotionNativeStyle?: (
+    identity: MotionNativeStyleIdentity | null,
+  ) => void;
   motionEasingVariables?: MotionEasingVariable[];
   onMotionEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   onCreateMotionNativeStyle?: (styleKey: MotionNativeStyleKey) => void;
@@ -583,6 +570,8 @@ export interface ScreenGeometrySelection {
   y: number;
   width: number;
   height: number;
+  /** Canvas degrees, clockwise; the field shows it counter-clockwise, like layer Rotation. */
+  rotation?: number;
   heightMode?: ScreenHeightMode;
   sizeConstraints?: ScreenSizeConstraints;
 }
@@ -909,14 +898,23 @@ function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
   );
 }
 
+const TITLE_ICONS: Readonly<Record<string, typeof IconFrame>> = {
+  Group: IconSquareDashed,
+  Rectangle: IconSquare,
+  Ellipse: IconCircle,
+  Line: IconLine,
+  Arrow: IconArrowUpRight,
+  Polygon: IconTriangle,
+  Star: IconStar,
+  Image: IconPhoto,
+  Video: IconPhoto,
+  Vector: IconVector,
+};
+
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
-  const tag = normalizedElementTagName(element.tagName);
   if (isTextElement(element)) return IconText;
-  if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
-  if (tag === "svg" || tag === "path") return IconVector;
-  if (tag === "button" || tag === "a") return IconComponents;
-  return IconFrame;
+  return TITLE_ICONS[inspectorObjectTitle(element)] ?? IconFrame;
 }
 
 function SelectionHeader({
@@ -1112,7 +1110,7 @@ function ScreenGeometryProperties({
   onGeometryChange?: (
     screenId: string,
     next: Partial<
-      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height" | "rotation">
     >,
   ) => void;
   onHeightModeChange?: (screenId: string, mode: ScreenHeightMode) => void;
@@ -1201,7 +1199,10 @@ function ScreenGeometryProperties({
   const commit = useCallback(
     (
       next: Partial<
-        Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+        Pick<
+          ScreenGeometrySelection,
+          "x" | "y" | "width" | "height" | "rotation"
+        >
       >,
     ) => onGeometryChange?.(screen.id, next),
     [onGeometryChange, screen.id],
@@ -1383,6 +1384,49 @@ function ScreenGeometryProperties({
                 disabled={!editable}
                 inputClassName="h-6"
               />
+            }
+          />
+        </div>
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
+          <InspectorActionPairGrid
+            className="items-center"
+            left={
+              <ScrubStyleInput
+                label="Rotation"
+                ariaLabel={t("editPanel.labels.rotation")}
+                tooltipLabel={t("editPanel.labels.rotation")}
+                hideIcon={false}
+                icon={IconAngle}
+                labelClassName="[&>span]:sr-only"
+                value={`${normalizeRotationDegrees(-(screen.rotation ?? 0))}deg`}
+                unit="deg"
+                onChange={
+                  editable
+                    ? (value) =>
+                        commit({ rotation: normalizeRotationDegrees(-value) })
+                    : noop
+                }
+                disabled={!editable}
+                inputClassName="h-6"
+              />
+            }
+            right={
+              <InspectorSegment className="w-full">
+                <InspectorIconButton
+                  label={t("canvasMenu.rotateClockwise")}
+                  disabled={!editable}
+                  onClick={() =>
+                    commit({
+                      rotation: normalizeRotationDegrees(
+                        (screen.rotation ?? 0) + 90,
+                      ),
+                    })
+                  }
+                >
+                  <IconRotateClockwise className="size-4" />
+                </InspectorIconButton>
+              </InspectorSegment>
             }
           />
         </div>
@@ -2033,95 +2077,6 @@ export function SelectionColorsProperties({
   );
 }
 
-function GroupFillProperties({
-  scopes,
-  documentColors,
-  disabled,
-  onStylesChange,
-  mostRecentFillColor,
-}: {
-  scopes: SelectionColorScope[];
-  documentColors: string[];
-  disabled: boolean;
-  onStylesChange?: (
-    styles: Record<string, string>,
-    meta?: StyleChangeMeta,
-  ) => boolean;
-  mostRecentFillColor?: string;
-}) {
-  const model = useMemo(() => selectionFillModel(scopes), [scopes]);
-  const styles = useMemo(() => selectionFillInspectorStyles(model), [model]);
-  const metadataForFillUpload = useCallback(
-    (meta?: StyleChangeMeta) =>
-      withCapturedSelectionColorScopeIdentities(scopes, meta),
-    [scopes],
-  );
-  const element = useMemo<ElementInfo>(
-    () => ({
-      tagName: "div",
-      sourceId: "group-fill-inspector",
-      selector: "[data-agent-native-group='true']",
-      isGroup: true,
-      classes: [],
-      isFlexChild: false,
-      isFlexContainer: false,
-      computedStyles: styles,
-      inlineStyles: styles,
-      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
-    }),
-    [styles],
-  );
-  const onStyleChange = useCallback<StyleChangeHandler>(
-    (property, value, meta) =>
-      onStylesChange?.(
-        { ...styles, [property]: value },
-        metadataForFillUpload(meta),
-      ),
-    [metadataForFillUpload, onStylesChange, styles],
-  );
-  const onBatchStyleChange = useCallback<StylesChangeHandler>(
-    (nextStyles, meta) =>
-      onStylesChange?.(
-        { ...styles, ...nextStyles },
-        metadataForFillUpload(meta),
-      ),
-    [metadataForFillUpload, onStylesChange, styles],
-  );
-  const onAddFill = useCallback(() => {
-    if (disabled || !onStylesChange) return null;
-    const added = selectionFillAddedStyles(model, mostRecentFillColor);
-    return onStylesChange(added.styles) ? added.open : null;
-  }, [disabled, model, mostRecentFillColor, onStylesChange]);
-  const uploadScopeKey = JSON.stringify(
-    scopes
-      .map((scope) => [
-        scope.fileId,
-        scope.sourceId ?? "",
-        scope.selector ?? "",
-        scope.wholeDocument === true,
-      ])
-      .sort((left, right) => {
-        const leftKey = JSON.stringify(left);
-        const rightKey = JSON.stringify(right);
-        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
-      }),
-  );
-
-  return (
-    <FillProperties
-      element={element}
-      onStyleChange={disabled ? () => undefined : onStyleChange}
-      onStylesChange={disabled ? undefined : onBatchStyleChange}
-      documentColorPalette={documentColors}
-      hideAddFill={disabled}
-      cancelOpacityGestureOnHistoryUndo={!disabled}
-      allowDesignHistoryHotkeys={!disabled}
-      onAddFill={onAddFill}
-      uploadScopeKey={uploadScopeKey}
-    />
-  );
-}
-
 const NO_DOCUMENT_COLORS: string[] = [];
 
 function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
@@ -2217,7 +2172,6 @@ export const EditPanel = memo(function EditPanel({
   canSelectSelectionColorTarget,
   onSelectionColorPickerOpenChange,
   readSubtreeColorStyles,
-  onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
   mode,
   inspectorGridDebug = false,
@@ -2264,11 +2218,11 @@ export const EditPanel = memo(function EditPanel({
   onCreateScreenFromPreset,
   onAlignSelection,
   alignSelectionDisabled = false,
+  alignSelectionDisabledReason,
   onDisableAutoLayout,
   onApplyLayoutFlow,
   onInteractionStateChange,
   availableInteractionStates,
-  onEditCode,
   motionKeyframeState,
   onToggleMotionKeyframe,
   motionSelectedTarget,
@@ -2281,6 +2235,8 @@ export const EditPanel = memo(function EditPanel({
   onCreateMotionNativeStyle,
   onMotionNativeStyleChange,
   onRemoveMotionNativeStyle,
+  selectedMotionNativeStyle,
+  onSelectMotionNativeStyle,
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
@@ -2299,8 +2255,39 @@ export const EditPanel = memo(function EditPanel({
   motionCode,
   breakpointContext,
 }: EditPanelProps) {
-  const recentFillColorRef = useRef<string | undefined>(undefined);
   const t = useT();
+  const inspectorMotionStyle = resolveMotionNativeStyleIdentity(
+    motionNativeStyles,
+    selectedMotionNativeStyle?.targetNodeId ?? motionSelectedTarget?.nodeId,
+    selectedMotionNativeStyle,
+  );
+  const inspectorMotionTargetNodeId =
+    inspectorMotionStyle?.targetNodeId ?? motionSelectedTarget?.nodeId ?? null;
+  const inspectorMotionTargetLabel = inspectorMotionTargetNodeId
+    ? (motionCode?.targets.find(
+        (target) => target.nodeId === inspectorMotionTargetNodeId,
+      )?.label ??
+      motionCode?.nodes.find((node) => node.id === inspectorMotionTargetNodeId)
+        ?.layerName ??
+      (motionSelectedTarget?.nodeId === inspectorMotionTargetNodeId
+        ? motionSelectedTarget.label
+        : inspectorMotionTargetNodeId))
+    : null;
+  const inspectorMotionCode =
+    motionCode &&
+    inspectorMotionTargetNodeId &&
+    inspectorMotionTargetNodeId !== motionSelectedTarget?.nodeId
+      ? {
+          ...motionCode,
+          targets: [
+            {
+              nodeId: inspectorMotionTargetNodeId,
+              label: inspectorMotionTargetLabel ?? inspectorMotionTargetNodeId,
+            },
+          ],
+        }
+      : motionCode;
+  const exportPanelRef = useRef<ExportSettingsPanelController>(null);
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
@@ -2427,7 +2414,7 @@ export const EditPanel = memo(function EditPanel({
   // the active one: a frame drawn on the board lives in the board file.
   const shaderFileId =
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
-  const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
+  const shaderContext: ShaderEditorContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
     // A screen deleted while selected is gone; reading it would 404.
     if (!files?.some((file) => file.id === shaderFileId)) return undefined;
@@ -2439,7 +2426,6 @@ export const EditPanel = memo(function EditPanel({
       nodeId,
       selector: inspectorElement?.selector,
       onApplied: onShaderSourceApplied,
-      onEditCode,
     };
     if (shaderFileId === boardFileId) {
       // The board is held by the editor and cannot be fetched or written
@@ -2471,7 +2457,6 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.selector,
     onShaderSourceApplied,
     onShaderSourceEdit,
-    onEditCode,
   ]);
   const textContrastContext: TextContrastContext | undefined = useMemo(() => {
     if (selectedCount > 1 || !inspectorElement) return undefined;
@@ -2494,29 +2479,26 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId,
     selectedCount,
   ]);
-  const screenGlslShaderContext: GlslShaderPanelContext | undefined =
-    useMemo(() => {
-      const screenFileId = selectedScreenGeometry?.id;
-      const nodeId = selectedScreenElement?.sourceId;
-      if (!designId || !screenFileId || !nodeId) return undefined;
-      if (!files?.some((file) => file.id === screenFileId)) return undefined;
-      return {
-        designId,
-        fileId: screenFileId,
-        nodeId,
-        selector: selectedScreenElement?.selector,
-        onApplied: onShaderSourceApplied,
-        onEditCode,
-      };
-    }, [
+  const screenShaderContext: ShaderEditorContext | undefined = useMemo(() => {
+    const screenFileId = selectedScreenGeometry?.id;
+    const nodeId = selectedScreenElement?.sourceId;
+    if (!designId || !screenFileId || !nodeId) return undefined;
+    if (!files?.some((file) => file.id === screenFileId)) return undefined;
+    return {
       designId,
-      files,
-      selectedScreenGeometry?.id,
-      selectedScreenElement?.sourceId,
-      selectedScreenElement?.selector,
-      onShaderSourceApplied,
-      onEditCode,
-    ]);
+      fileId: screenFileId,
+      nodeId,
+      selector: selectedScreenElement?.selector,
+      onApplied: onShaderSourceApplied,
+    };
+  }, [
+    designId,
+    files,
+    selectedScreenGeometry?.id,
+    selectedScreenElement?.sourceId,
+    selectedScreenElement?.selector,
+    onShaderSourceApplied,
+  ]);
   const documentColorPalette = useDocumentColorPalette(files);
   const selectedScreenElements = useMemo(
     () => (selectedScreenElement ? [selectedScreenElement] : []),
@@ -2555,11 +2537,17 @@ export const EditPanel = memo(function EditPanel({
   const selectionIsTextOnly =
     effectiveSelectedElements.length > 0 &&
     effectiveSelectedElements.every((element) => isTextElement(element));
-  const selectionIsBoxlessText =
+  const selectionIsLineOnly =
     effectiveSelectedElements.length > 0 &&
-    effectiveSelectedElements.every((element) => isBoxlessText(element));
+    effectiveSelectedElements.every((element) => isLineElement(element));
   const selectionIsGroup =
     selectedCount === 1 && inspectorElement?.isGroup === true;
+  const selectionHidesCornerRadius =
+    selectionIsGroup ||
+    (effectiveSelectedElements.length > 0 &&
+      effectiveSelectedElements.every(
+        (element) => isBoxlessText(element) || isLineElement(element),
+      ));
   const selectionHasContainerElement = effectiveSelectedElements.some(
     (element) => isContainerElement(element),
   );
@@ -2604,6 +2592,24 @@ export const EditPanel = memo(function EditPanel({
     selectedCount,
     inspectorElement?.sourceId,
   ]);
+
+  const interactionStatePanel =
+    !motionInspector && shouldRenderInteractionStatePanel ? (
+      <InteractionStatePanel
+        activeState={interactionState}
+        onActiveStateChange={handleInteractionStateChange}
+        open={interactionStateMenuOpen}
+        onOpenChange={setInteractionStateMenuOpen}
+        availableStates={availableInteractionStates}
+        statesWithOverrides={interactionStatesWithOverrides}
+      />
+    ) : null;
+  // Top slot only while the layer has states to edit; otherwise the picker
+  // waits below Layout instead of leading every inspector.
+  const interactionStatePinned =
+    !inspectorElement ||
+    interactionState !== null ||
+    (interactionStatesWithOverrides?.size ?? 0) > 0;
 
   const activeInteractionStateStyles = useMemo(():
     | Record<string, string>
@@ -2676,19 +2682,6 @@ export const EditPanel = memo(function EditPanel({
         value,
         interactionState ? { ...meta, interactionState } : meta,
       );
-      if (
-        meta?.phase !== "preview" &&
-        [
-          "background",
-          "backgroundColor",
-          "backgroundImage",
-          "color",
-          "fill",
-        ].includes(property)
-      ) {
-        recentFillColorRef.current =
-          lastCssColor(value) ?? recentFillColorRef.current;
-      }
     },
     [onStyleChangeProp, interactionState],
   );
@@ -2699,19 +2692,6 @@ export const EditPanel = memo(function EditPanel({
         styles,
         interactionState ? { ...meta, interactionState } : meta,
       );
-      if (meta?.phase !== "preview") {
-        const candidate = [
-          styles.fill,
-          styles.backgroundColor,
-          styles.backgroundImage,
-          styles.color,
-          styles.background,
-        ]
-          .filter((value): value is string => Boolean(value))
-          .map(lastCssColor)
-          .find((value): value is string => Boolean(value));
-        if (candidate) recentFillColorRef.current = candidate;
-      }
     },
     [onStylesChangeProp, interactionState],
   );
@@ -2723,25 +2703,6 @@ export const EditPanel = memo(function EditPanel({
         interactionState ? { ...meta, interactionState } : meta,
       ),
     [interactionState, onSelectionColorChangeProp],
-  );
-  const onGroupFillStylesChange = useCallback(
-    (styles: Record<string, string>, meta?: StyleChangeMeta) => {
-      const applied = onGroupFillStylesChangeProp?.(styles, meta) ?? false;
-      if (applied && meta?.phase !== "preview" && meta?.phase !== "cancel") {
-        const candidate = [
-          styles.backgroundImage,
-          styles.backgroundColor,
-          styles.color,
-          styles.fill,
-        ]
-          .filter((value): value is string => Boolean(value))
-          .map(lastCssColor)
-          .find((value): value is string => Boolean(value));
-        if (candidate) recentFillColorRef.current = candidate;
-      }
-      return applied;
-    },
-    [onGroupFillStylesChangeProp],
   );
 
   const breakpointOverrideFieldContext = useMemo(():
@@ -2909,7 +2870,11 @@ export const EditPanel = memo(function EditPanel({
                 {!inspectorElement && selectedScreenGeometry ? (
                   <ScreenSelectionHeader
                     screen={selectedScreenGeometry}
-                    route={selectedScreenRoute}
+                    route={
+                      selectedScreenSource?.sourceType === "url"
+                        ? selectedScreenRoute
+                        : undefined
+                    }
                     trailing={gridDebugToggle}
                   />
                 ) : null}
@@ -3065,7 +3030,7 @@ export const EditPanel = memo(function EditPanel({
                           onStyleChange={onSelectedScreenStyleChange}
                           onStylesChange={onSelectedScreenStylesChange}
                           documentColorPalette={documentColorPalette}
-                          glslShaderContext={screenGlslShaderContext}
+                          shaderContext={screenShaderContext}
                           readSubtreeColorStyles={readSubtreeColorStyles}
                         />
                         <StrokeProperties
@@ -3079,7 +3044,7 @@ export const EditPanel = memo(function EditPanel({
                           element={selectedScreenElement}
                           onStyleChange={onSelectedScreenStyleChange}
                           onStylesChange={onSelectedScreenStylesChange}
-                          glslShaderContext={screenGlslShaderContext}
+                          shaderContext={screenShaderContext}
                         />
                         <SelectionColorsProperties
                           elements={selectedScreenElements}
@@ -3132,16 +3097,7 @@ export const EditPanel = memo(function EditPanel({
                   />
                 ) : null}
 
-                {!motionInspector && shouldRenderInteractionStatePanel ? (
-                  <InteractionStatePanel
-                    activeState={interactionState}
-                    onActiveStateChange={handleInteractionStateChange}
-                    open={interactionStateMenuOpen}
-                    onOpenChange={setInteractionStateMenuOpen}
-                    availableStates={availableInteractionStates}
-                    statesWithOverrides={interactionStatesWithOverrides}
-                  />
-                ) : null}
+                {interactionStatePinned ? interactionStatePanel : null}
 
                 {inspectorElement && (
                   <>
@@ -3248,25 +3204,37 @@ export const EditPanel = memo(function EditPanel({
                           ) : null
                         }
                       >
-                        {motionInspector && !motionSelectedTarget ? (
+                        {motionInspector &&
+                        !motionSelectedTarget &&
+                        !inspectorMotionStyle ? (
                           <p className="px-3 py-2 text-xs text-muted-foreground">
                             {t("designEditor.motion.emptyStateNoSelection")}
                           </p>
                         ) : null}
-                        {motionSelectedTarget ? (
+                        {inspectorMotionTargetNodeId ? (
                           <MotionCodeView
-                            input={motionCode}
+                            input={inspectorMotionCode}
                             hasList={motionNativeStyles.some(
                               (style) =>
                                 style.targetNodeId ===
-                                motionSelectedTarget.nodeId,
+                                inspectorMotionTargetNodeId,
                             )}
                             t={t}
                             list={
                               <MotionNativeStyleEditor
                                 styles={motionNativeStyles}
-                                targetNodeId={motionSelectedTarget.nodeId}
-                                isText={motionSelectedTarget.isText}
+                                targetNodeId={inspectorMotionTargetNodeId}
+                                selectedStyle={selectedMotionNativeStyle}
+                                onSelectedStyleChange={
+                                  onSelectMotionNativeStyle
+                                }
+                                isText={
+                                  motionSelectedTarget?.nodeId ===
+                                  inspectorMotionTargetNodeId
+                                    ? motionSelectedTarget.isText
+                                    : inspectorMotionStyle?.styleKey ===
+                                      "TextStagger"
+                                }
                                 disabled={motionWriteUnavailable}
                                 easingVariables={motionEasingVariables}
                                 onEasingVariablesChange={
@@ -3310,6 +3278,9 @@ export const EditPanel = memo(function EditPanel({
                       onStylesChange={onStylesChange}
                       onAlignSelection={onAlignSelection}
                       alignSelectionDisabled={alignSelectionDisabled}
+                      alignSelectionDisabledReason={
+                        alignSelectionDisabledReason
+                      }
                       motionKeyframeContext={motionKeyframeFieldContext}
                       breakpointOverrideContext={breakpointOverrideFieldContext}
                       motionInspector={motionInspector}
@@ -3370,6 +3341,7 @@ export const EditPanel = memo(function EditPanel({
                         }
                       />
                     )}
+                    {interactionStatePinned ? null : interactionStatePanel}
                     <AppearanceProperties
                       key={`appearance:${inspectorElementSectionKey}`}
                       element={
@@ -3385,7 +3357,7 @@ export const EditPanel = memo(function EditPanel({
                       breakpointOverrideContext={breakpointOverrideFieldContext}
                       vectorPointRadius={vectorPointRadius}
                       vectorPointSelected={vectorPointSelected}
-                      cornerRadiusDisabled={selectionIsBoxlessText}
+                      showCornerRadius={!selectionHidesCornerRadius}
                       onVectorPointRadiusChange={onVectorPointRadiusChange}
                     />
                     {!motionInspector && selectionHasTextElement ? (
@@ -3402,22 +3374,7 @@ export const EditPanel = memo(function EditPanel({
                         onFontUploaded={onFontUploaded}
                       />
                     ) : null}
-                    {selectionIsGroup ? (
-                      motionInspector ? null : (
-                        <GroupFillProperties
-                          key={`group-fill:${inspectorElementSectionKey}`}
-                          scopes={selectionColorScopes}
-                          documentColors={documentColorPalette}
-                          disabled={readOnly || Boolean(interactionState)}
-                          onStylesChange={
-                            readOnly || interactionState
-                              ? undefined
-                              : onGroupFillStylesChange
-                          }
-                          mostRecentFillColor={recentFillColorRef.current}
-                        />
-                      )
-                    ) : (
+                    {selectionIsGroup || selectionIsLineOnly ? null : (
                       <ShaderAwareFillProperties
                         key={`fill:${inspectorElementSectionKey}`}
                         element={
@@ -3427,7 +3384,7 @@ export const EditPanel = memo(function EditPanel({
                         onStylesChange={onStylesChange}
                         capturedStyleTargets={capturedStyleTargets}
                         documentColorPalette={documentColorPalette}
-                        glslShaderContext={glslShaderContext}
+                        shaderContext={shaderContext}
                         contrastContext={textContrastContext}
                         motionKeyframeContext={motionKeyframeFieldContext}
                         breakpointOverrideContext={
@@ -3437,16 +3394,20 @@ export const EditPanel = memo(function EditPanel({
                         readSubtreeColorStyles={readSubtreeColorStyles}
                       />
                     )}
-                    <StrokeProperties
-                      key={`stroke:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={onStylesChange}
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                      breakpointOverrideContext={breakpointOverrideFieldContext}
-                    />
+                    {selectionIsGroup ? null : (
+                      <StrokeProperties
+                        key={`stroke:${inspectorElementSectionKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                        breakpointOverrideContext={
+                          breakpointOverrideFieldContext
+                        }
+                      />
+                    )}
                     <EffectsProperties
                       key={`effects:${inspectorElementSectionKey}`}
                       element={
@@ -3454,7 +3415,7 @@ export const EditPanel = memo(function EditPanel({
                       }
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
-                      glslShaderContext={glslShaderContext}
+                      shaderContext={shaderContext}
                       motionKeyframeContext={motionKeyframeFieldContext}
                     />
                     {/* The breakpoint control also sits in the Screen section; an
@@ -3505,9 +3466,23 @@ export const EditPanel = memo(function EditPanel({
                   nothing to export, so the section was pure chrome on the
                   empty-canvas panel. */}
                 {onExport && (inspectorElement || selectedScreenGeometry) ? (
-                  <PanelSection title={t("editPanel.sections.export")}>
+                  <PanelSection
+                    title={t("editPanel.sections.export")}
+                    actions={
+                      <SectionIconButton
+                        label={
+                          "Add export" /* i18n-ignore design inspector action */
+                        }
+                        disabled={exporting}
+                        onClick={() => exportPanelRef.current?.addRow()}
+                      >
+                        <IconPlus className="size-3.5" />
+                      </SectionIconButton>
+                    }
+                  >
                     <ExportSettingsPanel
                       key={selectedElementKey}
+                      controllerRef={exportPanelRef}
                       value={exportSettings}
                       formats={["png", "svg", "pdf"]}
                       exporting={exporting}

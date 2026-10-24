@@ -28,6 +28,10 @@ import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
+  decodeMotionPrototypeTransitionAttribute,
+  type MotionPrototypeTransitionDecodeResult,
+} from "@shared/motion-prototype-transition";
+import {
   appendPenNode,
   clonePenPath,
   closePenPath,
@@ -70,8 +74,6 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
-import { attachNativePreviewViewportPublisher } from "@/components/design/bridge/native-preview-viewport-transport";
-import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -81,6 +83,7 @@ import {
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
+import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
@@ -175,10 +178,7 @@ import {
   inlineDesignStylesheets,
   useDesignStylesheets,
 } from "./design-canvas/linked-stylesheets";
-import {
-  withLocalRuntimes,
-  withNativeShaderRuntime,
-} from "./design-canvas/local-runtime";
+import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import {
   applyMotionPathEdit,
@@ -189,15 +189,11 @@ import type {
   MotionTrackWire,
 } from "./design-canvas/motion-types";
 import {
-  connectNativePublicAssetPreview,
-  prepareNativePublicAssetPreviewDocument,
-  type NativePublicAssetPreviewDocument,
-} from "./design-canvas/native-public-asset-preview";
-import {
-  connectNativePublicWorkerPreview,
-  prepareNativePublicWorkerPreviewDocument,
-  type NativePublicWorkerPreviewDocument,
-} from "./design-canvas/native-public-worker-preview";
+  connectNativePreviewSurface,
+  nativePreviewSurfaceDocumentKey,
+  prepareNativePreviewSurface,
+  type NativePreviewSurfaceDocument,
+} from "./design-canvas/native-preview-surface";
 import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
@@ -402,8 +398,6 @@ function isAllowedFusionOrigin(
   return host === "builder.io" || host.endsWith(".builder.io");
 }
 
-if (typeof window !== "undefined") installNativeWorkerBroker(window);
-
 const EDITABLE_FOCUS_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-agent-native-text-editing]';
 
@@ -573,6 +567,7 @@ ${editorChromeBridgeScript}
 interface ReplacedPreviewFrame {
   key: string;
   srcDoc: string;
+  nativePreview: NativePreviewSurfaceDocument | null;
   sandbox: string;
   name: string | undefined;
   interactMode: boolean;
@@ -733,7 +728,9 @@ interface DesignCanvasProps {
     contentOffsetY?: number;
   };
   boardSurface?: boolean;
+  nativeAnimationEpochMs?: number;
   fitRootBodyToFrame?: boolean;
+  screenHeightMode?: "auto" | "fixed" | "hug";
   runtimeReplacementContent?: string;
   authoredSourceContent?: string;
   runtimeReplacementKey?: string;
@@ -959,7 +956,12 @@ interface DesignCanvasProps {
   repromptDraftRequest?: RepromptDraftRequest | null;
   onRepromptDraftConsumed?: (nonce: number) => void;
   nodeRewriteCanvasTarget?: boolean;
-  onPrototypeNavigate?: (screen: string, href: string) => void;
+  onPrototypeNavigate?: (
+    screen: string,
+    href: string,
+    transition: MotionPrototypeTransitionDecodeResult,
+    sourceFrame: HTMLIFrameElement,
+  ) => void;
   motionTracks?: MotionTrackWire[];
   motionEasingVariables?: MotionEasingVariable[];
   motionDefaultEase?: string;
@@ -976,11 +978,6 @@ interface DesignCanvasProps {
   ) => MotionPathTracksChangeResult | void;
   previewWidthPx?: number;
   previewHeightPx?: number;
-  shaderFillPreview?: {
-    selector?: string;
-    nodeId?: string;
-    css: string;
-  } | null;
   gradientEditTarget?: {
     nodeId: string;
     cssValue: string;
@@ -1521,7 +1518,9 @@ export function DesignCanvas({
   deviceFrame,
   embeddedFrame,
   boardSurface = false,
+  nativeAnimationEpochMs,
   fitRootBodyToFrame,
+  screenHeightMode,
   runtimeReplacementContent,
   authoredSourceContent,
   runtimeReplacementKey,
@@ -1627,7 +1626,6 @@ export function DesignCanvas({
   previewWidthPx,
   previewHeightPx,
   onComponentSourceJump,
-  shaderFillPreview,
   gradientEditTarget,
   onGradientEditChange,
   statePreviewTarget,
@@ -1646,23 +1644,13 @@ export function DesignCanvas({
     useState<ReplacedPreviewFrame | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const replacedFrameRef = useRef<HTMLIFrameElement>(null);
-  const nativeViewportPublisherCleanupsRef = useRef(
+  const nativeInteractivePreviewCleanupsRef = useRef(
     new Map<HTMLIFrameElement, () => void>(),
   );
-  const nativePublicAssetPreviewCleanupsRef = useRef(
-    new Map<HTMLIFrameElement, () => void>(),
-  );
-  const nativePublicWorkerPreviewCleanupsRef = useRef(
-    new Map<HTMLIFrameElement, () => void>(),
-  );
-  const nativePublicAssetPreviewRef =
-    useRef<NativePublicAssetPreviewDocument | null>(null);
-  const replacedPublicAssetPreviewRef =
-    useRef<NativePublicAssetPreviewDocument | null>(null);
-  const nativePublicWorkerPreviewRef =
-    useRef<NativePublicWorkerPreviewDocument | null>(null);
-  const replacedPublicWorkerPreviewRef =
-    useRef<NativePublicWorkerPreviewDocument | null>(null);
+  const nativeInteractivePreviewRef =
+    useRef<NativePreviewSurfaceDocument | null>(null);
+  const replacedNativeInteractivePreviewRef =
+    useRef<NativePreviewSurfaceDocument | null>(null);
   const setPreviewFrameRef = useCallback(
     (
       ref: React.RefObject<HTMLIFrameElement | null>,
@@ -1671,39 +1659,18 @@ export function DesignCanvas({
       const previous = ref.current;
       if (previous === next) return;
       if (previous && previous !== next) {
-        nativeViewportPublisherCleanupsRef.current.get(previous)?.();
-        nativeViewportPublisherCleanupsRef.current.delete(previous);
-        nativePublicAssetPreviewCleanupsRef.current.get(previous)?.();
-        nativePublicAssetPreviewCleanupsRef.current.delete(previous);
-        nativePublicWorkerPreviewCleanupsRef.current.get(previous)?.();
-        nativePublicWorkerPreviewCleanupsRef.current.delete(previous);
+        nativeInteractivePreviewCleanupsRef.current.get(previous)?.();
+        nativeInteractivePreviewCleanupsRef.current.delete(previous);
       }
       setNativePreviewIframeRef(ref, next);
-      if (next && !nativeViewportPublisherCleanupsRef.current.has(next))
-        nativeViewportPublisherCleanupsRef.current.set(
+      if (next)
+        nativeInteractivePreviewCleanupsRef.current.set(
           next,
-          attachNativePreviewViewportPublisher(next),
-        );
-      const publicAssetPreview =
-        ref === replacedFrameRef
-          ? replacedPublicAssetPreviewRef.current
-          : nativePublicAssetPreviewRef.current;
-      if (next && publicAssetPreview)
-        nativePublicAssetPreviewCleanupsRef.current.set(
-          next,
-          connectNativePublicAssetPreview(next, publicAssetPreview),
-        );
-      const publicWorkerPreview =
-        ref === replacedFrameRef
-          ? replacedPublicWorkerPreviewRef.current
-          : nativePublicWorkerPreviewRef.current;
-      if (next && publicWorkerPreview)
-        nativePublicWorkerPreviewCleanupsRef.current.set(
-          next,
-          connectNativePublicWorkerPreview(
+          connectNativePreviewSurface(
             next,
-            publicWorkerPreview,
-            publicAssetPreview?.html ?? publicWorkerPreview.html,
+            ref === replacedFrameRef
+              ? replacedNativeInteractivePreviewRef.current
+              : nativeInteractivePreviewRef.current,
           ),
         );
     },
@@ -2381,6 +2348,12 @@ export function DesignCanvas({
   const liveEditRestartAttemptRef = useRef(0);
   const liveEditSameInstanceElapsedMsRef = useRef(0);
   const liveEditSameInstanceDelayRef = useRef(LIVE_EDIT_READY_TIMEOUT_MS);
+  // Snapshots and localhost or Fusion previews may never report ready; timing
+  // them would count a missing bridge as a stalled load.
+  const markCanvasLoadReady = useCanvasLoadOutcome({
+    designId,
+    measure: !snapshotOnly && (sourceType ?? "inline") === "inline",
+  });
   const liveEditSameInstanceRearmTimerRef = useRef<number | undefined>(
     undefined,
   );
@@ -3671,6 +3644,7 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+        heightMode: screenHeightMode,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -3758,12 +3732,12 @@ export function DesignCanvas({
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
-      frameDocument = appendContentSizeReporter(frameDocument);
+      frameDocument = appendContentSizeReporter(
+        frameDocument,
+        screenHeightMode,
+      );
     }
-    return withNativeShaderRuntime(
-      injectSessionReplayIframeBootstrap(frameDocument),
-      true,
-    );
+    return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -3775,6 +3749,7 @@ export function DesignCanvas({
     boardSurface,
     designStylesheets,
     fitRootBodyToFrame,
+    screenHeightMode,
     rawExternalPreviewUrl,
     isEmbeddedFrame,
     embeddedFrameBackground,
@@ -4662,6 +4637,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
@@ -4789,6 +4765,7 @@ export function DesignCanvas({
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         if (shouldRefreshRuntimeLayerSnapshot) {
           refreshRuntimeLayerSnapshotAfterReady();
@@ -5814,9 +5791,16 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "prototype-navigate") {
+        const sourceFrame = iframeRef.current;
+        if (!sourceFrame || sourceFrame.contentWindow !== e.source) return;
+        const transition = decodeMotionPrototypeTransitionAttribute(
+          e.data.transition,
+        );
         onPrototypeNavigate?.(
           String(e.data.screen || ""),
           String(e.data.href || ""),
+          transition,
+          sourceFrame,
         );
         return;
       }
@@ -6196,22 +6180,6 @@ export function DesignCanvas({
     }
     sendMotionPathEditingState();
     sendMotionOriginEditingState();
-    if (shaderFillPreview) {
-      iframe.contentWindow?.postMessage(
-        {
-          type: "shader-fill-preview",
-          selector: shaderFillPreview.selector ?? "",
-          nodeId: shaderFillPreview.nodeId ?? "",
-          css: shaderFillPreview.css,
-        },
-        "*",
-      );
-    } else {
-      iframe.contentWindow?.postMessage(
-        { type: "shader-fill-preview-clear" },
-        "*",
-      );
-    }
     iframe.contentWindow?.postMessage(
       {
         type: "state-preview",
@@ -6244,7 +6212,6 @@ export function DesignCanvas({
     selectedSelectorGroups,
     passiveSelectionStyle,
     readOnly,
-    shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
     tweakValues,
@@ -6290,6 +6257,7 @@ export function DesignCanvas({
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      markCanvasLoadReady();
       refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
@@ -6362,24 +6330,6 @@ export function DesignCanvas({
     sendMotionPathEditingState,
     sendMotionOriginEditingState,
   ]);
-
-  useEffect(() => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    if (!shaderFillPreview) {
-      win.postMessage({ type: "shader-fill-preview-clear" }, "*");
-    } else {
-      win.postMessage(
-        {
-          type: "shader-fill-preview",
-          selector: shaderFillPreview.selector ?? "",
-          nodeId: shaderFillPreview.nodeId ?? "",
-          css: shaderFillPreview.css,
-        },
-        "*",
-      );
-    }
-  }, [shaderFillPreview]);
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -7303,25 +7253,6 @@ export function DesignCanvas({
     );
   }, []);
 
-  const sendShaderFillPreview = useCallback(
-    (selector: string, nodeId: string, css: string) => {
-      const win = iframeRef.current?.contentWindow;
-      if (!win) return;
-      win.postMessage(
-        { type: "shader-fill-preview", selector, nodeId, css },
-        "*",
-      );
-    },
-    [],
-  );
-
-  const clearShaderFillPreview = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: "shader-fill-preview-clear" },
-      "*",
-    );
-  }, []);
-
   const replacePreviewContent = useCallback(
     (
       nextContent: string,
@@ -7818,9 +7749,6 @@ export function DesignCanvas({
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
-    (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
-    (window as any).__designCanvasClearShaderFillPreview =
-      clearShaderFillPreview;
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
@@ -7860,18 +7788,6 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasClearMotionPreview;
       }
-      if (
-        (window as any).__designCanvasSendShaderFillPreview ===
-        sendShaderFillPreview
-      ) {
-        delete (window as any).__designCanvasSendShaderFillPreview;
-      }
-      if (
-        (window as any).__designCanvasClearShaderFillPreview ===
-        clearShaderFillPreview
-      ) {
-        delete (window as any).__designCanvasClearShaderFillPreview;
-      }
     };
   }, [
     deleteRuntimeElement,
@@ -7882,8 +7798,6 @@ export function DesignCanvas({
     sendInteractionStatePreviewStyle,
     sendMotionPreview,
     clearMotionPreview,
-    sendShaderFillPreview,
-    clearShaderFillPreview,
   ]);
 
   const deviceDimensions: Record<
@@ -8329,126 +8243,59 @@ export function DesignCanvas({
     parentOrigin: browserOrigin ?? undefined,
     liveApp: interactMode,
   });
-  const nativePublicWorkerPreview = useMemo(
+  const nativeInteractivePreview = useMemo(
     () =>
-      browserOrigin &&
-      !externalPreviewUrl &&
-      !previewIframeSandbox.includes("allow-same-origin")
-        ? prepareNativePublicWorkerPreviewDocument(
-            privateScreenshotPreview.html,
-            approvedDefinitionHashes,
-          )
-        : null,
+      externalPreviewUrl
+        ? null
+        : prepareNativePreviewSurface({
+            html: privateScreenshotPreview.html,
+            sandbox: previewIframeSandbox,
+            profile: "interactive",
+            approvedHashes: approvedDefinitionHashes,
+            baseHref: browserOrigin ? window.location.href : undefined,
+            alwaysRuntime: true,
+            animationEpochMs: boardSurface ? nativeAnimationEpochMs : undefined,
+          }),
     [
       approvedDefinitionHashes,
+      boardSurface,
       browserOrigin,
       externalPreviewUrl,
+      nativeAnimationEpochMs,
       privateScreenshotPreview.html,
       previewIframeSandbox,
     ],
   );
-  const nativePublicAssetPreview = useMemo(
-    () =>
-      browserOrigin &&
-      !externalPreviewUrl &&
-      !previewIframeSandbox.includes("allow-same-origin")
-        ? prepareNativePublicAssetPreviewDocument(
-            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
-            window.location.href,
-          )
-        : null,
-    [
-      browserOrigin,
-      externalPreviewUrl,
-      nativePublicWorkerPreview,
-      privateScreenshotPreview.html,
-      previewIframeSandbox,
-    ],
-  );
-  const replacedPublicWorkerPreview = useMemo(
-    () =>
-      browserOrigin &&
-      replacedFrame &&
-      !replacedFrame.sandbox.includes("allow-same-origin")
-        ? prepareNativePublicWorkerPreviewDocument(
-            replacedFrame.srcDoc,
-            approvedDefinitionHashes,
-          )
-        : null,
-    [approvedDefinitionHashes, browserOrigin, replacedFrame],
-  );
-  const replacedPublicAssetPreview = useMemo(
-    () =>
-      browserOrigin &&
-      replacedFrame &&
-      !replacedFrame.sandbox.includes("allow-same-origin")
-        ? prepareNativePublicAssetPreviewDocument(
-            replacedPublicWorkerPreview?.html ?? replacedFrame.srcDoc,
-            window.location.href,
-          )
-        : null,
-    [browserOrigin, replacedFrame, replacedPublicWorkerPreview],
-  );
-  nativePublicAssetPreviewRef.current = nativePublicAssetPreview;
-  replacedPublicAssetPreviewRef.current = replacedPublicAssetPreview;
-  nativePublicWorkerPreviewRef.current = nativePublicWorkerPreview;
-  replacedPublicWorkerPreviewRef.current = replacedPublicWorkerPreview;
+  const replacedNativeInteractivePreview = replacedFrame?.nativePreview ?? null;
+  nativeInteractivePreviewRef.current = nativeInteractivePreview;
+  replacedNativeInteractivePreviewRef.current =
+    replacedNativeInteractivePreview;
   useEffect(() => {
     const frame = iframeRef.current;
     if (!frame) return;
-    nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
-    nativePublicAssetPreviewCleanupsRef.current.delete(frame);
-    nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
-    nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
-    if (nativePublicAssetPreview)
-      nativePublicAssetPreviewCleanupsRef.current.set(
-        frame,
-        connectNativePublicAssetPreview(frame, nativePublicAssetPreview),
-      );
-    if (nativePublicWorkerPreview)
-      nativePublicWorkerPreviewCleanupsRef.current.set(
-        frame,
-        connectNativePublicWorkerPreview(
-          frame,
-          nativePublicWorkerPreview,
-          nativePublicAssetPreview?.html ?? nativePublicWorkerPreview.html,
-        ),
-      );
+    nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+    nativeInteractivePreviewCleanupsRef.current.set(
+      frame,
+      connectNativePreviewSurface(frame, nativeInteractivePreview),
+    );
     return () => {
-      nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
-      nativePublicAssetPreviewCleanupsRef.current.delete(frame);
-      nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
-      nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+      nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+      nativeInteractivePreviewCleanupsRef.current.delete(frame);
     };
-  }, [nativePublicAssetPreview, nativePublicWorkerPreview]);
+  }, [nativeInteractivePreview]);
   useEffect(() => {
     const frame = replacedFrameRef.current;
     if (!frame) return;
-    nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
-    nativePublicAssetPreviewCleanupsRef.current.delete(frame);
-    nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
-    nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
-    if (replacedPublicAssetPreview)
-      nativePublicAssetPreviewCleanupsRef.current.set(
-        frame,
-        connectNativePublicAssetPreview(frame, replacedPublicAssetPreview),
-      );
-    if (replacedPublicWorkerPreview)
-      nativePublicWorkerPreviewCleanupsRef.current.set(
-        frame,
-        connectNativePublicWorkerPreview(
-          frame,
-          replacedPublicWorkerPreview,
-          replacedPublicAssetPreview?.html ?? replacedPublicWorkerPreview.html,
-        ),
-      );
+    nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+    nativeInteractivePreviewCleanupsRef.current.set(
+      frame,
+      connectNativePreviewSurface(frame, replacedNativeInteractivePreview),
+    );
     return () => {
-      nativePublicAssetPreviewCleanupsRef.current.get(frame)?.();
-      nativePublicAssetPreviewCleanupsRef.current.delete(frame);
-      nativePublicWorkerPreviewCleanupsRef.current.get(frame)?.();
-      nativePublicWorkerPreviewCleanupsRef.current.delete(frame);
+      nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+      nativeInteractivePreviewCleanupsRef.current.delete(frame);
     };
-  }, [replacedPublicAssetPreview, replacedPublicWorkerPreview]);
+  }, [replacedNativeInteractivePreview]);
   const previewIframeName = externalPreviewUrl
     ? undefined
     : previewColorSchemeFrameName(previewColorScheme);
@@ -8491,7 +8338,8 @@ export function DesignCanvas({
   const markupFrame: ReplacedPreviewFrame | null = markupFrameMounted
     ? {
         key: iframeElementIdentity,
-        srcDoc: privateScreenshotPreview.html,
+        srcDoc: nativeInteractivePreview?.html ?? privateScreenshotPreview.html,
+        nativePreview: nativeInteractivePreview,
         sandbox: previewIframeSandbox,
         name: previewIframeName,
         interactMode,
@@ -8505,6 +8353,8 @@ export function DesignCanvas({
     } else if (replacedFrame) {
       setReplacedFrame(null);
     }
+  } else if (markupFrame) {
+    mountedMarkupFrameRef.current = markupFrame;
   }
   const releaseReplacedFrame = useCallback(() => {
     window.requestAnimationFrame(() =>
@@ -8607,12 +8457,10 @@ export function DesignCanvas({
         <>
           {replacedFrame ? (
             <iframe
-              key={replacedFrame.key}
+              key={`${replacedFrame.key}:${nativePreviewSurfaceDocumentKey(replacedNativeInteractivePreview) ?? ""}`}
               ref={setReplacedFrameRef}
               srcDoc={
-                replacedPublicAssetPreview?.html ??
-                replacedPublicWorkerPreview?.html ??
-                replacedFrame.srcDoc
+                replacedNativeInteractivePreview?.html ?? replacedFrame.srcDoc
               }
               name={replacedFrame.name}
               sandbox={replacedFrame.sandbox}
@@ -8628,14 +8476,13 @@ export function DesignCanvas({
             />
           ) : null}
           <iframe
-            key={iframeElementIdentity}
+            key={`${iframeElementIdentity}:${nativePreviewSurfaceDocumentKey(nativeInteractivePreview) ?? ""}`}
             ref={setIframeRef}
             src={externalPreviewUrl ?? undefined}
             srcDoc={
               externalPreviewUrl
                 ? undefined
-                : (nativePublicAssetPreview?.html ??
-                  nativePublicWorkerPreview?.html ??
+                : (nativeInteractivePreview?.html ??
                   privateScreenshotPreview.html)
             }
             // The starting scheme of a markup preview; see
@@ -8693,6 +8540,7 @@ export function DesignCanvas({
                 ? ""
                 : undefined,
             }}
+            data-an-prototype-preview={interactMode ? "" : undefined}
             data-screen-iframe-id={
               boardSurface
                 ? undefined

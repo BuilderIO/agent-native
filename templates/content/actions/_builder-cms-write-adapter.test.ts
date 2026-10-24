@@ -1288,6 +1288,68 @@ describe("Builder CMS write adapter plan", () => {
     ).toThrow(/Approve/);
   });
 
+  it("records the reviewed Builder lastUpdated on the gate's target", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan.payload.target.reviewedLastUpdated).toBe(
+      "2026-06-08T00:00:00.000Z",
+    );
+    expect(plan.payload.request.body).not.toHaveProperty("__write");
+  });
+
+  it("blocks an existing-entry write whose reviewed lastUpdated is unknown", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL);
+    builderSource.rows[0]!.lastSourceUpdatedAt = null;
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      payload: { target: { reviewedLastUpdated: null } },
+      lastError:
+        "Refresh this Builder entry before writing so its last update time can be checked.",
+    });
+  });
+
+  it("marks a gate stale when a refresh moved the entry's lastUpdated after review", () => {
+    const reviewed = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    const refreshedSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL);
+    refreshedSource.rows[0]!.lastSourceUpdatedAt = "2026-06-08T00:05:00.000Z";
+    const rebuilt = buildBuilderCmsExecutionPlan({
+      source: refreshedSource,
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(
+      validateBuilderCmsExecutionDryRun({
+        storedPayload: reviewed.payload,
+        plan: rebuilt,
+        now: "2026-06-08T01:00:00.000Z",
+      }),
+    ).toMatchObject({
+      target: { reviewedLastUpdated: "2026-06-08T00:00:00.000Z" },
+      dryRun: {
+        status: "stale",
+        mismatches: [
+          "Builder entry changed since this change was reviewed. Refresh and review it again.",
+        ],
+      },
+    });
+  });
+
   it("validates a stored dry-run payload when it matches the rebuilt plan", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(false, BUILDER_CMS_SAFE_WRITE_MODEL),

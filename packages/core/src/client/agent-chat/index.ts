@@ -191,9 +191,12 @@ export {
   useChatThreadList,
   type UseChatThreadListOptions,
   type UseChatThreadListResult,
+  type ChatThreadListRefreshOutcome,
 } from "../use-chat-thread-list.js";
 export {
   ChatThreadListError,
+  ChatThreadMutationError,
+  hideChatThread,
   fetchChatThreadListPage,
   notifyChatThreadsUpdated,
   useChatThreads,
@@ -265,6 +268,7 @@ export {
   createAgentNativeAgentKitTransport,
   type CreateAgentNativeAgentKitTransportOptions,
 } from "../chat/agentkit-agent-native.js";
+export { trackTurnSubmitted } from "../chat/turn-submitted-telemetry.js";
 export {
   AGENT_CHAT_RUNNING_EVENT,
   dispatchAgentChatRunning,

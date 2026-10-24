@@ -186,6 +186,11 @@ test("Motion inspector states match the editable timeline", async ({
 }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1728, height: 941 });
+  await page
+    .context()
+    .addCookies([
+      { name: "an_consent", value: "1.p0.t0", url: baseURLForActions },
+    ]);
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
   const canvasZoom = page
@@ -197,7 +202,6 @@ test("Motion inspector states match the editable timeline", async ({
   await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
-    deep: false,
   });
   if ((await canvasZoom.innerText()).trim() !== "100%") {
     await canvasZoom.click();
@@ -249,7 +253,6 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await expect(
     page.getByRole("button", { name: "Add animation", exact: true }).first(),
@@ -613,6 +616,19 @@ test("Motion inspector states match the editable timeline", async ({
       }),
     ]),
   );
+  const sourceBeforeAddingScale = await getAction(request, "read-source-file", {
+    designId,
+    path: "index.html",
+  });
+  const motionDebugDir = path.resolve(
+    import.meta.dirname,
+    "../../../.tmp/design-motion-parity",
+  );
+  await mkdir(motionDebugDir, { recursive: true });
+  await writeFile(
+    path.join(motionDebugDir, "motion-controls-before-scale.html"),
+    sourceBeforeAddingScale.content,
+  );
 
   await addAnimation.click();
   for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
@@ -647,6 +663,16 @@ test("Motion inspector states match the editable timeline", async ({
     await addAnimation.click();
     await page.getByRole("menuitem", { name: style.name, exact: true }).click();
     const appliedStyleResponse = await appliedStyle;
+    if (!appliedStyleResponse.ok()) {
+      const sourceAfterFailure = await getAction(request, "read-source-file", {
+        designId,
+        path: "index.html",
+      });
+      await writeFile(
+        path.join(motionDebugDir, "motion-controls-after-scale-failure.html"),
+        sourceAfterFailure.content,
+      );
+    }
     expect(appliedStyleResponse.ok(), await appliedStyleResponse.text()).toBe(
       true,
     );
@@ -657,35 +683,213 @@ test("Motion inspector states match the editable timeline", async ({
     await nativeStyleInspector
       .getByRole("button", { name: style.name, exact: true })
       .click();
-    await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
-      style.type,
+    const styleSettings = page.locator(
+      `[data-motion-native-style-settings="${style.name}"][data-state="open"]`,
     );
+    await expect(styleSettings).toHaveCount(1);
+    await expect(
+      styleSettings.getByRole("combobox", { name: "Type" }),
+    ).toHaveText(style.type);
     if (style.direction) {
       await expect(
-        page.getByRole("combobox", { name: "Direction" }),
+        styleSettings.getByRole("combobox", { name: "Direction" }),
       ).toHaveText(style.direction);
     }
-    await expect(page.getByRole("spinbutton", { name: "Amount" })).toHaveValue(
-      style.amount,
-    );
-    if (style.name === "Size") {
-      const sizeEditorPopup = page
-        .locator("[data-radix-popper-content-wrapper]")
-        .filter({
-          has: page.getByRole("spinbutton", { name: "Amount" }),
-        });
-      await expect(
-        sizeEditorPopup.getByText("px", { exact: true }),
-      ).toHaveCount(0);
-    }
-    await expect(page.getByRole("spinbutton", { name: "Delay" })).toHaveValue(
-      "0",
-    );
     await expect(
-      page.getByRole("spinbutton", { name: "Duration" }),
+      styleSettings.getByRole("spinbutton", { name: "Amount" }),
+    ).toHaveValue(style.amount);
+    if (style.name === "Size") {
+      await expect(styleSettings.getByText("px", { exact: true })).toHaveCount(
+        0,
+      );
+    }
+    await expect(
+      styleSettings.getByRole("spinbutton", { name: "Delay" }),
+    ).toHaveValue("0");
+    await expect(
+      styleSettings.getByRole("spinbutton", { name: "Duration" }),
     ).toHaveValue("500");
-    await expect(page.getByRole("button", { name: "Ease out" })).toBeVisible();
+    await expect(
+      styleSettings.getByRole("button", { name: "Ease out" }),
+    ).toBeVisible();
   }
+
+  await page.setViewportSize({ width: 1200, height: 953 });
+  const inspectorPosition = nativeStyleInspector.getByRole("button", {
+    name: "Position",
+    exact: true,
+  });
+  const inspectorRotation = nativeStyleInspector.getByRole("button", {
+    name: "Rotation",
+    exact: true,
+  });
+  const dockPosition = dock.locator(
+    '[data-motion-native-style-row="Position"] [data-motion-select-native-style]',
+  );
+  const dockRotation = dock.locator(
+    '[data-motion-native-style-row="Rotation"] [data-motion-select-native-style]',
+  );
+
+  await inspectorPosition.click();
+  await expect(inspectorPosition).toHaveAttribute("aria-pressed", "true");
+  await expect(inspectorRotation).toHaveAttribute("aria-pressed", "false");
+  await expect(dockPosition).toHaveAttribute("aria-pressed", "true");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "false");
+  const positionSettings = page.locator(
+    '[data-motion-native-style-settings="Position"][data-state="open"]',
+  );
+  await expect(positionSettings).toHaveCount(1);
+  await expect(
+    positionSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Slide in");
+
+  await dockRotation.click();
+  await expect(dockPosition).toHaveAttribute("aria-pressed", "false");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
+  await expect(inspectorPosition).toHaveAttribute("aria-pressed", "false");
+  const selectionsAfterDockRotation = await page.evaluate(() => ({
+    inspector: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+    dock: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-select-native-style]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+  }));
+  await expect(
+    inspectorRotation,
+    `Selection after selecting Rotation in the dock: ${JSON.stringify(selectionsAfterDockRotation)}`,
+  ).toHaveAttribute("aria-pressed", "true");
+  const rotationSettings = page.locator(
+    '[data-motion-native-style-settings="Rotation"][data-state="open"]',
+  );
+  await expect(rotationSettings).toHaveCount(0);
+  await inspectorRotation.click();
+  await expect(rotationSettings).toHaveCount(1);
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Rotate in");
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Direction" }),
+  ).toHaveText("Clockwise");
+  await expect(
+    rotationSettings.getByRole("spinbutton", { name: "Amount" }),
+  ).toHaveValue("180");
+  await expect(
+    rotationSettings.getByRole("spinbutton", { name: "Delay" }),
+  ).toHaveValue("0");
+  await expect(
+    rotationSettings.getByRole("spinbutton", { name: "Duration" }),
+  ).toHaveValue("500");
+  await expect(
+    rotationSettings.getByRole("button", { name: "Ease out" }),
+  ).toBeVisible();
+  await captureReferenceState(page, "motion-controls-cross-pane-selection");
+  const parityArtifactDirectory = path.resolve(
+    import.meta.dirname,
+    "../../../.tmp/motion-parity",
+  );
+  await mkdir(parityArtifactDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(
+      parityArtifactDirectory,
+      "motion-controls-cross-pane-selection-1200x953.png",
+    ),
+    fullPage: true,
+  });
+  const crossPaneState = await page.evaluate(() => ({
+    viewport: { width: innerWidth, height: innerHeight },
+    inspectorSelection: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        '[data-motion-native-style-trigger][aria-pressed="true"]',
+      ),
+    ).map((button) => button.innerText.trim()),
+    dockSelection: Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-motion-native-style-row] [data-motion-select-native-style][aria-pressed="true"]',
+      ),
+    ).map((button) => button.innerText.trim()),
+    openSettings: Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "[data-motion-native-style-settings][data-state=open]",
+      ),
+    ).map((panel) => panel.dataset.motionNativeStyleSettings),
+    canvasZoom: Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .find((button) => /^\s*100%\s*$/.test(button.innerText))
+      ?.innerText.trim(),
+  }));
+  await writeFile(
+    path.join(
+      parityArtifactDirectory,
+      "motion-controls-cross-pane-selection-1200x953.json",
+    ),
+    JSON.stringify(crossPaneState, null, 2),
+  );
+  await page.keyboard.press("Escape");
+  await expect(rotationSettings).toHaveCount(0);
+  const removePosition = nativeStyleInspector.getByRole("button", {
+    name: "Remove animation Position",
+    exact: true,
+  });
+  const removedPosition = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await removePosition.click();
+  const removedPositionResponse = await removedPosition;
+  expect(
+    removedPositionResponse.ok(),
+    await removedPositionResponse.text(),
+  ).toBe(true);
+  expect(await removedPositionResponse.json()).toMatchObject({
+    persisted: true,
+  });
+  await expect(
+    nativeStyleInspector.getByRole("button", { name: "Position", exact: true }),
+  ).toHaveCount(0);
+  const selectionsAfterPositionRemoval = await page.evaluate(() => ({
+    inspector: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+    dock: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-select-native-style]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+  }));
+  await expect(
+    inspectorRotation,
+    `Selection after removing Position: ${JSON.stringify(selectionsAfterPositionRemoval)}`,
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
+  await expect(rotationSettings).toHaveCount(0);
+  await inspectorRotation.click();
+  await expect(rotationSettings).toHaveCount(1);
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Rotate in");
+  await page.setViewportSize({ width: 1728, height: 941 });
 
   const origin = page.getByRole("button", { name: "Origin", exact: true });
   await expect(origin).toBeVisible();
@@ -807,7 +1011,6 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   const currentTime = dock.getByRole("textbox", { name: "Current time" });
   const appearance = page
@@ -863,7 +1066,6 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle Two", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   const middleOpacitySave = page.waitForResponse(
     (response) =>
@@ -905,6 +1107,44 @@ test("Motion inspector states match the editable timeline", async ({
     "motion-controls-auto-key-new-track-midpoint",
   );
   await autoKeyframe.uncheck();
+
+  await selectByText(page, "Second fixture paragraph for selection tests.", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  const addTextStyleSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await addAnimation.click();
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click();
+  const savedTextStyle = await addTextStyleSave;
+  expect(savedTextStyle.ok(), await savedTextStyle.text()).toBe(true);
+  const textStyleRow = dock.locator(
+    '[data-motion-native-style-row="TextStagger"] [data-motion-select-native-style]',
+  );
+  await expect(textStyleRow).toBeVisible();
+
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  await textStyleRow.click();
+  await expect(textStyleRow).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await expect
+    .poll(async () =>
+      page.locator('[role="treeitem"][aria-selected="true"]').allInnerTexts(),
+    )
+    .toEqual(["Rectangle"]);
+  const selectedInspectorStyle = page.locator(
+    '[data-motion-native-style-trigger][aria-pressed="true"]',
+  );
+  await expect(selectedInspectorStyle).toHaveCount(1);
+  await expect(selectedInspectorStyle).toContainText("Text");
+  await captureReferenceState(page, "motion-controls-cross-layer-selection");
 });
 
 test("Motion gallery searches visible names, not hidden categories or tempo", async ({
@@ -916,7 +1156,6 @@ test("Motion gallery searches visible names, not hidden categories or tempo", as
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await page.getByRole("button", { name: "Animations", exact: true }).click();
 
@@ -983,7 +1222,6 @@ test("a new motion preset applies to every selected target", async ({
     await selectByText(page, "Reference Rectangle", {
       screenId: presetFileId,
       clearPreviousSelection: true,
-      deep: false,
     });
     await selectByText(page, "Reference Rectangle Two", {
       screenId: presetFileId,
@@ -1074,7 +1312,6 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
       await selectByText(page, "Reference Rectangle", {
         screenId: file.id,
         clearPreviousSelection: true,
-        deep: false,
       });
       await zoomCanvasTo100(page);
 
@@ -1194,7 +1431,6 @@ for (const { recipeId, manualPosition } of [
       await selectByText(page, "Reference Rectangle", {
         screenId: file.id,
         clearPreviousSelection: true,
-        deep: false,
       });
       await zoomCanvasTo100(page);
 
@@ -1389,7 +1625,6 @@ for (const { recipeId, manualPosition } of [
       await selectByText(page, "Reference Rectangle", {
         screenId: file.id,
         clearPreviousSelection: true,
-        deep: false,
       });
       await page
         .getByRole("button", { name: "Motion dock", exact: true })
@@ -1451,7 +1686,6 @@ test("applies recipe content past the timeline duration at its limit", async ({
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
     await zoomCanvasTo100(page);
     await page
@@ -1541,7 +1775,6 @@ test("applies recipe content past the timeline duration at its limit", async ({
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
     await page
       .getByRole("button", { name: "Motion dock", exact: true })
@@ -1612,7 +1845,6 @@ test("applying a composite recipe preserves an existing unrelated native style",
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
 
     const addAnimation = page
@@ -1702,7 +1934,6 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
 
     const recipe = MOTION_BUILT_IN_RECIPES.find(

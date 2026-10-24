@@ -138,6 +138,8 @@ const database = {
     "変更を取り込んでいます：{{total}} 個中 {{done}} 個のファイル",
   githubPicturesWaiting:
     "一部の画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
+  githubPicturesNotSaved:
+    "一部の画像をファイルストレージに保存できませんでした。同期のたびに再試行します。",
   githubReconnect: "GitHub を再接続",
   githubProblemConnection:
     "更新が止まっています：GitHub にもう一度サインインする必要があります。",
@@ -211,6 +213,7 @@ const database = {
   listRowsMedium: "中",
   listRowsBold: "太字",
   listRowsNothing: "なし",
+  listRowsPageText: "ページのテキスト",
   listRowsOneLine: "1行",
   listRowsLineCount: "{{count}}行",
   listRowsNoStatus: "ステータスなし",
@@ -1157,6 +1160,9 @@ const comments = {
   ...commentAttributionMessagesByLocale["ja-JP"],
   selectTextToComment: "コメントを追加するテキストを選択",
   replyCount_other: "{{count}} 件の返信",
+  stackCollapse: "折りたたむ",
+  stackShowAll_other: "ここにある {{count}} 件のコメントをすべて表示",
+  stackMore: "+{{count}} 件",
   commentActions: "コメント操作",
   checkSaved: "保存したコメントを確認",
   edit: "編集",
@@ -1185,6 +1191,10 @@ const comments = {
   proposalEditCount_other: "{{count}} 件の編集",
   acceptRemaining: "残りを承認",
   rejectRemaining: "残りを却下",
+  acceptAll: "すべて承認",
+  rejectAll: "すべて却下",
+  suggestionReviewReadOnly:
+    "このページの提案を承認または却下できるのは、このページを編集できるユーザーだけです。",
   typeFilter: "種類",
   statusFilter: "ステータス",
   authorFilter: "ユーザー",
@@ -1632,6 +1642,13 @@ const overrides = {
   comments: {
     add: "コメントを追加...",
     cancel: "キャンセル",
+    discardCommentQuestion: "コメントを破棄しますか？",
+    discardReplyQuestion: "返信を破棄しますか？",
+    discardEditQuestion: "変更を破棄しますか？",
+    discardDescription: "入力した内容は失われます。",
+    discardEditDescription: "コメントは元のまま残ります。",
+    discard: "破棄",
+    keepEditing: "編集を続ける",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",

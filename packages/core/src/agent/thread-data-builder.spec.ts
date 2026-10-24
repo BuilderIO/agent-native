@@ -595,6 +595,49 @@ describe("buildAssistantMessage", () => {
       result: "Error running send-email: connection reset",
     });
   });
+  it.each([
+    ["rejection", "Error running send-email: upstream rejected it"],
+    ["interruption", "Tool call timed out after 20 seconds"],
+  ] as const)(
+    "replays the recorded %s cause of an unknown outcome",
+    (unknownCause, result) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "email",
+              tool: "send-email",
+              input: {},
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "tool_done",
+              id: "email",
+              tool: "send-email",
+              result,
+              isError: true,
+              outcomeUnknown: true,
+              unknownCause,
+            },
+          },
+        ],
+        `cause-${unknownCause}`,
+      );
+      const stored = JSON.stringify(upsertAssistantMessage({}, message!));
+      const replayed = threadDataToEngineMessages(stored, {
+        includeToolCalls: true,
+      })
+        .flatMap(({ content }) => content)
+        .find((part) => part.type === "tool-result");
+
+      expect(replayed).toMatchObject({ outcome: "unknown", unknownCause });
+    },
+  );
+
   it("persists the resource scope used by the chat turn", () => {
     const message = buildAssistantMessage(
       [{ seq: 0, event: { type: "text", text: "Saved." } }],
@@ -6602,6 +6645,26 @@ describe("upsertUserMessage", () => {
     expect(replay).toEqual({ status: "already_submitted", repo: later.repo });
     if (!("repo" in replay)) throw new Error("Expected an idempotent replay.");
     expect(replay.repo.messages).toHaveLength(2);
+  });
+
+  it("removes a same-ID queued retry when a direct run commits", () => {
+    const queued = { id: "message-direct-race", text: "Run once" };
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-direct-race",
+      agentKitMessageId: queued.id,
+    });
+
+    const result = applySubmittedUserMessage(
+      { messages: [], queuedMessages: [queued] },
+      userMessage,
+    );
+
+    expect(result.status).toBe("submitted");
+    if (!("repo" in result)) throw new Error("Expected a submitted result.");
+    expect(result.repo.queuedMessages).toEqual([]);
+    expect(result.repo.messages).toHaveLength(1);
+    expect(result.repo._claimedQueuedMessageIds).toContain(queued.id);
   });
 
   it("submits a background operation once and reports a later run as already claimed", () => {

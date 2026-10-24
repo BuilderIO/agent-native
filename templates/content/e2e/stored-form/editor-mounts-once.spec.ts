@@ -6,7 +6,6 @@ import {
   type Response,
 } from "@playwright/test";
 
-import { knownLossSpec } from "../../acceptance/known-loss";
 import {
   AGENT_MARKDOWN_BODY,
   EDITOR,
@@ -33,13 +32,6 @@ test.describe.configure({ retries: 0, timeout: 120_000 });
 const SETTLE_MS = 6_000;
 
 const MOUNT_PATH = "/_agent-native/actions/record-editor-mount";
-
-const REMOUNT_LOSS = knownLossSpec({
-  lane: "L4a",
-  outcome: "SF-06",
-  reason:
-    "Main mounts a read-only editor, then replaces it with a second editor when the page's live copy arrives, and reports the visit as initial then remount.",
-});
 
 // Gives every `.ProseMirror` node the visit creates a record: when it appeared,
 // when it first became editable, and when it left the document. Nodes already
@@ -161,6 +153,27 @@ async function startVisit(tab: {
 }
 
 /**
+ * The sidebar's link to a page, clicking "Show more" until the sidebar lists
+ * it. The sidebar lists 20 pages at a time, and the gate-on steps share one
+ * account, so pages an earlier step made can push this one past the first 20.
+ */
+async function sidebarLink(page: Page, documentId: string) {
+  const link = page.locator(`a[href$="/page/${documentId}"]`).first();
+  const showMore = page
+    .getByRole("button", { name: "Show more", exact: true })
+    .first();
+  while (!(await link.isVisible())) {
+    await expect(
+      link.or(showMore).first(),
+      `the sidebar lists no link to /page/${documentId} and offers no more pages`,
+    ).toBeVisible({ timeout: 15_000 });
+    if (await link.isVisible()) break;
+    await showMore.click();
+  }
+  return link;
+}
+
+/**
  * Wait for the visit's editor, let it settle, then require one editor node
  * that lived from its first frame to the end of the visit, and one mount
  * report of the expected kind.
@@ -222,107 +235,95 @@ test.describe(
     tag: "@SF-06",
   },
   () => {
-    test(
-      "a fresh load of a page opened before",
-      REMOUNT_LOSS,
-      async ({ page, context }) => {
-        const id = await createPage(page, "SF-06 fresh load", EDITOR_BODY);
-        await enterGateArm(page, id);
-        await seedLiveCopy(context, id);
+    test("a fresh load of a page opened before", async ({ page, context }) => {
+      const id = await createPage(page, "SF-06 fresh load", EDITOR_BODY);
+      await enterGateArm(page, id);
+      await seedLiveCopy(context, id);
 
-        const tab = await openTab(context);
-        await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
+      const tab = await openTab(context);
+      await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
+      await expectOneMount(tab.page, tab.mounts, id, {
+        outcome: "initial",
+        mode: "editing",
+      });
+    });
+
+    test("the first open of a page no browser has seeded", async ({
+      page,
+      context,
+    }) => {
+      const id = await createPage(page, "SF-06 never seeded", EDITOR_BODY);
+      await enterGateArm(page, id);
+
+      const tab = await openTab(context);
+      await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
+      await expectOneMount(tab.page, tab.mounts, id, {
+        outcome: "initial",
+        mode: "editing",
+      });
+    });
+
+    test("landing on /home, which reopens the last page", async ({
+      page,
+      browser,
+      baseURL,
+    }) => {
+      // /home reopens the account's last page, and parallel workers open
+      // pages as the shared account, so this case signs in as one of its own.
+      const landing = await browser.newContext({
+        baseURL,
+        storageState: { cookies: [], origins: [] },
+      });
+      let reader: Page | undefined;
+      try {
+        reader = await signIn(
+          landing,
+          baseURL!,
+          await landingAccountEmail(page),
+          "SF-06 landing",
+        );
+        const id = await createPage(reader, "SF-06 home landing", EDITOR_BODY);
+        await enterGateArm(reader, id);
+        await seedLiveCopy(landing, id);
+
+        const tab = await openTab(landing);
+        await tab.page.goto("/home", { waitUntil: "domcontentloaded" });
+        await expect(tab.page).toHaveURL(new RegExp(`/page/${id}`), {
+          timeout: 30_000,
+        });
         await expectOneMount(tab.page, tab.mounts, id, {
           outcome: "initial",
           mode: "editing",
         });
-      },
-    );
-
-    test(
-      "the first open of a page no browser has seeded",
-      REMOUNT_LOSS,
-      async ({ page, context }) => {
-        const id = await createPage(page, "SF-06 never seeded", EDITOR_BODY);
-        await enterGateArm(page, id);
-
-        const tab = await openTab(context);
-        await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
-        await expectOneMount(tab.page, tab.mounts, id, {
-          outcome: "initial",
-          mode: "editing",
-        });
-      },
-    );
-
-    test(
-      "landing on /home, which reopens the last page",
-      REMOUNT_LOSS,
-      async ({ page, browser, baseURL }) => {
-        // /home reopens the account's last page, and parallel workers open
-        // pages as the shared account, so this case signs in as one of its own.
-        const landing = await browser.newContext({
-          baseURL,
-          storageState: { cookies: [], origins: [] },
-        });
-        let reader: Page | undefined;
+      } finally {
         try {
-          reader = await signIn(
-            landing,
-            baseURL!,
-            await landingAccountEmail(page),
-            "SF-06 landing",
-          );
-          const id = await createPage(
-            reader,
-            "SF-06 home landing",
-            EDITOR_BODY,
-          );
-          await enterGateArm(reader, id);
-          await seedLiveCopy(landing, id);
-
-          const tab = await openTab(landing);
-          await tab.page.goto("/home", { waitUntil: "domcontentloaded" });
-          await expect(tab.page).toHaveURL(new RegExp(`/page/${id}`), {
-            timeout: 30_000,
-          });
-          await expectOneMount(tab.page, tab.mounts, id, {
-            outcome: "initial",
-            mode: "editing",
-          });
+          if (reader) await leaveGateArm(reader);
         } finally {
-          try {
-            if (reader) await leaveGateArm(reader);
-          } finally {
-            await landing.close();
-          }
+          await landing.close();
         }
-      },
-    );
+      }
+    });
 
-    test(
-      "moving to another page inside the app",
-      REMOUNT_LOSS,
-      async ({ page, context }) => {
-        const from = await createPage(page, "SF-06 navigate from", EDITOR_BODY);
-        const to = await createPage(page, "SF-06 navigate to", EDITOR_BODY);
-        await enterGateArm(page, from);
-        await enterGateArm(page, to);
+    test("moving to another page inside the app", async ({ page, context }) => {
+      const from = await createPage(page, "SF-06 navigate from", EDITOR_BODY);
+      const to = await createPage(page, "SF-06 navigate to", EDITOR_BODY);
+      await enterGateArm(page, from);
+      await enterGateArm(page, to);
 
-        const tab = await openTab(context);
-        await tab.page.goto(`/page/${from}`, { waitUntil: "domcontentloaded" });
-        await expectEditorReady(tab.page);
-        await tab.page.waitForTimeout(SETTLE_MS);
+      const tab = await openTab(context);
+      await tab.page.goto(`/page/${from}`, { waitUntil: "domcontentloaded" });
+      await expectEditorReady(tab.page);
+      await tab.page.waitForTimeout(SETTLE_MS);
 
-        await startVisit(tab);
-        await tab.page.locator(`a[href$="/page/${to}"]`).first().click();
-        await expect(tab.page).toHaveURL(new RegExp(`/page/${to}`));
-        await expectOneMount(tab.page, tab.mounts, to, {
-          outcome: "navigation",
-          mode: "editing",
-        });
-      },
-    );
+      const link = await sidebarLink(tab.page, to);
+      await startVisit(tab);
+      await link.click();
+      await expect(tab.page).toHaveURL(new RegExp(`/page/${to}`));
+      await expectOneMount(tab.page, tab.mounts, to, {
+        outcome: "navigation",
+        mode: "editing",
+      });
+    });
 
     test("a page the reader may only view", async ({
       page,
@@ -359,54 +360,52 @@ test.describe(
       }
     });
 
-    test(
-      "a page an agent wrote in its own Markdown form",
-      REMOUNT_LOSS,
-      async ({ page, context }) => {
-        const id = await createPage(
-          page,
-          "SF-06 agent form",
-          `${AGENT_MARKDOWN_BODY}\n\nsnake\\_case and __bold__ cost $60.`,
-        );
-        await enterGateArm(page, id);
+    test("a page an agent wrote in its own Markdown form", async ({
+      page,
+      context,
+    }) => {
+      const id = await createPage(
+        page,
+        "SF-06 agent form",
+        `${AGENT_MARKDOWN_BODY}\n\nsnake\\_case and __bold__ cost $60.`,
+      );
+      await enterGateArm(page, id);
 
-        const tab = await openTab(context);
-        await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
-        await expectOneMount(tab.page, tab.mounts, id, {
-          outcome: "initial",
-          mode: "editing",
-        });
-      },
-    );
+      const tab = await openTab(context);
+      await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
+      await expectOneMount(tab.page, tab.mounts, id, {
+        outcome: "initial",
+        mode: "editing",
+      });
+    });
 
-    test(
-      "a page holding the reader's recovery draft",
-      REMOUNT_LOSS,
-      async ({ page, context }) => {
-        const id = await createPage(page, "SF-06 recovery draft", EDITOR_BODY);
-        await enterGateArm(page, id);
-        await seedLiveCopy(context, id);
-        await postAction(page, "update-preview-document-draft", {
-          operation: "upsert",
-          documentId: id,
-          expectedVersion: null,
-          draft: {
-            title: "SF-06 recovery draft",
-            content: `${EDITOR_BODY}\nA draft line the server never saved.`,
-            baseDocumentUpdatedAt: null,
-            loadedContentWasEmpty: false,
-            deferredReason: "conflict",
-          },
-        });
+    test("a page holding the reader's recovery draft", async ({
+      page,
+      context,
+    }) => {
+      const id = await createPage(page, "SF-06 recovery draft", EDITOR_BODY);
+      await enterGateArm(page, id);
+      await seedLiveCopy(context, id);
+      await postAction(page, "update-preview-document-draft", {
+        operation: "upsert",
+        documentId: id,
+        expectedVersion: null,
+        draft: {
+          title: "SF-06 recovery draft",
+          content: `${EDITOR_BODY}\nA draft line the server never saved.`,
+          baseDocumentUpdatedAt: null,
+          loadedContentWasEmpty: false,
+          deferredReason: "conflict",
+        },
+      });
 
-        const tab = await openTab(context);
-        await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
-        await expectOneMount(tab.page, tab.mounts, id, {
-          outcome: "initial",
-          mode: "editing",
-        });
-      },
-    );
+      const tab = await openTab(context);
+      await tab.page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
+      await expectOneMount(tab.page, tab.mounts, id, {
+        outcome: "initial",
+        mode: "editing",
+      });
+    });
   },
 );
 

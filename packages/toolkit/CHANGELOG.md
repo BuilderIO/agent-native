@@ -1,5 +1,93 @@
 # @agent-native/toolkit
 
+## 0.220.0
+
+### Patch Changes
+
+- ddd3bd1: An agent run ended by a SQL write now sends its one `agent_run_terminal` too: runs the server reaps (`reaped: true`), stopped runs (`status: "aborted"`), runs the reaper repairs from their event log, and runs that fail or are released before their worker starts. The event carries `turn_id` and the run's user, except an anonymous visitor's. An aborted run is reported by the SQL write that stopped it, so aborted events no longer carry `model`, `engine` or `attempt_count`. `run_started` also carries `turn_id`, and so do `$ai_trace` and `$ai_generation` for agent chat runs.
+
+  The browser now sends `agent_turn_submitted` once per agent request it submits and the server accepts (not yet for a queued message the server's inbox drain admits), with the same `turn_id`, `initiator` (`user`, `app`, or `system`) and `surface`; continuations repeat the turn's `turn_id` as `system`. `agent_run_outcome` now carries `turn_id`, except for a replay whose turn the server did not name. See the tracking skill for the full contract.
+
+- 4ea7d64: Resume the skill file review when a native file picker closes the composer menu.
+- Release all public npm packages with a patch version bump.
+- 0c211bc: Keep pending approvals visible in the chat sidebar while the agent waits for a decision.
+- b73b8ef: Let `VisualScrubInput` show a different unit suffix than it parses (`displayUnit`), and accept `deg` and `°` interchangeably in degree fields.
+- Updated dependencies
+  - @agent-native/agentkit@0.220.0
+
+## 0.219.0
+
+### Minor Changes
+
+- 838e1ae: App-registered commands can render an opt-in preview inside the selected row.
+- 7b293b2: Expose the terminal status of action tool calls to custom chat renderers while keeping `isRunning` available.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 86429da: Keep the agent chat send button and tabs visible in narrow panels: the composer's model picker truncates instead of pushing the toolbar past the panel edge, and chat tabs shrink before scrolling.
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Add an ownership-aware chat history adapter that combines owned chats, shared chats, and eligible started drafts with independent sections, paging, and failure-safe optimistic mutations.
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Keep shared chat rows on one line with the owner's avatar, give every chat row a Copy link menu, and stop the share panel's people search from opening an empty "No people found" list.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+
+## 0.217.0
+
+### Minor Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 4c43f86: Let each settings shell declare app-owned pages, ordered navigation sections, nested routes, custom controls, optional widget, chat, and toggle slots, and expose the shared theme-family setting to app-owned pages.
+- 9e4119f: Expose the shared toast notification helper from the toolkit UI package.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+
+## 0.216.0
+
+### Minor Changes
+
+- 31a1f1e: Allow hosts to customize the shared AgentPanel page header share trigger content.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+  - @agent-native/agentkit@0.216.0
+
+## 0.215.0
+
+### Minor Changes
+
+- f8f4b9e: Expose optional transcript layout, post-widget text, and worked-summary controls for chat hosts.
+- 0b58010: Allow hosts to provide an action icon for the shared context banner.
+- 4fd6b35: Add chart tick intervals, horizontal-bar spacing controls, and direct icon actions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 11a11d9: Expose opt-in transcript positioning and typography controls on chat surfaces.
+- aa79d54: Move the shared work-summary disclosure indicator to the leading edge and give the row a full-size click target.
+- Updated dependencies
+  - @agent-native/agentkit@0.215.0
+
 ## 0.214.0
 
 ### Minor Changes
@@ -1203,77 +1291,5 @@
 ### Patch Changes
 
 - 7c5888c: Make chat history rail overflow actions replace timestamps without layout shifts.
-
-## 0.13.9
-
-### Patch Changes
-
-- dab8787: Fix the chat sidebar repainting glitches that made app content flash, shift, and
-  render as flat empty rectangles while the agent was generating.
-
-  Three properties on the always-mounted sidebar promoted or re-promoted a
-  compositing layer on every app that renders `AgentSidebar`:
-  - `will-change: transform` sat permanently on the sidebar panel (desktop, mobile
-    and drawer variants). It wraps the whole chat transcript and is never
-    unmounted, so the hint was never retired. The 260ms transform transition is
-    promoted by the browser on its own for exactly as long as it runs.
-  - `view-transition-name` was stamped on the panel unconditionally, including in
-    apps that never start a chat view transition. A permanent name makes the panel
-    a stacking context and the containing block for every fixed and absolutely
-    positioned descendant, and enlists it as a captured group in unrelated route
-    view transitions. It is now applied only while the wide-drawer morph runs.
-  - The chat scroller's top-fade `mask-image` was added and removed with the
-    `hasContentAbove` class, which flips as replies stream into an auto-scrolled
-    transcript. The mask is now always declared and only its length changes.
-
-  The same two defects existed independently on the workspace shell sidebar in
-  `@agent-native/frame`, which hosts the agent panel, so the promotions nested.
-  Fixed there too.
-
-  Regression tests cover all three invariants, and a new repo-wide
-  `pnpm guard:persistent-compositing` fails on any new compositing promotion on a
-  long-lived surface. Genuinely transient elements (a popover that unmounts on
-  close, a drag preview) opt out with a `compositing-ok: <reason>` comment.
-
-- dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
-- dab8787: Allow Slides to use a cleaner AI editing badge without a redundant status dot.
-
-## 0.13.8
-
-### Patch Changes
-
-- c41fd16: Use theme tokens for collaboration edit highlight labels.
-
-## 0.13.7
-
-### Patch Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.6
-
-### Patch Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.5
-
-### Patch Changes
-
-- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
-
-## 0.13.4
-
-### Patch Changes
-
-- da40677: Fix realtime voice tool calls failing with "Invalid or expired realtime voice capability" on serverless deploys. The capability minted by `/_agent-native/realtime-voice/session` lived in a per-process `Map`, so under `NITRO_PRESET=netlify` a tool call that landed on a different instance than the SDP request was rejected — the agent would report that it could not read the current selection and ask the user to reopen the editor. The capability is now an HMAC-signed token carrying the caller's identity, browser tab, and allowed tool names, so any instance can verify it.
-
-  Two behavior changes follow from that. The grant no longer slides on use — it cannot be extended server-side — so its TTL is now an absolute 75 minutes, covering the provider's maximum session length. And when a `tool-search` widens the manifest, the tool response carries a re-issued capability that the client adopts; without it, calls to the newly discovered tools would 404.
-
-  Fix dictation stopping instantly with no error anywhere. `SpeechRecognition` always fires `end` after `error`, and `useVoiceDictation`'s `end` handler returned the composer to idle — erasing the message `onerror` had just set. Every speech failure was therefore invisible in both the UI and the console. `end` no longer overwrites a reported error.
-
-  Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
-
-  The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

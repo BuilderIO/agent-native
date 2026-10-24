@@ -44,8 +44,12 @@ import type {
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
-import { isContinuationTerminalReason } from "./types.js";
-import type { AgentChatAttachment, RunEvent } from "./types.js";
+import { isContinuationTerminalReason, isUnknownWriteCause } from "./types.js";
+import type {
+  AgentChatAttachment,
+  RunEvent,
+  UnknownWriteCause,
+} from "./types.js";
 
 interface ContentPart {
   type: string;
@@ -61,6 +65,7 @@ interface ContentPart {
   approvalPause?: true;
   approvalAskId?: string;
   outcome?: "unknown";
+  unknownCause?: UnknownWriteCause;
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
@@ -507,6 +512,9 @@ export function buildAssistantMessage(
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";
           explicitUnknownOutcomes.add(part);
+          if (isUnknownWriteCause(event.unknownCause)) {
+            part.unknownCause = event.unknownCause;
+          }
         }
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
@@ -1181,7 +1189,8 @@ function replayedToolInput(input: unknown): Record<string, unknown> {
 function replayedToolResult(part: {
   result?: unknown;
   outcome?: unknown;
-}): Pick<EngineToolResultPart, "content" | "outcome"> {
+  unknownCause?: unknown;
+}): Pick<EngineToolResultPart, "content" | "outcome" | "unknownCause"> {
   const unknown = part.outcome === "unknown" || part.result === undefined;
   const result =
     part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
@@ -1190,6 +1199,12 @@ function replayedToolResult(part: {
       unknown ? { outcome: "unknown", result } : result,
     ),
     ...(unknown ? { outcome: "unknown" as const } : {}),
+    // A part whose result never came was interrupted, whatever it recorded.
+    ...(unknown &&
+    part.result !== undefined &&
+    isUnknownWriteCause(part.unknownCause)
+      ? { unknownCause: part.unknownCause }
+      : {}),
   };
 }
 
@@ -1766,6 +1781,30 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+function reconcileDirectSubmissionQueue(repo: any, userCustom: unknown): any {
+  if (
+    !userCustom ||
+    typeof userCustom !== "object" ||
+    Array.isArray(userCustom)
+  ) {
+    return repo;
+  }
+  const messageId = (userCustom as Record<string, unknown>).agentKitMessageId;
+  if (
+    typeof messageId !== "string" ||
+    !Array.isArray(repo?.queuedMessages) ||
+    !repo.queuedMessages.some(
+      (message: unknown) =>
+        message &&
+        typeof message === "object" &&
+        (message as Record<string, unknown>).id === messageId,
+    )
+  ) {
+    return repo;
+  }
+  return claimQueuedMessage(repo, messageId);
+}
+
 export function applySubmittedUserMessage(
   repo: any,
   userMessage: UserMessage,
@@ -1821,7 +1860,10 @@ export function applySubmittedUserMessage(
       );
     });
   if (wasDirectlySubmitted) {
-    return { status: "already_submitted", repo };
+    return {
+      status: "already_submitted",
+      repo: reconcileDirectSubmissionQueue(repo, userCustom),
+    };
   }
   if (
     userCustom &&
@@ -1841,7 +1883,13 @@ export function applySubmittedUserMessage(
     }
   }
   if (!queuedMessage) {
-    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        reconcileDirectSubmissionQueue(repo, userCustom),
+        userMessage,
+      ),
+    };
   }
   if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
     return { status: "already_claimed" };
@@ -3952,9 +4000,9 @@ export function mergeThreadDataForClientSave(
       }
     }
   }
-  // Queue mutations are the only writer of the queue and opt out here. Any
-  // other save carries a queue it read earlier, and letting that copy win drops
-  // a promotion claim or an append that landed in between.
+  // Queue mutations own the queue; a submitted-message marker can remove its
+  // matching row. Other saves carry a queue they read earlier, and letting
+  // that copy win drops a promotion claim or an append that landed in between.
   if (preserveExistingQueuedMessages) {
     if (existingNormalized?.queuedMessages !== undefined) {
       merged.queuedMessages = existingNormalized.queuedMessages;

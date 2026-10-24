@@ -1935,10 +1935,14 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    const globalSecret = getGlobalA2ASecret();
-    const allowLocalUnauthenticatedRequest =
-      isLocalGateway && !orgSecret && !globalSecret;
-    if (!orgSecret && !globalSecret && !allowLocalUnauthenticatedRequest) {
+    // The receiver drops the user from any user token that verifies only with an
+    // organization secret, so a member's own request is signed with the
+    // deployment secret to stay named.
+    const delegatedMember =
+      requestContext.a2aIdentityAssurance === "org-member";
+    const signingSecret = delegatedMember ? orgSecret : getGlobalA2ASecret();
+    const allowLocalUnauthenticatedRequest = isLocalGateway && !signingSecret;
+    if (!signingSecret && !allowLocalUnauthenticatedRequest) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         503,
         "workspace_gateway_a2a_secret_missing",
@@ -1950,10 +1954,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         const token = await signA2AToken(
           requestContext.userEmail,
           orgDomain,
-          orgSecret,
+          delegatedMember ? orgSecret : undefined,
           {
             expiresIn: "1m",
-            preferGlobalSecret: false,
+            preferGlobalSecret: !delegatedMember,
             audience: canonicalA2AAudience(
               baseUrl.toString(),
               getConfiguredAppBasePath() || undefined,

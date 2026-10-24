@@ -1474,6 +1474,55 @@ export const runContentMigrations = runMigrations(
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_id TEXT;
         ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS field_name TEXT`,
     },
+    {
+      version: 124,
+      name: "content-live-body-switch",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_switched_at TEXT`,
+    },
+    {
+      version: 125,
+      name: "content-live-copy-version",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
+    },
+    {
+      version: 126,
+      name: "builder-private-payload-cleanup-queue",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_value TEXT;
+        CREATE INDEX IF NOT EXISTS document_comments_document_idx
+          ON document_comments (document_id, owner_email);
+        CREATE TABLE IF NOT EXISTS content_database_builder_blob_cleanup (
+          blob_reference TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+    },
+    {
+      version: 127,
+      name: "builder-private-payload-cleanup-retries",
+      sql: `ALTER TABLE content_database_builder_blob_cleanup
+          ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE content_database_builder_blob_cleanup
+          ADD COLUMN IF NOT EXISTS next_attempt_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
+        CREATE INDEX IF NOT EXISTS content_database_builder_blob_cleanup_due_idx
+          ON content_database_builder_blob_cleanup (next_attempt_at, created_at)`,
+    },
+    {
+      version: 128,
+      name: "content-document-body-steps",
+      sql: `CREATE TABLE IF NOT EXISTS document_body_steps (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          body_revision INTEGER NOT NULL,
+          start_offset INTEGER NOT NULL,
+          end_offset INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_body_steps_document_revision_idx
+          ON document_body_steps (document_id, body_revision)`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import { IN_PLACE_TEXT_UNDO_LIMIT } from "../../app/components/editor/in-place-text-session.ts";
+import { CLIENT_COMPATIBILITY_VERSION } from "../../shared/client-compatibility.ts";
 import {
   pick,
   resolvePnpmEntry,
@@ -53,6 +54,7 @@ import {
   shouldRetainCleanupRecoveryClaimEvidence,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
+import { deleteScratchDeck } from "./client-action.ts";
 import { devServerListeningUrl } from "./dev-server-url.ts";
 import {
   CHROME_SELECTOR,
@@ -90,7 +92,13 @@ import {
   type StyleDiff,
 } from "./lib/metrics.ts";
 import { isRetryableInfraError } from "./retry-infra.ts";
-import { authoringFilterError, readValueOption } from "./run-options.ts";
+import {
+  authoringFilterError,
+  parseShard,
+  readValueOption,
+  selectShard,
+  type ShardSelection,
+} from "./run-options.ts";
 import {
   ActionTransportError,
   ActionRequestTimeoutError,
@@ -172,6 +180,7 @@ const VALUE_FLAGS = new Set([
   "--authoring-source",
   "--authoring-flow",
   "--authoring-case",
+  "--authoring-shard",
   "--line-key-platform",
 ]);
 const opt = (name: string) => {
@@ -238,6 +247,12 @@ const authoringFuzzOnly = argv.includes("--authoring-fuzz");
 const authoringSourceFilter = opt("--authoring-source");
 const authoringFlowFilter = opt("--authoring-flow");
 const authoringCaseFilter = opt("--authoring-case");
+let authoringShard: ShardSelection | undefined;
+try {
+  authoringShard = parseShard(opt("--authoring-shard"));
+} catch (error) {
+  fatal((error as Error).message);
+}
 const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
 const incompatibleAuthoringFilters = authoringFilterError(
   authoringSourceFilter,
@@ -249,6 +264,9 @@ if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
 }
 if (authoringCaseFilter && !authoringOnly) {
   fatal("--authoring-case requires --authoring");
+}
+if (authoringShard && !authoringOnly) {
+  fatal("--authoring-shard requires --authoring");
 }
 if (
   authoringFlowFilter &&
@@ -742,6 +760,14 @@ async function action<T = any>(
   method: "DELETE" | "GET" | "POST" = "POST",
   timeoutMs = 30_000,
 ): Promise<T> {
+  if (name === "delete-deck") {
+    return deleteScratchDeck<T>(page, {
+      body,
+      compatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
+      source: `/@fs/${WORKTREE_ROOT.replace(/\\/g, "/")}/packages/core/src/client/use-action.ts`,
+      timeoutMs,
+    });
+  }
   const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
       const url =
@@ -3092,6 +3118,7 @@ async function runAuthoringParityQa(
   base: string,
   outRoot: string,
   caseFilter?: string,
+  shard?: ShardSelection,
 ) {
   const problems: string[] = [];
   let firstMarkupMismatch = "";
@@ -3169,11 +3196,14 @@ async function runAuthoringParityQa(
     },
     { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
   ];
-  const cases = allCases.filter(
-    (test) => !caseFilter || test.id.includes(caseFilter),
+  const cases = selectShard(
+    allCases.filter((test) => !caseFilter || test.id.includes(caseFilter)),
+    shard,
   );
   if (!cases.length) {
-    throw new Error(`no authoring parity cases match ${caseFilter}`);
+    throw new Error(
+      `no authoring parity cases match ${caseFilter ?? "(no filter)"} in shard ${shard ? `${shard.index + 1}/${shard.total}` : "(all)"}`,
+    );
   }
 
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
@@ -8100,6 +8130,7 @@ async function main() {
         base,
         outRoot,
         authoringCaseFilter,
+        authoringShard,
       );
       await page.close();
       if (problems.length) {

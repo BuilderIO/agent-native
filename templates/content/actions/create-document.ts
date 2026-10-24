@@ -56,6 +56,7 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -434,7 +435,8 @@ export default defineAction({
       .optional()
       .describe(
         "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
-          'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+          'shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
+          NFM_CONTAINER_SYNTAX,
       ),
     preserveLeadingTitleHeading: z
       .boolean()

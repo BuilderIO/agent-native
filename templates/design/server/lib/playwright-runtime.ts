@@ -61,22 +61,22 @@ async function connectBuilderBrowser(
   });
   const wsUrl = typeof connection.wsUrl === "string" ? connection.wsUrl : "";
   if (!wsUrl.trim()) throw new Error("Builder Browser did not return wsUrl.");
-  return chromium.connectOverCDP(wsUrl);
+  return chromium.connectOverCDP(wsUrl, { timeout: 30_000 });
 }
 
 export async function launchChromium(
   chromium: import("@playwright/test").BrowserType,
 ): Promise<import("@playwright/test").Browser> {
-  let builderBrowserError: unknown;
+  let localBrowserError: unknown;
   try {
-    return await connectBuilderBrowser(chromium);
+    return await chromium.launch({ chromiumSandbox: true });
   } catch (error) {
-    builderBrowserError = error;
+    localBrowserError = error;
   }
 
   try {
-    return await chromium.launch({ chromiumSandbox: true });
-  } catch (localBrowserError) {
+    return await connectBuilderBrowser(chromium);
+  } catch (builderBrowserError) {
     const describe = (error: unknown) =>
       error instanceof Error ? error.message : String(error);
     console.error(

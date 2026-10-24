@@ -25,6 +25,8 @@ import {
   insertRun,
   insertRunEvent,
   markAgentExecutionStepDispatched,
+  persistRunCheckpointEvent,
+  reapIfStale,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
 import {
@@ -175,6 +177,36 @@ async function main(): Promise<void> {
             updated,
           }),
         );
+        return;
+      }
+
+      if (mode === "checkpoint-crash") {
+        const payload = JSON.parse(extra ?? "null") as Record<string, unknown>;
+        await insertRun(runId, threadId, turnId, {
+          dispatchMode: "background",
+          dispatchPayload: JSON.stringify(payload),
+        });
+        const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+        await withExecutionFence(fence, async () => {
+          await insertRunEvent(
+            runId,
+            0,
+            JSON.stringify({ type: "text", text: "Completed before timeout" }),
+          );
+          await persistRunCheckpointEvent(
+            runId,
+            { type: "auto_continue", reason: "run_timeout" },
+            "run_timeout",
+          );
+        });
+        writeSync(1, JSON.stringify({ status: "checkpointed", fence }));
+        process.exit(83);
+      }
+
+      if (mode === "stale-reap") {
+        await withMigrationRuntime(() => ensureChatThreadTables());
+        const reaped = await reapIfStale(runId);
+        writeSync(1, JSON.stringify({ reaped }));
         return;
       }
 

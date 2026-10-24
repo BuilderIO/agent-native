@@ -521,7 +521,7 @@ const FUNCTION_URL_CORS = JSON.stringify({
   ],
   AllowMethods: ["POST"],
   AllowOrigins: ["*"],
-  ExposeHeaders: ["x-dispatch-mode", "x-run-id"],
+  ExposeHeaders: ["x-dispatch-mode", "x-run-id", "x-turn-id"],
   MaxAge: 600,
 });
 

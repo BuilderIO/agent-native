@@ -328,7 +328,9 @@ test("screen plain click selects the containing frame; Cmd-click selects the chi
   const { id, before } = await openScreenFixture(app);
 
   await clickScreenNode(app, "kid-a");
-  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+  await app.page.keyboard.press("Escape");
+  await expect.poll(() => app.selectedLayers()).toEqual([]);
 
   const card = await app.designRect("card");
   const emptyCardPoint = await app.pagePoint(
@@ -626,11 +628,8 @@ test("board regression: overlapping board Frames keep the pointer drop without c
   expect(afterReload.parentTagName).toBe("body");
 });
 
-// PR #5644 made a plain click inside a SCREEN select the deepest block under
-// the pointer directly (see editor-chrome.bridge.ts's plainClickSelectionTarget).
-// The infinite-canvas board surface keeps container-first selection, so these
-// tests use the same nested Card/Kid A fixture as a board object
-// (newBoardDesign) instead of a screen (newDesign).
+// Screens and the infinite-canvas board share container-first selection; these
+// tests exercise it on a board object (newBoardDesign).
 test.describe("click selects the container on the board surface, not the deep child", () => {
   test("selected nested frame drag from its grandchild tracks the pointer and persists", async ({
     page,
@@ -759,7 +758,7 @@ test.describe("click selects the container on the board surface, not the deep ch
     await expect
       .poll(() => app.selectedLayers(), {
         message:
-          "a plain click on the board selects the top-level container, not the deep child (screens select the deep child, PR #5644)",
+          "a plain click on the board selects the top-level container, not the deep child",
       })
       .toEqual(["Card"]);
   });
@@ -1156,7 +1155,10 @@ async function selectAlphaButton(app: App) {
     alpha.y + alpha.height / 2,
     "index.html",
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(center.x, center.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect
     .poll(() => app.selectedLayers(), {
       message: "precondition: the click selects the nested Alpha Button",

@@ -223,15 +223,13 @@ function topLevelLayerIds(page: Page) {
 }
 
 test.describe("clipboard + duplicate (single-screen editor)", () => {
-  test("cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size", async ({
+  test("cmd+C then cmd+V with the source still selected pastes into the SAME parent, directly above the source, keeping name and size", async ({
     app,
   }) => {
     const id = await openSingle(app, GROUP_HTML);
     await selectLayer(app, "Original");
     const before = await app.savedNodes(id);
     await app.page.keyboard.press("ControlOrMeta+c");
-    await app.page.keyboard.press("Escape");
-    await expect.poll(() => app.selectedLayers()).toEqual([]);
 
     await app.page.keyboard.press("ControlOrMeta+v");
 

@@ -532,7 +532,7 @@ test("a plain click selects the element under the cursor, the inspector shows it
 
   await clickCenter(app, "title");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Title"]);
-  await expect(size).toHaveValue("40px");
+  await expect(size).toHaveValue("40");
   await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
   await expectBoxNear(
     await selectionOverlay(app).boundingBox(),
@@ -541,7 +541,7 @@ test("a plain click selects the element under the cursor, the inspector shows it
 
   await clickCenter(app, "subtitle");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Subtitle"]);
-  await expect(size).toHaveValue("24px");
+  await expect(size).toHaveValue("24");
   await expectBoxNear(
     await selectionOverlay(app).boundingBox(),
     await app.node("subtitle").boundingBox(),

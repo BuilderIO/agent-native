@@ -37,11 +37,39 @@ import {
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
 export const EDITOR = ".content-editor.ProseMirror";
+export const ACTIVE_EDITOR = `${EDITOR}:not([hidden] *)`;
+
+export async function getActionResponse(
+  page: Page,
+  name: string,
+  params: Record<string, string>,
+) {
+  return page.request.get(`/_agent-native/actions/${name}`, {
+    params,
+    headers: ACTION_HEADERS,
+    timeout: 30_000,
+  });
+}
+
+export async function readAppState<T>(
+  page: Page,
+  key: string,
+): Promise<T | null> {
+  const response = await page.request.get(
+    `/_agent-native/application-state/${encodeURIComponent(key)}`,
+  );
+  const body = await response.text();
+  expect(
+    response.ok(),
+    `application-state (${response.status()}): ${body}`,
+  ).toBe(true);
+  return body === "" ? null : (JSON.parse(body) as T | null);
+}
 
 const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";
@@ -285,13 +313,18 @@ export class Markers {
 }
 
 /** Open a page and wait until its editor accepts input. */
-export async function gotoEditor(page: Page, id: string): Promise<void> {
+export async function gotoEditor(
+  page: Page,
+  id: string,
+  { tabs, label = "editor" }: { tabs?: TabSet; label?: string } = {},
+): Promise<void> {
+  if (tabs) await tabs.track(label, page);
   await page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
   await expectEditorReady(page);
 }
 
 export async function expectEditorReady(page: Page): Promise<void> {
-  await expect(page.locator(EDITOR)).toHaveAttribute(
+  await expect(page.locator(ACTIVE_EDITOR)).toHaveAttribute(
     "contenteditable",
     "true",
     { timeout: 60_000 },
@@ -622,6 +655,12 @@ export class TabSet {
 
   async open(label: string, id: string, page?: Page): Promise<Page> {
     const tab = page ?? (await this.context.newPage());
+    await this.track(label, tab);
+    await gotoEditor(tab, id);
+    return tab;
+  }
+
+  async track(label: string, tab: Page): Promise<void> {
     this.tabs.set(tab, emptyTab(label));
     tab.on("load", () => {
       const record = this.tabs.get(tab);
@@ -638,8 +677,6 @@ export class TabSet {
     });
     await cdp.send("Page.enable");
     tab.on("close", () => this.leaveDocument(tab));
-    await gotoEditor(tab, id);
-    return tab;
   }
 
   record(page: Page): TabRecord {
@@ -704,7 +741,9 @@ export class TabSet {
 
   /** Wait until an open tab's editor shows text another tab or agent wrote. */
   async waitForText(page: Page, text: string): Promise<void> {
-    await expect(page.locator(EDITOR)).toContainText(text, { timeout: 30_000 });
+    await expect(page.locator(ACTIVE_EDITOR)).toContainText(text, {
+      timeout: 30_000,
+    });
   }
 
   /** Wait for every classified save response the tabs have produced. */
@@ -1229,7 +1268,7 @@ export async function typeAtParagraphEnd(
     const snapshot = await page.evaluate(captureFixtureInput, {
       phase,
       text,
-      editor: EDITOR,
+      editor: ACTIVE_EDITOR,
     });
     if (!snapshot) return;
     await page.evaluate((detail) => {
@@ -1242,7 +1281,10 @@ export async function typeAtParagraphEnd(
     }, JSON.stringify(snapshot));
   };
   await capture("before-caret");
-  await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
+  await page
+    .locator(`${ACTIVE_EDITOR} > p`, { hasText: anchor })
+    .first()
+    .click();
   // "End" stops at a wrapped visual line, and a caret set only in the DOM is
   // lost when a remote update re-renders before ProseMirror reads it: the
   // keys then land where the click put them. Set it in the editor's state.
@@ -1267,7 +1309,7 @@ export async function typeAtParagraphEnd(
       }
       throw new Error(`No paragraph contains ${needle}`);
     },
-    { needle: anchor, editor: EDITOR },
+    { needle: anchor, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
   await capture("after-input");
@@ -1314,7 +1356,7 @@ async function expectTypedAtEnd(
         }
         return { paragraph, body: doc.textContent };
       },
-      { needle: anchor, editor: EDITOR },
+      { needle: anchor, editor: ACTIVE_EDITOR },
     );
     if (read.paragraph !== null && spaced(read.paragraph).endsWith(typed))
       return;
@@ -1352,10 +1394,10 @@ export async function deleteEditorText(
       }
       throw new Error(`The editor has no text node containing ${needle}`);
     },
-    { needle: text, editor: EDITOR },
+    { needle: text, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.press("Backspace");
-  await expect(page.locator(EDITOR)).not.toContainText(text);
+  await expect(page.locator(ACTIVE_EDITOR)).not.toContainText(text);
 }
 
 export function countMarkers(
@@ -1694,7 +1736,7 @@ function judge(
 }
 
 async function editorText(page: Page): Promise<string> {
-  return page.locator(EDITOR).innerText();
+  return page.locator(ACTIVE_EDITOR).innerText();
 }
 
 const CONVERGENCE_DEADLINE_MS = 45_000;
