@@ -1,9 +1,7 @@
-// The agent pretty-prints (2-space indent) a tool result and caps it at this
-// many characters (DEFAULT_TOOL_RESULT_CHARS in production-agent.ts). An action
-// whose result can exceed it fits the result itself instead of letting the cap
-// cut it off mid-field.
-export const RESULT_CHAR_CAP = 50_000;
-
+// The agent pretty-prints (2-space indent) a tool result and caps it at the
+// action's effective limit (`resolveToolMaxResultChars`). An action whose
+// result can exceed it fits the result itself instead of letting the cap cut it
+// off mid-field.
 export interface ResultTooLarge {
   error: "result_too_large";
   sizeChars: number;
@@ -35,9 +33,9 @@ export function fitResult<S, R extends object>(options: {
   steps: FitStep<S>[];
   summarize: (state: S) => Record<string, unknown>;
   guidance: string;
-  cap?: number;
+  cap: number;
 }): R | ResultTooLarge {
-  const cap = options.cap ?? RESULT_CHAR_CAP;
+  const cap = options.cap;
   let state = options.initial;
   let result = options.build(state);
   let size = serializedResultChars(result);

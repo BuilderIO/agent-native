@@ -19,6 +19,9 @@ vi.mock("../server/lib/gong", () => ({
 const { default: gongCalls, extractTranscriptText } =
   await import("./gong-calls");
 
+// What the agent loop passes: the cap it enforces on this call.
+const agentCtx = { caller: "agent", maxResultChars: 50_000 } as never;
+
 describe("gong-calls action", () => {
   beforeEach(() => {
     getCalls.mockReset();
@@ -544,12 +547,15 @@ describe("gong-calls action", () => {
       })),
     }));
 
-    const result = (await gongCalls.run({
-      company: "Acme",
-      exhaustive: true,
-      includeTranscripts: true,
-      transcriptMaxChars: 100_000,
-    })) as Record<string, any>;
+    const result = (await gongCalls.run(
+      {
+        company: "Acme",
+        exhaustive: true,
+        includeTranscripts: true,
+        transcriptMaxChars: 100_000,
+      },
+      agentCtx,
+    )) as Record<string, any>;
 
     expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
     expect(result.transcripts).toHaveLength(50);
@@ -598,12 +604,15 @@ describe("gong-calls action", () => {
         })),
     }));
 
-    const result = (await gongCalls.run({
-      company: "Acme",
-      exhaustive: true,
-      includeTranscripts: true,
-      transcriptMaxChars: 100_000,
-    })) as Record<string, any>;
+    const result = (await gongCalls.run(
+      {
+        company: "Acme",
+        exhaustive: true,
+        includeTranscripts: true,
+        transcriptMaxChars: 100_000,
+      },
+      agentCtx,
+    )) as Record<string, any>;
 
     expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
     const failed = result.transcripts.find((t: any) => t.callId === "c1");
@@ -648,12 +657,15 @@ describe("gong-calls action", () => {
       })),
     }));
 
-    const result = (await gongCalls.run({
-      company: "Acme",
-      transcriptQuery: "Figma MCP",
-      transcriptScanLimit: 200,
-      limit: 200,
-    })) as Record<string, any>;
+    const result = (await gongCalls.run(
+      {
+        company: "Acme",
+        transcriptQuery: "Figma MCP",
+        transcriptScanLimit: 200,
+        limit: 200,
+      },
+      agentCtx,
+    )) as Record<string, any>;
 
     expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
     expect(result.transcriptSearch).toMatchObject({
@@ -684,6 +696,23 @@ describe("gong-calls action", () => {
     expect(result.guidance).toContain("match list is incomplete");
   });
 
+  it("fits to the action's own 100k cap when called outside the agent loop", async () => {
+    const calls = Array.from({ length: 200 }, (_, index) => ({
+      id: `c${index + 1}`,
+      title: `Acme call ${"x".repeat(200)}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    getCalls.mockResolvedValue({ calls, cursor: undefined, pages: 1 });
+
+    const result = (await gongCalls.run({ limit: 200 })) as Record<string, any>;
+
+    expect(result.error).toBeUndefined();
+    expect(result.calls).toHaveLength(200);
+    const size = JSON.stringify(result, null, 2).length;
+    expect(size).toBeGreaterThan(50_000);
+    expect(size).toBeLessThan(100_000);
+  });
+
   it("returns a typed error instead of an over-cap result when the call records alone are too large", async () => {
     const calls = Array.from({ length: 200 }, (_, index) => ({
       id: `c${index + 1}`,
@@ -692,7 +721,10 @@ describe("gong-calls action", () => {
     }));
     getCalls.mockResolvedValue({ calls, cursor: undefined, pages: 1 });
 
-    const result = (await gongCalls.run({ limit: 200 })) as Record<string, any>;
+    const result = (await gongCalls.run({ limit: 200 }, agentCtx)) as Record<
+      string,
+      any
+    >;
 
     expect(result).toMatchObject({
       error: "result_too_large",

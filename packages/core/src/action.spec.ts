@@ -19,6 +19,8 @@ import {
   isActionOutputContractError,
   runActionWithExecutionOutcome,
   invocationEffect,
+  DEFAULT_TOOL_RESULT_CHARS,
+  resolveToolMaxResultChars,
   type ActionExecutionOutcome,
   type ActionRunContext,
   AgentActionStopError,
@@ -3536,5 +3538,32 @@ describe("gateway-stringified tool-arg coercion", () => {
       forceNew: false,
       ops: [{ op: "remove" }],
     });
+  });
+});
+
+describe("resolveToolMaxResultChars", () => {
+  it("prefers the action limit, then the agent limit, then the default", () => {
+    expect(resolveToolMaxResultChars({})).toBe(DEFAULT_TOOL_RESULT_CHARS);
+    expect(resolveToolMaxResultChars({}, { maxResultChars: 30_000 })).toBe(
+      30_000,
+    );
+    expect(
+      resolveToolMaxResultChars(
+        { maxResultChars: 100_000 },
+        { maxResultChars: 30_000 },
+      ),
+    ).toBe(100_000);
+  });
+
+  it("bounds the result by any hard limit", () => {
+    expect(
+      resolveToolMaxResultChars(
+        { maxResultChars: 100_000 },
+        { hardMaxResultChars: 40_000 },
+      ),
+    ).toBe(40_000);
+    expect(resolveToolMaxResultChars({}, { hardMaxResultChars: 80_000 })).toBe(
+      DEFAULT_TOOL_RESULT_CHARS,
+    );
   });
 });

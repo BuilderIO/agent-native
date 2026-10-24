@@ -352,6 +352,57 @@ describe("hubspot-deals action", () => {
     expect(result.nextOffset).toBe(60 + result.deals.length);
   });
 
+  it("resumes a trimmed page after the provider rows consumed, not the post-filter count", async () => {
+    // Every other provider row is filtered out locally (hidden pipeline).
+    const rows = Array.from({ length: 30 }, (_, index) => ({
+      id: `row-${index}`,
+      properties: {
+        dealname: `Deal ${index} ${"x".repeat(3_000)}`,
+        dealstage: "closed-lost",
+        pipeline: index % 2 === 0 ? "enterprise-new-business" : "hidden",
+        hubspot_owner_id: "owner-1",
+      },
+    }));
+    searchHubSpotObjects.mockResolvedValue({
+      records: rows,
+      total: 100,
+      nextAfter: "90",
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 1,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
+
+    const result = (await hubspotDeals.run({
+      closedStatus: "lost",
+      limit: 30,
+      offset: 60,
+    })) as Record<string, any>;
+
+    const kept = result.deals.length;
+    expect(kept).toBeGreaterThan(0);
+    expect(kept).toBeLessThan(15);
+    expect(result.sizeTrimmed).toBe(true);
+    expect(result.deals[kept - 1].id).toBe(`row-${2 * (kept - 1)}`);
+    // Resume right after the last returned deal's provider row.
+    expect(result.nextOffset).toBe(60 + 2 * (kept - 1) + 1);
+    expect(result.guidance).toContain(
+      `Fetch the next page with offset ${result.nextOffset}.`,
+    );
+  });
+
   it("keeps the pretty-printed result the agent serializes under its cap", async () => {
     // Compact JSON is ~36k here but the agent's 2-space pretty form is ~66k.
     const deals = Array.from({ length: 30 }, (_, index) => ({

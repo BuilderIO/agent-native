@@ -12,6 +12,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import { isNonProgressEventType } from "../shared/progress-events.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import {
   isLlmCredentialError,
@@ -1250,8 +1251,6 @@ export function startRun(
     scheduleProgressWrite();
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
-    if (event.type === "stream_keepalive" || event.type === "model_stream")
-      return false;
     if (event.type === "clear") {
       for (const [key, bytes] of preparingActivityBytes) {
         const toolKey = preparingActivityTools.get(key) ?? key;
@@ -1262,8 +1261,8 @@ export function startRun(
       }
       preparingActivityBytes.clear();
       preparingActivityTools.clear();
-      return false;
     }
+    if (isNonProgressEventType(event.type)) return false;
     if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
       const toolKey = event.tool?.trim() || event.label.trim();
       const activityKey = `${toolKey}:${event.id?.trim() || "no-id"}`;

@@ -1,4 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  resolveToolMaxResultChars,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import { type FitStep, fitResult } from "../server/lib/fit-result";
@@ -18,6 +21,7 @@ import {
 } from "../server/lib/gong-limits";
 import { cliBoolean } from "./schema-helpers";
 
+const GONG_MAX_RESULT_CHARS = 100_000;
 const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
 const MAX_GONG_TRANSCRIPT_LIMIT = 50;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
@@ -602,7 +606,7 @@ export default defineAction({
   readOnly: true,
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  maxResultChars: 100_000,
+  maxResultChars: GONG_MAX_RESULT_CHARS,
   description:
     "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded call search; without --company, lists calls in the date window. For broad keyword, tracker, cross-account, or absence-sensitive work, stage the raw Gong API response via provider-api-catalog/provider-api-docs/provider-api-request, then use query-staged-dataset or a Data Program; use provider-corpus-job only for durable scans that require raw transcript bodies.",
   schema: z.object({
@@ -690,6 +694,9 @@ export default defineAction({
   grounding: true,
   run: async (args, ctx) => {
     const requestOptions = ctx?.signal ? { signal: ctx.signal } : undefined;
+    const resultCap =
+      ctx?.maxResultChars ??
+      resolveToolMaxResultChars({ maxResultChars: GONG_MAX_RESULT_CHARS });
     if (args.users) {
       const users = await getUsers();
       return { users, total: users.length };
@@ -864,6 +871,7 @@ export default defineAction({
           truncated: result.truncated,
         }),
         guidance: RESULT_TOO_LARGE_GUIDANCE,
+        cap: resultCap,
       });
     } else {
       const days = args.days ?? 30;
@@ -1016,6 +1024,7 @@ export default defineAction({
           truncated: truncated,
         }),
         guidance: RESULT_TOO_LARGE_GUIDANCE,
+        cap: resultCap,
       });
     }
   },

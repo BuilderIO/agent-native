@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { isDurableProgressEvent } from "../client/sse-event-processor.js";
 import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -3523,6 +3524,126 @@ describe("run manager soft timeout", () => {
 
     expect(abortRun("run-identified-empty-prep-progress")).toBe(true);
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  describe("server and browser progress predicates", () => {
+    // Keyed by every event type so a new type must be classified here.
+    const samples: Record<AgentChatEvent["type"], AgentChatEvent> = {
+      text: { type: "text", text: "hi" },
+      thinking: { type: "thinking", text: "hmm" },
+      suggestions: { type: "suggestions", suggestions: [] },
+      rich_event: {
+        type: "rich_event",
+        event: { kind: "k", id: "e" } as never,
+      },
+      activity: { type: "activity", label: "Searching" },
+      tool_input_start: { type: "tool_input_start", tool: "t" },
+      tool_input_delta: { type: "tool_input_delta", tool: "t", text: "{" },
+      stream_keepalive: { type: "stream_keepalive" },
+      model_stream: { type: "model_stream", status: "end" },
+      tool_start: { type: "tool_start", tool: "t", input: {} },
+      tool_done: { type: "tool_done", tool: "t", result: "ok" },
+      approval_required: {
+        type: "approval_required",
+        tool: "t",
+        input: {},
+        approvalKey: "k",
+      },
+      connection_required: {
+        type: "connection_required",
+        requestId: "r",
+        provider: "p",
+        reason: "connect",
+      },
+      agent_call: { type: "agent_call", agent: "a", status: "start" },
+      agent_call_progress: {
+        type: "agent_call_progress",
+        agent: "a",
+        state: "working",
+        elapsedSeconds: 1,
+      },
+      agent_call_text: { type: "agent_call_text", agent: "a", text: "t" },
+      agent_call_activity: {
+        type: "agent_call_activity",
+        agent: "a",
+        snapshot: {} as never,
+      },
+      agent_task: {
+        type: "agent_task",
+        taskId: "t",
+        threadId: "th",
+        description: "d",
+        status: "running",
+      },
+      agent_task_update: {
+        type: "agent_task_update",
+        taskId: "t",
+        preview: "p",
+      },
+      agent_task_complete: {
+        type: "agent_task_complete",
+        taskId: "t",
+        summary: "s",
+      },
+      done: { type: "done" },
+      error: { type: "error", error: "e" },
+      missing_api_key: { type: "missing_api_key" },
+      loop_limit: { type: "loop_limit" },
+      tripwire: { type: "tripwire", reason: "r" },
+      auto_continue: { type: "auto_continue", reason: "run_timeout" },
+      clear: { type: "clear" },
+    };
+    const cases: Array<[string, AgentChatEvent]> = [
+      ...Object.entries(samples),
+      [
+        "anonymous zero-byte preparation activity",
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 0,
+        },
+      ],
+    ];
+
+    // Terminal events end the run, so the server writes no progress for them
+    // and the browser's cursor no longer matters.
+    const terminal = new Set([
+      "done",
+      "error",
+      "missing_api_key",
+      "loop_limit",
+      "auto_continue",
+    ]);
+    const live = cases.filter(([, event]) => !terminal.has(event.type));
+
+    it("classifies every event type", () => {
+      expect(cases.length - live.length).toBe(terminal.size);
+    });
+
+    it.each(live)("agree on %s", async (name, event) => {
+      vi.setSystemTime(10_000);
+      const runId = `run-predicate-${name}`;
+      startRun(
+        runId,
+        `thread-${runId}`,
+        async (send, signal) => {
+          send(event);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      const serverPersistsProgress =
+        vi.mocked(bumpRunProgress).mock.calls.length > 0;
+      expect(isDurableProgressEvent(event as never)).toBe(
+        serverPersistsProgress,
+      );
+      abortRun(runId);
+    });
   });
 
   it("does not bump durable progress for clear events or lower-byte restarts", async () => {

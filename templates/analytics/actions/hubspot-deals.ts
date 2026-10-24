@@ -1,4 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  resolveToolMaxResultChars,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import { type FitStep, fitResult } from "../server/lib/fit-result";
@@ -645,20 +648,24 @@ export default defineAction({
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
-  run: async ({
-    properties,
-    owner,
-    product,
-    productMatch,
-    pipeline,
-    closedStatus,
-    closedDateFrom,
-    closedDateTo,
-    query,
-    limit,
-    offset,
-    after,
-  }) => {
+  run: async (
+    {
+      properties,
+      owner,
+      product,
+      productMatch,
+      pipeline,
+      closedStatus,
+      closedDateFrom,
+      closedDateTo,
+      query,
+      limit,
+      offset,
+      after,
+    },
+    ctx,
+  ) => {
+    const resultCap = ctx?.maxResultChars ?? resolveToolMaxResultChars({});
     const trimmedQuery = query?.trim();
     const trimmedOwner = owner?.trim();
     const trimmedProduct = product?.trim();
@@ -739,10 +746,16 @@ export default defineAction({
       closedDateTo: closedDateTo?.trim(),
     });
     const structuredFilters = hasStructuredFilters(filters);
-    const matchedDeals = rawDeals
-      .filter((d) => visibleIds.has(String(d.properties.pipeline)))
-      .map((deal) => enrichDeal(deal, lookups, owners))
-      .filter((deal) => {
+    // Each kept deal remembers its position in the provider page: the resume
+    // offset counts provider rows, and local filters drop some of them.
+    const matched = rawDeals
+      .map((deal, sourceIndex) => ({ deal, sourceIndex }))
+      .filter(({ deal }) => visibleIds.has(String(deal.properties.pipeline)))
+      .map(({ deal, sourceIndex }) => ({
+        deal: enrichDeal(deal, lookups, owners),
+        sourceIndex,
+      }))
+      .filter(({ deal }) => {
         if (!ownerFilter) return true;
         const ownerName =
           typeof deal.properties.owner_name === "string"
@@ -750,7 +763,7 @@ export default defineAction({
             : "";
         return ownerName === ownerFilter;
       })
-      .filter((deal) => {
+      .filter(({ deal }) => {
         if (
           !matchesText(deal.properties.products, trimmedProduct, productMatch)
         ) {
@@ -760,6 +773,7 @@ export default defineAction({
         if (!matchesClosedStatus(deal, closedStatus)) return false;
         return matchesDateRange(deal, fromMs, toMs);
       });
+    const matchedDeals = matched.map(({ deal }) => deal);
 
     const matchedTotal = dealResult.total;
     const allDeals = matchedDeals.map((deal) => ({
@@ -789,7 +803,12 @@ export default defineAction({
         nextCursor == null ||
         !Number.isFinite(nextCursor) ||
         nextCursor < HUBSPOT_SEARCH_RESULT_CAP;
-      const nextOffsetValue = offset + consumed;
+      // Provider rows read through the last returned or oversized deal; when
+      // nothing was dropped, the whole provider page was read.
+      const providerRowsConsumed = droppedDeals
+        ? matched[consumed - 1].sourceIndex + 1
+        : rawDeals.length;
+      const nextOffsetValue = offset + providerRowsConsumed;
       // A size-trimmed offset page resumes right after the last returned deal.
       // A trimmed query page has no cursor to resume from, so it reports none.
       const hasMore = trimmedQuery
@@ -849,12 +868,13 @@ export default defineAction({
     const shrinkDealsBudget: FitStep<number> = (budget, { overage }) =>
       Math.max(MIN_DEALS_JSON_CHAR_BUDGET, budget - overage - 500);
     return fitResult({
-      initial: DEALS_JSON_CHAR_BUDGET,
+      initial: Math.min(DEALS_JSON_CHAR_BUDGET, resultCap - 10_000),
       build: buildResult,
       steps: [shrinkDealsBudget, shrinkDealsBudget],
       summarize: () => ({ total: matchedTotal, limit, offset }),
       guidance:
         "The page does not fit the output size budget even after trimming deals. Lower the limit or narrow the filters and retry; do not treat this as an empty result.",
+      cap: resultCap,
     });
   },
 });

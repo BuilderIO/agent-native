@@ -57,6 +57,7 @@ import {
   preparedCallArguments,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
+  resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
   type PreparedActionCall,
@@ -9578,19 +9579,11 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
       const toolTimeoutMs = toolTimeoutMsFor(actionEntry);
-      const configuredToolMaxResultChars =
-        actionEntry.maxResultChars ??
-        opts.toolLimits?.maxResultChars ??
-        DEFAULT_TOOL_RESULT_CHARS;
-      const toolMaxResultChars =
-        typeof opts.toolLimits?.hardMaxResultChars === "number"
-          ? Math.min(
-              configuredToolMaxResultChars,
-              opts.toolLimits.hardMaxResultChars,
-            )
-          : configuredToolMaxResultChars;
+      const toolMaxResultChars = resolveToolMaxResultChars(
+        actionEntry,
+        opts.toolLimits,
+      );
 
       const executionFence = currentExecutionFence();
       const logicalExecutionStepId =
@@ -10322,6 +10315,7 @@ export async function runAgentLoop(opts: {
               signal,
               actionName: toolCall.name,
               toolCallId: toolCall.id,
+              maxResultChars: toolMaxResultChars,
               ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
             };
             actionInvoked = true;
