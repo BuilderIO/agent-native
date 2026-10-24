@@ -20,7 +20,6 @@ import {
   createDatabaseViewSaveQueue,
   databaseBuilderBulkUpdateSource,
   databaseBuilderHydrationSourceForItem,
-  databaseBulkEditableProperties,
   databaseBulkPropertyValueForItem,
   databaseBulkMultiSelectFilteredOptions,
   databaseBulkMultiSelectOptionPresence,
@@ -77,6 +76,7 @@ import {
   exactRequestedDatabaseViewUnavailable,
   updateDatabaseViewType,
 } from "./DatabaseView";
+import { databaseBulkEditableProperties } from "./navigation-state";
 
 describe("database view icons", () => {
   it("retains a selected icon through normalization, duplication, and removal", () => {

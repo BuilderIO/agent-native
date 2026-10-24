@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   DATABASE_NAVIGATION_STATE_MAX_BYTES,
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseBulkEditableProperties,
   databaseNavigationStateFitsKeepaliveBudget,
   fitDatabaseNavigationState,
 } from "./database/navigation-state";
@@ -37,7 +38,6 @@ import {
   databaseBoardGroups,
   databaseBoardOptionForGroup,
   databaseBoardVisibleCardProperties,
-  databaseBulkEditableProperties,
   databaseBulkScalarInputState,
   databaseCalculationOptionsForProperty,
   databaseCalculationSummaries,
@@ -2383,6 +2383,20 @@ describe("database item preview", () => {
         lockedText,
       ]).map((candidate) => candidate.definition.id),
     ).toEqual(["status"]);
+  });
+
+  it("keeps Blocks fields, the page body included, out of the bulk editor", () => {
+    expect(
+      databaseBulkEditableProperties([
+        property("content", "Content", "blocks", "Page body", {
+          blocks: { primary: true },
+        }),
+        property("notes", "Notes", "blocks", "Notes", {
+          blocks: { primary: false },
+        }),
+        property("summary", "Summary", "text"),
+      ]).map((candidate) => candidate.definition.id),
+    ).toEqual(["summary"]);
   });
 
   it("normalizes bulk scalar property inputs before applying them to selected rows", () => {

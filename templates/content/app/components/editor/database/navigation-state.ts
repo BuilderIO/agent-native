@@ -329,7 +329,10 @@ export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
       property.editable &&
       !isComputedPropertyType(property.definition.type) &&
       // Row mutations do not accept relation values yet.
-      property.definition.type !== "relation",
+      property.definition.type !== "relation" &&
+      // A plain text box would replace the field's whole document, and the
+      // primary Blocks field is the page body.
+      property.definition.type !== "blocks",
   );
 }
 
