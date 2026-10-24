@@ -1,8 +1,9 @@
-import { embedApp } from "@agent-native/core";
+import { embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
+  compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
   listAppState,
@@ -156,6 +157,11 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Manage compose drafts: use `create` for a new draft even if another " +
     "compose draft is open; use `update` to revise a specific existing draft " +
@@ -164,8 +170,14 @@ export default defineAction({
     "with only the raw compose ID (not the `compose-{id}` app-state key), " +
     "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
     "`delete-all` to remove all compose drafts. To start a new reply, call " +
-    "`create` with mode=reply, replyToId, to, subject, and body.",
+    "`create` with mode=reply, replyToId, to, subject, and body. " +
+    "Outside agents require human approval to delete drafts.",
   schema: manageDraftSchema,
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.action !== "create" &&
+    args.action !== "update",
+  allowPersistentApproval: false,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -270,6 +282,11 @@ export default defineAction({
         fail(`Invalid draft ID "${rawId}"`, {
           errorCode: "draft_invalid_id",
         });
+      if (await readAppState(`compose-${id}`))
+        fail(`Draft "${id}" already exists; use update to revise it.`, {
+          errorCode: "draft_already_exists",
+          statusCode: 409,
+        });
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
@@ -306,7 +323,20 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
-      await writeAppState(`compose-${id}`, draft);
+      const created = await compareAndSetAppState(`compose-${id}`, null, draft);
+      if (!created) {
+        if (savedGmailDraft?.created && ownerEmail) {
+          await deleteGmailDraft({
+            ownerEmail,
+            accountEmail: savedGmailDraft.accountEmail,
+            draftId: savedGmailDraft.draftId,
+          });
+        }
+        fail(`Draft "${id}" already exists; use update to revise it.`, {
+          errorCode: "draft_already_exists",
+          statusCode: 409,
+        });
+      }
       track(
         "draft_created",
         {
