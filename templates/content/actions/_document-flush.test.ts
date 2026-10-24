@@ -1676,6 +1676,28 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect(mocks.many.mock.calls.length).toBeGreaterThan(2);
     });
 
+    it.each(["prepare", "verify"])(
+      "refuses as unreadable, not as never received, when the %s answers are still being read at the deadline",
+      async (phase) => {
+        mocks.awareness.mockResolvedValue([
+          editorRow(123, "owner@example.com", TITLE_EDITOR),
+        ]);
+        const read = mocks.many.getMockImplementation()!;
+        mocks.many.mockImplementation((email: string, keys: string[]) =>
+          store.get(address(email, "flush-request-doc-1"))?.phase === phase
+            ? new Promise(() => {})
+            : read(email, keys),
+        );
+
+        expect(await settle()).toMatchObject({
+          error: {
+            errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+            details: { reason: "acknowledgement_unreadable" },
+          },
+        });
+      },
+    );
+
     it.each([
       [
         "the verify request can't be written",

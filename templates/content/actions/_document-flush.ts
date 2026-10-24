@@ -263,10 +263,12 @@ type HandshakeState = {
   waitingEditors: FlushEditorIdentity[];
   lastEditorError?: { clientId: number; errorCode: string };
   // The title scope's failure reasons: the step the handshake is on, which
-  // editors took the current prepare request, and why the acknowledgements
-  // couldn't be read, while no read has succeeded since.
+  // editors took the current prepare request, whether a read of the
+  // acknowledgements is still running, and why they couldn't be read, while
+  // no read has succeeded since.
   operation: "publish" | "acknowledge" | "capture" | null;
   reached: Set<number>;
+  readingAcknowledgements: boolean;
   unreadAcknowledgements?: { cause: unknown };
 };
 
@@ -276,6 +278,7 @@ function handshakeState(): HandshakeState {
     waitingEditors: [],
     operation: null,
     reached: new Set(),
+    readingAcknowledgements: false,
   };
 }
 
@@ -399,6 +402,10 @@ async function confirmEditors<S>(args: {
         email: string;
         entries: Awaited<ReturnType<typeof appStateGetManyEntries>>;
       }>;
+      // Past the deadline no read starts, so one running when it passes was
+      // cut short and says nothing about whether an editor answered.
+      if (Date.now() >= deadline) throw timeout();
+      state.readingAcknowledgements = true;
       try {
         reads = await bounded(
           Promise.all(
@@ -418,6 +425,7 @@ async function confirmEditors<S>(args: {
           ),
         );
       } catch (error) {
+        state.readingAcknowledgements = false;
         // A title save's answer can still be read after a failed read, so
         // only reads that fail up to the deadline refuse it.
         if (scope !== "title" || error instanceof ActionContractError)
@@ -431,6 +439,7 @@ async function confirmEditors<S>(args: {
         await pause();
         continue;
       }
+      state.readingAcknowledgements = false;
       state.unreadAcknowledgements = undefined;
       let retry = false;
       for (const { email, entries } of reads) {
@@ -615,7 +624,8 @@ function titleTimeoutReason(
 ): OpenEditorTitleNotSavedReason {
   if (state.operation === "publish") return "request_not_delivered";
   if (state.operation !== "acknowledge") return "timeout";
-  if (state.unreadAcknowledgements) return "acknowledgement_unreadable";
+  if (state.readingAcknowledgements || state.unreadAcknowledgements)
+    return "acknowledgement_unreadable";
   // An editor marks a title request taken before it saves, so one that never
   // did never picked the request up.
   if (
