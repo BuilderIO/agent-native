@@ -21,6 +21,11 @@ import {
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
+import {
+  contentChangeActor,
+  enqueueCommentWebhooks,
+  scheduleContentWebhookDelivery,
+} from "./_content-webhooks.js";
 
 export default defineAction({
   description:
@@ -115,10 +120,16 @@ export default defineAction({
           : {}),
       };
 
+    let webhookEvents = 0;
     if (args.resolved !== undefined) {
       await db.transaction(async (tx) => {
-        await tx
-          .select({ id: schema.documentComments.id })
+        const [root] = await tx
+          .select({
+            id: schema.documentComments.id,
+            authorEmail: schema.documentComments.authorEmail,
+            content: schema.documentComments.content,
+            resolved: schema.documentComments.resolved,
+          })
           .from(schema.documentComments)
           .where(
             and(
@@ -148,7 +159,26 @@ export default defineAction({
               eq(schema.documentComments.threadId, comment.threadId),
             ),
           );
+        if (args.resolved && root && !root.resolved) {
+          webhookEvents = await enqueueCommentWebhooks(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              type: "comment.resolved",
+              comment: {
+                id: root.id,
+                documentId: comment.documentId,
+                threadId: comment.threadId,
+                parentId: null,
+                authorEmail: root.authorEmail,
+                content: root.content,
+                resolved: true,
+              },
+              actor: contentChangeActor(ctx),
+            },
+          );
+        }
       });
+      if (webhookEvents) scheduleContentWebhookDelivery();
     } else {
       await db
         .update(schema.documentComments)

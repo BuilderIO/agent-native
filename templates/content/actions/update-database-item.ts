@@ -3,6 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
+import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
   canonicalizeDatabasePropertyInput,
   databasePropertyEntriesSchema,
@@ -78,7 +79,9 @@ export default defineAction({
       "update-database-item",
       context,
     );
-    return updateDatabaseRow(canonicalizeDatabasePropertyInput(args));
+    return withContentWebhookDelivery(context, () =>
+      updateDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+    );
   },
   link: ({ result }) => {
     const receipt = (result as ContentDatabaseRowMutationResult | null)

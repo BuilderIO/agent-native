@@ -320,6 +320,19 @@ pnpm action update-comment --id c123 --resolved false
 
 A new comment emails the document owner, earlier authors in the thread, and anyone mentioned, unless they turned those emails off. An edit that mentions someone new emails only that person. The current user's own switch is `get-content-notification-prefs` and `update-content-notification-prefs --emailNotifications=false`, the same one Settings shows on Notifications. Share invites always send.
 
+### Webhooks
+
+A webhook sends a signed POST to a public HTTPS URL when something changes on a collection's rows (`--databaseId`) or on one page (`--documentId`). Events are `property.changed` (one per changed property, with old and new value; select options also carry `oldLabel`/`newLabel`), `comment.created`, and `comment.resolved`. `--propertyIds` limits `property.changed` to those properties. Managing webhooks takes admin access to the collection or page.
+
+```bash
+pnpm action create-content-webhook --databaseId db123 --url https://example.com/hook \
+  --events '["property.changed","comment.created"]' --propertyIds '["prop456"]'
+pnpm action list-content-webhooks --databaseId db123   # recent deliveries, never the secret
+pnpm action delete-content-webhook --id wh_abc
+```
+
+`create-content-webhook` returns the signing secret once. Requests follow Standard Webhooks: `webhook-id` is the event ID, `webhook-timestamp` is Unix seconds, and `webhook-signature` is `v1,` + base64 HMAC-SHA256 of `{id}.{timestamp}.{body}`, keyed with the base64-decoded secret after `whsec_`. The body is `{ id, type, occurredAt, webhookId, sequence, documentId, databaseId, actor: { kind: "human" | "agent", email }, data }`. Any 2xx acknowledges. Delivery is at least once: a failure is retried for about 28 hours with the same `webhook-id` and body, so receivers dedupe on it; for one property on one page, a larger `sequence` is the later change. Private, internal, and Tailnet URLs are refused, and events stop if the webhook's creator loses admin access. Imports, source syncs, row creation, duplication, row migrations, Blocks fields, Notion comment sync, and reopening a thread don't send events yet.
+
 ### refresh-list
 
 Trigger the UI to refresh the document list.

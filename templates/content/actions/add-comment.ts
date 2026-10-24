@@ -30,6 +30,10 @@ import {
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
 import { commentPropertyTarget } from "../shared/comment-property-target.js";
+import {
+  enqueueCommentWebhooks,
+  scheduleContentWebhookDelivery,
+} from "./_content-webhooks.js";
 import { listPropertiesForDocument } from "./_property-utils.js";
 
 function displayNameFromEmail(email: string): string {
@@ -351,6 +355,7 @@ export async function addCommentWithGuard(
     authorEffort,
   };
 
+  let webhookEvents = 0;
   const inserted = await db.transaction(async (tx) => {
     const existingReceipt = async () => {
       const [existing] = await tx
@@ -461,9 +466,26 @@ export async function addCommentWithGuard(
         errorCode: "comment_submission_conflict",
       });
     }
+    webhookEvents = await enqueueCommentWebhooks(
+      tx as unknown as ReturnType<typeof getDb>,
+      {
+        type: "comment.created",
+        comment: {
+          id,
+          documentId,
+          threadId,
+          parentId,
+          authorEmail: email,
+          content,
+          resolved: false,
+        },
+        actor: { kind: actorKind, email: email.trim().toLowerCase() },
+      },
+    );
     return true;
   });
   if (!inserted) return { id, threadId, notified: null, replayed: true };
+  if (webhookEvents) scheduleContentWebhookDelivery();
 
   const notified = await notifyDocumentComment({
     documentId,
