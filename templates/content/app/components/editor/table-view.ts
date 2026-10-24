@@ -309,7 +309,6 @@ export function contentTableColumnSizing() {
           return false;
         },
         mousedown(view) {
-          // A drag released outside the window ends without a mouseup.
           pending = null;
           if (touching) {
             releaseColumnHandle(view);
@@ -318,10 +317,21 @@ export function contentTableColumnSizing() {
           const resize = startContentSizedResize(view);
           if (!resize) return false;
           pending = resize;
-          // Added before `columnResizing` adds its own, so it runs first.
+          // `columnResizing` ends its drag on the same two events, with
+          // listeners added after these, so these run first.
           const win = view.dom.ownerDocument.defaultView ?? window;
-          const onMouseUp = (event: MouseEvent) => release(view, resize, event);
-          win.addEventListener("mouseup", onMouseUp, { once: true });
+          const end = (event: MouseEvent) => {
+            win.removeEventListener("mouseup", end);
+            win.removeEventListener("mousemove", move);
+            release(view, resize, event);
+          };
+          // A button released outside the window ends the drag on the next
+          // mousemove, found the same way `columnResizing` finds it.
+          const move = (event: MouseEvent) => {
+            if (!event.which) end(event);
+          };
+          win.addEventListener("mouseup", end);
+          win.addEventListener("mousemove", move);
           return false;
         },
       },
@@ -372,15 +382,20 @@ export class ContentTableView extends TableView {
   }
 
   private applyColumnSizing(hold: boolean) {
+    // Tiptap only sets an unsized <col>'s `min-width`, so widths left by a
+    // hold or an undone resize are cleared here.
+    const cols = Array.from(this.colgroup.children) as HTMLElement[];
     if (hasStoredColumnWidths(this.node)) {
+      // Stored widths are pixels; a percentage is a hold's, on a column
+      // left unsized to take up the rest.
+      for (const col of cols) {
+        if (col.style.width.endsWith("%")) col.style.removeProperty("width");
+      }
       this.heldShares = null;
       this.table.removeAttribute(COLUMN_SIZING_ATTRIBUTE);
       return;
     }
-    const cols = Array.from(this.colgroup.children) as HTMLElement[];
     if (!hold || this.heldShares?.length !== cols.length) {
-      // Tiptap only sets an unsized <col>'s `min-width`, so widths left by a
-      // hold or an undone resize are cleared here.
       this.heldShares = null;
       this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "content");
       for (const col of cols) col.style.removeProperty("width");

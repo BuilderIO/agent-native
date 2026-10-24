@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { getSchema } from "@tiptap/core";
+import { history, undo, undoDepth } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
 import {
@@ -8,8 +9,12 @@ import {
   columnResizingPluginKey,
   updateColumnsOnResize,
 } from "@tiptap/pm/tables";
-import type { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
-import { describe, expect, it, vi } from "vitest";
+import {
+  EditorView,
+  type Decoration,
+  type DecorationSet,
+} from "@tiptap/pm/view";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   COLUMN_SIZING_ATTRIBUTE,
@@ -190,6 +195,19 @@ describe("content-sized columns", () => {
     expect(colWidths(view)).toEqual(["", ""]);
   });
 
+  it("drops a held share once the table has stored widths", () => {
+    const node = table([{}, {}]);
+    const view = new ContentTableView(node, 25);
+    renderFirstRow(view, [100, 300]);
+    view.update(node, holdDecorations(stateWith(node, 4)));
+
+    // The second column is left unsized, as a drag leaves the one after it.
+    view.update(table([{ colwidth: [150] }, { colwidth: [0] }]));
+
+    expect(view.table.hasAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe(false);
+    expect(colWidths(view)).toEqual(["150px", ""]);
+  });
+
   it("clears the widths an undone resize leaves on the columns", () => {
     const view = new ContentTableView(
       table([{ colwidth: [150] }, { colwidth: [150] }]),
@@ -298,6 +316,65 @@ describe("contentTableColumnSizing", () => {
 
     expect(press("touch")).toBe(-1);
     expect(press("mouse")).toBe(2);
+  });
+});
+
+describe("dragging a content-sized table's border", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // Presses the first column's right border at x = 100, with every column
+  // rendered 100px wide.
+  function pressBorder() {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 100,
+    } as DOMRect);
+    const state = EditorState.create({
+      doc: schema.nodes.doc.create(null, [table([{}, {}, {}])]),
+      plugins: [contentTableColumnSizing(), columnResizing(), history()],
+    });
+    const view = new EditorView(
+      document.body.appendChild(document.createElement("div")),
+      { state },
+    );
+    view.dispatch(
+      view.state.tr.setMeta(columnResizingPluginKey, { setHandle: 2 }),
+    );
+    view.dom
+      .querySelector("td")!
+      .dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, clientX: 100 }),
+      );
+    return view;
+  }
+
+  function columnWidthsOf(view: EditorView) {
+    const widths: unknown[] = [];
+    view.state.doc.firstChild?.firstChild?.forEach((cell) =>
+      widths.push(cell.attrs.colwidth),
+    );
+    return widths;
+  }
+
+  it("stores nothing when the border doesn't move", () => {
+    const view = pressBorder();
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100 }));
+
+    expect(columnWidthsOf(view)).toEqual([null, null, null]);
+    expect(undoDepth(view.state)).toBe(0);
+    view.destroy();
+  });
+
+  it("makes a drag released outside the window one undo step", () => {
+    const view = pressBorder();
+    // `columnResizing` ends such a drag on the next mousemove, with no button.
+    const reentry = new MouseEvent("mousemove", { clientX: 140 });
+    Object.defineProperty(reentry, "which", { value: 0 });
+    window.dispatchEvent(reentry);
+
+    expect(columnWidthsOf(view)).toEqual([[140], [0], [100]]);
+    undo(view.state, view.dispatch);
+    expect(columnWidthsOf(view)).toEqual([null, null, null]);
+    view.destroy();
   });
 });
 
