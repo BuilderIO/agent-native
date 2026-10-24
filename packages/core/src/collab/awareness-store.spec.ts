@@ -25,6 +25,12 @@ const dbRows = vi.hoisted(
 const dbAvailable = vi.hoisted(() => ({ value: true }));
 const purgeCalls = vi.hoisted(() => ({ count: 0 }));
 const purgeFails = vi.hoisted(() => ({ value: false }));
+const purgeHang = vi.hoisted(() => ({
+  promise: undefined as Promise<void> | undefined,
+}));
+const purgeStarted = vi.hoisted(() => ({
+  signal: undefined as (() => void) | undefined,
+}));
 const clearRace = vi.hoisted(() => ({ value: false }));
 const clearUpsertQuery = vi.hoisted(() => ({
   value: null as null | { sql: string; args: unknown[] },
@@ -316,6 +322,26 @@ vi.mock("../db/client.js", async () => {
         }
         return { rows: [], rowsAffected: 0 };
       }
+      if (
+        /^\s*SELECT client_sequence, client_sequence_raw, cleared/i.test(sql)
+      ) {
+        const row = dbRows.get(rowKey(String(args[0]), Number(args[1])));
+        return {
+          rows: row
+            ? [
+                {
+                  client_sequence: row.client_sequence,
+                  client_sequence_raw: row.client_sequence_raw,
+                  cleared: row.cleared,
+                  actor_email: row.actor_email,
+                  last_seen: row.last_seen,
+                  clear_token_hash: row.clear_token_hash,
+                },
+              ]
+            : [],
+          rowsAffected: 0,
+        };
+      }
       if (/^\s*SELECT client_sequence, client_sequence_raw/i.test(sql)) {
         const row = dbRows.get(rowKey(String(args[0]), Number(args[1])));
         return {
@@ -385,7 +411,9 @@ vi.mock("../db/client.js", async () => {
         )
       ) {
         purgeCalls.count += 1;
+        purgeStarted.signal?.();
         if (purgeFails.value) throw new Error("purge unavailable");
+        if (purgeHang.promise) await purgeHang.promise;
         for (const [key, row] of dbRows) {
           if (
             (row.actor_email !== null &&
@@ -463,6 +491,8 @@ beforeEach(() => {
   dbAvailable.value = true;
   purgeCalls.count = 0;
   purgeFails.value = false;
+  purgeHang.promise = undefined;
+  purgeStarted.signal = undefined;
   clearRace.value = false;
   clearUpsertQuery.value = null;
   _resetAwarenessStoreForTests();
@@ -561,6 +591,56 @@ describe("awareness-store", () => {
     ]);
 
     expect(purgeCalls.count).toBe(1);
+  });
+
+  it("does not let a stalled global purge block awareness reads and writes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(40_000);
+    const cleanupFailure = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    let releasePurge!: () => void;
+    purgeHang.promise = new Promise<void>((resolve) => {
+      releasePurge = resolve;
+    });
+    let markPurgeStarted!: () => void;
+    const didStartPurge = new Promise<void>((resolve) => {
+      markPurgeStarted = resolve;
+    });
+    purgeStarted.signal = markPurgeStarted;
+
+    try {
+      const pendingRead = loadAwarenessRowsStrict("slow-doc", 40_000);
+      await didStartPurge;
+      const otherRead = loadAwarenessRowsStrict("other-doc", 40_000);
+      const otherWrite = writeAwarenessRow(
+        "third-doc",
+        8,
+        "visible",
+        40_000,
+        1,
+        false,
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(
+        Promise.all([pendingRead, otherRead, otherWrite]),
+      ).resolves.toEqual([[], [], true]);
+      expect(cleanupFailure).toHaveBeenCalledWith(
+        "Failed to purge expired collaboration awareness rows",
+        expect.objectContaining({
+          message: expect.stringContaining("exceeded"),
+        }),
+      );
+      expect(purgeCalls.count).toBe(1);
+    } finally {
+      releasePurge();
+      purgeHang.promise = undefined;
+      purgeStarted.signal = undefined;
+      cleanupFailure.mockRestore();
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.useRealTimers();
+    }
   });
 
   it("throttles unchanged rewrites within the window", async () => {
@@ -752,8 +832,11 @@ describe("awareness-store", () => {
 
     await expect(loadAwarenessClientSequence("doc-actor", 9)).resolves.toEqual({
       clientSequence: 1,
+      clientSequenceRaw: 0,
       cleared: false,
       actorEmail: "owner@example.com",
+      lastSeen: 1_000,
+      clearTokenHash: null,
     });
     await expect(loadAwarenessRows("doc-actor", 2_000)).resolves.toMatchObject([
       {

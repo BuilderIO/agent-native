@@ -351,8 +351,9 @@ function applyLocalAwarenessWrite(
   cleared: boolean,
   actorEmail: string,
   clearTokenHash: string | null,
+  existingOverride?: AwarenessEntry,
 ): void {
-  const existing = map.get(clientId);
+  const existing = map.get(clientId) ?? existingOverride;
   const sequence = localSequenceForWrite(existing, clientSequence);
   if (cleared) {
     rememberAwarenessClear(
@@ -386,9 +387,11 @@ function canApplyLocalAwarenessWrite(
   actorEmail: string,
   cleared: boolean,
   clearTokenHash: string | null,
+  existingOverride?: AwarenessEntry,
 ): boolean {
-  const localSequence = localSequenceForWrite(existing, clientSequence);
-  if (!existing) {
+  const current = existing ?? existingOverride;
+  const localSequence = localSequenceForWrite(current, clientSequence);
+  if (!current) {
     pruneAwarenessClearTombstones(Date.now());
     const clear = _awarenessClearTombstones.get(awarenessKey(docId, clientId));
     if (clear && clear.actorEmail !== actorEmail) return false;
@@ -405,18 +408,18 @@ function canApplyLocalAwarenessWrite(
       )
     );
   }
-  const sameActor = existing.actorEmail?.trim().toLowerCase() === actorEmail;
+  const sameActor = current.actorEmail?.trim().toLowerCase() === actorEmail;
   const ownsClearToken =
     cleared &&
-    existing.clearTokenHash != null &&
-    existing.clearTokenHash === clearTokenHash &&
-    lastSeen - existing.lastSeen <= AWARENESS_SCOPE_TIMEOUT;
+    current.clearTokenHash != null &&
+    current.clearTokenHash === clearTokenHash &&
+    lastSeen - current.lastSeen <= AWARENESS_SCOPE_TIMEOUT;
   if (!sameActor && !ownsClearToken) return false;
   if (!sameActor) return true;
 
   let sequenceAllowed = true;
-  const currentSequence = existing.clientSequence ?? 0;
-  const currentRawSequence = existing.clientSequenceRaw ?? 0;
+  const currentSequence = current.clientSequence ?? 0;
+  const currentRawSequence = current.clientSequenceRaw ?? 0;
   if (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE) {
     sequenceAllowed =
       currentRawSequence > 0
@@ -553,12 +556,15 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     const map = getDocAwareness(docId);
     cleanExpired(map);
     let ownershipVerified = false;
+    let stored:
+      | Awaited<ReturnType<typeof loadAwarenessClientSequence>>
+      | undefined;
     const clear = _awarenessClearTombstones.get(awarenessKey(docId, clientId));
     if (clear) {
       ownershipVerified = clear.actorEmail === actorEmail;
     } else {
       try {
-        const stored = await loadAwarenessClientSequence(docId, clientId);
+        stored = await loadAwarenessClientSequence(docId, clientId);
         ownershipVerified =
           stored === undefined || stored.actorEmail === actorEmail;
       } catch {
@@ -567,9 +573,43 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     }
     cleanExpired(map);
     const existing = map.get(clientId);
+    const storedEntry: AwarenessEntry | undefined = stored
+      ? {
+          clientId,
+          state: "",
+          lastSeen: stored.lastSeen,
+          clientSequence: stored.clientSequence,
+          clientSequenceRaw: stored.clientSequenceRaw,
+          actorEmail: stored.actorEmail,
+          clearTokenHash: stored.clearTokenHash,
+        }
+      : undefined;
+    if (stored?.cleared && !clear) {
+      rememberAwarenessClear(
+        docId,
+        clientId,
+        stored.lastSeen,
+        stored.clientSequence,
+        stored.actorEmail,
+      );
+    }
     const cleared = state === null;
+    const canAdvanceStored =
+      existing === undefined ||
+      storedEntry === undefined ||
+      canApplyLocalAwarenessWrite(
+        docId,
+        storedEntry,
+        clientId,
+        sequence,
+        lastSeen,
+        actorEmail,
+        cleared,
+        clearTokenHash,
+      );
     if (
       (existing !== undefined || ownershipVerified) &&
+      canAdvanceStored &&
       canApplyLocalAwarenessWrite(
         docId,
         existing,
@@ -579,6 +619,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         actorEmail,
         state === null,
         clearTokenHash,
+        storedEntry,
       )
     ) {
       applyLocalAwarenessWrite(
@@ -591,6 +632,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         cleared,
         actorEmail,
         clearTokenHash,
+        storedEntry,
       );
     }
     cleanExpired(map);
@@ -639,7 +681,25 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   }
 
   const map = getDocAwareness(docId);
-  if (applied) {
+  cleanExpired(map);
+  const localEntry = map.get(clientId);
+  const hasLocalOrderingState =
+    localEntry !== undefined ||
+    _awarenessClearTombstones.has(awarenessKey(docId, clientId));
+  if (
+    applied &&
+    (!hasLocalOrderingState ||
+      canApplyLocalAwarenessWrite(
+        docId,
+        localEntry,
+        clientId,
+        sequence,
+        lastSeen,
+        actorEmail,
+        state === null,
+        clearTokenHash,
+      ))
+  ) {
     applyLocalAwarenessWrite(
       docId,
       map,

@@ -16,6 +16,8 @@ const WRITE_THROTTLE_MS = 2_000;
 
 const PURGE_INTERVAL_MS = 30_000;
 
+const PURGE_WAIT_TIMEOUT_MS = 250;
+
 export const collabAwarenessStore = defineStore({
   id: "collab_awareness",
   migrations: [
@@ -425,12 +427,20 @@ export async function loadAwarenessClientSequence(
   docId: string,
   clientId: number,
 ): Promise<
-  | { clientSequence: number; cleared: boolean; actorEmail: string | null }
+  | {
+      clientSequence: number;
+      clientSequenceRaw: number;
+      cleared: boolean;
+      actorEmail: string | null;
+      lastSeen: number;
+      clearTokenHash: string | null;
+    }
   | undefined
 > {
   await ensureTable();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT client_sequence, cleared, actor_email
+    sql: `SELECT client_sequence, client_sequence_raw, cleared, actor_email,
+                 last_seen, clear_token_hash
           FROM _collab_awareness
           WHERE doc_id = ? AND client_id = ?`,
     args: [docId, clientId],
@@ -438,29 +448,59 @@ export async function loadAwarenessClientSequence(
   const row = rows[0] as
     | {
         client_sequence?: unknown;
+        client_sequence_raw?: unknown;
         cleared?: unknown;
         actor_email?: unknown;
+        last_seen?: unknown;
+        clear_token_hash?: unknown;
       }
     | undefined;
   if (!row) return undefined;
   return {
     clientSequence: Number(row.client_sequence ?? 0),
+    clientSequenceRaw: Number(row.client_sequence_raw ?? 0),
     cleared: row.cleared === true,
     actorEmail:
       typeof row.actor_email === "string"
         ? row.actor_email.trim().toLowerCase()
         : null,
+    lastSeen: Number(row.last_seen ?? 0),
+    clearTokenHash:
+      typeof row.clear_token_hash === "string" ? row.clear_token_hash : null,
   };
+}
+
+async function waitForPurge(purge: Promise<void>): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      purge,
+      new Promise<void>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Collaboration awareness purge exceeded ${PURGE_WAIT_TIMEOUT_MS}ms`,
+              ),
+            ),
+          PURGE_WAIT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (_purgeInFlight === purge) _purgeInFlight = undefined;
+  }
 }
 
 async function maybePurge(now: number): Promise<void> {
   if (now - _lastPurgeAttemptAt < PURGE_INTERVAL_MS) return;
-  if (_purgeInFlight) return _purgeInFlight;
+  if (_purgeInFlight) return waitForPurge(_purgeInFlight);
   _lastPurgeAttemptAt = now;
   const client = getDbExec();
   const expiredBefore = now - ROW_TTL_MS * 2;
   // Keep actor-bound IDs reserved after their transient presence state expires.
-  _purgeInFlight = client
+  const purge = client
     .execute({
       sql: `UPDATE _collab_awareness
             SET state = '', clear_token_hash = NULL
@@ -481,11 +521,9 @@ async function maybePurge(now: number): Promise<void> {
         args: [now, expiredBefore],
       }),
     )
-    .then(() => undefined)
-    .finally(() => {
-      _purgeInFlight = undefined;
-    });
-  await _purgeInFlight;
+    .then(() => undefined);
+  _purgeInFlight = purge;
+  await waitForPurge(purge);
 }
 
 async function maybePurgeBestEffort(now: number): Promise<void> {
