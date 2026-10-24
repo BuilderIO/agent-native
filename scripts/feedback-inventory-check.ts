@@ -913,6 +913,47 @@ function validateOwnershipSkipRootEvidence(
   }
 }
 
+function isBuilderCloudAgentsWaitlistForm(text: string): boolean {
+  const lines = text.trimEnd().split(/\r?\n/);
+  if (lines[0] !== "New submission: Builder Cloud Agents Waitlist") {
+    return false;
+  }
+
+  let index = 1;
+  if (
+    !/^\*Email:\* <mailto:[^\s|@<>\r\n]+@[^\s|<>\r\n]+\|[^>\r\n]*\S[^>\r\n]*>$/.test(
+      lines[index++] ?? "",
+    )
+  ) {
+    return false;
+  }
+  if (/^\*Organization or workspace:\* \S.*$/.test(lines[index] ?? "")) {
+    index += 1;
+  }
+  if (
+    !/^\*App URL:\* <https:\/\/[^\s|<>\r\n]+(?:\|[^>\r\n]*\S[^>\r\n]*)?>$/.test(
+      lines[index++] ?? "",
+    )
+  ) {
+    return false;
+  }
+  if (/^\*Original request:\* \S.*$/.test(lines[index] ?? "")) {
+    index += 1;
+  }
+  if (
+    !/^\*Source:\* \S.*$/.test(lines[index++] ?? "") ||
+    !/^\*Use case:\* \S.*$/.test(lines[index++] ?? "") ||
+    !/^Submitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>\r\n]*\S[^>\r\n]*>(?: by \*\S[^*\r\n]*\*)?$/.test(
+      lines[index++] ?? "",
+    )
+  ) {
+    return false;
+  }
+  if (/^App: \S.*$/.test(lines[index] ?? "")) index += 1;
+  if (/^Page: \S.*$/.test(lines[index] ?? "")) index += 1;
+  return index === lines.length;
+}
+
 function validatePreservedAdministrativeEye(
   parentName: string,
   parent: Parent,
@@ -964,6 +1005,13 @@ function validatePreservedAdministrativeEye(
   };
   require(parent.rootClassification ===
     "administrative", "administrative root");
+  require(typeof parent.sourceText === "string" &&
+    typeof threadSnapshot?.rootText === "string" &&
+    isBuilderCloudAgentsWaitlistForm(parent.sourceText) &&
+    matchesSlackMessageText(
+      parent.sourceText,
+      threadSnapshot.rootText,
+    ), "verified Builder Cloud Agents waitlist form");
   require(parent.disposition === "Skipped", "Skipped disposition");
   require(reactionState.eyes, "self-owned 👀");
   require(!reactionState.white_check_mark, "no self-owned ✅");
@@ -9069,6 +9117,51 @@ function validateInventory(
               `${name}.ownedSnapshot.rootTs`,
             ).toString() === rootTs,
         );
+        if (!snapshot) {
+          throw new Error(
+            `${name}: every root carrying this actor's workflow mark needs a complete threadSnapshot`,
+          );
+        }
+        const reactionReadAt = validateRootReactionReadAt(
+          `${name} owned root ${rootAudit.ts}`,
+          rootAudit,
+          options.requireFreshReads === true,
+        );
+        if (
+          reactionReadAt !== undefined &&
+          reactionReadAt <= latestOwnershipSearchReadAt
+        ) {
+          throw new Error(
+            `${name}: reread root ${rootAudit.ts} reactions after the exhaustive owned-mark searches`,
+          );
+        }
+        const snapshotReadAt = Date.parse(snapshot.readAt);
+        if (
+          !Number.isFinite(snapshotReadAt) ||
+          new Date(snapshotReadAt).toISOString() !== snapshot.readAt ||
+          snapshotReadAt <= latestOwnershipSearchReadAt
+        ) {
+          throw new Error(
+            `${name}: reread root ${rootAudit.ts} after the exhaustive owned-mark searches`,
+          );
+        }
+        const rawPages =
+          options.rawThreadPages?.[channel.channelName]?.[snapshot.rootTs];
+        if (
+          !rawPages?.length ||
+          rawPages.some((page) => {
+            const readAt = Date.parse(page.readAt);
+            return (
+              !Number.isFinite(readAt) ||
+              new Date(readAt).toISOString() !== page.readAt ||
+              readAt <= latestOwnershipSearchReadAt
+            );
+          })
+        ) {
+          throw new Error(
+            `${name}: every raw thread page for owned root ${rootAudit.ts} must follow the exhaustive owned-mark searches`,
+          );
+        }
         if (rootAudit.rootClassification === "administrative") {
           if (
             validatePreservedAdministrativeEye(
@@ -9083,41 +9176,6 @@ function validateInventory(
           }
           throw new Error(
             `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
-          );
-        }
-        if (!snapshot) {
-          throw new Error(
-            `${name}: every root carrying this actor's workflow mark needs a complete threadSnapshot`,
-          );
-        }
-        const reactionReadAt = validateRootReactionReadAt(
-          `${name} owned root ${rootAudit.ts}`,
-          rootAudit,
-          options.requireFreshReads === true,
-        );
-        if (
-          reactionReadAt !== null &&
-          reactionReadAt <= latestOwnershipSearchReadAt
-        ) {
-          throw new Error(
-            `${name}: reread root ${rootAudit.ts} reactions after the exhaustive owned-mark searches`,
-          );
-        }
-        if (Date.parse(snapshot.readAt) <= latestOwnershipSearchReadAt) {
-          throw new Error(
-            `${name}: reread root ${rootAudit.ts} after the exhaustive owned-mark searches`,
-          );
-        }
-        const rawPages =
-          options.rawThreadPages?.[channel.channelName]?.[snapshot.rootTs];
-        if (
-          !rawPages?.length ||
-          rawPages.some(
-            (page) => Date.parse(page.readAt) <= latestOwnershipSearchReadAt,
-          )
-        ) {
-          throw new Error(
-            `${name}: every raw thread page for owned root ${rootAudit.ts} must follow the exhaustive owned-mark searches`,
           );
         }
       }
@@ -11509,20 +11567,20 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ? -1
                 : 1,
             );
+            const root = rows.find(
+              (parent) =>
+                parent.ts === rootTs && parent.threadParentTs === rootTs,
+            );
             return {
               rootTs,
               readAt: "2030-01-01T00:00:00.000Z",
               replyCount: orderedReplies.length,
-              ...(rows.find(
-                (parent) =>
-                  parent.ts === rootTs && parent.threadParentTs === rootTs,
-              )?.files?.length
+              ...(typeof root?.sourceText === "string"
+                ? { rootText: root.sourceText }
+                : {}),
+              ...(root?.files?.length
                 ? {
-                    rootFiles: rows.find(
-                      (parent) =>
-                        parent.ts === rootTs &&
-                        parent.threadParentTs === rootTs,
-                    )!.files,
+                    rootFiles: root.files,
                   }
                 : {}),
               replies: orderedReplies,
@@ -11534,6 +11592,9 @@ if (args[0] === "--self-test" && args.length === 1) {
               rootTs: root.ts,
               readAt: "2030-01-01T00:00:00.000Z",
               replyCount: 0,
+              ...(typeof root.sourceText === "string"
+                ? { rootText: root.sourceText }
+                : {}),
               ...(root.files?.length ? { rootFiles: root.files } : {}),
               replies: [],
             })),
@@ -19014,9 +19075,28 @@ if (args[0] === "--self-test" && args.length === 1) {
       preservedAdministrativeEyeInventory.channels[0]!.pages[0]!.parents[0]!;
     const preservedAdministrativeStatus =
       "Skipped for this sweep. The existing :eyes: is retained as history; no active work is claimed. No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending. this was sent from a bot.";
+    const preservedAdministrativeSource = [
+      "New submission: Builder Cloud Agents Waitlist",
+      "*Email:* <mailto:person@example.com|person@example.com>",
+      "*Organization or workspace:* Example workspace",
+      "*App URL:* <https://example.com/app|example.com/app>",
+      "*Original request:* Publish a design.",
+      "*Source:* app_page",
+      "*Use case:* publish a design",
+      "Submitted <!date^1792705000^{date_short_pretty} at {time}|Oct 23, 2026 at 11:36 AM>",
+      "App: <https://example.com/app|Example app>",
+      "Page: <https://example.com/page|Example page>",
+    ].join("\n");
     Object.assign(preservedAdministrativeRoot, {
+      sourceText: preservedAdministrativeSource,
       rootClassification: "administrative" as const,
       rootClassificationReason: "Waitlist intake, not product feedback",
+      rootClassificationJudgment: {
+        actorId: "USWEEPER",
+        decision: "administrative" as const,
+        rationale:
+          "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
+      },
       disposition: "Skipped",
       clusteredUnder: undefined,
       reactionSummary: "eyes (1): USWEEPER",
@@ -19068,6 +19148,59 @@ if (args[0] === "--self-test" && args.length === 1) {
     ).channels[0]!.threadSnapshots!.find(
       (snapshot) => snapshot.rootTs === "11.000000",
     )!;
+    const releaseAnnouncement =
+      "Product release: Workspace routing is now available.";
+    expectFocusedFailure(
+      "preserved administrative eye on a release announcement",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            sourceText: releaseAnnouncement,
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            rootText: releaseAnnouncement,
+          },
+        ),
+      "verified Builder Cloud Agents waitlist form",
+    );
+    for (const [name, invalidSource] of [
+      [
+        "email with an empty address",
+        preservedAdministrativeSource.replace(
+          "*Email:* <mailto:person@example.com|person@example.com>",
+          "*Email:* <mailto:a@ | >",
+        ),
+      ],
+      [
+        "app URL with a whitespace-only value",
+        preservedAdministrativeSource.replace(
+          "*App URL:* <https://example.com/app|example.com/app>",
+          "*App URL:* <https:// >",
+        ),
+      ],
+    ] as const) {
+      expectFocusedFailure(
+        `preserved administrative eye with ${name}`,
+        () =>
+          validatePreservedAdministrativeEye(
+            "self-test preserved administrative root",
+            {
+              ...preservedAdministrativeRoot,
+              sourceText: invalidSource,
+            },
+            "USWEEPER",
+            {
+              ...preservedAdministrativeSnapshot,
+              rootText: invalidSource,
+            },
+          ),
+        "verified Builder Cloud Agents waitlist form",
+      );
+    }
     expectFocusedFailure(
       "preserved administrative eye with an incomplete snapshot",
       () =>
@@ -22138,6 +22271,141 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test counted hasmy query emoji candidates as confirmed root marks",
       );
     }
+
+    const preservedAdministrativeReadAt = new Date(
+      Date.parse(ownershipReadAt) + 2_000,
+    ).toISOString();
+    const integratedPreservedAdministrative = withTestThreadSnapshots(
+      withPageRoot(integratedInventory, "11.000000", (parent) => ({
+        ...parent,
+        sourceText: preservedAdministrativeSource,
+        rootClassification: "administrative",
+        rootClassificationReason: "Waitlist intake, not product feedback",
+        rootClassificationJudgment: {
+          actorId: valid.sweepActorId,
+          decision: "administrative",
+          rationale:
+            "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
+        },
+        disposition: "Skipped",
+        clusteredUnder: undefined,
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionReadAt: new Date(
+          Date.parse(ownershipReadAt) + 1_000,
+        ).toISOString(),
+        latestOwnedReply: {
+          ts: "12.000000",
+          threadParentTs: "11.000000",
+          actorId: valid.sweepActorId,
+          text: preservedAdministrativeStatus,
+        },
+        preservedAdministrativeEye: {
+          reason:
+            "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.",
+        },
+        latestRelevantHumanReply: null,
+        ownershipSkip: undefined,
+        statusReply: undefined,
+        reactionDecision: undefined,
+      })),
+    );
+    const freshAdministrativeThreadPages: RawThreadPages = {
+      ...integratedThreadPages,
+      [ownershipChannel.channelName]: {
+        ...integratedThreadPages[ownershipChannel.channelName]!,
+        "11.000000": [
+          {
+            cursor: null,
+            nextCursor: null,
+            exhausted: true,
+            readAt: preservedAdministrativeReadAt,
+            messages: [],
+          },
+        ],
+      },
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a thread read before owned-mark search completion",
+      () =>
+        validateInventory(
+          {
+            ...integratedPreservedAdministrative,
+            channels: integratedPreservedAdministrative.channels.map(
+              (channel) => ({
+                ...channel,
+                threadSnapshots: channel.threadSnapshots?.map((snapshot) =>
+                  snapshot.rootTs === "11.000000"
+                    ? { ...snapshot, readAt: ownershipReadAt }
+                    : snapshot,
+                ),
+              }),
+            ),
+          },
+          {
+            ...integratedOptions,
+            rawThreadPages: freshAdministrativeThreadPages,
+          },
+        ),
+      "reread root 11.000000 after the exhaustive owned-mark searches",
+    );
+    const staleFirstAdministrativePage: RawThreadPages = {
+      ...freshAdministrativeThreadPages,
+      [ownershipChannel.channelName]: {
+        ...freshAdministrativeThreadPages[ownershipChannel.channelName]!,
+        "11.000000": [
+          {
+            cursor: null,
+            nextCursor: "next",
+            exhausted: false,
+            readAt: ownershipReadAt,
+            messages: [],
+          },
+          {
+            cursor: "next",
+            nextCursor: null,
+            exhausted: true,
+            readAt: preservedAdministrativeReadAt,
+            messages: [],
+          },
+        ],
+      },
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with one raw thread page read before owned-mark search completion",
+      () =>
+        validateInventory(integratedPreservedAdministrative, {
+          ...integratedOptions,
+          rawThreadPages: staleFirstAdministrativePage,
+        }),
+      "every raw thread page for owned root 11.000000 must follow the exhaustive owned-mark searches",
+    );
+    const nonCanonicalAdministrativePage: RawThreadPages = {
+      ...freshAdministrativeThreadPages,
+      [ownershipChannel.channelName]: {
+        ...freshAdministrativeThreadPages[ownershipChannel.channelName]!,
+        "11.000000": [
+          {
+            ...freshAdministrativeThreadPages[ownershipChannel.channelName]![
+              "11.000000"
+            ]![0]!,
+            readAt: preservedAdministrativeReadAt.replace(
+              /\.\d{3}Z$/,
+              "+00:00",
+            ),
+          },
+        ],
+      },
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a noncanonical raw page read time",
+      () =>
+        validateInventory(integratedPreservedAdministrative, {
+          ...integratedOptions,
+          rawThreadPages: nonCanonicalAdministrativePage,
+        }),
+      "every raw thread page for owned root 11.000000 must follow the exhaustive owned-mark searches",
+    );
 
     const integratedCandidateRoots = ownedMarkSearchRootCandidates({
       eyes: new Map([["10.000000", "10.000000"]]),
