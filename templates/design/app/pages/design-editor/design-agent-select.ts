@@ -70,6 +70,34 @@ export function designScreenSelectable(
 }
 
 /**
+ * The layer in its screen's iframe, found again by node id so an iframe
+ * reload or re-render keeps the pick.
+ */
+export function findDesignLayer(
+  frame: Element,
+  screenId: string,
+  nodeId: string,
+): Element | null {
+  const host = frame.isConnected
+    ? frame
+    : document.querySelector(
+        `[data-screen-iframe-id="${escapeAttribute(screenId)}"]`,
+      );
+  let frameDocument: Document | null | undefined;
+  try {
+    frameDocument = (host as HTMLIFrameElement | null)?.contentDocument;
+  } catch {
+    // coercion-ok: a frame that turned cross-origin cannot show the layer; the parent check decides
+    return null;
+  }
+  return (
+    frameDocument?.querySelector(
+      `[${NODE_ID_ATTRIBUTE}="${escapeAttribute(nodeId)}"]`,
+    ) ?? null
+  );
+}
+
+/**
  * The layer a pointer target inside a screen's iframe belongs to, as a
  * selectable, or null outside a screen document or a layer.
  */
@@ -129,7 +157,7 @@ export function designElementSelectable(
         .filter(Boolean)
         .join("\n");
     },
-    getElement: () => (element.isConnected ? element : null),
+    getElement: () => findDesignLayer(frame, screen.id, nodeId),
   };
 }
 

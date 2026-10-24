@@ -40,8 +40,11 @@ export interface AgentSelectable {
    */
   getElement(): Element | readonly Element[] | null;
   /**
-   * The registered object this one lives inside, such as a layer's screen.
-   * Its pick is released with the parent's.
+   * For a source-resolved object: the registered object it lives inside, such
+   * as a layer's screen. Its pick is released when the parent goes away, or
+   * when the parent is rendered but `getElement` keeps finding nothing, so
+   * `getElement` should look the node up again by a stable id rather than
+   * hold one a re-render replaces.
    */
   parent?: { kind: string; id: string };
 }
@@ -93,6 +96,10 @@ interface AgentSelectStore {
 
 const STORE_KEY = "__agentNativeAgentSelectStore";
 const MIRROR_DELAY_MS = 150;
+const CHILD_SWEEP_MS = 1000;
+// Two misses a second apart: an iframe reload or a slide re-render is back
+// well within that, a deleted layer or element is not.
+const CHILD_MISSES_BEFORE_RELEASE = 2;
 
 function createStore(): AgentSelectStore {
   return {
@@ -400,7 +407,52 @@ function startSelectionMirror(): () => void {
     timer = setTimeout(flush, MIRROR_DELAY_MS);
   };
   schedule();
-  return subscribeAgentChatContext(schedule);
+  const misses = new Map<string, number>();
+  const sweep = setInterval(
+    () => releaseDeletedChildren(misses),
+    CHILD_SWEEP_MS,
+  );
+  const unsubscribe = subscribeAgentChatContext(schedule);
+  return () => {
+    clearInterval(sweep);
+    if (timer) clearTimeout(timer);
+    unsubscribe();
+  };
+}
+
+/**
+ * Release picked source objects that were deleted while their parent stayed
+ * on screen. A child whose parent is not rendered (another slide, a closed
+ * screen) is unknown, not gone, and keeps its pick.
+ */
+function releaseDeletedChildren(misses: Map<string, number>): void {
+  const owner = store();
+  const picked = new Set(
+    getAgentChatContextState().items.map((item) => item.key),
+  );
+  for (const [key, child] of owner.resolved) {
+    const parent = child.parent
+      ? owner.selectables.get(
+          agentSelectionContextKey(child.parent.kind, child.parent.id),
+        )
+      : undefined;
+    if (
+      !picked.has(key) ||
+      !parent ||
+      selectableElements(parent).length === 0 ||
+      selectableElements(child).length > 0
+    ) {
+      misses.delete(key);
+      continue;
+    }
+    const count = (misses.get(key) ?? 0) + 1;
+    if (count < CHILD_MISSES_BEFORE_RELEASE) {
+      misses.set(key, count);
+      continue;
+    }
+    misses.delete(key);
+    removeAgentChatContextItem(key);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -722,10 +774,14 @@ function startPickMode(): () => void {
   const onPressEnd = (event: MouseEvent) => {
     if (pressedKey) swallow(event);
   };
+  const onPressCancel = () => {
+    pressedKey = null;
+  };
   const onClick = (event: MouseEvent) => {
     const key = pressedKey;
     pressedKey = null;
-    if (!key) return;
+    // A keyboard-activated click (detail 0) had no press of its own.
+    if (!key || event.detail === 0) return;
     swallow(event);
     const target = hitTestAgentSelectable(event.clientX, event.clientY);
     if (keyOf(target) !== key || !target) return;
@@ -754,6 +810,7 @@ function startPickMode(): () => void {
   window.addEventListener("mousedown", onPressStart, capture);
   window.addEventListener("pointerup", onPressEnd, capture);
   window.addEventListener("mouseup", onPressEnd, capture);
+  window.addEventListener("pointercancel", onPressCancel, capture);
   window.addEventListener("dblclick", onPress, capture);
   window.addEventListener("contextmenu", onPress, capture);
   window.addEventListener("click", onClick, capture);
@@ -773,6 +830,7 @@ function startPickMode(): () => void {
     window.removeEventListener("mousedown", onPressStart, capture);
     window.removeEventListener("pointerup", onPressEnd, capture);
     window.removeEventListener("mouseup", onPressEnd, capture);
+    window.removeEventListener("pointercancel", onPressCancel, capture);
     window.removeEventListener("dblclick", onPress, capture);
     window.removeEventListener("contextmenu", onPress, capture);
     window.removeEventListener("click", onClick, capture);

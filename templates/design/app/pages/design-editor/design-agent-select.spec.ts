@@ -75,6 +75,23 @@ describe("Design Select adapter", () => {
     expect(context).toContain("Layer: Hero");
   });
 
+  it("finds the layer again after the screen re-renders", () => {
+    const frameDocument = renderScreen();
+    const selectable = designElementSelectable(
+      "design-1",
+      "Launch",
+      screens,
+      frameDocument.querySelector("em")!,
+    );
+    frameDocument.body.innerHTML = frameDocument.body.innerHTML;
+    expect(selectable?.getElement()).toBe(
+      frameDocument.querySelector("section"),
+    );
+
+    frameDocument.querySelector("section")!.remove();
+    expect(selectable?.getElement()).toBeNull();
+  });
+
   it("ignores targets outside a screen document or a layer", () => {
     const frameDocument = renderScreen();
     expect(

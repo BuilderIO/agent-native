@@ -154,7 +154,9 @@ The Select button appears in the composer only while something is registered.
 `selectAgentSelectable(target, { exclusive: true })` stages an object from a
 plain click outside pick mode. A pick is released when its object unregisters
 and does not remount, so leaving a screen or deleting an object needs no
-cleanup; give a source-resolved object a `parent` so it goes with it. Keep
+cleanup. Give a source-resolved object a `parent` and a `getElement` that
+finds its node again by a stable id: it is released with its parent, or when
+the parent is on screen and the node is gone. Keep
 `getContext` to ids, a short label, and the action to use; mark chrome pick
 mode must skip with `data-agent-select-ignore`.
 

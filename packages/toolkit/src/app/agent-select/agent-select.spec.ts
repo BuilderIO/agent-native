@@ -97,9 +97,18 @@ function pointer(type: string, x: number, y: number, target: Element) {
     cancelable: true,
     clientX: x,
     clientY: y,
+    detail: 1,
   });
   target.dispatchEvent(event);
   return event;
+}
+
+// Timers only: core drops a context write older than the last one, so a
+// faked clock left behind by one test would swallow the next test's picks.
+function useFakeTimers() {
+  vi.useFakeTimers({
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  });
 }
 
 beforeEach(() => {
@@ -200,7 +209,7 @@ describe("context-item round trip", () => {
   });
 
   it("releases a pick once its object unregisters for good", async () => {
-    vi.useFakeTimers();
+    useFakeTimers();
     try {
       const unregister = registerAgentSelectable(
         selectable("slide", "s1", null),
@@ -215,7 +224,7 @@ describe("context-item round trip", () => {
   });
 
   it("keeps a pick when its object remounts in the same task", async () => {
-    vi.useFakeTimers();
+    useFakeTimers();
     try {
       const unregister = registerAgentSelectable(
         selectable("slide", "s1", null),
@@ -256,7 +265,7 @@ describe("context-item round trip", () => {
   });
 
   it("mirrors the picked objects to application_state", async () => {
-    vi.useFakeTimers();
+    useFakeTimers();
     try {
       registerAgentSelectable(selectable("slide", "s1", null));
       toggleAgentSelectable("slide", "s1");
@@ -330,6 +339,25 @@ describe("pick mode", () => {
     expect(pointer("pointerup", 50, 30, title).defaultPrevented).toBe(false);
     expect(pointer("click", 50, 30, title).defaultPrevented).toBe(false);
     expect(appRelease).toHaveBeenCalledTimes(1);
+    expect(listAgentSelection()).toEqual([]);
+  });
+
+  it("forgets a canceled press, so a later keyboard click reaches the app", () => {
+    const { title } = setup();
+    const appClick = vi.fn();
+    title.addEventListener("click", appClick);
+    setAgentSelectMode(true);
+
+    pointer("pointerdown", 50, 30, title);
+    title.dispatchEvent(new Event("pointercancel", { bubbles: true }));
+    const keyboardClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    title.dispatchEvent(keyboardClick);
+
+    expect(keyboardClick.defaultPrevented).toBe(false);
+    expect(appClick).toHaveBeenCalledTimes(1);
     expect(listAgentSelection()).toEqual([]);
   });
 
@@ -417,6 +445,77 @@ describe("pick mode", () => {
     unregisterSlide();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(listAgentSelection()).toEqual([]);
+  });
+
+  describe("deleted children", () => {
+    function pickChild() {
+      const slide = placedElement(box(0, 0, 400, 300));
+      let bullet = placedElement(box(40, 100, 200, 20), slide);
+      stubHitTesting([slide, bullet]);
+      registerAgentSelectable(selectable("slide", "s1", slide));
+      registerAgentSelectableSource({
+        resolve: (target) =>
+          target === bullet
+            ? {
+                ...selectable("element", "s1/bullet", null),
+                parent: { kind: "slide", id: "s1" },
+                // Looks the node up again, as adapters do by stable id.
+                getElement: () => slide.querySelector("[data-bullet]"),
+              }
+            : null,
+      });
+      bullet.setAttribute("data-bullet", "");
+      setAgentSelectMode(true);
+      press(60, 110, bullet);
+      setAgentSelectMode(false);
+      return {
+        slide,
+        replaceBullet: () => {
+          bullet.remove();
+          bullet = placedElement(box(40, 100, 200, 20), slide);
+          bullet.setAttribute("data-bullet", "");
+        },
+        deleteBullet: () => bullet.remove(),
+      };
+    }
+
+    it("releases a child deleted while its parent stays on screen", async () => {
+      useFakeTimers();
+      try {
+        const { deleteBullet } = pickChild();
+        deleteBullet();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(listAgentSelection()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(listAgentSelection()).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a child its parent re-rendered", async () => {
+      useFakeTimers();
+      try {
+        const { replaceBullet } = pickChild();
+        replaceBullet();
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(listAgentSelection().map(({ id }) => id)).toEqual(["s1/bullet"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a child whose parent is not rendered", async () => {
+      useFakeTimers();
+      try {
+        const { slide } = pickChild();
+        slide.remove();
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(listAgentSelection().map(({ id }) => id)).toEqual(["s1/bullet"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("hit-tests every element of a multi-element object", () => {

@@ -93,6 +93,34 @@ export function slideObjectForTarget(target: Element): {
   return { element, contentRoot, slideId };
 }
 
+/**
+ * The object in a rendered copy of its slide, the main canvas first, found
+ * again by id or path so a re-render of the slide HTML keeps the pick.
+ */
+export function findSlideObject(
+  slideId: string,
+  objectId: string | null,
+  path: string,
+): HTMLElement | null {
+  const copies = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      `[data-slide-canvas="${CSS.escape(slideId)}"] ${CONTENT_SELECTOR}`,
+    ),
+  ).sort(
+    (a, b) =>
+      Number(Boolean(b.closest(MAIN_SLIDE_SELECTOR))) -
+      Number(Boolean(a.closest(MAIN_SLIDE_SELECTOR))),
+  );
+  const selector = objectId
+    ? `[data-slide-object-id="${CSS.escape(objectId)}"]`
+    : `:scope > ${path}`;
+  for (const copy of copies) {
+    const found = copy.querySelector<HTMLElement>(selector);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** A CSS path within the slide HTML, stable while that HTML is unchanged. */
 export function slideObjectPath(
   element: HTMLElement,
@@ -158,7 +186,7 @@ export function slideObjectSelectable(
       ]
         .filter(Boolean)
         .join("\n"),
-    getElement: () => (element.isConnected ? element : null),
+    getElement: () => findSlideObject(slideId, objectId, path),
   };
 }
 

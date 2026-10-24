@@ -69,6 +69,23 @@ describe("Slides Select adapter", () => {
     );
   });
 
+  it("finds the object again after the slide HTML re-renders", () => {
+    renderDeck();
+    const selectable = slideObjectSelectable(
+      "deck-1",
+      slideNumberOf,
+      document.querySelector("main strong")!,
+    );
+    const content = document.querySelector<HTMLElement>(
+      "main [data-slide-content-scope]",
+    )!;
+    content.innerHTML = content.innerHTML;
+    expect(selectable?.getElement()).toBe(document.querySelector("main h1"));
+
+    content.querySelector("h1")!.remove();
+    expect(selectable?.getElement()).toBeNull();
+  });
+
   it("prefers a persisted object id", () => {
     renderDeck();
     const image = document.querySelector("main img")!;
