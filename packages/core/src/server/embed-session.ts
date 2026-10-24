@@ -757,10 +757,14 @@ function isEmbedDocumentPath(pathname: string): boolean {
   );
 }
 
-function matchesEmbedTargetQuery(current: URL, target: URL): boolean {
+function matchesEmbedTargetQuery(
+  current: URL,
+  target: URL,
+  currentPathname: string,
+): boolean {
   const expected = new URLSearchParams(target.search);
   const redirectedOpen =
-    target.pathname === OPEN_ROUTE_PATH && current.pathname !== OPEN_ROUTE_PATH;
+    target.pathname === OPEN_ROUTE_PATH && currentPathname !== OPEN_ROUTE_PATH;
   if (redirectedOpen) {
     const to = normalizeEmbedTargetPath(expected.get("to"));
     if (to) {
@@ -805,6 +809,7 @@ export function requestMatchesEmbedTarget(
   return matchesEmbedTargetQuery(
     current,
     new URL(target, "http://agent-native.invalid"),
+    pathname,
   );
 }
 

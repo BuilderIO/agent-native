@@ -2178,9 +2178,7 @@ describe("requestMatchesEmbedTarget", () => {
   it("uses the browser URL, not the mounted handler path, for framework routes", () => {
     const event = fakeEvent("/");
     event.context = { _mountedPathname: "/_agent-native/open" };
-    event.url = {
-      search: "?app=mail&view=inbox&embedded=1&__an_embed_token=tok",
-    };
+    event.url.search = "?app=mail&view=inbox&embedded=1&__an_embed_token=tok";
 
     expect(
       requestMatchesEmbedTarget(
@@ -2189,6 +2187,25 @@ describe("requestMatchesEmbedTarget", () => {
       ),
     ).toBe(true);
   });
+
+  it.each([false, true])(
+    "keeps signed open selectors at a base path (handler-relative URL: %s)",
+    (handlerRelative) => {
+      process.env.APP_BASE_PATH = "/mail";
+      const event = fakeEvent("/mail/_agent-native/open?view=editor");
+      if (handlerRelative) {
+        event.context = { _mountedPathname: "/mail/_agent-native/open" };
+        event.url = new URL("http://mail.test/?view=editor");
+      }
+      const target =
+        "/_agent-native/open?app=content&view=editor&documentId=doc-1";
+      expect(requestMatchesEmbedTarget(event, target)).toBe(false);
+      event.url.search = "?app=content&view=editor&documentId=doc-1";
+      expect(requestMatchesEmbedTarget(event, target)).toBe(true);
+      event.url.search = "?app=content&view=editor&documentId=doc-2";
+      expect(requestMatchesEmbedTarget(event, target)).toBe(false);
+    },
+  );
 
   it("rejects unrelated page routes for the same token", () => {
     expect(
@@ -3323,11 +3340,10 @@ describe("directory widget session token size", () => {
     email: string;
     orgId?: string;
   }) {
-    const target = slidesProfile.widgetTargets["create-deck"](
-      {},
-      { id: deckId },
-    );
-    if (!target) throw new Error("Slides create-deck target is missing.");
+    const target = {
+      resourceIds: { deckId, resourceType: "deck" },
+      writeActions: Object.keys(slidesProfile.widgetWriteActionArguments),
+    };
     const materialize = (
       argumentMaps: Record<string, Record<string, unknown>>,
       only?: readonly string[],
@@ -3376,7 +3392,7 @@ describe("directory widget session token size", () => {
     };
   }
 
-  it("fits the full Slides grant in one cookie for a realistic deck, user and org", () => {
+  it("fits a representative deck grant in one cookie for a realistic user and org", () => {
     const { scope, token } = slidesWidgetToken({
       deckId: "deck-V1StGXR8_Z5jdHi6B-myT-cd1",
       email: "taylor.reviewer@example-company.com",

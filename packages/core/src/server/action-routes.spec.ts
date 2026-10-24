@@ -888,6 +888,7 @@ describe("mountActionRoutes", () => {
         },
       };
       event.req.headers = new Headers(event._headers);
+      event.url = new URL(event.req.url);
       if (credential === "live-capability") {
         await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
           errorCode: "approval_required",
@@ -4033,7 +4034,9 @@ describe("mountActionRoutes", () => {
       "unshare-resource",
       "set-resource-visibility",
     ];
-    const target = profile.widgetTargets["create-deck"]({}, { id: "deck-a" })!;
+    const target = {
+      resourceIds: { deckId: "deck-a", resourceType: "deck" },
+    };
     const materialize = (rules: Record<string, any>) =>
       Object.fromEntries(
         Object.entries(rules).map(([argumentName, rule]) => [
