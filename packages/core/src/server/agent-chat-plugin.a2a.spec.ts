@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getObservabilityConfigMock = vi.hoisted(() => vi.fn());
 const instrumentAgentLoopMock = vi.hoisted(() => vi.fn());
+const recordUsageMock = vi.hoisted(() => vi.fn());
 const runLifecycleStore = vi.hoisted(() => ({
   runs: new Map<
     string,
@@ -216,8 +217,138 @@ import {
   runMCPAgentLoop,
   runA2AAgentLoop,
   runA2AAgentLoopWithRunManager,
+  runA2AWithUsageLedger,
 } from "./agent-chat-plugin.js";
 import { unverifiedA2AUserError } from "./agent-chat/action-filters-a2a.js";
+
+describe("A2A receiver usage ledger", () => {
+  const usage = () => ({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    engineName: "test-engine",
+    model: "test-model",
+  });
+  const identity = {
+    ownerEmail: "receiver@example.test",
+    orgId: "receiver-org",
+    appId: "qr",
+    taskId: "a2a-task-1",
+  };
+
+  beforeEach(() => recordUsageMock.mockReset());
+
+  it("records verified receiver identity and a stable key per task lease", async () => {
+    const firstUsage = Object.assign(usage(), {
+      inputTokens: 120,
+      outputTokens: 40,
+      builderCreditsUsed: 0.4,
+      usageReported: true,
+    });
+    const first = {
+      ...identity,
+      processingAttemptId: "lease-generation-1",
+      usage: firstUsage,
+      persistUsage: recordUsageMock,
+    };
+    const record = {
+      ownerEmail: identity.ownerEmail,
+      inputTokens: 120,
+      outputTokens: 40,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      builderCreditsUsed: 0.4,
+      engineName: "test-engine",
+      model: "test-model",
+      app: "qr",
+      orgId: "receiver-org",
+      label: "a2a",
+      refId: "a2a-task-1:lease-generation-1",
+      runId: "a2a-task-1",
+      threadId: "a2a-task-1",
+      taskId: "a2a-task-1",
+    };
+
+    await expect(
+      runA2AWithUsageLedger(Promise.resolve("done"), first),
+    ).resolves.toBe("done");
+    // A replay under the same lease replaces the row. A re-claimed task has a
+    // new lease generation and retains the earlier usage segment.
+    await runA2AWithUsageLedger(Promise.resolve("done"), first);
+    await runA2AWithUsageLedger(Promise.resolve("done"), {
+      ...first,
+      processingAttemptId: "lease-generation-2",
+      usage: {
+        ...firstUsage,
+        inputTokens: 18,
+        outputTokens: 5,
+        builderCreditsUsed: 0.05,
+      },
+    });
+
+    expect(recordUsageMock).toHaveBeenCalledTimes(3);
+    expect(recordUsageMock).toHaveBeenNthCalledWith(1, record);
+    expect(recordUsageMock).toHaveBeenNthCalledWith(2, record);
+    expect(recordUsageMock).toHaveBeenNthCalledWith(3, {
+      ...record,
+      refId: "a2a-task-1:lease-generation-2",
+      inputTokens: 18,
+      outputTokens: 5,
+      builderCreditsUsed: 0.05,
+    });
+  });
+
+  it("persists usage observed before a terminal error and preserves the run error", async () => {
+    const runError = new Error("receiver model failed after reporting usage");
+    const runUsage = usage();
+    const run = vi.fn(async () => {
+      Object.assign(runUsage, {
+        inputTokens: 70,
+        usageReported: true,
+      });
+      throw runError;
+    });
+
+    await expect(
+      runA2AWithUsageLedger(Promise.resolve().then(run), {
+        ...identity,
+        usage: runUsage,
+        persistUsage: recordUsageMock,
+      }),
+    ).rejects.toBe(runError);
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        app: identity.appId,
+        label: "a2a",
+        runId: identity.taskId,
+        threadId: identity.taskId,
+        taskId: identity.taskId,
+        inputTokens: 70,
+      }),
+    );
+  });
+
+  it("fails the run when reported usage cannot be persisted", async () => {
+    const runUsage = {
+      ...usage(),
+      inputTokens: 1,
+      usageReported: true,
+    };
+
+    await expect(
+      runA2AWithUsageLedger(Promise.resolve("done"), {
+        ...identity,
+        usage: runUsage,
+        persistUsage: async () => {
+          throw new Error("usage store unavailable");
+        },
+      }),
+    ).rejects.toThrow("usage store unavailable");
+  });
+});
 
 describe("delegated A2A recoverable artifact checkpoints", () => {
   it("prefers the organization A2A secret when a global secret is also configured", async () => {

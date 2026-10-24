@@ -5363,12 +5363,46 @@ export function createAgentNativeChatRuntime(
         });
       }
       if (!approval.approved) {
-        messageStates.delete(messageStateKey);
-        return terminalRuntimeTurn({
-          sessionId: session.id,
-          turnId: continuation.turnId,
-          reason: "complete",
-        });
+        return (async () => {
+          const threadId = session.threadId ?? options.threadId ?? session.id;
+          const headers = await resolveHeaders(options.headers, {
+            sessionId: session.id,
+            turnId: continuation.turnId,
+          });
+          if (!headers.has("Content-Type")) {
+            headers.set("Content-Type", "application/json");
+          }
+          const response = await fetchImpl(
+            `${apiUrl.replace(/\/+$/, "")}/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+            {
+              method: "POST",
+              headers,
+              credentials: "same-origin",
+              body: JSON.stringify({
+                approvalId: approval.id,
+                decision: "deny",
+              }),
+            },
+          );
+          let denialResolved = response.ok;
+          if (!denialResolved && response.status === 409) {
+            try {
+              const body = asRecord(await response.clone().json());
+              denialResolved = body?.code === "approval_not_pending";
+            } catch {
+              // coercion-ok: Preserve the original HTTP failure when conflict details are unreadable.
+            }
+          }
+          if (!denialResolved) {
+            throw new Error(await readErrorText(response));
+          }
+          messageStates.delete(messageStateKey);
+          return terminalRuntimeTurn({
+            sessionId: session.id,
+            turnId: continuation.turnId,
+            reason: "complete",
+          });
+        })();
       }
       const messageState = messageStates.get(messageStateKey);
       const approvalParts = [

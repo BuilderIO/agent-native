@@ -42,6 +42,7 @@ const FIRST_A2A_SIGNING_TIMEOUT_MS = 15_000;
 const orgContextMocks = vi.hoisted(() => ({
   getOrgDomain: vi.fn(),
   getOrgA2ASecret: vi.fn(),
+  getOrgWorkspaceUrl: vi.fn(),
 }));
 
 vi.mock("../org/context.js", () => orgContextMocks);
@@ -210,6 +211,7 @@ describe("McpClientManager", () => {
     httpCallHeaders.length = 0;
     orgContextMocks.getOrgDomain.mockReset().mockResolvedValue(null);
     orgContextMocks.getOrgA2ASecret.mockReset().mockResolvedValue(null);
+    orgContextMocks.getOrgWorkspaceUrl.mockReset().mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
