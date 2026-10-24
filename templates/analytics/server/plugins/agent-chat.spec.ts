@@ -1103,6 +1103,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
                 columnsUsed: "account_id, activity_date",
               },
             ],
+            truncated: false,
+            nextPage: null,
           }),
         },
         {
@@ -1191,6 +1193,99 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(asked).toHaveLength(1);
     expect(result).toMatchObject(withheld);
+  });
+
+  it("does not authorize warehouse fallback from a truncated find-data page", () => {
+    const context = explicitWarehouseContext(disclosed);
+    context.toolResults = context.toolResults?.map((result, index) =>
+      index === 1
+        ? {
+            ...result,
+            content: JSON.stringify({
+              results: [
+                {
+                  kind: "data-dictionary",
+                  origin: "data-dictionary",
+                  metric: "active_accounts",
+                  approved: true,
+                  status: "active",
+                  definition:
+                    "Count unique accounts with product activity during the selected period.",
+                  table: "accounts",
+                  columnsUsed: "account_id, activity_date",
+                },
+              ],
+              truncated: true,
+              nextPage: "page-2",
+            }),
+          }
+        : result,
+    );
+
+    expect(realDataFinalGuard(context)).toMatchObject(withheld);
+  });
+
+  it("rewrites a warehouse fallback from projected evidence only", async () => {
+    const privatePayload = "UNTRUSTED_CELL_SENTINEL";
+    const context = explicitWarehouseContext(
+      "Active accounts were 999 last month from a BigQuery calculation.",
+      {
+        resultContent: JSON.stringify({
+          rows: [
+            {
+              active_accounts: 10,
+              unrelated_metric: 777,
+              note: privatePayload,
+            },
+          ],
+          truncated: false,
+          rawMetadata: privatePayload,
+        }),
+      },
+    );
+    context.retryCount = 1;
+
+    const asked: Asked[] = [];
+    let failedMetricChecks = 0;
+    const safeDraft =
+      "BigQuery calculation: 10 active accounts for September, independent of the Semantic Layer.";
+    const result = await dbtFinalResponseGuard(
+      context,
+      recordingCheck((input) => {
+        const latest = asked[asked.length - 1];
+        if (
+          latest?.systemPrompt?.startsWith("Write a concise safe replacement")
+        ) {
+          return safeDraft;
+        }
+        if (
+          latest?.systemPrompt?.includes(
+            "Check whether an Analytics answer is grounded",
+          )
+        ) {
+          return "NO";
+        }
+        if (latest?.systemPrompt?.includes("exact metric-plus-scope pairs")) {
+          failedMetricChecks += 1;
+          return failedMetricChecks === 1 ? "YES" : "NO";
+        }
+        return input;
+      }, asked),
+    );
+
+    const rewrite = asked.find((item) =>
+      item.systemPrompt?.startsWith("Write a concise safe replacement"),
+    );
+    expect(rewrite?.input).toContain('"active_accounts":10');
+    expect(rewrite?.input).not.toContain('"unrelated_metric"');
+    expect(rewrite?.input).not.toContain(privatePayload);
+    expect(asked.every((item) => !item.input.includes(privatePayload))).toBe(
+      true,
+    );
+    expect(result).toMatchObject({
+      fallbackMessage: safeDraft,
+      maxRetries: 0,
+    });
   });
 
   it("checks the warehouse SQL against the approved metric definition", async () => {
@@ -1311,6 +1406,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
                   columnsUsed: "user_id, activity_date",
                 },
               ],
+              truncated: false,
+              nextPage: null,
             }),
           },
           {
@@ -1618,6 +1715,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     "Why does the dbt number differ from the warehouse?",
     "Compare dbt and warehouse numbers.",
     "I want to compare dbt and warehouse numbers.",
+    "Use dbt rather than BigQuery for the active accounts figure.",
+    "Show active accounts from dbt, not BigQuery.",
     "Show the active accounts figure from BigQuery, but do not use the warehouse.",
     "Show active accounts from BigQuery, but the owner-defined metric is the required source and this request excludes all derived values, saved reports, secondhand tables, and any substitute calculations for the defined population across the full specified period, so do not use it.",
   ])(
@@ -2695,6 +2794,55 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(none.result).toBeNull();
   });
 
+  it("checks an unresolved dbt figure when only a connection tool also ran", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: question,
+        draftText: draft,
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-readiness",
+            name: "get-dbt-connection",
+            input: {},
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "get-dbt-connection",
+            toolCallId: "dbt-readiness",
+            isError: false,
+            content: JSON.stringify({ connected: true }),
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.systemPrompt).toContain("You classify one draft answer");
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("status `not_found`"),
+      fallbackMessage: expect.stringContaining("status `not_found`"),
+    });
+  });
+
   it("checks the draft after a structured BigQuery failure too", async () => {
     const figure = await judged(
       {
@@ -3217,27 +3365,9 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
-  it("preserves independent results in the exhausted safe fallback", async () => {
-    const safeDraft =
-      "Signups were 3 last month. Active accounts are unavailable from the Semantic Layer because the dbt query did not complete.";
+  it("uses the bounded fallback instead of rewriting from unrelated tool payloads", async () => {
     const asked: Asked[] = [];
-    let figureChecks = 0;
-    const complete = recordingCheck((input) => {
-      const latest = asked[asked.length - 1];
-      if (
-        latest?.systemPrompt?.startsWith("Write a concise safe replacement")
-      ) {
-        return safeDraft;
-      }
-      if (latest?.systemPrompt?.includes("Analytics answer is grounded")) {
-        return "NO";
-      }
-      if (latest?.systemPrompt?.includes("classify one draft answer")) {
-        figureChecks += 1;
-        return figureChecks === 1 ? "YES" : "NO";
-      }
-      return input;
-    }, asked);
+    const complete = recordingCheck("YES", asked);
     const result = await dbtFinalResponseGuard(
       guardContext({
         userText: "What were active accounts and signups last month?",
@@ -3308,17 +3438,18 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       complete,
     );
 
-    expect(asked).toHaveLength(4);
-    expect(asked[1]?.systemPrompt).toContain(
-      "Preserve complete verified results",
-    );
-    expect(asked[1]?.input).toContain('"query-agent-native-analytics"');
-    expect(asked[1]?.input).not.toContain("unreadable tool output");
-    expect(asked[3]?.systemPrompt).toContain("Analytics answer is grounded");
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.input).not.toContain('"query-agent-native-analytics"');
+    expect(asked[0]?.input).not.toContain("unreadable tool output");
     expect(result).toMatchObject({
-      fallbackMessage: safeDraft,
-      maxRetries: 0,
+      fallbackMessage: expect.stringContaining(
+        '"signups" from 2026-09-01 through 2026-09-30: 3',
+      ),
+      maxRetries: 1,
     });
+    expect(
+      (result as { fallbackMessage: string }).fallbackMessage,
+    ).not.toContain("10 active accounts");
   });
 
   it("withholds an exhausted fallback that invents an independent metric value", async () => {
@@ -3383,7 +3514,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       complete,
     );
 
-    expect(asked).toHaveLength(4);
+    expect(asked).toHaveLength(1);
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
       maxRetries: 1,
@@ -3955,6 +4086,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
                   columnsUsed: "account_id, activity_date",
                 },
               ],
+              truncated: false,
+              nextPage: null,
             }),
           },
           { ...schemaRows, toolCallId: "schema-read" },
@@ -4044,6 +4177,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
                   columnsUsed: "account_id, activity_date",
                 },
               ],
+              truncated: false,
+              nextPage: null,
             }),
           },
           { ...schemaRows, toolCallId: "schema-read" },
@@ -4065,7 +4200,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     const earlierRows = {
       name: "bigquery",
       isError: false,
-      content: JSON.stringify({ rows: [{ n: 10 }], totalRows: 1 }),
+      content: JSON.stringify({
+        rows: [{ active_accounts: 10 }],
+        totalRows: 1,
+        truncated: false,
+      }),
     };
     const { result } = await judged(
       {
@@ -4075,7 +4214,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
           {
             toolCallId: "warehouse-read",
             name: "bigquery",
-            input: { sql: "SELECT COUNT(*) AS n FROM accounts" },
+            input: { sql: activeAccountsSql },
           },
           {
             toolCallId: "dbt-failure",
@@ -4086,6 +4225,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
               groupBy: [],
             },
           },
+          {
+            toolCallId: "metric-definition",
+            name: "find-data",
+            input: { question: "active accounts" },
+          },
         ],
         toolResults: [
           { ...earlierRows, toolCallId: "warehouse-read" },
@@ -4095,6 +4239,28 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
             content: JSON.stringify({
               status: "not_found",
               metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "find-data",
+            toolCallId: "metric-definition",
+            isError: false,
+            content: JSON.stringify({
+              results: [
+                {
+                  kind: "data-dictionary",
+                  origin: "data-dictionary",
+                  metric: "active_accounts",
+                  approved: true,
+                  status: "active",
+                  definition:
+                    "Count unique accounts with product activity during the selected period.",
+                  table: "accounts",
+                  columnsUsed: "account_id, activity_date",
+                },
+              ],
+              truncated: false,
+              nextPage: null,
             }),
           },
         ],
@@ -4451,7 +4617,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
-  it("rewrites a failed scope while preserving a complete result for another scope", async () => {
+  it("keeps the failed scope unavailable while retaining a complete result at another scope", async () => {
     const septemberRange = {
       startDate: "2026-09-01",
       endDate: "2026-09-30",
@@ -4462,8 +4628,6 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     };
     const draftText =
       "September active accounts were 8 and October active accounts were 10.";
-    const safeText =
-      "September active accounts are unavailable from the Semantic Layer. October active accounts were 10.";
     const { asked, result } = await judged(
       {
         userText: "Summarize active accounts for the queried periods.",
@@ -4513,21 +4677,21 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         ],
       },
       (input) => {
-        if (input.includes("ANSWER:")) return "NO";
-        if (input.includes("COMPLETE TOOL RESULTS:")) return safeText;
         return input.includes(JSON.stringify(draftText)) ? "YES" : "NO";
       },
     );
 
-    expect(asked).toHaveLength(4);
+    expect(asked).toHaveLength(1);
     expect(asked[0]?.input).toContain("2026-09-01");
-    expect(asked[1]?.input).toContain("2026-09-01");
-    expect(asked[1]?.input).toContain("2026-10-01");
     expect(result).toMatchObject({
-      retryMessage: safeText,
-      fallbackMessage: safeText,
-      maxRetries: 0,
+      fallbackMessage: expect.stringContaining(
+        '"active_accounts" from 2026-10-01 through 2026-10-31: 10',
+      ),
+      maxRetries: 1,
     });
+    expect((result as { fallbackMessage: string }).fallbackMessage).toContain(
+      '"active_accounts" from 2026-09-01 through 2026-09-30',
+    );
   });
 
   describe("default-deny engagement", () => {
@@ -4572,17 +4736,15 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       expect(asked).toHaveLength(1);
     });
 
-    it("runs no check when the turn used only tools that cannot return data", async () => {
+    it("checks an unresolved metric when the only other tool cannot return data", async () => {
       const params = {
         userText: question,
         draftText: explanation,
         toolResults: [dbtNotFound, dbtNotReadyStatus],
       };
-      const { asked, result } = await judged(params, "YES");
+      const { asked, result } = await judged(params, "NO");
 
-      expect(asked).toHaveLength(0);
-      // The other final-answer guards still judge the draft, as they would without
-      // the figure check; the check adds no result of its own.
+      expect(asked).toHaveLength(1);
       expect(result).toEqual(realDataFinalGuard(guardContext(params)));
       expect(JSON.stringify(result ?? null)).not.toContain(
         "Do not state any figure",
@@ -4597,7 +4759,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       "ask-question",
       "navigate",
       "Get_DBT_Connection",
-    ])("does not treat %s as a tool that can return data", async (name) => {
+    ])("checks unresolved metrics even when %s also ran", async (name) => {
       const { asked } = await judged(
         {
           userText: question,
@@ -4607,7 +4769,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         "YES",
       );
 
-      expect(asked).toHaveLength(0);
+      expect(asked).toHaveLength(1);
     });
   });
 
