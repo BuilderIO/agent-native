@@ -205,20 +205,90 @@ type CliWrapperFlags = {
   http?: ActionHttpConfig | false;
   agentTool?: false;
   needsApproval?: true;
+  persistInBrowser?: false;
 };
+
+/**
+ * How the source sets a boolean flag: not at all, only ever to one literal, or
+ * some other way (a predicate, a variable, shorthand, or both literals).
+ */
+function sniffBooleanFlag(
+  src: string,
+  key: string,
+): "absent" | "true" | "false" | "dynamic" {
+  const mention = new RegExp(`\\b${key}\\b`, "g");
+  const literal = new RegExp(
+    `${key}\\s*:\\s*(true|false)\\s*(?=[,}\\r\\n]|\\/[/*]|$)`,
+    "y",
+  );
+  const literals = new Set<string>();
+  for (let m = mention.exec(src); m; m = mention.exec(src)) {
+    literal.lastIndex = m.index;
+    const value = literal.exec(src);
+    if (!value) return "dynamic";
+    literals.add(value[1]);
+  }
+  if (literals.size === 0) return "absent";
+  if (literals.size > 1) return "dynamic";
+  return literals.has("true") ? "true" : "false";
+}
+
+/**
+ * Whether the `defineAction` options take settings the sniff can't see: an
+ * options object passed by name, or one that spreads another object in.
+ */
+function inheritsActionOptions(src: string): boolean {
+  const call = src.search(/\bdefineAction\s*\(/);
+  if (call < 0) return false;
+  let i = src.indexOf("(", call) + 1;
+  while (i < src.length && /\s/.test(src[i])) i++;
+  if (src[i] !== "{") return true;
+  let depth = 0;
+  for (; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      for (i++; i < src.length && src[i] !== ch; i++) {
+        if (src[i] === "\\") i++;
+      }
+    } else if (src.startsWith("//", i)) {
+      i = src.indexOf("\n", i);
+      if (i < 0) return false;
+    } else if (src.startsWith("/*", i)) {
+      const end = src.indexOf("*/", i);
+      if (end < 0) return false;
+      i = end + 1;
+    } else if (ch === "{" || ch === "(" || ch === "[") {
+      depth++;
+    } else if (ch === "}" || ch === ")" || ch === "]") {
+      depth--;
+      if (depth === 0) return false;
+    } else if (depth === 1 && src.startsWith("...", i)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * The flags the dev scan reads from an action's source when it can't import
  * the module and falls back to running it through `pnpm action`. Without the
- * module this regex sniff is the best it can do, so it errs toward the gate:
- * any `needsApproval` other than `false` asks every time, since a predicate
- * can't be evaluated.
+ * module this regex sniff is the best it can do, so it errs toward the safe
+ * side. Only a literal `needsApproval: false` skips the approval gate, and
+ * only a literal `persistInBrowser: true` lets the browser keep results. Any
+ * other value, or options inherited where the sniff can't see them, asks every
+ * time and keeps results out of the browser's storage.
  */
 export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
   const out: CliWrapperFlags = {};
+  const inherited = inheritsActionOptions(src);
   if (/\bagentTool\s*:\s*false\b/.test(src)) out.agentTool = false;
-  if (/\bneedsApproval\b(?!\s*:\s*false\b)/.test(src)) {
+  const approval = sniffBooleanFlag(src, "needsApproval");
+  if (inherited || (approval !== "absent" && approval !== "false")) {
     out.needsApproval = true;
+  }
+  const persist = sniffBooleanFlag(src, "persistInBrowser");
+  if (inherited || (persist !== "absent" && persist !== "true")) {
+    out.persistInBrowser = false;
   }
   if (/\bhttp\s*:\s*false\b/.test(src)) {
     out.http = false;

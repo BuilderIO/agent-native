@@ -1906,10 +1906,11 @@ export function createAgentChatPlugin(
                 // (and .ts files Node can't parse natively).
               }
 
-              // Static-parse the source for `http`, `agentTool: false` and
-              // `needsApproval` so the shell-wrapper fallback still mounts HTTP
-              // routes with the correct method, stays hidden when asked, and
-              // keeps its approval gate. We can't load the .ts module to read
+              // Static-parse the source for `http`, `agentTool: false`,
+              // `needsApproval` and `persistInBrowser` so the shell-wrapper
+              // fallback still mounts HTTP routes with the correct method,
+              // stays hidden when asked, keeps its approval gate and keeps its
+              // results out of browser storage. We can't load the .ts module to read
               // the real defineAction object in this Node context, so this
               // regex sniff is the best we can do until the discovery is moved
               // into a Vite-aware codepath.
@@ -1920,12 +1921,13 @@ export function createAgentChatPlugin(
                 );
               } catch (error) {
                 // Without the source there's no telling whether the action
-                // asks first, so it asks. The route stays the default POST.
+                // asks first or keeps results out of browser storage, so it
+                // does both. The route stays the default POST.
                 console.warn(
                   `[agent-native] Could not read ${dir}/${file}; it will ask for approval before it runs.`,
                   error,
                 );
-                sniffed = { needsApproval: true };
+                sniffed = { needsApproval: true, persistInBrowser: false };
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts
