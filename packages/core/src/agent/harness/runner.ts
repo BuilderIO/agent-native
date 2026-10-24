@@ -167,12 +167,10 @@ export function startAgentHarnessRun(
               !stored.resolvedApprovalIds?.includes(pendingApproval.id);
             if (stillPending) {
               keepLiveSession = true;
-              await updateLiveAgentHarnessSession(
+              await persistHarnessCheckpoint(
                 storedSessionId,
                 harnessSession,
-                {
-                  status: "idle",
-                },
+                stored.resumeState,
               );
               return;
             }

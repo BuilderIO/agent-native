@@ -365,6 +365,185 @@ describe("startAgentHarnessRun", () => {
     });
   });
 
+  it("leaves a reserved approval for its dispatch instead of checkpointing it idle", async () => {
+    const approval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-runner-checkpoint",
+      message: "Allow the tool?",
+    };
+    let persistedSession = {
+      status: "running",
+      generation: 0,
+      pendingApproval: null as unknown,
+      approvalResolutionId: null as string | null,
+      resolvedApprovalIds: [] as string[],
+    };
+    mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
+      persistedSession = {
+        ...persistedSession,
+        ...input,
+        status: "running",
+        generation: 0,
+        pendingApproval: input.pendingApproval ?? null,
+        approvalResolutionId: null,
+        resolvedApprovalIds: input.resolvedApprovalIds ?? [],
+      };
+      return persistedSession;
+    });
+    mocks.getAgentHarnessSession.mockImplementation(
+      async () => persistedSession,
+    );
+    mocks.updateAgentHarnessSession.mockImplementation(async (_id, patch) => {
+      persistedSession = {
+        ...persistedSession,
+        ...patch,
+        generation: persistedSession.generation + 1,
+      };
+      if (patch.pendingApproval) {
+        persistedSession = {
+          ...persistedSession,
+          approvalResolutionId: approval.id,
+          generation: persistedSession.generation + 1,
+        };
+      }
+      return persistedSession;
+    });
+
+    const session = fakeSession("native-checkpoint-approval", [approval]);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((_runId, _threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId: "run-checkpoint-approval",
+        threadId: "thread-checkpoint-approval",
+        turnId: "run-checkpoint-approval",
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-checkpoint-approval",
+      threadId: "thread-checkpoint-approval",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-checkpoint-approval" },
+    });
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(persistedSession).toMatchObject({
+      status: "running",
+      pendingApproval: { id: approval.id },
+      approvalResolutionId: approval.id,
+    });
+    expect(mocks.updateAgentHarnessSession).not.toHaveBeenCalledWith(
+      "stored-checkpoint-approval",
+      expect.objectContaining({ status: "idle" }),
+    );
+    expect(mocks.updateAgentHarnessSessionAtGeneration).not.toHaveBeenCalled();
+  });
+
+  it("does not restore idle after a stop wins the approval checkpoint race", async () => {
+    const approval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-stop-checkpoint-race",
+      message: "Allow the tool?",
+    };
+    let persistedSession = {
+      status: "running",
+      generation: 0,
+      pendingApproval: null as unknown,
+      approvalResolutionId: null as string | null,
+      resolvedApprovalIds: [] as string[],
+    };
+    mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
+      persistedSession = {
+        ...persistedSession,
+        ...input,
+        status: "running",
+        generation: 0,
+        pendingApproval: input.pendingApproval ?? null,
+        approvalResolutionId: null,
+        resolvedApprovalIds: input.resolvedApprovalIds ?? [],
+      };
+      return persistedSession;
+    });
+    mocks.getAgentHarnessSession.mockImplementation(
+      async () => persistedSession,
+    );
+    mocks.updateAgentHarnessSession.mockImplementation(async (_id, patch) => {
+      persistedSession = {
+        ...persistedSession,
+        ...patch,
+        generation: persistedSession.generation + 1,
+      };
+      return persistedSession;
+    });
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementationOnce(
+      async () => {
+        persistedSession = {
+          ...persistedSession,
+          status: "stopped",
+          pendingApproval: null,
+          generation: persistedSession.generation + 1,
+        };
+        throw Object.assign(new Error("Harness session changed."), {
+          name: "AgentHarnessSessionConflictError",
+        });
+      },
+    );
+
+    const session = fakeSession("native-stop-checkpoint-race", [approval]);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((_runId, _threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId: "run-stop-checkpoint-race",
+        threadId: "thread-stop-checkpoint-race",
+        turnId: "run-stop-checkpoint-race",
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-stop-checkpoint-race",
+      threadId: "thread-stop-checkpoint-race",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-stop-checkpoint-race" },
+    });
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(persistedSession).toMatchObject({
+      status: "stopped",
+      pendingApproval: null,
+    });
+    expect(mocks.updateAgentHarnessSession).not.toHaveBeenCalledWith(
+      "stored-stop-checkpoint-race",
+      expect.objectContaining({ status: "idle" }),
+    );
+    expect(mocks.updateAgentHarnessSessionAtGeneration).toHaveBeenCalledOnce();
+  });
+
   it("does not restore an approval resolved before the turn becomes idle", async () => {
     const approval: AgentHarnessEvent = {
       type: "approval-request",
@@ -373,33 +552,52 @@ describe("startAgentHarnessRun", () => {
     };
     let persistedSession: {
       status?: string;
+      generation: number;
       pendingApproval?: unknown;
+      approvalResolutionId?: string | null;
       resolvedApprovalIds?: string[];
-    } = {};
+    } = {
+      status: "running",
+      generation: 0,
+      pendingApproval: null,
+      approvalResolutionId: null,
+      resolvedApprovalIds: [],
+    };
     mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
       persistedSession = {
-        status: input.status,
+        ...persistedSession,
+        status: "running",
+        generation: 0,
         pendingApproval: input.pendingApproval ?? null,
+        approvalResolutionId: null,
         resolvedApprovalIds: input.resolvedApprovalIds ?? [],
       };
-      return {};
+      return persistedSession;
     });
     mocks.getAgentHarnessSession.mockImplementation(
       async () => persistedSession,
     );
-    let updates = 0;
     mocks.updateAgentHarnessSession.mockImplementation(async (_id, update) => {
-      updates += 1;
-      if (updates === 2) {
+      persistedSession = {
+        ...persistedSession,
+        ...update,
+        generation: persistedSession.generation + 1,
+      };
+      return persistedSession;
+    });
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementationOnce(
+      async () => {
         persistedSession = {
           ...persistedSession,
           pendingApproval: null,
           resolvedApprovalIds: [approval.id],
+          generation: persistedSession.generation + 1,
         };
-      }
-      persistedSession = { ...persistedSession, ...update };
-      return {};
-    });
+        throw Object.assign(new Error("Harness session changed."), {
+          name: "AgentHarnessSessionConflictError",
+        });
+      },
+    );
 
     const session = fakeSession("native-resolved-before-idle", [approval]);
     const adapter = fakeAdapter(session);

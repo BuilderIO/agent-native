@@ -486,54 +486,14 @@ describe("agent harness session store", () => {
     });
   });
 
-  it("does not finalize a follow-up claim while approval resolution is reserved", async () => {
-    const id = "session-finalize-during-approval";
-    const claimId = "claim-finalize-during-approval";
-    const approvalId = "approval-finalize-during-approval";
-    await saveAgentHarnessSession({
-      id,
-      harnessName: "fake",
-      threadId: "thread-finalize-during-approval",
-      runId: "run-finalize-during-approval",
-      status: "running",
-      followUpClaimId: claimId,
-      pendingApproval: { type: "approval-request", id: approvalId },
-      ownerEmail: "owner@example.com",
-      orgId: "org-1",
-    });
-    const initial = await getAgentHarnessSession(id);
-    const reserved = await updateAgentHarnessSessionAtGeneration(
-      id,
-      "running",
-      initial!.generation,
-      { approvalResolutionId: approvalId },
-      claimId,
-    );
-
-    await expect(
-      updateAgentHarnessSessionIfFollowUpClaim(
-        id,
-        claimId,
-        { status: "idle", followUpClaimId: null },
-        true,
-      ),
-    ).resolves.toBeNull();
-    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
-      status: "running",
-      generation: reserved!.generation,
-      followUpClaimId: claimId,
-      approvalResolutionId: approvalId,
-    });
-  });
-
   it("does not start expiry cleanup while approval resolution is reserved", async () => {
-    const id = "session-expiry-during-approval";
-    const approvalId = "approval-expiry-during-approval";
+    const id = "session-approval-wins-expiry-cleanup";
+    const approvalId = "approval-wins-expiry-cleanup";
     await saveAgentHarnessSession({
       id,
       harnessName: "fake",
-      threadId: "thread-expiry-during-approval",
-      runId: "run-expiry-during-approval",
+      threadId: "thread-approval-wins-expiry-cleanup",
+      runId: "run-approval-wins-expiry-cleanup",
       status: "idle",
       pendingApproval: { type: "approval-request", id: approvalId },
       ownerEmail: "owner@example.com",
@@ -558,9 +518,65 @@ describe("agent harness session store", () => {
     ).resolves.toBeNull();
     expect(start).not.toHaveBeenCalled();
     await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
-      generation: reserved!.generation,
+      status: "idle",
       approvalResolutionId: approvalId,
+      generation: reserved!.generation,
     });
+  });
+
+  it("does not finalize a follow-up after approval resolution is reserved", async () => {
+    const id = "session-follow-up-approval-resolution-reserved";
+    const claimId = "follow-up-approval-resolution-reserved";
+    const approvalId = "approval-resolution-reserved";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-approval-resolution-reserved",
+      runId: "run-follow-up-approval-resolution-reserved",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      claimId,
+    );
+    const pending = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      claimId,
+      {
+        pendingApproval: {
+          type: "approval-request",
+          id: approvalId,
+        },
+      },
+    );
+    const reserved = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "running",
+      pending!.generation,
+      { approvalResolutionId: approvalId },
+      claimId,
+    );
+    let finalizeCalled = false;
+
+    await expect(
+      updateAgentHarnessSessionIfFollowUpClaim(id, claimId, async () => {
+        finalizeCalled = true;
+        return { status: "idle", followUpClaimId: null };
+      }),
+    ).resolves.toBeNull();
+
+    expect(finalizeCalled).toBe(false);
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: claimId,
+      approvalResolutionId: approvalId,
+      generation: reserved!.generation,
+    });
+    expect(claimed).not.toBeNull();
   });
 
   it("keeps a terminal status when a checkpoint uses a stale status snapshot", async () => {
