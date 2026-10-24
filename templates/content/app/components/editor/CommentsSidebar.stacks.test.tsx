@@ -570,6 +570,55 @@ describe("comment stacks in the margin", () => {
     expect(margin()).toEqual(expect.arrayContaining(["a", "c", "d"]));
   });
 
+  /** Clicks Resolve on a card, then plays back the saved resolution. */
+  async function resolveFromCard(threadId: string, threads = THREADS) {
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          `[data-thread-card="${threadId}"] [data-comment-resolve]`,
+        )!
+        .click(),
+    );
+    const resolved = threads.map((item) =>
+      item.threadId === threadId ? { ...item, resolved: true } : item,
+    );
+    render(resolved);
+    act(() =>
+      scroll
+        .querySelector(`[data-comment-thread="${threadId}"]`)!
+        .removeAttribute("data-comment-thread"),
+    );
+    await wait(60);
+  }
+
+  it("closes a card resolved from it", async () => {
+    render();
+    act(() => harness.select("solo"));
+    expect(margin()).toContain("solo");
+    await resolveFromCard("solo");
+    expect(harness.selected).toBeNull();
+    expect(margin()).not.toContain("solo");
+  });
+
+  it("opens the next thread of an open stack resolved from its card", async () => {
+    render();
+    act(() => harness.select("b"));
+    await resolveFromCard("b");
+    expect(harness.selected).toBe("c");
+    expect(collapseButton()).not.toBeNull();
+    expect(margin()).toEqual(expect.arrayContaining(["a", "c", "d"]));
+    expect(margin()).not.toContain("b");
+  });
+
+  it("closes a stack resolved from its card down to one thread", async () => {
+    render();
+    act(() => harness.select("l1"));
+    await resolveFromCard("l1");
+    expect(harness.selected).toBeNull();
+    expect(collapseButton()).toBeNull();
+    expect(margin()).not.toContain("l1");
+  });
+
   it("forgets a stack resolved down to one thread", async () => {
     render();
     act(() => harness.select("l1"));
