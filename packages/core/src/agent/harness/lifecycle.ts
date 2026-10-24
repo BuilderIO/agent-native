@@ -129,7 +129,26 @@ export async function resolveAgentHarnessApproval(input: {
     if (scoped) return scoped;
     const session = stored!;
     const resolvedIds = session.resolvedApprovalIds ?? [];
+    const pending = asPendingApproval(session.pendingApproval);
+    if (session.approvalResolutionId) {
+      return failure(
+        input.runId,
+        session,
+        "unavailable",
+        session.approvalResolutionId === input.approval.id
+          ? "This approval may already have been sent to the harness; its outcome is uncertain and it cannot be retried safely."
+          : "Another approval resolution is already in progress for this harness session.",
+      );
+    }
     if (resolvedIds.includes(input.approval.id)) {
+      if (pending?.id === input.approval.id) {
+        return failure(
+          input.runId,
+          session,
+          "unavailable",
+          "This approval may already have been sent to the harness; its outcome is uncertain and it cannot be retried safely.",
+        );
+      }
       return {
         ok: true,
         runId: input.runId,
@@ -137,7 +156,6 @@ export async function resolveAgentHarnessApproval(input: {
         idempotent: true,
       };
     }
-    const pending = asPendingApproval(session.pendingApproval);
     if (!pending || pending.id !== input.approval.id) {
       return failure(
         input.runId,
@@ -158,6 +176,29 @@ export async function resolveAgentHarnessApproval(input: {
         "The pending approval belongs to a harness process that is no longer live and cannot be reconstructed safely.",
       );
     }
+    if (!live.session.approve && !live.session.continueTurn) {
+      return failure(
+        input.runId,
+        session,
+        "unavailable",
+        `Harness ${session.harnessName} does not expose approval continuation.`,
+      );
+    }
+
+    const resolutionStarted = await beginApprovalResolution(
+      input.runId,
+      input.approval.id,
+      live.session,
+    );
+    if (!resolutionStarted) {
+      const latest = await getAgentHarnessSessionByRunId(input.runId);
+      return failure(
+        input.runId,
+        latest ?? session,
+        "unavailable",
+        "The harness session changed before approval dispatch; its latest state was preserved.",
+      );
+    }
 
     const events: AgentHarnessEvent[] = [];
     let continued = false;
@@ -174,13 +215,6 @@ export async function resolveAgentHarnessApproval(input: {
           followUpClaimId: session.followUpClaimId ?? undefined,
           liveSession: live.session,
         },
-      );
-    } else {
-      return failure(
-        input.runId,
-        session,
-        "unavailable",
-        `Harness ${session.harnessName} does not expose approval continuation.`,
       );
     }
 
@@ -265,6 +299,7 @@ async function persistResolvedApproval(input: {
     if (!latest) return null;
     const resolvedIds = latest.resolvedApprovalIds ?? [];
     const pending = asPendingApproval(latest.pendingApproval);
+    if (latest.approvalResolutionId !== input.approvalId) return null;
     if (
       resolvedIds.includes(input.approvalId) &&
       pending?.id !== input.approvalId
@@ -288,6 +323,7 @@ async function persistResolvedApproval(input: {
         {
           status: latest.status,
           pendingApproval,
+          approvalResolutionId: null,
           resolvedApprovalIds: resolvedIds.includes(input.approvalId)
             ? resolvedIds
             : [...resolvedIds, input.approvalId].slice(
@@ -310,6 +346,51 @@ async function persistResolvedApproval(input: {
         return updated;
       }
       return null;
+    } catch (error) {
+      if (!isAgentHarnessSessionConflictError(error) || attempt === 2) {
+        throw error;
+      }
+      conflict = error;
+    }
+  }
+  if (conflict) throw conflict;
+  return null;
+}
+
+async function beginApprovalResolution(
+  runId: string,
+  approvalId: string,
+  liveSession: AgentHarnessSession,
+): Promise<StoredAgentHarnessSession | null> {
+  let conflict: AgentHarnessSessionConflictError | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const latest = await getAgentHarnessSessionByRunId(runId);
+    if (
+      !latest ||
+      latest.approvalResolutionId ||
+      latest.resolvedApprovalIds?.includes(approvalId) ||
+      asPendingApproval(latest.pendingApproval)?.id !== approvalId ||
+      latest.status === "stopped" ||
+      latest.status === "errored" ||
+      latest.status === "destroyed"
+    ) {
+      return null;
+    }
+    try {
+      const updated = await updateAgentHarnessSessionAtGeneration(
+        latest.id,
+        latest.status,
+        latest.generation,
+        { approvalResolutionId: approvalId },
+        latest.followUpClaimId ?? undefined,
+      );
+      if (!updated) return null;
+      refreshLiveAgentHarnessSessionGeneration(
+        latest.id,
+        liveSession,
+        updated.generation,
+      );
+      return updated;
     } catch (error) {
       if (!isAgentHarnessSessionConflictError(error) || attempt === 2) {
         throw error;
@@ -815,6 +896,7 @@ export async function sweepExpiredAgentHarnessSessions(
   now = Date.now(),
 ): Promise<number> {
   let removed = 0;
+  const failures: unknown[] = [];
   for (const [sessionId, live] of liveSessions) {
     if (live.expiresAt > now) continue;
     let stopped: StoredAgentHarnessSession | null = null;
@@ -867,23 +949,58 @@ export async function sweepExpiredAgentHarnessSessions(
       else await live.session.destroy?.();
       releaseLiveAgentHarnessSession(sessionId, live.session);
       removed += 1;
-    } catch {
+    } catch (teardownError) {
       if (stopped) {
-        const errored = await markAgentHarnessSessionStoppedIfUnclaimed(
-          sessionId,
-          "stopped",
-          stopped.generation,
-          "errored",
-        ).catch(() => {});
-        if (errored) {
-          refreshLiveAgentHarnessSessionGeneration(
+        try {
+          const errored = await markAgentHarnessSessionStoppedIfUnclaimed(
             sessionId,
-            live.session,
-            errored.generation,
+            "stopped",
+            stopped.generation,
+            "errored",
           );
+          if (errored) {
+            refreshLiveAgentHarnessSessionGeneration(
+              sessionId,
+              live.session,
+              errored.generation,
+            );
+          } else {
+            const latest = await getAgentHarnessSession(sessionId);
+            if (
+              latest?.status === "stopped" &&
+              latest.generation === stopped.generation &&
+              latest.followUpClaimId == null
+            ) {
+              failures.push(
+                new AggregateError(
+                  [
+                    teardownError,
+                    new AgentHarnessSessionConflictError(sessionId),
+                  ],
+                  "Expired harness provider teardown failed and its state could not be updated.",
+                ),
+              );
+              continue;
+            }
+          }
+        } catch (persistError) {
+          failures.push(
+            new AggregateError(
+              [teardownError, persistError],
+              "Expired harness provider teardown and error-state persistence both failed.",
+            ),
+          );
+          continue;
         }
       }
+      failures.push(teardownError);
     }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "Expired harness session cleanup was incomplete.",
+    );
   }
   return removed;
 }
@@ -1345,9 +1462,13 @@ function scheduleCleanup(): void {
   if (cleanupTimer) return;
   cleanupTimer = setTimeout(() => {
     cleanupTimer = undefined;
-    void sweepExpiredAgentHarnessSessions().finally(() => {
-      if (liveSessions.size > 0) scheduleCleanup();
-    });
+    void sweepExpiredAgentHarnessSessions()
+      .catch((error) => {
+        console.error("Expired AgentHarness session cleanup failed.", error);
+      })
+      .finally(() => {
+        if (liveSessions.size > 0) scheduleCleanup();
+      });
   }, LIVE_SESSION_TTL_MS);
   cleanupTimer.unref?.();
 }

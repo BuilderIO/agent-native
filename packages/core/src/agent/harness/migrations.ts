@@ -72,4 +72,12 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
         "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS follow_up_claim_id TEXT",
     },
   },
+  {
+    version: 6,
+    name: "agent-harness-sessions-approval-resolution",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS approval_resolution_id TEXT",
+    },
+  },
 ];

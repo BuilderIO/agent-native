@@ -47,6 +47,7 @@ export interface StoredAgentHarnessSession {
   resumeState?: unknown;
   workspaceRef?: string | null;
   pendingApproval?: unknown;
+  approvalResolutionId?: string | null;
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
@@ -67,6 +68,7 @@ export interface SaveAgentHarnessSessionInput {
   resumeState?: unknown;
   workspaceRef?: string | null;
   pendingApproval?: unknown;
+  approvalResolutionId?: string | null;
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
@@ -93,6 +95,7 @@ export const agentHarnessSessionsStore = defineStore({
           resume_state TEXT,
           workspace_ref TEXT,
           pending_approval TEXT,
+          approval_resolution_id TEXT,
           resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
@@ -110,6 +113,7 @@ export const agentHarnessSessionsStore = defineStore({
           "resume_state",
           "workspace_ref",
           "pending_approval",
+          "approval_resolution_id",
           "resolved_approval_ids",
           "owner_email",
           "org_id",
@@ -184,6 +188,10 @@ export async function saveAgentHarnessSession(
       input.pendingApproval !== undefined
         ? input.pendingApproval
         : existing?.pendingApproval,
+    approvalResolutionId:
+      input.approvalResolutionId !== undefined
+        ? input.approvalResolutionId
+        : (existing?.approvalResolutionId ?? null),
     resolvedApprovalIds:
       input.resolvedApprovalIds ?? existing?.resolvedApprovalIds ?? [],
     ownerEmail: input.ownerEmail ?? existing?.ownerEmail ?? null,
@@ -208,6 +216,7 @@ export async function saveAgentHarnessSession(
     serializeJson(record.resumeState),
     record.workspaceRef ?? null,
     serializeJson(record.pendingApproval),
+    record.approvalResolutionId ?? null,
     serializeJson(record.resolvedApprovalIds),
     record.ownerEmail ?? null,
     record.orgId ?? null,
@@ -221,10 +230,11 @@ export async function saveAgentHarnessSession(
     const inserted = await client.execute({
       sql: `INSERT INTO agent_harness_sessions (
               id, harness_name, thread_id, run_id, provider_session_id, status,
-              resume_state, workspace_ref, pending_approval, resolved_approval_ids,
+              resume_state, workspace_ref, pending_approval, approval_resolution_id,
+              resolved_approval_ids,
               owner_email, org_id, generation, created_at, updated_at, stopped_at,
               follow_up_claim_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING`,
       args: values,
     });
@@ -243,7 +253,8 @@ export async function saveAgentHarnessSession(
     sql: `UPDATE agent_harness_sessions SET
             harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?,
             status = ?, resume_state = ?, workspace_ref = ?, pending_approval = ?,
-            resolved_approval_ids = ?, owner_email = ?, org_id = ?, generation = ?,
+            approval_resolution_id = ?, resolved_approval_ids = ?, owner_email = ?,
+            org_id = ?, generation = ?,
             updated_at = ?, stopped_at = ?, follow_up_claim_id = ?
           WHERE id = ? AND generation = ?`,
     args: [
@@ -255,6 +266,7 @@ export async function saveAgentHarnessSession(
       serializeJson(record.resumeState),
       record.workspaceRef ?? null,
       serializeJson(record.pendingApproval),
+      record.approvalResolutionId ?? null,
       serializeJson(record.resolvedApprovalIds),
       record.ownerEmail ?? null,
       record.orgId ?? null,
@@ -342,6 +354,10 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
           update.pendingApproval !== undefined
             ? update.pendingApproval
             : existing.pendingApproval,
+        approvalResolutionId:
+          update.approvalResolutionId !== undefined
+            ? update.approvalResolutionId
+            : existing.approvalResolutionId,
         resolvedApprovalIds:
           update.resolvedApprovalIds ?? existing.resolvedApprovalIds,
         ownerEmail: update.ownerEmail ?? existing.ownerEmail ?? null,
@@ -460,6 +476,10 @@ async function updateAgentHarnessSessionWithStatus(
       patch.pendingApproval !== undefined
         ? patch.pendingApproval
         : existing.pendingApproval,
+    approvalResolutionId:
+      patch.approvalResolutionId !== undefined
+        ? patch.approvalResolutionId
+        : existing.approvalResolutionId,
     resolvedApprovalIds:
       patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
     ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
@@ -649,6 +669,7 @@ function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
     resumeState: parseJson(record.resume_state),
     workspaceRef: stringOrNull(record.workspace_ref),
     pendingApproval: parseJson(record.pending_approval),
+    approvalResolutionId: stringOrNull(record.approval_resolution_id),
     resolvedApprovalIds: stringArray(record.resolved_approval_ids),
     ownerEmail: stringOrNull(record.owner_email),
     orgId: stringOrNull(record.org_id),

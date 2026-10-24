@@ -11,11 +11,13 @@ import {
   releaseLiveAgentHarnessSession,
 } from "./lifecycle.js";
 import {
+  AgentHarnessSessionConflictError,
   getAgentHarnessSession,
   isAgentHarnessSessionConflictError,
   markAgentHarnessSessionStopped,
   saveAgentHarnessSession,
   updateAgentHarnessSession,
+  updateAgentHarnessSessionAtGeneration,
 } from "./store.js";
 import { agentHarnessEventToAgentChatEvents } from "./translate.js";
 import type {
@@ -161,7 +163,8 @@ export function startAgentHarnessRun(
               stored?.pendingApproval &&
               typeof stored.pendingApproval === "object" &&
               "id" in stored.pendingApproval &&
-              stored.pendingApproval.id === pendingApproval.id;
+              stored.pendingApproval.id === pendingApproval.id &&
+              !stored.resolvedApprovalIds?.includes(pendingApproval.id);
             if (stillPending) {
               keepLiveSession = true;
               await updateLiveAgentHarnessSession(
@@ -209,12 +212,12 @@ export function startAgentHarnessRun(
         if (detachOnComplete && harnessSession.detach) {
           resumeState = await harnessSession.detach();
         }
-        releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-        await updateAgentHarnessSession(storedSessionId, {
-          status: "idle",
+        await persistHarnessCheckpoint(
+          storedSessionId,
+          harnessSession,
           resumeState,
-          pendingApproval: null,
-        });
+        );
+        releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
       } catch (error) {
         if (isAgentHarnessSessionConflictError(error)) {
           if (!harnessSessionRegistered) {
@@ -275,11 +278,69 @@ async function saveHarnessCheckpoint(
   if (detachOnComplete && session.detach) {
     nextResumeState = await session.detach();
   }
-  await updateLiveAgentHarnessSession(sessionId, session, {
-    status: "idle",
-    resumeState: nextResumeState,
-    pendingApproval: null,
-  });
+  await persistHarnessCheckpoint(sessionId, session, nextResumeState);
+}
+
+async function persistHarnessCheckpoint(
+  sessionId: string,
+  session: AgentHarnessSession,
+  resumeState: unknown,
+): Promise<void> {
+  let conflict: AgentHarnessSessionConflictError | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const stored = await getAgentHarnessSession(sessionId);
+    if (
+      !stored ||
+      stored.status === "stopped" ||
+      stored.status === "errored" ||
+      stored.status === "destroyed" ||
+      stored.followUpClaimId
+    ) {
+      return;
+    }
+    const pendingApproval = checkpointPendingApproval(stored);
+    try {
+      const updated = await updateAgentHarnessSessionAtGeneration(
+        sessionId,
+        stored.status,
+        stored.generation,
+        {
+          status: "idle",
+          resumeState,
+          pendingApproval,
+        },
+      );
+      if (!updated) continue;
+      refreshLiveAgentHarnessSessionGeneration(
+        sessionId,
+        session,
+        updated.generation,
+      );
+      return;
+    } catch (error) {
+      if (!isAgentHarnessSessionConflictError(error) || attempt === 2) {
+        throw error;
+      }
+      conflict = error;
+    }
+  }
+  throw conflict ?? new AgentHarnessSessionConflictError(sessionId);
+}
+
+function checkpointPendingApproval(
+  stored: NonNullable<Awaited<ReturnType<typeof getAgentHarnessSession>>>,
+): unknown | null {
+  const pending = stored.pendingApproval;
+  if (
+    !pending ||
+    typeof pending !== "object" ||
+    !("id" in pending) ||
+    typeof pending.id !== "string" ||
+    stored.resolvedApprovalIds?.includes(pending.id)
+  ) {
+    return null;
+  }
+  return pending;
 }
 
 async function updateLiveAgentHarnessSession(

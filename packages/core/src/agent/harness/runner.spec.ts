@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   saveAgentHarnessSession: vi.fn(),
   getAgentHarnessSession: vi.fn(),
   updateAgentHarnessSession: vi.fn(),
+  updateAgentHarnessSessionAtGeneration: vi.fn(),
   markAgentHarnessSessionStopped: vi.fn(),
   isAgentHarnessSessionConflictError: (error: unknown) =>
     error instanceof Error && error.name === "AgentHarnessSessionConflictError",
@@ -18,10 +19,18 @@ vi.mock("../run-manager.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
+  AgentHarnessSessionConflictError: class extends Error {
+    constructor(sessionId: string) {
+      super(`Harness session ${sessionId} changed concurrently.`);
+      this.name = "AgentHarnessSessionConflictError";
+    }
+  },
   saveAgentHarnessSession: mocks.saveAgentHarnessSession,
   getAgentHarnessSession: mocks.getAgentHarnessSession,
   isAgentHarnessSessionConflictError: mocks.isAgentHarnessSessionConflictError,
   updateAgentHarnessSession: mocks.updateAgentHarnessSession,
+  updateAgentHarnessSessionAtGeneration:
+    mocks.updateAgentHarnessSessionAtGeneration,
   markAgentHarnessSessionStopped: mocks.markAgentHarnessSessionStopped,
 }));
 
@@ -31,8 +40,45 @@ describe("startAgentHarnessRun", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.saveAgentHarnessSession.mockResolvedValue({});
-    mocks.getAgentHarnessSession.mockResolvedValue({ pendingApproval: null });
-    mocks.updateAgentHarnessSession.mockResolvedValue({});
+    mocks.getAgentHarnessSession.mockResolvedValue({
+      status: "running",
+      generation: 0,
+      pendingApproval: null,
+      resolvedApprovalIds: [],
+    });
+    mocks.updateAgentHarnessSession.mockImplementation(async (id, patch) => {
+      const current = await mocks.getAgentHarnessSession(id);
+      const updated = {
+        ...current,
+        ...patch,
+        generation: (current?.generation ?? 0) + 1,
+      };
+      mocks.getAgentHarnessSession.mockResolvedValue(updated);
+      return updated;
+    });
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementation(
+      async (
+        id,
+        expectedStatus,
+        expectedGeneration,
+        patch,
+        expectedClaimId,
+      ) => {
+        const current = await mocks.getAgentHarnessSession(id);
+        if (
+          !current ||
+          current.status !== expectedStatus ||
+          current.generation !== expectedGeneration ||
+          (expectedClaimId !== undefined &&
+            current.followUpClaimId !== expectedClaimId)
+        ) {
+          throw Object.assign(new Error("Harness session changed."), {
+            name: "AgentHarnessSessionConflictError",
+          });
+        }
+        return mocks.updateAgentHarnessSession(id, patch);
+      },
+    );
     mocks.markAgentHarnessSessionStopped.mockResolvedValue({});
   });
 
@@ -199,6 +245,126 @@ describe("startAgentHarnessRun", () => {
     expect(persistedSession).toMatchObject({
       status: "idle",
       pendingApproval: null,
+    });
+  });
+
+  it("preserves a newer chained approval at the original runner checkpoint", async () => {
+    const approval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-first",
+      message: "Allow the first tool?",
+    };
+    const chainedApproval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-chained",
+      message: "Allow the next tool?",
+    };
+    let persistedSession: {
+      status?: string;
+      generation: number;
+      pendingApproval?: unknown;
+      resolvedApprovalIds?: string[];
+    } = {
+      status: "running",
+      generation: 0,
+      pendingApproval: null,
+      resolvedApprovalIds: [],
+    };
+    mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
+      persistedSession = { ...persistedSession, ...input };
+      return persistedSession;
+    });
+    mocks.getAgentHarnessSession.mockImplementation(
+      async () => persistedSession,
+    );
+    mocks.updateAgentHarnessSession.mockImplementation(async (_id, patch) => {
+      persistedSession = {
+        ...persistedSession,
+        ...patch,
+        generation: persistedSession.generation + 1,
+      };
+      if (patch.pendingApproval) signalApprovalStored();
+      return persistedSession;
+    });
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementation(
+      async (_id, expectedStatus, expectedGeneration, patch) => {
+        if (
+          persistedSession.status !== expectedStatus ||
+          persistedSession.generation !== expectedGeneration
+        ) {
+          throw Object.assign(new Error("Harness session changed."), {
+            name: "AgentHarnessSessionConflictError",
+          });
+        }
+        return mocks.updateAgentHarnessSession("stored-chained", patch);
+      },
+    );
+
+    let signalApprovalStored!: () => void;
+    let signalStreamSuspended!: () => void;
+    let releaseStream!: () => void;
+    const approvalStored = new Promise<void>((resolve) => {
+      signalApprovalStored = resolve;
+    });
+    const streamSuspended = new Promise<void>((resolve) => {
+      signalStreamSuspended = resolve;
+    });
+    const session = fakeSession("native-chained-approval", []);
+    session.streamTurn = async function* () {
+      yield approval;
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+        signalStreamSuspended();
+      });
+    };
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-chained-approval",
+      threadId: "thread-chained-approval",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-chained" },
+    });
+    const execution = capturedRunFn?.(
+      () => {},
+      new AbortController().signal,
+    );
+    expect(execution).toBeDefined();
+
+    await Promise.all([approvalStored, streamSuspended]);
+    persistedSession = {
+      ...persistedSession,
+      pendingApproval: chainedApproval,
+      resolvedApprovalIds: [approval.id],
+      generation: persistedSession.generation + 1,
+    };
+    releaseStream();
+    await execution;
+
+    expect(persistedSession).toMatchObject({
+      status: "idle",
+      pendingApproval: { id: "approval-chained" },
+      resolvedApprovalIds: ["approval-first"],
     });
   });
 
