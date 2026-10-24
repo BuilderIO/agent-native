@@ -6,6 +6,7 @@ import type {
 import { startRun } from "../run-manager.js";
 import type { AgentChatEvent } from "../types.js";
 import {
+  getLiveAgentHarnessSessionGeneration,
   registerLiveAgentHarnessSession,
   refreshLiveAgentHarnessSessionGeneration,
   releaseLiveAgentHarnessSession,
@@ -65,7 +66,11 @@ export function startAgentHarnessRun(
       let keepLiveSession = false;
       let liveSessionReleasedBeforeCheckpoint = false;
       const releaseLiveSessionBeforeCheckpoint = () => {
-        if (storedSessionId && harnessSession) {
+        if (
+          !liveSessionReleasedBeforeCheckpoint &&
+          storedSessionId &&
+          harnessSession
+        ) {
           releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
           liveSessionReleasedBeforeCheckpoint = true;
         }
@@ -238,6 +243,7 @@ export function startAgentHarnessRun(
             latest?.status === "destroyed";
           keepLiveSession = !terminal;
           if (terminal && storedSessionId) {
+            await stopHarnessSession(harnessSession).catch(() => undefined);
             releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
           }
           return;
@@ -367,14 +373,17 @@ async function updateLiveAgentHarnessSession(
   session: AgentHarnessSession,
   patch: Parameters<typeof updateAgentHarnessSession>[1],
 ): Promise<void> {
-  const stored = await getAgentHarnessSession(sessionId);
-  if (!stored || stored.status !== "running") {
+  const expectedGeneration = getLiveAgentHarnessSessionGeneration(
+    sessionId,
+    session,
+  );
+  if (expectedGeneration === null) {
     throw new AgentHarnessSessionConflictError(sessionId);
   }
   const updated = await updateAgentHarnessSessionAtGeneration(
     sessionId,
     "running",
-    stored.generation,
+    expectedGeneration,
     patch,
     undefined,
     true,

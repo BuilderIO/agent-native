@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentChatEvent } from "../types.js";
+import { getLiveAgentHarnessSessionGeneration } from "./lifecycle.js";
 import type { AgentHarnessAdapter, AgentHarnessEvent } from "./types.js";
 
 const mocks = vi.hoisted(() => ({
+  liveSessions: new Map<string, { session: object; generation: number }>(),
   startRun: vi.fn(),
   registerLiveAgentHarnessSession: vi.fn(),
+  getLiveAgentHarnessSessionGeneration: vi.fn(),
   refreshLiveAgentHarnessSessionGeneration: vi.fn(),
   releaseLiveAgentHarnessSession: vi.fn(),
   saveAgentHarnessSession: vi.fn(),
@@ -23,6 +26,8 @@ vi.mock("../run-manager.js", () => ({
 
 vi.mock("./lifecycle.js", () => ({
   registerLiveAgentHarnessSession: mocks.registerLiveAgentHarnessSession,
+  getLiveAgentHarnessSessionGeneration:
+    mocks.getLiveAgentHarnessSessionGeneration,
   refreshLiveAgentHarnessSessionGeneration:
     mocks.refreshLiveAgentHarnessSessionGeneration,
   releaseLiveAgentHarnessSession: mocks.releaseLiveAgentHarnessSession,
@@ -49,7 +54,34 @@ const { startAgentHarnessRun } = await import("./runner.js");
 describe("startAgentHarnessRun", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.saveAgentHarnessSession.mockResolvedValue({});
+    mocks.liveSessions.clear();
+    mocks.registerLiveAgentHarnessSession.mockImplementation(
+      ({ sessionId, session, generation }) => {
+        mocks.liveSessions.set(sessionId, { session, generation });
+      },
+    );
+    mocks.getLiveAgentHarnessSessionGeneration.mockImplementation(
+      (sessionId, session) => {
+        const live = mocks.liveSessions.get(sessionId);
+        return live?.session === session ? live.generation : null;
+      },
+    );
+    mocks.refreshLiveAgentHarnessSessionGeneration.mockImplementation(
+      (sessionId, session, generation) => {
+        const live = mocks.liveSessions.get(sessionId);
+        if (live?.session === session) {
+          live.generation = Math.max(live.generation, generation);
+        }
+      },
+    );
+    mocks.releaseLiveAgentHarnessSession.mockImplementation(
+      (sessionId, session) => {
+        const live = mocks.liveSessions.get(sessionId);
+        if (!live || (session && live.session !== session)) return;
+        mocks.liveSessions.delete(sessionId);
+      },
+    );
+    mocks.saveAgentHarnessSession.mockResolvedValue({ generation: 0 });
     mocks.getAgentHarnessSession.mockResolvedValue({
       status: "running",
       generation: 0,
@@ -103,6 +135,12 @@ describe("startAgentHarnessRun", () => {
     ];
     const session = fakeSession("native-1", events, { token: "resume" });
     const adapter = fakeAdapter(session);
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementationOnce(
+      async (id, _status, _generation, patch) => {
+        expect(getLiveAgentHarnessSessionGeneration(id, session)).toBeNull();
+        return mocks.updateAgentHarnessSession(id, patch);
+      },
+    );
     let capturedRunFn:
       | ((
           send: (event: AgentChatEvent) => void,
@@ -291,21 +329,30 @@ describe("startAgentHarnessRun", () => {
       id: "approval-paused-stream",
       message: "Allow the tool?",
     };
-    let persistedSession: { status?: string; pendingApproval?: unknown } = {};
+    let persistedSession: {
+      status?: string;
+      generation: number;
+      pendingApproval?: unknown;
+    } = { generation: 0 };
     mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
       persistedSession = {
         status: input.status,
+        generation: 0,
         pendingApproval: input.pendingApproval ?? null,
       };
-      return {};
+      return persistedSession;
     });
     mocks.getAgentHarnessSession.mockImplementation(
       async () => persistedSession,
     );
     mocks.updateAgentHarnessSession.mockImplementation(async (_id, update) => {
-      persistedSession = { ...persistedSession, ...update };
+      persistedSession = {
+        ...persistedSession,
+        ...update,
+        generation: persistedSession.generation + 1,
+      };
       if (update.pendingApproval) signalApprovalStored();
-      return {};
+      return persistedSession;
     });
 
     let releaseStream: (() => void) | undefined;
@@ -644,6 +691,7 @@ describe("startAgentHarnessRun", () => {
 
     const session = fakeSession("native-stop-checkpoint-race", [approval]);
     const adapter = fakeAdapter(session);
+    const onHarnessEvent = vi.fn();
     let capturedRunFn:
       | ((
           send: (event: AgentChatEvent) => void,
@@ -670,6 +718,7 @@ describe("startAgentHarnessRun", () => {
       adapter,
       input: { prompt: "work" },
       createSession: { sessionId: "stored-stop-checkpoint-race" },
+      onHarnessEvent,
     });
     await capturedRunFn?.(() => {}, new AbortController().signal);
 
@@ -682,6 +731,8 @@ describe("startAgentHarnessRun", () => {
       expect.objectContaining({ status: "idle" }),
     );
     expect(mocks.updateAgentHarnessSessionAtGeneration).toHaveBeenCalledOnce();
+    expect(onHarnessEvent).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
   });
 
   it("does not restore an approval resolved before the turn becomes idle", async () => {
@@ -725,21 +776,35 @@ describe("startAgentHarnessRun", () => {
       };
       return persistedSession;
     });
-    mocks.updateAgentHarnessSessionAtGeneration
-      .mockImplementationOnce(async (id, _status, _generation, patch) =>
-        mocks.updateAgentHarnessSession(id, patch),
-      )
-      .mockImplementationOnce(async () => {
-        persistedSession = {
-          ...persistedSession,
-          pendingApproval: null,
-          resolvedApprovalIds: [approval.id],
-          generation: persistedSession.generation + 1,
-        };
-        throw Object.assign(new Error("Harness session changed."), {
-          name: "AgentHarnessSessionConflictError",
-        });
-      });
+    let checkpointConflictSimulated = false;
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementation(
+      async (id, expectedStatus, expectedGeneration, patch) => {
+        if (patch.status !== "idle") {
+          return mocks.updateAgentHarnessSession(id, patch);
+        }
+        if (!checkpointConflictSimulated) {
+          checkpointConflictSimulated = true;
+          persistedSession = {
+            ...persistedSession,
+            pendingApproval: null,
+            resolvedApprovalIds: [approval.id],
+            generation: persistedSession.generation + 1,
+          };
+          throw Object.assign(new Error("Harness session changed."), {
+            name: "AgentHarnessSessionConflictError",
+          });
+        }
+        if (
+          persistedSession.status !== expectedStatus ||
+          persistedSession.generation !== expectedGeneration
+        ) {
+          throw Object.assign(new Error("Harness session changed."), {
+            name: "AgentHarnessSessionConflictError",
+          });
+        }
+        return mocks.updateAgentHarnessSession(id, patch);
+      },
+    );
 
     const session = fakeSession("native-resolved-before-idle", [approval]);
     const adapter = fakeAdapter(session);
@@ -831,6 +896,12 @@ describe("startAgentHarnessRun", () => {
       "native-checkpoint",
       [{ type: "text-delta", text: "partial" }],
       { token: "checkpoint" },
+    );
+    mocks.updateAgentHarnessSessionAtGeneration.mockImplementationOnce(
+      async (id, _status, _generation, patch) => {
+        expect(getLiveAgentHarnessSessionGeneration(id, session)).toBeNull();
+        return mocks.updateAgentHarnessSession(id, patch);
+      },
     );
     const adapter = fakeAdapter(session);
     let capturedRunFn: (
