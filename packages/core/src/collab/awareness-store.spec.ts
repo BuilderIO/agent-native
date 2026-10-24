@@ -437,7 +437,9 @@ describe("awareness-store", () => {
   });
 
   it("serves awareness when the best-effort expiry purge fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const cleanupFailure = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     purgeFails.value = true;
 
     await expect(
@@ -454,13 +456,13 @@ describe("awareness-store", () => {
     await expect(
       loadAwarenessRowsStrict("doc-purge-failure", 40_000),
     ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
-    expect(warn).toHaveBeenCalledWith(
-      "[collab-awareness] expired presence purge failed",
+    expect(cleanupFailure).toHaveBeenCalledWith(
+      "Failed to purge expired collaboration awareness rows",
       expect.any(Error),
     );
     expect(purgeCalls.count).toBe(2);
 
-    warn.mockRestore();
+    cleanupFailure.mockRestore();
   });
 
   it("normalizes accepted legacy wall clocks before storing their sequence", async () => {
