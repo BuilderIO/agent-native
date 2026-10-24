@@ -10,7 +10,7 @@ export interface PollEngineOptions {
 
 export interface PollEngineHandle {
   start(): void;
-  /** Stops scheduling and waits for any in-flight attempt to settle. */
+  /** Stops scheduling and waits (bounded by timeoutMs) for any in-flight attempt. */
   stop(): Promise<void>;
   pollNow(): void;
   reschedule(): void;
@@ -172,7 +172,23 @@ export function createPollEngine(
       clearTimer();
       activeStopRequested = true;
       activeController?.abort();
-      await currentAttempt;
+      const pending = currentAttempt;
+      if (!pending) return;
+      // Abort alone is not enough: an attempt that ignores the signal can
+      // hang forever and block Nitro close via stopBackgroundJobs().
+      const waitMs = getTimeoutMs();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          pending,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, waitMs);
+            maybeUnref(timer);
+          }),
+        ]);
+      } finally {
+        if (timer != null) clearTimeout(timer);
+      }
     },
     pollNow(): void {
       if (!running || inFlight) return;

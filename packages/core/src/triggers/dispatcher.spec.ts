@@ -1618,6 +1618,71 @@ Respond to the event.`,
     expect(handle?.stop).toHaveBeenCalled();
   });
 
+  it("stops claiming further queued events once shutdown begins", async () => {
+    let releaseFirstClaim!: () => void;
+    const firstClaimGate = new Promise<void>((resolve) => {
+      releaseFirstClaim = resolve;
+    });
+    let claims = 0;
+    const defaultClaim = triggerQueueMocks.claim.getMockImplementation();
+    triggerQueueMocks.ready.mockResolvedValueOnce(["trigger-shutdown-bound"]);
+    triggerQueueMocks.claim.mockImplementation(async (...args) => {
+      claims += 1;
+      if (claims === 1) {
+        await firstClaimGate;
+        // Stale mail path expires then loops; the shutdown flag must stop
+        // further claims so stop() cannot hang on a large backlog.
+        return {
+          id: "queue-shutdown-1",
+          triggerId: "trigger-shutdown-bound",
+          triggerPath: "jobs/shutdown-bound.md",
+          appId: "mail",
+          eventName: "mail.message.received",
+          eventId: "shutdown-event-1",
+          payload: { messageId: "shutdown-1" },
+          eventOwner: "alice+triggers@agent-native.test",
+          emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+          status: "processing",
+          attempts: 1,
+          failureAttempts: 0,
+          claimedAt: Date.now(),
+          availableAt: 0,
+        };
+      }
+      return defaultClaim ? defaultClaim(...args) : null;
+    });
+
+    try {
+      await initTriggerDispatcher({
+        appId: "mail",
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+
+      const runOnce = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      expect(runOnce).toEqual(expect.any(Function));
+      const tick = runOnce!(new AbortController().signal);
+      await vi.waitFor(() => {
+        expect(claims).toBe(1);
+      });
+
+      const stopping = stopTriggerQueueWorker();
+      await Promise.resolve();
+      releaseFirstClaim();
+      await tick.catch(() => undefined);
+      await stopping;
+
+      expect(claims).toBe(1);
+      expect(expireAutomationTriggerEvent).toHaveBeenCalled();
+    } finally {
+      if (defaultClaim) {
+        triggerQueueMocks.claim.mockImplementation(defaultClaim);
+      } else {
+        triggerQueueMocks.claim.mockReset();
+      }
+    }
+  });
+
   it("backs off the interval worker when no trigger is claimable", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

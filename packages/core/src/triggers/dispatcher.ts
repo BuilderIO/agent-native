@@ -160,6 +160,9 @@ let _inflightEventAutomationScan: {
 } | null = null;
 let _triggerQueueWorkerStarted = false;
 let _triggerQueueWorker: IntervalJobHandle | null = null;
+// When true, in-process drains finish their current claim then stop taking
+// more work so stopTriggerQueueWorker cannot hang on a large backlog.
+let _triggerQueueStopping = false;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
 let _triggerQueueResumeAt = 0;
@@ -355,6 +358,7 @@ function startTriggerQueueWorker(): void {
   if (_triggerQueueWorkerStarted || isProductionServerlessFunctionRuntime()) {
     return;
   }
+  _triggerQueueStopping = false;
   _triggerQueueWorkerStarted = true;
   _triggerQueueWorker = startIntervalJob(
     async (signal) => {
@@ -374,17 +378,23 @@ function startTriggerQueueWorker(): void {
 }
 
 export async function stopTriggerQueueWorker(): Promise<void> {
+  _triggerQueueStopping = true;
   const worker = _triggerQueueWorker;
   _triggerQueueWorker = null;
   _triggerQueueWorkerStarted = false;
-  if (worker) await worker.stop();
-  const drains = [..._drainingTriggers.values()];
-  if (drains.length > 0) await Promise.allSettled(drains);
+  try {
+    if (worker) await worker.stop();
+    const drains = [..._drainingTriggers.values()];
+    if (drains.length > 0) await Promise.allSettled(drains);
+  } finally {
+    _triggerQueueStopping = false;
+  }
 }
 
 async function drainReadyTriggerQueue(
   context?: RecurringSweepContext,
 ): Promise<void> {
+  if (_triggerQueueStopping) return;
   if (_triggerQueueResumeAt > Date.now()) return;
   const deps = _deps;
   if (!deps) return;
@@ -990,6 +1000,7 @@ function startTriggerDrain(
   const existing = _drainingTriggers.get(triggerId);
   if (existing)
     return options?.skipExisting ? Promise.resolve(false) : existing;
+  if (_triggerQueueStopping) return Promise.resolve(false);
   let localStaleExpiredCount = 0;
   const onStaleEventExpired =
     options?.onStaleEventExpired ?? (() => (localStaleExpiredCount += 1));
@@ -1041,6 +1052,7 @@ async function drainTriggerQueue(
     (queueQueryTimeoutMs !== undefined &&
       Date.now() + queueQueryTimeoutMs < deadline);
   while (processedEvents < maxEvents) {
+    if (_triggerQueueStopping) return processedEvents > 0;
     if (
       deadline !== undefined &&
       Date.now() +
