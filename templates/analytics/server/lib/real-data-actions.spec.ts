@@ -2215,8 +2215,11 @@ describe("incomplete evidence detection", () => {
       ),
     ).toBe(true);
     expect(
-      hasExplicitPartialDisclosure("The review is not yet complete."),
+      hasExplicitPartialDisclosure("The dataset is not yet complete."),
     ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure("The review is not yet complete."),
+    ).toBe(false);
   });
 
   it("detects failed corpus workflows and overstated full-coverage confidence", () => {
@@ -2270,7 +2273,7 @@ describe("incomplete evidence detection", () => {
       hasOverstatedCoverageConfidenceClaim(
         "I reviewed the complete cohort, but the review is not yet complete.",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("treats a Company A template clone for Company B as dashboard construction", () => {

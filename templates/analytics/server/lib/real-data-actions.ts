@@ -1667,7 +1667,10 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:not\s+(?:yet\s+)?complete|partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
+  /\b(?:partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
+
+const PARTIAL_COVERAGE_NOT_COMPLETE =
+  /\b(?:coverage|corpus|dataset|search|scan|query|data|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|messages?)\s+(?:(?:is|are|was|were|remains?|remain)\s+)?not\s+(?:yet\s+)?complete\b|\bnot\s+(?:yet\s+)?complete\s+(?:coverage|corpus|dataset|search|scan|query|data|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|messages?)\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -1677,7 +1680,10 @@ export function looksLikeStrongCoverageClaim(text: string): boolean {
 }
 
 export function hasExplicitPartialDisclosure(text: string): boolean {
-  return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+  return (
+    EXPLICIT_PARTIAL_DISCLOSURE.test(text) ||
+    PARTIAL_COVERAGE_NOT_COMPLETE.test(text)
+  );
 }
 
 export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
