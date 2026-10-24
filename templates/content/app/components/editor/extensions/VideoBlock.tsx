@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { clipEmbedBlockContent } from "@/components/editor/clip-embed/clip-embed-content";
 import {
   beginClipUpload,
+  cancelClipUpload,
   takeDroppedClipFile,
 } from "@/components/editor/clip-embed/clip-uploads";
 import {
@@ -200,12 +201,24 @@ export function VideoBlock({
   const clipUpload = useClipFileUpload({
     documentId: options.documentId,
     onStarted: ({ file, ticket, blockId }) => {
-      if (!replaceWithClip(ticket.recordingId, "upload", blockId)) return;
-      void beginClipUpload({
-        file,
-        ticket,
-        documentId: options.documentId!,
-      });
+      if (replaceWithClip(ticket.recordingId, "upload", blockId)) {
+        void beginClipUpload({
+          file,
+          ticket,
+          documentId: options.documentId!,
+          blockId,
+        });
+        return;
+      }
+      // Clips has reserved the upload by now; nothing in the page can use it.
+      void cancelClipUpload(ticket);
+      toast.error(
+        t(
+          editor.isDestroyed || canMutateMediaNow()
+            ? "clipEmbed.uploadCancelledBlockGone"
+            : "clipEmbed.uploadCancelledReadOnly",
+        ),
+      );
     },
   });
   const clipUploadStorage = useClipUploadStorage(

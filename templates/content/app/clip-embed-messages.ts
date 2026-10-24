@@ -68,6 +68,10 @@ const en = {
   uploading: "Uploading to Clips",
   making: "Making the Clip",
   uploadUnfinished: "This upload didn't finish.",
+  uploadCancelledBlockGone:
+    "The upload was cancelled because its video block is gone.",
+  uploadCancelledReadOnly:
+    "The upload was cancelled because you can no longer edit this page.",
   remove: "Remove",
 } as const;
 
@@ -149,6 +153,10 @@ const translations: Record<
     uploading: "Subiendo a Clips",
     making: "Creando el Clip",
     uploadUnfinished: "Esta subida no terminó.",
+    uploadCancelledBlockGone:
+      "Se canceló la subida porque su bloque de video ya no está.",
+    uploadCancelledReadOnly:
+      "Se canceló la subida porque ya no puedes editar esta página.",
     remove: "Quitar",
   },
   "fr-FR": {
@@ -225,6 +233,10 @@ const translations: Record<
     uploading: "Importation dans Clips",
     making: "Création du Clip",
     uploadUnfinished: "Cette importation n'est pas allée au bout.",
+    uploadCancelledBlockGone:
+      "L'importation a été annulée, car son bloc vidéo n'existe plus.",
+    uploadCancelledReadOnly:
+      "L'importation a été annulée, car vous ne pouvez plus modifier cette page.",
     remove: "Retirer",
   },
   "de-DE": {
@@ -300,6 +312,10 @@ const translations: Record<
     uploading: "Wird in Clips hochgeladen",
     making: "Clip wird erstellt",
     uploadUnfinished: "Dieser Upload wurde nicht abgeschlossen.",
+    uploadCancelledBlockGone:
+      "Der Upload wurde abgebrochen, weil sein Videoblock nicht mehr da ist.",
+    uploadCancelledReadOnly:
+      "Der Upload wurde abgebrochen, weil du diese Seite nicht mehr bearbeiten kannst.",
     remove: "Entfernen",
   },
   "pt-BR": {
@@ -374,6 +390,10 @@ const translations: Record<
     uploading: "Enviando para o Clips",
     making: "Criando o Clip",
     uploadUnfinished: "Este envio não terminou.",
+    uploadCancelledBlockGone:
+      "O envio foi cancelado porque o bloco de vídeo dele não existe mais.",
+    uploadCancelledReadOnly:
+      "O envio foi cancelado porque você não pode mais editar esta página.",
     remove: "Remover",
   },
   "zh-CN": {
@@ -442,6 +462,8 @@ const translations: Record<
     uploading: "正在上传到 Clips",
     making: "正在生成 Clip",
     uploadUnfinished: "此次上传未完成。",
+    uploadCancelledBlockGone: "上传已取消，因为它的视频块已不存在。",
+    uploadCancelledReadOnly: "上传已取消，因为你已无法编辑此页面。",
     remove: "移除",
   },
   "zh-TW": {
@@ -510,6 +532,8 @@ const translations: Record<
     uploading: "正在上傳到 Clips",
     making: "正在製作 Clip",
     uploadUnfinished: "這次上傳未完成。",
+    uploadCancelledBlockGone: "上傳已取消，因為它的影片區塊已不存在。",
+    uploadCancelledReadOnly: "上傳已取消，因為你已無法編輯此頁面。",
     remove: "移除",
   },
   "ja-JP": {
@@ -585,6 +609,10 @@ const translations: Record<
     uploading: "Clips にアップロード中",
     making: "Clip を作成中",
     uploadUnfinished: "このアップロードは完了しませんでした。",
+    uploadCancelledBlockGone:
+      "動画ブロックがなくなったため、アップロードをキャンセルしました。",
+    uploadCancelledReadOnly:
+      "このページを編集できなくなったため、アップロードをキャンセルしました。",
     remove: "削除",
   },
   "ko-KR": {
@@ -656,6 +684,9 @@ const translations: Record<
     uploading: "Clips에 업로드 중",
     making: "Clip 만드는 중",
     uploadUnfinished: "이 업로드는 완료되지 않았습니다.",
+    uploadCancelledBlockGone: "동영상 블록이 없어져 업로드를 취소했습니다.",
+    uploadCancelledReadOnly:
+      "이 페이지를 더 이상 편집할 수 없어 업로드를 취소했습니다.",
     remove: "제거",
   },
   "hi-IN": {
@@ -727,6 +758,10 @@ const translations: Record<
     uploading: "Clips पर अपलोड हो रहा है",
     making: "Clip बनाया जा रहा है",
     uploadUnfinished: "यह अपलोड पूरा नहीं हुआ।",
+    uploadCancelledBlockGone:
+      "अपलोड रद्द कर दिया गया, क्योंकि उसका वीडियो ब्लॉक अब नहीं है।",
+    uploadCancelledReadOnly:
+      "अपलोड रद्द कर दिया गया, क्योंकि अब आप इस पेज को संपादित नहीं कर सकते।",
     remove: "हटाएं",
   },
   "ar-SA": {
@@ -797,6 +832,9 @@ const translations: Record<
     uploading: "جارٍ الرفع إلى Clips",
     making: "جارٍ إنشاء Clip",
     uploadUnfinished: "لم يكتمل هذا الرفع.",
+    uploadCancelledBlockGone:
+      "أُلغي الرفع لأن كتلة الفيديو الخاصة به لم تعد موجودة.",
+    uploadCancelledReadOnly: "أُلغي الرفع لأنك لم تعد تستطيع تعديل هذه الصفحة.",
     remove: "إزالة",
   },
 };

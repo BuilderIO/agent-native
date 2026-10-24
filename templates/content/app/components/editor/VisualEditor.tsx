@@ -24,6 +24,7 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
@@ -115,7 +116,10 @@ import {
 } from "@/lib/startup-timing";
 
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
-import { holdDroppedClipFile } from "./clip-embed/clip-uploads";
+import {
+  holdDroppedClipFile,
+  watchClipUploadBlocks,
+} from "./clip-embed/clip-uploads";
 import {
   buildDocText,
   resolveAnchor,
@@ -2626,19 +2630,24 @@ export async function uploadAndInsertImageFiles(
 }
 
 /**
- * Video files dropped or pasted while Clips in pages is on: each becomes an
- * empty video block that uploads its file to Clips as the Upload tab does,
- * never to Content's own file storage.
+ * Video files dropped or pasted while Clips in pages is on: each of a type
+ * Clips takes becomes an empty video block that uploads its file to Clips as
+ * the Upload tab does, never to Content's own file storage. Any other is
+ * refused with `refusedMessage` and gets no block.
  */
 export function insertVideoFilesForClips(
   view: EditorView,
   files: File[],
   position: number,
+  refusedMessage: string,
 ) {
+  const taken = files.filter((file) => isContentClipUploadMimeType(file.type));
+  if (taken.length < files.length) toast.error(refusedMessage);
+  if (taken.length === 0) return;
   try {
     // The blocks may start as soon as they're in the page, so their files
     // must be waiting first.
-    insertPendingMediaNodes(view, "video", files, position, (pending) => {
+    insertPendingMediaNodes(view, "video", taken, position, (pending) => {
       for (const { uploadId, file } of pending) {
         holdDroppedClipFile(uploadId, file);
       }
@@ -3237,6 +3246,8 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const widgetDiagnosticsActive =
     widgetBridgeActive || widgetLoadDiagnosticsActive;
@@ -3719,7 +3730,12 @@ export function VisualEditor({
             videosGoToClipsRef.current && videoFiles.length > 0;
           const storedVideoFiles = videosToClips ? [] : videoFiles;
           if (videosToClips) {
-            insertVideoFilesForClips(view, videoFiles, position);
+            insertVideoFilesForClips(
+              view,
+              videoFiles,
+              position,
+              tRef.current("clipEmbed.uploadType"),
+            );
             if (imageFiles.length === 0 && audioFiles.length === 0) return;
           }
           if (fileStorageStateRef.current !== "configured") {
@@ -3769,6 +3785,7 @@ export function VisualEditor({
               view,
               videoFiles,
               view.state.selection.from,
+              tRef.current("clipEmbed.uploadType"),
             );
             if (imageFiles.length === 0 && audioFiles.length === 0) return;
           }
@@ -4012,6 +4029,13 @@ export function VisualEditor({
       editor.off("beforeTransaction", capture);
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor || !documentId) return;
+    return watchClipUploadBlocks(editor, documentId, () =>
+      toast.error(tRef.current("clipEmbed.uploadCancelledBlockGone")),
+    );
+  }, [documentId, editor]);
 
   useEffect(() => {
     if (!editor) {

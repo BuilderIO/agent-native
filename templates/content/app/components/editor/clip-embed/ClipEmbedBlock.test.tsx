@@ -546,28 +546,147 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     expect(container.querySelector("video")).not.toBeNull();
   });
 
-  it("asks about a Clip being made every few seconds, only while the tab shows", async () => {
-    vi.useFakeTimers();
-    queries.byName["get-clip-playback"] = withStatus("processing");
+  /** Answers every check with `status` until it's changed. */
+  function answering(status: "uploading" | "processing" | "ready") {
+    queries.byName["get-clip-playback"] = withStatus(status);
     const { refetch } = queries.byName["get-clip-playback"];
-    refetch.mockResolvedValue({
+    const answer = { status };
+    refetch.mockImplementation(async () => ({
       isError: false,
-      data: playback({ recording: { status: "processing" } }),
-    });
-    render();
-    await waitMs(3_999);
-    expect(refetch).not.toHaveBeenCalled();
-    await waitMs(1);
-    expect(refetch).toHaveBeenCalledTimes(1);
-    await waitMs(4_000);
-    expect(refetch).toHaveBeenCalledTimes(2);
+      data: playback({ recording: { status: answer.status } }),
+    }));
+    return { refetch, answer };
+  }
 
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-    act(() => {
+  /** Moves the clock in steps, so each check's answer can set up the next. */
+  async function waitInSteps(ms: number, step = 4_000) {
+    for (let left = ms; left > 0; left -= step) {
+      await waitMs(Math.min(step, left));
+    }
+  }
+
+  function checkAgainButton() {
+    return [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "clipEmbed.gateCheckAgain",
+    );
+  }
+
+  it("asks about a Clip being made after 4 s, then twice as long each time, up to a minute", async () => {
+    vi.useFakeTimers();
+    const { refetch } = answering("processing");
+    render();
+    const start = Date.now();
+    // Each check's time from the block appearing, in seconds.
+    for (const [at, checks] of [
+      [3.999, 0],
+      [4, 1],
+      [11.999, 1],
+      [12, 2],
+      [28, 3],
+      [60, 4],
+      [119.999, 4],
+      [120, 5],
+      [180, 6],
+      [240, 7],
+    ] as const) {
+      await waitMs(at * 1_000 - Date.now() + start);
+      expect(refetch, `at ${at} s`).toHaveBeenCalledTimes(checks);
+    }
+  });
+
+  it("starts the gaps over when Clips reports a new status", async () => {
+    vi.useFakeTimers();
+    const { refetch, answer } = answering("uploading");
+    render();
+    await waitInSteps(28_000);
+    expect(refetch).toHaveBeenCalledTimes(3);
+    answer.status = "processing";
+    await waitInSteps(32_000);
+    expect(refetch).toHaveBeenCalledTimes(4);
+    // Being made now: 4 s, then 8 s, from the new status.
+    await waitMs(3_999);
+    expect(refetch).toHaveBeenCalledTimes(4);
+    await waitMs(1);
+    expect(refetch).toHaveBeenCalledTimes(5);
+    await waitMs(8_000);
+    expect(refetch).toHaveBeenCalledTimes(6);
+  });
+
+  it("stops after 15 minutes with no new status, and offers Check again", async () => {
+    vi.useFakeTimers();
+    const { refetch } = answering("processing");
+    render();
+    await waitInSteps(15 * 60_000);
+    // 4, 12, 28 and 60 s, then every minute through the fifteenth.
+    expect(refetch).toHaveBeenCalledTimes(18);
+    await waitInSteps(60 * 60_000);
+    expect(refetch).toHaveBeenCalledTimes(18);
+    expect(
+      container.querySelector('[data-clip-upload="making"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("clipEmbed.making");
+
+    await act(async () => checkAgainButton()!.click());
+    await waitMs(0);
+    expect(refetch).toHaveBeenCalledTimes(19);
+    // Still no new status: it keeps waiting for the reader.
+    await waitInSteps(30 * 60_000);
+    expect(refetch).toHaveBeenCalledTimes(19);
+    expect(checkAgainButton()).toBeDefined();
+  });
+
+  it("checks once when the reader comes back after the checks stopped, and goes on once the status moves", async () => {
+    vi.useFakeTimers();
+    const { refetch, answer } = answering("processing");
+    render();
+    await waitInSteps(15 * 60_000);
+    expect(refetch).toHaveBeenCalledTimes(18);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitMs(0);
+    expect(refetch).toHaveBeenCalledTimes(19);
+    await waitInSteps(10 * 60_000);
+    expect(refetch).toHaveBeenCalledTimes(19);
+
+    answer.status = "ready";
+    await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await waitMs(20_000);
-    expect(refetch).toHaveBeenCalledTimes(2);
+    await waitMs(0);
+    expect(refetch).toHaveBeenCalledTimes(20);
+    expect(container.querySelector("video")).not.toBeNull();
+  });
+
+  it("never asks while the tab is hidden, even when the reader comes back to a stopped block hidden", async () => {
+    vi.useFakeTimers();
+    const { refetch } = answering("processing");
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    render();
+    await waitInSteps(20 * 60_000);
+    expect(refetch).not.toHaveBeenCalled();
+
+    visibility.mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    // A tab hidden past the window gets one check when it shows, then waits.
+    await waitMs(4_000);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    await waitInSteps(30 * 60_000);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(checkAgainButton()).toBeDefined();
+
+    visibility.mockReturnValue("hidden");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitInSteps(60_000);
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 
   it("says so when a check on a Clip being made fails, and asks again on Retry", async () => {

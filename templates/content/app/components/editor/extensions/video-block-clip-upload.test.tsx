@@ -13,7 +13,15 @@ const state = vi.hoisted(() => ({
   callAction: vi.fn(),
   uploadVideoFile: vi.fn(),
   beginClipUpload: vi.fn(),
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    loading: vi.fn(),
+  },
 }));
+
+vi.mock("sonner", () => ({ toast: state.toast }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
@@ -106,6 +114,8 @@ const ticket = {
   recordingId: "rec_1",
   chunkUrl:
     "https://clips.example.test/api/uploads/rec_1/content-chunk?ticket=t",
+  cancelUrl:
+    "https://clips.example.test/api/uploads/rec_1/content-cancel?ticket=t",
   chunkSizeBytes: 3,
   totalChunks: 2,
   expiresAt: "2026-10-24T12:00:00.000Z",
@@ -119,6 +129,7 @@ let root: Root;
 let container: HTMLDivElement;
 let inserted: Array<{ range: unknown; content: unknown }>;
 let setAttrs: Array<Record<string, unknown>>;
+let swapSucceeds: boolean;
 
 function render(attrs: Record<string, unknown> = {}) {
   const editor = {
@@ -131,7 +142,7 @@ function render(attrs: Record<string, unknown> = {}) {
           inserted.push({ range, content });
           return chain;
         },
-        run: () => true,
+        run: () => swapSucceeds,
       };
       return chain;
     },
@@ -171,6 +182,7 @@ function render(attrs: Record<string, unknown> = {}) {
       ),
     ),
   );
+  return editor;
 }
 
 function text() {
@@ -203,8 +215,10 @@ beforeEach(() => {
   state.callAction.mockReset();
   state.uploadVideoFile.mockReset();
   state.beginClipUpload.mockReset();
+  for (const show of Object.values(state.toast)) show.mockReset();
   inserted = [];
   setAttrs = [];
+  swapSucceeds = true;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -290,7 +304,52 @@ describe("the Upload tab while Clips in pages is on", () => {
       file,
       ticket,
       documentId: "doc_1",
+      blockId,
     });
+  });
+
+  it("cancels the upload in Clips, and says so, when its block is gone before the Clip", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ ok: true, recordingId: "rec_1", status: "failed" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    state.callAction.mockResolvedValue(ticket);
+    swapSucceeds = false;
+    render();
+    await pick(video());
+
+    expect(state.beginClipUpload).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      ticket.cancelUrl,
+      expect.objectContaining({ method: "POST", credentials: "omit" }),
+    );
+    expect(state.toast.error).toHaveBeenCalledWith(
+      "clipEmbed.uploadCancelledBlockGone",
+    );
+  });
+
+  it("cancels the upload, and says why, when edit access went while Clips started it", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ ok: true, recordingId: "rec_1", status: "failed" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const editor = render();
+    state.callAction.mockImplementation(async () => {
+      editor.isEditable = false;
+      return ticket;
+    });
+    await pick(video());
+
+    expect(inserted).toEqual([]);
+    expect(state.beginClipUpload).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      ticket.cancelUrl,
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(state.toast.error).toHaveBeenCalledWith(
+      "clipEmbed.uploadCancelledReadOnly",
+    );
   });
 
   it("refuses a video type Clips doesn't take, before asking it", async () => {
@@ -392,6 +451,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       file,
       ticket,
       documentId: "doc_1",
+      blockId: expect.stringMatching(/^clip-embed-/),
     });
   });
 

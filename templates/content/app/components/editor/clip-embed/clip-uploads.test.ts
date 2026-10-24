@@ -11,17 +11,22 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 import {
   beginClipUpload,
+  CLIP_UPLOAD_BLOCK_GONE_MS,
   clearClipUpload,
   failClipUpload,
+  giveUpClipUpload,
   sendClipChunks,
   takeDroppedClipFile,
   holdDroppedClipFile,
+  watchClipUploadBlocks,
 } from "./clip-uploads";
 
 const ticket = {
   recordingId: "rec_1",
   chunkUrl:
     "https://clips.example.test/api/uploads/rec_1/content-chunk?mimeType=video%2Fmp4&total=3&ticket=t1",
+  cancelUrl:
+    "https://clips.example.test/api/uploads/rec_1/content-cancel?ticket=t1",
   chunkSizeBytes: 4,
   totalChunks: 3,
   expiresAt: "2026-10-24T12:00:00.000Z",
@@ -57,9 +62,17 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  giveUpClipUpload("rec_1");
   clearClipUpload("rec_1");
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+const BLOCK_ID = "clip-embed-abc12345";
+
+function isCancel({ url }: Sent) {
+  return url.pathname.endsWith("/content-cancel");
+}
 
 describe("sendClipChunks", () => {
   it("posts each chunk in order, with no credentials and nothing but the ticket's URL", async () => {
@@ -161,7 +174,12 @@ describe("sendClipChunks", () => {
 describe("beginClipUpload", () => {
   it("tells the agent how the upload is going, without the file", async () => {
     stubFetch([]);
-    await beginClipUpload({ file, ticket, documentId: "doc_1" });
+    await beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
 
     const written = appState.set.mock.calls.map(([key, value]) => [key, value]);
     expect(written.map(([key]) => key)).toContain("content-clip-uploads");
@@ -203,6 +221,7 @@ describe("beginClipUpload", () => {
       file,
       ticket: { ...ticket, totalChunks: 1, chunkSizeBytes: 10 },
       documentId: "doc_1",
+      blockId: BLOCK_ID,
     });
     const leaving = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(leaving);
@@ -215,17 +234,55 @@ describe("beginClipUpload", () => {
     expect(after.defaultPrevented).toBe(false);
   });
 
-  it("ends as failed when Clips refuses a chunk", async () => {
-    stubFetch([401]);
-    await beginClipUpload({ file, ticket, documentId: "doc_1" });
+  it("ends as failed, and cancels in Clips, when Clips refuses a chunk", async () => {
+    const sent = stubFetch([401]);
+    await beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
     expect(lastWritten()).toMatchObject({
       uploads: [{ phase: "failed" }],
     });
+    expect(sent.filter(isCancel)).toHaveLength(1);
+    const [cancel] = sent.filter(isCancel);
+    expect(cancel.url.toString()).toBe(ticket.cancelUrl);
+    expect(cancel.init).toMatchObject({ method: "POST", credentials: "omit" });
+    expect(cancel.init.body).toBeUndefined();
+  });
+
+  it("cancels in Clips once chunks keep failing past the last retry", async () => {
+    const sent = stubFetch([500, 500, 500, 500, 500]);
+    await beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
+    expect(sent.filter(isCancel)).toHaveLength(1);
+    expect(lastWritten()).toMatchObject({ uploads: [{ phase: "failed" }] });
+  });
+
+  it("cancels nothing once every chunk is sent", async () => {
+    const sent = stubFetch([]);
+    await beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
+    expect(sent.filter(isCancel)).toEqual([]);
   });
 
   it("tells the agent an upload failed when Clips couldn't make its Clip", async () => {
     stubFetch([]);
-    await beginClipUpload({ file, ticket, documentId: "doc_1" });
+    await beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
     failClipUpload("rec_1");
     expect(lastWritten()).toEqual({
       uploads: [
@@ -238,6 +295,155 @@ describe("beginClipUpload", () => {
         },
       ],
     });
+  });
+});
+
+describe("an upload whose block leaves the page", () => {
+  /** Chunks that wait until the upload stops them; a cancel Clips takes. */
+  function stubSlowChunks() {
+    const sent: Sent[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        sent.push({ url: new URL(url), init });
+        if (url.includes("/content-cancel")) {
+          return Promise.resolve(
+            Response.json({ ok: true, recordingId: "rec_1", status: "failed" }),
+          );
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("stopped", "AbortError")),
+          );
+        });
+      }),
+    );
+    return sent;
+  }
+
+  function fakeEditor(blockIds: string[]) {
+    const listeners = new Set<() => void>();
+    const editor = {
+      isDestroyed: false,
+      blockIds,
+      state: {
+        get doc() {
+          return {
+            descendants: (
+              visit: (node: {
+                type: { name: string };
+                attrs: Record<string, unknown>;
+              }) => unknown,
+            ) => {
+              visit({ type: { name: "paragraph" }, attrs: {} });
+              for (const blockId of editor.blockIds) {
+                visit({ type: { name: "registryBlock" }, attrs: { blockId } });
+              }
+            },
+          };
+        },
+      },
+      on: (_event: string, listener: () => void) => listeners.add(listener),
+      off: (_event: string, listener: () => void) => listeners.delete(listener),
+      /** The page changing, as a local edit or another editor's would. */
+      change(next: string[]) {
+        editor.blockIds = next;
+        for (const listener of listeners) listener();
+      },
+    };
+    return editor;
+  }
+
+  function start() {
+    return beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
+  }
+
+  it("cancels it in Clips, stops sending, and says so once the block is gone for a moment", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const editor = fakeEditor([BLOCK_ID]);
+    const onGivenUp = vi.fn();
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+    const upload = start();
+
+    editor.change(["clip-embed-other123"]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS - 1);
+    expect(sent.filter(isCancel)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await upload;
+
+    expect(sent.filter(isCancel).map(({ url }) => url.toString())).toEqual([
+      ticket.cancelUrl,
+    ]);
+    expect(sent[0].init.signal?.aborted).toBe(true);
+    expect(onGivenUp).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", fileName: "demo.mp4" }),
+    );
+    expect(lastWritten()).toBeNull();
+    // Stopped sending: no later chunk went out.
+    expect(sent.filter((each) => !isCancel(each))).toHaveLength(1);
+    stop();
+  });
+
+  it("keeps sending when the block comes back in that moment, as a cut and paste or an undo would", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const editor = fakeEditor([BLOCK_ID]);
+    const onGivenUp = vi.fn();
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+    void start();
+
+    editor.change([]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS / 2);
+    editor.change([BLOCK_ID]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
+
+    expect(sent.filter(isCancel)).toEqual([]);
+    expect(onGivenUp).not.toHaveBeenCalled();
+    expect(lastWritten()).toMatchObject({ uploads: [{ phase: "uploading" }] });
+    stop();
+  });
+
+  it("gives up nothing when the editor closes, or for another page's upload", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const onGivenUp = vi.fn();
+    const closing = fakeEditor([BLOCK_ID]);
+    const stopClosing = watchClipUploadBlocks(
+      closing as never,
+      "doc_1",
+      onGivenUp,
+    );
+    const otherPage = fakeEditor([]);
+    const stopOther = watchClipUploadBlocks(
+      otherPage as never,
+      "doc_2",
+      onGivenUp,
+    );
+    void start();
+
+    closing.change([]);
+    stopClosing();
+    otherPage.change([]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
+
+    expect(sent.filter(isCancel)).toEqual([]);
+    expect(onGivenUp).not.toHaveBeenCalled();
+    stopOther();
+  });
+
+  it("cancels once, however often the upload is given up", async () => {
+    const sent = stubSlowChunks();
+    const upload = start();
+    expect(giveUpClipUpload("rec_1")).toBe(true);
+    expect(giveUpClipUpload("rec_1")).toBe(false);
+    await upload;
+    expect(sent.filter(isCancel)).toHaveLength(1);
   });
 });
 

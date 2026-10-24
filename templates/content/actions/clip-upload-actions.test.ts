@@ -57,6 +57,8 @@ const ticket = {
   recordingId: "rec_1",
   chunkUrl:
     "https://clips.example.test/api/uploads/rec_1/content-chunk?mimeType=video%2Fmp4&total=2&ticket=t",
+  cancelUrl:
+    "https://clips.example.test/api/uploads/rec_1/content-cancel?ticket=t",
   chunkSizeBytes: 4_194_304,
   totalChunks: 2,
   expiresAt: "2026-10-24T12:00:00.000Z",
@@ -250,17 +252,18 @@ describe("create-clip-upload", () => {
   });
 
   it("takes a ticket on Clips' other lane", async () => {
-    const chunkUrl = ticket.chunkUrl.replace(
-      "clips.example.test",
-      "beta.clips.example.test",
-    );
+    const onLane = (url: string) =>
+      url.replace("clips.example.test", "beta.clips.example.test");
+    const chunkUrl = onLane(ticket.chunkUrl);
+    const cancelUrl = onLane(ticket.cancelUrl);
     mocks.requestClipsUpload.mockResolvedValue({
       ok: true,
       status: 200,
-      body: { ...ticket, chunkUrl },
+      body: { ...ticket, chunkUrl, cancelUrl },
     });
     await expect(createClipUpload.run(start)).resolves.toMatchObject({
       chunkUrl,
+      cancelUrl,
     });
   });
 
@@ -287,6 +290,36 @@ describe("create-clip-upload", () => {
       ok: true,
       status: 200,
       body: { ...ticket, chunkUrl },
+    });
+    await expect(failureOf(createClipUpload.run(start))).resolves.toEqual({
+      errorCode: "clip_upload_failed",
+      statusCode: 502,
+    });
+  });
+
+  it.each([
+    ["none", undefined],
+    [
+      "another origin",
+      "https://elsewhere.example.test/api/uploads/rec_1/content-cancel?ticket=t",
+    ],
+    [
+      "another recording",
+      "https://clips.example.test/api/uploads/rec_2/content-cancel?ticket=t",
+    ],
+    [
+      "the chunk route",
+      "https://clips.example.test/api/uploads/rec_1/content-chunk?ticket=t",
+    ],
+    [
+      "no ticket",
+      "https://clips.example.test/api/uploads/rec_1/content-cancel",
+    ],
+  ])("refuses a cancel URL with %s", async (_label, cancelUrl) => {
+    mocks.requestClipsUpload.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { ...ticket, cancelUrl },
     });
     await expect(failureOf(createClipUpload.run(start))).resolves.toEqual({
       errorCode: "clip_upload_failed",

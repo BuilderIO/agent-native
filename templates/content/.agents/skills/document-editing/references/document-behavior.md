@@ -71,6 +71,8 @@ the Clip is visible to exactly the people who can see the page. The browser
 sends the file straight to Clips, and only the page's editors can upload.
 Uploading is UI-only: no agent tool uploads a video.
 
+- Clips takes MP4, WebM, and MOV. Another video type is refused with a
+  message naming those, and leaves no block.
 - When Clips can't take the file yet (free clips used up, no storage, or no
   Clips account), the file waits in the video block with setup links that open
   Clips in a new tab. Point the user at those links; the upload carries on by
@@ -78,10 +80,13 @@ Uploading is UI-only: no agent tool uploads a video.
 - `view-screen` returns `clipUploads.uploads` while this tab is sending a file
   or Clips is making the Clip. Each upload has `recordingId`, `documentId`,
   `fileName`, `phase` (`uploading`, `making`, or `failed`), and `percent`.
-  Keep a Clip block in place while its upload runs; removing the block doesn't
-  stop the Clip.
-- An upload that never finished shows "This upload didn't finish", which its
-  editors can remove.
+  Keep a Clip block in place while its upload runs: once the block has been
+  gone from the page for a few seconds, the uploading tab cancels the upload
+  in Clips and says so, and the person picks the file again. It does the same
+  when the editor loses edit access before the block is in place.
+- An upload whose file stopped sending is cancelled in Clips and shows "This
+  upload didn't finish", which its editors can remove. A tab closed mid-upload
+  is left to Clips, which fails the upload about an hour later.
 - With the flag off, video uploads use Content's file storage as before.
 
 ## Sharing and visibility

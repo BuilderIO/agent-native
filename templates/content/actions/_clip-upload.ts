@@ -34,11 +34,15 @@ export function uploaderIp(ctx: ActionRunContext | undefined): string | null {
 }
 
 /**
- * Whether a chunk URL Clips sent names this recording's upload on one of
- * Clips' own lanes. The browser posts the file there, so it may never point
- * anywhere else.
+ * Whether a chunk or cancel URL Clips sent names this recording's upload on
+ * one of Clips' own lanes. The browser posts the file and its ticket there, so
+ * it may never point anywhere else.
  */
-export function isClipChunkUrl(value: string, recordingId: string): boolean {
+export function isClipUploadUrl(
+  value: string,
+  recordingId: string,
+  route: "content-chunk" | "content-cancel",
+): boolean {
   if (!URL.canParse(value) || !isClipRecordingId(recordingId)) return false;
   const url = new URL(value);
   return (
@@ -46,7 +50,7 @@ export function isClipChunkUrl(value: string, recordingId: string): boolean {
       (origin) => new URL(origin).origin === url.origin,
     ) &&
     url.pathname.endsWith(
-      `/api/uploads/${encodeURIComponent(recordingId)}/content-chunk`,
+      `/api/uploads/${encodeURIComponent(recordingId)}/${route}`,
     ) &&
     url.searchParams.has("ticket") &&
     !url.username &&

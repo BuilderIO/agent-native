@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type { ClipUploadTicket } from "@shared/clips-peer-contract";
+import type { Editor } from "@tiptap/core";
 import { useSyncExternalStore } from "react";
 
 export const CLIP_UPLOADS_APP_STATE_KEY = "content-clip-uploads";
@@ -26,6 +27,12 @@ export type ClipUpload = {
 
 const uploads = new Map<string, ClipUpload>();
 const listeners = new Set<() => void>();
+
+/** What this tab needs to give up an upload it is still sending. */
+const sending = new Map<
+  string,
+  { ticket: ClipUploadTicket; blockId: string; stop: AbortController }
+>();
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -130,7 +137,11 @@ async function alreadyFinished(response: Response): Promise<boolean> {
   return status === "processing" || status === "ready";
 }
 
-async function postChunk(url: string, body: Blob): Promise<ChunkAnswer> {
+async function postChunk(
+  url: string,
+  body: Blob,
+  signal?: AbortSignal,
+): Promise<ChunkAnswer> {
   try {
     // A body with no type and no headers keeps this a simple CORS request:
     // Clips' auth layer answers every preflight, and the ticket in the URL is
@@ -141,6 +152,7 @@ async function postChunk(url: string, body: Blob): Promise<ChunkAnswer> {
       credentials: "omit",
       cache: "no-store",
       redirect: "error",
+      signal,
     });
     if (response.ok || (await alreadyFinished(response))) return { ok: true };
     return {
@@ -155,7 +167,7 @@ async function postChunk(url: string, body: Blob): Promise<ChunkAnswer> {
 /**
  * Sends a file to Clips in the ticket's chunks, in order, one at a time.
  * A chunk Clips couldn't take for a passing reason is sent again; any other
- * refusal ends the upload.
+ * refusal, or `signal` aborting, ends the upload.
  */
 export async function sendClipChunks(
   file: Blob,
@@ -163,6 +175,7 @@ export async function sendClipChunks(
   onSent: (sentBytes: number) => void,
   wait: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
+  signal?: AbortSignal,
 ): Promise<boolean> {
   for (let index = 0; index < ticket.totalChunks; index += 1) {
     const start = index * ticket.chunkSizeBytes;
@@ -173,15 +186,59 @@ export async function sendClipChunks(
     url.searchParams.set("isFinal", isFinal ? "1" : "0");
     const body = file.slice(start, end, "");
 
-    let answer = await postChunk(url.toString(), body);
+    let answer = await postChunk(url.toString(), body, signal);
     for (const delay of RETRY_DELAYS_MS) {
-      if (answer.ok || !answer.retry) break;
+      if (answer.ok || !answer.retry || signal?.aborted) break;
       await wait(delay);
-      answer = await postChunk(url.toString(), body);
+      if (signal?.aborted) break;
+      answer = await postChunk(url.toString(), body, signal);
     }
-    if (!answer.ok) return false;
+    if (!answer.ok || signal?.aborted) return false;
     onSent(end);
   }
+  return true;
+}
+
+/**
+ * Tells Clips this tab gave an upload up, so the Clip fails and its free clip
+ * comes back now, not when Clips' cleanup finds it an hour later. False when
+ * Clips didn't confirm it; that cleanup still gets there.
+ */
+export async function cancelClipUpload(
+  ticket: ClipUploadTicket,
+): Promise<boolean> {
+  try {
+    // No body and no headers, like a chunk: a simple CORS request whose
+    // ticket is its only authority. `keepalive` outlives the page.
+    const response = await fetch(ticket.cancelUrl, {
+      method: "POST",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      keepalive: true,
+    });
+    if (response.ok) return true;
+    console.warn("[content-clips] Clips refused an upload's cancel", {
+      recordingId: ticket.recordingId,
+      status: response.status,
+    });
+  } catch (error) {
+    console.warn("[content-clips] an upload's cancel didn't reach Clips", {
+      recordingId: ticket.recordingId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return false;
+}
+
+/** Stops sending an upload this tab gave up, and cancels it in Clips. */
+export function giveUpClipUpload(recordingId: string): boolean {
+  const entry = sending.get(recordingId);
+  if (!entry) return false;
+  sending.delete(recordingId);
+  entry.stop.abort();
+  clearClipUpload(recordingId);
+  void cancelClipUpload(entry.ticket);
   return true;
 }
 
@@ -190,26 +247,99 @@ export async function beginClipUpload(input: {
   file: File;
   ticket: ClipUploadTicket;
   documentId: string;
+  /** The page's Clip block for it, which the upload ends with. */
+  blockId: string;
 }) {
-  const { file, ticket, documentId } = input;
-  const base = {
-    recordingId: ticket.recordingId,
-    documentId,
-    fileName: file.name,
-  };
+  const { file, ticket, documentId, blockId } = input;
+  const { recordingId } = ticket;
+  const base = { recordingId, documentId, fileName: file.name };
+  const stop = new AbortController();
+  sending.set(recordingId, { ticket, blockId, stop });
   set(
     { ...base, phase: "uploading", sentBytes: 0, totalBytes: file.size },
-    ticket.recordingId,
+    recordingId,
   );
-  const sent = await sendClipChunks(file, ticket, (sentBytes) => {
-    if (uploads.get(ticket.recordingId)?.phase !== "uploading") return;
-    set(
-      { ...base, phase: "uploading", sentBytes, totalBytes: file.size },
-      ticket.recordingId,
-    );
+  const sent = await sendClipChunks(
+    file,
+    ticket,
+    (sentBytes) => {
+      if (uploads.get(recordingId)?.phase !== "uploading") return;
+      set(
+        { ...base, phase: "uploading", sentBytes, totalBytes: file.size },
+        recordingId,
+      );
+    },
+    undefined,
+    stop.signal,
+  );
+  if (sending.get(recordingId)?.stop === stop) sending.delete(recordingId);
+  // Whatever gave the upload up while it was sending also cancelled it.
+  if (stop.signal.aborted || !uploads.has(recordingId)) return;
+  // Clips would wait an hour for the rest; the block says it didn't finish.
+  if (!sent) void cancelClipUpload(ticket);
+  set({ ...base, phase: sent ? "making" : "failed" }, recordingId);
+}
+
+/** How long a sending upload's block may be gone before the upload is given up. */
+export const CLIP_UPLOAD_BLOCK_GONE_MS = 5_000;
+
+type ClipUploadEditor = Pick<Editor, "on" | "off" | "state" | "isDestroyed">;
+
+function registryBlockIds(editor: ClipUploadEditor): Set<string> {
+  const ids = new Set<string>();
+  editor.state.doc.descendants((node) => {
+    if (node.type.name !== "registryBlock") return true;
+    if (typeof node.attrs.blockId === "string") ids.add(node.attrs.blockId);
+    return false;
   });
-  if (!uploads.has(ticket.recordingId)) return;
-  set({ ...base, phase: sent ? "making" : "failed" }, ticket.recordingId);
+  return ids;
+}
+
+/**
+ * Gives up each upload this tab is sending into the page once its block has
+ * been gone from the page for a moment, long enough for a cut and paste or an
+ * undo to bring it back, and calls `onGivenUp` for it. The editor closing
+ * gives up nothing: the file keeps sending while the tab is open.
+ */
+export function watchClipUploadBlocks(
+  editor: ClipUploadEditor,
+  documentId: string,
+  onGivenUp: (upload: ClipUpload) => void,
+): () => void {
+  const goneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  function stillGone(recordingId: string, blockId: string) {
+    goneTimers.delete(recordingId);
+    if (editor.isDestroyed || registryBlockIds(editor).has(blockId)) return;
+    const upload = uploads.get(recordingId);
+    if (upload && giveUpClipUpload(recordingId)) onGivenUp(upload);
+  }
+  function check() {
+    const mine = [...sending].filter(
+      ([recordingId]) => uploads.get(recordingId)?.documentId === documentId,
+    );
+    if (mine.length === 0) return;
+    const present = registryBlockIds(editor);
+    for (const [recordingId, { blockId }] of mine) {
+      if (present.has(blockId)) {
+        clearTimeout(goneTimers.get(recordingId));
+        goneTimers.delete(recordingId);
+      } else if (!goneTimers.has(recordingId)) {
+        goneTimers.set(
+          recordingId,
+          setTimeout(
+            () => stillGone(recordingId, blockId),
+            CLIP_UPLOAD_BLOCK_GONE_MS,
+          ),
+        );
+      }
+    }
+  }
+  editor.on("update", check);
+  return () => {
+    editor.off("update", check);
+    for (const timer of goneTimers.values()) clearTimeout(timer);
+    goneTimers.clear();
+  };
 }
 
 /**

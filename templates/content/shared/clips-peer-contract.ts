@@ -192,6 +192,11 @@ export interface ClipUploadTicket {
   recordingId: string;
   /** On the Clips app; carries the ticket, so it is the only authority. */
   chunkUrl: string;
+  /**
+   * On the Clips app, with the same ticket: gives the upload up, so Clips
+   * releases its free clip now rather than when its cleanup finds it.
+   */
+  cancelUrl: string;
   chunkSizeBytes: number;
   totalChunks: number;
   expiresAt: string;

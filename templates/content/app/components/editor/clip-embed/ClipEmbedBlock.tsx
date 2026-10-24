@@ -131,11 +131,13 @@ function ClipBeingMade({
   label,
   percent,
   fileName,
+  action,
 }: {
   label: string;
   /** Null once the bytes are all sent, or when this tab didn't send them. */
   percent: number | null;
   fileName?: string;
+  action?: ReactNode;
 }) {
   return (
     <div
@@ -160,6 +162,7 @@ function ClipBeingMade({
             {fileName}
           </div>
         ) : null}
+        {action}
       </div>
     </div>
   );
@@ -333,6 +336,19 @@ export function ClipEmbed({
           }
           percent={null}
           fileName={upload?.fileName}
+          action={
+            playback.makingChecksStopped ? (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto px-0"
+                onClick={playback.checkAgain}
+              >
+                {t("clipEmbed.gateCheckAgain")}
+              </Button>
+            ) : null
+          }
         />
       </ClipFrame>
     );

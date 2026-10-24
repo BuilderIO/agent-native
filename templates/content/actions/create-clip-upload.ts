@@ -16,13 +16,14 @@ import {
 } from "./_clip-embed-access.js";
 import {
   clipStorageSchema,
-  isClipChunkUrl,
+  isClipUploadUrl,
   uploaderIp,
 } from "./_clip-upload.js";
 
 const startedSchema = z.object({
   recordingId: z.string(),
   chunkUrl: z.string(),
+  cancelUrl: z.string(),
   chunkSizeBytes: z.number().int().positive(),
   totalChunks: z.number().int().positive(),
   expiresAt: z.string().refine((value) => !Number.isNaN(Date.parse(value))),
@@ -43,7 +44,16 @@ function readAnswer(status: number, body: unknown): CreateClipUploadResult {
     const started = startedSchema.safeParse(body);
     if (
       started.success &&
-      isClipChunkUrl(started.data.chunkUrl, started.data.recordingId)
+      isClipUploadUrl(
+        started.data.chunkUrl,
+        started.data.recordingId,
+        "content-chunk",
+      ) &&
+      isClipUploadUrl(
+        started.data.cancelUrl,
+        started.data.recordingId,
+        "content-cancel",
+      )
     ) {
       return { status: "started", ...started.data };
     }
