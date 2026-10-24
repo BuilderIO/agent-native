@@ -1,3 +1,4 @@
+import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
@@ -184,7 +185,9 @@ function mapBlock(
   const mapped = tr.mapping.map(from, 1);
   const at = doc.nodeAt(mapped);
   const pos =
-    at?.attrs.blockId === blockId ||
+    (at &&
+      isCommentAnchorBlockType(at.type.name) &&
+      at.attrs.blockId === blockId) ||
     commentAnchorBlockAt(doc, mapped)?.blockId === blockId
       ? mapped
       : commentAnchorBlockById(doc, blockId)?.pos;

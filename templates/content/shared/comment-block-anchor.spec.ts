@@ -100,11 +100,45 @@ describe("keeping video ids through a copy that has none", () => {
     ).toBe(video("Opening", "video-first"));
   });
 
-  it("gives no id it cannot tell apart", () => {
+  const ids = (nfm: string) =>
+    [...nfm.matchAll(/ id="([^"]+)"/g)].map(([, id]) => id);
+
+  it("gives a video it can't tell apart a new id, never another video's", () => {
     const twins = L(video("", "video-one"), video("", "video-two"));
-    expect(keepVideoBlockIds(twins, video(""))).toBe(video(""));
-    expect(
+    const [single] = ids(keepVideoBlockIds(twins, video("")));
+    expect(single).toMatch(/^video-/);
+    expect(["video-one", "video-two"]).not.toContain(single);
+    const renamed = ids(
       keepVideoBlockIds(local, L(video("Opening"), video("Closing"))),
-    ).toBe(L(video("Opening"), video("Closing")));
+    );
+    expect(renamed).toHaveLength(2);
+    expect(renamed).not.toContain("video-first");
+    expect(renamed).not.toContain("video-second");
+  });
+
+  it("keeps the id a video saved without one goes by", () => {
+    const unsaved = L(video("First"), video("Second"));
+    expect(keepVideoBlockIds(unsaved, video("Second"))).toBe(
+      video("Second", derivedVideoBlockId("https://example.com/a.mp4", 1)),
+    );
+  });
+
+  it("tells identical videos apart by the text around them", () => {
+    const sections = L(
+      "Intro",
+      video("", "video-first"),
+      "Outro",
+      video("", "video-second"),
+    );
+    expect(
+      ids(
+        keepVideoBlockIds(sections, L("Outro", video(""), "Intro", video(""))),
+      ),
+    ).toEqual(["video-second", "video-first"]);
+  });
+
+  it("keeps identical videos' ids in order when nothing around them moved", () => {
+    const twins = L(video("", "video-one"), video("", "video-two"));
+    expect(keepVideoBlockIds(twins, L(video(""), video("")))).toBe(twins);
   });
 });

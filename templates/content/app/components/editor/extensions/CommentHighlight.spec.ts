@@ -17,6 +17,11 @@ const schema = new Schema({
       atom: true,
       attrs: { src: { default: null }, blockId: { default: null } },
     },
+    embed: {
+      group: "block",
+      atom: true,
+      attrs: { blockId: { default: null } },
+    },
     text: {},
   },
   marks: {},
@@ -319,6 +324,18 @@ describe("CommentHighlight", () => {
 
       const deleted = state.apply(state.tr.delete(11, 12));
       expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+    });
+
+    it("doesn't follow its id onto a block comments can't sit on", () => {
+      const state = start();
+      const replaced = state.apply(
+        state.tr.replaceWith(
+          7,
+          8,
+          schema.node("embed", { blockId: "video-1" }),
+        ),
+      );
+      expect(commentHighlightKey.getState(replaced)!.specs).toEqual([]);
     });
 
     it("marks a block waiting for its first comment", () => {

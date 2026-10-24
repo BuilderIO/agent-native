@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 
 import { commentAnchorBlockList } from "../comment-block-anchors";
 import { createContentBlockId } from "./registryBlocks";
@@ -28,13 +29,19 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
   addProseMirrorPlugins() {
     const { editor, options } = this;
     // A plugin's follow-up, such as the trailing paragraph after a remote
-    // change, is only as much this tab's edit as the change it follows.
-    const isEdit = (transaction: Transaction) =>
-      options.isEdit(
+    // change, is only as much this tab's edit as the change it follows. A
+    // collaborative undo or redo rebuilds the whole document, so no video maps
+    // to its old place, and nothing written in reply reaches other tabs; the
+    // undo already brings back the ids the page had.
+    const isEdit = (transaction: Transaction) => {
+      const root =
         (transaction.getMeta("appendedTransaction") as
           | Transaction
-          | undefined) ?? transaction,
+          | undefined) ?? transaction;
+      return (
+        !root.getMeta(ySyncPluginKey)?.isChangeOrigin && options.isEdit(root)
       );
+    };
     return [
       new Plugin({
         key: new PluginKey("videoBlockIds"),

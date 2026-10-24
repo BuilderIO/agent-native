@@ -86,13 +86,17 @@ export const LEGACY_VIDEO_COMMENT_QUOTES: ReadonlySet<string> = new Set([
  */
 export function threadCommentBlock(
   doc: ProseMirrorNode,
-  thread: Pick<CommentThread, "block" | "quotedText" | "prefix" | "suffix">,
+  thread: Pick<
+    CommentThread,
+    "block" | "quotedText" | "prefix" | "suffix" | "startOffset"
+  >,
 ) {
   if (thread.block) return commentAnchorBlockById(doc, thread.block.blockId);
   if (
     !LEGACY_VIDEO_COMMENT_QUOTES.has(thread.quotedText ?? "") ||
     thread.prefix != null ||
-    thread.suffix != null
+    thread.suffix != null ||
+    thread.startOffset != null
   )
     return null;
   const videos = commentAnchorBlockList(doc).filter(

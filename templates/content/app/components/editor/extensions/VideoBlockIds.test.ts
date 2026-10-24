@@ -3,9 +3,10 @@
 import { derivedVideoBlockId } from "@shared/comment-block-anchor";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
-import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import { prosemirrorToYDoc, ySyncPluginKey } from "@tiptap/y-tiptap";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { commentAnchorBlockList } from "../comment-block-anchors";
 import { createVisualEditorExtensions } from "../VisualEditor";
 
 const A = "https://example.com/a.mp4";
@@ -142,6 +143,25 @@ describe("video block ids", () => {
     expect(videoIds(target)).toEqual([]);
     target.commands.redo();
     expect(videoIds(target)).toEqual([id]);
+  });
+
+  it("keeps the id every reader derives when a shared page's first edit is undone", () => {
+    const seed = open(`<video src="${A}"></video>\nIntro`);
+    const ydoc = prosemirrorToYDoc(seed.state.doc, "default");
+    seed.destroy();
+    const target = (editor = new Editor({
+      extensions: createVisualEditorExtensions({ ydoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    }));
+    const derived = derivedVideoBlockId(A, 0);
+    typeAtEnd(target, "!");
+    expect(videoIds(target)).toEqual([derived]);
+    target.commands.undo();
+    expect(
+      commentAnchorBlockList(target.state.doc).map(({ blockId }) => blockId),
+    ).toEqual([derived]);
+    target.commands.redo();
+    expect(videoIds(target)).toEqual([derived]);
   });
 
   it("writes no id while media can't be changed, as when suggesting", () => {

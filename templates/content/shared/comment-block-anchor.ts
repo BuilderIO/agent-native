@@ -64,12 +64,32 @@ export function commentAnchorBlockNamer() {
   };
 }
 
+type PlacedVideo = {
+  node: PMNode;
+  /** The id comments use for it, or null for a copy that shares one. */
+  id: string | null;
+  before: string;
+  after: string;
+};
+
+const textOf = (node: PMNode | undefined): string =>
+  node?.text ?? node?.content?.map(textOf).join("") ?? "";
+
 function videosIn(root: PMNode) {
-  const videos: PMNode[] = [];
-  const walk = (node: PMNode) => {
-    if (node.type === "video") videos.push(node);
-    else node.content?.forEach(walk);
-  };
+  const videos: PlacedVideo[] = [];
+  const name = commentAnchorBlockNamer();
+  const walk = (node: PMNode) =>
+    node.content?.forEach((child, index, siblings) => {
+      if (!isCommentAnchorBlockType(child.type)) return walk(child);
+      const id = name(child.type, child.attrs);
+      if (child.type === "video")
+        videos.push({
+          node: child,
+          id,
+          before: textOf(siblings[index - 1]),
+          after: textOf(siblings[index + 1]),
+        });
+    });
   walk(root);
   return videos;
 }
@@ -78,52 +98,61 @@ const savedVideoId = (video: PMNode) =>
   typeof video.attrs?.blockId === "string" ? video.attrs.blockId : "";
 
 /**
- * `incoming` with the video ids `local` saved. A provider such as Notion has
+ * `incoming` with the video ids `local` goes by. A provider such as Notion has
  * nowhere to keep the ids, so its copy of a page comes back without them, and
  * taking it as is would strand every comment on those videos. A video takes
- * the id of the one with its source and caption, or of the only one left with
- * its source; one that can't be told apart from another gets none, since a
- * wrong id moves another video's comments onto it.
+ * the id of the one it matches one to one by source, caption and the text
+ * beside it, then by less of that; identical videos with identical text beside
+ * them pair in order. Any other video gets a new id, since a guessed or
+ * derived one can put another video's comments on it.
  */
 export function keepVideoBlockIds(
   local: string | null | undefined,
   incoming: string,
 ): string {
-  const ours = videosIn(nfmToDoc(local));
-  if (!ours.some(savedVideoId)) return incoming;
   const doc = nfmToDoc(incoming);
   const theirs = videosIn(doc);
-  const matched = new Map<PMNode, PMNode>();
-  const match = (
-    key: (video: PMNode) => string,
-    fits: (ours: number, theirs: number) => boolean,
-  ) => {
-    const groups = new Map<string, [PMNode[], PMNode[]]>();
-    const add = (side: 0 | 1, video: PMNode) => {
+  const unsaved = theirs.filter(({ node }) => !savedVideoId(node));
+  if (!unsaved.length) return incoming;
+  const taken = new Set(theirs.map(({ node }) => savedVideoId(node)));
+  const ours = videosIn(nfmToDoc(local)).filter(
+    ({ id }) => id && !taken.has(id),
+  );
+  const matched = new Map<PlacedVideo, string>();
+  const src = ({ node }: PlacedVideo) => String(node.attrs?.src ?? "");
+  const captioned = (video: PlacedVideo) =>
+    `${src(video)}\n${video.node.attrs?.title ?? ""}`;
+  const placed = (video: PlacedVideo) =>
+    `${captioned(video)}\n${video.before}\n${video.after}`;
+  const unique = (a: number, b: number) => a === 1 && b === 1;
+  const steps: [(video: PlacedVideo) => string, typeof unique][] = [
+    [placed, unique],
+    [(video) => `${captioned(video)}\n${video.before}`, unique],
+    [(video) => `${captioned(video)}\n${video.after}`, unique],
+    [captioned, unique],
+    [src, unique],
+    [placed, (a, b) => a === b],
+  ];
+  for (const [key, fits] of steps) {
+    const groups = new Map<string, [PlacedVideo[], PlacedVideo[]]>();
+    const add = (side: 0 | 1, video: PlacedVideo) => {
       const group = groups.get(key(video)) ?? [[], []];
       group[side].push(video);
       groups.set(key(video), group);
     };
-    const taken = new Set(matched.values());
-    for (const video of ours) if (!taken.has(video)) add(0, video);
-    for (const video of theirs) if (!matched.has(video)) add(1, video);
+    const used = new Set(matched.values());
+    for (const video of ours) if (!used.has(video.id!)) add(0, video);
+    for (const video of unsaved) if (!matched.has(video)) add(1, video);
     for (const [mine, other] of groups.values())
       if (fits(mine.length, other.length))
-        other.forEach((video, index) => matched.set(video, mine[index]));
-  };
-  const src = (video: PMNode) => String(video.attrs?.src ?? "");
-  match(
-    (video) => `${src(video)}\n${video.attrs?.title ?? ""}`,
-    (a, b) => a === b,
-  );
-  match(src, (a, b) => a === 1 && b === 1);
-  let kept = false;
-  for (const [video, mine] of matched) {
-    if (!savedVideoId(mine) || savedVideoId(video)) continue;
-    video.attrs = { ...video.attrs, blockId: savedVideoId(mine) };
-    kept = true;
+        other.forEach((video, index) => matched.set(video, mine[index].id!));
   }
-  return kept ? docToNfm(doc, { keepTrailingEmptyBlock: true }) : incoming;
+  for (const video of unsaved)
+    video.node.attrs = {
+      ...video.node.attrs,
+      blockId: matched.get(video) ?? `video-${crypto.randomUUID().slice(0, 8)}`,
+    };
+  return docToNfm(doc, { keepTrailingEmptyBlock: true });
 }
 
 /** Each anchorable block in a saved document, by the id comments use. */
