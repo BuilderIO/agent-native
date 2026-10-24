@@ -459,11 +459,7 @@ describe("comment stacks in the margin", () => {
     actions.create.mockImplementation(async () => {
       ring.className = "";
       ring.setAttribute("data-comment-block-threads", "clip new");
-      render([
-        THREADS[5],
-        clip,
-        onVideo("new", new Date().toISOString()),
-      ]);
+      render([THREADS[5], clip, onVideo("new", new Date().toISOString())]);
       return { id: "new-0", threadId: "new" };
     });
     await setRichEditorValue(
