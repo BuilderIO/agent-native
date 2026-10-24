@@ -111,15 +111,22 @@ export function postAwarenessState(
           parsedSequence <= MAX_AWARENESS_CLIENT_SEQUENCE
         ) {
           if (!cleanupWhenIdle.has(key)) {
+            const latestClientSequence = clientSequences.get(key) ?? 0;
             const highestPendingSequence = Math.max(
               0,
               ...[...(inFlightSequences.get(key) ?? [])].filter(
                 (sequence) => sequence !== clientSequence,
               ),
             );
+            const highestLaterSequence =
+              latestClientSequence > clientSequence ? latestClientSequence : 0;
             clientSequences.set(
               key,
-              Math.max(parsedSequence, highestPendingSequence),
+              Math.max(
+                parsedSequence,
+                highestLaterSequence,
+                highestPendingSequence,
+              ),
             );
           }
         }

@@ -227,6 +227,50 @@ describe("postAwarenessState", () => {
     ]);
   });
 
+  it("keeps a completed later sequence when an earlier request returns 409", async () => {
+    let finishEarlier!: (response: Response) => void;
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          finishEarlier = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const earlier = postAwarenessState("/collab", "sequence-delayed-409", 8, {
+      visible: true,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const later = postAwarenessState("/collab", "sequence-delayed-409", 8, {
+      visible: false,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await later;
+
+    finishEarlier(
+      new Response(null, {
+        status: 409,
+        headers: { "x-awareness-client-sequence": "0" },
+      }),
+    );
+    await earlier;
+
+    await postAwarenessState("/collab", "sequence-delayed-409", 8, null, true);
+
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    expect(requests.map(({ clientSequence }) => clientSequence)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(requests[2].state).toBeNull();
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ keepalive: true });
+  });
+
   it("forgets per-document counters after in-flight posts finish", async () => {
     let finishFirst!: (response: Response) => void;
     const fetchMock = vi.fn<typeof fetch>();
