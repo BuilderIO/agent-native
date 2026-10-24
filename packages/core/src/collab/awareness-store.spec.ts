@@ -37,9 +37,24 @@ const clearUpsertQuery = vi.hoisted(() => ({
   value: null as null | { sql: string; args: unknown[] },
 }));
 const executedSql = vi.hoisted(() => [] as string[]);
+const purgeQueries = vi.hoisted(() => ({
+  value: [] as Array<{ kind: string; sql: string; args: unknown[] }>,
+}));
+const expiryIndexSql = vi.hoisted(() => ({
+  calls: [] as Array<{ name: string; sql: string }>,
+}));
 
 function rowKey(docId: string, clientId: number): string {
   return `${docId}|${clientId}`;
+}
+
+function compareAwarenessKeys(left: string, right: string): number {
+  const [leftDocId, leftClientId] = left.split("|");
+  const [rightDocId, rightClientId] = right.split("|");
+  return (
+    leftDocId!.localeCompare(rightDocId!) ||
+    Number(leftClientId) - Number(rightClientId)
+  );
 }
 
 vi.mock("../db/client.js", async () => {
@@ -412,43 +427,88 @@ vi.mock("../db/client.js", async () => {
         return { rows: [], rowsAffected: 1 };
       }
       if (
-        /^\s*UPDATE _collab_awareness\s+SET state = '', clear_token_hash = NULL/i.test(
+        /^\s*WITH batch AS MATERIALIZED \([\s\S]+\)\s+UPDATE _collab_awareness/i.test(
           sql,
         )
       ) {
-        const expiredBefore = Number(args[0]);
-        for (const row of dbRows.values()) {
-          if (
-            row.actor_email !== null &&
-            row.state !== "" &&
-            row.last_seen < expiredBefore
-          ) {
-            row.state = "";
-            row.clear_token_hash = null;
-          }
-        }
-        return { rows: [], rowsAffected: 0 };
-      }
-      if (
-        /^\s*DELETE FROM _collab_awareness\s+WHERE \(actor_email IS NOT NULL/i.test(
-          sql,
-        )
-      ) {
+        purgeQueries.value.push({ kind: "update", sql, args: [...args] });
         purgeCalls.count += 1;
         purgeStarted.signal?.();
         if (purgeFails.value) throw new Error("purge unavailable");
         if (purgeHang.promise) await purgeHang.promise;
-        for (const [key, row] of dbRows) {
-          if (
-            (row.actor_email !== null &&
-              (row.actor_email_expires_at ?? row.last_seen + 60_000) <=
-                Number(args[0])) ||
-            (row.actor_email === null && row.last_seen < Number(args[1]))
-          ) {
-            dbRows.delete(key);
-          }
+        const expiredBefore = Number(args[0]);
+        const batchSize = Number(/LIMIT\s+(\d+)/i.exec(sql)?.[1] ?? 0);
+        const batch = [...dbRows.entries()]
+          .filter(
+            ([, row]) =>
+              row.actor_email !== null &&
+              row.state !== "" &&
+              row.last_seen < expiredBefore,
+          )
+          .sort(
+            ([leftKey, left], [rightKey, right]) =>
+              left.last_seen - right.last_seen ||
+              compareAwarenessKeys(leftKey, rightKey),
+          )
+          .slice(0, batchSize);
+        for (const [, row] of batch) {
+          row.state = "";
+          row.clear_token_hash = null;
         }
-        return { rows: [], rowsAffected: 0 };
+        return { rows: [], rowsAffected: batch.length };
+      }
+      if (
+        /^\s*WITH batch AS MATERIALIZED \([\s\S]+\)\s+DELETE FROM _collab_awareness/i.test(
+          sql,
+        ) &&
+        /actor_email IS NOT NULL/i.test(sql)
+      ) {
+        purgeQueries.value.push({ kind: "actor-delete", sql, args: [...args] });
+        const expiredAt = Number(args[0]);
+        const batchSize = Number(/LIMIT\s+(\d+)/i.exec(sql)?.[1] ?? 0);
+        const batch = [...dbRows.entries()]
+          .filter(
+            ([, row]) =>
+              row.actor_email !== null &&
+              (row.actor_email_expires_at ?? row.last_seen + 60_000) <=
+                expiredAt,
+          )
+          .sort(
+            ([leftKey, left], [rightKey, right]) =>
+              (left.actor_email_expires_at ?? left.last_seen + 60_000) -
+                (right.actor_email_expires_at ?? right.last_seen + 60_000) ||
+              compareAwarenessKeys(leftKey, rightKey),
+          )
+          .slice(0, batchSize);
+        for (const [key] of batch) dbRows.delete(key);
+        return { rows: [], rowsAffected: batch.length };
+      }
+      if (
+        /^\s*WITH batch AS MATERIALIZED \([\s\S]+\)\s+DELETE FROM _collab_awareness/i.test(
+          sql,
+        ) &&
+        /actor_email IS NULL/i.test(sql)
+      ) {
+        purgeQueries.value.push({
+          kind: "legacy-delete",
+          sql,
+          args: [...args],
+        });
+        const expiredBefore = Number(args[0]);
+        const batchSize = Number(/LIMIT\s+(\d+)/i.exec(sql)?.[1] ?? 0);
+        const batch = [...dbRows.entries()]
+          .filter(
+            ([, row]) =>
+              row.actor_email === null && row.last_seen < expiredBefore,
+          )
+          .sort(
+            ([leftKey, left], [rightKey, right]) =>
+              left.last_seen - right.last_seen ||
+              compareAwarenessKeys(leftKey, rightKey),
+          )
+          .slice(0, batchSize);
+        for (const [key] of batch) dbRows.delete(key);
+        return { rows: [], rowsAffected: batch.length };
       }
       if (/^\s*SELECT client_id, state, last_seen/i.test(sql)) {
         const docId = String(args[0]);
@@ -498,11 +558,15 @@ vi.mock("../db/client.js", async () => {
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn((name: string, sql: string) => {
+    expiryIndexSql.calls.push({ name, sql });
+    return Promise.resolve(true);
+  }),
 }));
 
 import {
   _resetAwarenessStoreForTests,
+  collabAwarenessStore,
   deleteAwarenessRow,
   loadAwarenessClientSequence,
   loadAwarenessRows,
@@ -521,6 +585,8 @@ beforeEach(() => {
   clearRace.value = false;
   clearUpsertQuery.value = null;
   executedSql.length = 0;
+  purgeQueries.value = [];
+  expiryIndexSql.calls = [];
   _resetAwarenessStoreForTests();
 });
 
@@ -602,6 +668,129 @@ describe("awareness-store", () => {
 
     expect(dbRows.has(rowKey("abandoned-doc", 7))).toBe(false);
     expect(purgeCalls.count).toBe(1);
+  });
+
+  it("drains bounded expiry batches through indexed plans", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    for (let clientId = 0; clientId < 150; clientId++) {
+      dbRows.set(rowKey(`actor-${clientId}`, clientId), {
+        state: "presence",
+        last_seen: 5_000,
+        client_sequence: 1,
+        client_sequence_raw: 0,
+        cleared: false,
+        actor_email: "actor@example.com",
+        clear_token_hash: "token-hash",
+        actor_email_expires_at: 65_000,
+      });
+      dbRows.set(rowKey(`legacy-${clientId}`, clientId), {
+        state: "legacy-presence",
+        last_seen: 5_000,
+        client_sequence: 0,
+        client_sequence_raw: 0,
+        cleared: false,
+        actor_email: null,
+        clear_token_hash: null,
+      });
+    }
+
+    await expect(
+      loadAwarenessRowsStrict("unrelated-doc", 70_000),
+    ).resolves.toEqual([]);
+    expect(purgeQueries.value).toHaveLength(0);
+
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 });
+
+    const remainingActorRows = [...dbRows.values()].filter(
+      (row) => row.actor_email !== null,
+    );
+    const remainingLegacyRows = [...dbRows.values()].filter(
+      (row) => row.actor_email === null,
+    );
+    expect(remainingActorRows).toHaveLength(50);
+    expect(remainingActorRows.every((row) => row.state !== "")).toBe(true);
+    expect(remainingLegacyRows).toHaveLength(50);
+    expect(purgeQueries.value.slice(0, 3).map((query) => query.kind)).toEqual([
+      "update",
+      "actor-delete",
+      "legacy-delete",
+    ]);
+
+    vi.setSystemTime(130_000);
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 });
+    expect(dbRows.size).toBe(0);
+    expect(purgeQueries.value).toHaveLength(6);
+    for (const { sql } of purgeQueries.value) {
+      expect(sql).toMatch(/WITH batch AS MATERIALIZED/i);
+      expect(sql).toMatch(/ORDER BY/i);
+      expect(sql).toMatch(/LIMIT 100/i);
+      expect(sql).toMatch(/FOR UPDATE SKIP LOCKED/i);
+    }
+
+    const expiryMigration = collabAwarenessStore.migrations.find(
+      (migration) => migration.name === "expiry-indexes",
+    );
+    expect(expiryMigration?.run).toBeTypeOf("function");
+    expiryIndexSql.calls = [];
+    await expiryMigration!.run!({
+      execute: async () => ({ rows: [], rowsAffected: 0 }),
+    });
+    expect(expiryIndexSql.calls.map(({ name }) => name)).toEqual([
+      "_collab_awareness_active_actor_expiry_idx",
+      "_collab_awareness_actor_reservation_expiry_idx",
+      "_collab_awareness_anonymous_expiry_idx",
+    ]);
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`
+        CREATE TABLE _collab_awareness (
+          doc_id TEXT NOT NULL,
+          client_id BIGINT NOT NULL,
+          state TEXT NOT NULL,
+          last_seen BIGINT NOT NULL,
+          client_sequence BIGINT NOT NULL DEFAULT 0,
+          cleared BOOLEAN NOT NULL DEFAULT FALSE,
+          client_sequence_raw BIGINT NOT NULL DEFAULT 0,
+          actor_email TEXT,
+          clear_token_hash TEXT,
+          actor_email_expires_at BIGINT,
+          PRIMARY KEY (doc_id, client_id)
+        )
+      `);
+      for (const { sql } of expiryIndexSql.calls) await pglite.exec(sql);
+      await pglite.exec(`
+        INSERT INTO _collab_awareness
+          (doc_id, client_id, state, last_seen, actor_email,
+           actor_email_expires_at)
+        SELECT 'doc-' || n::text, n,
+               CASE WHEN n % 3 = 0 THEN 'presence' ELSE '' END,
+               5000,
+               CASE WHEN n % 3 = 2 THEN NULL ELSE 'actor@example.com' END,
+               CASE WHEN n % 3 = 2 THEN NULL ELSE 65000 END
+        FROM generate_series(1, 3000) AS n
+      `);
+      await pglite.exec("ANALYZE _collab_awareness");
+      await pglite.exec(
+        "SET enable_seqscan = off; SET enable_bitmapscan = off",
+      );
+
+      for (const [index, query] of purgeQueries.value.slice(0, 3).entries()) {
+        const expectedIndex = [
+          "_collab_awareness_active_actor_expiry_idx",
+          "_collab_awareness_actor_reservation_expiry_idx",
+          "_collab_awareness_anonymous_expiry_idx",
+        ][index]!;
+        const plan = await pglite.query(
+          `EXPLAIN (FORMAT JSON) ${query.sql}`,
+          query.args,
+        );
+        expect(JSON.stringify(plan.rows)).toContain(expectedIndex);
+      }
+    } finally {
+      await pglite.close();
+    }
   });
 
   it("shares a global purge across concurrent recurring sweeps", async () => {

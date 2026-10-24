@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Reconcile accepted collaboration presence writes and index expiry cleanup.
+Reconcile accepted presence writes and bound indexed expiry cleanup.
