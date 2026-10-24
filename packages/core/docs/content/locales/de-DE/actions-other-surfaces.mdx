@@ -69,7 +69,49 @@ genauso für einfache manuelle Läufe und bestehende Skripte:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-Das ist nützlich für Agent-Dev-Schleifen, Skripte und Cron-Jobs.
+Bei `defineAction()`-Aufrufen prüft die CLI `needsApproval` anhand der vorbereiteten, geparsten Argumente mit angewendeten Schema-Standardwerten und Aufrufer `cli`. Wenn stdin und stdout TTYs sind, zeigt sie Aktionsname und Argumente an und fragt `y/N`. Nur `y` oder `yes` führt die Aktion aus.
+
+Ohne beide TTYs fordert die CLI den Agenten auf, die Person um Freigabe zu bitten. Erst nach deren Freigabe dieses konkreten Aufrufs dieselben ursprünglichen `pnpm action`-Argumente mit angehängtem `--approved` erneut ausführen:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` ist reservierte CLI-Metadaten und wird vor dem Parsen der Eingabe entfernt. Bei Aktionen ohne Freigabepflicht ist das Flag harmlos. Es setzt die vorherige Freigabe durch die Person voraus.
+
+Die lokale Dev-Bridge sendet die Freigabemetadaten außerhalb von `input` im JSON-Body:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Bei einem freigabepflichtigen Aufruf ohne Freigabe antwortet die Bridge mit HTTP `409`:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Nach der TTY-Bestätigung wiederholt die CLI den Aufruf mit `argumentsHash` aus der Bestätigungsanforderung:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Wenn sich die vorbereiteten Argumente nach der Bestätigung geändert haben, gibt die Bridge HTTP `409` mit `errorCode: "approval_arguments_changed"` zurück. Prüfe die aktuellen Argumente und versuche es erneut.
+
+`arguments` enthält die vorbereiteten Argumente. Dieser Vertrag der lokalen Dev-Bridge ändert die [Freigaberegeln der öffentlichen HTTP-Aktions-API](/docs/actions-access-control#needs-approval) nicht. Genehmigte freigabepflichtige CLI-Aufrufe verwenden den vorhandenen Freigaberekorder mit Aufrufer `cli` und Zusammenfassung `CLI approval via --approved` oder `CLI approval via prompt`. Der spezielle Freigabeeintrag enthält keine vollständigen Argumente.
 
 ## Von einem anderen Agenten aufrufen (A2A) {#a2a}
 

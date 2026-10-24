@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
+const approvalAudit = vi.hoisted(() => vi.fn(async (_input: any) => {}));
+vi.mock("../audit/store.js", () => ({ insertAuditEvent: approvalAudit }));
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn(async () => {}));
 const mockIsLoopbackRequest = vi.hoisted(() => vi.fn(() => true));
@@ -68,6 +72,7 @@ vi.mock("drizzle-orm/pglite/migrator", () => ({
 
 import { currentInvocationEvidence } from "../action-frame.js";
 import { runActionInvocation } from "../action-invocation.js";
+import { defineAction } from "../action.js";
 import {
   DEV_ACTION_ROUTE,
   DEV_DB_MIGRATE_ROUTE,
@@ -239,6 +244,7 @@ describe("mountDevActionForwardRoute", () => {
     mockResolveDeployEnvironment.mockReturnValue("local");
     mockResolveDevUserEmail.mockReset();
     mockResolveDevUserEmail.mockResolvedValue(undefined);
+    approvalAudit.mockClear();
   });
 
   afterEach(() => {
@@ -252,6 +258,225 @@ describe("mountDevActionForwardRoute", () => {
     const event: any = { _headers: {} };
     await expect(handler(event)).resolves.toMatchObject({ ok: false });
     expect(event._status).toBe(401);
+  });
+
+  it.each([undefined, false, "true", 1])(
+    "refuses a gated action without boolean approval (%j)",
+    async (approved) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn();
+      const entry = defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+      const handler = mountedHandler({ "delete-data": entry });
+      const event: any = {
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "delete-data", input: {}, approved },
+      };
+      expect(await handler(event)).toEqual({
+        ok: false,
+        errorCode: "approval_required",
+        error:
+          'Action "delete-data" requires human approval. Ask the person, then rerun with --approved.',
+        arguments: { action: "delete" },
+        argumentsHash: expect.any(String),
+      });
+      expect(event._status).toBe(409);
+      expect(run).not.toHaveBeenCalled();
+      expect(mockNotifyActionChange).not.toHaveBeenCalled();
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["flag", "prompt"])(
+    "runs an explicitly approved call and audits %s outside the input",
+    async (approvalSource) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn(async (args) => args);
+      const entry = defineAction({
+        schema: z.object({ action: z.string().default("delete") }).strict(),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+      const handler = mountedHandler({ "delete-data": entry });
+      const challenge = await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "delete-data", input: {} },
+      });
+      const response = await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource,
+          ...(approvalSource === "prompt"
+            ? { approvalArgumentsHash: challenge.argumentsHash }
+            : {}),
+        },
+      });
+      expect(response).toEqual({ ok: true, result: { action: "delete" } });
+      expect(run).toHaveBeenCalledWith(
+        { action: "delete" },
+        expect.objectContaining({ caller: "cli" }),
+      );
+      expect(approvalAudit).toHaveBeenCalledTimes(1);
+      const row = approvalAudit.mock.calls[0]![0];
+      expect(row).toMatchObject({
+        input: null,
+        caller: "cli",
+        action: "delete-data",
+        status: "success",
+      });
+      expect(row.summary).toBe(
+        approvalSource === "flag"
+          ? "CLI approval via --approved"
+          : "CLI approval via prompt",
+      );
+      expect(mockNotifyActionChange).toHaveBeenCalledWith({
+        actionName: "delete-data",
+      });
+    },
+  );
+
+  it("refuses a prompted retry whose dynamic defaults changed after review", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    let destination = "reviewed@example.test";
+    const run = vi.fn();
+    const handler = mountedHandler({
+      send: defineAction({
+        schema: z.object({
+          destination: z.string().default(() => destination),
+        }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "send", input: {} },
+    });
+    expect(challenge.arguments).toEqual({
+      destination: "reviewed@example.test",
+    });
+    destination = "changed@example.test";
+    const event: any = {
+      _headers: headers,
+      _body: {
+        name: "send",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    };
+    expect(await handler(event)).toEqual({
+      ok: false,
+      errorCode: "approval_arguments_changed",
+      error:
+        'Action "send" arguments changed after confirmation. Review the current arguments and try again.',
+    });
+    expect(event._status).toBe(409);
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it("preserves audit records for validation failures before a handler runs", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const handler = mountedHandler({
+      invalid: defineAction({ schema: z.object({ name: z.string() }), run }),
+    });
+    const response = await handler({
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+      _body: { name: "invalid", input: {} },
+    });
+    expect(response.ok).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).toHaveBeenCalledTimes(1);
+    expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+      action: "invalid",
+      caller: "cli",
+      status: "error",
+      approval: null,
+    });
+  });
+
+  it("evaluates function gates with prepared defaults and cli context", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const entry = defineAction({
+      schema: z.object({ action: z.string().default("delete") }),
+      needsApproval: (args, ctx) =>
+        ctx?.caller === "cli" && args.action === "delete",
+      audit: { enabled: false },
+      run,
+    });
+    const handler = mountedHandler({ conditional: entry });
+    const call = (input: unknown) =>
+      handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "conditional", input },
+      });
+    expect(await call({})).toMatchObject({
+      ok: false,
+      errorCode: "approval_required",
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(await call({ action: "read" })).toEqual({
+      ok: true,
+      result: { action: "read" },
+    });
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, true])(
+    "does not add an approval audit for ungated calls (%j)",
+    async (approved) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn(async (args) => args);
+      const handler = mountedHandler({
+        ungated: defineAction({
+          schema: z.object({}),
+          audit: { enabled: false },
+          run,
+        }),
+      });
+      expect(
+        await handler({
+          _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+          _body: { name: "ungated", input: {}, approved },
+        }),
+      ).toEqual({ ok: true, result: {} });
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when a predicate throws", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const handler = mountedHandler({
+      gated: {
+        needsApproval: () => {
+          throw new Error("predicate failed");
+        },
+        run,
+      },
+    });
+    expect(
+      await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "gated" },
+      }),
+    ).toMatchObject({ ok: false, errorCode: "approval_required" });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects a non-loopback request with 401", async () => {

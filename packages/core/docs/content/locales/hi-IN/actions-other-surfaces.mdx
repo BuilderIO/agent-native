@@ -72,7 +72,49 @@ JSON इनपुट एजेंट्स और जटिल ऑब्जे�
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-यह agent-dev लूप्स, स्क्रिप्ट्स, और cron jobs के लिए उपयोगी है।
+`defineAction()` calls के लिए CLI तैयार और parsed arguments पर schema defaults लागू करके caller `cli` के साथ `needsApproval` evaluate करता है। अगर stdin और stdout दोनों TTY हैं, तो यह action का नाम और arguments दिखाकर `y/N` पूछता है। केवल `y` या `yes` से action चलता है।
+
+दोनों TTY न होने पर CLI agent को व्यक्ति से approval माँगने को कहता है। उस विशेष call के लिए व्यक्ति की approval मिलने के बाद, बिल्कुल वही मूल `pnpm action` arguments दोबारा चलाएँ और अंत में `--approved` जोड़ें:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` reserved CLI metadata है, जिसे input parsing से पहले हटा दिया जाता है। जिन actions को approval नहीं चाहिए, उनमें यह हानिरहित है। पहले व्यक्ति की approval लेना ज़रूरी है।
+
+Local dev bridge JSON body में approval metadata को `input` के बाहर भेजता है:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Approval के बिना gated call पर bridge HTTP `409` लौटाता है:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+TTY में पुष्टि के बाद, CLI अनुमोदन माँगने वाली प्रतिक्रिया के `argumentsHash` के साथ फिर से प्रयास करता है:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+यदि पुष्टि के बाद तैयार किए गए तर्क बदल गए हों, तो ब्रिज HTTP `409` के साथ `errorCode: "approval_arguments_changed"` लौटाता है। मौजूदा तर्कों की समीक्षा करें और फिर से प्रयास करें।
+
+`arguments` में तैयार arguments होते हैं। Local dev bridge का यह contract [public HTTP action API के approval rules](/docs/actions-access-control#needs-approval) को नहीं बदलता। Approved gated CLI calls मौजूदा approval recorder इस्तेमाल करती हैं, जिसमें caller `cli` और summary `CLI approval via --approved` या `CLI approval via prompt` होती है। विशेष approval record में पूरे arguments शामिल नहीं होते।
 
 ## इसे किसी अन्य एजेंट से कॉल करना (A2A) {#a2a}
 
