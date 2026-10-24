@@ -2811,6 +2811,64 @@ describe("app changelog raw imports", () => {
     }
   });
 
+  it("loads an empty changelog without watching a missing CHANGELOG.md", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const appDir = path.join(tmpDir, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const importer = path.join(appDir, "root.tsx");
+      const resolved = await plugin.resolveId("../CHANGELOG.md?raw", importer);
+      expect(resolved).toBe(`${path.join(tmpDir, "CHANGELOG.md")}?raw`);
+
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        resolved,
+      );
+
+      expect(code).toBe('export default "";');
+      expect(watched).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("watches pending changelog entries when CHANGELOG.md is missing", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const pendingDir = path.join(tmpDir, "changelog");
+    fs.mkdirSync(pendingDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-07-01-first-entry.md"),
+      "---\ntype: added\n---\n\nFirst visible thing.\n",
+    );
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        `${path.join(tmpDir, "CHANGELOG.md")}?raw`,
+      );
+      const entries = parseChangelog(
+        JSON.parse(
+          String(code)
+            .replace(/^export default /, "")
+            .replace(/;$/, ""),
+        ),
+      );
+
+      expect(watched).toEqual([
+        path.join(pendingDir, "2026-07-01-first-entry.md"),
+      ]);
+      expect(entries.map((entry) => entry.title)).toEqual(["2026-07-01"]);
+      expect(entries[0].body).toContain("First visible thing.");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps changelog directories visible to the dev watcher", () => {
     const ignored =
       (
