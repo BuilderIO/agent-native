@@ -39,18 +39,31 @@ import {
   readBuilderCmsEntryLiveState,
 } from "./_builder-cms-read-client.js";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
   builderCmsQualifiedId,
+  builderCmsReferenceIdKey,
 } from "./_builder-cms-source-adapter.js";
+import {
+  builderCmsSourceFieldMatches,
+  builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsUnpublishedChanges,
+  withBuilderCmsUnpublishedChanges,
+} from "./_builder-cms-unpublished-changes.js";
 import type {
   BuilderCmsExecutionPayload,
   BuilderCmsExecutionPlan,
+  BuilderCmsLivePreflight,
 } from "./_builder-cms-write-adapter.js";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
+  builderCmsPayloadForLivePublication,
+  builderCmsWrittenSourceFields,
+  isBuilderCmsUnpublishedSaveEffect,
   resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
   BUILDER_CMS_EXECUTION_MARKER_FIELD,
@@ -60,6 +73,7 @@ import {
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
+import { writeBuilderStatusValues } from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -184,6 +198,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
   readLiveEntry: (args: {
     model: string;
     entryId: string;
+    fieldPaths: readonly string[];
     expectedSourceSpace?: string | null;
     expectedSourceConnectionId?: string | null;
   }) => Promise<BuilderCmsEntryLiveState>;
@@ -424,16 +439,63 @@ function parseSourceValues(
   }
 }
 
+/**
+ * The entry's publication state once the write landed. Builder's reply wins
+ * for a draft save, which can land on an entry published since the check; its
+ * reply to an autosave describes the autosave, not the entry. Without a reply,
+ * the write left the state as the live check found it, unless the stored row
+ * was read from Builder after the check. Null keeps the stored state.
+ */
+function builderCmsPublishedAfterWrite(args: {
+  effect: BuilderCmsExecutionPayload["effect"];
+  livePreflight: BuilderCmsExecutionPayload["livePreflight"];
+  storedLastUpdated: DocumentPropertyValue | undefined;
+  responseBody: unknown;
+}) {
+  if (args.effect === "publish") return "published";
+  if (args.effect === "unpublish" || args.effect === "create_draft") {
+    return "draft";
+  }
+  if (args.effect !== "autosave") {
+    const replied = builderCmsResponseValue(args.responseBody, ["published"]);
+    if (typeof replied === "string") return replied;
+  }
+  const storedEpoch = toEpochMs(
+    typeof args.storedLastUpdated === "string" ||
+      typeof args.storedLastUpdated === "number"
+      ? args.storedLastUpdated
+      : null,
+  );
+  const checkedEpoch = toEpochMs(args.livePreflight?.lastUpdated);
+  if (
+    storedEpoch !== null &&
+    checkedEpoch !== null &&
+    storedEpoch > checkedEpoch
+  ) {
+    return null;
+  }
+  return args.livePreflight?.published ?? null;
+}
+
 export function builderCmsReconciledSourceValuesJson(args: {
   existingSourceValuesJson: string | null | undefined;
   snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
   changeSet: ContentDatabaseSourceChangeSet;
   plan: BuilderCmsExecutionPlan;
+  responseBody?: unknown;
 }) {
-  const next = {
+  const existing = {
     ...(args.snapshotSourceValues ?? {}),
     ...parseSourceValues(args.existingSourceValuesJson),
   };
+  const next = { ...existing };
+  const published = builderCmsPublishedAfterWrite({
+    effect: args.plan.payload.effect,
+    livePreflight: args.plan.payload.livePreflight,
+    storedLastUpdated: existing.lastUpdated,
+    responseBody: args.responseBody,
+  });
+  if (published) next.published = published;
   for (const field of args.changeSet.fieldChanges) {
     next[field.sourceFieldKey] = field.proposedValue;
   }
@@ -449,12 +511,20 @@ export function builderCmsReconciledSourceValuesJson(args: {
       next[BUILDER_CMS_BODY_SIDECARS_KEY] = bodyChange.sidecarsJson;
     }
   }
-  const requestData = args.plan.payload.request.body.data;
+  const requestBody = args.plan.payload.request.body;
+  if (typeof requestBody.name === "string") {
+    next[BUILDER_CMS_ENTRY_NAME_KEY] = requestBody.name;
+  }
+  const requestData = requestBody.data;
   if (
     requestData &&
     typeof requestData === "object" &&
     !Array.isArray(requestData)
   ) {
+    const requestBlocks = (requestData as Record<string, unknown>).blocks;
+    if (Array.isArray(requestBlocks)) {
+      next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = requestBlocks.length;
+    }
     for (const [fieldName, value] of Object.entries(requestData)) {
       if (fieldName === "blocks") continue;
       const sourceFieldKey = `data.${fieldName}`;
@@ -467,13 +537,36 @@ export function builderCmsReconciledSourceValuesJson(args: {
           "@builder.io/core:Reference" &&
         typeof (value as Record<string, unknown>).id === "string"
       ) {
-        next[`__agent_native_builder_reference_id:${sourceFieldKey}`] = (
+        next[builderCmsReferenceIdKey(sourceFieldKey)] = (
           value as Record<string, unknown>
         ).id as string;
       }
     }
   }
-  return JSON.stringify(next);
+  const livePreflight = args.plan.payload.livePreflight;
+  // An autosave response stored before live reads were recorded carries no
+  // live values, so it leaves the unpublished-changes record as it was.
+  if (!livePreflight && args.plan.payload.effect === "autosave") {
+    return JSON.stringify(next);
+  }
+  const written = builderCmsWrittenSourceFields(args.plan.payload.request);
+  return JSON.stringify(
+    withBuilderCmsUnpublishedChanges(
+      next,
+      builderCmsUnpublishedChangesAfterWrite({
+        existing,
+        effect: args.plan.payload.effect,
+        writtenFieldKeys: written.fieldKeys,
+        wroteBody: written.wroteBody,
+        live: {
+          values: livePreflight?.values ?? null,
+          blocksHash: livePreflight?.blocksHash ?? null,
+          bodyEmpty: livePreflight?.bodyEmpty === true,
+          lastUpdated: livePreflight?.lastUpdated ?? null,
+        },
+      }),
+    ),
+  );
 }
 
 function sourceRowForChangeSet(
@@ -491,7 +584,7 @@ function sourceRowForChangeSet(
 
 function requiresLivePreflight(effect: BuilderCmsExecutionPayload["effect"]) {
   return (
-    effect === "autosave" ||
+    isBuilderCmsUnpublishedSaveEffect(effect) ||
     effect === "update_in_place" ||
     effect === "publish" ||
     effect === "unpublish"
@@ -537,7 +630,10 @@ function livePreflightBlockMessage(args: {
   liveState: BuilderCmsEntryLiveState;
   baselineLastUpdated: string | null;
   baselineBlocksHash: string | null;
+  baselineValues: Record<string, DocumentPropertyValue> | undefined;
   effect: BuilderCmsExecutionPayload["effect"];
+  request: BuilderCmsExecutionPayload["request"];
+  fieldLabel: (sourceFieldKey: string) => string;
 }) {
   if (!args.liveState.exists) {
     return "Builder entry no longer exists; refresh the source.";
@@ -550,23 +646,95 @@ function livePreflightBlockMessage(args: {
   if (toEpochMs(args.liveState.lastUpdated) === null) {
     return "Builder did not report when this entry last changed; refresh and re-review.";
   }
+  // An autosave records the live values it saves over, so it cannot run
+  // without them.
+  if (
+    isBuilderCmsUnpublishedSaveEffect(args.effect) &&
+    !args.liveState.values
+  ) {
+    return "Builder did not return this entry's current values; refresh and re-review.";
+  }
+  const unpublished = readBuilderCmsUnpublishedChanges(args.baselineValues);
+  const savedOver =
+    unpublished.state === "pending" ? unpublished.changes : null;
+  // A Builder value Content saved unpublished changes over is still the one
+  // this edit was made against.
+  const fieldStillReviewed = (
+    key: string,
+    liveValues: Record<string, DocumentPropertyValue>,
+  ) =>
+    builderCmsSourceFieldMatches({
+      key,
+      values: liveValues,
+      expected: args.baselineValues,
+    }) ||
+    (!!savedOver &&
+      (Object.prototype.hasOwnProperty.call(savedOver.liveValues, key) ||
+        Object.prototype.hasOwnProperty.call(
+          savedOver.liveValues,
+          builderCmsReferenceIdKey(key),
+        )) &&
+      builderCmsSourceFieldMatches({
+        key,
+        values: liveValues,
+        expected: savedOver.liveValues,
+      }));
   if (
     liveTimestampsDiffer({
       liveLastUpdated: args.liveState.lastUpdated,
       baselineLastUpdated: args.baselineLastUpdated,
     })
   ) {
-    return "Builder entry changed since this diff was approved; refresh and re-review.";
+    // A save sends only the fields it changes, so an edit elsewhere in the
+    // entry is no conflict. Publication changes still need a fresh review.
+    const fieldLevel =
+      isBuilderCmsUnpublishedSaveEffect(args.effect) ||
+      args.effect === "update_in_place";
+    const liveValues = args.liveState.values;
+    const written = builderCmsWrittenSourceFields(args.request);
+    // The body check below skips a missing hash, which is only safe while
+    // the timestamps still vouch for the body.
+    const bodyUnverifiable =
+      written.wroteBody &&
+      (!args.baselineBlocksHash || !args.liveState.blocksHash);
+    if (!fieldLevel || !liveValues || bodyUnverifiable) {
+      return "Builder entry changed since this diff was approved; refresh and re-review.";
+    }
+    const changedFields = written.fieldKeys.filter(
+      (key) => !fieldStillReviewed(key, liveValues),
+    );
+    if (changedFields.length > 0) {
+      return `${changedFields.map(args.fieldLabel).join(", ")} changed in Builder since you edited it; refresh and re-review.`;
+    }
   }
   if (
     args.baselineBlocksHash &&
     args.liveState.blocksHash &&
-    args.baselineBlocksHash !== args.liveState.blocksHash
+    args.liveState.blocksHash !== args.baselineBlocksHash &&
+    args.liveState.blocksHash !== savedOver?.liveBlocksHash
   ) {
     return "Builder body changed since this diff was approved; refresh and re-review.";
   }
+  // An update in place lands in whatever state the entry is in now, so a
+  // publish or unpublish in Builder would change what was approved.
+  if (args.effect === "update_in_place") {
+    const reviewedPublished = args.baselineValues?.published;
+    if (typeof reviewedPublished !== "string") {
+      return "This change has no reviewed Builder publication state; refresh and re-review.";
+    }
+    if (args.liveState.published !== reviewedPublished) {
+      return "Builder publication state changed since this diff was approved; refresh and re-review.";
+    }
+  }
   if (
-    args.effect === "publish" &&
+    isBuilderCmsUnpublishedSaveEffect(args.effect) &&
+    args.liveState.published === "archived"
+  ) {
+    return "This entry is archived in Builder; restore it there before saving.";
+  }
+  if (
+    (args.effect === "publish" ||
+      isBuilderCmsUnpublishedSaveEffect(args.effect)) &&
     args.liveState.published !== "draft" &&
     args.liveState.published !== "published"
   ) {
@@ -576,6 +744,87 @@ function livePreflightBlockMessage(args: {
     return "Entry is not currently published.";
   }
   return null;
+}
+
+function builderCmsLivePreflightRecord(args: {
+  liveState: BuilderCmsEntryLiveState;
+  request: BuilderCmsExecutionPayload["request"];
+  checkedAt: string;
+}): BuilderCmsLivePreflight {
+  const liveValues = args.liveState.values;
+  return {
+    checkedAt: args.checkedAt,
+    exists: args.liveState.exists,
+    id: args.liveState.id,
+    published: args.liveState.published,
+    lastUpdated: args.liveState.lastUpdated,
+    blocksHash: args.liveState.blocksHash,
+    bodyEmpty: liveValues?.[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] === 0,
+    hasAutosaves: args.liveState.hasAutosaves ?? null,
+    values: liveValues
+      ? Object.fromEntries(
+          builderCmsWrittenSourceFields(args.request).fieldKeys.flatMap(
+            (key) => {
+              const referenceKey = builderCmsReferenceIdKey(key);
+              return [
+                [
+                  key,
+                  Object.prototype.hasOwnProperty.call(liveValues, key)
+                    ? liveValues[key]
+                    : null,
+                ],
+                ...(Object.prototype.hasOwnProperty.call(
+                  liveValues,
+                  referenceKey,
+                )
+                  ? [[referenceKey, liveValues[referenceKey]]]
+                  : []),
+              ];
+            },
+          ),
+        )
+      : null,
+  };
+}
+
+/**
+ * A draft save sends no published field, so an entry published after the
+ * live check takes the change live; the summary says so rather than "saved".
+ */
+function builderExecutionSucceededSummary(args: {
+  pushMode: string;
+  effect: BuilderCmsExecutionPayload["effect"];
+  writeResult: BuilderCmsWriteResult;
+  executionId: string;
+  changeSetId: string;
+}) {
+  const draftSaveWentLive =
+    args.effect === "save_draft" &&
+    builderCmsResponseValue(args.writeResult.responseBody, ["published"]) ===
+      "published";
+  if (!draftSaveWentLive)
+    return `Builder ${args.pushMode} execution succeeded.`;
+  console.warn("builder_source_draft_save_went_live", {
+    executionId: args.executionId,
+    changeSetId: args.changeSetId,
+  });
+  return `Builder ${args.pushMode} execution succeeded. Builder published this entry while Content was saving, so this change is live.`;
+}
+
+function builderSourceFieldLabel(source: ContentDatabaseSource) {
+  return (sourceFieldKey: string) => {
+    if (sourceFieldKey === BUILDER_CMS_ENTRY_NAME_KEY) return "Entry name";
+    const name = sourceFieldKey.replace(/^data\./, "");
+    return (
+      source.metadata.builderModelFields
+        ?.find((field) => field.name.trim() === name)
+        ?.label?.trim() ||
+      source.fields
+        .find((field) => field.sourceFieldKey === sourceFieldKey)
+        ?.sourceFieldLabel?.trim() ||
+      name
+    );
+  };
 }
 
 export function builderCmsReconciledSourceRowPatch(args: {
@@ -667,6 +916,7 @@ async function reconcileBuilderCmsWrite(args: {
       snapshotSourceValues: snapshotRow?.sourceValues,
       changeSet: args.changeSet,
       plan: args.plan,
+      responseBody: args.writeResult.responseBody,
     });
     const patchWithValues = {
       ...patch,
@@ -692,6 +942,16 @@ async function reconcileBuilderCmsWrite(args: {
         "Builder write succeeded, but the local source row was missing.",
       );
     }
+    await writeBuilderStatusValues(tx, {
+      sourceId: args.source.id,
+      rows: [
+        {
+          documentId: row?.documentId ?? args.changeSet.documentId,
+          sourceValues: parseSourceValues(sourceValuesJson),
+        },
+      ],
+      now: args.now,
+    });
 
     await tx
       .update(schema.contentDatabaseSourceFields)
@@ -1735,8 +1995,25 @@ export async function executeBuilderSourceExecutionWithDeps(
       timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
       timing.ensure("write_dispatch");
       const reconciliationStartedAt = timing.start();
+      // The live check may have picked the other unpublished save; the
+      // stored payload says which one Builder received, and what the live
+      // check read before the write.
+      const writtenPayload: BuilderCmsExecutionPayload = {
+        ...validatedPayload,
+        ...(isBuilderCmsUnpublishedSaveEffect(validatedPayload.effect) &&
+        isBuilderCmsUnpublishedSaveEffect(storedPayload.effect) &&
+        storedRequest
+          ? { effect: storedPayload.effect, request: storedRequest }
+          : {}),
+        ...(recordValue(storedPayload.livePreflight)
+          ? {
+              livePreflight:
+                storedPayload.livePreflight as BuilderCmsLivePreflight,
+            }
+          : {}),
+      };
       const payloadWithResponse = executionResponsePayload({
-        payload: validatedPayload,
+        payload: writtenPayload,
         writeResult: storedWriteResult,
       });
       const reconciledAt = deps.now();
@@ -1745,7 +2022,7 @@ export async function executeBuilderSourceExecutionWithDeps(
           database,
           source,
           changeSet,
-          plan,
+          plan: { ...plan, payload: writtenPayload },
           writeResult: storedWriteResult,
           now: reconciledAt,
         });
@@ -1768,7 +2045,13 @@ export async function executeBuilderSourceExecutionWithDeps(
       await deps.markExecutionSucceeded({
         executionId: execution.id,
         changeSetId: changeSet.id,
-        summary: `Builder ${plan.pushMode} execution succeeded.`,
+        summary: builderExecutionSucceededSummary({
+          pushMode: plan.pushMode,
+          effect: writtenPayload.effect,
+          writeResult: storedWriteResult,
+          executionId: execution.id,
+          changeSetId: changeSet.id,
+        }),
         payload: payloadWithResponse,
         now: reconciledAt,
       });
@@ -1841,6 +2124,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         now: deps.now(),
       });
 
+    let writePayload: BuilderCmsExecutionPayload = validatedPayload;
     if (preflightEntryId) {
       // This check runs after the claim so it sits as close to the write as
       // possible. A Builder save that lands after this read and before the
@@ -1851,6 +2135,8 @@ export async function executeBuilderSourceExecutionWithDeps(
         liveState = await deps.readLiveEntry({
           model: plan.payload.target.model,
           entryId: preflightEntryId,
+          fieldPaths: builderCmsWrittenSourceFields(plan.payload.request)
+            .fieldKeys,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
         });
@@ -1895,27 +2181,25 @@ export async function executeBuilderSourceExecutionWithDeps(
         liveBlocksHash: liveState.blocksHash,
         livePublished: liveState.published,
       });
+      const livePreflight = builderCmsLivePreflightRecord({
+        liveState,
+        request: plan.payload.request,
+        checkedAt: now,
+      });
       const message = livePreflightBlockMessage({
         liveState,
         baselineLastUpdated,
         baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+        baselineValues: sourceRowForChangeSet(source, changeSet)?.sourceValues,
         effect: plan.payload.effect,
+        request: plan.payload.request,
+        fieldLabel: builderSourceFieldLabel(source),
       });
       if (message) {
         await releaseClaim({
           state: "blocked",
           summary: `${plan.summary} Execution blocked before write.`,
-          payload: {
-            ...validatedPayload,
-            livePreflight: {
-              checkedAt: now,
-              exists: liveState.exists,
-              published: liveState.published,
-              lastUpdated: liveState.lastUpdated,
-              blocksHash: liveState.blocksHash,
-              id: liveState.id,
-            },
-          },
+          payload: { ...validatedPayload, livePreflight },
           lastError: message,
         });
         fail(message, {
@@ -1923,14 +2207,25 @@ export async function executeBuilderSourceExecutionWithDeps(
           statusCode: 409,
         });
       }
+      writePayload = {
+        ...builderCmsPayloadForLivePublication(
+          validatedPayload,
+          liveState.published,
+        ),
+        livePreflight,
+      };
     }
+    const writePlan: BuilderCmsExecutionPlan = {
+      ...plan,
+      payload: writePayload,
+    };
     timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
 
     let writeResult: BuilderCmsWriteResult;
     try {
       writeResult = await timing.measure("write_dispatch", () =>
         deps.executeWrite({
-          request: plan.payload.request,
+          request: writePayload.request,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
           requireSourceBinding: true,
@@ -1947,7 +2242,7 @@ export async function executeBuilderSourceExecutionWithDeps(
       throw error;
     }
     const payloadWithResponse = executionResponsePayload({
-      payload: validatedPayload,
+      payload: writePayload,
       writeResult,
     });
 
@@ -2023,7 +2318,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         database,
         source,
         changeSet,
-        plan,
+        plan: writePlan,
         writeResult,
         now: succeededAt,
       });
@@ -2044,7 +2339,13 @@ export async function executeBuilderSourceExecutionWithDeps(
     await deps.markExecutionSucceeded({
       executionId: execution.id,
       changeSetId: changeSet.id,
-      summary: `Builder ${plan.pushMode} execution succeeded.`,
+      summary: builderExecutionSucceededSummary({
+        pushMode: plan.pushMode,
+        effect: writePayload.effect,
+        writeResult,
+        executionId: execution.id,
+        changeSetId: changeSet.id,
+      }),
       payload: payloadWithResponse,
       now: succeededAt,
       attemptToken,

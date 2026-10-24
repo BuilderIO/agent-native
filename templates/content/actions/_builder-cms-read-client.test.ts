@@ -151,6 +151,8 @@ describe("Builder CMS read client", () => {
     expect(fields).not.toContain("DATA.BLOCKS");
     expect(fields).not.toContain("data.BlocksString");
     expect(fields).not.toContain("sys.sync_state");
+    // The Builder status reads Builder's own autosave flag from every read.
+    expect(fields).toContain("meta.hasAutosaves");
     expect(fields.filter((field) => field === "data.tags")).toHaveLength(1);
     expect(fields).toContain("published");
     expect(fields).toContain("data.published");
@@ -2598,6 +2600,8 @@ describe("Builder CMS read client", () => {
       lastUpdated: 1_786_000_000_000,
       blocksHash: baselineHash,
       id: "builder-entry-1",
+      values: expect.objectContaining({ "data.title": "Builder title" }),
+      hasAutosaves: null,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     for (const [input] of fetchImpl.mock.calls) {
@@ -2607,6 +2611,58 @@ describe("Builder CMS read client", () => {
       expect(input.searchParams.get("fields")).toContain("data.blocks");
       expect(input.searchParams.get("fields")).toContain("data.blocksString");
     }
+  });
+
+  it("asks the public-key live read for the fields a save writes", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    // Builder leaves out every data field a projected read doesn't name.
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const fields = (input.searchParams.get("fields") ?? "").split(",");
+      const data = {
+        title: "Builder title",
+        blurb: "Builder blurb",
+        blocks: [],
+      };
+      return new Response(
+        JSON.stringify({
+          id: "builder-entry-1",
+          published: "published",
+          lastUpdated: 1_786_000_000_000,
+          data: Object.fromEntries(
+            Object.entries(data).filter(([name]) =>
+              fields.includes(`data.${name}`),
+            ),
+          ),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const live = await readBuilderCmsEntryLiveState({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fieldPaths: ["data.blurb", "__builder.entry.name"],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(live.values).toMatchObject({
+      "data.title": "Builder title",
+      "data.blurb": "Builder blurb",
+      // An empty body Builder returned, which the save records as such.
+      "__builder.body.blockCount": 0,
+    });
+    const fields =
+      fetchImpl.mock.calls[0]![0].searchParams.get("fields")!.split(",");
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        "data.blurb",
+        "data.blocks",
+        "data.blocksString",
+      ]),
+    );
+    expect(fields).not.toContain("__builder.entry.name");
   });
 
   it("hydrates an exact entry through MCP with OAuth-only authorization", async () => {

@@ -500,6 +500,7 @@ export async function getDatabaseMutationContract(
           type,
           writable,
           sourceManaged,
+          systemRole: definition.systemRole ?? null,
           acceptedShape: writable ? acceptedShape(type) : null,
           options: parsePropertyOptions(definition.optionsJson),
         };

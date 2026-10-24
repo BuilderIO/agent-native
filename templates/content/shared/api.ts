@@ -292,7 +292,8 @@ export interface DocumentPropertyDefinition {
 export type DocumentPropertySystemRole =
   | "files_kind"
   | "files_parent"
-  | "files_source";
+  | "files_source"
+  | "builder_status";
 
 /** A linked row of a relation property, resolved for the current viewer. */
 export interface DocumentPropertyRelationTarget {
@@ -705,6 +706,8 @@ export interface ContentDatabaseMutationContract {
     type: DocumentPropertyType;
     writable: boolean;
     sourceManaged: boolean;
+    /** Set on properties Content maintains itself, such as the Builder status. */
+    systemRole: string | null;
     acceptedShape: string | null;
     options: DocumentPropertyOptions;
   }>;
@@ -1780,12 +1783,26 @@ export interface StageBuilderSourceBulkUpdateResponse {
   review: ContentDatabaseSourceReviewPayload | null;
 }
 
-export type BuilderCmsWriteEffect =
-  | "autosave"
-  | "update_in_place"
-  | "create_draft"
-  | "publish"
-  | "unpublish";
+export const BUILDER_CMS_WRITE_EFFECTS = [
+  "autosave",
+  "save_draft",
+  "update_in_place",
+  "create_draft",
+  "publish",
+  "unpublish",
+] as const;
+
+/**
+ * `autosave` saves unpublished changes to a published entry; `save_draft`
+ * saves a draft entry. Neither changes what is live.
+ */
+export type BuilderCmsWriteEffect = (typeof BUILDER_CMS_WRITE_EFFECTS)[number];
+
+export function isBuilderCmsWriteEffect(
+  value: unknown,
+): value is BuilderCmsWriteEffect {
+  return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
+}
 
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;

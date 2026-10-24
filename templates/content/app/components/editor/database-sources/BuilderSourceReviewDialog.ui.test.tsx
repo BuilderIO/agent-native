@@ -202,7 +202,9 @@ describe("BuilderSourceReviewDialog row selection", () => {
 
     const confirmationCta = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("Create draft"));
+    ).find((button) =>
+      button.textContent?.includes("database.builderPushVerbCreateOne"),
+    );
     expect(confirmationCta?.disabled).toBe(false);
     act(() => confirmationCta?.click());
     expect(onValidate).toHaveBeenCalledTimes(2);
@@ -426,8 +428,12 @@ describe("BuilderSourceReviewDialog row selection", () => {
       );
     });
 
-    expect(document.body.textContent).toContain("1 draft to create");
-    expect(document.body.textContent).not.toContain("No changes");
+    expect(document.body.textContent).toContain(
+      'database.builderIntentNewOne:{"count":1}',
+    );
+    expect(document.body.textContent).not.toContain(
+      "database.builderIntentNone",
+    );
     expect(
       document.body
         .querySelector<HTMLButtonElement>('[role="checkbox"]')

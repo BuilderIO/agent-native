@@ -1,24 +1,46 @@
 import { describe, expect, it } from "vitest";
 
+import { messagesByLocale } from "../../../i18n-data";
 import {
   builderReviewDestinationLine,
   builderReviewEffectiveRowEffect,
   builderReviewIntentSummary,
   builderReviewHasUnconfirmedUnpublish,
   builderReviewPublicationTransitionsMap,
+  builderReviewPushVerb,
   builderReviewResultStatus,
   builderReviewRowEffectLabel,
   builderReviewScopedTransitionSelections,
 } from "./BuilderSourceReviewDialog";
 
+function english(message: { key: string; count: number }) {
+  const database = messagesByLocale["en-US"].database as Record<string, string>;
+  return database[message.key].replace("{{count}}", String(message.count));
+}
+
 describe("BuilderSourceReviewDialog publication intent helpers", () => {
   it("labels each write effect in plain language", () => {
     expect(builderReviewRowEffectLabel("create_draft")).toEqual({
-      tag: "New",
-      sentence: "Creates a new draft entry",
+      tagKey: "builderEffectNewTag",
+      sentenceKey: "builderEffectNewSentence",
     });
-    expect(builderReviewRowEffectLabel("update_in_place").tag).toBe("Edit");
-    expect(builderReviewRowEffectLabel("unpublish").tag).toBe("Unpublish");
+    expect(builderReviewRowEffectLabel("update_in_place").tagKey).toBe(
+      "builderEffectEditTag",
+    );
+    expect(builderReviewRowEffectLabel("unpublish").tagKey).toBe(
+      "builderEffectUnpublishTag",
+    );
+    // Saving to a published entry doesn't make it a draft in Builder.
+    expect(builderReviewRowEffectLabel("autosave")).toEqual({
+      tagKey: "builderEffectSaveTag",
+      sentenceKey: "builderEffectAutosaveSentence",
+    });
+    expect(
+      messagesByLocale["en-US"].database.builderEffectAutosaveSentence,
+    ).toBe("Saved, not live until you publish in Builder");
+    expect(
+      messagesByLocale["en-US"].database.builderEffectSaveDraftSentence,
+    ).toBe("Saves the draft");
   });
 
   it("lets a chosen transition override the base effect", () => {
@@ -39,8 +61,12 @@ describe("BuilderSourceReviewDialog publication intent helpers", () => {
   });
 
   it("summarizes per-row intent in plain language, honoring transitions", () => {
+    const summary = (
+      rows: Parameters<typeof builderReviewIntentSummary>[0],
+      selections: Parameters<typeof builderReviewIntentSummary>[1] = {},
+    ) => builderReviewIntentSummary(rows, selections).map(english).join(" · ");
     expect(
-      builderReviewIntentSummary(
+      summary(
         [
           { changeSetId: "change-1", effect: "create_draft" },
           { changeSetId: "change-2", effect: "update_in_place" },
@@ -55,6 +81,40 @@ describe("BuilderSourceReviewDialog publication intent helpers", () => {
         },
       ),
     ).toBe("1 draft to create · 1 to publish · 1 to unpublish");
+    // A save to a published entry isn't a draft, so the footer matches the rows.
+    expect(
+      summary([
+        { changeSetId: "change-1", effect: "autosave" },
+        { changeSetId: "change-2", effect: "save_draft" },
+      ]),
+    ).toBe("2 saves");
+    expect(summary([])).toBe("No changes");
+  });
+
+  it("names the send button for what the selected rows do", () => {
+    const verb = (
+      effects: Parameters<
+        typeof builderReviewPushVerb
+      >[0]["rows"][number]["effect"][],
+      liveWritesEnabled = true,
+    ) =>
+      english(
+        builderReviewPushVerb({
+          rows: effects.map((effect, index) => ({
+            changeSetId: `change-${index}`,
+            effect,
+          })),
+          selections: {},
+          liveWritesEnabled,
+        }),
+      );
+    expect(verb(["autosave", "save_draft"])).toBe("Save 2 to Builder");
+    expect(verb(["autosave"])).toBe("Save to Builder");
+    expect(verb(["create_draft", "create_draft"])).toBe("Create 2 drafts");
+    expect(verb(["autosave", "update_in_place"])).toBe("Push 2 updates");
+    expect(verb(["update_in_place"])).toBe("Push update");
+    expect(verb(["publish", "autosave"])).toBe("Publish");
+    expect(verb(["autosave"], false)).toBe("Check");
   });
 
   it("describes the destination from the dominant effect", () => {
