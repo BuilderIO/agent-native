@@ -152,6 +152,7 @@ function parseStringArray(json: string | null): string[] | null {
     !Array.isArray(parsed) ||
     !parsed.every((item) => typeof item === "string")
   ) {
+    // guard:allow-bare-error — invariant: only create-content-webhook writes this column, from a validated array
     throw new Error("A stored webhook filter is not a list of strings.");
   }
   return parsed;
