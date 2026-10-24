@@ -306,43 +306,52 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
   claimId: string,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
 ): Promise<StoredAgentHarnessSession | null> {
-  const existing = await getAgentHarnessSession(id);
-  if (
-    !existing ||
-    existing.status !== "running" ||
-    existing.followUpClaimId !== claimId
-  ) {
-    return null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await getAgentHarnessSession(id);
+    if (
+      !existing ||
+      existing.status !== "running" ||
+      existing.followUpClaimId !== claimId
+    ) {
+      return null;
+    }
+    try {
+      return await saveAgentHarnessSession({
+        id,
+        harnessName: patch.harnessName ?? existing.harnessName,
+        threadId: patch.threadId ?? existing.threadId,
+        runId: patch.runId ?? existing.runId ?? null,
+        providerSessionId:
+          patch.providerSessionId ?? existing.providerSessionId ?? null,
+        status: patch.status ?? existing.status,
+        resumeState:
+          patch.resumeState !== undefined
+            ? patch.resumeState
+            : existing.resumeState,
+        workspaceRef: patch.workspaceRef ?? existing.workspaceRef ?? null,
+        pendingApproval:
+          patch.pendingApproval !== undefined
+            ? patch.pendingApproval
+            : existing.pendingApproval,
+        resolvedApprovalIds:
+          patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
+        ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
+        orgId: patch.orgId ?? existing.orgId ?? null,
+        followUpClaimId:
+          patch.followUpClaimId !== undefined
+            ? patch.followUpClaimId
+            : existing.followUpClaimId,
+        stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
+        expectedGeneration: existing.generation,
+        existingSession: existing,
+      });
+    } catch (error) {
+      if (!isAgentHarnessSessionConflictError(error) || attempt === 2) {
+        throw error;
+      }
+    }
   }
-  return saveAgentHarnessSession({
-    id,
-    harnessName: patch.harnessName ?? existing.harnessName,
-    threadId: patch.threadId ?? existing.threadId,
-    runId: patch.runId ?? existing.runId ?? null,
-    providerSessionId:
-      patch.providerSessionId ?? existing.providerSessionId ?? null,
-    status: patch.status ?? existing.status,
-    resumeState:
-      patch.resumeState !== undefined
-        ? patch.resumeState
-        : existing.resumeState,
-    workspaceRef: patch.workspaceRef ?? existing.workspaceRef ?? null,
-    pendingApproval:
-      patch.pendingApproval !== undefined
-        ? patch.pendingApproval
-        : existing.pendingApproval,
-    resolvedApprovalIds:
-      patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
-    ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
-    orgId: patch.orgId ?? existing.orgId ?? null,
-    followUpClaimId:
-      patch.followUpClaimId !== undefined
-        ? patch.followUpClaimId
-        : existing.followUpClaimId,
-    stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
-    expectedGeneration: existing.generation,
-    existingSession: existing,
-  });
+  throw new AgentHarnessSessionConflictError(id);
 }
 
 export async function claimAgentHarnessSessionFollowUp(
@@ -361,7 +370,13 @@ export async function claimAgentHarnessSessionFollowUp(
           RETURNING *`,
     args: [claimId, Date.now(), id, expectedGeneration],
   });
-  return rowToHarnessSession(rows[0]);
+  const claimed = rowToHarnessSession(rows[0]);
+  if (claimed) return claimed;
+
+  const current = await getAgentHarnessSession(id);
+  return current?.status === "running" && current.followUpClaimId === claimId
+    ? current
+    : null;
 }
 
 async function updateAgentHarnessSessionWithStatus(

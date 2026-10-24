@@ -25,10 +25,20 @@ import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
+  registerLiveAgentHarnessSession,
+  releaseLiveAgentHarnessSession,
+  sendAgentHarnessFollowUp,
+} from "./harness/lifecycle.js";
+import {
   ensureAgentHarnessSessionTables,
   getAgentHarnessSession,
+  markAgentHarnessSessionStopped,
   saveAgentHarnessSession,
 } from "./harness/store.js";
+import type {
+  AgentHarnessAdapter,
+  AgentHarnessSession,
+} from "./harness/types.js";
 import {
   beginAgentExecutionStep,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
@@ -433,6 +443,114 @@ describe.skipIf(!databaseUrl)(
         );
         expect(persisted).toMatchObject({ status: "running" });
         expect(claimIds).toContain(persisted?.followUpClaimId);
+      });
+    }, 45_000);
+
+    it("aborts a claimed follow-up when an independent worker stops its session", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-session-stop`;
+        await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        let observedSignal: AbortSignal | undefined;
+        let resolveSignalReady!: () => void;
+        const signalReady = new Promise<void>((resolve) => {
+          resolveSignalReady = resolve;
+        });
+        const stop = vi.fn(async () => undefined);
+        const nativeSession: AgentHarnessSession = {
+          id: `${prefix}:native-session`,
+          streamTurn(input) {
+            observedSignal = input.abortSignal;
+            resolveSignalReady();
+            return (async function* () {
+              await new Promise<void>((resolve, reject) => {
+                if (input.abortSignal?.aborted) {
+                  reject(input.abortSignal.reason);
+                  return;
+                }
+                input.abortSignal?.addEventListener("abort", resolve, {
+                  once: true,
+                });
+              });
+              yield { type: "done" };
+            })();
+          },
+          stop,
+        };
+        const adapter: AgentHarnessAdapter = {
+          name: "test",
+          label: "Test",
+          description: "Integration test harness",
+          capabilities: {
+            sandbox: false,
+            resumable: true,
+            approvals: true,
+            hostTools: false,
+            fileEvents: false,
+          },
+          createSession: async () => nativeSession,
+        };
+        registerLiveAgentHarnessSession({
+          sessionId,
+          adapter,
+          session: nativeSession,
+          ownerEmail: "owner@example.com",
+          orgId: prefix,
+        });
+
+        const followUp = sendAgentHarnessFollowUp({
+          runId: `${prefix}:run`,
+          prompt: "wait for a stop from another worker",
+          scope: { ownerEmail: "owner@example.com", orgId: prefix },
+        });
+        try {
+          await signalReady;
+          const stopped = await runWorker(
+            "harness-follow-up-stop",
+            sessionId,
+            "unused",
+            `${prefix}:stop-worker`,
+            "unused",
+            "unused",
+          );
+          expect(stopped.exitCode).toBe(0);
+          expect(
+            workerJson<{ status: string; claimId: string | null }>(stopped),
+          ).toEqual({
+            status: "stopped",
+            claimId: null,
+          });
+          await expect(followUp).resolves.toMatchObject({
+            ok: false,
+            errorCode: "unavailable",
+            session: { status: "stopped" },
+          });
+          expect(observedSignal?.aborted).toBe(true);
+          expect(stop).toHaveBeenCalledOnce();
+        } finally {
+          try {
+            const latest = await withDbExec(executor(sql), () =>
+              getAgentHarnessSession(sessionId),
+            );
+            if (latest?.status === "running") {
+              await withDbExec(executor(sql), () =>
+                markAgentHarnessSessionStopped(sessionId, "stopped"),
+              );
+            }
+            await followUp.catch(() => undefined);
+          } finally {
+            releaseLiveAgentHarnessSession(sessionId, nativeSession);
+          }
+        }
       });
     }, 45_000);
 

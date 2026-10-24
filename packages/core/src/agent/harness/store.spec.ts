@@ -34,6 +34,7 @@ vi.mock("../../db/client.js", () => ({
 const {
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
+  markAgentHarnessSessionStopped,
   saveAgentHarnessSession,
   updateAgentHarnessSessionIfFollowUpClaim,
 } = await import("./store.js");
@@ -97,6 +98,93 @@ describe("agent harness session store", () => {
     ).resolves.toMatchObject({ status: "idle", followUpClaimId: null });
   });
 
+  it("returns the existing claim when admission is retried after commit", async () => {
+    await saveAgentHarnessSession({
+      id: "session-follow-up-claim-retry",
+      harnessName: "fake",
+      threadId: "thread-follow-up-claim-retry",
+      runId: "run-follow-up-claim-retry",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const before = await getAgentHarnessSession(
+      "session-follow-up-claim-retry",
+    );
+
+    const first = await claimAgentHarnessSessionFollowUp(
+      "session-follow-up-claim-retry",
+      before!.generation,
+      "retryable-claim",
+    );
+    const retried = await claimAgentHarnessSessionFollowUp(
+      "session-follow-up-claim-retry",
+      before!.generation,
+      "retryable-claim",
+    );
+
+    expect(retried).toEqual(first);
+    expect(retried).toMatchObject({
+      status: "running",
+      followUpClaimId: "retryable-claim",
+      generation: before!.generation + 1,
+    });
+  });
+
+  it("retries a claim-fenced update after the same claim advances generation", async () => {
+    const id = "session-follow-up-update-retry";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-update-retry",
+      runId: "run-follow-up-update-retry",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const before = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      before!.generation,
+      "same-claim",
+    );
+    const execute = rawClient.execute.getMockImplementation()!;
+    let generationBumped = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      const result = await execute(input);
+      if (
+        !generationBumped &&
+        typeof input !== "string" &&
+        input.sql === "SELECT * FROM agent_harness_sessions WHERE id = ?" &&
+        input.args?.[0] === id
+      ) {
+        generationBumped = true;
+        await pglite.exec(
+          `UPDATE agent_harness_sessions SET generation = generation + 1 WHERE id = '${id}'`,
+        );
+      }
+      return result;
+    });
+
+    try {
+      const updated = await updateAgentHarnessSessionIfFollowUpClaim(
+        id,
+        "same-claim",
+        { pendingApproval: { type: "approval-request", id: "approval-1" } },
+      );
+
+      expect(generationBumped).toBe(true);
+      expect(updated).toMatchObject({
+        status: "running",
+        followUpClaimId: "same-claim",
+        pendingApproval: { id: "approval-1" },
+        generation: claimed!.generation + 2,
+      });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+  });
+
   it("does not claim a session while it has a pending approval", async () => {
     await saveAgentHarnessSession({
       id: "session-pending-approval",
@@ -123,6 +211,33 @@ describe("agent harness session store", () => {
     ).resolves.toMatchObject({
       status: "idle",
       pendingApproval: expect.any(Object),
+    });
+  });
+
+  it("publishes a durable stop by clearing the active follow-up claim", async () => {
+    await saveAgentHarnessSession({
+      id: "session-follow-up-stop",
+      harnessName: "fake",
+      threadId: "thread-follow-up-stop",
+      runId: "run-follow-up-stop",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const stored = await getAgentHarnessSession("session-follow-up-stop");
+    await claimAgentHarnessSessionFollowUp(
+      "session-follow-up-stop",
+      stored!.generation,
+      "claim-to-stop",
+    );
+
+    await markAgentHarnessSessionStopped("session-follow-up-stop", "stopped");
+
+    await expect(
+      getAgentHarnessSession("session-follow-up-stop"),
+    ).resolves.toMatchObject({
+      status: "stopped",
+      followUpClaimId: null,
     });
   });
 });

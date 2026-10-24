@@ -9,6 +9,7 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   getByRunId: vi.fn(),
+  getById: vi.fn(),
   update: vi.fn(),
   updateIfFollowUpClaim: vi.fn(),
   updateAtGeneration: vi.fn(),
@@ -19,6 +20,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./store.js", () => ({
   getAgentHarnessSessionByRunId: mocks.getByRunId,
+  getAgentHarnessSession: mocks.getById,
+  AgentHarnessSessionConflictError: class extends Error {
+    constructor(sessionId: string) {
+      super(`Harness session ${sessionId} changed concurrently.`);
+      this.name = "AgentHarnessSessionConflictError";
+    }
+  },
   isAgentHarnessSessionConflictError: (error: unknown) =>
     error instanceof Error && error.name === "AgentHarnessSessionConflictError",
   updateAgentHarnessSession: mocks.update,
@@ -46,6 +54,7 @@ describe("agent harness lifecycle", () => {
     vi.clearAllMocks();
     stored = storedSession(`session-${Math.random()}`, `run-${Math.random()}`);
     mocks.getByRunId.mockImplementation(async () => stored);
+    mocks.getById.mockImplementation(async () => stored);
     mocks.update.mockImplementation(async (_id, patch) => {
       stored = {
         ...stored,
@@ -141,10 +150,12 @@ describe("agent harness lifecycle", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(session.streamTurn).toHaveBeenCalledWith({
-      prompt: "next task",
-      metadata: undefined,
-    });
+    expect(session.streamTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "next task",
+        metadata: undefined,
+      }),
+    );
     expect(stored.resumeState).toEqual({ token: "next" });
   });
 
@@ -200,6 +211,82 @@ describe("agent harness lifecycle", () => {
       }),
     ).rejects.toThrow("provider stream failed");
 
+    expect(stored.status).toBe("errored");
+  });
+
+  it("retries failed-claim cleanup after a same-claim generation conflict", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      throw new Error("provider stream failed");
+    });
+    register(stored, session);
+    mocks.updateIfFollowUpClaim.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      throw Object.assign(new Error("generation changed"), {
+        name: "AgentHarnessSessionConflictError",
+      });
+    });
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("provider stream failed");
+
+    expect(stored.status).toBe("errored");
+    expect(stored.followUpClaimId).toBeNull();
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("errors and stops its own claim after a finalization generation conflict", async () => {
+    const session = fakeSession([{ type: "text-delta", text: "done" }]);
+    register(stored, session);
+    session.detach.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        status: "running",
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return { token: "next" };
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: { status: "errored", followUpClaimId: null },
+    });
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("delivers error events before failing a follow-up", async () => {
+    const event: AgentHarnessEvent = { type: "error", error: "model failed" };
+    const session = fakeSession([event]);
+    const onHarnessEvent = vi.fn();
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+        onHarnessEvent,
+      }),
+    ).rejects.toThrow("model failed");
+
+    expect(onHarnessEvent).toHaveBeenCalledWith(event);
     expect(stored.status).toBe("errored");
   });
 
@@ -331,6 +418,49 @@ describe("agent harness lifecycle", () => {
 
     finishStream();
     await expect(first).resolves.toMatchObject({ ok: false });
+  });
+
+  it("aborts a follow-up when another worker stops its persisted session", async () => {
+    let observedSignal: AbortSignal | undefined;
+    let releaseStream: (() => void) | undefined;
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* (input: {
+      abortSignal?: AbortSignal;
+    }) {
+      observedSignal = input.abortSignal;
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+      yield { type: "done" };
+    });
+    session.stop.mockImplementation(async () => releaseStream?.());
+    register(stored, session);
+
+    const followUp = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "long running work",
+      scope: ownerScope(),
+    });
+    await vi.waitFor(() => expect(observedSignal).toBeDefined());
+    stored = {
+      ...stored,
+      status: "stopped",
+      followUpClaimId: null,
+      generation: stored.generation + 1,
+      stoppedAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await expect(followUp).resolves.toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: { status: "stopped" },
+    });
+    expect(observedSignal?.aborted).toBe(true);
+    expect(observedSignal?.reason).toMatchObject({
+      name: "AgentHarnessSessionConflictError",
+    });
+    expect(session.stop).toHaveBeenCalledOnce();
   });
 
   it("rehydrates a resumable adapter for a follow-up after restart", async () => {

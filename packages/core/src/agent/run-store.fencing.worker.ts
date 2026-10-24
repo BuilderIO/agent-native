@@ -18,6 +18,7 @@ import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   claimAgentHarnessSessionFollowUp,
   ensureAgentHarnessSessionTables,
+  markAgentHarnessSessionStopped,
 } from "./harness/store.js";
 import type { ActionEntry } from "./production-agent.js";
 import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
@@ -201,6 +202,22 @@ async function main(): Promise<void> {
             claimed: Boolean(claimed),
             generation: claimed?.generation,
             status: claimed?.status,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "harness-follow-up-stop") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const stopped = await markAgentHarnessSessionStopped(
+          threadId,
+          "stopped",
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            status: stopped?.status,
+            claimId: stopped?.followUpClaimId,
           }),
         );
         return;
