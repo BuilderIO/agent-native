@@ -23,6 +23,7 @@ import {
   listAgentSelection,
   registerAgentSelectable,
   registerAgentSelectableSource,
+  reserveAgentSelectContext,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelectRejections,
@@ -262,6 +263,24 @@ describe("context-item round trip", () => {
     expect(toggleAgentSelectable("panel", "p1")).toBe("too-many-items");
     expect(rejections).toEqual(["too-many-items"]);
     expect(isAgentSelectableSelected("panel", "p1")).toBe(false);
+  });
+
+  it("counts the composer's provider context against the limits", () => {
+    for (let index = 0; index < 31; index += 1) {
+      setAgentChatContextItem({
+        key: `chip-${index}`,
+        title: `Chip ${index}`,
+        context: "x",
+      });
+    }
+    registerAgentSelectable(selectable("panel", "p1", null));
+    const release = reserveAgentSelectContext([
+      { key: "design-system", title: "Design system", context: "tokens" },
+    ]);
+
+    expect(toggleAgentSelectable("panel", "p1")).toBe("too-many-items");
+    release();
+    expect(toggleAgentSelectable("panel", "p1")).toBe("added");
   });
 
   it("mirrors the picked objects to application_state", async () => {

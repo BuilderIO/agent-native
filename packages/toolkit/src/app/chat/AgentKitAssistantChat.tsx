@@ -6181,7 +6181,9 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
-              <AgentSelectToggle />
+              <AgentSelectToggle
+                reservedContextItems={composerContext?.contextItems}
+              />
               {props.composerToolbarSlot}
             </>
           }

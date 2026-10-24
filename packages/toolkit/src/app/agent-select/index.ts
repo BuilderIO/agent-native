@@ -10,6 +10,7 @@ export {
   measureAgentSelectElement,
   registerAgentSelectable,
   registerAgentSelectableSource,
+  reserveAgentSelectContext,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelect,
@@ -25,7 +26,10 @@ export {
   type AgentSelectSnapshot,
   type AgentSelectToggleResult,
 } from "./agent-select.js";
-export { AgentSelectToggle } from "./AgentSelectToggle.js";
+export {
+  AgentSelectToggle,
+  type AgentSelectToggleProps,
+} from "./AgentSelectToggle.js";
 export {
   useAgentSelectable,
   useAgentSelectableSelected,

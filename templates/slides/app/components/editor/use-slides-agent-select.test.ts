@@ -86,6 +86,17 @@ describe("Slides Select adapter", () => {
     expect(selectable?.getElement()).toBeNull();
   });
 
+  it("keeps a path pick whose own text was edited", () => {
+    renderDeck();
+    const selectable = slideObjectSelectable(
+      "deck-1",
+      slideNumberOf,
+      document.querySelector("main h1")!,
+    );
+    document.querySelector("main h1")!.textContent = "Quarterly wins";
+    expect(selectable?.getElement()).toBe(document.querySelector("main h1"));
+  });
+
   it("does not rebind a path pick to a neighbour after a sibling is removed", () => {
     renderDeck();
     const slide = document.querySelector<HTMLElement>("main .fmd-slide")!;

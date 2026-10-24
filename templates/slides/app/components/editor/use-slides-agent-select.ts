@@ -106,6 +106,8 @@ export interface SlideObjectIdentity {
   objectId: string | null;
   path: string;
   fingerprint: string;
+  /** Children of the object's parent when picked. */
+  siblingCount: number;
 }
 
 export function slideObjectIdentity(
@@ -116,15 +118,17 @@ export function slideObjectIdentity(
     objectId: element.getAttribute("data-slide-object-id"),
     path: slideObjectPath(element, contentRoot),
     fingerprint: slideObjectFingerprint(element),
+    siblingCount: element.parentElement?.childElementCount ?? 0,
   };
 }
 
 /**
  * The object in a rendered copy of its slide, the main canvas first, found
  * again so a re-render of the slide HTML keeps the pick. A positional path
- * can land on a neighbour once a sibling is removed, so a path match must
- * still look like the picked object; otherwise the object is searched for by
- * its look, and is gone when nothing matches.
+ * can land on a neighbour once a sibling is removed, so the path is trusted
+ * when the node there still looks like the picked object, or when it was
+ * edited in place: same tag and the same number of siblings. Otherwise the
+ * object is searched for by its look, and is gone when nothing matches.
  */
 export function findSlideObject(
   slideId: string,
@@ -159,6 +163,12 @@ export function findSlideObject(
       if (slideObjectFingerprint(candidate) === identity.fingerprint) {
         return candidate;
       }
+    }
+    if (
+      atPath?.tagName === tag &&
+      atPath.parentElement?.childElementCount === identity.siblingCount
+    ) {
+      return atPath;
     }
   }
   return null;
