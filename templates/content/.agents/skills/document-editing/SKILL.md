@@ -175,7 +175,8 @@ Before a version restore, a move to another space, or a `pull-document`, the
 open editors of such a page that can save a title alone are asked to save it;
 its body is already in the live copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409,
 `retryable: true`) means one of them didn't confirm that save or couldn't make
-it, and nothing changed: retry, and if it refuses again, tell the user the open
+it. The restore, move or pull didn't go ahead, and titles the editors saved
+stay saved: retry, and if it refuses again, tell the user the open
 editor of page `details.documentId` didn't save its title. A move to another
 space refuses with `PAGE_TITLE_CHANGED` (409, `retryable: true`) when a page's
 title changed after its editors saved it; nothing moved, so retry. When editors

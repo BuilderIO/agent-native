@@ -184,7 +184,7 @@ describe("Content agent chat plugin", () => {
   it("lets a refused title save stop the chat-start version, for core to report", async () => {
     const refused = Object.assign(
       new Error(
-        "An open editor didn't confirm in time that it saved the title of page document-1. Nothing changed; try again.",
+        "An open editor didn't confirm in time that it saved the title of page document-1. The request didn't go ahead, and any titles the open editors saved stay saved. Try again.",
       ),
       { errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED" },
     );

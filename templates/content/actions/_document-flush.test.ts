@@ -1516,7 +1516,9 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect(await settle()).toMatchObject({
         error: {
           errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-          message: expect.stringContaining("Nothing changed; try again."),
+          message: expect.stringContaining(
+            "The request didn't go ahead, and any titles the open editors saved stay saved.",
+          ),
           details: { reason: "timeout" },
         },
       });
@@ -1830,6 +1832,10 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect(await saving(["doc-1", "doc-2"])).toMatchObject({
         error: {
           errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          // doc-1 saved its title, so the refusal must not say nothing changed.
+          message: expect.stringContaining(
+            "The request didn't go ahead, and any titles the open editors saved stay saved.",
+          ),
           details: {
             documentId: "doc-2",
             reason: "editor_error",

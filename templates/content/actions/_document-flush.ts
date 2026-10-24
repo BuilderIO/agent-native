@@ -170,14 +170,17 @@ function titleNotSavedMessage(
   }
 }
 
-/** Nothing has been written when this is thrown, so the caller can retry. */
+/**
+ * The caller has written nothing when this is thrown, so it can retry. Titles
+ * the open editors saved meanwhile stay saved: they're the editors' own edits.
+ */
 function titleNotSaved(
   documentId: string,
   reason: OpenEditorTitleNotSavedReason,
   extra: { code?: string; cause?: unknown } = {},
 ) {
   return new ActionContractError(
-    `${titleNotSavedMessage(documentId, reason)} Nothing changed; try again.`,
+    `${titleNotSavedMessage(documentId, reason)} The request didn't go ahead, and any titles the open editors saved stay saved. Try again.`,
     {
       errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
       statusCode: 409,
