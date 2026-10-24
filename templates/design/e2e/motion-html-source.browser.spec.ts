@@ -540,6 +540,33 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       await expect(frame.locator("main style")).toHaveCount(1);
     });
 
+    const runtimeSiblingSelectorSource = source.replace(
+      "<head>",
+      `<head><style>main > section:nth-child(1) { opacity: 0 !important; }</style>`,
+    );
+    expect(runtimeSiblingSelectorSource).not.toBe(source);
+    await rejectUnsafeSource(
+      runtimeSiblingSelectorSource,
+      "runtime HTML state can change CSS",
+    );
+
+    const filteredSelectorSource = source
+      .replace(
+        "<head>",
+        `<head><style>main > section:nth-child(1 of :lang(en)) { opacity: 0 !important; }</style>`,
+      )
+      .replace('@click="open = !open"', "")
+      .replace('id="alpine-toggle"', 'id="alpine-toggle" lang="fr"')
+      .replace(
+        `id="${nodeId}" data-agent-native-node-id="${nodeId}"`,
+        `id="${nodeId}" lang="en" data-agent-native-node-id="${nodeId}"`,
+      );
+    expect(filteredSelectorSource).not.toBe(source);
+    await rejectUnsafeSource(
+      filteredSelectorSource,
+      "runtime HTML state can change CSS",
+    );
+
     const importantInlineAnimationSource = source.replace(
       `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open"`,
       `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open" style="opacity: 0 !important"`,
