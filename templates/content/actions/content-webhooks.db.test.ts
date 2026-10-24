@@ -59,6 +59,7 @@ let hooks: typeof import("./_content-webhooks.js");
 let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
 let getDatabase: typeof import("./get-content-database.js").default;
+let getDocument: typeof import("./get-document.js").default;
 let createRow: typeof import("./add-database-item.js").default;
 let updateRow: typeof import("./update-database-item.js").default;
 let patchRows: typeof import("./patch-database-items.js").default;
@@ -85,6 +86,7 @@ beforeAll(async () => {
   configureProperty = (await import("./configure-document-property.js"))
     .default;
   getDatabase = (await import("./get-content-database.js")).default;
+  getDocument = (await import("./get-document.js")).default;
   createRow = (await import("./add-database-item.js")).default;
   updateRow = (await import("./update-database-item.js")).default;
   patchRows = (await import("./patch-database-items.js")).default;
@@ -685,5 +687,322 @@ describe("content webhooks", () => {
         ),
       );
     expect(stored).toEqual([]);
+  });
+});
+
+describe("property generations", () => {
+  async function readItem(databaseId: string, itemId: string) {
+    const response = await asOwner(() =>
+      getDatabase.run({ databaseId, limit: 500 }),
+    );
+    if (!("items" in response)) throw new Error("Collection has no rows.");
+    return response.items.find((item) => item.id === itemId)!;
+  }
+
+  async function storedValue(documentId: string, propertyId: string) {
+    const [row] = await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, documentId),
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+        ),
+      );
+    return row ? JSON.parse(row.valueJson) : undefined;
+  }
+
+  const setTurn = (
+    ids: Awaited<ReturnType<typeof fixture>>,
+    value: string,
+    expectedGeneration?: number,
+  ) =>
+    asOwner(() =>
+      setProperty.run({
+        documentId: ids.rows[0].documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value,
+        ...(expectedGeneration === undefined ? {} : { expectedGeneration }),
+      }),
+    );
+
+  it("goes up on every change, A to B to A included, and reads and events carry it", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+        propertyIds: [ids.properties.turn],
+      }),
+    );
+    const before = await readItem(ids.databaseId, row.itemId);
+    const start = before.propertyGenerations![ids.properties.turn];
+    expect(start).toBeGreaterThan(0);
+    expect(Object.keys(before.propertyGenerations!)).toEqual(
+      expect.arrayContaining(Object.values(ids.properties)),
+    );
+    expect(Object.keys(before.propertyGenerations!)).toHaveLength(3);
+    const page = await asOwner(() =>
+      getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
+    );
+    expect(page.propertyGenerations).toEqual(before.propertyGenerations);
+
+    const toAgent = await setTurn(ids, "agent");
+    const backToAlice = await setTurn(ids, "alice");
+    const unchanged = await setTurn(ids, "alice");
+    expect(toAgent.generation).toBeGreaterThan(start);
+    expect(backToAlice.generation).toBeGreaterThan(toAgent.generation);
+    expect(unchanged.generation).toBe(backToAlice.generation);
+
+    // The row revision hashes values, so it can't tell A from A → B → A.
+    const after = await readItem(ids.databaseId, row.itemId);
+    expect(after.rowRevision).toBe(before.rowRevision);
+    expect(after.propertyGenerations![ids.properties.turn]).toBe(
+      backToAlice.generation,
+    );
+    expect(after.propertyGenerations![ids.properties.notes]).toBe(
+      before.propertyGenerations![ids.properties.notes],
+    );
+
+    await settled(webhook.id, 2);
+    expect(
+      eventsFor(webhook.id).map((request) => [
+        request.event.data.newValue,
+        request.event.data.generation,
+      ]),
+    ).toEqual([
+      ["agent", toAgent.generation],
+      ["alice", backToAlice.generation],
+    ]);
+  });
+
+  it("set-document-property with a stale expectedGeneration writes nothing", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const read = (await readItem(ids.databaseId, row.itemId))
+      .propertyGenerations![ids.properties.turn];
+    await setTurn(ids, "agent");
+    const current = (await setTurn(ids, "alice")).generation;
+
+    // A finish computed from the first read must not land on the new turn.
+    await expect(setTurn(ids, "agent", read)).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+      statusCode: 409,
+      details: {
+        documentId: row.documentId,
+        conflicts: [
+          { propertyId: ids.properties.turn, expected: read, current },
+        ],
+      },
+    });
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      "alice",
+    );
+
+    const written = await setTurn(ids, "agent", current);
+    expect(written.generation).toBeGreaterThan(current);
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      "agent",
+    );
+  });
+
+  it("a cleared value can't make an old generation current again", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const configured = await asOwner(() =>
+      configureProperty.run({
+        documentId: ids.databaseDocumentId,
+        databaseId: ids.databaseId,
+        name: "Owner",
+        type: "text",
+      }),
+    );
+    const owner = configured.properties.find(
+      (candidate) => candidate.definition.name === "Owner",
+    )!.definition.id;
+    const empty = await readItem(ids.databaseId, row.itemId);
+    expect(empty.propertyGenerations![owner]).toBe(0);
+    const notesBefore = empty.propertyGenerations![ids.properties.notes];
+
+    const filled = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Ada",
+      }),
+    );
+    // Clearing a field outright, as a type change or source binding does,
+    // deletes the value row and its generation with it.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, row.documentId),
+          eq(schema.documentPropertyValues.propertyId, owner),
+        ),
+      );
+
+    const cleared = await readItem(ids.databaseId, row.itemId);
+    expect(await storedValue(row.documentId, owner)).toBeUndefined();
+    expect(cleared.propertyGenerations![owner]).toBeGreaterThan(
+      filled.generation,
+    );
+    // The page's other properties move once too: a spare conflict, never a
+    // missed one.
+    expect(cleared.propertyGenerations![ids.properties.notes]).not.toBe(
+      notesBefore,
+    );
+    await expect(
+      asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: owner,
+          value: "Grace",
+          expectedGeneration: 0,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_GENERATION_CONFLICT" });
+    expect(await storedValue(row.documentId, owner)).toBeUndefined();
+
+    const written = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Grace",
+        expectedGeneration: cleared.propertyGenerations![owner],
+      }),
+    );
+    expect(written.generation).toBeGreaterThan(
+      cleared.propertyGenerations![owner],
+    );
+    expect(
+      (await readItem(ids.databaseId, row.itemId)).propertyGenerations![owner],
+    ).toBe(written.generation);
+  });
+
+  it("update-database-item and patch-database-items refuse a stale generation the row revision misses", async () => {
+    const ids = await fixture(2);
+    const [first, second] = ids.rows;
+    const firstRead = await readItem(ids.databaseId, first.itemId);
+    const secondRead = await readItem(ids.databaseId, second.itemId);
+    await setTurn(ids, "agent");
+    await setTurn(ids, "alice");
+
+    const discovered = await contract(ids.databaseId);
+    const update = (key: string, generations: Record<string, number>) =>
+      asOwner(() =>
+        updateRow.run({
+          ...envelope(discovered, key),
+          itemId: first.itemId,
+          documentId: first.documentId,
+          expectedRowRevision: firstRead.rowRevision!,
+          expectedPropertyGenerations: generations,
+          propertyValues: { [ids.properties.notes]: "done" },
+        }),
+      );
+    await expect(
+      update("stale-update", {
+        [ids.properties.turn]:
+          firstRead.propertyGenerations![ids.properties.turn],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+      details: {
+        documentId: first.documentId,
+        conflicts: [{ propertyId: ids.properties.turn }],
+      },
+    });
+    expect(await storedValue(first.documentId, ids.properties.notes)).toBe(
+      "first",
+    );
+
+    const fresh = (await readItem(ids.databaseId, first.itemId))
+      .propertyGenerations!;
+    const updated = await update("fresh-update", {
+      [ids.properties.turn]: fresh[ids.properties.turn],
+    });
+    expect(updated.receipt.readback.propertyValues).toMatchObject({
+      [ids.properties.notes]: "done",
+    });
+    expect(
+      updated.receipt.readback.propertyGenerations![ids.properties.notes],
+    ).toBeGreaterThan(fresh[ids.properties.notes]);
+
+    const firstNow = await readItem(ids.databaseId, first.itemId);
+    const patch = (key: string, secondTurn: number) =>
+      asOwner(async () =>
+        patchRows.run({
+          ...envelope(await contract(ids.databaseId), key),
+          rows: [
+            {
+              itemId: first.itemId,
+              documentId: first.documentId,
+              expectedRowRevision: firstNow.rowRevision!,
+              expectedPropertyGenerations: {
+                [ids.properties.turn]:
+                  firstNow.propertyGenerations![ids.properties.turn],
+              },
+              propertyEntries: [
+                {
+                  propertyId: ids.properties.rank,
+                  propertyType: "number" as const,
+                  value: 20,
+                },
+              ],
+            },
+            {
+              itemId: second.itemId,
+              documentId: second.documentId,
+              expectedRowRevision: secondRead.rowRevision!,
+              expectedPropertyGenerations: {
+                [ids.properties.turn]: secondTurn,
+              },
+              propertyEntries: [
+                {
+                  propertyId: ids.properties.rank,
+                  propertyType: "number" as const,
+                  value: 21,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    await expect(
+      patch(
+        "stale-patch",
+        secondRead.propertyGenerations![ids.properties.turn] + 1,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+      details: {
+        rows: [
+          {
+            index: 1,
+            itemId: second.itemId,
+            documentId: second.documentId,
+            conflicts: [{ propertyId: ids.properties.turn }],
+          },
+        ],
+      },
+    });
+    expect(await storedValue(first.documentId, ids.properties.rank)).toBe(0);
+
+    const patched = await patch(
+      "fresh-patch",
+      secondRead.propertyGenerations![ids.properties.turn],
+    );
+    expect(
+      patched.receipt.rows.map((receipt) =>
+        Object.keys(receipt.readback.propertyGenerations ?? {}),
+      ),
+    ).toEqual([[ids.properties.rank], [ids.properties.rank]]);
+    expect(await storedValue(first.documentId, ids.properties.rank)).toBe(20);
   });
 });

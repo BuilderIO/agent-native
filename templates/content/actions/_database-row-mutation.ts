@@ -59,6 +59,13 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  assertPropertyGenerations,
+  propertyGenerationConflictError,
+  propertyGenerationConflicts,
+  readPropertyGenerations,
+  type PropertyGenerations,
+} from "./_property-generations.js";
 import { nanoid } from "./_property-utils.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
@@ -162,6 +169,8 @@ export interface RowSnapshot {
   item: typeof schema.contentDatabaseItems.$inferSelect;
   document: typeof schema.documents.$inferSelect;
   values: Map<string, string>;
+  /** See _property-generations.ts; a value with no generation yet is 0. */
+  generations: Map<string, number>;
   revision: string;
 }
 
@@ -180,6 +189,7 @@ export interface UpdateDatabaseRowMutationInput extends CreateDatabaseRowMutatio
   itemId: string;
   documentId: string;
   expectedRowRevision: string;
+  expectedPropertyGenerations?: PropertyGenerations;
 }
 
 export interface UpsertDatabaseRowMutationInput extends CreateDatabaseRowMutationInput {
@@ -193,6 +203,7 @@ export interface DatabaseRowPatchInput {
   itemId: string;
   documentId: string;
   expectedRowRevision: string;
+  expectedPropertyGenerations?: PropertyGenerations;
   title?: string;
   propertyEntries?: DatabasePropertyEntry[];
   propertyValues?: Record<string, unknown>;
@@ -857,9 +868,20 @@ export async function rowSnapshots(
     }
     valueMap.set(value.propertyId, value.valueJson);
   }
+  const stored = await readPropertyGenerations(
+    db,
+    found.map((row) => row.item.documentId),
+    { propertyIds: [...revisionPropertyIds] },
+  );
   const snapshots = new Map<string, RowSnapshot>();
   for (const row of found) {
     const valueMap = valuesByDocument.get(row.item.documentId) ?? new Map();
+    const generations = new Map(
+      [...valueMap.keys()].map((propertyId) => [
+        propertyId,
+        stored.of(row.item.documentId, propertyId),
+      ]),
+    );
     const revision = databaseRowRevision({
       itemId: row.item.id,
       documentId: row.item.documentId,
@@ -869,7 +891,12 @@ export async function rowSnapshots(
         value: parsePropertyValue(valueJson),
       })),
     });
-    snapshots.set(row.item.id, { ...row, values: valueMap, revision });
+    snapshots.set(row.item.id, {
+      ...row,
+      values: valueMap,
+      generations,
+      revision,
+    });
   }
   return snapshots;
 }
@@ -1033,6 +1060,7 @@ function resultForReceipt(
           parsePropertyValue(valueJson),
         ]),
       ),
+      propertyGenerations: Object.fromEntries(snapshot.generations),
     },
   };
   return { receipt };
@@ -1294,6 +1322,7 @@ async function updateInsideTransaction(
     itemId: string;
     documentId: string;
     expectedRowRevision: string;
+    expectedPropertyGenerations?: PropertyGenerations;
     title?: string;
     values: Map<string, string>;
   },
@@ -1347,6 +1376,13 @@ async function updateInsideTransaction(
       documentId: args.documentId,
     });
   }
+  // The revision hashes values, so it can't see a value that changed and
+  // changed back; generations can.
+  await assertPropertyGenerations(
+    tx,
+    args.documentId,
+    args.expectedPropertyGenerations,
+  );
   const now = new Date().toISOString();
   const changedValues = [...args.values.entries()].filter(
     ([propertyId, valueJson]) => before.values.get(propertyId) !== valueJson,
@@ -1551,6 +1587,7 @@ export async function updateDatabaseRow(
           itemId: input.itemId,
           documentId: input.documentId,
           expectedRowRevision: input.expectedRowRevision,
+          expectedPropertyGenerations: input.expectedPropertyGenerations,
           title: input.title,
           values,
         },
@@ -1840,6 +1877,7 @@ interface CanonicalRowPatch {
   itemId: string;
   documentId: string;
   expectedRowRevision: string;
+  expectedPropertyGenerations?: PropertyGenerations;
   title?: string;
   propertyValues?: Record<string, unknown>;
   propertyTypeAssertions?: Record<string, string>;
@@ -2268,6 +2306,30 @@ async function patchRowsInsideTransaction(
     unavailable,
     missing ? 404 : 409,
   );
+  const generationConflicts = await propertyGenerationConflicts(
+    tx,
+    rows.map((row) => ({
+      documentId: row.documentId,
+      expected: row.expectedPropertyGenerations,
+    })),
+  );
+  if (generationConflicts.size) {
+    throw propertyGenerationConflictError({
+      rows: rows.flatMap((row, index) => {
+        const conflicts = generationConflicts.get(row.documentId);
+        return conflicts
+          ? [
+              {
+                index,
+                itemId: row.itemId,
+                documentId: row.documentId,
+                conflicts,
+              },
+            ]
+          : [];
+      }),
+    });
+  }
 
   const now = new Date().toISOString();
   const valueUpdates: Array<{
@@ -2447,6 +2509,14 @@ async function patchRowsInsideTransaction(
             .map((propertyId) => [
               propertyId,
               parsePropertyValue(snapshot.values.get(propertyId)!),
+            ]),
+        ),
+        propertyGenerations: Object.fromEntries(
+          [...patch.keys()]
+            .sort()
+            .map((propertyId) => [
+              propertyId,
+              snapshot.generations.get(propertyId) ?? 0,
             ]),
         ),
       },

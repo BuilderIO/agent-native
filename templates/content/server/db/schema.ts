@@ -1047,9 +1047,29 @@ export const documentPropertyValues = table("document_property_values", {
   documentId: text("document_id").notNull(),
   propertyId: text("property_id").notNull(),
   valueJson: text("value_json").notNull().default("null"),
+  /**
+   * Goes up on every change to the value, set by a database trigger from one
+   * shared sequence; NULL until the value first changes. Read it through
+   * _property-generations.ts, which treats NULL as 0.
+   */
+  generation: integer("generation"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+/**
+ * One row per page that has had a property value deleted, holding a
+ * generation from the same sequence as the values. A trigger writes it, so a
+ * cleared value can't make an old generation current again; see
+ * _property-generations.ts.
+ */
+export const documentPropertyValueDeletions = table(
+  "document_property_value_deletions",
+  {
+    documentId: text("document_id").primaryKey(),
+    generation: integer("generation").notNull(),
+  },
+);
 
 export const documentBlockFieldContents = table(
   "document_block_field_contents",

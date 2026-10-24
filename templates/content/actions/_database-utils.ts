@@ -95,6 +95,10 @@ import {
   filesSystemPropertyProjection,
 } from "./_files-system-properties.js";
 import {
+  propertyGenerationsFor,
+  readPropertyGenerations,
+} from "./_property-generations.js";
+import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   parseDatabaseViewConfig,
@@ -1101,6 +1105,8 @@ export async function getContentDatabasePageResponse(
       )!,
     );
   }
+  // Before the values: see readPropertyGenerations.
+  const storedGenerations = await readPropertyGenerations(db, documentIds);
   const [
     favorites,
     shareRows,
@@ -1237,6 +1243,11 @@ export async function getContentDatabasePageResponse(
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      propertyGenerations: propertyGenerationsFor(
+        document.id,
+        propertiesByDocumentId.get(document.id) ?? [],
+        storedGenerations,
+      ),
       rowRevision: databaseRowRevision({
         itemId: item.id,
         documentId: document.id,

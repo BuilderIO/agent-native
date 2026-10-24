@@ -38,6 +38,10 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
+  propertyGenerationsFor,
+  readPropertyGenerations,
+} from "./_property-generations.js";
+import {
   getDatabaseById,
   listPropertiesForDocument,
   serializeDatabase,
@@ -348,6 +352,8 @@ export default defineAction({
             }),
           );
     const bodyHydrationAccess = await readBodyHydrationAccess();
+    // Before the values: see readPropertyGenerations.
+    const storedGenerations = await readPropertyGenerations(db, [doc.id]);
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
@@ -494,6 +500,11 @@ export default defineAction({
             ...property,
             definition: { ...property.definition, databaseId: null },
           })),
+      propertyGenerations: propertyGenerationsFor(
+        doc.id,
+        properties,
+        storedGenerations,
+      ),
       contextPath,
       // The same answer get-preview-document-draft gives, so a page open
       // needs no second request before it can show the page.

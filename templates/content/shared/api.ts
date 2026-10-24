@@ -642,6 +642,12 @@ export interface ContentDatabaseItem {
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
+  /**
+   * Generation of each property, by property ID. It goes up on every change,
+   * A to B to A included; compare for equality only. Pass it back as
+   * expectedPropertyGenerations to write only while the value is unchanged.
+   */
+  propertyGenerations?: Record<string, number>;
   /** Open Comment threads on this row, when it has any the viewer can read. */
   comments?: ContentDatabaseItemComments;
 }
@@ -733,6 +739,8 @@ export interface ContentDatabaseRowMutationReceipt {
     verified: true;
     title: string;
     propertyValues: Record<string, DocumentPropertyValue>;
+    /** Absent on receipts stored before property generations existed. */
+    propertyGenerations?: Record<string, number>;
   };
 }
 
@@ -751,6 +759,8 @@ export interface ContentDatabaseRowPatchReceipt {
     verified: true;
     title?: string;
     propertyValues: Record<string, DocumentPropertyValue>;
+    /** Absent on receipts stored before property generations existed. */
+    propertyGenerations?: Record<string, number>;
   };
 }
 
