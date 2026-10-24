@@ -2921,15 +2921,27 @@ export default function DeckEditor() {
     let cancelled = false;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
     let retryIndex = 0;
-    let refreshInFlight = false;
+    let refreshController: AbortController | undefined;
     const refreshAndEstablishBaseline = async () => {
-      if (cancelled || refreshInFlight || isDocumentHidden()) {
+      if (cancelled || refreshController || isDocumentHidden()) {
         return;
       }
-      refreshInFlight = true;
-      const result = await refreshDeckForGenerationOutcome(refreshOpenDeck, id);
-      refreshInFlight = false;
+      const controller = new AbortController();
+      refreshController = controller;
+      const result = await refreshDeckForGenerationOutcome(
+        refreshOpenDeck,
+        id,
+        Date.now,
+        controller.signal,
+      );
+      if (refreshController !== controller) return;
+      refreshController = undefined;
       if (cancelled) return;
+      if (controller.signal.aborted) {
+        if (!isDocumentHidden()) void refreshAndEstablishBaseline();
+        return;
+      }
+      if (isDocumentHidden()) return;
       if (result.status !== "ready") {
         if (!isDocumentHidden()) {
           retryTimeout = setTimeout(() => {
@@ -3014,6 +3026,7 @@ export default function DeckEditor() {
     };
     const refreshOnVisibilityChange = () => {
       if (isDocumentHidden()) {
+        refreshController?.abort();
         if (retryTimeout !== undefined) {
           clearTimeout(retryTimeout);
           retryTimeout = undefined;
@@ -3030,6 +3043,8 @@ export default function DeckEditor() {
     void refreshAndEstablishBaseline();
     return () => {
       cancelled = true;
+      refreshController?.abort();
+      refreshController = undefined;
       if (retryTimeout !== undefined) clearTimeout(retryTimeout);
       document.removeEventListener(
         "visibilitychange",

@@ -2385,6 +2385,142 @@ describe("DeckEditor generation signal wiring", () => {
     expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["unmount", "resolved context"])(
+    "cancels an unknown snapshot retry after %s",
+    async (cleanupReason) => {
+      vi.useFakeTimers();
+      mocks.broadGenerating = false;
+      mocks.deck.generationContext = {
+        ...mocks.deck.generationContext,
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+        generationFailureSlidesFingerprint: null,
+      } as typeof mocks.deck.generationContext;
+      mocks.refreshOpenDeck.mockResolvedValue(null);
+      router = createMemoryRouter(
+        [{ path: "/deck/:id", element: <DeckEditor /> }],
+        { initialEntries: ["/deck/deck-1"] },
+      );
+      const view = render(<RouterProvider router={router} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+
+      if (cleanupReason === "unmount") {
+        view.unmount();
+      } else {
+        act(() => {
+          Object.assign(mocks.deck.generationContext, {
+            generationFailureSlidesFingerprint:
+              partialGenerationFailureSlidesFingerprint([]),
+          });
+          publishAgentGeneratingChange();
+        });
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+
+      expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("cancels the null retry on hide and retries successfully after visible resume", async () => {
+    vi.useFakeTimers();
+    const setVisibilityState = overrideVisibilityState("visible");
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    mocks.refreshOpenDeck.mockResolvedValue(null);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+
+    setVisibilityState("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+    expect(mocks.flushDeckSave).not.toHaveBeenCalled();
+
+    mocks.refreshOpenDeck
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(mocks.deck);
+    setVisibilityState("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(3);
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureSlidesFingerprint:
+        partialGenerationFailureSlidesFingerprint([]),
+    });
+    expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an aborted read before resuming without saving its stale result", async () => {
+    vi.useFakeTimers();
+    const setVisibilityState = overrideVisibilityState("visible");
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    let finishRefresh!: (deck: typeof mocks.deck) => void;
+    mocks.refreshOpenDeck
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRefresh = resolve;
+          }),
+      )
+      .mockRejectedValue(new Error("refresh unavailable"));
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+
+    setVisibilityState("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    setVisibilityState("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishRefresh(mocks.deck);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(2);
+    expect(mocks.flushDeckSave).not.toHaveBeenCalled();
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationFailureSlidesFingerprint: null,
+    });
+  });
+
   it("keeps checking an unknown snapshot while visible and pauses when hidden", async () => {
     vi.useFakeTimers();
     const setVisibilityState = overrideVisibilityState("hidden");
