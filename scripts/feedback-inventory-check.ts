@@ -5404,19 +5404,25 @@ function userRequestAuthorizesExactRoot(
     `^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+${action}\\b|^\\s*(?:you may|you can|go ahead and)\\s+${action}\\b|^\\s*you have my permission to\\s+${action}\\b`,
     "i",
   );
-  const negationOrCondition =
-    /\b(?:not|never|unless|if|whenever|when|as\s+long\s+as|so\s+long\s+as|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|read[\s-]?only|view[\s-]?only|(?:claim(?:ing)?|reply(?:ing)?)[\s-]*only|only\s+(?:to\s+)?(?:claim(?:ing)?|reply(?:ing)?)|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+  const authorizationLimit =
+    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
-  if (negationOrCondition.test(unquotedRequest)) return false;
-
-  return unquotedRequest
-    .split(/;|\n+|(?<=[.!?])\s+/)
-    .some(
-      (statement) =>
-        (explicitAuthorization.test(statement) ||
-          grantedPermission.test(statement)) &&
-        authorizedRootPairAppears(statement, root),
-    );
+  let searchOffset = 0;
+  return unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/).some((statement) => {
+    const statementStart = unquotedRequest.indexOf(statement, searchOffset);
+    if (statementStart < 0) return false;
+    searchOffset = statementStart + statement.length;
+    if (
+      !(
+        explicitAuthorization.test(statement) ||
+        grantedPermission.test(statement)
+      ) ||
+      !authorizedRootPairAppears(statement, root)
+    ) {
+      return false;
+    }
+    return !authorizationLimit.test(unquotedRequest.slice(statementStart));
+  });
 }
 
 function validateAuthorizedRootTarget(
@@ -17202,6 +17208,14 @@ if (args[0] === "--self-test" && args.length === 1) {
         "I authorize you to work on Slack root C_TEST 10.000000 as long as it is assigned to you.",
       ],
       [
+        "work authorization conditioned on after cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 after it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on once cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 once it is assigned to you.",
+      ],
+      [
         "a later condition cannot qualify held-root authorization",
         "I authorize you to work on Slack root C_TEST 10.000000. Only if it is assigned to you.",
       ],
@@ -17232,6 +17246,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       [
         "trailing reply only qualifier cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000, reply only.",
+      ],
+      [
+        "trailing only after claim cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim it only.",
+      ],
+      [
+        "trailing only after reply cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply to it only.",
+      ],
+      [
+        "just claim qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, just claim it.",
       ],
     ] as const;
     for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
