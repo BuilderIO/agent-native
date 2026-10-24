@@ -1701,6 +1701,28 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
+  it("rejects relational :has() selectors in filtered positional selectors", () => {
+    const source = `<!doctype html><html><head><style>.card > section:nth-child(1 of :has(> p)) { opacity: 0 !important; }</style></head><body><main class="card"><section>Intro</section><section id="hero-title" data-agent-native-node-id="hero-title"><p>Hello</p></section></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects unknown pseudos nested in :not() selectors", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:not(:lang(fr)) { opacity: 0 !important; }</style></head><body><main class="card"><h1 lang="en" id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it.each(["is", "where"])(
     "fails closed for relational selectors inside :%s()",
     (pseudo) => {
