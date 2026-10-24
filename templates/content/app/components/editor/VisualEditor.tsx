@@ -156,6 +156,7 @@ import {
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
+  createContentBlockId,
   LockedSourceComponentBlocks,
   RegistryBlockNode,
 } from "./extensions/registryBlocks";
@@ -3403,22 +3404,28 @@ export function VisualEditor({
       canCommentOnBlocks
         ? (view, pos, offsetTop) => {
             const { doc } = view.state;
-            const block = commentAnchorBlockAt(doc, pos);
             const node = doc.nodeAt(pos);
-            if (!block || !node) return;
+            if (!node) return;
+            const canWrite = view.editable && !suggestingRef.current;
+            // A video whose id another video shares goes by none, so it gets
+            // an id of its own before a thread can point at it.
+            const blockId =
+              commentAnchorBlockAt(doc, pos)?.blockId ??
+              (canWrite ? createContentBlockId("video") : null);
+            if (!blockId) return;
             // A thread names a video saved without an id by its derived id.
             // Writing that down saves the id with the page, so an agent that
             // reads the page finds it instead of minting one that strands it.
-            if (!node.attrs.blockId && view.editable && !suggestingRef.current)
+            if (node.attrs.blockId !== blockId && canWrite)
               view.dispatch(
                 view.state.tr
-                  .setNodeAttribute(pos, "blockId", block.blockId)
+                  .setNodeAttribute(pos, "blockId", blockId)
                   .setMeta("addToHistory", false),
               );
             onBlockCommentRef.current?.(
               {
-                blockId: block.blockId,
-                blockType: block.blockType,
+                blockId,
+                blockType: "video",
                 from: pos,
                 to: pos + node.nodeSize,
               },

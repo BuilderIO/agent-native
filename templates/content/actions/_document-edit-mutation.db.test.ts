@@ -1059,6 +1059,41 @@ describe("revisioned document edit mutation", () => {
     expect(document.content).toBe("beta gamma");
   });
 
+  it("refuses copying a video with its id, and still saves a page that already has such a copy", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const db = getDb();
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    const original = `Intro\n${video("Demo")}`;
+    await db.update(schema.documents).set({ content: original }).where(page);
+    const refused = await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, original),
+      idempotencyKey: "video-copy",
+      edits: [{ find: "Intro", replace: `Intro\n${video("Copy")}` }],
+      ctx,
+    }).catch((error: unknown) => error);
+    expect(refused).toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      statusCode: 422,
+      details: { blockId: "video-original" },
+    });
+    expect(
+      (await db.select().from(schema.documents).where(page))[0].content,
+    ).toBe(original);
+
+    const copied = `Intro\n${video("Copy")}\n${video("Demo")}`;
+    await db.update(schema.documents).set({ content: copied }).where(page);
+    const saved = await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, copied),
+      idempotencyKey: "video-old-copy",
+      edits: [{ find: "Intro", replace: "Opening" }],
+      ctx,
+    });
+    expect(saved.receipt.outcome).toBe("applied");
+  });
+
   it("rejects legacy content drift even when its numeric body revision was not advanced", async () => {
     await getDb()
       .update(schema.documents)

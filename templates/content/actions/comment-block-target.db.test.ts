@@ -35,6 +35,7 @@ let addDatabaseItem: typeof import("./add-database-item.js").default;
 let setDocumentProperty: typeof import("./set-document-property.js").default;
 let addComment: typeof import("./add-comment.js").default;
 let listComments: typeof import("./list-comments.js").default;
+let createDocument: typeof import("./create-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -50,6 +51,7 @@ beforeAll(async () => {
   setDocumentProperty = (await import("./set-document-property.js")).default;
   addComment = (await import("./add-comment.js")).default;
   listComments = (await import("./list-comments.js")).default;
+  createDocument = (await import("./create-document.js")).default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60000);
 
@@ -260,6 +262,29 @@ describe("add-comment with blockId", () => {
     });
   });
 
+  it("tells an agent to give one of two videos that share an id a new one", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "block-shared",
+        ownerEmail: OWNER,
+        title: "Clips",
+        content: [
+          `<video src="${LEGACY}" id="video-shared01"></video>`,
+          `<video src="${SAVED}" id="video-shared01"></video>`,
+        ].join("\n"),
+      });
+    expect(
+      await rejection(
+        byAgent({
+          documentId: "block-shared",
+          content: "Which one?",
+          blockId: "video-shared01",
+        }),
+      ),
+    ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
+  });
+
   it("tells an agent when no block has that id", async () => {
     const page = await seedPage("block-missing");
     expect(
@@ -411,5 +436,43 @@ describe("add-comment with blockId", () => {
         }),
       ),
     ).toEqual({ statusCode: 400, errorCode: "comment_block_not_found" });
+
+    const write = (value: string, ctx?: unknown) =>
+      as(() =>
+        (setDocumentProperty as any).run(
+          { documentId: row, databaseId, propertyId: notesId, value },
+          ctx,
+        ),
+      );
+    const copied = `Tab notes\n<video src="${SAVED}" id="video-innotes"></video>\n<video src="${LEGACY}" id="video-innotes"></video>`;
+    expect(await rejection(write(copied))).toEqual({
+      statusCode: 422,
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+    });
+    await write(copied, { caller: "frontend" });
+    expect(
+      await rejection(
+        byAgent({
+          documentId: row,
+          content: "Which one?",
+          fieldId: notesId,
+          blockId: "video-innotes",
+        }),
+      ),
+    ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
+  });
+
+  it("refuses a new page that gives two videos one id", async () => {
+    const video = `<video src="${SAVED}" id="video-twice001"></video>`;
+    expect(
+      await rejection(
+        as(() =>
+          (createDocument as any).run(
+            { title: "Twice", content: `${video}\n${video}` },
+            { caller: "mcp" },
+          ),
+        ),
+      ),
+    ).toEqual({ statusCode: 422, errorCode: "DOCUMENT_VIDEO_ID_SHARED" });
   });
 });

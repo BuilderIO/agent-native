@@ -192,9 +192,10 @@ async function commentTargetDoc(
 
 /**
  * The type of the block a new thread is on. An agent names a block it read
- * from the saved page, so a block that isn't there is a mistake to report, and
- * so is a video known only by its derived id: that id passes to another video
- * when videos with its source are added or reordered outside an editor. A
+ * from the saved page, so a block that isn't there is a mistake to report, as
+ * is an id more than one video goes by, which names none of them, and a video
+ * known only by its derived id: that id passes to another video when videos
+ * with its source are added or reordered outside an editor. A
  * person's editor can be ahead of the save, so their thread is kept as they
  * started it, and shows as unanchored if the block never arrives.
  */
@@ -205,14 +206,21 @@ async function resolveCommentBlockType(args: {
   strict: boolean;
 }): Promise<CommentAnchorBlockType> {
   const found = nfmCommentAnchorBlocks(args.target).get(args.blockId);
-  if (found && (found.saved || !args.strict)) return found.blockType;
-  if (!args.strict && args.blockType) return args.blockType;
-  if (found) {
+  if (!args.strict && (found || args.blockType))
+    return found?.blockType ?? args.blockType!;
+  if (found?.shared) {
+    fail(
+      "More than one video on this Page has that id, so a thread on it would show on none of them; give the video you mean a new unique id with edit-document, then comment with that id",
+      { statusCode: 400, errorCode: "comment_block_id_shared" },
+    );
+  }
+  if (found && !found.saved) {
     fail(
       "That video has no id saved in the page yet; give its <video> tag a new unique id with edit-document, then comment with that id",
       { statusCode: 400, errorCode: "comment_block_id_unsaved" },
     );
   }
+  if (found) return found.blockType;
   fail(
     "No block with that ID is on this Page; read its id from get-document's content",
     { statusCode: 400, errorCode: "comment_block_not_found" },

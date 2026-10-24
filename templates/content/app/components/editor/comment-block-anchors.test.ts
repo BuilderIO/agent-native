@@ -19,6 +19,7 @@ import zhTW from "@/i18n/zh-TW";
 
 import { resolveAnchor } from "./comment-anchors";
 import {
+  commentAnchorBlockAt,
   commentThreadAt,
   commentThreadHoverHandlers,
   LEGACY_VIDEO_COMMENT_QUOTES,
@@ -81,6 +82,32 @@ describe("the block a thread is on", () => {
 
   it("leaves a thread on the word Video in the text where it is", () => {
     expect(threadCommentBlock(page, { ...legacy, startOffset: 0 })).toBeNull();
+  });
+
+  const video = (blockId: string | null, src = "https://example.com/a.mp4") =>
+    schema.node("video", { src, blockId });
+
+  it("puts a thread on an id two videos share on neither, whichever is first", () => {
+    const copied = schema.node("doc", null, [
+      video("video-only001", "https://example.com/b.mp4"),
+      ...page.children,
+    ]);
+    const thread = { block: { blockId: "video-only001" } };
+    expect(threadCommentBlock(copied, thread as never)).toBeNull();
+    expect(commentAnchorBlockAt(copied, 0)).toBeNull();
+    const unique = schema.node("doc", null, [...page.children]);
+    expect(threadCommentBlock(unique, thread as never)?.blockId).toBe(
+      "video-only001",
+    );
+  });
+
+  it("puts an older thread on no video when the page has more than one, though only one goes by its own id", () => {
+    const twoVideos = schema.node("doc", null, [
+      ...page.children,
+      video("video-only001"),
+      video("video-other01"),
+    ]);
+    expect(threadCommentBlock(twoVideos, legacy)).toBeNull();
   });
 
   it("keeps a thread add-comment starts on the word Video on that word", () => {

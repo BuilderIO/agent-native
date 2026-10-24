@@ -1,6 +1,6 @@
 import type { useT } from "@agent-native/core/client/i18n";
 import {
-  commentAnchorBlockNamer,
+  commentAnchorBlockNames,
   isCommentAnchorBlockType,
   type CommentAnchorBlockType,
 } from "@shared/comment-block-anchor";
@@ -25,6 +25,9 @@ export type CommentBlockTarget = {
 type AnchorBlocks = {
   byId: Map<string, CommentAnchorBlock>;
   byPos: Map<number, CommentAnchorBlock>;
+  /** Ids more than one block goes by, which name none of them. */
+  shared: Set<string>;
+  videos: number;
 };
 
 const anchorBlocksByDoc = new WeakMap<ProseMirrorNode, AnchorBlocks>();
@@ -32,18 +35,34 @@ const anchorBlocksByDoc = new WeakMap<ProseMirrorNode, AnchorBlocks>();
 function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
   const known = anchorBlocksByDoc.get(doc);
   if (known) return known;
-  const blocks: AnchorBlocks = { byId: new Map(), byPos: new Map() };
-  const name = commentAnchorBlockNamer();
+  const blocks: AnchorBlocks = {
+    byId: new Map(),
+    byPos: new Map(),
+    shared: new Set(),
+    videos: 0,
+  };
+  const found: {
+    type: CommentAnchorBlockType;
+    attrs: ProseMirrorNode["attrs"];
+    pos: number;
+  }[] = [];
   doc.descendants((node, pos) => {
     const type = node.type.name;
     if (!isCommentAnchorBlockType(type)) return true;
-    const blockId = name(type, node.attrs);
-    if (blockId) {
-      const block = { blockId, blockType: type, pos };
-      blocks.byId.set(blockId, block);
-      blocks.byPos.set(pos, block);
-    }
+    found.push({ type, attrs: node.attrs, pos });
+    if (type === "video") blocks.videos++;
     return false;
+  });
+  commentAnchorBlockNames(found).forEach(({ id, holders }, index) => {
+    if (!id) return;
+    if (holders > 1) return void blocks.shared.add(id);
+    const block = {
+      blockId: id,
+      blockType: found[index].type,
+      pos: found[index].pos,
+    };
+    blocks.byId.set(id, block);
+    blocks.byPos.set(block.pos, block);
   });
   anchorBlocksByDoc.set(doc, blocks);
   return blocks;
@@ -60,6 +79,12 @@ export function commentAnchorBlockById(doc: ProseMirrorNode, blockId: string) {
 
 export function commentAnchorBlockList(doc: ProseMirrorNode) {
   return [...anchorBlocks(doc).byId.values()];
+}
+
+export function sharedCommentAnchorBlockIds(
+  doc: ProseMirrorNode,
+): ReadonlySet<string> {
+  return anchorBlocks(doc).shared;
 }
 
 /**
@@ -99,10 +124,11 @@ export function threadCommentBlock(
     thread.startOffset != null
   )
     return null;
-  const videos = commentAnchorBlockList(doc).filter(
-    (block) => block.blockType === "video",
+  if (anchorBlocks(doc).videos !== 1) return null;
+  return (
+    commentAnchorBlockList(doc).find((block) => block.blockType === "video") ??
+    null
   );
-  return videos.length === 1 ? videos[0] : null;
 }
 
 /**

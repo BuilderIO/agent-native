@@ -386,6 +386,46 @@ describe("VisualEditor comment highlights", () => {
       expect(ids).toEqual([derived]);
     });
 
+    it("gives a video an id of its own before a comment on it, when another video shares its id", async () => {
+      const onBlockComment = vi.fn();
+      const shared = `<video src="${VIDEO}" id="video-shared01"></video>`;
+      await act(async () =>
+        render(
+          `Intro.\n${shared}\n${shared}`,
+          [onVideo("old", "video-shared01")],
+          "seed",
+          true,
+          {
+            onBlockComment,
+          },
+        ),
+      );
+      await settle();
+      expect(marked("old"), "on neither video").toBeNull();
+
+      const buttons = container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnVideo"]',
+      );
+      await act(async () => buttons[1]!.click());
+
+      const editor = (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+      const ids: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "video") ids.push(node.attrs.blockId);
+      });
+      expect(ids[0]).toBe("video-shared01");
+      expect(ids[1]).toMatch(/^video-/);
+      expect(ids[1]).not.toBe("video-shared01");
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({ blockId: ids[1], blockType: "video" }),
+        expect.any(Number),
+      );
+    });
+
     it("anchors an old video comment to the page's only video", async () => {
       await act(async () =>
         render(`Video notes.\n<video src="${VIDEO}"></video>`, [legacy("old")]),

@@ -20,10 +20,10 @@ describe("comment anchor blocks", () => {
       ),
     );
     expect([...blocks]).toEqual([
-      ["video-saved01", { blockType: "video", saved: true }],
+      ["video-saved01", { blockType: "video", saved: true, shared: false }],
       [
         derivedVideoBlockId("https://example.com/b.mp4", 0),
-        { blockType: "video", saved: false },
+        { blockType: "video", saved: false, shared: false },
       ],
     ]);
   });
@@ -49,17 +49,21 @@ describe("comment anchor blocks", () => {
     ]);
   });
 
-  it("gives a copied id to its first block only", () => {
+  it("marks an id two blocks go by as shared, whichever comes first", () => {
+    const derived = derivedVideoBlockId("https://example.com/a.mp4", 0);
     const blocks = nfmCommentAnchorBlocks(
       nfmToDoc(
         L(
-          '<video src="https://example.com/a.mp4" id="video-same0001">First</video>',
           '<video src="https://example.com/b.mp4" id="video-same0001">Copy</video>',
+          '<video src="https://example.com/a.mp4"></video>',
+          '<video src="https://example.com/a.mp4" id="video-same0001">Original</video>',
+          `<video src="https://example.com/c.mp4" id="${derived}"></video>`,
         ),
       ),
     );
     expect([...blocks]).toEqual([
-      ["video-same0001", { blockType: "video", saved: true }],
+      ["video-same0001", { blockType: "video", saved: true, shared: true }],
+      [derived, { blockType: "video", saved: false, shared: true }],
     ]);
   });
 
@@ -140,6 +144,18 @@ describe("keeping video ids through a copy that has none", () => {
         keepVideoBlockIds(sections, L("Outro", video(""), "Intro", video(""))),
       ),
     ).toEqual(["video-second", "video-first"]);
+  });
+
+  it("gives no video an id other videos share, since nothing says whose it is", () => {
+    const shared = L(
+      video("Copy", "video-shared"),
+      video("Original", "video-shared"),
+    );
+    const kept = ids(
+      keepVideoBlockIds(shared, L(video("Copy"), video("Original"))),
+    );
+    expect(kept).toHaveLength(2);
+    expect(kept).not.toContain("video-shared");
   });
 
   it("keeps identical videos' ids in order when nothing around them moved", () => {

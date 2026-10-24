@@ -40,33 +40,50 @@ export function derivedVideoBlockId(src: string, occurrence: number) {
 }
 
 /**
- * Names anchorable blocks visited in document order. A saved id names its
- * block; a video without one gets its derived id. When two blocks carry the
- * same id, as a pasted copy does until the editor renumbers it, the first
- * keeps it and the later one gets null.
+ * The id each anchorable block goes by, in document order: its saved id, or
+ * for a video saved without one, its derived id. `holders` counts the blocks
+ * that go by it. An id more than one block goes by names none of them, since
+ * nothing says which one a thread on it meant.
  */
-export function commentAnchorBlockNamer() {
-  const named = new Set<string>();
+export function commentAnchorBlockNames(
+  blocks: readonly {
+    type: CommentAnchorBlockType;
+    attrs?: Record<string, unknown> | null;
+  }[],
+) {
   const sources = new Map<string, number>();
-  return (
-    type: CommentAnchorBlockType,
-    attrs: Record<string, unknown> | null | undefined,
-  ): string | null => {
+  const names = blocks.map(({ type, attrs }) => {
     const src = typeof attrs?.src === "string" ? attrs.src : "";
     const occurrence = sources.get(src) ?? 0;
     sources.set(src, occurrence + 1);
     const saved = typeof attrs?.blockId === "string" ? attrs.blockId : "";
-    const id =
-      saved || (type === "video" ? derivedVideoBlockId(src, occurrence) : "");
-    if (!id || named.has(id)) return null;
-    named.add(id);
-    return id;
+    return {
+      id:
+        saved || (type === "video" ? derivedVideoBlockId(src, occurrence) : ""),
+      saved: !!saved,
+    };
+  });
+  const holders = new Map<string, number>();
+  for (const { id } of names) holders.set(id, (holders.get(id) ?? 0) + 1);
+  return names.map((name) => ({ ...name, holders: holders.get(name.id)! }));
+}
+
+type AnchorBlockNode = PMNode & { type: CommentAnchorBlockType };
+
+function anchorBlocksIn(root: PMNode) {
+  const blocks: AnchorBlockNode[] = [];
+  const walk = (node: PMNode) => {
+    if (isCommentAnchorBlockType(node.type))
+      blocks.push(node as AnchorBlockNode);
+    else node.content?.forEach(walk);
   };
+  walk(root);
+  return blocks;
 }
 
 type PlacedVideo = {
   node: PMNode;
-  /** The id comments use for it, or null for a copy that shares one. */
+  /** The id comments use for it, or null for one it shares with another. */
   id: string | null;
   before: string;
   after: string;
@@ -76,22 +93,24 @@ const textOf = (node: PMNode | undefined): string =>
   node?.text ?? node?.content?.map(textOf).join("") ?? "";
 
 function videosIn(root: PMNode) {
-  const videos: PlacedVideo[] = [];
-  const name = commentAnchorBlockNamer();
+  const blocks: { node: AnchorBlockNode; before: string; after: string }[] = [];
   const walk = (node: PMNode) =>
     node.content?.forEach((child, index, siblings) => {
       if (!isCommentAnchorBlockType(child.type)) return walk(child);
-      const id = name(child.type, child.attrs);
-      if (child.type === "video")
-        videos.push({
-          node: child,
-          id,
-          before: textOf(siblings[index - 1]),
-          after: textOf(siblings[index + 1]),
-        });
+      blocks.push({
+        node: child as AnchorBlockNode,
+        before: textOf(siblings[index - 1]),
+        after: textOf(siblings[index + 1]),
+      });
     });
   walk(root);
-  return videos;
+  const names = commentAnchorBlockNames(blocks.map(({ node }) => node));
+  return blocks.flatMap(({ node, before, after }, index): PlacedVideo[] => {
+    const { id, holders } = names[index];
+    return node.type === "video"
+      ? [{ node, id: id && holders === 1 ? id : null, before, after }]
+      : [];
+  });
 }
 
 const savedVideoId = (video: PMNode) =>
@@ -156,26 +175,40 @@ export function keepVideoBlockIds(
 }
 
 /**
- * Each anchorable block in a saved document, by the id comments use, and
- * whether the page saves that id or it is derived.
+ * Each id anchorable blocks in a saved document go by, with the first block's
+ * type, whether the page saves the id or it is derived, and whether more than
+ * one block goes by it.
  */
 export function nfmCommentAnchorBlocks(root: PMNode) {
   const blocks = new Map<
     string,
-    { blockType: CommentAnchorBlockType; saved: boolean }
+    { blockType: CommentAnchorBlockType; saved: boolean; shared: boolean }
   >();
-  const name = commentAnchorBlockNamer();
-  const walk = (node: PMNode) => {
-    if (isCommentAnchorBlockType(node.type)) {
-      const id = name(node.type, node.attrs);
-      if (id)
-        blocks.set(id, {
-          blockType: node.type,
-          saved: node.attrs?.blockId === id,
-        });
-    }
-    node.content?.forEach(walk);
-  };
-  walk(root);
+  const found = anchorBlocksIn(root);
+  commentAnchorBlockNames(found).forEach(({ id, saved, holders }, index) => {
+    if (id && !blocks.has(id))
+      blocks.set(id, {
+        blockType: found[index].type,
+        saved,
+        shared: holders > 1,
+      });
+  });
   return blocks;
+}
+
+/**
+ * The ids more blocks go by in `after` than in `before`, where more than one
+ * does, as when a `<video>` line is copied with its id.
+ */
+export function newlySharedCommentAnchorIds(before: string, after: string) {
+  const holders = (nfm: string) =>
+    new Map(
+      commentAnchorBlockNames(anchorBlocksIn(nfmToDoc(nfm))).map(
+        ({ id, holders }) => [id, holders],
+      ),
+    );
+  const had = holders(before);
+  return [...holders(after)]
+    .filter(([id, count]) => id && count > Math.max(1, had.get(id) ?? 0))
+    .map(([id]) => id);
 }

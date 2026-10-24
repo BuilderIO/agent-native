@@ -3,7 +3,10 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 
-import { commentAnchorBlockList } from "../comment-block-anchors";
+import {
+  commentAnchorBlockList,
+  sharedCommentAnchorBlockIds,
+} from "../comment-block-anchors";
 import { createContentBlockId } from "./registryBlocks";
 
 export interface VideoBlockIdsOptions {
@@ -15,7 +18,9 @@ export interface VideoBlockIdsOptions {
 /**
  * Writes down the id comments use for each video. A video keeps the id it had
  * before the change, including the one derived for a video saved without one;
- * a new video, or a copy of one already on the page, gets a fresh id. Only an
+ * a new video, or a copy of one already on the page, gets a fresh id. Videos
+ * that already share an id keep it, since nothing says which one a thread on
+ * it meant; commenting on one gives it an id of its own. Only an
  * editing tab's own edit writes, so a suggestion, a read-only view or another
  * tab's change never does, and every tab arrives at the same ids.
  */
@@ -80,6 +85,7 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
               lost.push({ id: block.blockId, node, from, to });
           }
           const reserved = new Set(kept.values());
+          const shared = sharedCommentAnchorBlockIds(oldState.doc);
 
           const used = new Set<string>();
           const free = (id: string | undefined): id is string =>
@@ -95,6 +101,7 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
             if (node.type.name !== "video") return true;
             const saved =
               typeof node.attrs.blockId === "string" ? node.attrs.blockId : "";
+            if (shared.has(saved)) return false;
             const keptId = kept.get(pos);
             const id =
               keptId && !used.has(keptId)

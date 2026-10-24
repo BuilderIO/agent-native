@@ -132,6 +132,30 @@ describe("video block ids", () => {
     expect(new Set(ids).size).toBe(3);
   });
 
+  it("leaves an id two videos share on both, rather than keeping it on the first", () => {
+    const target = open(
+      `<video src="${B}" id="video-shared"></video>
+<video src="${A}" id="video-shared"></video>
+Intro`,
+    );
+    typeAtEnd(target, "!");
+    expect(videoIds(target)).toEqual(["video-shared", "video-shared"]);
+  });
+
+  it("gives a video saved without an id a new one when another video saved the id it derives", () => {
+    const derived = derivedVideoBlockId(A, 0);
+    const target = open(
+      `<video src="${A}"></video>
+<video src="${A}" id="${derived}"></video>
+Intro`,
+    );
+    typeAtEnd(target, "!");
+    const [unsaved, saved] = videoIds(target);
+    expect(saved).toBe(derived);
+    expect(unsaved).toMatch(/^video-/);
+    expect(unsaved).not.toBe(derived);
+  });
+
   it("keeps ids through undo and redo", () => {
     const target = open("Intro");
     target.commands.insertContentAt(0, { type: "video", attrs: { src: B } });

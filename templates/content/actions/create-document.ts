@@ -48,6 +48,7 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -506,6 +507,7 @@ export default defineAction({
         content = content.slice(h1Match[0].length).trimStart();
       }
     }
+    assertNoNewlySharedVideoIds(null, content);
 
     let parentId = args.parentId || null;
     const icon = args.icon

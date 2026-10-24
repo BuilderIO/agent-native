@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -248,6 +249,8 @@ export default defineAction({
             throw new Error(`Document "${documentId}" not found`);
           }
           previousContent = currentDocument.content;
+          if (!isAppUiCaller)
+            assertNoNewlySharedVideoIds(previousContent, content);
           await tx
             .update(schema.documents)
             .set({
@@ -267,6 +270,8 @@ export default defineAction({
               ),
             );
           previousContent = currentField?.content ?? "";
+          if (!isAppUiCaller)
+            assertNoNewlySharedVideoIds(previousContent, content);
           await tx
             .insert(schema.documentBlockFieldContents)
             .values({
