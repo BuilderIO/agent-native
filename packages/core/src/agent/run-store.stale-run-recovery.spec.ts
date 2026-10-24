@@ -101,6 +101,7 @@ vi.mock("../server/self-dispatch.js", () => ({
 }));
 
 const {
+  AgentRunJournalUnreadableError,
   insertRun,
   insertRunEvent,
   tryClaimRunSlot,
@@ -769,26 +770,71 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect((await readRow(runId))?.thread_projection_pending).toBe(true);
   });
 
-  it("preserves thrown projection failures while keeping their markers", async () => {
+  it("clears quarantine when an explicit retry fails transiently", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
     await insertRun(runId, thread, turn);
     await pglite
       .prepare(
-        "UPDATE agent_runs SET thread_projection_pending = TRUE WHERE id = ?",
+        `UPDATE agent_runs
+         SET thread_projection_pending = TRUE,
+             thread_projection_error_code = 'tool_call_journal_unreadable'
+         WHERE id = ?`,
       )
       .run(runId);
     const foldError = new Error("projection fold failed");
     foldReapedRunIntoThreadMock.mockRejectedValueOnce(foldError);
 
     await expect(retryRunThreadProjection(runId)).rejects.toBe(foldError);
-    expect((await readRow(runId))?.thread_projection_pending).toBe(true);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(runId),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: null,
+    });
     const retryOrder = (await pglite
       .prepare(
         "SELECT thread_projection_retry_order FROM agent_runs WHERE id = ?",
       )
       .get(runId)) as { thread_projection_retry_order: number | null };
     expect(retryOrder.thread_projection_retry_order).not.toBeNull();
+  });
+
+  it("re-quarantines an explicit retry when its source remains unreadable", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET thread_projection_pending = TRUE,
+             thread_projection_error_code = 'tool_call_journal_unreadable'
+         WHERE id = ?`,
+      )
+      .run(runId);
+    const unreadable = new AgentRunJournalUnreadableError(
+      thread,
+      turn,
+      0,
+      "invalid_thread_data",
+    );
+    foldReapedRunIntoThreadMock.mockRejectedValueOnce(unreadable);
+
+    await expect(retryRunThreadProjection(runId)).rejects.toBe(unreadable);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(runId),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: "tool_call_journal_unreadable",
+    });
   });
 
   it("keeps a legacy-order recovery successor unclaimable and unreapable until predecessor projection finishes", async () => {
@@ -1280,6 +1326,65 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
         String(row.event_data).includes('"errorCode":"stale_run"'),
       ),
     ).toBe(false);
+  });
+
+  it("defers an explicit projection retry behind its earlier same-turn projection", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const predecessorId = `${runId}-predecessor`;
+    const laterRunId = `${runId}-later`;
+    await insertRun(predecessorId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), predecessorId);
+    await insertRun(laterRunId, thread, turn, { continuationOrder: 1 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE,
+             thread_projection_error_code = 'tool_call_journal_unreadable'
+         WHERE id = ?`,
+      )
+      .run(Date.now() + 1, laterRunId);
+
+    await expect(retryRunThreadProjection(laterRunId)).resolves.toEqual({
+      state: "deferred",
+    });
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalled();
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(laterRunId),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: "tool_call_journal_unreadable",
+    });
+
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = FALSE WHERE id = ?",
+      )
+      .run(predecessorId);
+    await expect(retryRunThreadProjection(laterRunId)).resolves.toEqual({
+      state: "projected",
+    });
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(laterRunId);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(laterRunId),
+    ).toEqual({
+      thread_projection_pending: false,
+      thread_projection_error_code: null,
+    });
   });
 
   it("surfaces failed recovery instead of confirming a successful reap", async () => {

@@ -5976,6 +5976,18 @@ export async function retryRunThreadProjection(
   runId: string,
 ): Promise<RunThreadProjectionRetry> {
   await ensureRunTables();
+  const retried = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_error_code = NULL
+          WHERE id = ?
+            AND thread_projection_pending IS TRUE
+            AND ${earlierTurnProjectionPendingSql()}
+          RETURNING id`,
+    args: [runId],
+  });
+  if (retried.rows.length > 0) {
+    return { state: await projectRunThread(runId) };
+  }
   const { rows } = await getDbExec().execute({
     sql: `SELECT thread_projection_pending FROM agent_runs WHERE id = ?`,
     args: [runId],
@@ -5986,7 +5998,7 @@ export async function retryRunThreadProjection(
     rows[0] as { thread_projection_pending?: unknown } | undefined
   )?.thread_projection_pending;
   if (pending === true || pending === "t" || pending === 1) {
-    return { state: await projectRunThread(runId) };
+    return { state: "deferred" };
   }
   if (pending === false || pending === "f" || pending === 0) {
     return { state: "already_projected" };
