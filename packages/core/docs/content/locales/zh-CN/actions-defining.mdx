@@ -112,6 +112,13 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
             "允许一个变更类 action 与同一轮次的其他工具调用并发运行。",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "为 true（或谓词返回 true）时，被拒绝的写入是模型可以纠正并重试的已知失败，而不会阻塞该工具。见下文的可安全重试的写入。",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -399,6 +406,35 @@ const reply = useActionMutation("reply-to-email", {
 所以状态码不是装饰。以 `404` 发出的拒绝只需一次往返。同样的拒绝若以 `500` 发出，或者裸抛，则要付出四次往返和四份重复的错误报告。
 
 代理调用方看不到状态码。代理在进程内执行 `run()`，因此无论类型如何都直接以 `Error running <action>: <message>` 的形式收到消息。非默认值 `action_failed` 的 `errorCode` 会以 `(errorCode: not_found)` 的形式附加，使模型无需解析文字即可据此分支。`details` 会以紧凑 JSON 的形式另起一行跟在后面，例如 `Error details: {"importId":"imp_1"}`，这样模型下一次调用所需的 id 就不必写进消息里。通过 MCP 接入的外部代理会收到同样的文本，并在 `structuredContent.error` 中收到同样的 details。声明了输出 schema 的工具（`mcpOutputSchema: true`）只返回文本，因为客户端也可能按该 schema 校验错误结果。details 上限为 2,000 个字符：超出后会保留较小的顶层条目，其余的则列为已省略。消息和 details 中的密钥会先被脱敏，而代理自己的重复错误熔断器会限制它重试的次数。
+
+## 可安全重试的写入 {#retry-safe}
+
+默认情况下，当写入类 action 自身的处理函数拒绝时——无论是抛出异常还是调用 `fail()`——agent 循环会记录一个未知结果，并在该线程剩余的时间里阻塞这个工具。模型能看到错误，但无法再次调用同一个 action 来修正参数。
+
+当出错后重新运行不会重复或损坏数据时，设置 `retrySafe: true`（或一个基于输入的谓词）：action 在写入前先做校验，或者它设置的是一个终态，比如按 id 替换。这样被拒绝的调用就保持为已知失败。模型拿到错误，修正参数，然后重试。
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+如果 action 在校验之后会追加、发送或扣费，**不要**设置它。如果后续某一步在拒绝之前可能已经生效，仅仅先做校验是不够的。还有几点限制：
+
+- 它只覆盖**这个 action 自身的写入**。一旦它调用的嵌套 action 进入了自己的处理函数，失败仍会记录为未知结果。
+- 它不会清除已经记录了未知结果的线程。添加 `retrySafe` 之后，请开启一个**新线程**来使改动生效。
+- action 被调用之后发生的超时或中止仍会阻塞该工具。只有 action 自身返回的错误才会被视为已知的、可重试的失败。
 
 ## 让 action 界面保持精简 {#small-surface}
 

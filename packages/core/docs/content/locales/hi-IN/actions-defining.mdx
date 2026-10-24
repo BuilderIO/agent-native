@@ -116,6 +116,13 @@ description: "defineAction() की संरचना: schema, run, और HTTP
             "किसी mutating action को उसी टर्न के अन्य tool calls के साथ समवर्ती रूप से चलने देता है।",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "जब true हो (या predicate true लौटाए), तो rejected write एक ज्ञात failure होता है जिसे model सुधारकर दोबारा आज़मा सकता है, tool को block करने के बजाय। नीचे Retry-safe writes देखें।",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -404,6 +411,35 @@ const reply = useActionMutation("reply-to-email", {
 तो status सजावट नहीं है। `404` के रूप में भेजा गया इनकार एक round trip लेता है। वही इनकार `500` के रूप में भेजा जाए, या सादा throw किया जाए, तो चार round trips और चार दोहरी error रिपोर्ट लगती हैं।
 
 एजेंट callers को status नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे message सीधे `Error running <action>: <message>` के रूप में मिलता है। डिफ़ॉल्ट `action_failed` के अलावा कोई `errorCode` हो तो वह `(errorCode: not_found)` के रूप में जोड़ दिया जाता है, ताकि model गद्य पढ़े बिना उस पर branch कर सके। `details` अपनी अलग line में compact JSON के रूप में आते हैं, जैसे `Error details: {"importId":"imp_1"}`, ताकि model को अपनी अगली call के लिए जिस id की ज़रूरत हो, उसे message में लिखना न पड़े। MCP के ज़रिए बाहरी एजेंट भी यही text पाते हैं, और `structuredContent.error` में यही details भी। जो tool output schema घोषित करता है (`mcpOutputSchema: true`), वह सिर्फ़ text लौटाता है, क्योंकि client error result को भी उसी schema से जाँच सकता है। Details 2,000 characters तक सीमित हैं: इससे आगे छोटी top-level entries रखी जाती हैं और बाकी को omitted के रूप में सूचीबद्ध किया जाता है। message और details में मौजूद secrets पहले हटा दिए जाते हैं, और दोहराई गई errors के लिए एजेंट के अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
+
+## Retry-safe writes {#retry-safe}
+
+डिफ़ॉल्ट रूप से, जब किसी write action का अपना handler reject करता है — चाहे वह throw करे या `fail()` कॉल करे — तो agent loop एक अज्ञात परिणाम (unknown outcome) दर्ज करता है और thread के बाकी समय के लिए उस tool को block कर देता है। Model error देखता है, लेकिन अपने arguments ठीक करने के लिए उसी action को दोबारा कॉल नहीं कर सकता।
+
+जब error के बाद दोबारा चलाने से data duplicate या corrupt नहीं हो सकता, तब `retrySafe: true` (या input पर एक predicate) सेट करें: action लिखने से पहले validate करता है, या वह कोई end state सेट करता है, जैसे id से replace करना। तब rejected call एक ज्ञात failure ही रहता है। Model को error मिलता है, वह अपने arguments सुधारता है, और दोबारा कोशिश करता है।
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+अगर action validation के बाद append, send या charge करता है, तो इसे सेट **न** करें। अगर कोई बाद का step rejection से पहले ही असर कर चुका हो सकता है, तो सिर्फ़ पहले validate करना काफ़ी नहीं है। कुछ और सीमाएँ:
+
+- यह **इस action के अपने write** को कवर करता है। जब इसके द्वारा कॉल किया गया कोई nested action अपने handler में प्रवेश कर चुका हो, तो failure अब भी अज्ञात परिणाम दर्ज करता है।
+- यह उस thread को साफ़ नहीं करता जिसने पहले ही अज्ञात परिणाम दर्ज कर लिया है। `retrySafe` जोड़ने के बाद, बदलाव लागू करने के लिए एक **नया thread** शुरू करें।
+- Action invoke होने के बाद कोई deadline या abort अब भी tool को block करता है। सिर्फ़ action की अपनी लौटाई गई error को ही ज्ञात, retry करने योग्य failure माना जाता है।
 
 ## Action सतह को छोटा रखें {#small-surface}
 

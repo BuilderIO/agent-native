@@ -116,6 +116,13 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
             "Permite que una acción mutante se ejecute de forma concurrente con otras llamadas a herramientas del mismo turno.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "Cuando es true (o cuando el predicado devuelve true), una escritura rechazada es un fallo conocido que el modelo puede corregir y reintentar, en lugar de bloquear la herramienta. Consulta Escrituras seguras para reintentar más abajo.",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -404,6 +411,35 @@ Un corte de red, una página de error HTML de un proxy y una simple línea de es
 Así que el estado no es cosmético. Un rechazo enviado como `404` cuesta una ida y vuelta. El mismo rechazo enviado como `500`, o lanzado desnudo, cuesta cuatro idas y vueltas y cuatro informes de error duplicados.
 
 Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proceso, así que recibe el mensaje directamente sea cual sea el tipo, como `Error running <action>: <message>`. Un `errorCode` distinto del valor por defecto `action_failed` se añade como `(errorCode: not_found)`, de modo que el modelo puede ramificar sin analizar la prosa. Los `details` van en su propia línea como JSON compacto, por ejemplo `Error details: {"importId":"imp_1"}`, de modo que un id que el modelo necesita para su siguiente llamada no tiene que escribirse en el mensaje. Los agentes externos por MCP reciben el mismo texto y los mismos detalles en `structuredContent.error`. Una herramienta que anuncia un esquema de salida (`mcpOutputSchema: true`) devuelve solo el texto, porque un cliente puede validar también un resultado de error contra ese esquema. Los detalles se limitan a 2000 caracteres: pasado ese límite, se conservan las entradas pequeñas de nivel superior y el resto se enumera como omitido. Los secretos del mensaje y de los detalles se redactan antes, y los cortacircuitos de errores repetidos del agente limitan cuántas veces vuelve a intentarlo.
+
+## Escrituras seguras para reintentar {#retry-safe}
+
+Por defecto, cuando el propio handler de una acción de escritura rechaza —ya sea lanzando o llamando a `fail()`—, el bucle del agente registra un resultado desconocido y bloquea esa herramienta durante el resto del hilo. El modelo ve el error, pero no puede volver a llamar a la misma acción para corregir sus argumentos.
+
+Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras un error no pueda duplicar ni corromper datos: la acción valida antes de escribir, o establece un estado final, como reemplazar por id. Así, una llamada rechazada sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+**No** lo definas cuando la acción añade, envía o cobra después de validar. Validar primero no basta por sí solo si un paso posterior ya puede haber surtido efecto antes del rechazo. Algunos límites más:
+
+- Cubre **la propia escritura de esta acción**. Una vez que una acción anidada a la que llama ha entrado en su handler, un fallo sigue registrando un resultado desconocido.
+- No desbloquea un hilo que ya registró un resultado desconocido. Después de añadir `retrySafe`, inicia un **hilo nuevo** para que se aplique el cambio.
+- Un plazo agotado o una cancelación después de invocar la acción sigue bloqueando la herramienta. Solo el error que devuelve la propia acción se trata como un fallo conocido y reintentable.
 
 ## Mantén pequeña la superficie de acciones {#small-surface}
 

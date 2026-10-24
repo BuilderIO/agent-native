@@ -116,6 +116,13 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
             "Autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "Lorsque true (ou lorsque le prédicat renvoie true), une écriture rejetée est un échec connu que le modèle peut corriger puis réessayer, au lieu de bloquer l’outil. Voir Écritures sûres à réessayer ci-dessous.",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -404,6 +411,35 @@ Une coupure réseau, une page d’erreur HTML d’un proxy et une simple ligne d
 Le statut n’est donc pas cosmétique. Un refus envoyé en `404` coûte un aller-retour. Le même refus envoyé en `500`, ou levé nu, coûte quatre allers-retours et quatre rapports d’erreur en double.
 
 Les appelants agents ne voient pas le statut. L’agent exécute `run()` en processus, il reçoit donc le message directement quel que soit le type, sous la forme `Error running <action>: <message>`. Un `errorCode` autre que la valeur par défaut `action_failed` est ajouté sous la forme `(errorCode: not_found)`, ce qui permet au modèle de s’y appuyer sans analyser la prose. Les `details` suivent sur leur propre ligne en JSON compact, par exemple `Error details: {"importId":"imp_1"}`, afin qu’un identifiant dont le modèle a besoin pour son appel suivant n’ait pas à être écrit dans le message. Les agents externes via MCP reçoivent le même texte, et les mêmes détails dans `structuredContent.error`. Un outil qui annonce un schéma de sortie (`mcpOutputSchema: true`) ne renvoie que le texte, car un client peut aussi valider un résultat d'erreur avec ce schéma. Les détails sont plafonnés à 2 000 caractères : au-delà, les petites entrées de premier niveau sont conservées et les autres sont listées comme omises. Les secrets présents dans le message et dans les détails sont d’abord expurgés, et les disjoncteurs d’erreurs répétées de l’agent bornent le nombre de nouvelles tentatives.
+
+## Écritures sûres à réessayer {#retry-safe}
+
+Par défaut, lorsque le handler d’une action d’écriture rejette — qu’il lève une erreur ou appelle `fail()` —, la boucle de l’agent enregistre un résultat inconnu et bloque cet outil pour le reste du fil. Le modèle voit l’erreur, mais il ne peut pas rappeler la même action pour corriger ses arguments.
+
+Définissez `retrySafe: true` (ou un prédicat sur l’entrée) lorsque relancer après une erreur ne peut ni dupliquer ni corrompre de données : l’action valide avant d’écrire, ou elle fixe un état final, comme un remplacement par id. Un appel rejeté reste alors un échec connu. Le modèle reçoit l’erreur, corrige ses arguments et réessaie.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+Ne le définissez **pas** lorsque l’action ajoute, envoie ou facture après la validation. Valider d’abord ne suffit pas à lui seul si une étape ultérieure a déjà pu prendre effet avant le rejet. Quelques autres limites :
+
+- Il couvre **la propre écriture de cette action**. Dès qu’une action imbriquée qu’elle appelle est entrée dans son handler, un échec enregistre toujours un résultat inconnu.
+- Il ne débloque pas un fil qui a déjà enregistré un résultat inconnu. Après avoir ajouté `retrySafe`, démarrez un **nouveau fil** pour que le changement soit pris en compte.
+- Un dépassement de délai ou une annulation après l’invocation de l’action bloque toujours l’outil. Seule l’erreur renvoyée par l’action elle-même est traitée comme un échec connu et réessayable.
 
 ## Garder la surface d’actions restreinte {#small-surface}
 

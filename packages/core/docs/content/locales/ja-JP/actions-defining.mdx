@@ -116,6 +116,13 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
             "変更を伴うアクションを、同じターン内の他のツール呼び出しと同時に実行できるようにします。",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "true のとき（または述語が true を返すとき）、拒否された書き込みはツールをブロックせず、モデルが修正して再試行できる既知の失敗として扱われます。下記の「再試行しても安全な書き込み」を参照してください。",
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -404,6 +411,35 @@ const reply = useActionMutation("reply-to-email", {
 つまりステータスは飾りではありません。`404` として送られた拒否は 1 往復で済みます。同じ拒否を `500` として送る、あるいは素で throw すると、4 往復と 4 件の重複エラー レポートを要します。
 
 エージェントからの呼び出しではステータスは見えません。エージェントは `run()` をプロセス内で実行するため、型に関わらずメッセージを直接、`Error running <action>: <message>` の形で受け取ります。既定値 `action_failed` 以外の `errorCode` は `(errorCode: not_found)` として付加されるので、モデルは文章を解析せずに分岐できます。`details` は専用の行にコンパクトな JSON として続き（例: `Error details: {"importId":"imp_1"}`）、モデルが次の呼び出しで必要とする ID をメッセージに書き込まなくて済みます。MCP 経由の外部エージェントも同じテキストを受け取り、`structuredContent.error` にも同じ details が入ります。出力スキーマを公開しているツール（`mcpOutputSchema: true`）はテキストだけを返します。クライアントがエラー結果もそのスキーマで検証することがあるためです。details は 2,000 文字までに制限され、超えた場合は小さなトップレベルのエントリが残され、残りは省略されたものとして列挙されます。メッセージと details 内のシークレットは事前に伏せられ、繰り返しエラーに対するエージェント独自のブレーカーが再試行の回数を制限します。
+
+## 再試行しても安全な書き込み {#retry-safe}
+
+デフォルトでは、書き込みアクション自身のハンドラーが拒否すると（throw した場合も `fail()` を呼んだ場合も）、エージェント ループは結果不明として記録し、そのスレッドの残りの間そのツールをブロックします。モデルはエラーを見られますが、引数を直すために同じアクションをもう一度呼び出すことはできません。
+
+エラー後に再実行してもデータが重複したり壊れたりしない場合は、`retrySafe: true`（または入力を受け取る述語）を設定します。たとえば、アクションが書き込む前に検証する場合や、ID による置き換えのように最終状態を設定する場合です。こうすると拒否された呼び出しは既知の失敗のままになります。モデルはエラーを受け取り、引数を修正して再試行します。
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. A rejected call leaves
+  // nothing behind, so the model can fix its args and try again.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+検証の後に追記、送信、課金を行うアクションには**設定しないでください**。拒否される前に後続のステップがすでに反映されている可能性があるなら、先に検証するだけでは不十分です。そのほかの制限：
+
+- 対象は**このアクション自身の書き込み**です。呼び出したネストされたアクションがそのハンドラーに入った後は、失敗は引き続き結果不明として記録されます。
+- すでに結果不明が記録されたスレッドは解除されません。`retrySafe` を追加した後は、変更を反映させるために**新しいスレッド**を開始してください。
+- アクションが呼び出された後のタイムアウトや中断は、引き続きツールをブロックします。既知の再試行可能な失敗として扱われるのは、アクション自身が返したエラーだけです。
 
 ## アクション サーフェスを小さく保つ {#small-surface}
 
