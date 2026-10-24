@@ -181,7 +181,7 @@ export function emitAwarenessChange(
 const _awarenessMap = new Map<string, Map<number, AwarenessEntry>>();
 const _awarenessClearTombstones = new Map<
   string,
-  { clearedAt: number; clientSequence?: number }
+  { clearedAt: number; clientSequence?: number; actorEmail?: string | null }
 >();
 
 function awarenessKey(docId: string, clientId: number): string {
@@ -201,6 +201,7 @@ export function rememberAwarenessClear(
   clientId: number,
   clearedAt: number = Date.now(),
   clientSequence?: number,
+  actorEmail?: string | null,
 ): void {
   pruneAwarenessClearTombstones(clearedAt);
   const key = awarenessKey(docId, clientId);
@@ -216,7 +217,11 @@ export function rememberAwarenessClear(
       prev.clientSequence == null &&
       clearedAt > prev.clearedAt)
   ) {
-    _awarenessClearTombstones.set(key, { clearedAt, clientSequence });
+    _awarenessClearTombstones.set(key, {
+      clearedAt,
+      clientSequence,
+      actorEmail: actorEmail?.trim().toLowerCase() ?? null,
+    });
   }
 }
 
@@ -275,12 +280,19 @@ async function mergeStoredAwareness(
   const now = Date.now();
   const rows = await loadAwarenessRows(docId, now);
   for (const row of rows) {
+    const clear = _awarenessClearTombstones.get(
+      awarenessKey(docId, row.clientId),
+    );
+    if (row.actorEmail && clear && row.actorEmail !== clear.actorEmail) {
+      forgetAwarenessClear(docId, row.clientId);
+    }
     if (row.cleared) {
       rememberAwarenessClear(
         docId,
         row.clientId,
         row.lastSeen,
         row.clientSequence > 0 ? row.clientSequence : undefined,
+        row.actorEmail,
       );
       const existing = map.get(row.clientId);
       if (
@@ -343,7 +355,13 @@ function applyLocalAwarenessWrite(
   const existing = map.get(clientId);
   const sequence = localSequenceForWrite(existing, clientSequence);
   if (cleared) {
-    rememberAwarenessClear(docId, clientId, lastSeen, sequence || undefined);
+    rememberAwarenessClear(
+      docId,
+      clientId,
+      lastSeen,
+      sequence || undefined,
+      existing?.actorEmail ?? actorEmail,
+    );
     map.delete(clientId);
     return;
   }
@@ -369,7 +387,11 @@ function canApplyLocalAwarenessWrite(
   cleared: boolean,
   clearTokenHash: string | null,
 ): boolean {
+  const localSequence = localSequenceForWrite(existing, clientSequence);
   if (!existing) {
+    pruneAwarenessClearTombstones(Date.now());
+    const clear = _awarenessClearTombstones.get(awarenessKey(docId, clientId));
+    if (clear && clear.actorEmail !== actorEmail) return false;
     return (
       !cleared &&
       (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE ||
@@ -378,7 +400,7 @@ function canApplyLocalAwarenessWrite(
         docId,
         clientId,
         lastSeen,
-        clientSequence,
+        localSequence,
         lastSeen,
       )
     );
@@ -416,7 +438,7 @@ function canApplyLocalAwarenessWrite(
     docId,
     clientId,
     lastSeen,
-    localSequenceForWrite(existing, clientSequence),
+    localSequence,
     Date.now(),
   );
 }
@@ -530,9 +552,24 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   if (writeOutcome.kind === "unavailable") {
     const map = getDocAwareness(docId);
     cleanExpired(map);
+    let ownershipVerified = false;
+    const clear = _awarenessClearTombstones.get(awarenessKey(docId, clientId));
+    if (clear) {
+      ownershipVerified = clear.actorEmail === actorEmail;
+    } else {
+      try {
+        const stored = await loadAwarenessClientSequence(docId, clientId);
+        ownershipVerified =
+          stored === undefined || stored.actorEmail === actorEmail;
+      } catch {
+        ownershipVerified = false;
+      }
+    }
+    cleanExpired(map);
     const existing = map.get(clientId);
     const cleared = state === null;
     if (
+      (existing !== undefined || ownershipVerified) &&
       canApplyLocalAwarenessWrite(
         docId,
         existing,

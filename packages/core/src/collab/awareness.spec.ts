@@ -14,6 +14,7 @@ vi.mock("h3", () => ({
 const mockReadBody = vi.fn();
 const mockGetSession = vi.fn();
 const mockWriteAwarenessRow = vi.hoisted(() => vi.fn());
+const mockLoadAwarenessClientSequence = vi.hoisted(() => vi.fn());
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
@@ -23,10 +24,20 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("./awareness-store.js", async (importOriginal) => {
   const store = await importOriginal<typeof import("./awareness-store.js")>();
   const writeAwarenessRow = store.writeAwarenessRow;
+  const loadAwarenessClientSequence = store.loadAwarenessClientSequence;
   mockWriteAwarenessRow.mockImplementation((...args: unknown[]) =>
     writeAwarenessRow(...(args as Parameters<typeof writeAwarenessRow>)),
   );
-  return { ...store, writeAwarenessRow: mockWriteAwarenessRow };
+  mockLoadAwarenessClientSequence.mockImplementation((...args: unknown[]) =>
+    loadAwarenessClientSequence(
+      ...(args as Parameters<typeof loadAwarenessClientSequence>),
+    ),
+  );
+  return {
+    ...store,
+    loadAwarenessClientSequence: mockLoadAwarenessClientSequence,
+    writeAwarenessRow: mockWriteAwarenessRow,
+  };
 });
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
@@ -38,6 +49,7 @@ import {
   cleanExpired,
   postAwareness,
   getActiveUsers,
+  forgetAwarenessClear,
   type AwarenessEntry,
 } from "./awareness.js";
 import { emailToColor, emailToName } from "./types.js";
@@ -196,6 +208,16 @@ describe("postAwareness handler", () => {
     docAwareness("post-doc-agent-id").clear();
     docAwareness("post-doc-identity").clear();
     docAwareness("post-doc-invalid-state").clear();
+    for (const [docId, clientId] of [
+      ["post-doc-outage-first-write", 65],
+      ["post-doc-outage-foreign-client", 67],
+      ["post-doc-outage-unknown-client", 68],
+      ["post-doc-outage-legacy-tombstone", 69],
+      ["post-doc-outage-cleared-owner", 70],
+    ] as const) {
+      docAwareness(docId).clear();
+      forgetAwarenessClear(scopedDocId(docId), clientId);
+    }
   });
 
   it("returns 400 when docId is missing", async () => {
@@ -332,6 +354,126 @@ describe("postAwareness handler", () => {
     expect(received[0]?.states).toEqual([
       { clientId: 65, state: local!.state },
     ]);
+  });
+
+  it("does not apply an outage write when the stored client id belongs to another actor", async () => {
+    const docId = "post-doc-outage-foreign-client";
+    mockGetSession.mockResolvedValueOnce({ email: "viewer@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 67,
+      clientSequence: 1,
+      state: postedAwarenessState("forged-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    mockLoadAwarenessClientSequence.mockResolvedValueOnce({
+      clientSequence: 1,
+      cleared: false,
+      actorEmail: "owner@example.com",
+    });
+
+    const ev = event({ docId });
+    await expect(postAwareness(ev)).resolves.toMatchObject({
+      error: "Awareness persistence unavailable",
+    });
+
+    expect(ev._status).toBe(503);
+    expect(docAwareness(docId).has(67)).toBe(false);
+  });
+
+  it("fails closed when stored ownership cannot be read during an outage", async () => {
+    const docId = "post-doc-outage-unknown-client";
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 68,
+      clientSequence: 1,
+      state: postedAwarenessState("unknown-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("write unavailable"));
+    mockLoadAwarenessClientSequence.mockRejectedValueOnce(
+      new Error("read unavailable"),
+    );
+
+    const ev = event({ docId });
+    await expect(postAwareness(ev)).resolves.toMatchObject({
+      error: "Awareness persistence unavailable",
+    });
+
+    expect(ev._status).toBe(503);
+    expect(docAwareness(docId).has(68)).toBe(false);
+  });
+
+  it("keeps the clear actor binding when a local outage clear removes the entry", async () => {
+    const docId = "post-doc-outage-cleared-owner";
+    mockGetSession.mockResolvedValueOnce({ email: "owner@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 70,
+      clientSequence: 1,
+      state: postedAwarenessState("owner-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    await postAwareness(event({ docId }));
+
+    mockGetSession.mockResolvedValueOnce({ email: "owner@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 70,
+      clientSequence: 2,
+      state: null,
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    await postAwareness(event({ docId }));
+    expect(docAwareness(docId).has(70)).toBe(false);
+
+    mockGetSession.mockResolvedValueOnce({ email: "viewer@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 70,
+      clientSequence: 3,
+      state: postedAwarenessState("forged-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    const ev = event({ docId });
+    await expect(postAwareness(ev)).resolves.toMatchObject({
+      error: "Awareness persistence unavailable",
+    });
+
+    expect(ev._status).toBe(503);
+    expect(docAwareness(docId).has(70)).toBe(false);
+  });
+
+  it("keeps stale legacy writes behind an outage clear tombstone", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const docId = "post-doc-outage-legacy-tombstone";
+    const clearedSequence = 1_700_000_000_100_000;
+
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 69,
+      clientSequence: clearedSequence - 2,
+      state: postedAwarenessState("current-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    await postAwareness(event({ docId }));
+
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 69,
+      clientSequence: clearedSequence,
+      state: null,
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    await postAwareness(event({ docId }));
+    expect(docAwareness(docId).has(69)).toBe(false);
+
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 69,
+      clientSequence: clearedSequence - 1,
+      state: postedAwarenessState("stale-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    const ev = event({ docId });
+    await expect(postAwareness(ev)).resolves.toMatchObject({
+      error: "Awareness persistence unavailable",
+    });
+
+    expect(ev._status).toBe(503);
+    expect(docAwareness(docId).has(69)).toBe(false);
   });
 
   it("rejects an oversized first presence sequence during a store outage", async () => {
