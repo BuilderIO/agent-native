@@ -75,6 +75,9 @@ export interface SaveAgentHarnessSessionInput {
   followUpClaimId?: string | null;
   stoppedAt?: number | null;
   expectedGeneration?: number;
+  expectedStatus?: AgentHarnessSessionStatus;
+  expectedFollowUpClaimId?: string;
+  requiresNoApprovalResolution?: boolean;
   existingSession?: StoredAgentHarnessSession | null;
 }
 
@@ -249,6 +252,19 @@ export async function saveAgentHarnessSession(
   }
 
   const expectedGeneration = input.expectedGeneration ?? existing.generation;
+  const conditions = ["id = ?", "generation = ?"];
+  const conditionArgs: unknown[] = [record.id, expectedGeneration];
+  if (input.expectedStatus !== undefined) {
+    conditions.push("status = ?");
+    conditionArgs.push(input.expectedStatus);
+  }
+  if (input.expectedFollowUpClaimId !== undefined) {
+    conditions.push("follow_up_claim_id = ?");
+    conditionArgs.push(input.expectedFollowUpClaimId);
+  }
+  if (input.requiresNoApprovalResolution) {
+    conditions.push("approval_resolution_id IS NULL");
+  }
   const updated = await client.execute({
     sql: `UPDATE agent_harness_sessions SET
             harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?,
@@ -256,7 +272,7 @@ export async function saveAgentHarnessSession(
             approval_resolution_id = ?, resolved_approval_ids = ?, owner_email = ?,
             org_id = ?, generation = ?,
             updated_at = ?, stopped_at = ?, follow_up_claim_id = ?
-          WHERE id = ? AND generation = ?`,
+          WHERE ${conditions.join(" AND ")}`,
     args: [
       record.harnessName,
       record.threadId,
@@ -274,8 +290,7 @@ export async function saveAgentHarnessSession(
       record.updatedAt,
       record.stoppedAt ?? null,
       record.followUpClaimId ?? null,
-      record.id,
-      expectedGeneration,
+      ...conditionArgs,
     ],
   });
   if (updated.rowsAffected !== 1) {
@@ -305,6 +320,7 @@ export async function updateAgentHarnessSessionAtGeneration(
   expectedGeneration: number,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
   expectedFollowUpClaimId?: string,
+  requiresNoApprovalResolution = false,
 ): Promise<StoredAgentHarnessSession | null> {
   return updateAgentHarnessSessionWithStatus(
     id,
@@ -312,6 +328,7 @@ export async function updateAgentHarnessSessionAtGeneration(
     expectedStatus,
     expectedGeneration,
     expectedFollowUpClaimId,
+    requiresNoApprovalResolution,
   );
 }
 
@@ -325,13 +342,15 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
       ) =>
         | Partial<Omit<SaveAgentHarnessSessionInput, "id">>
         | Promise<Partial<Omit<SaveAgentHarnessSessionInput, "id">>>),
+  requiresNoApprovalResolution = false,
 ): Promise<StoredAgentHarnessSession | null> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await getAgentHarnessSession(id);
     if (
       !existing ||
       existing.status !== "running" ||
-      existing.followUpClaimId !== claimId
+      existing.followUpClaimId !== claimId ||
+      (requiresNoApprovalResolution && existing.approvalResolutionId)
     ) {
       return null;
     }
@@ -368,6 +387,9 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
             : existing.followUpClaimId,
         stoppedAt: update.stoppedAt ?? existing.stoppedAt ?? null,
         expectedGeneration: existing.generation,
+        expectedStatus: "running",
+        expectedFollowUpClaimId: claimId,
+        requiresNoApprovalResolution,
         existingSession: existing,
       });
     } catch (error) {
@@ -485,6 +507,7 @@ export async function startAgentHarnessSessionExpiryCleanup<T>(
             SET generation = generation + 1, updated_at = ?
             WHERE id = ? AND status = ? AND generation = ?
               AND follow_up_claim_id IS NULL
+              AND approval_resolution_id IS NULL
             RETURNING *`,
       args: [Date.now(), id, expectedStatus, expectedGeneration],
     });
@@ -502,6 +525,7 @@ async function updateAgentHarnessSessionWithStatus(
   expectedStatus?: AgentHarnessSessionStatus,
   expectedGeneration?: number,
   expectedFollowUpClaimId?: string,
+  requiresNoApprovalResolution = false,
 ): Promise<StoredAgentHarnessSession | null> {
   const existing = await getAgentHarnessSession(id);
   if (!existing) return null;
@@ -518,6 +542,9 @@ async function updateAgentHarnessSessionWithStatus(
     expectedFollowUpClaimId !== undefined &&
     existing.followUpClaimId !== expectedFollowUpClaimId
   ) {
+    return null;
+  }
+  if (requiresNoApprovalResolution && existing.approvalResolutionId) {
     return null;
   }
   return saveAgentHarnessSession({
@@ -551,6 +578,9 @@ async function updateAgentHarnessSessionWithStatus(
         : (existing.followUpClaimId ?? null),
     stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
     expectedGeneration: expectedGeneration ?? existing.generation,
+    expectedStatus,
+    expectedFollowUpClaimId,
+    requiresNoApprovalResolution,
     existingSession: existing,
   });
 }

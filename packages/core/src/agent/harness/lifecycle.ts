@@ -672,6 +672,7 @@ export async function sendAgentHarnessFollowUp(input: {
                   followUpClaimId: null,
                 };
               },
+              true,
             );
             if (updatedSession) {
               refreshLiveAgentHarnessSessionGeneration(

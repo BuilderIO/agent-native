@@ -449,6 +449,169 @@ describe("agent harness session store", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("does not advance a checkpoint while approval resolution is reserved", async () => {
+    const id = "session-checkpoint-during-approval";
+    const approvalId = "approval-checkpoint-during-approval";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-checkpoint-during-approval",
+      runId: "run-checkpoint-during-approval",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const reserved = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "idle",
+      initial!.generation,
+      { approvalResolutionId: approvalId },
+    );
+
+    await expect(
+      updateAgentHarnessSessionAtGeneration(
+        id,
+        "idle",
+        reserved!.generation,
+        { status: "idle", resumeState: { token: "checkpoint" } },
+        undefined,
+        true,
+      ),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      generation: reserved!.generation,
+      approvalResolutionId: approvalId,
+    });
+  });
+
+  it("does not finalize a follow-up claim while approval resolution is reserved", async () => {
+    const id = "session-finalize-during-approval";
+    const claimId = "claim-finalize-during-approval";
+    const approvalId = "approval-finalize-during-approval";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-finalize-during-approval",
+      runId: "run-finalize-during-approval",
+      status: "running",
+      followUpClaimId: claimId,
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const reserved = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "running",
+      initial!.generation,
+      { approvalResolutionId: approvalId },
+      claimId,
+    );
+
+    await expect(
+      updateAgentHarnessSessionIfFollowUpClaim(
+        id,
+        claimId,
+        { status: "idle", followUpClaimId: null },
+        true,
+      ),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      generation: reserved!.generation,
+      followUpClaimId: claimId,
+      approvalResolutionId: approvalId,
+    });
+  });
+
+  it("does not start expiry cleanup while approval resolution is reserved", async () => {
+    const id = "session-expiry-during-approval";
+    const approvalId = "approval-expiry-during-approval";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expiry-during-approval",
+      runId: "run-expiry-during-approval",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const reserved = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "idle",
+      initial!.generation,
+      { approvalResolutionId: approvalId },
+    );
+    const start = vi.fn();
+
+    await expect(
+      startAgentHarnessSessionExpiryCleanup(
+        id,
+        "idle",
+        reserved!.generation,
+        start,
+      ),
+    ).resolves.toBeNull();
+    expect(start).not.toHaveBeenCalled();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      generation: reserved!.generation,
+      approvalResolutionId: approvalId,
+    });
+  });
+
+  it("keeps a terminal status when a checkpoint uses a stale status snapshot", async () => {
+    const id = "session-terminal-checkpoint-race";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-terminal-checkpoint-race",
+      runId: "run-terminal-checkpoint-race",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const stored = await getAgentHarnessSession(id);
+    const execute = rawClient.execute.getMockImplementation()!;
+    let stoppedBetweenReadAndWrite = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        !stoppedBetweenReadAndWrite &&
+        typeof input !== "string" &&
+        input.sql.includes("SET") &&
+        input.sql.includes("resume_state = ?")
+      ) {
+        stoppedBetweenReadAndWrite = true;
+        await pglite.exec(
+          `UPDATE agent_harness_sessions SET status = 'stopped' WHERE id = '${id}'`,
+        );
+      }
+      return execute(input);
+    });
+
+    try {
+      await expect(
+        updateAgentHarnessSessionAtGeneration(
+          id,
+          "idle",
+          stored!.generation,
+          { status: "idle", resumeState: { token: "late" } },
+          undefined,
+          true,
+        ),
+      ).rejects.toThrow("changed concurrently");
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "stopped",
+      resumeState: undefined,
+    });
+  });
+
   it("retries a claim-fenced update after the same claim advances generation", async () => {
     const id = "session-follow-up-update-retry";
     await saveAgentHarnessSession({

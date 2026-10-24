@@ -551,6 +551,66 @@ describe("startAgentHarnessRun", () => {
     );
   });
 
+  it("leaves the reserved approval generation untouched at a runner checkpoint", async () => {
+    mocks.getAgentHarnessSession.mockResolvedValue({
+      status: "idle",
+      generation: 4,
+      pendingApproval: { id: "approval-checkpoint" },
+      approvalResolutionId: "approval-checkpoint",
+      resolvedApprovalIds: [],
+    });
+    const session = fakeSession(
+      "native-checkpoint-during-approval",
+      [{ type: "text-delta", text: "partial" }],
+      { token: "checkpoint" },
+    );
+    const adapter = fakeAdapter(session);
+    let capturedRunFn!: (
+      send: (event: AgentChatEvent) => void,
+      signal: AbortSignal,
+      control: {
+        turnSignal: AbortSignal;
+        chunkSignal: AbortSignal;
+        chunkBoundaryReason: () => string | null;
+        beginChunk: () => AbortSignal;
+      },
+    ) => Promise<void>;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-checkpoint-during-approval",
+      threadId: "thread-checkpoint-during-approval",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-checkpoint-during-approval" },
+    });
+    const turn = new AbortController();
+    const chunk = new AbortController();
+    chunk.abort("run_timeout");
+    await capturedRunFn(() => {}, chunk.signal, {
+      turnSignal: turn.signal,
+      chunkSignal: chunk.signal,
+      chunkBoundaryReason: () => "run_timeout",
+      beginChunk: () => turn.signal,
+    });
+
+    expect(session.detach).toHaveBeenCalledOnce();
+    expect(mocks.updateAgentHarnessSessionAtGeneration).not.toHaveBeenCalled();
+    expect(mocks.updateAgentHarnessSession).not.toHaveBeenCalled();
+  });
+
   it("cleans up and marks the session errored when streaming fails", async () => {
     const session = fakeSession("native-error", [
       { type: "error", error: "provider disconnected" },

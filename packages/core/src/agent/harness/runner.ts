@@ -294,7 +294,8 @@ async function persistHarnessCheckpoint(
       stored.status === "stopped" ||
       stored.status === "errored" ||
       stored.status === "destroyed" ||
-      stored.followUpClaimId
+      stored.followUpClaimId ||
+      stored.approvalResolutionId
     ) {
       return;
     }
@@ -309,6 +310,8 @@ async function persistHarnessCheckpoint(
           resumeState,
           pendingApproval,
         },
+        undefined,
+        true,
       );
       if (!updated) continue;
       refreshLiveAgentHarnessSessionGeneration(
