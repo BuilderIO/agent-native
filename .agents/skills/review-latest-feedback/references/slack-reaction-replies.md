@@ -10,9 +10,12 @@ reply. Unowned canonical-linked `Clustered` roots and checker-verified
 eligible owned roots. “All Slack items replied to” means every owned root that
 is eligible for reconciliation has a current status. A direct reaction read
 showing another actor's workflow mark or this actor's `:mag:` holds a root by
-default. A direct user instruction may authorize follow-ups or reactions for
-exact roots; list every covered root separately. Its unquoted authorization
-statement must name each exact channel ID and root timestamp or Slack permalink.
+default. A direct user instruction may authorize the complete held-root
+follow-up for exact roots; list every covered root separately. Its unquoted
+authorization statement must start with a direct, unconditional grant, cover
+the full operation, and name each exact channel ID and root timestamp or Slack
+permalink. Read-only, claim-only, or reply-only permission does not authorize
+full reconciliation.
 The exact request and each `{channelId, rootTs}` must appear in both
 `scope.authorizedRoots` and the separate orchestrator confirmation file.
 Preserve existing marks and reconcile authorized roots as owned work. Without

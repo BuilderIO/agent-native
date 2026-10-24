@@ -121,7 +121,10 @@ then add and read back this task's root `👀` before investigating an eligible
 unowned report. An explicitly authorized held root is eligible only when its
 exact root is present in both `scope.authorizedRoots` and the separate
 orchestrator confirmation file. Otherwise use `ownershipSkip` and do not read
-or reply.
+or reply. The authorization must start with a direct, unconditional grant,
+cover full follow-up work on that root, and name its exact timestamp. Read-only,
+claim-only, or reply-only permission does not unlock the complete
+claim-and-status workflow.
 
 Reconcile only roots inside this invocation's fixed window and older roots
 explicitly linked by an in-window reply. Include every root with this actor's

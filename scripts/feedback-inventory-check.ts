@@ -5356,29 +5356,31 @@ function userRequestAuthorizesExactRoot(
   root: AuthorizedRoot,
 ): boolean {
   const action =
-    "(?:read|inspect|claim|reply|work|handle|reconcile|take over|follow up)";
+    "(?:(?:read|inspect)\\s+and\\s+)?(?:work(?:\\s+on)?|handle|reconcile|take over|follow up(?:\\s+with)?)";
   const explicitAuthorization = new RegExp(
-    `\\b(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?${action}\\b`,
+    `^\\s*(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?${action}\\b`,
     "i",
   );
   const grantedPermission = new RegExp(
-    `\\b(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+${action}\\b|\\b(?:you may|you can|go ahead and)\\s+${action}\\b|\\byou have my permission to\\s+${action}\\b`,
+    `^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+${action}\\b|^\\s*(?:you may|you can|go ahead and)\\s+${action}\\b|^\\s*you have my permission to\\s+${action}\\b`,
     "i",
   );
+  const negationOrCondition =
+    /\b(?:not|never|unless|if|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't)\b/i;
   const compactTs = root.rootTs.replace(".", "");
+  const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  if (negationOrCondition.test(unquotedRequest)) return false;
 
-  return withoutQuotedScopeContext(userRequest)
-    .split(/;|\n+|(?<=[.!?])\s+/)
-    .some((statement) => {
-      const tokens = statement.match(/[A-Z0-9_]+/g) ?? [];
-      const timestamps = statement.match(/[0-9]+(?:\.[0-9]+)?/g) ?? [];
-      return (
-        (explicitAuthorization.test(statement) ||
-          grantedPermission.test(statement)) &&
-        tokens.includes(root.channelId) &&
-        (timestamps.includes(root.rootTs) || timestamps.includes(compactTs))
-      );
-    });
+  return unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/).some((statement) => {
+    const tokens = statement.match(/[A-Z0-9_]+/g) ?? [];
+    const timestamps = statement.match(/[0-9]+(?:\.[0-9]+)?/g) ?? [];
+    return (
+      (explicitAuthorization.test(statement) ||
+        grantedPermission.test(statement)) &&
+      tokens.includes(root.channelId) &&
+      (timestamps.includes(root.rootTs) || timestamps.includes(compactTs))
+    );
+  });
 }
 
 function validateAuthorizedRootTarget(
@@ -17125,6 +17127,13 @@ if (args[0] === "--self-test" && args.length === 1) {
       return inventory;
     })();
     validateTestInventory(authorizedMagRoot);
+    const directWorkAuthorization = structuredClone(authorizedMagRoot);
+    directWorkAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000.";
+    directWorkAuthorization.scope.narrowingJudgment!.instruction =
+      directWorkAuthorization.scope.userRequest;
+    validateTestInventory(directWorkAuthorization);
+
     const deniedAuthorization = structuredClone(authorizedMagRoot);
     deniedAuthorization.scope.userRequest =
       "I do not authorize root 10.000000 despite its :mag: hold.";
@@ -17135,6 +17144,40 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(deniedAuthorization),
       "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
     );
+    const incompleteAndConditionalAuthorizations = [
+      [
+        "read-only authorization cannot unlock held-root work",
+        "I authorize you to read Slack root C_TEST 10.000000.",
+      ],
+      [
+        "reply-only authorization cannot unlock held-root work",
+        "I authorize you to reply to Slack root C_TEST 10.000000.",
+      ],
+      [
+        "conditional work authorization cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 only if it is assigned to you.",
+      ],
+      [
+        "a later condition cannot qualify held-root authorization",
+        "I authorize you to work on Slack root C_TEST 10.000000. Only if it is assigned to you.",
+      ],
+      [
+        "negated conditional reply cannot authorize a held root",
+        "Do not reply unless you can reply in Slack root C_TEST 10.000000.",
+      ],
+    ] as const;
+    for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
+      const incompleteAuthorization = structuredClone(authorizedMagRoot);
+      incompleteAuthorization.scope.userRequest = userRequest;
+      incompleteAuthorization.scope.narrowingJudgment!.instruction =
+        userRequest;
+      expectFocusedFailure(
+        name,
+        () => validateTestInventory(incompleteAuthorization),
+        "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+      );
+    }
+
     const quotedAuthorization = structuredClone(authorizedMagRoot);
     quotedAuthorization.scope.userRequest =
       "The quoted instruction was 'I authorize you to read and work on Slack root C_TEST 10.000000'.";
