@@ -148,6 +148,7 @@ import {
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
+import { denyAgentToolApproval } from "../agent/tool-approval-store.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
@@ -7918,6 +7919,63 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
+            if (
+              method === "POST" &&
+              isThreadSubroute("approval-resolution") &&
+              threadTail.length === 1
+            ) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread || !threadMatchesRequestedScope(thread)) {
+                return threadNotFound();
+              }
+              const body = await readBody(event);
+              const record =
+                body &&
+                typeof body === "object" &&
+                !Array.isArray(body) &&
+                (body as Record<string, unknown>);
+              const approvalId =
+                typeof record?.approvalId === "string"
+                  ? record.approvalId.trim()
+                  : "";
+              if (!approvalId || record?.decision !== "deny") {
+                setResponseStatus(event, 400);
+                return { error: "Invalid approval resolution" };
+              }
+              const resolved = await denyAgentToolApproval({
+                approvalId,
+                ownerEmail: owner,
+                orgId,
+                threadId,
+              });
+              if (!resolved) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Approval is no longer pending",
+                  code: "approval_not_pending",
+                  retryable: false,
+                };
+              }
+              scheduleQueuedSubmissionInboxDrain({
+                threadId,
+                turnContinues: false,
+                waitUntil: getRequestRunContext()?.waitUntil,
+                drain: drainQueuedSubmissionInbox,
+                onError: (error) => {
+                  console.error(
+                    `[agent-chat] denied-approval inbox drain failed for ${threadId}:`,
+                    error,
+                  );
+                },
+              });
+              return { ok: true };
+            }
+
             if (
               method === "GET" &&
               threadTail[0] === "queue" &&

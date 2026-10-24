@@ -2003,12 +2003,15 @@ export async function tryClaimRunSlot(
     continueOf?: { runId: string; trigger: ContinueTrigger };
     /** Defer a fresh turn while an earlier accepted inbox submission is queued. */
     hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
+    /** Keep ordinary turns behind a pending tool approval on this thread. */
+    hasPendingApproval?: (tx: DbExec) => Promise<boolean>;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
   queuedSubmissionPending?: boolean;
+  approvalPending?: boolean;
   completedRunId?: string;
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
@@ -2069,6 +2072,15 @@ export async function tryClaimRunSlot(
     );
     if (activeRunId) {
       return { result: { claimed: false, activeRunId } } as const;
+    }
+    if (await options?.hasPendingApproval?.(tx)) {
+      return {
+        result: {
+          claimed: false,
+          activeRunId: null,
+          approvalPending: true,
+        },
+      } as const;
     }
     if (replayCompletedTurn) {
       const latest = await tx.execute({

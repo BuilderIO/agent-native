@@ -1567,6 +1567,33 @@ describe("run store", () => {
     ).toEqual(["agent-native:run-slot:thread-queued-order"]);
   });
 
+  it("defers an ordinary run claim while a tool approval is pending", async () => {
+    const hasPendingApproval = vi.fn(async (tx) => {
+      expect(tx).toBe(mockTxDb);
+      return true;
+    });
+
+    const result = await tryClaimRunSlot(
+      "thread-approval-order",
+      "run-direct",
+      undefined,
+      { hasPendingApproval },
+    );
+
+    expect(result).toEqual({
+      claimed: false,
+      activeRunId: null,
+      approvalPending: true,
+    });
+    expect(hasPendingApproval).toHaveBeenCalledTimes(1);
+    expect(
+      execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+    ).toBe(false);
+    expect(
+      execCalls.find((call) => /pg_advisory_xact_lock/i.test(call.sql))?.args,
+    ).toEqual(["agent-native:run-slot:thread-approval-order"]);
+  });
+
   it("tryClaimRunSlot persists a byte-free dispatch payload", async () => {
     const dispatchPayload = JSON.stringify({
       messages: [{ role: "user", content: "Create an ad" }],

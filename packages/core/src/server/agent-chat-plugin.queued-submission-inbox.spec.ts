@@ -334,6 +334,7 @@ import {
   getRunById,
   retryRunThreadProjection,
 } from "../agent/run-store.js";
+import { createAgentToolApproval } from "../agent/tool-approval-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
@@ -522,6 +523,39 @@ describe("queued submission inbox recurring sweep", () => {
     );
     expect(inaccessibleResponse.status).toBe(404);
     expect(inboxHarness.receiptReads).toEqual([[threadId, messageId]]);
+  }, 20_000);
+
+  it("persists approval denial before draining queued submissions", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await createThread("user@example.com", { id: threadId });
+    const approvalId = await createAgentToolApproval({
+      ownerEmail: "user@example.com",
+      threadId,
+      turnId: `turn-${randomUUID()}`,
+      toolName: "publish-release",
+      callId: `call-${randomUUID()}`,
+      approvalKey: `publish-release:${randomUUID()}`,
+    });
+    const h3App = await mountAgentChatRoutes();
+
+    const response = await h3App.fetch(
+      new Request(
+        `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ approvalId, decision: "deny" }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    const stored = await getDbExec().execute({
+      sql: `SELECT status FROM agent_tool_approvals WHERE id = ?`,
+      args: [approvalId],
+    });
+    expect(stored.rows).toEqual([{ status: "denied" }]);
   }, 20_000);
 
   it("cancels a promoted queue item using its submitted run receipt", async () => {

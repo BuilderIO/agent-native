@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
+import type { DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -174,6 +175,82 @@ export class AgentToolApprovalNotFoundError extends Error {
     super("The approval this grant was requested from was not found.");
     this.name = "AgentToolApprovalNotFoundError";
   }
+}
+
+export async function hasPendingAgentToolApproval(
+  tx: Pick<DbExec, "execute">,
+  input: { ownerEmail: string; orgId?: string | null; threadId: string },
+): Promise<boolean> {
+  const result = await tx.execute({
+    sql: `SELECT 1 FROM agent_tool_approvals
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND thread_id = ?
+        AND status = 'pending'
+        AND expires_at > ?
+      LIMIT 1`,
+    args: [
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.orgId ?? null,
+      input.threadId,
+      Date.now(),
+    ],
+  });
+  return result.rows.length > 0;
+}
+
+/** Denial is a durable resolution so queued turns can resume after a pause. */
+export async function denyAgentToolApproval(input: {
+  approvalId: string;
+  ownerEmail: string;
+  orgId?: string | null;
+  threadId: string;
+}): Promise<boolean> {
+  await ensureAgentToolApprovalTable();
+  const now = Date.now();
+  const updated = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_tool_approvals
+          SET status = 'denied', updated_at = ?
+          WHERE id = ?
+            AND owner_email = ?
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+            AND thread_id = ?
+            AND status = 'pending'
+            AND expires_at > ?`,
+        args: [
+          now,
+          input.approvalId,
+          input.ownerEmail,
+          input.orgId ?? null,
+          input.orgId ?? null,
+          input.threadId,
+          now,
+        ],
+      }),
+    { threadId: input.threadId },
+  );
+  if (updated.rowsAffected === 1) return true;
+
+  const existing = await getDbExec().execute({
+    sql: `SELECT 1 FROM agent_tool_approvals
+      WHERE id = ?
+        AND owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND thread_id = ?
+        AND status = 'denied'
+      LIMIT 1`,
+    args: [
+      input.approvalId,
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.orgId ?? null,
+      input.threadId,
+    ],
+  });
+  return existing.rows.length > 0;
 }
 
 /**

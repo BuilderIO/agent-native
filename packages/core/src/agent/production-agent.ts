@@ -429,6 +429,8 @@ import { normalizeSubmissionDeadlineMetadata } from "./submission-deadline.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  ensureAgentToolApprovalTable,
+  hasPendingAgentToolApproval,
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
@@ -15023,6 +15025,9 @@ export function createProductionAgentHandler(
         const queuedSubmissionStore = shouldPreserveQueuedOrder
           ? await import("../chat-threads/store.js")
           : undefined;
+        if (ownerEmail && !isAuthorizedApprovalContinuation) {
+          await ensureAgentToolApprovalTable();
+        }
         // The inbox read runs under the slot lock, but its schema must be ready first.
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
@@ -15048,6 +15053,16 @@ export function createProductionAgentHandler(
                     tx,
                     runThreadId,
                   ),
+              }
+            : {}),
+          ...(ownerEmail && !isAuthorizedApprovalContinuation
+            ? {
+                hasPendingApproval: (tx) =>
+                  hasPendingAgentToolApproval(tx, {
+                    ownerEmail,
+                    orgId: getRequestOrgId() ?? null,
+                    threadId: runThreadId,
+                  }),
               }
             : {}),
         });
