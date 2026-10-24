@@ -87,6 +87,11 @@ export interface ShareableResourceRegistration {
         | Promise<"viewer" | "commenter" | "editor" | "admin">);
   requireOrgMemberForUserShares?: boolean;
   supportsGroupShares?: boolean;
+  /**
+   * Grant manager access to registration-specific identities. When supplied,
+   * a resource-level admin share does not bypass this policy; non-managers
+   * resolve at editor.
+   */
   canManageAccess?: (
     resource: any,
     ctx: {

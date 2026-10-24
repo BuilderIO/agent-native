@@ -1381,7 +1381,7 @@ const helloPrompt =
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
 const approvedContinuationPrompt =
-  "Approved. Go ahead and run the requested action.";
+  "The approved action has run. Do not repeat it; use its result in your reply.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =

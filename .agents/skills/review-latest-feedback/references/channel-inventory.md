@@ -364,6 +364,13 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   progress; keep an unassigned action in **In progress** or another accurate
   open disposition while still marking it with `🎫`. A Slack `🎫` does not
   mean an external tracker ticket exists; link one only if it already exists.
+  When the retained `🎫` has no supportable human action because the captured
+  status describes only internal work or the source history conflicts, do not
+  invent an owner/action or change the reaction. Record
+  `unreconciledTicketMark` with a concise reason and the exact earlier sweep
+  replies that establish the gap. The checker reports this as an audit anomaly,
+  not as a human action; reconcile it only when new source evidence supports a
+  current or historical action.
   Never assign a handoff to yourself. Reuse a qualifying reply while
   disposition and evidence remain
   current; update it when either materially changes. Do
@@ -444,6 +451,19 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   withdraws, move that action out of current `handoffs[]` and record a historical
   `🎫` with its earlier accepted `handoff` plus the owner's exact
   `withdrawalReply` (`ts`, `threadParentTs`, `actorId`, and verbatim `text`).
+  If this actor's earlier same-thread status records work they took on and a
+  later status confirms that same work finished, record a historical `🎫`
+  using `completedSelfOwnedAction` with `actorId`, `action`, `actionSummary`,
+  `actionReference`, and exact `completionEvidence`. The actor must match the
+  sweep and both captured status authors; the prior status must name the action
+  and explicitly accept that work in the same commitment clause that names its
+  action summary. Reject ability-only, conditional, or later-retracted
+  commitments. The completion evidence itself must name the
+  same action reference and an explicitly positive completion result (reject
+  negated wording, including contractions), and appear in the current status
+  and its evidence. Keep it separate from handoffs and reporter requests, and
+  explain why the retained ticket is historical in both its reason and reaction
+  decision.
   Record why each retained mark is historical in the internal reaction
   decision; preserve it without presenting it as current proof or an active
   handoff. Keep detailed proof in `previousStatus.evidence` in the internal

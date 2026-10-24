@@ -5296,6 +5296,11 @@ export function createAgentNativeChatRuntime(
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
       const continuationMetadata = { ...continuation.metadata };
+      const continuationTurnId =
+        metadataString(
+          previousTurn?.metadata,
+          AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
+        ) ?? continuation.turnId;
       delete continuationMetadata[
         AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY
       ];
@@ -5330,7 +5335,7 @@ export function createAgentNativeChatRuntime(
             ...previousMetadata,
             ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
-              continuation.turnId,
+              continuationTurnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
           },
           abortSignal: continuation.abortSignal,
@@ -5351,7 +5356,7 @@ export function createAgentNativeChatRuntime(
             ...previousMetadata,
             ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
-              continuation.turnId,
+              continuationTurnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
           },
           abortSignal: continuation.abortSignal,
@@ -5403,7 +5408,7 @@ export function createAgentNativeChatRuntime(
         ...continuationTurn,
         prompt:
           continuation.prompt ??
-          "Approved. Go ahead and run the requested action.",
+          "The approved action has run. Do not repeat it; use its result in your reply.",
         metadata: {
           ...previousMetadata,
           ...continuationMetadata,
@@ -5415,7 +5420,7 @@ export function createAgentNativeChatRuntime(
                 ],
               }
             : {}),
-          [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
+          [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuationTurnId,
           [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
         },
         abortSignal: continuation.abortSignal,
