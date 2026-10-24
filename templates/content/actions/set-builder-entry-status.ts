@@ -50,6 +50,13 @@ export default defineAction({
         "Builder source ID; required only when the page belongs to more than one Builder source",
       ),
   }),
+  // Staging never calls Builder; execute-builder-source-execution sends the
+  // push. It replaces or clears a staged publish or unpublish, so destructive.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (
     args: SetBuilderEntryStatusRequest,
   ): Promise<SetBuilderEntryStatusResponse> => {
