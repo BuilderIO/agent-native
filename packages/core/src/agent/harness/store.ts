@@ -263,8 +263,44 @@ export async function updateAgentHarnessSession(
   id: string,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
 ): Promise<StoredAgentHarnessSession | null> {
+  return updateAgentHarnessSessionWithStatus(id, patch);
+}
+
+export async function updateAgentHarnessSessionIfStatus(
+  id: string,
+  expectedStatus: AgentHarnessSessionStatus,
+  patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
+): Promise<StoredAgentHarnessSession | null> {
+  return updateAgentHarnessSessionWithStatus(id, patch, expectedStatus);
+}
+
+export async function claimAgentHarnessSessionFollowUp(
+  id: string,
+  expectedGeneration: number,
+): Promise<StoredAgentHarnessSession | null> {
+  await ensureAgentHarnessSessionTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `UPDATE agent_harness_sessions
+          SET status = 'running', generation = generation + 1, updated_at = ?
+          WHERE id = ? AND generation = ? AND status = 'idle'
+            AND pending_approval IS NULL
+          RETURNING *`,
+    args: [Date.now(), id, expectedGeneration],
+  });
+  return rowToHarnessSession(rows[0]);
+}
+
+async function updateAgentHarnessSessionWithStatus(
+  id: string,
+  patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
+  expectedStatus?: AgentHarnessSessionStatus,
+): Promise<StoredAgentHarnessSession | null> {
   const existing = await getAgentHarnessSession(id);
   if (!existing) return null;
+  if (expectedStatus !== undefined && existing.status !== expectedStatus) {
+    return null;
+  }
   return saveAgentHarnessSession({
     id,
     harnessName: patch.harnessName ?? existing.harnessName,

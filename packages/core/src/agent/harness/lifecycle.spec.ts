@@ -10,6 +10,8 @@ import type {
 const mocks = vi.hoisted(() => ({
   getByRunId: vi.fn(),
   update: vi.fn(),
+  updateIfStatus: vi.fn(),
+  claimFollowUp: vi.fn(),
   markStopped: vi.fn(),
   resolveAdapter: vi.fn(),
 }));
@@ -17,6 +19,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./store.js", () => ({
   getAgentHarnessSessionByRunId: mocks.getByRunId,
   updateAgentHarnessSession: mocks.update,
+  updateAgentHarnessSessionIfStatus: mocks.updateIfStatus,
+  claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
   markAgentHarnessSessionStopped: mocks.markStopped,
 }));
 
@@ -39,7 +43,34 @@ describe("agent harness lifecycle", () => {
     stored = storedSession(`session-${Math.random()}`, `run-${Math.random()}`);
     mocks.getByRunId.mockImplementation(async () => stored);
     mocks.update.mockImplementation(async (_id, patch) => {
-      stored = { ...stored, ...patch, updatedAt: Date.now() };
+      stored = {
+        ...stored,
+        ...patch,
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return stored;
+    });
+    mocks.updateIfStatus.mockImplementation(
+      async (_id, expectedStatus, patch) => {
+        if (stored.status !== expectedStatus) return null;
+        return mocks.update(_id, patch);
+      },
+    );
+    mocks.claimFollowUp.mockImplementation(async (_id, generation) => {
+      if (
+        stored.generation !== generation ||
+        stored.status !== "idle" ||
+        stored.pendingApproval
+      ) {
+        return null;
+      }
+      stored = {
+        ...stored,
+        status: "running",
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
       return stored;
     });
   });
@@ -109,6 +140,7 @@ describe("agent harness lifecycle", () => {
         "approval-live",
       );
     });
+    expect(stored.status).toBe("running");
     const resolution = await resolveAgentHarnessApproval({
       runId: stored.runId!,
       approval: { id: "approval-live", approved: true },
@@ -117,7 +149,26 @@ describe("agent harness lifecycle", () => {
 
     expect(resolution.ok).toBe(true);
     await expect(followUp).resolves.toMatchObject({ ok: true });
+    expect(stored.status).toBe("idle");
     expect(stored.pendingApproval).toBeNull();
+  });
+
+  it("marks a failed follow-up errored instead of leaving a running claim", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      throw new Error("provider stream failed");
+    });
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "try work",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("provider stream failed");
+
+    expect(stored.status).toBe("errored");
   });
 
   it("rehydrates a resumable adapter for a follow-up after restart", async () => {
@@ -226,6 +277,7 @@ function storedSession(id: string, runId: string): StoredAgentHarnessSession {
     status: "idle",
     ownerEmail: "owner@example.com",
     orgId: "org-1",
+    generation: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     resolvedApprovalIds: [],

@@ -1,8 +1,10 @@
 import { resolveAgentHarness } from "./registry.js";
 import {
+  claimAgentHarnessSessionFollowUp,
   getAgentHarnessSessionByRunId,
   markAgentHarnessSessionStopped,
   updateAgentHarnessSession,
+  updateAgentHarnessSessionIfStatus,
   type StoredAgentHarnessSession,
 } from "./store.js";
 import type {
@@ -155,14 +157,27 @@ export async function resolveAgentHarnessApproval(input: {
       }
       releaseLiveAgentHarnessSession(session.id, live.session);
     }
-    const updated = await updateAgentHarnessSession(session.id, {
-      status: "idle",
-      pendingApproval: nextPending ?? null,
-      resumeState,
-      resolvedApprovalIds: [...resolvedIds, input.approval.id].slice(
-        -RESOLVED_APPROVAL_LIMIT,
-      ),
-    });
+    const updated = await updateAgentHarnessSessionIfStatus(
+      session.id,
+      session.status,
+      {
+        status: session.status,
+        pendingApproval: nextPending ?? null,
+        resumeState,
+        resolvedApprovalIds: [...resolvedIds, input.approval.id].slice(
+          -RESOLVED_APPROVAL_LIMIT,
+        ),
+      },
+    );
+    if (!updated) {
+      const latest = await getAgentHarnessSessionByRunId(input.runId);
+      return failure(
+        input.runId,
+        latest ?? session,
+        "unavailable",
+        "The harness session changed while resolving approval.",
+      );
+    }
     return {
       ok: true,
       runId: input.runId,
@@ -211,55 +226,126 @@ export async function sendAgentHarnessFollowUp(input: {
         "Resolve the pending harness approval before sending a follow-up.",
       );
     }
-
-    const acquired = await acquireSession(session, input.scope);
-    if (!acquired.ok) return acquired.result;
-    const events: AgentHarnessEvent[] = [];
-    await updateAgentHarnessSession(session.id, { status: "running" });
-    await consumeEvents(
-      acquired.live.session.streamTurn({
-        prompt,
-        metadata: input.metadata,
-      }),
-      events,
-      input.onHarnessEvent,
-      session.id,
-    );
-
-    const approvalRequest = [...events]
-      .reverse()
-      .find(
-        (
-          event,
-        ): event is Extract<AgentHarnessEvent, { type: "approval-request" }> =>
-          event.type === "approval-request",
+    if (session.status !== "idle") {
+      return failure(
+        input.runId,
+        session,
+        "unavailable",
+        "A harness follow-up is already running.",
       );
-    const latest = await getAgentHarnessSessionByRunId(input.runId);
-    const pending =
-      approvalRequest &&
-      !latest?.resolvedApprovalIds?.includes(approvalRequest.id)
-        ? approvalRequest
-        : undefined;
-    let resumeState = latest?.resumeState ?? session.resumeState;
-    if (!pending) {
-      if (acquired.live.session.detach) {
-        const detached = await acquired.live.session.detach();
-        if (detached !== undefined) resumeState = detached;
+    }
+
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      session.id,
+      session.generation,
+    );
+    if (!claimed) {
+      const latest = await getAgentHarnessSessionByRunId(input.runId);
+      return failure(
+        input.runId,
+        latest ?? session,
+        "unavailable",
+        latest?.status === "running"
+          ? "A harness follow-up is already running."
+          : "The harness session changed before the follow-up could start.",
+      );
+    }
+
+    const acquired = await acquireSession(claimed, input.scope);
+    if (!acquired.ok) {
+      await updateAgentHarnessSessionIfStatus(claimed.id, "running", {
+        status: "idle",
+      });
+      return acquired.result;
+    }
+    const events: AgentHarnessEvent[] = [];
+    try {
+      await consumeEvents(
+        acquired.live.session.streamTurn({
+          prompt,
+          metadata: input.metadata,
+        }),
+        events,
+        input.onHarnessEvent,
+        session.id,
+      );
+
+      const approvalRequest = [...events]
+        .reverse()
+        .find(
+          (
+            event,
+          ): event is Extract<
+            AgentHarnessEvent,
+            { type: "approval-request" }
+          > => event.type === "approval-request",
+        );
+      const latest = await getAgentHarnessSessionByRunId(input.runId);
+      const pending =
+        approvalRequest &&
+        !latest?.resolvedApprovalIds?.includes(approvalRequest.id)
+          ? approvalRequest
+          : undefined;
+      let resumeState = latest?.resumeState ?? session.resumeState;
+      if (!pending) {
+        if (acquired.live.session.detach) {
+          const detached = await acquired.live.session.detach();
+          if (detached !== undefined) resumeState = detached;
+        }
+        releaseLiveAgentHarnessSession(session.id, acquired.live.session);
+      }
+      const updated = await updateAgentHarnessSessionIfStatus(
+        session.id,
+        "running",
+        {
+          status: "idle",
+          resumeState,
+          pendingApproval: pending ?? null,
+        },
+      );
+      if (!updated) {
+        const current = await getAgentHarnessSessionByRunId(input.runId);
+        return failure(
+          input.runId,
+          current ?? session,
+          "unavailable",
+          "The harness follow-up was interrupted before its final state could be saved.",
+        );
+      }
+      return {
+        ok: true,
+        runId: input.runId,
+        session: updated,
+        events,
+        rehydrated: acquired.rehydrated,
+      };
+    } catch (error) {
+      const failures: unknown[] = [error];
+      try {
+        await stopLiveAgentHarnessSession({
+          sessionId: session.id,
+          scope: input.scope,
+        });
+      } catch (stopError) {
+        failures.push(stopError);
       }
       releaseLiveAgentHarnessSession(session.id, acquired.live.session);
+      try {
+        await updateAgentHarnessSessionIfStatus(session.id, "running", {
+          status: "errored",
+          pendingApproval: null,
+        });
+      } catch (persistError) {
+        failures.push(persistError);
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          "Harness follow-up failed and cleanup was incomplete.",
+        );
+      }
+      throw error;
     }
-    const updated = await updateAgentHarnessSession(session.id, {
-      status: "idle",
-      resumeState,
-      pendingApproval: pending ?? null,
-    });
-    return {
-      ok: true,
-      runId: input.runId,
-      session: updated ?? session,
-      events,
-      rehydrated: acquired.rehydrated,
-    };
   } finally {
     activeFollowUps.delete(input.runId);
   }
@@ -395,7 +481,6 @@ async function consumeEvents(
     await onHarnessEvent?.(event);
     if (event.type === "approval-request") {
       await updateAgentHarnessSession(sessionId, {
-        status: "idle",
         pendingApproval: event,
       });
     }

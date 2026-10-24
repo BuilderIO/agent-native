@@ -15,6 +15,10 @@ import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import {
+  claimAgentHarnessSessionFollowUp,
+  ensureAgentHarnessSessionTables,
+} from "./harness/store.js";
 import type { ActionEntry } from "./production-agent.js";
 import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
 import {
@@ -175,6 +179,24 @@ async function main(): Promise<void> {
           JSON.stringify({
             status: submissionFailure ?? "submitted",
             updated,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "harness-follow-up-claim") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const expectedGeneration = Number(extra);
+        const claimed = await claimAgentHarnessSessionFollowUp(
+          threadId,
+          expectedGeneration,
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            claimed: Boolean(claimed),
+            generation: claimed?.generation,
+            status: claimed?.status,
           }),
         );
         return;

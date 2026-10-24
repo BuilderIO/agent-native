@@ -308,9 +308,9 @@ function backgroundStatus(
   status: AgentHarnessSessionStatus,
   needsApproval: boolean,
 ): BackgroundAgentRun["status"] {
+  if (needsApproval) return "needs-approval";
   if (status === "running") return "running";
   if (status === "errored") return "errored";
-  if (needsApproval) return "needs-approval";
   if (status === "idle") return "paused";
   if (status === "stopped" || status === "destroyed") return "completed";
   return "unknown";

@@ -25,6 +25,11 @@ import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
+  ensureAgentHarnessSessionTables,
+  getAgentHarnessSession,
+  saveAgentHarnessSession,
+} from "./harness/store.js";
+import {
   beginAgentExecutionStep,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   claimTaskExecutionLease,
@@ -281,6 +286,7 @@ async function withTestDatabase<T>(
       withMigrationRuntime(async () => {
         await ensureRunTables();
         await ensureChatThreadTables();
+        await ensureAgentHarnessSessionTables();
       }),
     );
     await sql`
@@ -316,6 +322,7 @@ async function withTestDatabase<T>(
     await sql`DROP FUNCTION IF EXISTS agent_harness_reject_step_receipt()`;
     await sql`DELETE FROM agent_harness_test_effects WHERE effect_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_chat_submission_inbox WHERE thread_id LIKE ${`${prefix}%`}`;
+    await sql`DELETE FROM agent_harness_sessions WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM chat_threads WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_steps WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_leases WHERE thread_id LIKE ${`${prefix}%`}`;
@@ -375,6 +382,51 @@ async function claimInProcess(
 describe.skipIf(!databaseUrl)(
   "execution lease and journal process failures",
   () => {
+    it("admits a harness follow-up in only one independent worker", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-session`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const results = await Promise.all([
+          runWorker(
+            "harness-follow-up-claim",
+            sessionId,
+            "unused",
+            "unused-a",
+            "unused",
+            String(session.generation),
+          ),
+          runWorker(
+            "harness-follow-up-claim",
+            sessionId,
+            "unused",
+            "unused-b",
+            "unused",
+            String(session.generation),
+          ),
+        ]);
+        const outcomes = results.map((result) =>
+          workerJson<{ claimed: boolean }>(result),
+        );
+
+        expect(results.map((result) => result.exitCode)).toEqual([0, 0]);
+        expect(outcomes.filter((result) => result.claimed)).toHaveLength(1);
+        expect(outcomes.filter((result) => !result.claimed)).toHaveLength(1);
+        await expect(
+          withDbExec(executor(sql), () => getAgentHarnessSession(sessionId)),
+        ).resolves.toMatchObject({ status: "running" });
+      });
+    }, 45_000);
+
     it("serializes independent workers and rejects the old generation after takeover", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:thread`;
