@@ -28,6 +28,7 @@ export function stampAwarenessState(
   let parsed: unknown;
   try {
     parsed = JSON.parse(state);
+    // coercion-ok: null is the refusal postAwareness answers with a 400
   } catch {
     return null;
   }
