@@ -181,6 +181,7 @@
     "check:production-cache-contract": "node scripts/check-production-cache-contract.mjs",
     "check:google-redirect-uris": "tsx scripts/check-google-redirect-uris.ts",
     "check:function-size-baseline": "node scripts/check-function-size-baseline.mjs",
+    "verify:execution-lease": "tsx scripts/verify-execution-lease.ts",
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guard:serverless-function-payload": "node scripts/guard-serverless-function-payload.mjs",
     "guard:doc-budgets": "node scripts/guard-doc-budgets.mjs",

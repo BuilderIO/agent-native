@@ -7,6 +7,7 @@ import type {
   AgentEngine,
   EngineContentPart,
   EngineEvent,
+  EngineMessage,
 } from "./engine/types.js";
 import { withExecutionFence } from "./execution-fence.js";
 import type { AgentLoopFinalResponseGuardContext } from "./production-agent.js";
@@ -142,6 +143,501 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("reports the journal's recorded cause for a step stored as unknown", async () => {
+    const input = { id: "deck-1" };
+    durableStep.priorEvents = [
+      { type: "tool_start", id: "earlier", tool: "create-deck", input },
+      {
+        type: "tool_done",
+        id: "earlier",
+        tool: "create-deck",
+        input,
+        result: "Error running create-deck: upstream rejected it.",
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: "rejection",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const actionRun = vi.fn(async () => "Deck deck-1");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        unknownCause: "rejection",
+        result: expect.stringContaining(
+          "The create-deck action failed without confirming whether it saved changes",
+        ),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "rejection",
+      }),
+    );
+  });
+
+  it("reports a cause the history recorded only under the step's sent arguments", async () => {
+    const input = { id: "deck-3" };
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "assistant", content: [toolCall("earlier", input)] },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "earlier",
+                toolName: "create-deck",
+                toolInput: JSON.stringify(input),
+                content: "Error running create-deck: upstream rejected it.",
+                isError: true,
+                outcome: "unknown",
+                unknownCause: "rejection",
+              },
+            ],
+          },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-3"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "rejection",
+      }),
+    );
+  });
+
+  it("does not borrow a shared key's cause when the step's own was recorded without one", async () => {
+    const input = { id: "deck-4" };
+    const unknown = (
+      id: string,
+      prepared: Record<string, unknown>,
+      start: Partial<AgentChatEvent>,
+      cause?: "rejection",
+    ): AgentChatEvent[] => [
+      {
+        type: "tool_start",
+        id,
+        executionStepId: `step-${id}`,
+        tool: "create-deck",
+        ...start,
+      } as AgentChatEvent,
+      {
+        type: "tool_done",
+        id,
+        executionStepId: `step-${id}`,
+        tool: "create-deck",
+        result: "Error running create-deck: lost.",
+        isError: true,
+        outcomeUnknown: true,
+        ...(cause ? { unknownCause: cause } : {}),
+        argumentsHash: actionArgumentsHash(prepared),
+      },
+    ];
+    durableStep.priorEvents = [
+      // This call, recorded without its input or a cause.
+      ...unknown("same", input, {}),
+      // Another call sent the same arguments and recorded a rejection.
+      ...unknown("other", { id: "other" }, { input }, "rejection"),
+    ];
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-4"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
+      }),
+    );
+  });
+
+  it("words a step neutrally when its earlier attempts disagree on why", async () => {
+    const input = { id: "deck-5" };
+    const attempt = (id: string, unknownCause: string): AgentChatEvent[] => [
+      {
+        type: "tool_start",
+        id,
+        executionStepId: `step-${id}`,
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id,
+        executionStepId: `step-${id}`,
+        tool: "create-deck",
+        input,
+        result: "Error running create-deck: lost.",
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: unknownCause as "rejection",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    durableStep.priorEvents = [
+      ...attempt("first", "rejection"),
+      ...attempt("second", "unattributed"),
+    ];
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-5"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const done = events.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done",
+    );
+    expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
+    expect(done?.result).toContain(
+      "The create-deck action has 2 earlier attempt(s) whose outcome is unknown.",
+    );
+    expect(done?.unknownCause).toBeUndefined();
+  });
+
+  async function stopForUnknownStep(
+    input: Record<string, unknown>,
+    history: EngineMessage[] = [],
+  ) {
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          ...history,
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
+    return {
+      done: events.find(
+        (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+          event.type === "tool_done",
+      ),
+      stop: events.find((event) => event.type === "error"),
+    };
+  }
+
+  const unknownStep = (
+    id: string,
+    input: Record<string, unknown>,
+    prepared: Record<string, unknown>,
+    unknownCause?: "rejection",
+  ): AgentChatEvent[] => [
+    {
+      type: "tool_start",
+      id,
+      executionStepId: `step-${id}`,
+      tool: "create-deck",
+      input,
+    },
+    {
+      type: "tool_done",
+      id,
+      executionStepId: `step-${id}`,
+      tool: "create-deck",
+      input,
+      result: "Error running create-deck: lost.",
+      isError: true,
+      outcomeUnknown: true,
+      ...(unknownCause ? { unknownCause } : {}),
+      argumentsHash: actionArgumentsHash(prepared),
+    },
+  ];
+
+  it("does not borrow a cause from other calls that sent the same arguments", async () => {
+    const input = { id: "deck-7" };
+    // Two other calls sent these arguments, prepared differently.
+    durableStep.priorEvents = [
+      ...unknownStep("a", input, { id: "deck-7", v: 1 }, "rejection"),
+      ...unknownStep("b", input, { id: "deck-7", v: 2 }, "rejection"),
+    ];
+    const { done, stop } = await stopForUnknownStep(input);
+    expect(done?.unknownCause).toBeUndefined();
+    expect(stop).toMatchObject({ blockedBy: "interruption" });
+  });
+
+  it("finds the cause the history recorded for this call when it is prepared anew", async () => {
+    const input = { id: "deck-8" };
+    // The journal recorded this call, prepared differently then, without a
+    // cause; the history recorded a rejection.
+    durableStep.priorEvents = unknownStep("earlier", input, {
+      id: "deck-8",
+      v: 1,
+    });
+    const { done, stop } = await stopForUnknownStep(input, [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "earlier",
+            name: "create-deck",
+            input,
+            executionStepId: "step-earlier",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "earlier",
+            toolName: "create-deck",
+            toolInput: JSON.stringify(input),
+            executionStepId: "step-earlier",
+            content: "Error running create-deck: upstream rejected it.",
+            isError: true,
+            outcome: "unknown",
+            unknownCause: "rejection",
+          },
+        ],
+      },
+    ]);
+    expect(done?.unknownCause).toBe("rejection");
+    expect(stop).toMatchObject({ blockedBy: "rejection" });
+  });
+
+  it("records no cause for a step stored as unknown that nothing explains", async () => {
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", { id: "deck-2" })], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [text("Create the deck.")] }],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-2"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const done = events.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done",
+    );
+    expect(done).toMatchObject({
+      outcomeUnknown: true,
+      result: expect.stringContaining(
+        "was interrupted and its result is unknown",
+      ),
+    });
+    expect(done?.unknownCause).toBeUndefined();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
+      }),
+    );
+  });
+
   it.each([
     {
       label: "different inputs",
@@ -2372,5 +2868,271 @@ describe("durable execution step replay", () => {
         errorCode: "tool_call_journal_unreadable",
       }),
     );
+  });
+
+  const crashedWriteBeforeRetry: AgentChatEvent = {
+    type: "tool_start",
+    id: "call-before-crash",
+    executionStepId: "model-step:crashed-attempt",
+    tool: "create-deck",
+    input: { title: "Q3 plan" },
+  };
+  // A crash leaves no arguments identity, so every later write of the tool is
+  // held. A timed-out call records one, which lets a retry-safe correction
+  // through.
+  const unknownOutcomeWithIdentity: AgentChatEvent = {
+    type: "tool_done",
+    id: "call-before-crash",
+    tool: "create-deck",
+    result: "The call timed out.",
+    isError: true,
+    outcomeUnknown: true,
+    argumentsHash: "arguments-of-the-earlier-call",
+  };
+  const neverReplayDeckAction = (run: () => Promise<string>) => ({
+    tool: {
+      description: "Create a deck",
+      parameters: {
+        type: "object" as const,
+        properties: { title: { type: "string" } },
+        required: ["title"],
+      },
+    },
+    readOnly: false,
+    run,
+  });
+
+  it("holds back a reworded write on a recovered retry after a crashed dispatch", async () => {
+    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    const actionRun = vi.fn(async () => "Deck saved");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-after-retry", { title: "Q3 planning deck" })],
+            [text("Stopped.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": neverReplayDeckAction(actionRun) },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "call-after-retry",
+        isError: true,
+        result: expect.stringContaining("interrupted 1 time(s)"),
+      }),
+    );
+  });
+
+  it("lets a recovered retry correct and re-run a retry-safe write", async () => {
+    durableStep.priorEvents = [
+      crashedWriteBeforeRetry,
+      unknownOutcomeWithIdentity,
+    ];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-corrected", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: {
+          "create-deck": {
+            ...neverReplayDeckAction(actionRun),
+            retrySafe: true,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  const modeSafeDeckAction = (run: () => Promise<string>) => ({
+    tool: {
+      description: "Write a deck",
+      parameters: {
+        type: "object" as const,
+        properties: { title: { type: "string" }, mode: { type: "string" } },
+        required: ["title", "mode"],
+      },
+    },
+    readOnly: false,
+    retrySafe: (input: { mode?: string }) => input.mode === "replace",
+    run,
+  });
+  const recoveredRetryWithCrashedMode = async (
+    crashedMode: string,
+    retryMode: string,
+    actionRun: () => Promise<string>,
+  ) => {
+    durableStep.priorEvents = [
+      {
+        ...crashedWriteBeforeRetry,
+        input: { title: "Q3 plan", mode: crashedMode },
+      },
+      unknownOutcomeWithIdentity,
+    ];
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [
+              toolCall("call-after-retry", {
+                title: "Q3 planning deck",
+                mode: retryMode,
+              }),
+            ],
+            [text("Done.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Write a deck." }] },
+        ],
+        actions: { "create-deck": modeSafeDeckAction(actionRun) },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    return events;
+  };
+
+  it("runs a corrected call that is retry-safe for its own arguments", async () => {
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await recoveredRetryWithCrashedMode("append", "replace", actionRun);
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a corrected call that is not retry-safe for its own arguments", async () => {
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    const events = await recoveredRetryWithCrashedMode(
+      "replace",
+      "append",
+      actionRun,
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "call-after-retry",
+        isError: true,
+        result: expect.stringContaining("Not run: an earlier create-deck call"),
+      }),
+    );
+  });
+
+  it("lets an internal continuation correct and re-run a retry-safe write", async () => {
+    durableStep.priorEvents = [
+      crashedWriteBeforeRetry,
+      unknownOutcomeWithIdentity,
+    ];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-corrected", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: {
+          "create-deck": {
+            ...neverReplayDeckAction(actionRun),
+            retrySafe: true,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        recoverCompletedExecutionSteps: true,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs the write on a turn that is not a recovered retry", async () => {
+    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-on-fresh-turn", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": neverReplayDeckAction(actionRun) },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
   });
 });

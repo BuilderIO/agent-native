@@ -520,7 +520,7 @@ jobs:
         run: |
           case "${{ matrix.shard }}" in
             screen-history-1)
-              grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
+              grep='undo of a screen deletion selects the recreated screen under its new id|selection changes are not undo steps, and Delete removes an additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|Undo after a canvas element click keeps the element selected for Delete|failed Screen deletion keeps the explicit Screen target for retry'
               ;;
             screen-history-2)
               grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'

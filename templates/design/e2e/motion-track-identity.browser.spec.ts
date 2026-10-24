@@ -161,7 +161,6 @@ test.describe("repeated motion track identity", () => {
     await gotoEditor(page, activeDesignId);
     await selectByText(page, "Motion target", {
       screenId: fileId,
-      deep: false,
     });
     await page
       .getByRole("button", { name: "Motion dock", exact: true })

@@ -1466,6 +1466,7 @@ async function executeBackgroundAutomation(
         : await createThread(ownerEmail, {
             title: threadTitle,
             orgId: orgId ?? null,
+            ...(deps.appId ? { source: { appId: deps.appId } } : {}),
           });
       if (!thread)
         throw new Error(

@@ -51,7 +51,10 @@ import type {
   Message as A2AMessage,
 } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
-import { clientAbortReason } from "../agent/abort-reasons.js";
+import {
+  clientAbortReason,
+  EXECUTION_LEASE_LOST_ABORT_REASON,
+} from "../agent/abort-reasons.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -185,6 +188,7 @@ import {
   revokeThreadShareLink,
   setThreadArchived,
   setThreadPinned,
+  setThreadHidden,
   setThreadScope,
   updateThreadData,
   withThreadDataLock,
@@ -940,8 +944,8 @@ export async function runA2AAgentLoopWithRunManager(
       reasonCode === "stale_execution_fence" ||
       reasonCode === A2A_TASK_CLAIM_LOST_ERROR_CODE
     ) {
-      run.abortReason = "execution_lease_lost";
-      run.abort.abort("execution_lease_lost");
+      run.abortReason = EXECUTION_LEASE_LOST_ABORT_REASON;
+      run.abort.abort(EXECUTION_LEASE_LOST_ABORT_REASON);
       return;
     }
     cancellation = abortRunDurably(runId, clientAbortReason(reason)).then(
@@ -8457,8 +8461,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               const pinned = await setThreadPinned(threadId, body.pinned, {
                 ownerEmail: owner,
+                orgId,
               });
               if (!pinned) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("hide")) {
+              const thread = await resolveThreadAccessScope(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread || !threadMatchesRequestedScope(thread)) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event);
+              if (typeof body?.hidden !== "boolean") {
+                setResponseStatus(event, 400);
+                return { error: "hidden boolean is required" };
+              }
+              const hidden = await setThreadHidden(threadId, body.hidden, {
+                ownerEmail: owner,
+                orgId,
+              });
+              if (!hidden) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -8619,6 +8651,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const unscopedOnly = String(query.unscoped ?? "") === "1";
             const includeExternal = String(query.includeExternal ?? "") === "1";
             const includeArchived = String(query.includeArchived ?? "") === "1";
+            const includeHidden = String(query.includeHidden ?? "") === "1";
             const ownership =
               query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
@@ -8634,6 +8667,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   orgId,
                   includeExternal,
                   includeArchived,
+                  includeHidden,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                   offset,
@@ -8646,6 +8680,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   orgId,
                   includeExternal,
                   includeArchived,
+                  includeHidden,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                 });

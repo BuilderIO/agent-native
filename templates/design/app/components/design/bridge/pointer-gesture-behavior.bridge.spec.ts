@@ -195,7 +195,7 @@ describe("pointer gesture behavior", () => {
     }
   }, 60_000);
 
-  it("moves a selected group from one rounded union origin while preserving fractional guide edges", async () => {
+  it("moves a selected group from one rounded union origin and lands guide-snapped members on whole pixels", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -270,21 +270,22 @@ describe("pointer gesture behavior", () => {
       const finalGeometry = await page.evaluate(() => {
         const first = document.querySelector<HTMLElement>("#first")!;
         const second = document.querySelector<HTMLElement>("#second")!;
-        const guide = document.querySelector<HTMLElement>("#guide")!;
         return {
-          firstLeft: Number.parseFloat(first.style.left),
-          secondLeft: Number.parseFloat(second.style.left),
-          guideLeft: Number.parseFloat(guide.style.left),
-          firstRight: first.getBoundingClientRect().right,
+          firstLeft: first.style.left,
+          firstTop: first.style.top,
+          secondLeft: second.style.left,
+          secondTop: second.style.top,
         };
       });
 
-      expect(finalGeometry.firstLeft - finalGeometry.secondLeft).toBeCloseTo(
-        59.5,
-      );
-      expect(finalGeometry.firstRight).toBeCloseTo(finalGeometry.guideLeft);
-      expect(finalGeometry.secondLeft).toBeCloseTo(45, 1);
-      expect(finalGeometry.firstLeft).toBeCloseTo(104.5, 1);
+      // The guide edge sits at 144.5px; the snapped group still lands on whole
+      // pixels instead of carrying the guide's half pixel into every member.
+      expect(finalGeometry).toEqual({
+        firstLeft: "105px",
+        firstTop: "100px",
+        secondLeft: "45px",
+        secondTop: "101px",
+      });
     } finally {
       await browser.close();
     }

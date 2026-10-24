@@ -7,6 +7,8 @@ import {
   type SavedNode,
 } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 const VERTICAL_FIXTURE = `<!doctype html>
@@ -110,7 +112,10 @@ async function selectAndGrab(app: App, nodeId: string, layerName: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(grab.x, grab.y);
+  await app.page.keyboard.up(MOD);
   await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
   return grab;
 }

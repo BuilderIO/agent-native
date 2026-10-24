@@ -227,18 +227,3 @@ export function runLayerMarqueeSelectionChange(
   setActiveTool(resolveToolAfterSelection);
   setMode("edit");
 }
-
-export function coalesceMarqueeSelectionHistory<T>(
-  pendingBefore: { current: T | null },
-  isFinal: boolean,
-  beforeThisTick: T,
-  afterThisTick: T,
-): { before: T; after: T } | null {
-  if (pendingBefore.current === null) {
-    pendingBefore.current = beforeThisTick;
-  }
-  if (!isFinal) return null;
-  const before = pendingBefore.current;
-  pendingBefore.current = null;
-  return { before, after: afterThisTick };
-}

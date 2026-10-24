@@ -12,6 +12,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -80,7 +81,12 @@ import {
 } from "./run-store.js";
 import { trackRunTerminal } from "./run-terminal-tracking.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
-import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
+import type {
+  AgentChatEvent,
+  RunEvent,
+  RunStatus,
+  UnknownWriteCause,
+} from "./types.js";
 
 export interface ActiveRun {
   runId: string;
@@ -722,6 +728,8 @@ function emitRunTerminalTrackingEvent(args: {
   engineName?: string;
   userId?: string;
   attemptCount?: number;
+  blockedTool?: string;
+  blockedBy?: UnknownWriteCause;
 }): void {
   try {
     recordAgentRun({
@@ -754,6 +762,8 @@ function emitRunTerminalTrackingEvent(args: {
       model: args.model,
       engineName: args.engineName,
       attemptCount: args.attemptCount,
+      blockedTool: args.blockedTool,
+      blockedBy: args.blockedBy,
     },
     { userId: args.userId },
   );
@@ -1722,7 +1732,7 @@ export function startRun(
             error?.code === "stale_execution_fence" &&
             !completionInProgress
           ) {
-            abortInMemoryRun(run, "execution-lease-lost");
+            abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
           }
           consecutiveHeartbeatFailures += 1;
           if (consecutiveHeartbeatFailures >= 3) {
@@ -2081,6 +2091,8 @@ export function startRun(
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
+      let runTerminalBlockedTool: string | undefined;
+      let runTerminalBlockedBy: UnknownWriteCause | undefined;
       let terminalPersistenceEstablished = false;
       let continuationStatusPersistedBeforeEvent = false;
       let suppressContinuationEvent = false;
@@ -2449,7 +2461,7 @@ export function startRun(
         } else if (
           !executionLeaseClaimFailed &&
           (run.abortReason === "superseded" ||
-            run.abortReason === "execution_lease_lost")
+            run.abortReason === EXECUTION_LEASE_LOST_ABORT_REASON)
         ) {
           terminalPersistenceEstablished = false;
         } else {
@@ -2516,6 +2528,8 @@ export function startRun(
             error?: string;
             errorCode?: string;
             details?: string;
+            blockedTool?: string;
+            blockedBy?: UnknownWriteCause;
           };
           if (ev.type === "missing_api_key") {
             errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
@@ -2524,6 +2538,8 @@ export function startRun(
           } else if (ev.type === "error") {
             errorCode = ev.errorCode;
             errorDetail = ev.error ?? ev.details;
+            runTerminalBlockedTool = ev.blockedTool;
+            runTerminalBlockedBy = ev.blockedBy;
             break;
           }
         }
@@ -2575,6 +2591,8 @@ export function startRun(
           status: persistedStatus,
           terminalReason,
           errorCode: runTerminalErrorCode,
+          blockedTool: runTerminalBlockedTool,
+          blockedBy: runTerminalBlockedBy,
           dispatchMode: options?.dispatchMode,
           abortReason: run.abortReason,
           durationMs: Date.now() - run.startedAt,

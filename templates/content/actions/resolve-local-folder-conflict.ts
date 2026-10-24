@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -16,6 +17,7 @@ import {
 } from "../server/lib/private-icon-references.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -177,6 +179,28 @@ export default defineAction({
 
     const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
+      // The folder's source before its change set, as a sync and a
+      // disconnect take them: a disconnect deletes the folder's change sets.
+      const claimedSources = await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, target.source.id),
+            eq(schema.contentDatabaseSources.databaseId, target.database.id),
+            eq(
+              schema.contentDatabaseSources.sourceType,
+              LOCAL_FOLDER_SOURCE_TYPE,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (claimedSources.length !== 1) {
+        throw new ActionContractError(
+          `Local folder source "${target.source.id}" was disconnected before resolution.`,
+          { errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED", statusCode: 409 },
+        );
+      }
       const claimedChangeSets = await tx
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
@@ -199,26 +223,11 @@ export default defineAction({
           `Open local-folder conflict "${changeSetId}" changed before resolution`,
         );
       }
-      const claimedSources = await tx
-        .update(schema.contentDatabaseSources)
-        .set({ updatedAt: now })
-        .where(
-          and(
-            eq(schema.contentDatabaseSources.id, target.source.id),
-            eq(schema.contentDatabaseSources.databaseId, target.database.id),
-            eq(
-              schema.contentDatabaseSources.sourceType,
-              LOCAL_FOLDER_SOURCE_TYPE,
-            ),
-          ),
-        )
-        .returning({ id: schema.contentDatabaseSources.id });
-      if (claimedSources.length !== 1) {
-        throw new Error(
-          `Local folder source "${target.source.id}" was disconnected before resolution`,
-        );
-      }
       if (decision === "accept_source" && sourceDeletion) {
+        // The page before its remaining rows: another folder's sync adds its
+        // row under the page's lock, and a read before it would miss that row
+        // and clear the link the sync just made.
+        await lockDocumentRows(tx, [target.document.id]);
         await tx
           .delete(schema.contentDatabaseSourceRows)
           .where(
@@ -266,6 +275,13 @@ export default defineAction({
           typeof remainingValues.relativePath === "string"
             ? remainingValues.relativePath
             : remainingLocalRow?.sourceDisplayKey;
+        // Another folder's row doesn't mean the page is still linked: a
+        // Builder pull resets its source mode and leaves the rows.
+        if (remainingLocalRow) {
+          await assertLocalFileLinkable(target.document.id, {
+            transaction: tx,
+          });
+        }
         await tx
           .update(schema.documents)
           .set(
