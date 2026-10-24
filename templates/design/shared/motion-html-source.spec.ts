@@ -2118,16 +2118,27 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
-  it("rejects :has() when a remote teleport can add a matching descendant", () => {
-    const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"></main><div x-data><template x-teleport=".card"><i class="foo"></i></template></div>${ALPINE_CDN}</body></html>`;
+  it.each([
+    ["the subject", "#hero-title", "unsupported"],
+    ["a descendant", "#portal", "unsupported"],
+    ["outside the subject", "#elsewhere", "supported"],
+  ])(
+    "accounts for remote teleports into a :has() subject or %s",
+    (_label, destination, status) => {
+      const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><div id="portal"></div></main><aside id="elsewhere"></aside><div x-data><template x-teleport="${destination}"><i class="foo"></i></template></div>${ALPINE_CDN}</body></html>`;
 
-    expect(
-      inspectMotionHtmlSourceWriteCapability({
-        source,
-        targetNodeIds: ["hero-title"],
-      }),
-    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
-  });
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject(
+        status === "supported"
+          ? { status: "supported", targetNodeIds: ["hero-title"] }
+          : { status: "unsupported", code: "unsupported-target" },
+      );
+    },
+  );
 
   it("allows unrelated relational CSS when a runtime class binding cannot reach the Motion target", () => {
     const source = html

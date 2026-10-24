@@ -89,6 +89,16 @@ type HtmlNode = {
   };
 };
 
+const htmlElementSiblingsByParent = new WeakMap<HtmlNode, HtmlNode[]>();
+const runtimeStructuralMutationInSiblingsByParent = new WeakMap<
+  HtmlNode,
+  boolean
+>();
+const remoteAlpineTeleportDestinationsByRoot = new WeakMap<
+  HtmlNode,
+  Array<ReturnType<typeof parseMotionAuthoredCssSimpleSelector>>
+>();
+
 export type MotionHtmlSourceErrorCode =
   | "stale-source"
   | "stale-preview"
@@ -1837,7 +1847,7 @@ function selectorPseudoMatchesNode(
     let dynamic =
       hasRuntimeStructuralMutationOnSelectorPath(node) ||
       hasRemoteAlpineTeleportToParent(node) ||
-      allSiblings.some(hasRuntimeStructuralMutationInSubtree);
+      hasRuntimeStructuralMutationInSiblings(node);
     if (nthArgument?.selector) {
       const siblingMatches = siblings.map((sibling) => {
         const matches = cssTreeChildren(nthArgument.selector)
@@ -1888,7 +1898,6 @@ function selectorPseudoMatchesNode(
       if (nthMatch === null) return { matches: true, dynamic: true };
       matches = nthMatch;
     }
-    dynamic ||= hasAlpineStructuralSibling(node);
     return { matches, dynamic };
   }
   if (DYNAMIC_BROWSER_PSEUDO_CLASSES.has(name)) {
@@ -1935,7 +1944,7 @@ function selectorPseudoMatchesNode(
     const dynamic =
       dynamicNestedMatch ||
       hasRuntimeMutationOnSelectorPath(node) ||
-      hasRemoteAlpineTeleportTo(node);
+      hasRemoteAlpineTeleportToSubtree(node);
     return {
       matches: dynamic || staticNestedMatch,
       dynamic,
@@ -2040,13 +2049,20 @@ function selectorRelationCandidates(
 }
 
 function htmlElementSiblings(node: HtmlNode): HtmlNode[] {
-  return (node.parentNode?.childNodes ?? [])
+  const parent = node.parentNode;
+  if (!parent) return [];
+  const cached = htmlElementSiblingsByParent.get(parent);
+  if (cached) return cached;
+
+  const siblings = (parent.childNodes ?? [])
     .filter((candidate) => candidate.tagName)
     .sort(
       (left, right) =>
         (left.sourceCodeLocation?.startTag?.startOffset ?? -1) -
         (right.sourceCodeLocation?.startTag?.startOffset ?? -1),
     );
+  htmlElementSiblingsByParent.set(parent, siblings);
+  return siblings;
 }
 
 function isAlpineStructuralTemplate(node: HtmlNode): boolean {
@@ -2055,12 +2071,6 @@ function isAlpineStructuralTemplate(node: HtmlNode): boolean {
     node.attrs?.some(({ name }) =>
       /^x-(?:if|for|teleport)(?:\.|$)/i.test(name),
     ) === true
-  );
-}
-
-function hasAlpineStructuralSibling(node: HtmlNode): boolean {
-  return (node.parentNode?.childNodes ?? []).some(
-    (sibling) => sibling !== node && isAlpineStructuralTemplate(sibling),
   );
 }
 
@@ -2118,6 +2128,20 @@ function hasRuntimeStructuralMutationInSubtree(node: HtmlNode): boolean {
   );
 }
 
+function hasRuntimeStructuralMutationInSiblings(node: HtmlNode): boolean {
+  const parent = node.parentNode;
+  if (!parent) return false;
+
+  const cached = runtimeStructuralMutationInSiblingsByParent.get(parent);
+  if (cached !== undefined) return cached;
+
+  const hasMutation = htmlElementSiblings(node).some(
+    hasRuntimeStructuralMutationInSubtree,
+  );
+  runtimeStructuralMutationInSiblingsByParent.set(parent, hasMutation);
+  return hasMutation;
+}
+
 function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
   const parent = node.parentNode;
   if (!parent?.tagName) return false;
@@ -2126,37 +2150,74 @@ function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
 }
 
 function hasRemoteAlpineTeleportTo(target: HtmlNode): boolean {
-  let root = target;
+  return hasRemoteAlpineTeleportToAny([target]);
+}
+
+function hasRemoteAlpineTeleportToSubtree(target: HtmlNode): boolean {
+  return hasRemoteAlpineTeleportToAny(
+    [target, ...descendants(target)].filter((candidate) => candidate.tagName),
+  );
+}
+
+function hasRemoteAlpineTeleportToAny(targets: readonly HtmlNode[]): boolean {
+  const firstTarget = targets[0];
+  if (!firstTarget) return false;
+
+  let root = firstTarget;
   while (root.parentNode) root = root.parentNode;
 
-  return descendants(root).some((candidate) => {
+  return remoteAlpineTeleportDestinations(root).some(
+    (selector) =>
+      !selector ||
+      targets.some((target) => remoteAlpineTeleportCanTarget(target, selector)),
+  );
+}
+
+function remoteAlpineTeleportDestinations(
+  root: HtmlNode,
+): Array<ReturnType<typeof parseMotionAuthoredCssSimpleSelector>> {
+  const cached = remoteAlpineTeleportDestinationsByRoot.get(root);
+  if (cached) return cached;
+
+  const selectors: Array<
+    ReturnType<typeof parseMotionAuthoredCssSimpleSelector>
+  > = [];
+  for (const candidate of descendants(root)) {
+    if (candidate.tagName !== "template") continue;
     const directive = candidate.attrs?.find(({ name }) =>
       /^x-teleport(?:\.|$)/i.test(name),
     );
-    if (candidate.tagName !== "template" || !directive) return false;
-
-    const selector = parseMotionAuthoredCssSimpleSelector(
-      directive.value.trim(),
-    );
-    if (!selector) return true;
-
-    const matchesTarget = matchesHtmlSelector(target, selector);
-    const selectorAttribute =
-      selector.kind === "id"
-        ? "id"
-        : selector.kind === "class"
-          ? "class"
-          : selector.kind === "attribute"
-            ? selector.name
-            : null;
-    const canMatchTargetLater =
-      selectorAttribute !== null &&
-      (target.attrs ?? []).some(({ name, value }) =>
-        isDynamicHtmlAttribute(name, selectorAttribute, value),
+    if (directive) {
+      selectors.push(
+        parseMotionAuthoredCssSimpleSelector(directive.value.trim()),
       );
+    }
+  }
 
-    return matchesTarget || canMatchTargetLater;
-  });
+  remoteAlpineTeleportDestinationsByRoot.set(root, selectors);
+  return selectors;
+}
+
+function remoteAlpineTeleportCanTarget(
+  target: HtmlNode,
+  selector: MotionAuthoredCssSimpleSelector,
+): boolean {
+  const matchesTarget = matchesHtmlSelector(target, selector);
+  const selectorAttribute =
+    selector.kind === "id"
+      ? "id"
+      : selector.kind === "class"
+        ? "class"
+        : selector.kind === "attribute"
+          ? selector.name
+          : null;
+  const canMatchTargetLater =
+    selectorAttribute !== null &&
+    (target.attrs ?? []).some(({ name, value }) =>
+      isDynamicHtmlAttribute(name, selectorAttribute, value),
+    );
+
+  return matchesTarget || canMatchTargetLater;
 }
 
 function descendants(node: HtmlNode | undefined): HtmlNode[] {
