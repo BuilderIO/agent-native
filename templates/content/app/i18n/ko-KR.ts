@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "너비에 맞추기",
   githubLinkTitle: "GitHub 폴더 연결",
   githubNewCollectionTitle: "GitHub 폴더로 새 컬렉션 만들기",
   githubLinkDescription:
@@ -609,6 +610,16 @@ const editor = {
     purple: "보라색",
     pink: "분홍색",
     red: "빨간색",
+    defaultText: "기본 텍스트",
+    defaultBackground: "기본 배경",
+    textChoice: "{{color}} 텍스트",
+    backgroundChoice: "{{color}} 배경",
+  },
+  blockMenu: {
+    label: "블록 작업",
+    duplicate: "복제",
+    delete: "삭제",
+    insertBelow: "아래에 블록 삽입",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",

@@ -4102,7 +4102,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("renders markdown table header cells as plain table cells", () => {
+  it("renders a header row as column headers", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -4164,8 +4164,17 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
-      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+      const headers = editor.view.dom.querySelectorAll("th");
+      expect(
+        Array.from(headers, (cell) => [
+          cell.textContent,
+          cell.getAttribute("scope"),
+        ]),
+      ).toEqual([
+        ["A", "col"],
+        ["B", "col"],
+      ]);
+      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(2);
     } finally {
       editor.destroy();
     }
@@ -4274,6 +4283,11 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelectorAll(".content-table-header-cell"),
       ).toHaveLength(4);
+      expect(
+        Array.from(editor.view.dom.querySelectorAll("th"), (cell) =>
+          cell.getAttribute("scope"),
+        ),
+      ).toEqual(["col", "col", "row", "row"]);
     } finally {
       editor.destroy();
     }

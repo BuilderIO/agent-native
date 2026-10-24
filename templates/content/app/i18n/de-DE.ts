@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "An Breite anpassen",
   githubLinkTitle: "GitHub-Ordner verknüpfen",
   githubNewCollectionTitle: "Neue Sammlung aus einem GitHub-Ordner",
   githubLinkDescription:
@@ -631,6 +632,16 @@ const editor = {
     purple: "Violett",
     pink: "Rosa",
     red: "Rot",
+    defaultText: "Standardtext",
+    defaultBackground: "Standardhintergrund",
+    textChoice: "Text in {{color}}",
+    backgroundChoice: "Hintergrund in {{color}}",
+  },
+  blockMenu: {
+    label: "Blockaktionen",
+    duplicate: "Duplizieren",
+    delete: "Löschen",
+    insertBelow: "Block darunter einfügen",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:

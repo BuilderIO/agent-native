@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "幅に合わせる",
   githubLinkTitle: "GitHub フォルダーをリンク",
   githubNewCollectionTitle: "GitHub フォルダーから新しいコレクションを作成",
   githubLinkDescription:
@@ -618,6 +619,16 @@ const editor = {
     purple: "紫",
     pink: "ピンク",
     red: "赤",
+    defaultText: "デフォルトの文字",
+    defaultBackground: "デフォルトの背景",
+    textChoice: "{{color}}の文字",
+    backgroundChoice: "{{color}}の背景",
+  },
+  blockMenu: {
+    label: "ブロックの操作",
+    duplicate: "複製",
+    delete: "削除",
+    insertBelow: "下にブロックを挿入",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:
