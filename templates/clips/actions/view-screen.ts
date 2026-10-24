@@ -233,9 +233,9 @@ async function fetchLibrary({
     if (organizationId) {
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
-    conditions.push(
-      fromContent ? uploadedFromContent() : not(uploadedFromContent()),
-    );
+    // A folder someone moved an upload into still lists it.
+    if (fromContent) conditions.push(uploadedFromContent());
+    else if (!folderId) conditions.push(not(uploadedFromContent()));
   }
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb

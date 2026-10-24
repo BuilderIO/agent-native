@@ -104,7 +104,8 @@ export const CONTENT_CLIP_NOT_CONFIGURED = "content_clips_not_configured";
 /**
  * The video types an upload from a document may be. Content sends the chunks
  * with no `Content-Type`, so the browser makes no CORS preflight; the type
- * travels in the chunk URL Clips returns.
+ * travels in the chunk URL Clips returns. A cancel goes to the cancel URL the
+ * same way, with no body.
  */
 export const CONTENT_CLIP_UPLOAD_MIME_TYPES = [
   "video/mp4",
