@@ -864,6 +864,7 @@ describe("Builder CMS write adapter plan", () => {
             triggerWebhooks: "true",
           },
           body: {
+            name: "New title",
             data: {
               title: "New title",
             },
@@ -986,6 +987,7 @@ describe("Builder CMS write adapter plan", () => {
             triggerWebhooks: "true",
           },
           body: {
+            name: "New title",
             published: "draft",
           },
         },

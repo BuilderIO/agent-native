@@ -50,6 +50,7 @@ import {
 import {
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
   withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
@@ -490,9 +491,11 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...parseSourceValues(args.existingSourceValuesJson),
   };
   const effect = args.plan.payload.effect;
-  // Any publish or unpublish settles a staged one: it's the newer decision.
+  // A push settles only the staged change it sent. One staged while it was
+  // in flight, or left out of its review, still waits for a push.
+  const staged = readBuilderCmsPublicationIntent(existing);
   const next =
-    effect === "publish" || effect === "unpublish"
+    staged.state === "staged" && staged.transition === effect
       ? withBuilderCmsPublicationIntent(existing, null)
       : { ...existing };
   const published = builderCmsPublishedAfterWrite({
@@ -748,6 +751,15 @@ function livePreflightBlockMessage(args: {
   }
   if (args.effect === "unpublish" && args.liveState.published !== "published") {
     return "Entry is not currently published.";
+  }
+  // An autosave in Builder's editor can leave the entry's update time alone,
+  // so the timestamp check above doesn't catch one made after the review.
+  if (
+    args.effect === "publish" &&
+    args.liveState.hasAutosaves === true &&
+    !savedOver
+  ) {
+    return "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.";
   }
   return null;
 }

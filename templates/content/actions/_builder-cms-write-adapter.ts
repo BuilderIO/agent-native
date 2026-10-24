@@ -658,6 +658,7 @@ function builderRequestForEffect(args: {
       },
       body: {
         ...args.bodyPatch,
+        ...(safeEntryName ? { name: safeEntryName } : {}),
         published: "published",
       },
     };
@@ -671,6 +672,7 @@ function builderRequestForEffect(args: {
       },
       body: {
         ...args.bodyPatch,
+        ...(safeEntryName ? { name: safeEntryName } : {}),
         published: "draft",
       },
     };

@@ -1150,6 +1150,70 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
+  it("blocks a publish once Builder's editor holds changes Content can't see", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const run = (
+      hasAutosaves: boolean,
+      rows: ContentDatabaseSource["rows"] = [row()],
+    ) => {
+      const builderSource = source({
+        rows,
+        changeSets: [approvedChangeSet],
+        metadata: { allowPublicationTransitions: true },
+      });
+      const deps = depsFor({
+        source: builderSource,
+        execution: executionFor({
+          source: builderSource,
+          changeSet: approvedChangeSet,
+          publicationTransition: "publish",
+        }),
+        readLiveEntry: {
+          exists: true,
+          published: "published",
+          lastUpdated: BUILDER_LAST_UPDATED_MS,
+          blocksHash: null,
+          id: "builder-entry-1",
+          hasAutosaves,
+        },
+      });
+      return {
+        deps,
+        result: executeBuilderSourceExecutionWithDeps(
+          {
+            databaseId: "database-1",
+            changeSetId: approvedChangeSet.id,
+            pushModeConfirmation: "draft",
+            publicationTransition: "publish",
+          },
+          deps,
+        ),
+      };
+    };
+
+    const autosaved = run(true);
+    await expect(autosaved.result).rejects.toThrow(
+      "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.",
+    );
+    expect(autosaved.deps.executeWrite).not.toHaveBeenCalled();
+
+    const clean = run(false);
+    await expect(clean.result).resolves.toMatchObject(RESPONSE);
+    expect(clean.deps.executeWrite).toHaveBeenCalledTimes(1);
+
+    // The status picker lets Content publish the unpublished changes it saved.
+    const contentSaved = run(true, [
+      row({
+        sourceValues: withBuilderCmsUnpublishedChanges(
+          { published: "published", "data.title": "Saved title" },
+          { liveValues: { "data.title": "Old title" } },
+        ),
+      }),
+    ]);
+    await expect(contentSaved.result).resolves.toMatchObject(RESPONSE);
+    expect(contentSaved.deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
   it("unpublishes published entries when explicitly confirmed", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({
@@ -1791,7 +1855,7 @@ describe("execute Builder source execution", () => {
     expect(values).not.toHaveProperty("data.blocks");
   });
 
-  it("settles a staged publish or unpublish once one is sent", () => {
+  it("settles a staged publish or unpublish only when the push sends it", () => {
     const existingSourceValuesJson = JSON.stringify(
       withBuilderCmsPublicationIntent(
         { published: "draft", "data.title": "Old title" },
@@ -1812,13 +1876,14 @@ describe("execute Builder source execution", () => {
         }),
       );
 
-    expect(reconciled("unpublish")).not.toHaveProperty(
-      BUILDER_CMS_PUBLICATION_INTENT_KEY,
-    );
     expect(reconciled("publish")).not.toHaveProperty(
       BUILDER_CMS_PUBLICATION_INTENT_KEY,
     );
-    // A save that sends neither keeps the staged change for a later push.
+    // A push that sends the other transition, or neither, keeps the staged
+    // change for a later push.
+    expect(reconciled("unpublish")).toMatchObject({
+      [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "publish",
+    });
     expect(reconciled("update_in_place")).toMatchObject({
       [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "publish",
     });
