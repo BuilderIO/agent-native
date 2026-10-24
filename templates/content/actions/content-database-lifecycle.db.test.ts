@@ -394,6 +394,90 @@ describe("database-scoped document properties", () => {
     });
   });
 
+  it("drops a deleted property's sorts and filters from a person's saved view", async () => {
+    const { putUserSetting } = await import("@agent-native/core/settings");
+    const {
+      personalDatabaseViewSettingKey,
+      PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+    } = await import("./_content-database-personal-view.js");
+    const getPersonalViewAction = (
+      await import("./get-content-database-personal-view.js")
+    ).default;
+    const db = getDb();
+    const database = await createDatabase({});
+    const deletedPropertyId = nextId("deleted_property");
+    const keptPropertyId = nextId("kept_property");
+    const now = new Date().toISOString();
+    await db.insert(schema.documentPropertyDefinitions).values(
+      [deletedPropertyId, keptPropertyId].map((id, position) => ({
+        id,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        name: id,
+        type: "text",
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await putUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey(database.databaseId),
+      {
+        version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+        activeViewId: "table",
+        views: [
+          {
+            id: "table",
+            sorts: [
+              { key: deletedPropertyId, label: "Deleted", direction: "asc" },
+              { key: "name", label: "Name", direction: "desc" },
+              { key: keptPropertyId, label: "Kept", direction: "asc" },
+            ],
+            filters: [
+              {
+                key: deletedPropertyId,
+                label: "Deleted",
+                operator: "equals",
+                value: "draft",
+              },
+              {
+                key: keptPropertyId,
+                label: "Kept",
+                operator: "is_not_empty",
+                value: "",
+              },
+            ],
+            filterMode: "and",
+          },
+        ],
+      },
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: database.databaseDocumentId,
+        databaseId: database.databaseId,
+        propertyId: deletedPropertyId,
+      }),
+    );
+
+    const { overrides } = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        getPersonalViewAction.run({ databaseId: database.databaseId }, {
+          userEmail: OWNER,
+        } as any),
+    );
+    expect(overrides?.views[0].sorts.map((sort) => sort.key)).toEqual([
+      "name",
+      keptPropertyId,
+    ]);
+    expect(overrides?.views[0].filters.map((filter) => filter.key)).toEqual([
+      keptPropertyId,
+    ]);
+  });
+
   it("keeps reads and Add property mutations on the requested membership", async () => {
     const db = getDb();
     const now = new Date().toISOString();
