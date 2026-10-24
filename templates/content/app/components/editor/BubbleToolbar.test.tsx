@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { BubbleMenuView } from "@tiptap/extension-bubble-menu";
 import type { Transaction } from "@tiptap/pm/state";
-import { Editor } from "@tiptap/react";
+import { Editor, Node } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -990,6 +990,42 @@ describe("BubbleToolbar", () => {
     expect(
       editor.state.doc.nodeAt(1)?.marks.map((mark) => mark.type.name),
     ).toEqual(["notionSpan", "code"]);
+  });
+
+  it("stays hidden while a registry block is selected", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    const RegistryBlock = Node.create({
+      name: "registryBlock",
+      group: "block",
+      atom: true,
+      selectable: true,
+      parseHTML: () => [{ tag: "div[data-registry-block]" }],
+      renderHTML: () => ["div", { "data-registry-block": "" }],
+    });
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, RegistryBlock],
+      content: "<p>Notes</p><div data-registry-block></div>",
+    });
+    const toolbarButton = document.createElement("button");
+    toolbarElement.append(toolbarButton);
+    toolbarButton.focus();
+    const shows = (from: number, to: number) =>
+      shouldShowBubbleToolbar({
+        editor: editor!,
+        element: toolbarElement!,
+        state: editor!.state,
+        from,
+        to,
+      });
+
+    expect(shows(1, 6)).toBe(true);
+    editor.commands.setNodeSelection(7);
+    expect(shows(editor.state.selection.from, editor.state.selection.to)).toBe(
+      false,
+    );
   });
 
   it("hides the color control when a selection contains no text", () => {
