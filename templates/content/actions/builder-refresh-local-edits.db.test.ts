@@ -7,7 +7,10 @@ import { getDbExec } from "@agent-native/core/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
-import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
+import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+} from "./_builder-cms-source-adapter.js";
 
 const MODEL = "collection-local-edits";
 const OWNER = "owner@example.com";
@@ -24,6 +27,9 @@ const builder = vi.hoisted(() => ({
   >(),
   // Builder can leave out the time an entry last changed.
   bodyReadOmitsUpdateTime: false,
+  // How Builder reports an emptied body: an empty block list, or an empty
+  // blocks string with no list.
+  emptiedBodies: new Map<string, "blocks" | "blocksString">(),
 }));
 
 vi.mock("./_builder-cms-read-client.js", async () => {
@@ -108,6 +114,42 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       };
     }),
     readBuilderCmsContentEntry: vi.fn(async () => null),
+    // A live read of an entry whose body Builder emptied.
+    readBuilderCmsContentEntryResult: vi.fn(
+      async (args: { entryId: string }) => {
+        const entry = builder.entries.get(args.entryId);
+        if (!entry || !builder.emptiedBodies.has(args.entryId)) {
+          return {
+            state: "not_found",
+            entry: null,
+            providerStatus: "http_404",
+          };
+        }
+        const found = toEntry(args.entryId, entry);
+        const emptyList = builder.emptiedBodies.get(args.entryId) === "blocks";
+        return {
+          state: "found",
+          providerStatus: "http_200",
+          entry: {
+            ...found,
+            sourceValues: emptyList
+              ? { ...found.sourceValues, [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0 }
+              : found.sourceValues,
+            rawEntry: {
+              id: args.entryId,
+              model: MODEL,
+              name: entry.title,
+              lastUpdated: entry.updatedAt,
+              data: {
+                title: entry.title,
+                author: entry.author,
+                ...(emptyList ? { blocks: [] } : { blocksString: "" }),
+              },
+            },
+          },
+        };
+      },
+    ),
   };
 });
 
@@ -232,7 +274,7 @@ async function editTitle(entryId: string, title: string) {
     .where(eq(schema.documents.id, await documentIdFor(entryId)));
 }
 
-async function hydrateBody(entryId: string, body: string) {
+async function hydrateBody(entryId: string, body: string | null) {
   const [row] = await getDb()
     .select()
     .from(schema.contentDatabaseSourceRows)
@@ -263,7 +305,8 @@ async function hydrateBody(entryId: string, body: string) {
         "data.author": entry.author,
         lastUpdated: updatedAt,
         published: "draft",
-        [BUILDER_CMS_BODY_CONTENT_KEY]: body,
+        // Without a body the job reads the live entry.
+        ...(body === null ? {} : { [BUILDER_CMS_BODY_CONTENT_KEY]: body }),
       },
     },
     now: updatedAt,
@@ -591,6 +634,27 @@ it("moves an unedited property to the value a body read brings and flags an edit
   expect(await localAuthor("entry-a")).toBe("Ada, Countess");
   expect(await editConflicts("entry-a")).toEqual(["data.author"]);
 });
+
+it.each(["blocks", "blocksString"] as const)(
+  "flags a body the page keeps when Builder reports an empty %s",
+  async (shape) => {
+    const id = `entry-empty-${shape}`;
+    builder.entries.set(id, { title: id, author: "Dee", updatedAt: tick() });
+    await refresh();
+    // Content never read a body for this entry, so it can't tell an empty
+    // Builder body from one Builder deleted.
+    await editBody(id, "Body D");
+    builder.emptiedBodies.set(id, shape);
+    await hydrateBody(id, null);
+
+    expect(await localBody(id)).toContain("Body D");
+    expect(await editConflicts(id)).toEqual([BUILDER_CMS_BODY_CONTENT_KEY]);
+    expect(await pendingEdit(id)).toMatchObject({
+      conflictState: "source_changed",
+      bodyChange: expect.anything(),
+    });
+  },
+);
 
 it("moves unedited properties to the values a bulk body read brings and flags an edited one", async () => {
   const ids = Array.from({ length: 20 }, (_, index) => `entry-bulk-${index}`);

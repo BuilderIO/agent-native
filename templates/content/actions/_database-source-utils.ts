@@ -102,6 +102,7 @@ import {
 } from "./_builder-cms-read-client.js";
 import {
   BUILDER_CMS_BODY_BASELINE_KEYS,
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
@@ -2460,14 +2461,27 @@ async function processBuilderBodyHydrationJob(
           return;
         }
         await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
+        const [document] = await tx
+          .select({ content: schema.documents.content })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, row.documentId));
+        const localContent = document?.content ?? "";
         // The next refresh compares the version with the row as written.
         const writtenEntry = {
           ...emptyBodyRead.entry,
           updatedAt: emptyBodyRead.entry.updatedAt ?? now,
-          sourceValues: builderBodyReadSourceValues(
-            sourceValues,
-            emptyBodyRead.entry,
-          ),
+          // The page keeps its body here, edited or not. Builder returned this
+          // body, so the review can offer to push the page's body over it.
+          sourceValues: withBodyReadEditConflict({
+            previousValues: sourceValues,
+            nextValues: {
+              ...builderBodyReadSourceValues(sourceValues, emptyBodyRead.entry),
+              [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+            },
+            bodyKept: !isEffectivelyEmptyDocumentContent(localContent),
+            localContent,
+            nextContent: "",
+          }),
         };
         const [updatedSourceRow] = await tx
           .update(schema.contentDatabaseSourceRows)
@@ -2622,22 +2636,12 @@ async function processBuilderBodyHydrationJob(
       currentContent,
       nextContent,
     });
-  // An edited body stays, and the row records it when Builder changed the
-  // body too, as a refresh does for a field.
-  const previousConflicts = readBuilderCmsEditConflicts(sourceValues);
-  nextValues = withBuilderCmsEditConflicts(nextValues, {
-    ownedKeys: [BUILDER_CMS_BODY_CONTENT_KEY],
-    conflictedKeys:
-      !shouldWriteBody &&
-      currentContent !== nextContent &&
-      (previousContent !== nextContent ||
-        previousConflicts.state === "invalid" ||
-        (previousConflicts.state === "recorded" &&
-          previousConflicts.sourceFieldKeys.includes(
-            BUILDER_CMS_BODY_CONTENT_KEY,
-          )))
-        ? [BUILDER_CMS_BODY_CONTENT_KEY]
-        : [],
+  nextValues = withBodyReadEditConflict({
+    previousValues: sourceValues,
+    nextValues,
+    bodyKept: !shouldWriteBody,
+    localContent: currentContent,
+    nextContent,
   });
   let wroteBody = false;
   await db.transaction(async (tx) => {
@@ -2788,6 +2792,40 @@ async function processBuilderBodyHydrationJob(
   // snapshot into its Y.Doc. Deleting collab state here can race a connected
   // client, briefly bootstrap an empty fragment, and let that stale client
   // repersist the empty state over the newly hydrated Builder body.
+}
+
+/**
+ * An edited body stays, and the row records it when Builder changed the body
+ * too, as a refresh does for a field. With no Builder body stored before, a
+ * body Builder deleted looks like one it never had, so that counts as changed.
+ */
+function withBodyReadEditConflict(args: {
+  previousValues: Record<string, DocumentPropertyValue>;
+  nextValues: Record<string, DocumentPropertyValue>;
+  bodyKept: boolean;
+  localContent: string;
+  nextContent: string;
+}) {
+  const previousContent =
+    stringSourceValue(args.previousValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  const previousBodyUnknown =
+    !previousContent.trim() && !builderCmsBodyKnownEmpty(args.previousValues);
+  const previousConflicts = readBuilderCmsEditConflicts(args.previousValues);
+  return withBuilderCmsEditConflicts(args.nextValues, {
+    ownedKeys: [BUILDER_CMS_BODY_CONTENT_KEY],
+    conflictedKeys:
+      args.bodyKept &&
+      args.localContent !== args.nextContent &&
+      (previousBodyUnknown ||
+        previousContent !== args.nextContent ||
+        previousConflicts.state === "invalid" ||
+        (previousConflicts.state === "recorded" &&
+          previousConflicts.sourceFieldKeys.includes(
+            BUILDER_CMS_BODY_CONTENT_KEY,
+          )))
+        ? [BUILDER_CMS_BODY_CONTENT_KEY]
+        : [],
+  });
 }
 
 /**
