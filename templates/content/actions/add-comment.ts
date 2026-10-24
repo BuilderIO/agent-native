@@ -81,7 +81,7 @@ const commentSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Quoted text for the thread. Without the anchor fields, they are read from the saved page around the quote's first copy; send them to comment on a later copy.",
+      "Quoted text for the thread, exactly as the page reads: from one block, without Markdown syntax such as ** or link URLs. A quote the saved page doesn't have is refused. Without the anchor fields, they are read from the saved page around the quote's first copy; send them to comment on a later copy.",
     ),
   anchorPrefix: z
     .string()
@@ -191,13 +191,13 @@ async function commentTargetDoc(
 }
 
 /**
- * The type of the block a new thread is on. An agent names a block it read
- * from the saved page, so a block that isn't there is a mistake to report, as
- * is an id more than one video goes by, which names none of them, and a video
- * known only by its derived id: that id passes to another video when videos
- * with its source are added or reordered outside an editor. A
- * person's editor can be ahead of the save, so their thread is kept as they
- * started it, and shows as unanchored if the block never arrives.
+ * The type of the block a new thread is on. An id more than one video goes
+ * by names none of them, so no caller starts a thread on it. An agent names a
+ * block it read from the saved page, so a block that isn't there is a mistake
+ * to report, as is a video known only by its derived id: that id passes to
+ * another video when videos with its source are added or reordered outside an
+ * editor. A person's editor can be ahead of the save, so their thread is kept
+ * as they started it, and shows as unanchored if the block never arrives.
  */
 async function resolveCommentBlockType(args: {
   target: PMNode;
@@ -206,14 +206,14 @@ async function resolveCommentBlockType(args: {
   strict: boolean;
 }): Promise<CommentAnchorBlockType> {
   const found = nfmCommentAnchorBlocks(args.target).get(args.blockId);
-  if (!args.strict && (found || args.blockType))
-    return found?.blockType ?? args.blockType!;
   if (found?.shared) {
     fail(
       "More than one video on this Page has that id, so a thread on it would show on none of them; give the video you mean a new unique id with edit-document, then comment with that id",
       { statusCode: 400, errorCode: "comment_block_id_shared" },
     );
   }
+  if (!args.strict && (found || args.blockType))
+    return found?.blockType ?? args.blockType!;
   if (found && !found.saved) {
     fail(
       "That video has no id saved in the page yet; give its <video> tag a new unique id with edit-document, then comment with that id",
@@ -433,15 +433,17 @@ export async function addCommentWithGuard(
   const blockId = args.blockId;
   // A new thread on text the page has always carries context, as one started
   // in the editor does, so it can't be taken for a comment on a video from
-  // before videos had ids, which quoted the video's label with none.
+  // before videos had ids, which quoted the video's label with none. An
+  // agent's quote the page doesn't have is refused rather than saved with none.
+  const strict = actorKind === "agent";
+  const quotesText = !args.threadId && !!args.quotedText;
   const readsQuoteAnchor =
-    !args.threadId &&
-    !!args.quotedText &&
+    quotesText &&
     args.anchorPrefix === undefined &&
     args.anchorSuffix === undefined &&
     args.anchorStartOffset === undefined;
   const target =
-    blockId || readsQuoteAnchor
+    blockId || readsQuoteAnchor || (strict && quotesText)
       ? await commentTargetDoc(
           access.resource as Parameters<
             typeof listPropertiesForAllDocumentDatabases
@@ -449,16 +451,15 @@ export async function addCommentWithGuard(
           fieldTarget.fieldId,
         )
       : null;
-  const quoteAnchor =
-    readsQuoteAnchor && target
-      ? nfmQuoteAnchor(target, args.quotedText!)
-      : null;
+  const quoteOnPage =
+    quotesText && target ? nfmQuoteAnchor(target, args.quotedText!) : null;
+  const quoteAnchor = readsQuoteAnchor ? quoteOnPage : null;
   const blockType = blockId
     ? await resolveCommentBlockType({
         target: target!,
         blockId,
         blockType: args.blockType,
-        strict: actorKind === "agent",
+        strict,
       }).catch(async (error: unknown) => {
         const saved = await savedSubmission();
         if (saved?.blockId === blockId && saved.blockType) {
@@ -553,6 +554,12 @@ export async function addCommentWithGuard(
       fail(
         "A thread in a Blocks field tab quotes text from that tab; pass quotedText, or omit fieldId to comment on the whole page",
         { statusCode: 400, errorCode: "comment_field_quote_required" },
+      );
+    }
+    if (strict && quotesText && !quoteOnPage) {
+      fail(
+        "That quotedText isn't in the text this thread would be on (the Page, or the fieldId tab), so it would have no highlight; quote the text exactly as the Page reads, from one block and without Markdown syntax such as ** or link URLs",
+        { statusCode: 400, errorCode: "comment_quote_not_found" },
       );
     }
     await assertAccess("document", documentId, "commenter", {

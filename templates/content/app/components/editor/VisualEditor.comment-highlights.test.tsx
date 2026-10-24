@@ -386,6 +386,57 @@ describe("VisualEditor comment highlights", () => {
       expect(ids).toEqual([derived]);
     });
 
+    it("lets a reader who can comment but not edit comment on a video, by the id it goes by", async () => {
+      const onBlockComment = vi.fn();
+      const content = `Intro.\n<video src="${VIDEO}" id="video-saved001"></video>\n<video src="${VIDEO}"></video>`;
+      await act(async () =>
+        render(content, [], "seed", true, { editable: false, onBlockComment }),
+      );
+      await settle();
+      expect(
+        container.querySelector(
+          '[aria-label="editor.media.resizeVideoFromLeft"]',
+        ),
+        "no media-edit controls",
+      ).toBeNull();
+      const buttons = container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnVideo"]',
+      );
+      expect(buttons).toHaveLength(2);
+      await act(async () => buttons[0]!.click());
+      await act(async () => buttons[1]!.click());
+
+      expect(onBlockComment.mock.calls.map(([target]) => target)).toEqual([
+        expect.objectContaining({ blockId: "video-saved001" }),
+        expect.objectContaining({ blockId: derivedVideoBlockId(VIDEO, 1) }),
+      ]);
+      const editor = (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+      const ids: unknown[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "video") ids.push(node.attrs.blockId);
+      });
+      expect(ids, "a tab that can't edit writes no id").toEqual([
+        "video-saved001",
+        null,
+      ]);
+    });
+
+    it("shows no Comment button on a video to a reader who can't comment", async () => {
+      await act(async () =>
+        render(`Intro.\n<video src="${VIDEO}"></video>`, [], "seed", true, {
+          editable: false,
+        }),
+      );
+      await settle();
+      expect(
+        container.querySelector('[aria-label="editor.media.commentOnVideo"]'),
+      ).toBeNull();
+    });
+
     it("gives a video an id of its own before a comment on it, when another video shares its id", async () => {
       const onBlockComment = vi.fn();
       const shared = `<video src="${VIDEO}" id="video-shared01"></video>`;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { derivedVideoBlockId } from "../shared/comment-block-anchor.js";
@@ -174,17 +174,58 @@ describe("add-comment with a quote and no context", () => {
     });
   });
 
-  it("leaves a quote the page doesn't have without context", async () => {
+  it("tells an agent when the page doesn't have its quote", async () => {
     const page = await seedNotes("quote-missing");
-    const created = await byAgent({
+    for (const quotedText of ["Intro", "**Video** notes"]) {
+      expect(
+        await rejection(
+          byAgent({ documentId: page, content: "Gone?", quotedText }),
+        ),
+      ).toEqual({ statusCode: 400, errorCode: "comment_quote_not_found" });
+    }
+    expect(
+      await rejection(
+        byAgent({
+          documentId: page,
+          content: "Gone?",
+          quotedText: "Intro",
+          anchorSuffix: " notes",
+        }),
+      ),
+    ).toEqual({ statusCode: 400, errorCode: "comment_quote_not_found" });
+  });
+
+  it("leaves a person's quote the page doesn't have without context", async () => {
+    const page = await seedNotes("quote-missing-person");
+    const created = await byPerson({
       documentId: page,
       content: "Gone?",
       quotedText: "Intro",
     });
     expect(await storedComment(created.id)).toMatchObject({
+      quotedText: "Intro",
       anchorPrefix: null,
       anchorSuffix: null,
       anchorStartOffset: null,
+    });
+  });
+
+  it("replays an agent's retried submission after its quote left the page", async () => {
+    const page = await seedNotes("quote-retry-gone");
+    const args = {
+      documentId: page,
+      content: "Retry me",
+      quotedText: "notes",
+      idempotencyKey: "quote-retry-gone",
+    };
+    const created = await byAgent(args);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Rewritten" })
+      .where(eq(schema.documents.id, page));
+    expect(await byAgent(args)).toMatchObject({
+      id: created.id,
+      replayed: true,
     });
   });
 
@@ -262,7 +303,7 @@ describe("add-comment with blockId", () => {
     });
   });
 
-  it("tells an agent to give one of two videos that share an id a new one", async () => {
+  it("refuses anyone a thread on an id two videos share", async () => {
     await getDb()
       .insert(schema.documents)
       .values({
@@ -274,15 +315,19 @@ describe("add-comment with blockId", () => {
           `<video src="${SAVED}" id="video-shared01"></video>`,
         ].join("\n"),
       });
-    expect(
-      await rejection(
-        byAgent({
-          documentId: "block-shared",
-          content: "Which one?",
-          blockId: "video-shared01",
-        }),
-      ),
-    ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
+    const args = {
+      documentId: "block-shared",
+      content: "Which one?",
+      blockId: "video-shared01",
+    };
+    expect(await rejection(byAgent(args))).toEqual({
+      statusCode: 400,
+      errorCode: "comment_block_id_shared",
+    });
+    expect(await rejection(byPerson({ ...args, blockType: "video" }))).toEqual({
+      statusCode: 400,
+      errorCode: "comment_block_id_shared",
+    });
   });
 
   it("keeps a saved id on its video when a video added above derives the same one", async () => {
@@ -469,11 +514,22 @@ describe("add-comment with blockId", () => {
         ),
       );
     const copied = `Tab notes\n<video src="${SAVED}" id="video-innotes"></video>\n<video src="${LEGACY}" id="video-innotes"></video>`;
-    expect(await rejection(write(copied))).toEqual({
-      statusCode: 422,
-      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
-    });
-    await write(copied, { caller: "frontend" });
+    for (const ctx of [undefined, { caller: "frontend" }]) {
+      expect(await rejection(write(copied, ctx))).toEqual({
+        statusCode: 422,
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      });
+    }
+    await getDb()
+      .update(schema.documentBlockFieldContents)
+      .set({ content: copied })
+      .where(
+        and(
+          eq(schema.documentBlockFieldContents.documentId, row),
+          eq(schema.documentBlockFieldContents.propertyId, notesId),
+        ),
+      );
+    await write(`More ${copied}`, { caller: "frontend" });
     expect(
       await rejection(
         byAgent({

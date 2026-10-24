@@ -819,7 +819,7 @@ export function VideoBlock({
               </Popover>
             </div>
           </>
-        ) : editor.isEditable && options.onVideoComment ? (
+        ) : options.onVideoComment ? (
           <div
             className="media-block__toolbar"
             data-visible={isHovered ? "true" : undefined}

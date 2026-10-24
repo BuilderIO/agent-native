@@ -249,8 +249,7 @@ export default defineAction({
             throw new Error(`Document "${documentId}" not found`);
           }
           previousContent = currentDocument.content;
-          if (!isAppUiCaller)
-            assertNoNewlySharedVideoIds(previousContent, content);
+          assertNoNewlySharedVideoIds(previousContent, content);
           await tx
             .update(schema.documents)
             .set({
@@ -270,8 +269,7 @@ export default defineAction({
               ),
             );
           previousContent = currentField?.content ?? "";
-          if (!isAppUiCaller)
-            assertNoNewlySharedVideoIds(previousContent, content);
+          assertNoNewlySharedVideoIds(previousContent, content);
           await tx
             .insert(schema.documentBlockFieldContents)
             .values({
