@@ -1569,6 +1569,33 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_webhook_deliveries_webhook_idx
           ON content_webhook_deliveries (webhook_id, created_at)`,
     },
+    {
+      version: 130,
+      name: "content-property-value-generations",
+      // A trigger stamps every write, so no writer can forget to. Existing
+      // values keep a NULL generation, which reads as 0, until they change.
+      // The function body is one quoted string: the runner splits on
+      // semicolons outside quotes.
+      sql: `CREATE SEQUENCE IF NOT EXISTS content_property_value_generation_seq;
+        ALTER TABLE document_property_values ADD COLUMN IF NOT EXISTS generation BIGINT;
+        CREATE OR REPLACE FUNCTION content_property_value_generation()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            IF TG_OP = ''INSERT'' OR NEW.value_json IS DISTINCT FROM OLD.value_json THEN
+              NEW.generation := nextval(''content_property_value_generation_seq'');
+            ELSE
+              NEW.generation := OLD.generation;
+            END IF;
+            RETURN NEW;
+          END';
+        DROP TRIGGER IF EXISTS content_property_value_generation
+          ON document_property_values;
+        CREATE TRIGGER content_property_value_generation
+          BEFORE INSERT OR UPDATE ON document_property_values
+          FOR EACH ROW
+          EXECUTE FUNCTION content_property_value_generation()`,
+    },
   ],
   { table: "content_migrations" },
 );

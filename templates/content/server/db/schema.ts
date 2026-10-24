@@ -1047,6 +1047,12 @@ export const documentPropertyValues = table("document_property_values", {
   documentId: text("document_id").notNull(),
   propertyId: text("property_id").notNull(),
   valueJson: text("value_json").notNull().default("null"),
+  /**
+   * Goes up on every change to the value, set by a database trigger from one
+   * shared sequence; NULL until the value first changes. Read it through
+   * _property-generations.ts, which treats NULL as 0.
+   */
+  generation: integer("generation"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

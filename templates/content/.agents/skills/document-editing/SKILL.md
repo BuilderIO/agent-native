@@ -333,6 +333,12 @@ pnpm action delete-content-webhook --id wh_abc
 
 `create-content-webhook` returns the signing secret once. Requests follow Standard Webhooks: `webhook-id` is the event ID, `webhook-timestamp` is Unix seconds, and `webhook-signature` is `v1,` + base64 HMAC-SHA256 of `{id}.{timestamp}.{body}`, keyed with the base64-decoded secret after `whsec_`. The body is `{ id, type, occurredAt, webhookId, sequence, documentId, databaseId, actor: { kind: "human" | "agent", email }, data }`. Any 2xx acknowledges. Delivery is at least once: a failure is retried for about 28 hours with the same `webhook-id` and body, so receivers dedupe on it; for one property on one page, a larger `sequence` is the later change. Private, internal, and Tailnet URLs are refused, and events stop if the webhook's creator loses admin access. Imports, source syncs, row creation, duplication, row migrations, Blocks fields, Notion comment sync, and reopening a thread don't send events yet.
 
+### Property generations
+
+Every stored property value has a generation that goes up each time the value changes, including a change that returns to an earlier value (A → B → A). `get-document` and each `get-content-database` item return `propertyGenerations: { [propertyId]: number }`; a property with no value is 0. `set-document-property` returns the new `generation`, and `property.changed` events carry it in `data.generation`. Compare generations for equality only, since they come from one shared counter.
+
+To act on a value only while it is still the one you read, pass it back: `set-document-property --expectedGeneration`, or `expectedPropertyGenerations: { [propertyId]: number }` on `update-database-item` and on each `patch-database-items` row. If any named value has changed since, nothing is written and the call fails with `PROPERTY_GENERATION_CONFLICT` (409), listing `{ propertyId, expected, current }`. Reread and decide again. `expectedRowRevision` can't catch this case, because it hashes values. Blocks fields use their own revision instead.
+
 ### refresh-list
 
 Trigger the UI to refresh the document list.
