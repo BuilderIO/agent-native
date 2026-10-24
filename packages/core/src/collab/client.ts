@@ -1184,16 +1184,11 @@ class CollabDocConnection {
       const localState = this.awareness.getLocalState();
       if (localState && this.isPollCurrent(generation)) {
         try {
-          const awarenessRes = await fetch(
-            `${this.baseUrl}/${this.docId}/awareness`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                clientId: this.ydoc.clientID,
-                state: JSON.stringify(localState),
-              }),
-            },
+          const awarenessRes = await postAwarenessState(
+            this.baseUrl,
+            this.docId,
+            this.ydoc.clientID,
+            localState,
           );
           if (!this.isPollCurrent(generation)) return;
           if (awarenessRes.ok) {
@@ -1256,15 +1251,13 @@ class CollabDocConnection {
     this.awareness.setLocalStateField("visible", visible);
     const localState = this.awareness.getLocalState();
     if (!localState) return;
-    fetch(`${this.baseUrl}/${this.docId}/awareness`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId: this.ydoc.clientID,
-        state: JSON.stringify(localState),
-      }),
-      keepalive: true,
-    }).catch(() => {});
+    void postAwarenessState(
+      this.baseUrl,
+      this.docId,
+      this.ydoc.clientID,
+      localState,
+      true,
+    ).catch(() => {});
   }
 
   private handleVisibilityChange = (): void => {
