@@ -33,11 +33,17 @@ const APPROVAL_RESOLUTION_POLL_INTERVAL_MS = 500;
 const APPROVAL_RESOLUTION_TIMEOUT_MS = 30_000;
 
 export class AgentHarnessApprovalResolutionTimeoutError extends Error {
-  constructor(sessionId: string, approvalId: string) {
+  readonly sessionId: string;
+  readonly approvalId: string;
+
+  constructor(sessionId: string, approvalId: string, cause?: unknown) {
     super(
       `Harness approval ${approvalId} did not finish resolving before checkpointing session ${sessionId}.`,
     );
     this.name = "AgentHarnessApprovalResolutionTimeoutError";
+    this.sessionId = sessionId;
+    this.approvalId = approvalId;
+    if (cause !== undefined) this.cause = cause;
   }
 }
 
@@ -249,6 +255,33 @@ export function startAgentHarnessRun(
             error.name === "AgentHarnessApprovalResolutionTimeoutError")
         ) {
           keepLiveSession = true;
+          try {
+            if (storedSessionId && harnessSession) {
+              await persistRecoverableCheckpointAfterApprovalTimeout(
+                storedSessionId,
+                harnessSession,
+              );
+            }
+          } catch (persistenceError) {
+            if (error instanceof AgentHarnessApprovalResolutionTimeoutError) {
+              throw new AgentHarnessApprovalResolutionTimeoutError(
+                error.sessionId,
+                error.approvalId,
+                new AggregateError(
+                  [error, persistenceError],
+                  "Approval timeout and recoverable checkpoint persistence both failed.",
+                ),
+              );
+            }
+            if (error instanceof Error) {
+              error.cause = persistenceError;
+              throw error;
+            }
+            throw new AggregateError(
+              [error, persistenceError],
+              "Approval timeout and recoverable checkpoint persistence both failed.",
+            );
+          }
           throw error;
         }
         if (isAgentHarnessSessionConflictError(error)) {
@@ -303,6 +336,66 @@ export function startAgentHarnessRun(
       executionLease: opts.runOptions?.executionLease ?? true,
     },
   );
+}
+
+async function persistRecoverableCheckpointAfterApprovalTimeout(
+  sessionId: string,
+  session: AgentHarnessSession,
+): Promise<void> {
+  let conflict: AgentHarnessSessionConflictError | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const stored = await getAgentHarnessSession(sessionId);
+    if (
+      !stored ||
+      stored.status === "stopped" ||
+      stored.status === "errored" ||
+      stored.status === "destroyed" ||
+      stored.status === "idle" ||
+      stored.followUpClaimId ||
+      stored.expiryCleanupId
+    ) {
+      return;
+    }
+    try {
+      const updated = await updateAgentHarnessSessionAtGeneration(
+        sessionId,
+        stored.status,
+        stored.generation,
+        {
+          status: "idle",
+          resumeState: stored.resumeState,
+          pendingApproval: checkpointPendingApproval(stored),
+        },
+        undefined,
+        { expectedApprovalResolutionId: stored.approvalResolutionId ?? null },
+      );
+      if (updated) {
+        refreshLiveAgentHarnessSessionGeneration(
+          sessionId,
+          session,
+          updated.generation,
+        );
+        return;
+      }
+      conflict = new AgentHarnessSessionConflictError(sessionId);
+    } catch (error) {
+      if (!isAgentHarnessSessionConflictError(error)) throw error;
+      conflict = error;
+    }
+  }
+  const latest = await getAgentHarnessSession(sessionId);
+  if (
+    !latest ||
+    latest.status === "stopped" ||
+    latest.status === "errored" ||
+    latest.status === "destroyed" ||
+    latest.status === "idle" ||
+    latest.followUpClaimId ||
+    latest.expiryCleanupId
+  ) {
+    return;
+  }
+  throw conflict ?? new AgentHarnessSessionConflictError(sessionId);
 }
 
 async function saveHarnessCheckpoint(

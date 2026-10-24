@@ -283,6 +283,31 @@ describe("agent harness lifecycle", () => {
     expect(stored.resolvedApprovalIds).toContain("approval-1");
   });
 
+  it("keeps a recoverable idle status after delayed approval resolution", async () => {
+    const session = fakeSession();
+    stored = {
+      ...stored,
+      status: "idle",
+      pendingApproval: approvalEvent("approval-timeout-recovery"),
+    };
+    register(stored, session);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-timeout-recovery", approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.approve).toHaveBeenCalledOnce();
+    expect(stored).toMatchObject({
+      status: "idle",
+      pendingApproval: null,
+      approvalResolutionId: null,
+      resolvedApprovalIds: ["approval-timeout-recovery"],
+    });
+  });
+
   it("retries approval persistence after a concurrent session update", async () => {
     const session = fakeSession();
     stored.pendingApproval = approvalEvent("approval-racing-write");

@@ -106,8 +106,16 @@ describe("startAgentHarnessRun", () => {
         expectedGeneration,
         patch,
         expectedClaimId,
-        requiresNoApprovalResolution,
+        fence,
       ) => {
+        const requiresNoApprovalResolution =
+          typeof fence === "boolean"
+            ? fence
+            : fence?.requiresNoApprovalResolution;
+        const expectedApprovalResolutionId =
+          typeof fence === "boolean"
+            ? undefined
+            : fence?.expectedApprovalResolutionId;
         const current = await mocks.getAgentHarnessSession(id);
         if (
           !current ||
@@ -115,7 +123,9 @@ describe("startAgentHarnessRun", () => {
           current.generation !== expectedGeneration ||
           (expectedClaimId !== undefined &&
             current.followUpClaimId !== expectedClaimId) ||
-          (requiresNoApprovalResolution && current.approvalResolutionId)
+          (requiresNoApprovalResolution && current.approvalResolutionId) ||
+          (expectedApprovalResolutionId !== undefined &&
+            current.approvalResolutionId !== expectedApprovalResolutionId)
         ) {
           throw Object.assign(new Error("Harness session changed."), {
             name: "AgentHarnessSessionConflictError",
@@ -674,8 +684,13 @@ describe("startAgentHarnessRun", () => {
       mocks.getAgentHarnessSession.mockResolvedValue({
         status: "running",
         generation: 0,
-        pendingApproval: null,
+        pendingApproval: {
+          type: "approval-request",
+          id: "approval-stuck",
+          message: "Allow the tool?",
+        },
         approvalResolutionId: "approval-stuck",
+        resumeState: { token: "checkpoint" },
         resolvedApprovalIds: [],
       });
       let capturedRunFn:
@@ -717,6 +732,14 @@ describe("startAgentHarnessRun", () => {
         "stored-stuck-approval",
         expect.objectContaining({ status: "errored" }),
       );
+      await expect(
+        mocks.getAgentHarnessSession("stored-stuck-approval"),
+      ).resolves.toMatchObject({
+        status: "idle",
+        pendingApproval: { id: "approval-stuck" },
+        approvalResolutionId: "approval-stuck",
+        resumeState: { token: "checkpoint" },
+      });
       expect(mocks.liveSessions.has("stored-stuck-approval")).toBe(true);
     } finally {
       vi.useRealTimers();
