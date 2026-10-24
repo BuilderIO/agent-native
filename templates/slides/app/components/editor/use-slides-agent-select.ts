@@ -93,14 +93,42 @@ export function slideObjectForTarget(target: Element): {
   return { element, contentRoot, slideId };
 }
 
+/** What a picked object looked like, to recognise it again by position. */
+function slideObjectFingerprint(element: Element): string {
+  return [
+    element.tagName,
+    (element.textContent ?? "").replace(/\s+/g, " ").trim(),
+    element.getAttribute("src") ?? "",
+  ].join("\u0000");
+}
+
+export interface SlideObjectIdentity {
+  objectId: string | null;
+  path: string;
+  fingerprint: string;
+}
+
+export function slideObjectIdentity(
+  element: HTMLElement,
+  contentRoot: HTMLElement,
+): SlideObjectIdentity {
+  return {
+    objectId: element.getAttribute("data-slide-object-id"),
+    path: slideObjectPath(element, contentRoot),
+    fingerprint: slideObjectFingerprint(element),
+  };
+}
+
 /**
  * The object in a rendered copy of its slide, the main canvas first, found
- * again by id or path so a re-render of the slide HTML keeps the pick.
+ * again so a re-render of the slide HTML keeps the pick. A positional path
+ * can land on a neighbour once a sibling is removed, so a path match must
+ * still look like the picked object; otherwise the object is searched for by
+ * its look, and is gone when nothing matches.
  */
 export function findSlideObject(
   slideId: string,
-  objectId: string | null,
-  path: string,
+  identity: SlideObjectIdentity,
 ): HTMLElement | null {
   const copies = Array.from(
     document.querySelectorAll<HTMLElement>(
@@ -111,12 +139,27 @@ export function findSlideObject(
       Number(Boolean(b.closest(MAIN_SLIDE_SELECTOR))) -
       Number(Boolean(a.closest(MAIN_SLIDE_SELECTOR))),
   );
-  const selector = objectId
-    ? `[data-slide-object-id="${CSS.escape(objectId)}"]`
-    : `:scope > ${path}`;
   for (const copy of copies) {
-    const found = copy.querySelector<HTMLElement>(selector);
-    if (found) return found;
+    if (identity.objectId) {
+      const found = copy.querySelector<HTMLElement>(
+        `[data-slide-object-id="${CSS.escape(identity.objectId)}"]`,
+      );
+      if (found) return found;
+      continue;
+    }
+    const atPath = copy.querySelector<HTMLElement>(`:scope > ${identity.path}`);
+    if (atPath && slideObjectFingerprint(atPath) === identity.fingerprint) {
+      return atPath;
+    }
+    const tag = identity.fingerprint.slice(
+      0,
+      identity.fingerprint.indexOf("\u0000"),
+    );
+    for (const candidate of copy.querySelectorAll<HTMLElement>(tag)) {
+      if (slideObjectFingerprint(candidate) === identity.fingerprint) {
+        return candidate;
+      }
+    }
   }
   return null;
 }
@@ -160,8 +203,8 @@ export function slideObjectSelectable(
   const found = slideObjectForTarget(target);
   if (!found) return null;
   const { element, contentRoot, slideId } = found;
-  const objectId = element.getAttribute("data-slide-object-id");
-  const path = slideObjectPath(element, contentRoot);
+  const identity = slideObjectIdentity(element, contentRoot);
+  const { objectId, path } = identity;
   const tag = element.tagName.toLowerCase();
   const text = excerpt(renderedText(element), TEXT_LIMIT);
   const alt = element.getAttribute("alt")?.trim();
@@ -186,7 +229,7 @@ export function slideObjectSelectable(
       ]
         .filter(Boolean)
         .join("\n"),
-    getElement: () => findSlideObject(slideId, objectId, path),
+    getElement: () => findSlideObject(slideId, identity),
   };
 }
 

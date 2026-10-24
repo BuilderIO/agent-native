@@ -16,16 +16,27 @@ const clientMocks = vi.hoisted(() => ({
   removeAgentChatContextItem: vi.fn(),
   setAgentChatContextItem: vi.fn(),
   setClientAppState: vi.fn(async () => {}),
+  // Stands in for the composer: an accepted pick becomes a context chip.
   selectAgentSelectable: vi.fn(
     (
-      _target: {
+      target: {
         kind: string;
         id: string;
         title: string;
         getContext: () => string;
       },
       _options?: Record<string, unknown>,
-    ) => "added",
+    ) => {
+      clientMocks.agentContextItems = [
+        ...clientMocks.agentContextItems,
+        {
+          key: `agent-select:${target.kind}:${encodeURIComponent(target.id)}`,
+          title: target.title,
+          context: target.getContext(),
+        },
+      ];
+      return "added";
+    },
   ),
   useAgentChatContext: vi.fn(() => ({
     items: clientMocks.agentContextItems,
@@ -288,6 +299,10 @@ describe("useDashboardChatContext", () => {
     await act(async () => {
       button?.click();
     });
+    // The composer's context change re-renders the page.
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
 
     expect(pickedPanel()).toMatchObject({
       kind: "panel",
@@ -357,6 +372,47 @@ describe("useDashboardChatContext", () => {
       openSidebar: true,
       focus: true,
     });
+  });
+
+  it("publishes selected-object for a panel picked in Select mode", async () => {
+    const panel = {
+      panelId: "panel-2",
+      panelTitle: "Churn",
+      panelKind: "table" as const,
+    };
+    function CardHarness() {
+      const { panelSelectionTarget } = useDashboardChatContext({
+        id: "dash-1",
+        kind: "sql",
+        title: "Revenue",
+      });
+      panelSelectionTarget(panel);
+      return null;
+    }
+    await act(async () => {
+      root.render(<CardHarness />);
+    });
+    await act(async () => setSidebarOpen(true));
+    clientMocks.agentContextItems = [
+      {
+        key: agentSelectionContextKey("panel", "dash-1/panel-2"),
+        title: "Churn",
+        context: "Panel id: panel-2",
+      },
+    ];
+    await act(async () => {
+      root.render(<CardHarness />);
+    });
+
+    expect(clientMocks.setClientAppState).toHaveBeenCalledWith(
+      "selected-object",
+      expect.objectContaining({
+        type: "dashboard-panel",
+        panelId: "panel-2",
+        panelKind: "table",
+      }),
+      expect.objectContaining({ requestSource: TAB_ID }),
+    );
   });
 
   it("does not record a selected panel the composer refused", async () => {

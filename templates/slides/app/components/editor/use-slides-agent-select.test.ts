@@ -86,6 +86,23 @@ describe("Slides Select adapter", () => {
     expect(selectable?.getElement()).toBeNull();
   });
 
+  it("does not rebind a path pick to a neighbour after a sibling is removed", () => {
+    renderDeck();
+    const slide = document.querySelector<HTMLElement>("main .fmd-slide")!;
+    slide.insertAdjacentHTML("beforeend", "<p>First</p><p>Second</p>");
+    const second = slide.querySelectorAll("p")[1];
+    const selectable = slideObjectSelectable("deck-1", slideNumberOf, second);
+
+    slide.querySelectorAll("p")[0].remove();
+    // The path now points at the old third child; the pick follows "Second".
+    expect((selectable?.getElement() as Element | null)?.textContent).toBe(
+      "Second",
+    );
+
+    slide.querySelector("p")!.remove();
+    expect(selectable?.getElement()).toBeNull();
+  });
+
   it("prefers a persisted object id", () => {
     renderDeck();
     const image = document.querySelector("main img")!;

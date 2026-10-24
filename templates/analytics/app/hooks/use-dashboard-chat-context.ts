@@ -177,9 +177,13 @@ export function useDashboardChatContext(
   const dashboardIdRef = useRef(id);
   dashboardIdRef.current = id;
 
+  // Panels describe themselves as they render, so a pick made in Select mode
+  // can publish the same `selected-object` a plain click does.
+  const panelsRef = useRef(new Map<string, DashboardPanelChatContextArgs>());
   const panelSelectionTarget = useCallback(
     (panel: DashboardPanelChatContextArgs): AgentSelectionTarget | null => {
       if (!id) return null;
+      panelsRef.current.set(panel.panelId, panel);
       const displayDashboardTitle = withoutRequestMarker(title?.trim() || id);
       const displayPanelTitle = withoutRequestMarker(
         panel.panelTitle.trim() || panel.panelId,
@@ -222,34 +226,49 @@ export function useDashboardChatContext(
       if (!id || !target) return;
       if (options.openSidebar !== true && !isAgentSidebarOpen) return;
       suppressDashboardContextRef.current = false;
-      const result = selectAgentSelectable(target, {
+      selectAgentSelectable(target, {
         exclusive: true,
         openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
-      if (result !== "added") return;
-      const selection: SelectedDashboardObject = {
-        type: "dashboard-panel",
-        dashboardId: id,
-        dashboardKind: kind,
-        dashboardTitle: withoutRequestMarker(title?.trim() || id),
-        panelId: panel.panelId,
-        panelTitle: target.title,
-        panelKind: panel.panelKind,
-        chartType: panel.chartType || undefined,
-        source: panel.source || undefined,
-        configId: panel.configId || undefined,
-        extensionId: panel.extensionId || undefined,
-        [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-      };
-      setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
-        keepalive: true,
-        requestSource: TAB_ID,
-      }).catch(() => {});
-      publishedSelectionRef.current = selection;
     },
-    [id, isAgentSidebarOpen, kind, panelSelectionTarget, title],
+    [id, isAgentSidebarOpen, panelSelectionTarget],
   );
+
+  // `selected-object` follows the most recent pick, however it was made.
+  useEffect(() => {
+    if (!id || !selectedPanelId) return;
+    const published = publishedSelectionRef.current;
+    if (
+      published?.dashboardId === id &&
+      published.panelId === selectedPanelId
+    ) {
+      return;
+    }
+    const panel = panelsRef.current.get(selectedPanelId);
+    if (!panel) return;
+    const selection: SelectedDashboardObject = {
+      type: "dashboard-panel",
+      dashboardId: id,
+      dashboardKind: kind,
+      dashboardTitle: withoutRequestMarker(title?.trim() || id),
+      panelId: panel.panelId,
+      panelTitle: withoutRequestMarker(
+        panel.panelTitle.trim() || panel.panelId,
+      ),
+      panelKind: panel.panelKind,
+      chartType: panel.chartType || undefined,
+      source: panel.source || undefined,
+      configId: panel.configId || undefined,
+      extensionId: panel.extensionId || undefined,
+      [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+    };
+    setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+      keepalive: true,
+      requestSource: TAB_ID,
+    }).catch(() => {});
+    publishedSelectionRef.current = selection;
+  }, [id, kind, selectedPanelId, title]);
 
   useEffect(() => {
     const handleSidebarStateChange = (event: Event) => {

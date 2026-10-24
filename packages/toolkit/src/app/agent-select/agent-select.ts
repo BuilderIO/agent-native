@@ -283,11 +283,19 @@ function addSelection(
     title: target.title.trim() || target.id,
     context: target.getContext(),
   };
-  const existing = listAgentChatContext().filter(
-    (candidate) =>
-      candidate.key !== key &&
-      !(options.exclusive && isSameKindSelection(candidate.key, target.kind)),
-  );
+  // Only the staged fields: core context items carry no readiness status, so
+  // the fit check can answer only about the count and size limits.
+  const existing = listAgentChatContext()
+    .filter(
+      (candidate) =>
+        candidate.key !== key &&
+        !(options.exclusive && isSameKindSelection(candidate.key, target.kind)),
+    )
+    .map(({ key: itemKey, title, context }) => ({
+      key: itemKey,
+      title,
+      context,
+    }));
   if (!composerContextFits([...existing, item])) {
     const reason =
       existing.length >= COMPOSER_CONTEXT_MAX_ITEMS
