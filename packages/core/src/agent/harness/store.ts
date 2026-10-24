@@ -331,7 +331,8 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
     if (
       !existing ||
       existing.status !== "running" ||
-      existing.followUpClaimId !== claimId
+      existing.followUpClaimId !== claimId ||
+      existing.approvalResolutionId
     ) {
       return null;
     }
@@ -485,6 +486,7 @@ export async function startAgentHarnessSessionExpiryCleanup<T>(
             SET generation = generation + 1, updated_at = ?
             WHERE id = ? AND status = ? AND generation = ?
               AND follow_up_claim_id IS NULL
+              AND approval_resolution_id IS NULL
             RETURNING *`,
       args: [Date.now(), id, expectedStatus, expectedGeneration],
     });

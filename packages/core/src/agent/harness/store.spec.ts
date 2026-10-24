@@ -449,6 +449,99 @@ describe("agent harness session store", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("does not start expiry cleanup while approval resolution is reserved", async () => {
+    const id = "session-approval-wins-expiry-cleanup";
+    const approvalId = "approval-wins-expiry-cleanup";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-approval-wins-expiry-cleanup",
+      runId: "run-approval-wins-expiry-cleanup",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const reserved = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "idle",
+      initial!.generation,
+      { approvalResolutionId: approvalId },
+    );
+    const start = vi.fn();
+
+    await expect(
+      startAgentHarnessSessionExpiryCleanup(
+        id,
+        "idle",
+        reserved!.generation,
+        start,
+      ),
+    ).resolves.toBeNull();
+    expect(start).not.toHaveBeenCalled();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "idle",
+      approvalResolutionId: approvalId,
+      generation: reserved!.generation,
+    });
+  });
+
+  it("does not finalize a follow-up after approval resolution is reserved", async () => {
+    const id = "session-follow-up-approval-resolution-reserved";
+    const claimId = "follow-up-approval-resolution-reserved";
+    const approvalId = "approval-resolution-reserved";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-approval-resolution-reserved",
+      runId: "run-follow-up-approval-resolution-reserved",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      claimId,
+    );
+    const pending = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      claimId,
+      {
+        pendingApproval: {
+          type: "approval-request",
+          id: approvalId,
+        },
+      },
+    );
+    const reserved = await updateAgentHarnessSessionAtGeneration(
+      id,
+      "running",
+      pending!.generation,
+      { approvalResolutionId: approvalId },
+      claimId,
+    );
+    let finalizeCalled = false;
+
+    await expect(
+      updateAgentHarnessSessionIfFollowUpClaim(id, claimId, async () => {
+        finalizeCalled = true;
+        return { status: "idle", followUpClaimId: null };
+      }),
+    ).resolves.toBeNull();
+
+    expect(finalizeCalled).toBe(false);
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: claimId,
+      approvalResolutionId: approvalId,
+      generation: reserved!.generation,
+    });
+    expect(claimed).not.toBeNull();
+  });
+
   it("retries a claim-fenced update after the same claim advances generation", async () => {
     const id = "session-follow-up-update-retry";
     await saveAgentHarnessSession({
