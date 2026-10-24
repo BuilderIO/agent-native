@@ -70,6 +70,7 @@ That's it. The body is a prompt the agent runs at each scheduled firing. The age
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` runs with the job owner's identity and `ANTHROPIC_API_KEY`. `"shared"` uses the org's key. |
 | `createdBy`  | email                         | _(auto)_     | Populated when the job is created through the Agent Resources UI or by the agent.                      |
 | `orgId`      | string                        | _(auto)_     | Org scope; inherited from the creator's active org.                                                    |
+| `appId`      | string                        | _(auto)_     | The app whose scheduler runs the job. A scheduler skips a job that names another app.                  |
 | `lastRun`    | ISO timestamp                 | _(managed)_  | Written by the scheduler after each run.                                                               |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(managed)_  | Latest outcome.                                                                                        |
 | `lastError`  | string                        | _(managed)_  | Error message if the last run failed.                                                                  |
@@ -254,6 +255,20 @@ fire schedules, the **Automations** page says so and names the reason.
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` is read in two scopes.** On Netlify, Vercel, and Cloudflare, the **build** environment decides: the platform trigger keeps firing to drain event automations and clean up runs, but a build with the switch on skips scheduled jobs, whatever the deployed environment says. On a long-running server, the **runtime** environment gates the in-process timer. Set it where your host reads it. The build records its decision, so the **Automations** page can say schedules will never run instead of showing a next-run date nothing will honour.
 
 </Callout>
+
+### Running jobs under another `appId` {#additional-job-app-ids}
+
+A scheduler runs a job when the job's `appId` is its app's own `appId`. To run job files labeled with a different `appId` too, list the extra labels in `additionalJobAppIds`:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+A build that does not list the label skips those files without reading or writing them, which lets two deployments on one database split their jobs. The option only widens which files this app picks up. The scheduler lease, run history, and health rows stay under `appId`, so deployments that share a database still take turns on one lease. If the app queues **Run now** for those jobs, pass the same list as `additionalJobAppIds` to `queueAutomationRunNow`.
 
 ## Debugging a job {#debugging}
 

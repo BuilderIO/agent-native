@@ -72,11 +72,16 @@ export interface JobFrontmatter {
 export function jobBelongsToApp(
   meta: Pick<JobFrontmatter, "appId" | "orgId">,
   appId: string | null | undefined,
+  additionalAppIds?: readonly string[],
 ): boolean {
   const ownerAppId = meta.appId?.trim();
   if (ownerAppId) {
     const schedulerAppId = appId?.trim();
-    return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
+    if (!schedulerAppId) return false;
+    return (
+      ownerAppId === schedulerAppId ||
+      Boolean(additionalAppIds?.some((id) => id.trim() === ownerAppId))
+    );
   }
   return !meta.orgId?.trim();
 }

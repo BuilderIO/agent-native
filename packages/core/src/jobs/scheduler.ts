@@ -117,6 +117,8 @@ export type RecurringJobContext = BackgroundAutomationContext;
 
 export interface SchedulerDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
+  /** Job `appId` values this scheduler runs besides `appId`; the lease and run history stay under `appId`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
@@ -320,7 +322,7 @@ async function processRecurringJobsWithLease(
 
       const { meta, body } = parseJobFrontmatter(resource.content);
       if (
-        !jobBelongsToApp(meta, deps.appId) &&
+        !jobBelongsToApp(meta, deps.appId, deps.additionalJobAppIds) &&
         !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
       ) {
         continue;

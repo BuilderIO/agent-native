@@ -62,6 +62,7 @@ description: "क्रोन-अनुसूचित संकेत एजे
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` नौकरी मालिक की पहचान और `ANTHROPIC_API_KEY` के साथ चलता है। `"shared"` संगठन की कुंजी का उपयोग करता है। |
 | `createdBy`  | ईमेल                          | _(ऑटो)_      | एजेंट संसाधन UI के माध्यम से या एजेंट द्वारा कार्य सृजित होने पर जनसंख्या।                                          |
 | `orgId`      | स्ट्रिंग                      | _(ऑटो)_      | संगठन का दायरा; निर्माता के सक्रिय संगठन से विरासत में मिला है।                                                     |
+| `appId`      | स्ट्रिंग                      | _(ऑटो)_      | वह ऐप जिसका शेड्यूलर जॉब चलाता है। शेड्यूलर दूसरे ऐप के नाम वाले जॉब छोड़ देता है।                                  |
 | `lastRun`    | ISO टाइमस्टैम्प               | _(प्रबंधित)_ | प्रत्येक रन के बाद शेड्यूलर द्वारा लिखा गया।                                                                        |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(प्रबंधित)_ | नवीनतम परिणाम।                                                                                                      |
 | `lastError`  | स्ट्रिंग                      | _(प्रबंधित)_ | अंतिम रन विफल होने पर त्रुटि संदेश।                                                                                 |
@@ -229,6 +230,20 @@ Netlify, Vercel और Cloudflare पर वही टिक event-triggered aut
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` दो scopes में पढ़ा जाता है।** Netlify, Vercel और Cloudflare पर **build** environment तय करता है: platform trigger event automations की queue खाली करने और runs साफ़ करने के लिए फायर होता रहता है, लेकिन switch चालू वाला build scheduled jobs को छोड़ देता है, चाहे deployed environment कुछ भी कहे। लंबे समय तक चलने वाले सर्वर पर **runtime** environment in-process timer को नियंत्रित करता है। इसे वहीं सेट करें जहाँ आपका host इसे पढ़ता है। Build अपना निर्णय रिकॉर्ड करता है, ताकि **Automations** पेज ऐसी next-run तारीख दिखाने के बजाय, जिसका कोई पालन नहीं होगा, यह बता सके कि schedules कभी नहीं चलेंगे।
 
 </Callout>
+
+### किसी अन्य `appId` के अंतर्गत जॉब चलाना {#additional-job-app-ids}
+
+शेड्यूलर किसी जॉब को तब चलाता है जब उस जॉब का `appId` उसी ऐप के `appId` के बराबर हो। किसी अलग `appId` वाली जॉब फ़ाइलें भी चलाने के लिए, अतिरिक्त लेबल `additionalJobAppIds` में सूचीबद्ध करें:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+जो build यह लेबल सूचीबद्ध नहीं करता, वह उन फ़ाइलों को बिना पढ़े या लिखे छोड़ देता है, जिससे एक ही database पर दो deployments अपने jobs बाँट सकते हैं। यह विकल्प केवल यह बढ़ाता है कि यह ऐप कौन-सी फ़ाइलें उठाएगा। शेड्यूलर का lease, run history और health rows `appId` के अंतर्गत ही रहते हैं, इसलिए जो deployments एक ही database साझा करते हैं, वे अब भी एक ही lease पर बारी-बारी से चलते हैं। यदि ऐप इन jobs के लिए **Run now** को queue करता है, तो वही सूची `additionalJobAppIds` के रूप में `queueAutomationRunNow` को दें।
 
 ## किसी कार्य को डिबग करना {#debugging}
 
