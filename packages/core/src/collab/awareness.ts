@@ -13,6 +13,7 @@ import { readBody } from "../server/h3-helpers.js";
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
+  MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
   MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS,
 } from "./awareness-sequence.js";
 import {
@@ -66,10 +67,13 @@ export interface AwarenessEntry {
   state: string;
   lastSeen: number;
   clientSequence?: number;
+  clientSequenceRaw?: number;
+  actorEmail?: string | null;
 }
 
 export interface AwarenessRow extends AwarenessEntry {
   clientSequence: number;
+  clientSequenceRaw: number;
   cleared: boolean;
 }
 
@@ -312,6 +316,80 @@ async function mergeStoredAwareness(
   }
 }
 
+function localSequenceForWrite(
+  existing: AwarenessEntry | undefined,
+  clientSequence: number,
+): number {
+  if (clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE) return clientSequence;
+  const currentSequence = existing?.clientSequence ?? 0;
+  return currentSequence >= MAX_AWARENESS_CLIENT_SEQUENCE
+    ? 1
+    : currentSequence + 1;
+}
+
+function canApplyLocalAwarenessWrite(
+  docId: string,
+  existing: AwarenessEntry | undefined,
+  clientId: number,
+  clientSequence: number,
+  lastSeen: number,
+  cleared: boolean,
+  actorEmail: string,
+): boolean {
+  if (!existing || existing.actorEmail?.trim().toLowerCase() !== actorEmail) {
+    return false;
+  }
+
+  let sequenceAllowed = true;
+  const currentSequence = existing.clientSequence ?? 0;
+  const currentRawSequence = existing.clientSequenceRaw ?? 0;
+  if (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE) {
+    sequenceAllowed =
+      currentRawSequence > 0
+        ? clientSequence > currentRawSequence
+        : currentSequence === 0;
+  } else if (clientSequence > 0) {
+    sequenceAllowed =
+      currentRawSequence > 0 || currentSequence > MAX_AWARENESS_CLIENT_SEQUENCE
+        ? clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+        : !cleared &&
+          clientSequence > currentSequence &&
+          clientSequence <=
+            currentSequence + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE;
+  } else {
+    sequenceAllowed =
+      currentRawSequence === 0 && currentSequence === 0 && !cleared;
+  }
+  if (!sequenceAllowed) return false;
+
+  return (
+    cleared ||
+    !isBlockedByAwarenessClear(
+      docId,
+      clientId,
+      lastSeen,
+      localSequenceForWrite(existing, clientSequence),
+      Date.now(),
+    )
+  );
+}
+
+function awarenessSnapshots(
+  map: Map<number, AwarenessEntry>,
+  clientId: number,
+): {
+  allStates: Array<{ clientId: number; state: string }>;
+  otherStates: Array<{ clientId: number; state: string }>;
+} {
+  const allStates: Array<{ clientId: number; state: string }> = [];
+  const otherStates: Array<{ clientId: number; state: string }> = [];
+  for (const [id, entry] of map) {
+    allStates.push({ clientId: id, state: entry.state });
+    if (id !== clientId) otherStates.push({ clientId: id, state: entry.state });
+  }
+  return { allStates, otherStates };
+}
+
 export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
   if (!docId) {
@@ -372,15 +450,82 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   const sequence = clientSequence ?? 0;
   const lastSeen = Date.now();
-  const applied = await writeAwarenessRow(
-    docId,
-    clientId,
-    serializedState,
-    lastSeen,
-    sequence,
-    state === null,
-    actorEmail,
-  );
+  let writeOutcome:
+    | { kind: "completed"; applied: boolean }
+    | { kind: "unavailable"; errorType: string };
+  try {
+    writeOutcome = {
+      kind: "completed",
+      applied: await writeAwarenessRow(
+        docId,
+        clientId,
+        serializedState,
+        lastSeen,
+        sequence,
+        state === null,
+        actorEmail,
+      ),
+    };
+  } catch (error) {
+    writeOutcome = {
+      kind: "unavailable",
+      errorType: error instanceof Error ? error.name : typeof error,
+    };
+  }
+  if (writeOutcome.kind === "unavailable") {
+    const map = getDocAwareness(docId);
+    cleanExpired(map);
+    const existing = map.get(clientId);
+    const cleared = state === null;
+    if (
+      canApplyLocalAwarenessWrite(
+        docId,
+        existing,
+        clientId,
+        sequence,
+        lastSeen,
+        cleared,
+        actorEmail,
+      )
+    ) {
+      if (cleared) {
+        rememberAwarenessClear(
+          docId,
+          clientId,
+          lastSeen,
+          localSequenceForWrite(existing, sequence) || undefined,
+        );
+        map.delete(clientId);
+      } else {
+        map.set(clientId, {
+          clientId,
+          state: serializedState,
+          lastSeen,
+          clientSequence: localSequenceForWrite(existing, sequence),
+          clientSequenceRaw:
+            sequence > MAX_AWARENESS_CLIENT_SEQUENCE ? sequence : 0,
+          actorEmail,
+        });
+      }
+    }
+    cleanExpired(map);
+    pruneIfEmpty(docId, map);
+    const { allStates } = awarenessSnapshots(map, clientId);
+    emitAwarenessChange(
+      docId,
+      allStates,
+      contextScope ?? {
+        ...(session?.email ? { owner: session.email } : {}),
+        ...(session?.orgId ? { orgId: session.orgId } : {}),
+      },
+    );
+    setResponseStatus(event, 503);
+    return {
+      error: "Awareness persistence unavailable",
+      failureType: writeOutcome.errorType,
+    };
+  }
+  const applied = writeOutcome.applied;
   const current = applied
     ? undefined
     : await loadAwarenessClientSequence(docId, clientId);
@@ -403,14 +548,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   cleanExpired(map);
   pruneIfEmpty(docId, map);
 
-  const allStates: Array<{ clientId: number; state: string }> = [];
-  const otherStates: Array<{ clientId: number; state: string }> = [];
-  for (const [id, entry] of map) {
-    allStates.push({ clientId: id, state: entry.state });
-    if (id !== clientId) {
-      otherStates.push({ clientId: id, state: entry.state });
-    }
-  }
+  const { allStates, otherStates } = awarenessSnapshots(map, clientId);
 
   emitAwarenessChange(
     docId,

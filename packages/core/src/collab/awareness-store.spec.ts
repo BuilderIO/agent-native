@@ -170,6 +170,8 @@ vi.mock("../db/client.js", async () => {
           state: string;
           last_seen: number;
           client_sequence: number;
+          client_sequence_raw: number;
+          actor_email: string | null;
           cleared: boolean;
         }> = [];
         for (const [key, row] of dbRows) {
@@ -183,6 +185,8 @@ vi.mock("../db/client.js", async () => {
               state: row.state,
               last_seen: row.last_seen,
               client_sequence: row.client_sequence,
+              client_sequence_raw: row.client_sequence_raw,
+              actor_email: row.actor_email,
               cleared: row.cleared,
             });
           }
@@ -238,6 +242,8 @@ describe("awareness-store", () => {
         state: '{"user":{"name":"A"}}',
         lastSeen: 1000,
         clientSequence: 0,
+        clientSequenceRaw: 0,
+        actorEmail: null,
         cleared: false,
       },
     ]);
@@ -360,6 +366,8 @@ describe("awareness-store", () => {
         state: "",
         lastSeen: 2000,
         clientSequence: 20,
+        clientSequenceRaw: 0,
+        actorEmail: null,
         cleared: true,
       },
     ]);
@@ -411,7 +419,12 @@ describe("awareness-store", () => {
       actorEmail: "owner@example.com",
     });
     await expect(loadAwarenessRows("doc-actor", 2_000)).resolves.toMatchObject([
-      { clientId: 9, state: "owner-state" },
+      {
+        clientId: 9,
+        state: "owner-state",
+        clientSequenceRaw: 0,
+        actorEmail: "owner@example.com",
+      },
     ]);
   });
 

@@ -10,6 +10,7 @@ const storedRows = vi.hoisted(
         state: string;
         lastSeen: number;
         clientSequence: number;
+        clientSequenceRaw: number;
         cleared: boolean;
         actorEmail?: string | null;
       }
@@ -77,6 +78,7 @@ vi.mock("./awareness-store.js", () => ({
         state,
         lastSeen,
         clientSequence,
+        clientSequenceRaw: 0,
         cleared,
         actorEmail: actorEmail ?? null,
       });
@@ -86,8 +88,10 @@ vi.mock("./awareness-store.js", () => ({
 }));
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
+import { writeAwarenessRow } from "./awareness-store.js";
 import {
   forgetAwarenessClear,
+  getAwarenessEmitter,
   getDocAwareness,
   postAwareness,
   rememberAwarenessClear,
@@ -127,6 +131,7 @@ describe("awareness clear tombstones", () => {
       state: JSON.stringify({ user: { email: "agent@system" } }),
       lastSeen: 9_000,
       clientSequence: 0,
+      clientSequenceRaw: 0,
       cleared: false,
       actorEmail: null,
     });
@@ -152,6 +157,7 @@ describe("awareness clear tombstones", () => {
       state: JSON.stringify({ user: { email: "agent@system" } }),
       lastSeen: 10_001,
       clientSequence: 0,
+      clientSequenceRaw: 0,
       cleared: false,
       actorEmail: null,
     });
@@ -174,6 +180,7 @@ describe("awareness clear tombstones", () => {
       state: JSON.stringify({ visible: true }),
       lastSeen: 9_000,
       clientSequence: 10,
+      clientSequenceRaw: 0,
       cleared: false,
       actorEmail: "collaborator@example.com",
     });
@@ -203,5 +210,100 @@ describe("awareness clear tombstones", () => {
       clientSequence: 12,
       cleared: true,
     });
+  });
+
+  it("fans out local presence and returns an explicit failure during a store outage", async () => {
+    const docId = "awareness-store-outage";
+    const map = getDocAwareness(docId);
+    map.set(42, {
+      clientId: 42,
+      state: JSON.stringify({ user: { email: "collaborator@example.com" } }),
+      lastSeen: 10_000,
+      clientSequence: 1,
+      clientSequenceRaw: 0,
+      actorEmail: "collaborator@example.com",
+    });
+    const changes: Array<{
+      docId: string;
+      states: Array<{ clientId: number; state: string }>;
+    }> = [];
+    const onChange = (change: (typeof changes)[number]) => changes.push(change);
+    getAwarenessEmitter().on("awareness-change", onChange);
+    vi.mocked(writeAwarenessRow).mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 42,
+      clientSequence: 2,
+      state: JSON.stringify({
+        visible: true,
+        user: { email: "forged@example.com" },
+      }),
+    });
+
+    try {
+      const ev = event(docId);
+      await expect(postAwareness(ev)).resolves.toEqual({
+        error: "Awareness persistence unavailable",
+        failureType: "Error",
+      });
+
+      const localEntry = getDocAwareness(docId).get(42);
+      expect(ev._status).toBe(503);
+      expect(localEntry).toMatchObject({
+        clientId: 42,
+        clientSequence: 2,
+        actorEmail: "collaborator@example.com",
+      });
+      expect(JSON.parse(localEntry!.state)).toMatchObject({
+        visible: true,
+        user: { email: "collaborator@example.com" },
+      });
+      expect(changes).toHaveLength(1);
+      expect(changes[0]).toMatchObject({
+        docId,
+        states: [{ clientId: 42, state: localEntry!.state }],
+      });
+      expect(storedRows.has(rowKey(docId, 42))).toBe(false);
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+      getDocAwareness(docId).clear();
+    }
+  });
+
+  it("does not overwrite or clear another collaborator during a store outage", async () => {
+    const docId = "awareness-store-outage-peer";
+    const map = getDocAwareness(docId);
+    map.set(43, {
+      clientId: 43,
+      state: JSON.stringify({ user: { email: "peer@example.com" } }),
+      lastSeen: 10_000,
+      clientSequence: 1,
+      clientSequenceRaw: 0,
+      actorEmail: "peer@example.com",
+    });
+    vi.mocked(writeAwarenessRow).mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 43,
+      clientSequence: 2,
+      state: null,
+    });
+
+    try {
+      const ev = event(docId);
+      await expect(postAwareness(ev)).resolves.toMatchObject({
+        error: "Awareness persistence unavailable",
+      });
+
+      expect(ev._status).toBe(503);
+      expect(map.get(43)).toMatchObject({
+        state: JSON.stringify({ user: { email: "peer@example.com" } }),
+        actorEmail: "peer@example.com",
+      });
+    } finally {
+      map.clear();
+    }
   });
 });

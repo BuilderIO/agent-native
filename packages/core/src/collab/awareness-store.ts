@@ -249,7 +249,8 @@ export async function loadAwarenessRowsStrict(
   await maybePurgeBestEffort(now);
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT client_id, state, last_seen, client_sequence, cleared
+    sql: `SELECT client_id, state, last_seen, client_sequence,
+                 client_sequence_raw, actor_email, cleared
           FROM _collab_awareness
           WHERE doc_id = ?
             AND ((cleared = FALSE AND last_seen >= ?)
@@ -261,6 +262,11 @@ export async function loadAwarenessRowsStrict(
     state: String(row.state),
     lastSeen: Number(row.last_seen),
     clientSequence: Number(row.client_sequence ?? 0),
+    clientSequenceRaw: Number(row.client_sequence_raw ?? 0),
+    actorEmail:
+      typeof row.actor_email === "string"
+        ? row.actor_email.trim().toLowerCase()
+        : null,
     cleared: row.cleared === true,
   }));
 }

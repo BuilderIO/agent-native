@@ -274,6 +274,13 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "author_email",
   },
   { table: "agent_team_run_queue", column: "owner_email" },
+  // Presence rows have short TTLs and no organization key for a scoped removal.
+  {
+    table: "_collab_awareness",
+    column: "actor_email",
+    emailChange: "rekey",
+    offboard: "retain",
+  },
   // Submission history keeps the original actor as attribution when a member leaves.
   {
     table: "agent_chat_submission_inbox",
