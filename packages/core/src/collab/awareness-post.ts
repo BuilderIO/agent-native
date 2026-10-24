@@ -44,7 +44,10 @@ export function postAwarenessState(
   };
   const dispatchImmediately = keepalive && state !== null;
   const post = dispatchImmediately ? send() : previous.then(send);
-  const pending = Promise.allSettled([previous, post]).then(() => {});
+  const orderedPost = dispatchImmediately ? previous.then(send) : undefined;
+  const pending = Promise.allSettled(
+    orderedPost ? [previous, post, orderedPost] : [previous, post],
+  ).then(() => {});
 
   inFlightAwarenessPosts.set(key, pending);
   void pending.then(() => {

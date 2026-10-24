@@ -46,6 +46,7 @@ describe("postAwarenessState", () => {
     fetchMock
       .mockReturnValueOnce(presenceResponse)
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -69,8 +70,13 @@ describe("postAwarenessState", () => {
 
     finishPresence(new Response(null, { status: 204 }));
     await Promise.all([presence, visibility, clear]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      clientId: 12,
+      state: JSON.stringify({ visible: false }),
+    });
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ keepalive: true });
+    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
       clientId: 12,
       state: null,
     });
