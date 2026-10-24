@@ -7,6 +7,7 @@ import {
   isTextLikeMimeType,
   ATTACHMENT_REFERENCE_MIME_TYPE,
   MAX_ATTACHMENT_RESOURCE_BODY_CHARS,
+  MAX_ATTACHMENT_RESOURCE_BODY_TOTAL_CHARS,
   type TextAttachmentStorage,
   unwrapTextAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
@@ -103,33 +104,60 @@ interface StoredAttachmentReference {
 // holding many large files at once.
 const REREAD_CACHE_TTL_MS = 10 * 60 * 1000;
 const REREAD_CACHE_MAX_CHARS = 16_000_000;
+const REREAD_CACHE_MAX_ENTRIES = 32;
+// Map order is least recently used first.
 const rereadCache = new Map<string, { text: string; expiresAt: number }>();
+let rereadCacheChars = 0;
+
+function dropReread(key: string): void {
+  const entry = rereadCache.get(key);
+  if (!entry) return;
+  rereadCache.delete(key);
+  rereadCacheChars -= entry.text.length;
+}
 
 function cachedReread(key: string): string | undefined {
   const entry = rereadCache.get(key);
   if (!entry) return undefined;
-  rereadCache.delete(key);
+  dropReread(key);
   if (entry.expiresAt <= Date.now()) return undefined;
   rereadCache.set(key, entry);
+  rereadCacheChars += entry.text.length;
   return entry.text;
 }
 
 function cacheReread(key: string, text: string): void {
-  rereadCache.delete(key);
+  dropReread(key);
   if (text.length > REREAD_CACHE_MAX_CHARS) return;
-  rereadCache.set(key, { text, expiresAt: Date.now() + REREAD_CACHE_TTL_MS });
-  let total = 0;
-  for (const entry of rereadCache.values()) total += entry.text.length;
-  for (const [oldest, entry] of rereadCache) {
-    if (total <= REREAD_CACHE_MAX_CHARS) break;
-    rereadCache.delete(oldest);
-    total -= entry.text.length;
+  const now = Date.now();
+  for (const [cachedKey, entry] of rereadCache) {
+    if (entry.expiresAt <= now) dropReread(cachedKey);
+  }
+  rereadCache.set(key, { text, expiresAt: now + REREAD_CACHE_TTL_MS });
+  rereadCacheChars += text.length;
+  for (const oldest of rereadCache.keys()) {
+    if (
+      rereadCacheChars <= REREAD_CACHE_MAX_CHARS &&
+      rereadCache.size <= REREAD_CACHE_MAX_ENTRIES
+    ) {
+      break;
+    }
+    dropReread(oldest);
   }
 }
 
 /** @internal exported for unit tests only */
 export function clearAttachmentRereadCache(): void {
   rereadCache.clear();
+  rereadCacheChars = 0;
+}
+
+/** @internal exported for unit tests only */
+export function attachmentRereadCacheStats(): {
+  entries: number;
+  chars: number;
+} {
+  return { entries: rereadCache.size, chars: rereadCacheChars };
 }
 
 /** An upload already lives in file storage, so SQL keeps only where it is. */
@@ -210,6 +238,7 @@ export async function persistTextAttachmentsAsResources(opts: {
   const result = new Map<number, TextAttachmentStorage>();
   const owner = opts.ownerEmail || "anonymous";
   const batch = attachmentBatchId();
+  let bodyChars = 0;
 
   for (let i = 0; i < opts.attachments.length; i++) {
     const att = opts.attachments[i];
@@ -228,10 +257,15 @@ export async function persistTextAttachmentsAsResources(opts: {
     const reference = storedAttachmentReference(att, decoded.kind !== "text");
     // A partial copy would let read-attachment report "End of attachment"
     // for a file whose tail was never stored.
-    if (!reference && text.length > MAX_ATTACHMENT_RESOURCE_BODY_CHARS) {
+    if (
+      !reference &&
+      (text.length > MAX_ATTACHMENT_RESOURCE_BODY_CHARS ||
+        bodyChars + text.length > MAX_ATTACHMENT_RESOURCE_BODY_TOTAL_CHARS)
+    ) {
       result.set(i, { kind: "failed", reason: "too-large" });
       continue;
     }
+    if (!reference) bodyChars += text.length;
 
     const path = attachmentResourcePath(
       opts.threadId,
@@ -243,10 +277,15 @@ export async function persistTextAttachmentsAsResources(opts: {
     try {
       // The resource store rejects non-URL content under an image/* type, so
       // SVG source is stored as plain text.
+      // Only the server writes reference rows: read-attachment fetches the URL
+      // in one, so a body row must never carry that type from the client.
       const mimeType = reference
         ? ATTACHMENT_REFERENCE_MIME_TYPE
-        : att.contentType && !/^image\//i.test(att.contentType)
-          ? att.contentType
+        : isTextLikeMimeType(att.contentType) &&
+            !/^image\//i.test(att.contentType!) &&
+            att.contentType!.split(";")[0]!.trim().toLowerCase() !==
+              ATTACHMENT_REFERENCE_MIME_TYPE
+          ? att.contentType!
           : "text/plain";
       const content = reference ? JSON.stringify(reference) : text;
       const resource = await resourcePut(owner, path, content, mimeType, {

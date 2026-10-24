@@ -6,6 +6,7 @@ import {
   persistTextAttachmentsAsResources,
   createCoreAttachmentActionEntries,
   clearAttachmentRereadCache,
+  attachmentRereadCacheStats,
 } from "./attachment-actions.js";
 
 describe("isTextLikeMimeType", () => {
@@ -364,6 +365,54 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(JSON.parse(resourcePutMock.mock.calls[0]![2])).toMatchObject({
       contentType: "text/plain",
     });
+  });
+
+  it("never writes a body row with the server's reference type", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "ref.json",
+          contentType: "application/vnd.agent-native.attachment-reference+json",
+          text: '{"url":"https://storage.example.test/other-user.md"}',
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(resourcePutMock.mock.calls[0]![3]).toBe("text/plain");
+  });
+
+  it("caps the body text one request copies into SQL", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "a.txt",
+          contentType: "text/plain",
+          text: "a".repeat(900_000),
+        },
+        {
+          type: "file",
+          name: "b.txt",
+          contentType: "text/plain",
+          text: "b".repeat(900_000),
+        },
+        {
+          type: "file",
+          name: "c.txt",
+          contentType: "text/plain",
+          text: "c".repeat(900_000),
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toMatchObject({ kind: "stored" });
+    expect(result.get(1)).toMatchObject({ kind: "stored" });
+    expect(result.get(2)).toEqual({ kind: "failed", reason: "too-large" });
   });
 
   it("refuses to copy a large body into SQL when there is no storage URL", async () => {
@@ -804,6 +853,33 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     );
 
     expect(result.content).toBe("new");
+  });
+
+  it("bounds the re-read cache by entry count", async () => {
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from("x").toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+    const entries = createCoreAttachmentActionEntries();
+    for (let index = 0; index < 40; index++) {
+      const path = `attachments/thread-1/mfh2a1b2-${index}-f.md`;
+      resourceListMock.mockResolvedValue([{ id: `res-${index}`, path }]);
+      resourceGetMock.mockResolvedValue({
+        ...makeResource(
+          JSON.stringify({ url: `https://storage.example.test/${index}.md` }),
+        ),
+        id: `res-${index}`,
+        mimeType: "application/vnd.agent-native.attachment-reference+json",
+      });
+      await entries["read-attachment"].run(
+        { path },
+        { caller: "tool", userEmail: "user@example.com" },
+      );
+    }
+
+    expect(attachmentRereadCacheStats()).toEqual({ entries: 32, chars: 32 });
   });
 
   it("rejects a path outside stored attachments", async () => {

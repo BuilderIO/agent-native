@@ -95,6 +95,25 @@ describe("formatPromptWithAttachments", () => {
     );
   });
 
+  it("still says the rest was left out when the attached head is blank", () => {
+    const prompt = formatPromptWithAttachments("Use this", [
+      { name: "spaced.md", text: "   \n", totalChars: 70_000 },
+    ]);
+
+    expect(prompt).toContain("Only the first 4 of 70,000 characters");
+    expect(prompt).not.toContain("no visible text");
+  });
+
+  it("does not split a surrogate pair at the per-file limit", () => {
+    const text = "a".repeat(59_999) + "😀" + "b".repeat(100);
+    const prompt = formatPromptWithAttachments("Use this", [
+      { name: "emoji.md", text },
+    ]);
+
+    expect(prompt).toContain("Only the first 59,999 of");
+    expect(prompt).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+  });
+
   it("reports a file that is not UTF-8 as an attached-file error", () => {
     expect(
       formatPromptWithAttachments("Use this", [

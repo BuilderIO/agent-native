@@ -6,6 +6,8 @@ import { parseBase64DataUrl } from "../shared/data-url.js";
  * re-read from storage, so large file bodies stay out of SQL.
  */
 export const MAX_ATTACHMENT_RESOURCE_BODY_CHARS = 1_000_000;
+/** Total body copies one request may write into SQL. */
+export const MAX_ATTACHMENT_RESOURCE_BODY_TOTAL_CHARS = 2_000_000;
 export const ATTACHMENT_REFERENCE_MIME_TYPE =
   "application/vnd.agent-native.attachment-reference+json";
 /** Most characters of one text attachment the prompt shows inline. */
@@ -75,18 +77,63 @@ export type DecodedAttachmentText =
  * Engines only understand PDF file parts, so a text payload left as a file
  * part becomes a filename placeholder and the model never sees the contents.
  */
+// Classification, storage notes, the prompt and persistence each ask for the
+// same attachment's text; decoding once per payload keeps an 8 MB file from
+// being decoded four times. The inputs are rechecked because hydration
+// rewrites data and contentType in place.
+const decodedAttachmentText = new WeakMap<
+  object,
+  {
+    data: string;
+    name?: string;
+    contentType?: string;
+    result: DecodedAttachmentText;
+  }
+>();
+
 export function decodeTextAttachmentData(att: {
   name?: string;
   contentType?: string;
   data?: string;
 }): DecodedAttachmentText {
   if (typeof att.data !== "string") return { kind: "not-text" };
+  const cached = decodedAttachmentText.get(att);
+  if (
+    cached &&
+    cached.data === att.data &&
+    cached.name === att.name &&
+    cached.contentType === att.contentType
+  ) {
+    return cached.result;
+  }
+  const result = decodeTextAttachmentDataUncached(att, att.data);
+  decodedAttachmentText.set(att, {
+    data: att.data,
+    name: att.name,
+    contentType: att.contentType,
+    result,
+  });
+  return result;
+}
+
+/** Cuts at `end` without leaving half of a surrogate pair at the edge. */
+export function sliceTextHead(text: string, end: number): string {
+  if (end <= 0) return "";
+  if (end >= text.length) return text;
+  const last = text.charCodeAt(end - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? end - 1 : end);
+}
+
+function decodeTextAttachmentDataUncached(
+  att: { name?: string; contentType?: string },
+  data: string,
+): DecodedAttachmentText {
   // The shared parser rejects a zero-length body, but storage returns one
   // for an empty file and the model should hear that it is empty.
-  const empty = att.data.match(/^data:([^;,]*)(?:;[^,]*)?;base64,$/i);
+  const empty = data.match(/^data:([^;,]*)(?:;[^,]*)?;base64,$/i);
   const dataUrl = empty
     ? { mediaType: empty[1] ?? "", data: "" }
-    : parseBase64DataUrl(att.data);
+    : parseBase64DataUrl(data);
   if (!dataUrl) return { kind: "not-text" };
   const mediaType = dataUrl.mediaType.split(";")[0]!.trim().toLowerCase();
   const untyped = !mediaType || mediaType === "application/octet-stream";

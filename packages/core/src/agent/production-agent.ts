@@ -99,6 +99,7 @@ import {
   decodeTextAttachmentData,
   isSvgTextAttachment,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+  sliceTextHead,
   type TextAttachmentStorage,
   unwrapTextAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
@@ -2820,12 +2821,12 @@ function escapeAttachmentAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function truncateTextAttachment(text: string, maxChars: number): string {
-  const omitted = text.length - maxChars;
-  if (maxChars === 0) {
+function truncateTextAttachment(text: string, head: string): string {
+  const omitted = text.length - head.length;
+  if (head.length === 0) {
     return `[Attachment content omitted from the initial request; ${omitted.toLocaleString()} characters available.]`;
   }
-  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.]`;
+  return `${head}\n\n[Attachment truncated after ${head.length.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.]`;
 }
 
 function describeTruncatedTextAttachment(
@@ -2878,8 +2879,11 @@ function formatTextAttachment(
       : null,
   ].filter(Boolean);
 
+  // The head may stop one short of maxChars to keep a surrogate pair whole;
+  // the note's offset must be where the omitted text really starts.
+  const head = sliceTextHead(text, maxChars);
   const body =
-    text.length <= maxChars ? text : truncateTextAttachment(text, maxChars);
+    text.length <= maxChars ? text : truncateTextAttachment(text, head);
   const boundary = attachmentBoundaryFor(body);
   if (boundary) {
     attrs.push(
@@ -2889,7 +2893,7 @@ function formatTextAttachment(
   }
   const block = `<attachment ${attrs.join(" ")}>\n${body}\n</attachment${boundary ? ` boundary="${boundary}"` : ""}>`;
   if (text.length <= maxChars) return block;
-  return `${block}\n${describeTruncatedTextAttachment(att, maxChars, text.length, storage)}`;
+  return `${block}\n${describeTruncatedTextAttachment(att, head.length, text.length, storage)}`;
 }
 
 function dataUrlToFilePart(

@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeTextAttachmentData } from "./attachment-text.js";
+import { decodeTextAttachmentData, sliceTextHead } from "./attachment-text.js";
 
 function markdownDataUrl(text: string): string {
   return `data:text/markdown;base64,${Buffer.from(text).toString("base64")}`;
 }
+
+describe("sliceTextHead", () => {
+  it("keeps a surrogate pair whole at the cut", () => {
+    expect(sliceTextHead("ab😀c", 3)).toBe("ab");
+    expect(sliceTextHead("ab😀c", 4)).toBe("ab😀");
+    expect(sliceTextHead("abc", 0)).toBe("");
+  });
+});
 
 describe("decodeTextAttachmentData", () => {
   it("decodes a text file near the 8 MB limit without overflowing the stack", () => {
