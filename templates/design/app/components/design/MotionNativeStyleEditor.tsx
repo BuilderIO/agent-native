@@ -521,7 +521,7 @@ export function MotionNativeStyleEditor({
   return (
     <div
       aria-label={t("designEditor.motion.animationStyles.title")}
-      className="space-y-0.5 pt-2"
+      className="-ml-[calc(var(--design-inspector-section-padding-inline)_+_1px)] -mr-[calc(var(--design-inspector-section-padding-inline)_-_1px)] space-y-0.5 pt-2"
       data-design-inspector-section
     >
       {targetStyles.length > 0 ? (
@@ -554,7 +554,7 @@ export function MotionNativeStyleEditor({
                   }
                 }}
               >
-                <li className="flex h-8 min-w-0 items-center gap-0.5 rounded-sm pl-4">
+                <li className="flex h-8 min-w-0 items-center gap-1 rounded-sm pl-4 pr-1">
                   <PopoverTrigger asChild>
                     <button
                       type="button"

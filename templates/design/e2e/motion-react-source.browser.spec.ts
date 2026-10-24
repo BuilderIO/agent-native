@@ -902,7 +902,103 @@ test.describe.serial("React Motion source browser writeback", () => {
     page,
     request,
   }) => {
+    if (!screenId) {
+      const opened = await postAction(request, "add-localhost-screens", {
+        connectionId,
+        designId,
+        paths: ["/"],
+      });
+      screenId = opened.screens?.[0]?.id;
+    }
     if (!screenId) throw new Error("React Motion screen is not registered");
+
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    const current = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    if (!current.timelines?.length) {
+      const source = fs.readFileSync(sourceFilePath, "utf8");
+      const sourceHash = createHash("sha256").update(source).digest("hex");
+      await postAction(request, "grant-localhost-write-consent", {
+        designId,
+        connectionId,
+      });
+      await postAction(request, "apply-motion-edit", {
+        designId,
+        fileId: screenId,
+        sourceRef: screenId,
+        localSource: {
+          connectionId,
+          modulePath: sourcePath,
+          moduleVersionHash: sourceHash,
+          timelineVersionHash: sourceHash,
+          renderedNodeIds: [nodeId],
+        },
+        tracks: [
+          {
+            targetNodeId: nodeId,
+            property: "opacity",
+            durationMs: 1200,
+            keyframes: [
+              { t: 0, value: "1", ease: "linear" },
+              { t: 1, value: "0.8", ease: "linear" },
+            ],
+          },
+          {
+            targetNodeId: nodeId,
+            property: "rotate",
+            durationMs: 1200,
+            keyframes: [
+              { t: 0, value: "0deg", ease: "linear" },
+              { t: 1, value: "12deg", ease: "linear" },
+            ],
+          },
+          {
+            targetNodeId: nodeId,
+            property: "scale",
+            durationMs: 1200,
+            keyframes: [
+              { t: 0, value: "1", ease: "linear" },
+              { t: 1, value: "1.2", ease: "linear" },
+            ],
+          },
+          {
+            targetNodeId: nodeId,
+            property: "translate",
+            durationMs: 1200,
+            keyframes: [
+              { t: 0, value: "0px 0px", ease: "linear" },
+              { t: 1, value: "24px 0px", ease: "linear" },
+            ],
+          },
+        ],
+        textDocument: {
+          version: 2,
+          animations: [
+            {
+              targetNodeId: nodeId,
+              unit: "character",
+              direction: "forward",
+              staggerMs: 30,
+              animationDirection: "out",
+              order: "center-out",
+              overlapPercent: 50,
+              ignoreSpaces: false,
+              property: "opacity",
+              durationMs: 320,
+              keyframes: [
+                { t: 0, value: "0.25", ease: "ease-out" },
+                { t: 1, value: "1" },
+              ],
+            },
+          ],
+        },
+        durationMs: 1000,
+        playbackMode: "once",
+        defaultEase: "linear",
+      });
+    }
 
     await gotoEditor(page, designId);
     await selectByText(page, "Motion target", { screenId });
@@ -915,7 +1011,6 @@ test.describe.serial("React Motion source browser writeback", () => {
     });
     await expect(firstTextKeyframeValue).toHaveValue("0.25");
 
-    const sourceFilePath = path.join(rootPath, sourcePath);
     const before = fs.readFileSync(sourceFilePath, "utf8");
     const after = before.replace('"value":"0.25"', '"value":"0.4"');
     expect(after).not.toBe(before);
@@ -1029,42 +1124,6 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
-
-    await page.getByRole("tab", { name: "List", exact: true }).click();
-    const positionStyleTrigger = page
-      .locator("[data-motion-native-style-trigger]")
-      .first();
-    await expect(positionStyleTrigger).toBeVisible();
-    await positionStyleTrigger.click();
-    const positionSettings = page.locator(
-      '[data-motion-native-style-settings="Position"]',
-    );
-    await expect(positionSettings).toBeVisible();
-    await positionSettings.evaluate(async (root) => {
-      await Promise.all(
-        root
-          .getAnimations({ subtree: true })
-          .map((animation) => animation.finished.catch(() => undefined)),
-      );
-    });
-    const positionPanelBounds = await positionSettings.boundingBox();
-    const positionRowBounds = await positionStyleTrigger
-      .locator("xpath=..")
-      .boundingBox();
-    if (!positionPanelBounds || !positionRowBounds) {
-      throw new Error("Motion Position editor geometry is unavailable");
-    }
-    expect(
-      Math.abs(
-        positionPanelBounds.x + positionPanelBounds.width - positionRowBounds.x,
-      ),
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(positionPanelBounds.y - positionRowBounds.y),
-    ).toBeLessThanOrEqual(1);
-    await page.keyboard.press("Escape");
-    await expect(positionSettings).toBeHidden();
-    await expect(positionStyleTrigger).toBeVisible();
 
     const durationInput = page.getByRole("textbox", {
       name: "Duration",
@@ -1288,6 +1347,53 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
+
+    await page.getByRole("tab", { name: "List", exact: true }).click();
+    const positionStyleTrigger = page
+      .locator("[data-motion-native-style-trigger]")
+      .first();
+    await expect(positionStyleTrigger).toBeVisible();
+    await positionStyleTrigger.click();
+    const positionSettings = page.locator(
+      '[data-motion-native-style-settings="Position"]',
+    );
+    await expect(positionSettings).toBeVisible();
+    await positionSettings.evaluate(async (root) => {
+      await Promise.all(
+        root
+          .getAnimations({ subtree: true })
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
+    const positionPanelBounds = await positionSettings.boundingBox();
+    const positionRowBounds = await positionStyleTrigger
+      .locator("xpath=..")
+      .boundingBox();
+    const rightPanelBounds = await page
+      .locator('[data-design-chrome-region="right-panel"]')
+      .boundingBox();
+    if (!positionPanelBounds || !positionRowBounds || !rightPanelBounds) {
+      throw new Error("Motion Position editor geometry is unavailable");
+    }
+    expect(
+      Math.abs(
+        positionPanelBounds.x + positionPanelBounds.width - rightPanelBounds.x,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(positionRowBounds.x - rightPanelBounds.x),
+      JSON.stringify({ positionRowBounds, rightPanelBounds }),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(positionRowBounds.width - rightPanelBounds.width),
+      JSON.stringify({ positionRowBounds, rightPanelBounds }),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(positionPanelBounds.y - positionRowBounds.y),
+    ).toBeLessThanOrEqual(1);
+    await page.keyboard.press("Escape");
+    await expect(positionSettings).toBeHidden();
+    await expect(positionStyleTrigger).toBeVisible();
 
     const durationInput = page.getByRole("textbox", {
       name: "Duration",

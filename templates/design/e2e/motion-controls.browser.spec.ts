@@ -447,8 +447,15 @@ test("Motion inspector states match the editable timeline", async ({
     0,
   );
   expect(
-    positionEditorRect!.x + positionEditorRect!.width - (rightPanelLeft - 1),
+    positionEditorRect!.x + positionEditorRect!.width - rightPanelLeft,
+    JSON.stringify({
+      positionEditorRect,
+      rightPanelLeft,
+      positionStyleTriggerRect,
+    }),
   ).toBeCloseTo(0, 0);
+  expect(positionStyleTriggerRect!.x - rightPanelLeft).toBe(16);
+  expect(positionStyleTriggerRect!.width).toBe(148);
   expect(positionEditorRect!.height).toBeCloseTo(270, 0);
   await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
     "Slide in",
