@@ -352,8 +352,12 @@ export class ContentTableView extends TableView {
     this.applyReadableMinWidth(),
   );
 
-  // Each column's share of the table, in percent, while its widths are held.
+  // Each column's share of the table, in percent, while its widths are held,
+  // and the table's width when they were measured.
   private heldShares: number[] | null = null;
+  private heldWidth = 0;
+  private holding = false;
+  private measuring = false;
 
   constructor(
     node: ProseMirrorNode,
@@ -398,21 +402,42 @@ export class ContentTableView extends TableView {
         if (col.style.width.endsWith("%")) col.style.removeProperty("width");
       }
       this.heldShares = null;
+      this.holding = false;
       this.table.removeAttribute(COLUMN_SIZING_ATTRIBUTE);
       return;
     }
-    if (!hold || this.heldShares?.length !== cols.length) {
-      this.heldShares = null;
-      this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "content");
-      for (const col of cols) col.style.removeProperty("width");
-      if (!hold) return;
-      // ProseMirror redraws the cells only after this update, so a table
-      // whose cells just changed stays content-sized until its next one.
+    this.holding = hold;
+    if (hold && this.heldShares?.length === cols.length) {
+      this.applyHeldShares(cols);
+      return;
+    }
+    this.heldShares = null;
+    this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "content");
+    for (const col of cols) col.style.removeProperty("width");
+    if (hold) this.measureHeldShares();
+  }
+
+  // ProseMirror redraws the cells only after `update`, and an update that
+  // starts a hold can also change them (an undo that puts the caret back in
+  // the table), so the widths are measured once it has, before the next paint.
+  private measureHeldShares() {
+    if (this.measuring) return;
+    this.measuring = true;
+    queueMicrotask(() => {
+      this.measuring = false;
+      if (!this.holding || this.heldShares) return;
+      const cols = Array.from(this.colgroup.children) as HTMLElement[];
       const widths = renderedColumnWidths(this.node, this.table);
       const total = widths?.reduce((sum, width) => sum + width, 0) ?? 0;
       if (!widths || widths.length !== cols.length || total <= 0) return;
       this.heldShares = widths.map((width) => (width / total) * 100);
-    }
+      this.heldWidth = this.table.getBoundingClientRect().width;
+      this.applyHeldShares(cols);
+      this.applyReadableMinWidth();
+    });
+  }
+
+  private applyHeldShares(cols: HTMLElement[]) {
     this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "held");
     cols.forEach((col, index) => {
       col.style.width = `${this.heldShares![index].toFixed(3)}%`;
@@ -420,7 +445,13 @@ export class ContentTableView extends TableView {
   }
 
   private applyReadableMinWidth() {
-    const minWidth = readableTableMinWidth(this.colgroup);
+    let minWidth = readableTableMinWidth(this.colgroup);
+    // A word too long for its column widens a content-sized table past the
+    // page instead of breaking; a held table keeps that width, so the word
+    // doesn't break once the caret is in the table either.
+    if (this.heldShares && minWidth !== null) {
+      minWidth = Math.max(minWidth, this.heldWidth);
+    }
     if (minWidth === null) {
       this.table.style.removeProperty(READABLE_TABLE_MIN_WIDTH_PROPERTY);
     } else {

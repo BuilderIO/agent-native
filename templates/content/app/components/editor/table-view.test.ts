@@ -149,6 +149,11 @@ function renderFirstRow(view: ContentTableView, widths: number[]) {
   return cells;
 }
 
+// A hold measures the cells once ProseMirror has drawn them, in a microtask.
+function cellsDrawn() {
+  return Promise.resolve();
+}
+
 function colWidths(view: ContentTableView) {
   return Array.from(view.colgroup.children).map(
     (col) => (col as HTMLElement).style.width,
@@ -173,48 +178,71 @@ describe("content-sized columns", () => {
     expect(fully.table.hasAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe(false);
   });
 
-  it("holds the widths while the selection is in the table, then lets go", () => {
+  it("holds the widths while the selection is in the table, then lets go", async () => {
     const node = table([{}, {}]);
     const view = new ContentTableView(node, 25);
     const cells = renderFirstRow(view, [100, 300]);
+    view.table.getBoundingClientRect = () => ({ width: 900 }) as DOMRect;
     const inside = holdDecorations(stateWith(node, 4));
 
     expect(view.update(node, inside)).toBe(true);
+    await cellsDrawn();
     expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("held");
     expect(colWidths(view)).toEqual(["25.000%", "75.000%"]);
-    expect(floorOf(view)).toBe(`${2 * READABLE_TABLE_COLUMN_MIN_WIDTH}px`);
+    // It stays as wide as it was, so a long word doesn't break once held.
+    expect(floorOf(view)).toBe("900px");
 
     // Typing reflows nothing: the shares stay as they were when it began.
     cells[0].getBoundingClientRect = () => ({ width: 200 }) as DOMRect;
     cells[1].getBoundingClientRect = () => ({ width: 200 }) as DOMRect;
     view.update(table([{}, {}]), inside);
+    await cellsDrawn();
     expect(colWidths(view)).toEqual(["25.000%", "75.000%"]);
 
     view.update(node, []);
     expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
     expect(colWidths(view)).toEqual(["", ""]);
+    expect(floorOf(view)).toBe(`${2 * READABLE_TABLE_COLUMN_MIN_WIDTH}px`);
   });
 
-  it("doesn't hold a column the cells haven't been drawn for yet", () => {
+  it("measures a hold once ProseMirror has drawn the cells", async () => {
     const node = table([{}, {}]);
     const view = new ContentTableView(node, 25);
     renderFirstRow(view, [100, 300]);
-    view.update(node, holdDecorations(stateWith(node, 4)));
 
-    // ProseMirror calls `update` with a column added before it draws the
-    // column's cells.
+    // An update can start a hold and change the cells at once, as an undo
+    // that puts the caret back in the table does; ProseMirror draws the new
+    // cells after `update` returns.
     const wider = table([{}, {}, {}]);
     view.update(wider, holdDecorations(stateWith(wider, 4)));
+    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
+    renderFirstRow(view, [100, 100, 200]);
+    await cellsDrawn();
+
+    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("held");
+    expect(colWidths(view)).toEqual(["25.000%", "25.000%", "50.000%"]);
+  });
+
+  it("doesn't hold a column the cells haven't been drawn for", async () => {
+    const node = table([{}, {}]);
+    const view = new ContentTableView(node, 25);
+    renderFirstRow(view, [100, 300]);
+
+    const wider = table([{}, {}, {}]);
+    view.update(wider, holdDecorations(stateWith(wider, 4)));
+    await cellsDrawn();
 
     expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
     expect(colWidths(view)).toEqual(["", "", ""]);
   });
 
-  it("drops a held share once the table has stored widths", () => {
+  it("drops a held share once the table has stored widths", async () => {
     const node = table([{}, {}]);
     const view = new ContentTableView(node, 25);
     renderFirstRow(view, [100, 300]);
     view.update(node, holdDecorations(stateWith(node, 4)));
+    await cellsDrawn();
+    expect(colWidths(view)).toEqual(["25.000%", "75.000%"]);
 
     // The second column is left unsized, as a drag leaves the one after it.
     view.update(table([{ colwidth: [150] }, { colwidth: [0] }]));
