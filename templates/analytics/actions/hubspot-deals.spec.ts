@@ -406,6 +406,78 @@ describe("hubspot-deals action", () => {
     expect(result.guidance).toContain("description");
   });
 
+  describe("lone deal that cannot be shortened by prefix", () => {
+    const pipelines = [
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 1,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ];
+    const run = async (extra: Record<string, string>, nextAfter = "1") => {
+      searchHubSpotObjects.mockResolvedValue({
+        records: [
+          {
+            id: "wide-1",
+            properties: {
+              dealname: "Wide deal",
+              dealstage: "closed-lost",
+              pipeline: "enterprise-new-business",
+              ...extra,
+            },
+          },
+        ],
+        total: 5,
+        nextAfter,
+        properties: [],
+      });
+      getDealPipelines.mockResolvedValue(pipelines);
+      getDealOwners.mockResolvedValue({});
+      return (await hubspotDeals.run({ closedStatus: "lost" })) as Record<
+        string,
+        any
+      >;
+    };
+
+    it("terminates and flags many properties sitting exactly at the floor", async () => {
+      const props = Object.fromEntries(
+        Array.from({ length: 300 }, (_, i) => [`prop_${i}`, "f".repeat(200)]),
+      );
+      const result = await run(props);
+
+      expect(JSON.stringify(result).length).toBeLessThan(50_000);
+      expect(result.sizeTrimmed).toBe(true);
+      expect(result.deals).toHaveLength(1);
+      expect(result.truncatedProperties[0].id).toBe("wide-1");
+      expect(result.truncatedProperties[0].properties.length).toBeGreaterThan(
+        0,
+      );
+      expect(result.nextOffset).toBe(1);
+    });
+
+    it("terminates on thousands of short properties and reports the deal as oversized", async () => {
+      const props = Object.fromEntries(
+        Array.from({ length: 5_000 }, (_, i) => [`p${i}`, "short-value"]),
+      );
+      const result = await run(props);
+
+      expect(JSON.stringify(result).length).toBeLessThan(50_000);
+      expect(result.sizeTrimmed).toBe(true);
+      expect(result.deals).toEqual([]);
+      expect(result.oversizedDealIds).toEqual(["wide-1"]);
+      expect(result.nextOffset).toBe(1);
+      expect(result.guidance).toContain("provider-api-request");
+      expect(result.guidance).toContain("advances past this deal");
+    });
+  });
+
   it("bounds an unfiltered (no query, no filters) call too", async () => {
     const deals = Array.from({ length: 40 }, (_, index) => ({
       id: `deal-${index}`,
