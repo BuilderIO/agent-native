@@ -1019,7 +1019,10 @@ describe("Builder CMS write adapter plan", () => {
     for (const publicationTransition of ["publish", "unpublish"] as const) {
       const plan = buildBuilderCmsExecutionPlan({
         source: builderSource,
-        changeSet: transitionOnly,
+        changeSet: {
+          ...transitionOnly,
+          stagedPublicationTransition: publicationTransition,
+        },
         pushModeConfirmation: "publish",
         publicationTransition,
         confirmUnpublish: true,
@@ -1037,6 +1040,47 @@ describe("Builder CMS write adapter plan", () => {
         pushModeConfirmation: "publish",
       }).payload.safety.blockers,
     ).toContain("No Builder operations are available for this change.");
+  });
+
+  it("blocks a transition-only push once its staged pick is cleared or changed", () => {
+    const transitionOnly = {
+      ...approvedChangeSet(),
+      kind: "metadata_update",
+      pushMode: "publish",
+      fieldChanges: [],
+    } satisfies ContentDatabaseSourceChangeSet;
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+    });
+    builderSource.rows[0] = {
+      ...builderSource.rows[0]!,
+      sourceValues: { "data.title": "Old title" },
+    };
+
+    for (const staged of [undefined, "unpublish"] as const) {
+      const plan = buildBuilderCmsExecutionPlan({
+        source: builderSource,
+        changeSet: { ...transitionOnly, stagedPublicationTransition: staged },
+        pushModeConfirmation: "publish",
+        publicationTransition: "publish",
+      });
+      expect(plan.state).toBe("blocked");
+      expect(plan.payload.safety.blockers).toEqual([
+        "This entry's staged publish was cleared, and the push has nothing else to send.",
+      ]);
+    }
+    // A push with a field change still publishes on the review's own choice.
+    expect(
+      buildBuilderCmsExecutionPlan({
+        source: builderSource,
+        changeSet: approvedChangeSet(),
+        pushModeConfirmation: "publish",
+        publicationTransition: "publish",
+      }).payload.safety.blockers,
+    ).toEqual([]);
   });
 
   it("keeps a required reference the entry holds when a publish leaves it out", () => {

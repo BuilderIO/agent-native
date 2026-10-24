@@ -791,13 +791,16 @@ function builderSafetyChecks(args: {
     );
   }
 
-  if (
-    args.operations.length === 0 &&
-    !args.hasBodyOperation &&
-    args.effect !== "publish" &&
-    args.effect !== "unpublish"
-  ) {
-    blockers.push("No Builder operations are available for this change.");
+  if (args.operations.length === 0 && !args.hasBodyOperation) {
+    if (args.effect !== "publish" && args.effect !== "unpublish") {
+      blockers.push("No Builder operations are available for this change.");
+    } else if (args.changeSet.stagedPublicationTransition !== args.effect) {
+      // A push with nothing but the transition exists only because of a
+      // status pick, so an approval for it can't outlive the pick.
+      blockers.push(
+        `This entry's staged ${args.effect} was cleared, and the push has nothing else to send.`,
+      );
+    }
   }
   if (
     isBuilderCmsUnpublishedSaveEffect(args.effect) ||

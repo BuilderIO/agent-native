@@ -472,6 +472,63 @@ it("gives a repeated publish or unpublish a review id of its own", async () => {
   }
 });
 
+it("blocks an approved publish-only push once its pick is cleared", async () => {
+  const { buildBuilderCmsExecutionPlan } =
+    await import("./_builder-cms-write-adapter.js");
+  const db = getDb();
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  const approvedId = "csc_entry_draft_approved_publish";
+  const cleared =
+    "This entry's staged publish was cleared, and the push has nothing else to send.";
+  const blockers = async () => {
+    const snapshot = await asOwner(() =>
+      utils.getContentDatabaseSourceSnapshot(database),
+    );
+    const changeSet = snapshot?.changeSets.find(
+      (candidate) => candidate.id === approvedId,
+    );
+    expect(changeSet?.state).toBe("approved");
+    return buildBuilderCmsExecutionPlan({
+      source: snapshot!,
+      changeSet: changeSet!,
+      publicationTransition: "publish",
+    }).payload.safety.blockers;
+  };
+
+  await db.insert(schema.contentDatabaseSourceChangeSets).values({
+    id: approvedId,
+    ownerEmail: OWNER,
+    sourceId: SOURCE_ID,
+    databaseItemId: "item_doc_entry_draft",
+    documentId: "doc_entry_draft",
+    kind: "metadata_update",
+    direction: "outbound",
+    state: "approved",
+    pushMode: "publish",
+    localOnly: 0,
+    summary: 'Pending local Builder CMS publish for "Draft entry".',
+    fieldChangesJson: "[]",
+    bodyChangeJson: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  try {
+    expect(await blockers()).not.toContain(cleared);
+    await pick("doc_entry_draft", "draft");
+    expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+    expect(await blockers()).toContain(cleared);
+  } finally {
+    await db
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, approvedId));
+    await pick("doc_entry_draft", "published");
+  }
+  expect(await stagedIntent("doc_entry_draft")).toBe("publish");
+});
+
 it("keeps a staged change through a refresh until Builder reaches it", async () => {
   await refresh();
   expect(await stagedIntent("doc_entry_draft")).toBe("publish");
