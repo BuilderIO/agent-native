@@ -1,13 +1,30 @@
-import { callAction, useSession } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  callAction,
+  useActionMutation,
+  useActionQuery,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import {
+  IconCircleCheck,
   IconDeviceFloppy,
   IconFolderOpen,
+  IconInfoCircle,
   IconLock,
   IconLogin2,
+  IconMessage,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +36,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  LOCALHOST_CONSENT_RETURN_PARAM,
+  localhostConsentRequestDisposition,
+  localhostConsentRequestRefetchInterval,
+  localhostConsentReturnPath,
+} from "@/pages/design-editor/localhost-consent-request";
 
 export interface LocalhostWriteConsentPayload {
   rootPath: string;
@@ -62,15 +86,29 @@ export function LocalhostWriteConsentDialog({
   const t = useT();
   const { status: sessionStatus } = useSession();
   const [granting, setGranting] = useState(false);
+  const [preparingFor, setPreparingFor] =
+    useState<LocalhostWriteConsentPayload | null>(null);
   const [refusal, setRefusal] = useState<{
     payload: LocalhostWriteConsentPayload;
     kind: ConsentRefusal;
   } | null>(null);
+  const preparingSignIn = preparingFor !== null && preparingFor === payload;
   const sessionPending =
     sessionStatus === "loading" || sessionStatus === "signing-out";
   const blocked =
     (refusal?.payload === payload ? refusal.kind : null) ??
     (sessionStatus === "unauthenticated" ? "sign-in" : null);
+
+  // A sign-in save belongs to the request, design, and connection it started
+  // from; once any of them changes or the dialog unmounts, its late result
+  // must not navigate.
+  const signInOwnerRef = useRef<object | null>(null);
+  useEffect(
+    () => () => {
+      signInOwnerRef.current = null;
+    },
+    [payload, designId, connectionId],
+  );
 
   async function handleAllowWrites() {
     if (!payload || !designId || !connectionId || sessionPending || blocked) {
@@ -95,11 +133,50 @@ export function LocalhostWriteConsentDialog({
         setRefusal({ payload: requested, kind });
         return;
       }
-      requested.onError?.(error);
-      onOpenChange(false);
-      requested.onCancel();
+      // The request stays open and pending so Allow writes can be retried.
+      if (requested.onError) requested.onError(error);
+      else toast.error(actionErrorMessage(error) ?? t("common.genericError"));
     } finally {
       setGranting(false);
+    }
+  }
+
+  // Sign-in reloads the page, so this mount's callback cannot survive it.
+  // Only the request metadata goes to the server and only its ID rides the
+  // return URL; the reopened dialog grants for whoever signed in.
+  async function handleSignIn(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    if (!payload || !designId || !connectionId || preparingSignIn) return;
+    const requested = payload;
+    const owner = {};
+    signInOwnerRef.current = owner;
+    const returnPath = window.location.pathname;
+    setPreparingFor(requested);
+    try {
+      const queued = await callAction<{ requestId?: string }>(
+        "request-localhost-write-consent",
+        {
+          designId,
+          connectionId,
+          files: requested.files,
+          resumeAfterSignIn: true,
+        },
+      );
+      if (signInOwnerRef.current !== owner) return;
+      if (!queued?.requestId) {
+        toast.error(t("designEditor.localhostConsent.prepareSignInError"));
+        return;
+      }
+      window.location.assign(
+        buildSignInReturnHref({
+          returnTo: localhostConsentReturnPath(returnPath, queued.requestId),
+        }),
+      );
+    } catch (error) {
+      if (signInOwnerRef.current !== owner) return;
+      toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+    } finally {
+      setPreparingFor((current) => (current === requested ? null : current));
     }
   }
 
@@ -114,8 +191,11 @@ export function LocalhostWriteConsentDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) handleCancel();
-        else onOpenChange(next);
+        // Closing mid-save would leave the copy saved for sign-in pending,
+        // and it would reopen; the dialog waits for the save like Cancel does.
+        if (!next) {
+          if (!preparingSignIn) handleCancel();
+        } else onOpenChange(next);
       }}
     >
       <DialogContent className="max-w-md">
@@ -180,13 +260,31 @@ export function LocalhostWriteConsentDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleCancel} disabled={granting}>
+          <Button
+            variant="outline"
+            onClick={handleCancel}
+            disabled={granting || preparingSignIn}
+          >
             {"Cancel" /* i18n-ignore */}
           </Button>
           {blocked === "sign-in" ? (
             <Button asChild>
-              <a href={buildSignInReturnHref()}>
-                <IconLogin2 className="size-4" />
+              <a
+                href={
+                  typeof window === "undefined"
+                    ? buildSignInReturnHref()
+                    : buildSignInReturnHref({
+                        returnTo: window.location.pathname,
+                      })
+                }
+                aria-disabled={preparingSignIn || undefined}
+                onClick={(event) => void handleSignIn(event)}
+              >
+                {preparingSignIn ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <IconLogin2 className="size-4" />
+                )}
                 {
                   t("agentChat.accessGate.signIn") // i18n-key-ignore shared framework catalog
                 }
@@ -212,5 +310,334 @@ export function LocalhostWriteConsentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export type LocalhostWriteConsentNotice =
+  | { kind: "approved"; rootPath: string }
+  | { kind: "unavailable" };
+
+export interface LocalhostWriteConsentLocalRequest {
+  connectionId: string;
+  rootPath: string;
+  files: string[];
+  onGranted: LocalhostWriteConsentPayload["onGranted"];
+  onCancel?: () => void;
+  onError?: LocalhostWriteConsentPayload["onError"];
+}
+
+interface PendingConsentRequest {
+  designId: string;
+  connectionId: string;
+  rootPath: string;
+  files: string[];
+  requestedAt: string;
+  requestId?: string;
+}
+
+function consentRequestKey(designId: string, request: PendingConsentRequest) {
+  return `${designId}:${request.requestedAt}:${request.requestId ?? ""}`;
+}
+
+/**
+ * Editor-wide owner of the write-consent dialog. Agent requests (and requests
+ * saved for sign-in) live on the server until the user grants or cancels, so
+ * a fresh mount after sign-in reopens the same request. A request that comes
+ * back from the server has no edit callback: approving it asks the user to run
+ * the edit again instead of replaying anything.
+ */
+export function useLocalhostWriteConsent({
+  designId,
+  canEditDesign,
+}: {
+  designId: string | undefined;
+  canEditDesign: boolean;
+}) {
+  const t = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [payload, setPayload] = useState<LocalhostWriteConsentPayload | null>(
+    null,
+  );
+  const [connectionId, setConnectionId] = useState("");
+  const [notice, setNotice] = useState<LocalhostWriteConsentNotice | null>(
+    null,
+  );
+  const [failedClearKey, setFailedClearKey] = useState<string | null>(null);
+  const lastHandledKeyRef = useRef<string | null>(null);
+  const resolvedReturnRequestIdRef = useRef<string | null>(null);
+  const payloadRef = useRef(payload);
+  payloadRef.current = payload;
+  const returnRequestId = new URLSearchParams(location.search).get(
+    LOCALHOST_CONSENT_RETURN_PARAM,
+  );
+
+  // Agent requests run in a design-scoped capability session, separate from
+  // the browser's app-state session, so retrieve the handoff through an editor
+  // action instead of reading it from client app state.
+  const requestQuery = useActionQuery(
+    "get-localhost-write-consent-request",
+    { designId: designId ?? "" },
+    {
+      enabled: Boolean(designId && canEditDesign),
+      refetchInterval: (query) => {
+        const request = query.state.data?.request;
+        return localhostConsentRequestRefetchInterval({
+          requestKey:
+            request && designId ? consentRequestKey(designId, request) : null,
+          failedClearKey,
+          queryFailed: query.state.status === "error",
+        });
+      },
+      notifyOnChangeProps: [
+        "data",
+        "error",
+        "status",
+        ...(failedClearKey ? (["dataUpdatedAt"] as const) : []),
+        ...(returnRequestId ? (["isFetchedAfterMount"] as const) : []),
+      ],
+    },
+  );
+  const clearRequestAsync = useActionMutation(
+    "clear-localhost-write-consent-request",
+  ).mutateAsync;
+  const refetchRequest = requestQuery.refetch;
+
+  const clearRequest = useCallback(
+    (request: PendingConsentRequest, quiet: boolean) => {
+      if (!designId) return;
+      const requestKey = consentRequestKey(designId, request);
+      void clearRequestAsync({
+        designId,
+        requestedAt: request.requestedAt,
+        ...(request.requestId ? { requestId: request.requestId } : {}),
+      })
+        .then(async () => {
+          setFailedClearKey(null);
+          await refetchRequest();
+        })
+        .catch((error) => {
+          setFailedClearKey(requestKey);
+          if (!quiet) {
+            toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+          }
+        });
+    },
+    [clearRequestAsync, designId, refetchRequest, t],
+  );
+
+  const request = requestQuery.data?.request ?? null;
+  const requestLoaded =
+    requestQuery.status === "success" && requestQuery.isFetchedAfterMount;
+
+  useEffect(() => {
+    if (!designId || !canEditDesign || !requestLoaded) return;
+    if (
+      returnRequestId &&
+      resolvedReturnRequestIdRef.current !== returnRequestId
+    ) {
+      resolvedReturnRequestIdRef.current = returnRequestId;
+      const search = new URLSearchParams(location.search);
+      search.delete(LOCALHOST_CONSENT_RETURN_PARAM);
+      const nextSearch = search.toString();
+      void navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch ? `?${nextSearch}` : "",
+          hash: location.hash,
+        },
+        { replace: true },
+      );
+      if (
+        !request ||
+        request.designId !== designId ||
+        !request.connectionId ||
+        request.requestId !== returnRequestId
+      ) {
+        setNotice({ kind: "unavailable" });
+        return;
+      }
+    }
+    if (!request || request.designId !== designId || !request.connectionId) {
+      return;
+    }
+    const requestKey = consentRequestKey(designId, request);
+    const disposition = localhostConsentRequestDisposition({
+      requestKey,
+      lastHandledKey: lastHandledKeyRef.current,
+      failedClearKey,
+    });
+    if (disposition === "ignore") return;
+    if (disposition === "retry-clear") {
+      clearRequest(request, true);
+      return;
+    }
+    // Wait for the dialog or notice on screen; this request stays pending.
+    if (payload || notice) return;
+    lastHandledKeyRef.current = requestKey;
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearRequest(request, false);
+    };
+    setConnectionId(request.connectionId);
+    setPayload({
+      rootPath: request.rootPath,
+      files: request.files,
+      onGranted: () => {
+        settle();
+        setNotice({ kind: "approved", rootPath: request.rootPath });
+      },
+      onCancel: settle,
+      onError: (error) => {
+        toast.error(actionErrorMessage(error) ?? t("common.genericError"));
+      },
+    });
+    setOpen(true);
+  }, [
+    canEditDesign,
+    clearRequest,
+    designId,
+    failedClearKey,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigate,
+    notice,
+    payload,
+    request,
+    requestLoaded,
+    requestQuery.dataUpdatedAt,
+    returnRequestId,
+    t,
+  ]);
+
+  const openLocalConsent = useCallback(
+    (local: LocalhostWriteConsentLocalRequest) => {
+      setConnectionId(local.connectionId);
+      setPayload({
+        rootPath: local.rootPath,
+        files: local.files,
+        onGranted: local.onGranted,
+        onCancel: local.onCancel ?? (() => {}),
+        onError: local.onError,
+      });
+      setOpen(true);
+    },
+    [],
+  );
+
+  const onOpenChange = useCallback((next: boolean) => {
+    if (!next) {
+      payloadRef.current?.onCancel();
+      setPayload(null);
+    }
+    setOpen(next);
+  }, []);
+
+  const closeNotice = useCallback(() => setNotice(null), []);
+
+  return {
+    open,
+    payload,
+    connectionId,
+    notice,
+    openLocalConsent,
+    onOpenChange,
+    closeNotice,
+  };
+}
+
+export type LocalhostWriteConsentState = ReturnType<
+  typeof useLocalhostWriteConsent
+>;
+
+function LocalhostWriteConsentNoticeDialog({
+  notice,
+  onClose,
+}: {
+  notice: LocalhostWriteConsentNotice | null;
+  onClose: () => void;
+}) {
+  const t = useT();
+  if (!notice) return null;
+  const approved = notice.kind === "approved";
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {approved ? (
+              <IconCircleCheck className="size-4" />
+            ) : (
+              <IconInfoCircle className="size-4" />
+            )}
+            {approved
+              ? t("designEditor.localhostConsent.approvedTitle")
+              : t("designEditor.localhostConsent.unavailableTitle")}
+          </DialogTitle>
+          <DialogDescription>
+            {approved
+              ? t("designEditor.localhostConsent.approvedDescription")
+              : t("designEditor.localhostConsent.unavailableDescription")}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <Button variant={approved ? "outline" : "default"} onClick={onClose}>
+            {t("designEditor.localhostConsent.close")}
+          </Button>
+          {notice.kind === "approved" ? (
+            <Button
+              onClick={() => {
+                sendToDesignAgentChat({
+                  message: t("designEditor.localhostConsent.retryPrompt", {
+                    rootPath: notice.rootPath,
+                  }),
+                  submit: false,
+                  openSidebar: true,
+                });
+                onClose();
+              }}
+            >
+              <IconMessage className="size-4" />
+              {t("designEditor.localhostConsent.retryInChat")}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function LocalhostWriteConsentSurface({
+  designId,
+  consent,
+}: {
+  designId: string;
+  consent: LocalhostWriteConsentState;
+}) {
+  return (
+    <>
+      {consent.connectionId ? (
+        <LocalhostWriteConsentDialog
+          open={consent.open}
+          onOpenChange={consent.onOpenChange}
+          designId={designId}
+          connectionId={consent.connectionId}
+          payload={consent.payload}
+        />
+      ) : null}
+      <LocalhostWriteConsentNoticeDialog
+        notice={consent.notice}
+        onClose={consent.closeNotice}
+      />
+    </>
   );
 }

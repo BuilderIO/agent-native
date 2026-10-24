@@ -2204,6 +2204,20 @@ export default {
       added: "画面を追加しました",
       addFailed: "画面を追加できませんでした",
     },
+    localhostConsent: {
+      approvedTitle: "承認済み — 編集をもう一度実行してください",
+      approvedDescription:
+        "ファイルの書き込みは 8 時間許可されます。アクセスを求めた編集は保存されていません。",
+      retryInChat: "チャットで再実行",
+      retryPrompt:
+        "{{rootPath}} へのファイル書き込みが承認されました。これを必要とした編集をもう一度実行してください。",
+      unavailableTitle: "この書き込みリクエストは保留中ではなくなりました",
+      unavailableDescription:
+        "アクセスを求めるには、編集をもう一度実行してください。",
+      close: "閉じる",
+      prepareSignInError:
+        "サインイン前にこのリクエストを保存できませんでした。もう一度お試しください。",
+    },
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",
       send: "送信",

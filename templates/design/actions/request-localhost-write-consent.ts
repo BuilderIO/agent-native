@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -25,9 +26,16 @@ export default defineAction({
       .array(z.string())
       .optional()
       .describe("File paths about to be written, shown in the dialog."),
+    resumeAfterSignIn: z
+      .boolean()
+      .optional()
+      .describe(
+        "Editor-only: queue the request even while a grant is valid, so the " +
+          "dialog can reopen after the visitor signs in. Agents omit this.",
+      ),
   }),
   capabilityScopes: ["visual-edit"],
-  run: async ({ designId, connectionId, files }) => {
+  run: async ({ designId, connectionId, files, resumeAfterSignIn }) => {
     await assertAccess("design", designId, "editor");
 
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
@@ -82,7 +90,11 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (grant && grant.grantedUntil > new Date().toISOString()) {
+    if (
+      !resumeAfterSignIn &&
+      grant &&
+      grant.grantedUntil > new Date().toISOString()
+    ) {
       return {
         designId,
         connectionId,
@@ -92,12 +104,15 @@ export default defineAction({
       };
     }
 
+    const requestId = nanoid();
+    const requestedAt = new Date().toISOString();
     await putLocalhostConsentRequest(designId, {
       designId,
       connectionId,
       rootPath: connection.rootPath,
       files: files ?? [],
-      requestedAt: new Date().toISOString(),
+      requestedAt,
+      requestId,
     });
 
     const navigation = await readAppStateForCurrentTab("navigation").catch(
@@ -111,6 +126,8 @@ export default defineAction({
       return {
         designId,
         connectionId,
+        requestId,
+        requestedAt,
         surfaced: true,
         message:
           "Opened the write-consent dialog. Ask the user to click 'Allow " +
@@ -121,11 +138,14 @@ export default defineAction({
     return {
       designId,
       connectionId,
+      requestId,
+      requestedAt,
       surfaced: false,
       message:
         "Queued a write-consent request, but the user is not on this design's " +
         "editor so no dialog is showing yet. Ask them to open the design; the " +
-        "prompt appears then, and you can retry write-local-file after they approve.",
+        "prompt appears then, and you can retry write-local-file after they " +
+        "approve. The request expires after 30 minutes.",
     };
   },
 });

@@ -57,14 +57,14 @@ describe("resolveLocalhostSourceWriteContent", () => {
 });
 
 describe("localhostConsentRequestDisposition", () => {
-  it("shows and clears a new request", () => {
+  it("shows a new request", () => {
     expect(
       localhostConsentRequestDisposition({
         requestKey: "design:requested-at",
         lastHandledKey: null,
         failedClearKey: null,
       }),
-    ).toBe("show-and-clear");
+    ).toBe("show");
   });
 
   it("retries a failed clear without showing the request again", () => {

@@ -90,7 +90,6 @@ import {
 import { type GeometryHistorySelection } from "../history";
 import { createLatestWriteQueue } from "../latest-write-queue";
 import { reconcileLiveCollaborationOverride } from "../live-collaboration-override";
-import { localhostConsentRequestRefetchInterval } from "../localhost-consent-request";
 import {
   applyMcpDirectoryWidgetReadOnlyPolicy,
   applyMcpDirectoryWidgetWritePolicy,
@@ -907,29 +906,6 @@ export function useEditorGenerationAndAccess({
     ),
     readOnlyWidget,
   );
-  const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =
-    useState<string | null>(null);
-  const localhostConsentRequestQuery = useActionQuery(
-    "get-localhost-write-consent-request",
-    { designId: id ?? "" },
-    {
-      enabled: Boolean(id && canEditDesign),
-      refetchInterval: (query) => {
-        const request = query.state.data?.request;
-        return localhostConsentRequestRefetchInterval({
-          requestKey: request ? `${id}:${request.requestedAt}` : null,
-          failedClearKey: failedLocalhostConsentClear,
-          queryFailed: query.state.status === "error",
-        });
-      },
-      notifyOnChangeProps: failedLocalhostConsentClear
-        ? ["data", "error", "status", "dataUpdatedAt"]
-        : ["data", "error", "status"],
-    },
-  );
-  const clearLocalhostConsentRequestMutation = useActionMutation(
-    "clear-localhost-write-consent-request",
-  );
   const visualEditSnapshotPublicationStateRef =
     useRef<VisualEditSnapshotPublicationState | null>(null);
   if (!visualEditSnapshotPublicationStateRef.current) {
@@ -1681,10 +1657,6 @@ export function useEditorGenerationAndAccess({
     publicVisualEdit,
     canCommentDesign,
     canRenderAuthenticatedShare,
-    failedLocalhostConsentClear,
-    setFailedLocalhostConsentClear,
-    localhostConsentRequestQuery,
-    clearLocalhostConsentRequestMutation,
     visualEditSnapshotPublicationState,
     liveCollaborationSaving,
     liveCollaborationEnabled,

@@ -18,7 +18,10 @@ type SessionStatus = ReturnType<typeof useSession>["status"];
 const mocks = vi.hoisted(() => ({
   sessionStatus: "loading" as SessionStatus,
   messages: {} as Record<string, unknown>,
+  toastError: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
@@ -45,6 +48,8 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   },
 }));
 
+import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
+
 import { i18nCatalog } from "@/i18n";
 
 import {
@@ -53,6 +58,7 @@ import {
 } from "./LocalhostWriteConsentDialog";
 
 const GRANT_PATH = "/_agent-native/actions/grant-localhost-write-consent";
+const REQUEST_PATH = "/_agent-native/actions/request-localhost-write-consent";
 const GRANT = {
   grantId: "grant-1",
   rootPath: "/repo",
@@ -63,6 +69,9 @@ describe("LocalhostWriteConsentDialog", () => {
   let container: HTMLDivElement;
   let root: Root;
   let grantResponse: () => Response;
+  let requestResponse: () => Response;
+  let requestBodies: unknown[];
+  let requestHold: Promise<void> | null;
   let fetchMock: ReturnType<typeof vi.fn>;
   let payload: LocalhostWriteConsentPayload;
   let onOpenChange: Mock<(open: boolean) => void>;
@@ -72,9 +81,25 @@ describe("LocalhostWriteConsentDialog", () => {
     mocks.messages = i18nCatalog.messages;
     mocks.sessionStatus = "loading";
     grantResponse = () => Response.json(GRANT);
-    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    requestResponse = () =>
+      Response.json({
+        designId: "design-1",
+        connectionId: "connection-1",
+        requestId: "request-2",
+        requestedAt: "2026-10-24T08:00:00.000Z",
+        surfaced: true,
+      });
+    requestBodies = [];
+    requestHold = null;
+    mocks.toastError.mockReset();
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.includes(GRANT_PATH)) return grantResponse();
+      if (url.includes(REQUEST_PATH)) {
+        requestBodies.push(JSON.parse(String(init?.body)));
+        if (requestHold) await requestHold;
+        return requestResponse();
+      }
       return Response.json({ error: "Not authenticated" });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -97,15 +122,17 @@ describe("LocalhostWriteConsentDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  function render() {
+  function render(
+    props: { designId?: string; payload?: LocalhostWriteConsentPayload } = {},
+  ) {
     act(() =>
       root.render(
         <LocalhostWriteConsentDialog
           open
           onOpenChange={onOpenChange}
-          designId="design-1"
+          designId={props.designId ?? "design-1"}
           connectionId="connection-1"
-          payload={payload}
+          payload={props.payload ?? payload}
         />,
       ),
     );
@@ -241,5 +268,202 @@ describe("LocalhostWriteConsentDialog", () => {
     expect(payload.onCancel).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(grantCalls()).toHaveLength(1);
+  });
+
+  async function clickSignIn(): Promise<string[]> {
+    const assigned: string[] = [];
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation((url: string | URL) => {
+        assigned.push(String(url));
+      });
+    try {
+      const link = signInLink();
+      if (!link) throw new Error("Sign in was not rendered");
+      await act(async () => link.click());
+      await settle();
+    } finally {
+      assign.mockRestore();
+    }
+    return assigned;
+  }
+
+  it("saves the request before sign-in and returns with only its ID", async () => {
+    mocks.sessionStatus = "unauthenticated";
+    window.history.replaceState(
+      null,
+      "",
+      "/visual-edit/design-1?screen=s1&embed=fake-link-token#layer",
+    );
+    try {
+      render();
+      const assigned = await clickSignIn();
+
+      expect(requestBodies).toEqual([
+        {
+          designId: "design-1",
+          connectionId: "connection-1",
+          files: ["src/App.tsx"],
+          resumeAfterSignIn: true,
+        },
+      ]);
+      expect(assigned).toHaveLength(1);
+      const target = new URL(assigned[0]!, window.location.origin);
+      expect(target.pathname).toBe("/sign-in");
+      expect(decodeContinuation(target.searchParams.get("c"))).toBe(
+        "/visual-edit/design-1?localhostConsent=request-2",
+      );
+      expect(grantCalls()).toHaveLength(0);
+      expect(payload.onGranted).not.toHaveBeenCalled();
+      expect(payload.onCancel).not.toHaveBeenCalled();
+      expect(payload.onError).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("stays put when the request cannot be saved for sign-in", async () => {
+    mocks.sessionStatus = "unauthenticated";
+    render();
+
+    requestResponse = () =>
+      Response.json({ error: "Connection is not ready" }, { status: 500 });
+    expect(await clickSignIn()).toEqual([]);
+
+    requestResponse = () =>
+      Response.json({ designId: "design-1", alreadyGranted: true });
+    expect(await clickSignIn()).toEqual([]);
+
+    expect(requestBodies).toHaveLength(2);
+    expect(signInLink()).toBeDefined();
+    expect(grantCalls()).toHaveLength(0);
+    expect(payload.onGranted).not.toHaveBeenCalled();
+    expect(payload.onCancel).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed grant open so it can be tried again", async () => {
+    mocks.sessionStatus = "authenticated";
+    grantResponse = () =>
+      Response.json({ error: "Bridge unavailable" }, { status: 500 });
+    render();
+    await allowWrites();
+
+    expect(payload.onError).toHaveBeenCalledTimes(1);
+    expect(payload.onCancel).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(button("Allow writes")?.disabled).toBe(false);
+
+    grantResponse = () => Response.json(GRANT);
+    await allowWrites();
+    expect(grantCalls()).toHaveLength(2);
+    expect(payload.onGranted).toHaveBeenCalledWith(GRANT);
+    expect(payload.onCancel).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("reports a failed grant when the caller has no error handler", async () => {
+    mocks.sessionStatus = "authenticated";
+    grantResponse = () =>
+      Response.json({ error: "Bridge unavailable" }, { status: 500 });
+    const { onError: _onError, ...withoutHandler } = payload;
+    render({ payload: withoutHandler });
+    await allowWrites();
+
+    expect(mocks.toastError).toHaveBeenCalledWith("Bridge unavailable");
+    expect(payload.onCancel).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(button("Allow writes")).toBeDefined();
+  });
+
+  function holdRequests(): () => Promise<void> {
+    let release!: () => void;
+    requestHold = new Promise((resolve) => {
+      release = resolve;
+    });
+    return async () => {
+      requestHold = null;
+      release();
+      await settle();
+    };
+  }
+
+  function watchAssign() {
+    const assigned: string[] = [];
+    const spy = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation((url: string | URL) => {
+        assigned.push(String(url));
+      });
+    return { assigned, restore: () => spy.mockRestore() };
+  }
+
+  async function startSignIn() {
+    const link = signInLink();
+    if (!link) throw new Error("Sign in was not rendered");
+    await act(async () => link.click());
+    await settle();
+    expect(requestBodies).toHaveLength(1);
+  }
+
+  it("ignores a sign-in save that finishes after its request is gone", async () => {
+    mocks.sessionStatus = "unauthenticated";
+    const assign = watchAssign();
+    try {
+      const endings: Array<() => void> = [
+        () => render({ designId: "design-2" }),
+        () => render({ payload: { ...payload, files: ["src/Other.tsx"] } }),
+        () => act(() => root.unmount()),
+      ];
+      for (const end of endings) {
+        act(() => root.unmount());
+        root = createRoot(container);
+        requestBodies = [];
+        render();
+        const release = holdRequests();
+        await startSignIn();
+        end();
+        await release();
+      }
+      expect(assign.assigned).toEqual([]);
+      expect(payload.onCancel).not.toHaveBeenCalled();
+      expect(payload.onGranted).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+      expect(mocks.toastError).not.toHaveBeenCalled();
+    } finally {
+      assign.restore();
+    }
+  });
+
+  it("keeps the dialog and its starting page while the sign-in save is in flight", async () => {
+    mocks.sessionStatus = "unauthenticated";
+    window.history.replaceState(null, "", "/visual-edit/design-1?screen=s1");
+    const assign = watchAssign();
+    try {
+      render();
+      const release = holdRequests();
+      await startSignIn();
+
+      await act(async () => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+      expect(payload.onCancel).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+      expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+
+      window.history.replaceState(null, "", "/somewhere-else");
+      await release();
+      expect(assign.assigned).toHaveLength(1);
+      const target = new URL(assign.assigned[0]!, window.location.origin);
+      expect(decodeContinuation(target.searchParams.get("c"))).toBe(
+        "/visual-edit/design-1?localhostConsent=request-2",
+      );
+    } finally {
+      assign.restore();
+      window.history.replaceState(null, "", "/");
+    }
   });
 });

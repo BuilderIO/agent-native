@@ -30,6 +30,7 @@ import {
   enableLab,
   expandAllLayers,
   gotoEditor,
+  grantLocalhostWriteConsent,
   selectByText,
   waitForDesignPreviewReady,
 } from "./helpers";
@@ -295,7 +296,7 @@ test.describe.serial("React Motion source browser writeback", () => {
         .digest("hex"),
     );
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
