@@ -396,6 +396,13 @@
       "import": "./dist/app/changelog/index.js",
       "default": "./dist/app/changelog/index.js"
     },
+    "./app/agent-select": {
+      "types": "./dist/app/agent-select/index.d.ts",
+      "browser": "./dist/app/agent-select/index.js",
+      "development": "./dist/app/agent-select/index.js",
+      "import": "./dist/app/agent-select/index.js",
+      "default": "./dist/app/agent-select/index.js"
+    },
     "./app/context-xray": {
       "types": "./dist/app/context-xray/index.d.ts",
       "browser": "./dist/app/context-xray/index.js",

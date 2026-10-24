@@ -823,6 +823,28 @@
       ]
     },
     {
+      "id": "toolkit/app-agent-select",
+      "label": "Toolkit app Agent Select",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-agent-select"],
+      "entrypoints": ["./app/agent-select"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/agent-select"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@agent-native/core",
+        "@tabler/icons-react",
+        "react",
+        "sonner"
+      ],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": [
+        "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/hooks",
+        "@agent-native/core/client/i18n"
+      ]
+    },
+    {
       "id": "toolkit/app-db-admin",
       "label": "Toolkit app Db Admin",
       "catalog": "toolkit-ui",

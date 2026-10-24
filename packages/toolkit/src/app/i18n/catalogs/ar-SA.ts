@@ -523,6 +523,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "إنشاء مهمة متكررة: ",
   "composer.selectedReferences": "المراجع المحددة",
   "composer.sendMessage": "إرسال رسالة",
+  "composer.select": "تحديد",
+  "composer.selectContextFull": "السياق ممتلئ. أزل عنصرًا قبل تحديد عنصر آخر.",
+  "composer.selectContextTooLarge":
+    "هذا الكائن كبير جدًا بحيث لا يمكن إضافته كسياق.",
   "composer.skill.added": 'تمت إضافة المهارة "{{name}}"',
   "composer.skill.back": "رجوع",
   "composer.skill.content": "المحتوى",

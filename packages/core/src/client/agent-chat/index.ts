@@ -71,6 +71,17 @@ export {
   type AgentComposerReferenceInsertOptions,
   type AgentComposerReferenceInsertPayload,
 } from "../agent-chat.js";
+export {
+  AGENT_SELECTION_CONTEXT_KEY_PREFIX,
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  formatAgentSelectionPreamble,
+  isAgentSelectionContextKey,
+  parseAgentSelectionContextKey,
+  type AgentSelectionReference,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "../../shared/agent-selection.js";
 export { isContinuationTerminalReason } from "../../agent/types.js";
 export { isRequestedStopAbortReason } from "../../agent/abort-reasons.js";
 export {
