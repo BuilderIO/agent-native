@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   isLiveBodyWriterPage: vi.fn(),
   awareness: vi.fn(),
   capture: vi.fn(),
+  pageIds: vi.fn(),
+  titleRow: vi.fn(),
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   appStateGet: mocks.get,
@@ -34,10 +36,12 @@ vi.mock("./_document-save-row.js", async (original) => ({
   ...(await original<typeof import("./_document-save-row.js")>()),
   createDocumentFlushCapture: () => mocks.capture,
   readDocumentSaveRow: mocks.capture,
+  readDocumentTitleRow: mocks.titleRow,
 }));
 
 vi.mock("../server/lib/live-body-writer.js", () => ({
   isLiveBodyWriterPage: mocks.isLiveBodyWriterPage,
+  liveBodyWriterPageIds: mocks.pageIds,
 }));
 
 import {
@@ -49,7 +53,10 @@ import {
   type DocumentFlushRequest,
   type DocumentFlushAck,
 } from "../shared/document-flush-protocol.js";
-import { flushOpenDocumentEditorToSql } from "./_document-flush";
+import {
+  flushOpenDocumentEditorToSql,
+  saveOpenEditorTitles,
+} from "./_document-flush";
 
 const SQL_ROW = {
   kind: "document",
@@ -117,20 +124,23 @@ function ack(
         ...envelope,
         status: "prepared",
         stabilityToken: `stable-${target.clientId}-${request.prepareToken}`,
-        claim: request.propertyId
-          ? {
-              kind: "property",
-              propertyId: request.propertyId,
-              contentHash: SQL_ROW.contentHash,
-            }
-          : {
-              kind: "document",
-              save: {
-                revision: SAVED.savedRevision,
-                title: SAVED.savedTitle,
-                titleUpdatedAt: SAVED.savedTitleAt,
-              },
-            },
+        claim:
+          request.scope === "title"
+            ? { kind: "title", title: SQL_ROW.title }
+            : request.propertyId
+              ? {
+                  kind: "property",
+                  propertyId: request.propertyId,
+                  contentHash: SQL_ROW.contentHash,
+                }
+              : {
+                  kind: "document",
+                  save: {
+                    revision: SAVED.savedRevision,
+                    title: SAVED.savedTitle,
+                    titleUpdatedAt: SAVED.savedTitleAt,
+                  },
+                },
       }
     : {
         ...envelope,
@@ -159,6 +169,8 @@ describe("flushOpenDocumentEditorToSql", () => {
     mocks.awareness.mockResolvedValue([editorRow(123)]);
     mocks.capture.mockResolvedValue(SQL_ROW);
     mocks.isLiveBodyWriterPage.mockResolvedValue(false);
+    mocks.pageIds.mockResolvedValue(new Set());
+    mocks.titleRow.mockResolvedValue({ title: SQL_ROW.title });
     mocks.get.mockImplementation(
       async (email, key) => store.get(address(email, key)) ?? null,
     );
@@ -172,7 +184,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
       if (next === null) store.delete(address(email, key));
       else store.set(address(email, key), next);
-      if (key === "flush-request-doc-1" && next?.protocol === 2) {
+      if (key.startsWith("flush-request-") && next?.protocol === 2) {
         requestHook?.(next, email);
         for (const target of next.targets) {
           const answer = respond(next, target, email);
@@ -1372,4 +1384,751 @@ describe("flushOpenDocumentEditorToSql", () => {
       );
     },
   );
+
+  describe("title scope on a switched page", () => {
+    const TITLE_EDITOR = { canFlushTitle: true };
+    const titleRequests = () =>
+      mocks.cas.mock.calls
+        .filter(([, key, , next]) => key.startsWith("flush-request-") && next)
+        .map((call) => call[3] as DocumentFlushRequest);
+    const taken = (
+      request: DocumentFlushRequest,
+      target: { clientId: number; editorSessionId: string },
+    ) =>
+      ({
+        ...ack(request, target),
+        status: "taken",
+        stabilityToken: undefined,
+        claim: undefined,
+      }) as unknown as DocumentFlushAck;
+    // An editor marks the request taken, then replaces the mark with its
+    // answer once the title is saved.
+    const answerAfterTaking = (delay: number) => {
+      respond = (request, target) =>
+        request.phase === "prepare"
+          ? taken(request, target)
+          : ack(request, target);
+      requestHook = (request, email) => {
+        if (request.phase === "prepare")
+          setTimeout(() => {
+            for (const target of request.targets)
+              store.set(
+                address(email, flushAckKey(request, target.clientId)),
+                ack(request, target),
+              );
+          }, delay);
+      };
+    };
+    beforeEach(() => {
+      mocks.isLiveBodyWriterPage.mockResolvedValue(true);
+    });
+
+    it("asks only the editors that advertise canFlushTitle, and confirms their saved title", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+        editorRow(456),
+      ]);
+      answerAfterTaking(1_000);
+
+      expect(await settle()).toEqual({
+        value: {
+          status: "live_copy",
+          titleFlush: {
+            pages: [
+              {
+                documentId: "doc-1",
+                confirmedTitle: SQL_ROW.title,
+                editors: [
+                  {
+                    clientId: 123,
+                    editorSessionId: "editor-123",
+                    flush: "answered",
+                    prepareToken: expect.any(String),
+                    verifyToken: expect.any(String),
+                  },
+                  {
+                    clientId: 456,
+                    flush: "unconfirmed",
+                    reason: "legacy_editor",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      const requests = titleRequests();
+      expect(requests.map((request) => request.phase)).toEqual([
+        "prepare",
+        "verify",
+      ]);
+      for (const request of requests) {
+        expect(request).toMatchObject({
+          scope: "title",
+          targets: [{ clientId: 123, editorSessionId: "editor-123" }],
+        });
+        expect(request).not.toHaveProperty("propertyId");
+      }
+      expect(mocks.titleRow).toHaveBeenCalledWith("doc-1");
+      expect(mocks.capture).not.toHaveBeenCalled();
+      expect(store.size).toBe(0);
+    });
+
+    it("keeps main's document handshake for a canFlushTitle editor on a page that isn't switched", async () => {
+      mocks.isLiveBodyWriterPage.mockResolvedValue(false);
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+
+      expect(await settle()).toMatchObject({
+        value: { status: "flushed", snapshot: SQL_ROW },
+      });
+      expect(titleRequests().some((request) => "scope" in request)).toBe(false);
+      expect(mocks.titleRow).not.toHaveBeenCalled();
+    });
+
+    it("prepares again until SQL holds the title the editor claims, then refuses at the deadline", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.titleRow.mockResolvedValue({ title: "Older title" });
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          statusCode: 409,
+          details: { documentId: "doc-1", reason: "timeout", retryable: true },
+        },
+      });
+      expect(mocks.titleRow.mock.calls.length).toBeGreaterThan(1);
+      expect(
+        titleRequests().some((request) => request.phase === "verify"),
+      ).toBe(false);
+    });
+
+    it("refuses with a timeout when an editor took the request and never answered", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      respond = (request, target) =>
+        request.phase === "prepare" ? taken(request, target) : null;
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          message: expect.stringContaining(
+            "The request didn't go ahead, and any titles the open editors saved stay saved.",
+          ),
+          details: { reason: "timeout" },
+        },
+      });
+      expect(mocks.titleRow).not.toHaveBeenCalled();
+    });
+
+    it("says the request was never picked up when an editor never took it", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+        editorRow(456, "owner@example.com", TITLE_EDITOR),
+      ]);
+      respond = (request, target) =>
+        target.clientId === 123 ? taken(request, target) : null;
+
+      expect(await settle()).toMatchObject({
+        error: { details: { reason: "request_not_received" } },
+      });
+    });
+
+    it("refuses with a timeout, not as never received, when the editor answered an earlier round and the deadline falls before it takes the latest", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.titleRow.mockResolvedValue({ title: "Older title" });
+      let prepares = 0;
+      respond = (request, target) =>
+        request.phase === "prepare" && ++prepares === 1
+          ? ack(request, target)
+          : null;
+
+      expect(await settle()).toMatchObject({
+        error: { details: { reason: "timeout" } },
+      });
+      expect(prepares).toBeGreaterThan(1);
+    });
+
+    it("says the request wasn't delivered while another request holds the mailbox", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      const occupied = { requestId: "earlier", expiresAt: Date.now() + 30_000 };
+      store.set(address("owner@example.com", "flush-request-doc-1"), occupied);
+
+      expect(await settle()).toMatchObject({
+        error: { details: { reason: "request_not_delivered" } },
+      });
+      expect(mocks.cas).not.toHaveBeenCalled();
+      expect(
+        store.get(address("owner@example.com", "flush-request-doc-1")),
+      ).toBe(occupied);
+    });
+
+    it("refuses at once with the editor's code when it couldn't save the title", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      respond = (request, target) =>
+        ({
+          ...ack(request, target),
+          status: "error",
+          errorCode: "title_save_failed",
+        }) as DocumentFlushAck;
+      const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(await result).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: { reason: "editor_error", code: "title_save_failed" },
+        },
+      });
+      expect(store.size).toBe(0);
+    });
+
+    it.each([
+      ["no protocol 2", { documentFlushProtocol: 1 }],
+      ["no editor session", { editorSessionId: null }],
+      ["no email", { user: {} }],
+    ])(
+      "refuses an advertising editor with %s before asking anyone",
+      async (_label, fields) => {
+        mocks.awareness.mockResolvedValue([
+          editorRow(123, "owner@example.com", { ...TITLE_EDITOR, ...fields }),
+        ]);
+
+        expect(await settle()).toMatchObject({
+          error: { details: { reason: "request_not_delivered" } },
+        });
+        expect(mocks.cas).not.toHaveBeenCalled();
+      },
+    );
+
+    it("refuses with DOCUMENT_NOT_FOUND when the page is deleted while its editors save the title", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.titleRow.mockResolvedValue(null);
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "DOCUMENT_NOT_FOUND",
+          statusCode: 404,
+          details: { documentId: "doc-1" },
+        },
+      });
+      expect(store.size).toBe(0);
+    });
+
+    type Target = { clientId: number; editorSessionId: string };
+    it.each([
+      [
+        "an unrelated nonce",
+        (request: DocumentFlushRequest, target: Target) =>
+          ({
+            ...ack(request, target),
+            phaseToken: "unrelated",
+          }) as DocumentFlushAck,
+      ],
+      [
+        "a document claim",
+        (request: DocumentFlushRequest, target: Target) =>
+          ({
+            ...ack(request, target),
+            claim: { kind: "document", save: {} },
+          }) as unknown as DocumentFlushAck,
+      ],
+      [
+        "a taken mark in verify",
+        (request: DocumentFlushRequest, target: Target) =>
+          request.phase === "verify"
+            ? taken(request, target)
+            : ack(request, target),
+      ],
+    ])("refuses an answer with %s as unreadable", async (_label, answer) => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      respond = answer;
+
+      expect(await settle()).toMatchObject({
+        error: { details: { reason: "acknowledgement_unreadable" } },
+      });
+    });
+
+    it("reads the acknowledgements again after a failed read, and confirms the title", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.many.mockRejectedValueOnce(new Error("ack store down"));
+
+      expect(await settle()).toMatchObject({
+        value: {
+          status: "live_copy",
+          titleFlush: {
+            pages: [
+              {
+                documentId: "doc-1",
+                confirmedTitle: SQL_ROW.title,
+                editors: [{ clientId: 123, flush: "answered" }],
+              },
+            ],
+          },
+        },
+      });
+      expect(store.size).toBe(0);
+    });
+
+    it("refuses as unreadable, with the cause, when every acknowledgement read fails up to the deadline", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.many.mockRejectedValue(new Error("ack store down"));
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: {
+            documentId: "doc-1",
+            reason: "acknowledgement_unreadable",
+            cause: "ack store down",
+            retryable: true,
+          },
+        },
+      });
+      expect(mocks.many.mock.calls.length).toBeGreaterThan(2);
+    });
+
+    it("refuses as unreadable, not as never received, when no read of the answers finishes before the deadline", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.many.mockImplementation(() => new Promise(() => {}));
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: { reason: "acknowledgement_unreadable" },
+        },
+      });
+    });
+
+    it.each([
+      [
+        "a read is still running at the deadline after reads that saw the request taken",
+        undefined,
+        () => {
+          respond = (request, target) =>
+            request.phase === "prepare" ? taken(request, target) : null;
+          const read = mocks.many.getMockImplementation()!;
+          let reads = 0;
+          mocks.many.mockImplementation((email: string, keys: string[]) =>
+            ++reads > 3 ? new Promise(() => {}) : read(email, keys),
+          );
+        },
+      ],
+      [
+        "the verify answers are still being read at the deadline",
+        undefined,
+        () => {
+          const read = mocks.many.getMockImplementation()!;
+          mocks.many.mockImplementation((email: string, keys: string[]) =>
+            store.get(address(email, "flush-request-doc-1"))?.phase === "verify"
+              ? new Promise(() => {})
+              : read(email, keys),
+          );
+        },
+      ],
+      [
+        "every read fails up to the deadline after one that saw the request taken",
+        "ack store down",
+        () => {
+          vi.spyOn(console, "warn").mockImplementation(() => {});
+          respond = (request, target) =>
+            request.phase === "prepare" ? taken(request, target) : null;
+          const read = mocks.many.getMockImplementation()!;
+          let reads = 0;
+          mocks.many.mockImplementation(
+            async (email: string, keys: string[]) => {
+              if (++reads > 1) throw new Error("ack store down");
+              return read(email, keys);
+            },
+          );
+        },
+      ],
+    ])(
+      "refuses with a timeout, not as unreadable, when %s",
+      async (_label, cause, setup) => {
+        mocks.awareness.mockResolvedValue([
+          editorRow(123, "owner@example.com", TITLE_EDITOR),
+        ]);
+        setup();
+
+        expect(await settle()).toMatchObject({
+          error: {
+            errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+            details: { reason: "timeout", ...(cause ? { cause } : {}) },
+          },
+        });
+      },
+    );
+
+    it.each([
+      [
+        "the verify request can't be written",
+        "request_not_delivered",
+        "mailbox write failed",
+        () => {
+          const write = mocks.cas.getMockImplementation()!;
+          mocks.cas.mockImplementation(async (...args: any[]) => {
+            if (args[3]?.phase === "verify")
+              throw new Error("mailbox write failed");
+            return write(...args);
+          });
+        },
+      ],
+      [
+        "SQL's title can't be read",
+        "acknowledgement_unreadable",
+        "title read failed",
+        () => {
+          mocks.titleRow.mockRejectedValue(new Error("title read failed"));
+        },
+      ],
+    ])(
+      "refuses with the step's reason when %s",
+      async (_label, reason, cause, fail) => {
+        mocks.awareness.mockResolvedValue([
+          editorRow(123, "owner@example.com", TITLE_EDITOR),
+        ]);
+        fail();
+
+        expect(await settle()).toMatchObject({
+          error: {
+            errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+            details: { reason, cause },
+          },
+        });
+      },
+    );
+  });
+
+  describe("saveOpenEditorTitles", () => {
+    const TITLE_EDITOR = { canFlushTitle: true };
+    async function saving(ids: string[]) {
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(20_001);
+      return result;
+    }
+
+    it("reads no editors when none of the pages is switched", async () => {
+      expect(await saving(["doc-1", "doc-2"])).toEqual({ value: undefined });
+      expect(mocks.pageIds).toHaveBeenCalledWith(["doc-1", "doc-2"]);
+      expect(mocks.awareness).not.toHaveBeenCalled();
+    });
+
+    it("asks nobody when no switched page's editor advertises canFlushTitle", async () => {
+      mocks.pageIds.mockResolvedValue(new Set(["doc-1", "doc-2"]));
+      mocks.awareness.mockImplementation(async (id: string) =>
+        id === "doc-1" ? [editorRow(123)] : [],
+      );
+
+      expect(await saving(["doc-1", "doc-2"])).toEqual({ value: undefined });
+      expect(mocks.cas).not.toHaveBeenCalled();
+    });
+
+    it("saves every switched page's titles and leaves the rest alone", async () => {
+      mocks.pageIds.mockResolvedValue(new Set(["doc-1", "doc-2", "doc-4"]));
+      mocks.awareness.mockImplementation(async (id: string) =>
+        id === "doc-1"
+          ? [editorRow(123, "owner@example.com", TITLE_EDITOR)]
+          : id === "doc-2"
+            ? [editorRow(456)]
+            : id === "doc-3"
+              ? [editorRow(789, "owner@example.com", TITLE_EDITOR)]
+              : [],
+      );
+
+      expect(await saving(["doc-1", "doc-2", "doc-3", "doc-4"])).toEqual({
+        value: {
+          pages: [
+            {
+              documentId: "doc-1",
+              confirmedTitle: SQL_ROW.title,
+              editors: [
+                expect.objectContaining({ clientId: 123, flush: "answered" }),
+              ],
+            },
+            {
+              documentId: "doc-2",
+              editors: [
+                {
+                  clientId: 456,
+                  flush: "unconfirmed",
+                  reason: "legacy_editor",
+                },
+              ],
+            },
+          ],
+        },
+      });
+      expect(mocks.awareness).not.toHaveBeenCalledWith("doc-3");
+      expect(
+        mocks.cas.mock.calls
+          .filter(([, , , next]) => next)
+          .map(([, key]) => key),
+      ).toEqual(["flush-request-doc-1", "flush-request-doc-1"]);
+      expect(store.size).toBe(0);
+    });
+
+    it("refuses when one page's editor couldn't save, after the others finish", async () => {
+      mocks.pageIds.mockResolvedValue(new Set(["doc-1", "doc-2"]));
+      mocks.awareness.mockImplementation(async (id: string) => [
+        editorRow(
+          id === "doc-1" ? 123 : 456,
+          "owner@example.com",
+          TITLE_EDITOR,
+        ),
+      ]);
+      respond = (request, target) =>
+        request.id === "doc-2"
+          ? ({
+              ...ack(request, target),
+              status: "error",
+              errorCode: "title_save_failed",
+            } as DocumentFlushAck)
+          : ack(request, target);
+
+      expect(await saving(["doc-1", "doc-2"])).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          // doc-1 saved its title, so the refusal must not say nothing changed.
+          message: expect.stringContaining(
+            "The request didn't go ahead, and any titles the open editors saved stay saved.",
+          ),
+          details: {
+            documentId: "doc-2",
+            reason: "editor_error",
+            code: "title_save_failed",
+          },
+        },
+      });
+      expect(
+        mocks.cas.mock.calls.filter(
+          ([, key, , next]) => key === "flush-request-doc-1" && next,
+        ),
+      ).toHaveLength(2);
+      expect(store.size).toBe(0);
+    });
+
+    it("refuses when it can't read which editors have a switched page open", async () => {
+      mocks.pageIds.mockResolvedValue(new Set(["doc-1"]));
+      mocks.awareness.mockRejectedValue(new Error("awareness unavailable"));
+
+      expect(await saving(["doc-1"])).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: {
+            documentId: "doc-1",
+            reason: "editors_unreadable",
+            cause: "awareness unavailable",
+          },
+        },
+      });
+      expect(mocks.cas).not.toHaveBeenCalled();
+    });
+
+    it("refuses as unreadable, not as no page switched, when it can't read which pages are switched", async () => {
+      mocks.pageIds.mockRejectedValue(new Error("gate read failed"));
+
+      expect(await saving(["doc-1", "doc-2"])).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          statusCode: 409,
+          details: {
+            documentId: "doc-1",
+            reason: "write_path_unreadable",
+            cause: "gate read failed",
+            retryable: true,
+          },
+        },
+      });
+      expect(mocks.awareness).not.toHaveBeenCalled();
+    });
+
+    // Each page's editor takes the request, then answers 400 ms later.
+    function answerLater() {
+      respond = (request, target) =>
+        request.phase === "prepare"
+          ? ({
+              ...ack(request, target),
+              status: "taken",
+              stabilityToken: undefined,
+              claim: undefined,
+            } as unknown as DocumentFlushAck)
+          : ack(request, target);
+      requestHook = (request, email) => {
+        if (request.phase === "prepare")
+          setTimeout(() => {
+            for (const target of request.targets)
+              store.set(
+                address(email, flushAckKey(request, target.clientId)),
+                ack(request, target),
+              );
+          }, 400);
+      };
+    }
+
+    it("asks four pages' editors at a time, so a large subtree reads a bounded number of times per tick", async () => {
+      const ids = Array.from({ length: 40 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(async (id: string) => [
+        editorRow(1_000 + ids.indexOf(id), "owner@example.com", TITLE_EDITOR),
+      ]);
+      answerLater();
+      const write = mocks.cas.getMockImplementation()!;
+      let mostAsked = 0;
+      mocks.cas.mockImplementation(async (...args: any[]) => {
+        const changed = await write(...args);
+        mostAsked = Math.max(
+          mostAsked,
+          [...store.keys()].filter((key) => key.includes("|flush-request-"))
+            .length,
+        );
+        return changed;
+      });
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      let mostReads = 0;
+      for (let elapsed = 0; elapsed < 20_000; elapsed += 200) {
+        const before = mocks.many.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(200);
+        mostReads = Math.max(mostReads, mocks.many.mock.calls.length - before);
+      }
+
+      const saved = (await result) as {
+        value: { pages: Array<{ documentId: string }> };
+      };
+      expect(saved.value.pages.map((page) => page.documentId)).toEqual(ids);
+      expect(mostAsked).toBe(4);
+      // Each of the four may poll, finish a phase and clean up within one tick.
+      expect(mostReads).toBeLessThanOrEqual(16);
+    });
+
+    it("asks no further page once one refuses, and lets the pages already asked finish", async () => {
+      const ids = Array.from({ length: 8 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(async (id: string) => [
+        editorRow(1_000 + ids.indexOf(id), "owner@example.com", TITLE_EDITOR),
+      ]);
+      answerLater();
+      const later = respond;
+      const laterHook = requestHook!;
+      requestHook = (request, email) => {
+        if (request.id !== "doc-0") laterHook(request, email);
+      };
+      respond = (request, target) =>
+        request.id === "doc-0"
+          ? ({
+              ...ack(request, target),
+              status: "error",
+              errorCode: "title_save_failed",
+            } as DocumentFlushAck)
+          : later(request, target, "owner@example.com");
+
+      expect(await saving(ids)).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: { documentId: "doc-0", reason: "editor_error" },
+        },
+      });
+      const asked = new Set(
+        mocks.cas.mock.calls
+          .filter(([, key, , next]) => key.startsWith("flush-request-") && next)
+          .map(([, key]) => key),
+      );
+      expect([...asked].sort()).toEqual([
+        "flush-request-doc-0",
+        "flush-request-doc-1",
+        "flush-request-doc-2",
+        "flush-request-doc-3",
+      ]);
+      expect(store.size).toBe(0);
+    });
+
+    it("gives the editors the whole deadline after a slow read of which are open", async () => {
+      const ids = Array.from({ length: 21 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(
+        (id: string) =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve(
+                  id === "doc-20"
+                    ? [editorRow(123, "owner@example.com", TITLE_EDITOR)]
+                    : [],
+                ),
+              7_000,
+            ),
+          ),
+      );
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      expect(await result).toEqual({
+        value: {
+          pages: [
+            {
+              documentId: "doc-20",
+              confirmedTitle: SQL_ROW.title,
+              editors: [
+                expect.objectContaining({ clientId: 123, flush: "answered" }),
+              ],
+            },
+          ],
+        },
+      });
+      expect(mocks.awareness).toHaveBeenCalledTimes(21);
+    });
+
+    it("asks nobody, however long reading the editors takes, when none advertises canFlushTitle", async () => {
+      const ids = Array.from({ length: 21 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve([editorRow(123)]), 7_000),
+          ),
+      );
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      expect(await result).toEqual({ value: undefined });
+      expect(mocks.cas).not.toHaveBeenCalled();
+    });
+  });
 });
