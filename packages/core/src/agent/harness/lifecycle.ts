@@ -8,8 +8,14 @@ import {
   getAgentHarnessSession,
   getAgentHarnessSessionByRunId,
   isAgentHarnessSessionConflictError,
+  listExpiredAgentHarnessFollowUps,
   markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
+  markAgentHarnessSessionFollowUpDispatched,
+  persistAgentHarnessApprovalEvent,
+  persistAgentHarnessFollowUpEvent,
+  reconcileExpiredAgentHarnessFollowUp,
+  renewAgentHarnessSessionFollowUpClaim,
   startAgentHarnessSessionApprovalDispatch,
   startAgentHarnessSessionExpiryCleanup,
   startAgentHarnessSessionFollowUpDispatch,
@@ -20,6 +26,7 @@ import {
   type SaveAgentHarnessSessionInput,
   type StoredAgentHarnessSession,
 } from "./store.js";
+import { agentHarnessEventToAgentChatEvents } from "./translate.js";
 import type {
   AgentHarnessAdapter,
   AgentHarnessApproval,
@@ -31,6 +38,9 @@ import type {
 const LIVE_SESSION_TTL_MS = 24 * 60 * 60 * 1_000;
 const RESOLVED_APPROVAL_LIMIT = 32;
 const FOLLOW_UP_CLAIM_POLL_INTERVAL_MS = 500;
+const FOLLOW_UP_CLAIM_LEASE_MS = 60_000;
+const FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS = 20_000;
+const FOLLOW_UP_DEADLINE_MS = LIVE_SESSION_TTL_MS;
 const MAX_FOLLOW_UP_FINALIZATION_ATTEMPTS = 3;
 
 interface LiveAgentHarnessSession {
@@ -287,6 +297,17 @@ export async function resolveAgentHarnessApproval(input: {
             firstNext: dispatch.started.firstNext,
             iterator: dispatch.started.iterator,
             liveSession: live.session,
+            persistEvent: async (event) => {
+              const chatEvents = agentHarnessEventToAgentChatEvents(event);
+              if (event.type === "done") chatEvents.push({ type: "done" });
+              for (const chatEvent of chatEvents) {
+                await persistAgentHarnessApprovalEvent(
+                  session.id,
+                  input.approval.id,
+                  chatEvent,
+                );
+              }
+            },
           },
         );
       }
@@ -536,10 +557,23 @@ export async function sendAgentHarnessFollowUp(input: {
     }
 
     const claimId = randomUUID();
+    const followUpId = randomUUID();
+    const claimedAt = Date.now();
+    const deadlineAt = claimedAt + FOLLOW_UP_DEADLINE_MS;
     const claimed = await claimAgentHarnessSessionFollowUp(
       session.id,
       session.generation,
       claimId,
+      {
+        followUpId,
+        prompt,
+        metadata: input.metadata,
+        claimExpiresAt: Math.min(
+          claimedAt + FOLLOW_UP_CLAIM_LEASE_MS,
+          deadlineAt,
+        ),
+        deadlineAt,
+      },
     );
     if (!claimed) {
       const latest = await getAgentHarnessSessionByRunId(input.runId);
@@ -557,6 +591,17 @@ export async function sendAgentHarnessFollowUp(input: {
     if (!acquired.ok) {
       let latest: StoredAgentHarnessSession | null;
       try {
+        await persistAgentHarnessFollowUpEvent(
+          session.id,
+          followUpId,
+          claimId,
+          {
+            type: "error",
+            error:
+              acquired.result.error ?? "Harness session could not be resumed.",
+            errorCode: "harness_follow_up_not_dispatched",
+          },
+        );
         latest = await releaseFollowUpClaimAfterAcquireFailure(
           claimed.id,
           claimId,
@@ -569,8 +614,8 @@ export async function sendAgentHarnessFollowUp(input: {
       }
       return { ...acquired.result, session: latest ?? acquired.result.session };
     }
-    const events: AgentHarnessEvent[] = [];
     const followUpAbort = new AbortController();
+    const events: AgentHarnessEvent[] = [];
     let iteratorClosePromise: Promise<unknown> | undefined;
     let finalizing = false;
     const stopWatchingClaim = watchFollowUpClaim(
@@ -578,11 +623,26 @@ export async function sendAgentHarnessFollowUp(input: {
       claimId,
       followUpAbort,
       () => finalizing,
+      deadlineAt,
     );
     try {
-      const dispatch = await startAgentHarnessSessionFollowUpDispatch(
+      const dispatchIntent = await markAgentHarnessSessionFollowUpDispatched(
         session.id,
         claimed.generation,
+        claimId,
+      );
+      if (!dispatchIntent) {
+        throw new AgentHarnessSessionConflictError(session.id);
+      }
+      refreshLiveAgentHarnessSessionGeneration(
+        session.id,
+        acquired.live.session,
+        dispatchIntent.generation,
+      );
+
+      const dispatch = await startAgentHarnessSessionFollowUpDispatch(
+        session.id,
+        dispatchIntent.generation,
         claimId,
         () => {
           const stream = acquired.live.session.streamTurn({
@@ -622,6 +682,16 @@ export async function sendAgentHarnessFollowUp(input: {
           iterator: dispatch.started.iterator,
           liveSession: acquired.live.session,
           allowCurrentApprovalResolution: true,
+          persistEvent: async (event) => {
+            for (const chatEvent of agentHarnessEventToAgentChatEvents(event)) {
+              await persistAgentHarnessFollowUpEvent(
+                session.id,
+                followUpId,
+                claimId,
+                chatEvent,
+              );
+            }
+          },
           onAbortIteratorClose: (closePromise) => {
             iteratorClosePromise = closePromise;
             void closePromise.catch(() => {});
@@ -634,6 +704,9 @@ export async function sendAgentHarnessFollowUp(input: {
           new AgentHarnessSessionConflictError(session.id)
         );
       }
+      await persistAgentHarnessFollowUpEvent(session.id, followUpId, claimId, {
+        type: "done",
+      });
 
       const approvalRequest = [...events]
         .reverse()
@@ -694,6 +767,9 @@ export async function sendAgentHarnessFollowUp(input: {
                   resumeState,
                   pendingApproval: pending ?? null,
                   followUpClaimId: null,
+                  followUpClaimExpiresAt: null,
+                  followUpDeadlineAt: null,
+                  followUpOutcome: "completed",
                 };
               },
               {
@@ -1169,6 +1245,36 @@ export async function sweepExpiredAgentHarnessSessions(
   return removed;
 }
 
+export async function sweepExpiredAgentHarnessFollowUps(
+  now = Date.now(),
+  limit = 50,
+): Promise<{ recovered: number; truncated: boolean }> {
+  const candidates = await listExpiredAgentHarnessFollowUps(now, limit);
+  let recovered = 0;
+  const failures: unknown[] = [];
+  for (const session of candidates) {
+    if (!session.followUpClaimId) continue;
+    try {
+      const reconciled = await reconcileExpiredAgentHarnessFollowUp(
+        session.id,
+        session.followUpClaimId,
+        session.generation,
+        now,
+      );
+      if (reconciled) recovered += 1;
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "One or more expired AgentHarness follow-ups could not be recovered.",
+    );
+  }
+  return { recovered, truncated: candidates.length >= limit };
+}
+
 async function acquireSession(
   stored: StoredAgentHarnessSession,
   scope: AgentHarnessOwnerScope,
@@ -1280,6 +1386,7 @@ async function consumeEvents(
     firstNext?: Promise<IteratorResult<AgentHarnessEvent>>;
     followUpClaimId?: string;
     allowCurrentApprovalResolution?: boolean;
+    persistEvent?: (event: AgentHarnessEvent) => void | Promise<void>;
     iterator?: AsyncIterator<AgentHarnessEvent>;
     liveSession?: AgentHarnessSession;
     onAbortIteratorClose?: (closePromise: Promise<unknown>) => void;
@@ -1333,6 +1440,7 @@ async function consumeEvents(
           );
         }
       }
+      await options?.persistEvent?.(event);
       await onHarnessEvent?.(event);
       if (event.type === "error") throw new Error(event.error);
     }
@@ -1398,10 +1506,12 @@ function watchFollowUpClaim(
   claimId: string,
   controller: AbortController,
   isFinalizing: () => boolean,
+  deadlineAt: number,
 ): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const readErrors: unknown[] = [];
+  let renewAt = Date.now() + FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS;
   const schedule = () => {
     if (!stopped && !controller.signal.aborted) {
       timer = setTimeout(() => void check(), FOLLOW_UP_CLAIM_POLL_INTERVAL_MS);
@@ -1416,6 +1526,15 @@ function watchFollowUpClaim(
       const current = await getAgentHarnessSession(sessionId);
       if (stopped) return;
       readErrors.length = 0;
+      const now = Date.now();
+      if (now >= deadlineAt) {
+        controller.abort(
+          new Error(
+            "The AgentHarness follow-up reached its persisted deadline.",
+          ),
+        );
+        return;
+      }
       if (
         current?.status === "idle" &&
         current.followUpClaimId == null &&
@@ -1430,6 +1549,19 @@ function watchFollowUpClaim(
       ) {
         controller.abort(new AgentHarnessSessionConflictError(sessionId));
         return;
+      }
+      if (now >= renewAt) {
+        const renewed = await renewAgentHarnessSessionFollowUpClaim(
+          sessionId,
+          claimId,
+          now,
+          Math.min(now + FOLLOW_UP_CLAIM_LEASE_MS, deadlineAt),
+        );
+        if (!renewed) {
+          controller.abort(new AgentHarnessSessionConflictError(sessionId));
+          return;
+        }
+        renewAt = now + FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS;
       }
     } catch (error) {
       if (stopped) return;
@@ -1479,6 +1611,9 @@ async function markOwnedFollowUpErrored(
           pendingApproval: null,
           approvalResolutionId: null,
           followUpClaimId: null,
+          followUpClaimExpiresAt: null,
+          followUpDeadlineAt: null,
+          followUpOutcome: "unknown",
         },
         {
           expectedApprovalResolutionId,
@@ -1585,6 +1720,9 @@ async function releaseFollowUpClaimAfterAcquireFailure(
       const released = await updateOwnedFollowUpClaim(sessionId, claimId, {
         status: "idle",
         followUpClaimId: null,
+        followUpClaimExpiresAt: null,
+        followUpDeadlineAt: null,
+        followUpOutcome: "not_dispatched",
       });
       if (released) return released;
     } catch (error) {

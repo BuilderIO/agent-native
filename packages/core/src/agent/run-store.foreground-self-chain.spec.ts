@@ -434,4 +434,37 @@ describe("execution lease revocation by control-plane transitions", () => {
       { type: "text", text: "saved" },
     ]);
   });
+
+  it("does not replay a terminal event persisted after run completion", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+
+    await withExecutionFence(fence, () =>
+      insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "saved" })),
+    );
+    await withExecutionFence(fence, () =>
+      updateRunStatusIfRunning(runId, "completed"),
+    );
+    const completed = await getRunById(runId);
+    expect(completed?.completedAt).not.toBeNull();
+
+    await pglite
+      .prepare(
+        `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+       VALUES (?, ?, ?, ?)`,
+      )
+      .run(
+        runId,
+        1,
+        (completed?.completedAt ?? Date.now()) + 1,
+        JSON.stringify({ type: "done" }),
+      );
+
+    const replay = await getCurrentTurnRunEventsForThread(thread, turnId);
+    expect(replay.map(({ event }) => event)).toEqual([
+      { type: "text", text: "saved" },
+    ]);
+  });
 });

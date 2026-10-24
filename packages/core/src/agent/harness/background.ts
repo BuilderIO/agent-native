@@ -21,6 +21,7 @@ import {
 } from "./lifecycle.js";
 import {
   getAgentHarnessSessionByRunId,
+  listAgentHarnessSessionEvents,
   listAgentHarnessSessions,
   type AgentHarnessSessionStatus,
   type StoredAgentHarnessSession,
@@ -92,11 +93,17 @@ export async function listAgentHarnessBackgroundTranscriptEvents(
   }
   if (!session?.runId) return [];
   const events = await getRunEventsSince(session.runId, 0);
-  return events
+  const runTranscript = events
     .map((event) => parseRunEvent(event))
     .filter((event): event is RunEvent => Boolean(event))
     .map((event) => toAgentHarnessBackgroundTranscriptEvent(session, event))
     .filter((event): event is BackgroundAgentTranscriptEvent => Boolean(event));
+  const sessionTranscript = (await listAgentHarnessSessionEvents(session.id))
+    .map((event) =>
+      toAgentHarnessBackgroundSessionTranscriptEvent(session, event),
+    )
+    .filter((event): event is BackgroundAgentTranscriptEvent => Boolean(event));
+  return [...runTranscript, ...sessionTranscript];
 }
 
 export async function stopAgentHarnessBackgroundRun(
@@ -191,6 +198,7 @@ function toAgentHarnessBackgroundRun(
       status: session.status,
       pendingApproval: session.pendingApproval,
       workspaceRef: session.workspaceRef,
+      followUpOutcome: session.followUpOutcome,
     },
   };
 }
@@ -199,27 +207,71 @@ function toAgentHarnessBackgroundTranscriptEvent(
   session: StoredAgentHarnessSession,
   runEvent: RunEvent,
 ): BackgroundAgentTranscriptEvent | null {
-  const summary = summarizeAgentChatEvent(runEvent.event);
+  return toAgentHarnessTranscriptEvent({
+    session,
+    event: runEvent.event,
+    eventId: `${session.runId ?? session.id}:${runEvent.seq}`,
+    seq: runEvent.seq,
+    createdAt: session.updatedAt,
+    sourceRecordType: "agent-harness-run-event",
+  });
+}
+
+function toAgentHarnessBackgroundSessionTranscriptEvent(
+  session: StoredAgentHarnessSession,
+  sessionEvent: {
+    operationId: string;
+    seq: number;
+    eventAt: number;
+    event: AgentChatEvent;
+  },
+): BackgroundAgentTranscriptEvent | null {
+  const runId = session.runId ?? session.id;
+  const eventId = `${runId}:operation:${sessionEvent.operationId}:${sessionEvent.seq}`;
+  return toAgentHarnessTranscriptEvent({
+    session,
+    event: sessionEvent.event,
+    eventId,
+    seq: sessionEvent.seq,
+    createdAt: sessionEvent.eventAt,
+    sourceRecordType: "agent-harness-session-event",
+    operationId: sessionEvent.operationId,
+  });
+}
+
+function toAgentHarnessTranscriptEvent(input: {
+  session: StoredAgentHarnessSession;
+  event: AgentChatEvent;
+  eventId: string;
+  seq: number;
+  createdAt: number;
+  sourceRecordType: "agent-harness-run-event" | "agent-harness-session-event";
+  operationId?: string;
+}): BackgroundAgentTranscriptEvent | null {
+  const { session } = input;
+  const summary = summarizeAgentChatEvent(input.event);
   if (!summary) return null;
-  const eventId = `${session.runId ?? session.id}:${runEvent.seq}`;
+  const runId = session.runId ?? session.id;
   return {
     schemaVersion: 1,
-    id: eventId,
-    runId: session.runId ?? session.id,
+    id: input.eventId,
+    runId,
     kind: summary.kind,
     source: "agent-harness",
     sourceRecord: {
-      type: "agent-harness-run-event",
-      id: eventId,
-      seq: runEvent.seq,
+      type: input.sourceRecordType,
+      id: input.eventId,
+      seq: input.seq,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
     },
     message: summary.message,
-    createdAt: new Date(session.updatedAt).toISOString(),
+    createdAt: new Date(input.createdAt).toISOString(),
     metadata: {
       ...(summary.metadata ?? {}),
-      seq: runEvent.seq,
+      seq: input.seq,
       harnessName: session.harnessName,
       sessionId: session.id,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
     },
   };
 }

@@ -24,7 +24,9 @@ import {
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import { listAgentHarnessBackgroundTranscriptEvents } from "./harness/background.js";
 import {
+  resolveAgentHarnessApproval,
   registerLiveAgentHarnessSession,
   releaseLiveAgentHarnessSession,
   sendAgentHarnessFollowUp,
@@ -32,7 +34,9 @@ import {
 import {
   ensureAgentHarnessSessionTables,
   getAgentHarnessSession,
+  listAgentHarnessSessionEvents,
   markAgentHarnessSessionStopped,
+  reconcileExpiredAgentHarnessFollowUp,
   saveAgentHarnessSession,
   updateAgentHarnessSessionAtGeneration,
 } from "./harness/store.js";
@@ -332,6 +336,7 @@ async function withTestDatabase<T>(
     await sql`DROP TRIGGER IF EXISTS agent_harness_reject_step_receipt ON agent_execution_steps`;
     await sql`DROP FUNCTION IF EXISTS agent_harness_reject_step_receipt()`;
     await sql`DELETE FROM agent_harness_test_effects WHERE effect_id LIKE ${`${prefix}%`}`;
+    await sql`DELETE FROM agent_harness_session_events WHERE session_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_chat_submission_inbox WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_harness_sessions WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM chat_threads WHERE id LIKE ${`${prefix}%`}`;
@@ -451,6 +456,177 @@ async function removeHarnessSessionUpdateGate(
 describe.skipIf(!databaseUrl)(
   "execution lease and journal process failures",
   () => {
+    it("recovers a killed dispatched follow-up as unknown without replaying its effect", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-follow-up-crash`;
+        const followUpId = `${prefix}:follow-up`;
+        const claimId = `${prefix}:claim`;
+        const effectId = `${prefix}:effect`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const worker = startBarrierWorker(
+          "harness-follow-up-crash-after-dispatch",
+          sessionId,
+          "unused",
+          `${prefix}:worker-turn`,
+          `${prefix}:worker-run`,
+          JSON.stringify({
+            expectedGeneration: session.generation,
+            claimId,
+            followUpId,
+            prompt: "Send the requested update",
+            effectId,
+          }),
+        );
+
+        try {
+          const ready = await worker.ready;
+          expect(Number(ready.databaseBackendPid)).toBeGreaterThan(0);
+          const dispatched = await withDbExec(executor(sql), () =>
+            getAgentHarnessSession(sessionId),
+          );
+          expect(dispatched).toMatchObject({
+            status: "running",
+            followUpClaimId: claimId,
+            followUpId,
+          });
+          expect(dispatched?.followUpDispatchedAt).toBeGreaterThan(0);
+          await worker.child.kill("SIGKILL");
+          const killed = await worker.closed;
+          expect(killed.signal).toBe("SIGKILL");
+
+          const recoveryAt = Date.now();
+          await sql`
+            UPDATE agent_harness_sessions
+            SET follow_up_claim_expires_at = ${recoveryAt - 1}
+            WHERE id = ${sessionId} AND follow_up_claim_id = ${claimId}
+          `;
+          const recovered = await withDbExec(executor(sql), () =>
+            reconcileExpiredAgentHarnessFollowUp(
+              sessionId,
+              claimId,
+              dispatched!.generation,
+              recoveryAt,
+            ),
+          );
+          expect(recovered).toMatchObject({
+            status: "idle",
+            followUpClaimId: null,
+            followUpOutcome: "unknown",
+          });
+          const [effect] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${effectId}
+          `;
+          expect(Number(effect?.effect_count)).toBe(1);
+          const transcript = await withDbExec(executor(sql), () =>
+            listAgentHarnessSessionEvents(sessionId),
+          );
+          expect(transcript.map((entry) => entry.event)).toEqual([
+            { type: "text", text: "Send the requested update" },
+            { type: "text", text: "External effect completed" },
+            expect.objectContaining({
+              type: "error",
+              errorCode: "harness_follow_up_outcome_unknown",
+            }),
+          ]);
+        } finally {
+          await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
+    it("replays approval continuation events after the harness process dies", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:approval-session`;
+        const runId = `${prefix}:approval-run`;
+        const approvalId = `${prefix}:approval`;
+        const ownerEmail = "owner@example.com";
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId,
+            status: "idle",
+            pendingApproval: {
+              type: "approval-request",
+              id: approvalId,
+              tool: "read_file",
+              message: "Allow this read?",
+            },
+            ownerEmail,
+            orgId: prefix,
+          }),
+        );
+        const resolving = await withDbExec(executor(sql), () =>
+          updateAgentHarnessSessionAtGeneration(
+            sessionId,
+            "idle",
+            session.generation,
+            { approvalResolutionId: approvalId },
+          ),
+        );
+        expect(resolving?.approvalResolutionId).toBe(approvalId);
+        const worker = startBarrierWorker(
+          "harness-approval-crash-after-event",
+          sessionId,
+          "unused",
+          runId,
+          "unused",
+          JSON.stringify({ approvalId }),
+        );
+
+        try {
+          const ready = await worker.ready;
+          expect(Number(ready.databaseBackendPid)).toBeGreaterThan(0);
+          const resolving = await withDbExec(executor(sql), () =>
+            getAgentHarnessSession(sessionId),
+          );
+          expect(resolving?.approvalResolutionId).toBe(approvalId);
+          await worker.child.kill("SIGKILL");
+          const killed = await worker.closed;
+          expect(killed.signal).toBe("SIGKILL");
+
+          const transcript = await withDbExec(executor(sql), () =>
+            listAgentHarnessBackgroundTranscriptEvents(runId, {
+              ownerEmail,
+              orgId: prefix,
+            }),
+          );
+          expect(transcript).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                message: "Approval continuation started",
+                sourceRecord: expect.objectContaining({
+                  type: "agent-harness-session-event",
+                  operationId: `approval:${approvalId}`,
+                }),
+              }),
+              expect.objectContaining({
+                message: "Running read_file",
+                sourceRecord: expect.objectContaining({
+                  type: "agent-harness-session-event",
+                  operationId: `approval:${approvalId}`,
+                }),
+              }),
+            ]),
+          );
+        } finally {
+          await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
     it("admits a harness follow-up in only one independent worker", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const sessionId = `${prefix}:harness-session`;
@@ -1995,7 +2171,10 @@ describe.skipIf(!databaseUrl)(
           retryStep,
           "retry-safe",
         );
-        expect(crashedRetry.exitCode).toBe(82);
+        expect(
+          crashedRetry.exitCode,
+          crashedRetry.error ?? crashedRetry.stderr,
+        ).toBe(82);
         await forceLeaseExpiry(sql, retryThread, retryTurn);
         const retryFence = await claimInProcess(
           sql,
