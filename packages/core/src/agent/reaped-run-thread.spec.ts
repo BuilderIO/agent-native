@@ -20,6 +20,10 @@ const client = {
     if (/^\s*select/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
+    if (/\bRETURNING\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
+    }
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
