@@ -877,30 +877,53 @@ function validateOwnershipSkipRecord(
 }
 
 function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
-  const assigneeMention = `<@${assigneeId}(?:\\|[^>]+)?>`;
+  const assigneeMention = "<@" + assigneeId + "(?:\\|[^>]+)?>";
   const reportSubject =
     "(?:this|the)\\s+(?:report|issue|ticket|task|action|work|root|thread)";
-  const clauses = withoutQuotedScopeContext(text).split(/[.!?;\n]+/);
-  if (
-    clauses.some((clause) =>
-      /\b(?:i|we)\s+(?:(?:actually|correction|sorry)\s+)?(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\b|\b(?:this|the)\s+(?:report|issue|ticket|task|action|work|root|thread)\s+(?:is|was|has been)\s+not\s+assigned\b/i.test(
-        clause,
-      ),
-    )
-  ) {
-    return false;
-  }
-  return clauses.some((clause) => {
+  const clauses = withoutQuotedScopeContext(text).split(
+    /[.!?;\n]+|,\s*(?=(?:but|and|however|actually|correction|sorry)\b)/i,
+  );
+  const negatedAssignment = new RegExp(
+    "\\b(?:i|we)\\s+(?:(?:actually|correction|sorry)\\s+)?(?:did\\s+not|didn't|do\\s+not|don't|never)\\s+assign\\s+" +
+      reportSubject +
+      "(?:\\s+to\\s+<@[^>]+>)?(?![\\w])|\\b" +
+      reportSubject +
+      "\\s+(?:is|was|has been)\\s+not\\s+assigned(?:\\s+to\\s+<@[^>]+>)?\\b",
+    "i",
+  );
+  const pronounRetraction =
+    /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
+  let assigned = false;
+  for (const rawClause of clauses) {
+    const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
+    if (
+      negatedAssignment.test(clause) ||
+      (assigned && pronounRetraction.test(clause))
+    ) {
+      assigned = false;
+      continue;
+    }
     const directAssignment = new RegExp(
-      `^\\s*(?:i|we)\\s+assigned\\s+${reportSubject}\\s+to\\s+${assigneeMention}\\s*$`,
+      "^\\s*(?:i|we)\\s+assigned\\s+" +
+        reportSubject +
+        "\\s+to\\s+" +
+        assigneeMention +
+        "\\s*$",
       "i",
     );
     const passiveAssignment = new RegExp(
-      `^\\s*${reportSubject}\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+${assigneeMention}\\s*$`,
+      "^\\s*" +
+        reportSubject +
+        "\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+" +
+        assigneeMention +
+        "\\s*$",
       "i",
     );
-    return directAssignment.test(clause) || passiveAssignment.test(clause);
-  });
+    if (directAssignment.test(clause) || passiveAssignment.test(clause)) {
+      assigned = true;
+    }
+  }
+  return assigned;
 }
 
 function validatePersonAssignedSkipRecord(
@@ -5319,11 +5342,40 @@ function validateOrchestratorScopeConfirmation(
   }
 }
 
+function hasExplicitNoReactionRestriction(statement: string): boolean {
+  return (
+    /^(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s*[.!?]*\s*$/i.test(
+      statement.trim(),
+    ) ||
+    /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:do\s+not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:add|post|send|leave|use|react|mark)\b[^.!?;\n]{0,80}\b(?:emojis?|reactions?|marks?)\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitAuthorizationRevocation(text: string): boolean {
+  return (
+    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop\b|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
+      text,
+    ) ||
+    /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:that\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    )
+  );
+}
+
 function hasExplicitWorkflowWriteAuthorization(
   userRequest: string,
   roots: readonly AuthorizedRoot[],
 ): boolean {
   const requestText = withoutQuotedScopeContext(userRequest);
+  const sentences = requestText.split(/(?:[.!?;]\s+|\n+)/);
   if (
     /\b(?:unless|only\s+if|provided\s+that|conditional\s+on|subject\s+to)\b/i.test(
       requestText,
@@ -5331,17 +5383,14 @@ function hasExplicitWorkflowWriteAuthorization(
     /\b(?:do\s+not|don't|cannot|can't|never|not)\s+(?:to\s+)?(?:authorize|approve|permit|allow|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over|work|handle)\b/i.test(
       requestText,
     ) ||
-    /\b(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
-      requestText,
-    )
+    hasExplicitAuthorizationRevocation(requestText)
   ) {
     return false;
   }
 
-  const sentences = requestText.split(/(?:[.!?;]\s+|\n+)/);
   const grant =
     /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
-  const boundedFollowupAndReaction = sentences.some(
+  const boundedGrantIndex = sentences.findIndex(
     (sentence) =>
       grant.test(sentence) &&
       /\b(?:any|all|every)\b[^.!?;\n]{0,100}\b(?:follow[ -]?ups?|replies|responses)\b/i.test(
@@ -5349,12 +5398,19 @@ function hasExplicitWorkflowWriteAuthorization(
       ) &&
       /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(sentence),
   );
+  const boundedFollowupAndReaction =
+    boundedGrantIndex >= 0 &&
+    !hasExplicitNoReactionRestriction(sentences[boundedGrantIndex]!) &&
+    !sentences
+      .slice(boundedGrantIndex + 1)
+      .some(hasExplicitNoReactionRestriction);
   const exactRootWriteActions =
     roots.length > 0 &&
     roots.every(
       (root) =>
         typeof root?.channelId === "string" &&
         typeof root?.rootTs === "string" &&
+        userRequestAuthorizesExactRoot(userRequest, root) &&
         sentences.some(
           (sentence) =>
             userRequestAuthorizesExactRoot(sentence, root) &&
@@ -5485,20 +5541,29 @@ function userRequestAuthorizesExactRoot(
   const action =
     "(?:(?:read|inspect)\\s+and\\s+)?(?:work(?:\\s+on)?|handle|reconcile|take over|follow up(?:\\s+with)?)";
   const explicitAuthorization = new RegExp(
-    `^\\s*(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?${action}\\b`,
+    "^\\s*(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?" +
+      action +
+      "\\b",
     "i",
   );
   const grantedPermission = new RegExp(
-    `^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+${action}\\b|^\\s*(?:you may|you can|go ahead and)\\s+${action}\\b|^\\s*you have my permission to\\s+${action}\\b`,
+    "^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+" +
+      action +
+      "\\b|^\\s*(?:you may|you can|go ahead and)\\s+" +
+      action +
+      "\\b|^\\s*you have my permission to\\s+" +
+      action +
+      "\\b",
     "i",
   );
   const authorizationLimit =
-    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no\s+(?:any\s+)?(?:emojis?|reactions?|marks?)|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
   const directlyAttachedQualifier =
-    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no\s+(?:any\s+)?(?:emojis?|reactions?|marks?)|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
+    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
   const workAuthorizationLanguage =
     /\b(?:work|handle|reconcile|take over|follow up|claim(?:ing)?|reply(?:ing)?|read|inspect|authorize|permission)\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  if (hasExplicitAuthorizationRevocation(unquotedRequest)) return false;
   const statements = unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/);
   let searchOffset = 0;
   return statements.some((statement, statementIndex) => {
@@ -5514,12 +5579,19 @@ function userRequestAuthorizesExactRoot(
     ) {
       return false;
     }
-    if (authorizationLimit.test(statement)) return false;
+    if (
+      authorizationLimit.test(statement) ||
+      hasExplicitNoReactionRestriction(statement)
+    ) {
+      return false;
+    }
     return !statements
       .slice(statementIndex + 1)
       .some(
         (followingStatement) =>
           directlyAttachedQualifier.test(followingStatement) ||
+          hasExplicitNoReactionRestriction(followingStatement) ||
+          hasExplicitAuthorizationRevocation(followingStatement) ||
           (authorizationLimit.test(followingStatement) &&
             workAuthorizationLanguage.test(followingStatement)),
       );
@@ -17191,6 +17263,13 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     }));
     validateTestInventory(personAssignedRoot);
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I did not assign the migration, but I assigned this report to <@UOTHER>.",
+      })),
+    );
     expectFocusedFailure(
       "person-assigned skip without a named assignment",
       () =>
@@ -17233,6 +17312,18 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...parent,
             sourceText:
               "I assigned this report to <@UOTHER>. Actually, I did not assign it.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "same-message exact assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not assign this report to <@UOTHER>.",
           })),
         ),
       "personAssignedSkip needs an exact root or latest human message assigning work",
@@ -17519,6 +17610,35 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectFocusedFailure(
       "no-reaction restriction blocks exact-root write authorization",
       () => validateTestInventory(noReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const unrelatedNoReactionText = structuredClone(authorizedMagRoot);
+    unrelatedNoReactionText.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions are needed for the demo.";
+    unrelatedNoReactionText.scope.narrowingJudgment!.instruction =
+      unrelatedNoReactionText.scope.userRequest;
+    validateTestInventory(unrelatedNoReactionText);
+
+    const revokedAuthorization = structuredClone(authorizedMagRoot);
+    revokedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, don't do that.";
+    revokedAuthorization.scope.narrowingJudgment!.instruction =
+      revokedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "later revocation cancels an exact-root write authorization",
+      () => validateTestInventory(revokedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const revokedBoundedAuthorization = structuredClone(authorizedMagRoot);
+    revokedBoundedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Scratch that.";
+    revokedBoundedAuthorization.scope.narrowingJudgment!.instruction =
+      revokedBoundedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "later revocation cancels a bounded write authorization",
+      () => validateTestInventory(revokedBoundedAuthorization),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
@@ -24118,7 +24238,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 58} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 61} negative cases; 41 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 11 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -424,8 +424,11 @@ exact disposition vocabulary; follow babysit-pr for review comments and merge
 blocking. Use the connected Slack integration for any Slack work; never use
 computer use, a browser, screenshots, or UI automation to operate Slack.
 Shipping does not independently take ownership of new Slack feedback, except
-when the user explicitly authorizes follow-ups or reactions for a bounded scope.
-For that scope, preserve existing marks and record the authorization. Before
+when the user explicitly authorizes the full follow-up work defined in
+review-latest-feedback. Require an exact-root grant naming the channel and
+timestamp or permalink, or a bounded grant covering both replies and reactions;
+reaction-only or other partial permission is insufficient. Preserve existing
+marks and record the authorization and exact roots. Before
 the ship handoff and final disposition, enumerate every in-scope root with this
 actor's `👀`, `✅`, or `🎫`; each eligible owned root must have a current
 same-actor status after the latest human reply. Record held-thread skips,
