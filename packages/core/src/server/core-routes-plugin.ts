@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import {
   assertBodySize,
   defineEventHandler,
-  defineLazyEventHandler,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -3047,13 +3046,14 @@ export function mountMcpConnectRoutes(
 // Each image module loads on the first request for its route. The OG image
 // module embeds its background image, over a megabyte of source, and loading
 // it while the routes mount would cost every cold instance its first request.
+// A failed load isn't kept, so the route's next request retries it.
 export function mountImageRoutes(
   app: H3AppShim,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
 ): void {
   app.use(
     `${routePrefix}/og-image.png`,
-    defineLazyEventHandler(async () => {
+    lazyRouteHandler(async () => {
       const { createAgentNativeOgImageHandler } =
         await import("./social-og-image.js");
       return createAgentNativeOgImageHandler();
@@ -3069,12 +3069,27 @@ export function mountImageRoutes(
   // `/_agent-native/recap-image/<token>.png` (GET).
   app.use(
     `${routePrefix}/recap-image`,
-    defineLazyEventHandler(async () => {
+    lazyRouteHandler(async () => {
       const { createRecapImageHandler } =
         await import("./recap-image-route.js");
       return createRecapImageHandler();
     }),
   );
+}
+
+type RouteHandler = (event: H3Event) => unknown;
+
+// h3's `defineLazyEventHandler` keeps a rejected load, which would fail the
+// route for the rest of the instance's life.
+function lazyRouteHandler(load: () => Promise<RouteHandler>) {
+  let loaded: Promise<RouteHandler> | undefined;
+  return defineEventHandler(async (event: H3Event) => {
+    const handler = await (loaded ??= load().catch((error: unknown) => {
+      loaded = undefined;
+      throw error;
+    }));
+    return handler(event);
+  });
 }
 
 export function mountApplicationStateRoutes(

@@ -3,13 +3,20 @@ import { describe, expect, it, vi } from "vitest";
 
 const loads = vi.hoisted(() => ({ og: 0, recap: 0 }));
 const served = vi.hoisted(() => [] as Array<[string, unknown]>);
+const failLoads = vi.hoisted(() => ({ og: 0 }));
 
 vi.mock("./social-og-image.js", () => {
   loads.og += 1;
   return {
-    createAgentNativeOgImageHandler: () => (event: unknown) => {
-      served.push(["og", event]);
-      return "og image";
+    createAgentNativeOgImageHandler: () => {
+      if (failLoads.og > 0) {
+        failLoads.og -= 1;
+        throw new Error("og image failed to load");
+      }
+      return (event: unknown) => {
+        served.push(["og", event]);
+        return "og image";
+      };
     },
   };
 });
@@ -69,5 +76,16 @@ describe("mountImageRoutes", () => {
       ["recap", first],
       ["og", second],
     ]);
+  });
+
+  it("fails a request whose image handler fails to load, and loads it again on the next request", async () => {
+    failLoads.og = 1;
+    served.length = 0;
+    const og = mount().get("/_agent-native/og-image.png")!;
+    const event = { id: 3 } as unknown as H3Event;
+
+    await expect(og(event)).rejects.toThrow("og image failed to load");
+    expect(await og(event)).toBe("og image");
+    expect(served).toEqual([["og", event]]);
   });
 });
