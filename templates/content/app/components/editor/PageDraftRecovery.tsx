@@ -615,30 +615,33 @@ export function PageDraftRecovery({
     // A review shows only the draft this page last read, and that read can
     // predate the one SQL holds now. With no draft there, nothing proves the
     // journal was recovered.
-    const reviewCurrentDraft = async (
+    const reviewCurrentDraft = (
       failure?: DraftRecoveryFailure,
       page: Document | null = null,
-    ) => {
-      const current = (
-        await owner.step(() => drafts.refetch({ throwOnError: true }))
-      ).data?.draft;
-      if (!current) throw new Error("The recovery draft could not be read.");
-      showRecoveryReview(
-        failure ?? (current.baseTitle == null ? "unknown" : "conflict"),
-        page,
-        current,
+    ) =>
+      owner.step(
+        () => drafts.refetch({ throwOnError: true }),
+        ({ data }) => {
+          const current = data?.draft;
+          if (!current)
+            throw new Error("The recovery draft could not be read.");
+          showRecoveryReview(
+            failure ?? (current.baseTitle == null ? "unknown" : "conflict"),
+            page,
+            current,
+          );
+          if (holdsJournal(current))
+            pendingJournalRef.current = {
+              entry: { ...entry, snapshot: journalStorageSnapshot },
+              draft: current,
+            };
+          journalAttemptRef.current = {
+            key: attempt,
+            waitingFor: recoveryDraftKey(current),
+          };
+          setJournalState("waiting_sql");
+        },
       );
-      if (holdsJournal(current))
-        pendingJournalRef.current = {
-          entry: { ...entry, snapshot: journalStorageSnapshot },
-          draft: current,
-        };
-      journalAttemptRef.current = {
-        key: attempt,
-        waitingFor: recoveryDraftKey(current),
-      };
-      setJournalState("waiting_sql");
-    };
     const promote = async () => {
       const retainedDraft =
         draft && holdsJournal(draft)
@@ -679,53 +682,64 @@ export function PageDraftRecovery({
         await reviewCurrentDraft();
         return;
       }
-      pendingJournalRef.current = {
-        entry: { ...entry, snapshot: journalStorageSnapshot },
-        draft: retainedDraft,
-      };
-      const preserved = await resolvePreviewDraftWithRefresh(
-        resolveDraft.mutateAsync,
-        {
-          choice: "use_saved",
-          trigger: "automatic",
-          documentId: document.id,
-          ...expectedPreviewDraftIdentity(retainedDraft),
-          expectedDraftVersion: retainedDraft.version,
-          expectedDraftTitle: retainedDraft.title,
-          expectedDraftContent: retainedDraft.content,
-          expectedDraftBaseTitle: retainedDraft.baseTitle,
-          expectedDocumentTitle: document.title,
-          expectedDocumentUpdatedAt: document.updatedAt,
+      const preserved = await owner.step(
+        () => {
+          pendingJournalRef.current = {
+            entry: { ...entry, snapshot: journalStorageSnapshot },
+            draft: retainedDraft,
+          };
+          return resolvePreviewDraftWithRefresh(
+            resolveDraft.mutateAsync,
+            {
+              choice: "use_saved",
+              trigger: "automatic",
+              documentId: document.id,
+              ...expectedPreviewDraftIdentity(retainedDraft),
+              expectedDraftVersion: retainedDraft.version,
+              expectedDraftTitle: retainedDraft.title,
+              expectedDraftContent: retainedDraft.content,
+              expectedDraftBaseTitle: retainedDraft.baseTitle,
+              expectedDocumentTitle: document.title,
+              expectedDocumentUpdatedAt: document.updatedAt,
+            },
+            owner,
+            retainedDraft,
+            () => currentDraftRef.current,
+            async () => {
+              await owner.step(() =>
+                queryClient.refetchQueries(documentQueryFilter(document.id), {
+                  throwOnError: true,
+                }),
+              );
+              const refreshed = await owner.step(() =>
+                drafts.refetch({ throwOnError: true }),
+              );
+              if (!refreshed.data)
+                throw new Error("The recovery draft could not be read.");
+              return refreshed.data.draft;
+            },
+          );
         },
-        owner,
-        retainedDraft,
-        () => currentDraftRef.current,
-        async () => {
-          await owner.step(() =>
-            queryClient.refetchQueries(documentQueryFilter(document.id), {
-              throwOnError: true,
-            }),
-          );
-          const refreshed = await owner.step(() =>
-            drafts.refetch({ throwOnError: true }),
-          );
-          if (!refreshed.data)
-            throw new Error("The recovery draft could not be read.");
-          return refreshed.data.draft;
+        (preserved) => {
+          if (preserved.status === "resolved") {
+            resolvedDraftsRef.current.add(recoveryDraftKey(retainedDraft));
+            completeJournalRecovery(retainedDraft);
+            toast.success(t("editor.previewDraftSavedToHistory"));
+          }
+          return preserved;
         },
       );
       if (preserved.status !== "resolved") {
         await reviewCurrentDraft("conflict", preserved.document);
         return;
       }
-      resolvedDraftsRef.current.add(recoveryDraftKey(retainedDraft));
-      completeJournalRecovery(retainedDraft);
-      toast.success(t("editor.previewDraftSavedToHistory"));
       await owner.step(() =>
         queryClient.refetchQueries(documentQueryFilter(document.id)),
       );
-      await owner.step(() => drafts.refetch());
-      setJournalState("checking");
+      await owner.step(
+        () => drafts.refetch(),
+        () => setJournalState("checking"),
+      );
     };
     void (async () => {
       const attemptIds = [
@@ -733,35 +747,42 @@ export function PageDraftRecovery({
         ...(journalSnapshot.equivalentSaveAttemptIds ?? []),
       ].filter((attemptId): attemptId is string => !!attemptId);
       for (const attemptId of attemptIds) {
-        const receipt = await owner.step(() =>
-          callAction<{
-            found: boolean;
-            preservationRequired?: {
-              reason: "structure" | "provenance";
-              checkpointId: string;
-            };
-          }>(
-            "get-document-save-attempt",
-            {
-              id: document.id,
-              browserSaveAttemptId: attemptId,
-            },
-            { method: "GET" },
-          ),
+        const receipt = await owner.step(
+          () =>
+            callAction<{
+              found: boolean;
+              preservationRequired?: {
+                reason: "structure" | "provenance";
+                checkpointId: string;
+              };
+            }>(
+              "get-document-save-attempt",
+              {
+                id: document.id,
+                browserSaveAttemptId: attemptId,
+              },
+              { method: "GET" },
+            ),
+          (receipt) => {
+            if (receipt.found && receipt.preservationRequired) {
+              if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
+                throw new Error(
+                  "The journal changed during History preservation.",
+                );
+              toast.success(t("editor.previewDraftSavedToHistory"));
+              setJournalState("checking");
+            } else if (receipt.found) {
+              clearPageDraftJournal(entry.scope, journalStorageSnapshot);
+            }
+            return receipt;
+          },
         );
-        if (receipt.found && receipt.preservationRequired) {
-          if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
-            throw new Error("The journal changed during History preservation.");
-          toast.success(t("editor.previewDraftSavedToHistory"));
-          setJournalState("checking");
-          return;
-        }
+        if (receipt.found && receipt.preservationRequired) return;
         if (receipt.found) {
-          clearPageDraftJournal(entry.scope, journalStorageSnapshot);
-          await owner.step(() =>
-            queryClient.refetchQueries(documentQueryFilter(document.id)),
+          await owner.step(
+            () => queryClient.refetchQueries(documentQueryFilter(document.id)),
+            () => setJournalState("checking"),
           );
-          setJournalState("checking");
           return;
         }
       }
@@ -783,132 +804,141 @@ export function PageDraftRecovery({
       }
       let winnerTitle = document.title;
       let attemptedContent = journalSnapshot.content;
-      const outcome = await owner.step(() =>
-        saveDocumentWithRebase({
-          base: {
-            content: journalSnapshot.baseContent,
-            updatedAt: baseUpdatedAt,
-            revision: journalSnapshot.baseRevision,
-          },
-          content: journalSnapshot.content,
-          canRetry: (winner) => {
-            winnerTitle = winner.title;
-            return (
-              !localChangedTitle ||
-              winner.title === journalSnapshot.baseTitle ||
-              winner.title === journalSnapshot.title
-            );
-          },
-          confirmsWrite: (winner) =>
-            winner.title ===
-            (localChangedTitle ? journalSnapshot.title : winnerTitle),
-          // The journal write is part of the step, so it waits for the owner
-          // as the save does.
-          persist: (content, base) =>
-            owner.step(async () => {
-              attemptedContent = content;
-              const saveAttemptId = crypto.randomUUID();
-              const nextSnapshot = {
-                ...journalSnapshot,
-                content,
-                baseContent: base.content,
-                baseUpdatedAt: base.updatedAt,
-                baseRevision: base.revision,
-                saveAttemptId,
-                priorSaveAttemptIds: undefined,
-                equivalentSaveAttemptIds: undefined,
-              };
-              const written = writePageDraftJournal({
-                scope: entry.scope,
-                snapshot: nextSnapshot,
-              });
-              if (written.snapshot.saveAttemptId !== saveAttemptId)
-                throw new Error(
-                  "A newer local edit superseded journal replay.",
-                );
-              journalStorageSnapshot = written.snapshot;
-              journalSnapshot = nextSnapshot;
-              return update.mutateAsync({
-                id: document.id,
-                browserSaveAttemptId: saveAttemptId,
-                ...(localChangedTitle ? { title: journalSnapshot.title } : {}),
-                content,
-                baseUpdatedAt: base.updatedAt ?? undefined,
-                baseRevision: base.revision,
-                ...(localChangedTitle
-                  ? { baseTitle: journalSnapshot.baseTitle }
-                  : {}),
-                loadedUpdatedAt: base.updatedAt ?? undefined,
-                loadedContentWasEmpty: base.content === "",
-                editorSessionId: entry.scope.writerId,
-                editorEditGeneration: journalSnapshot.editGeneration,
-                editorSnapshotTitle: localChangedTitle
-                  ? journalSnapshot.title
-                  : winnerTitle,
-                editorSnapshotContent: content,
-                ...(journalSnapshot.authoredBaseRevision &&
-                journalSnapshot.authoredBaseContent !== undefined &&
-                authoredCandidateMatchesContent(
+      const settled = await owner.step(
+        () =>
+          saveDocumentWithRebase({
+            base: {
+              content: journalSnapshot.baseContent,
+              updatedAt: baseUpdatedAt,
+              revision: journalSnapshot.baseRevision,
+            },
+            content: journalSnapshot.content,
+            canRetry: (winner) => {
+              winnerTitle = winner.title;
+              return (
+                !localChangedTitle ||
+                winner.title === journalSnapshot.baseTitle ||
+                winner.title === journalSnapshot.title
+              );
+            },
+            confirmsWrite: (winner) =>
+              winner.title ===
+              (localChangedTitle ? journalSnapshot.title : winnerTitle),
+            // The journal write is part of the step, so it waits for the owner
+            // as the save does.
+            persist: (content, base) =>
+              owner.step(async () => {
+                attemptedContent = content;
+                const saveAttemptId = crypto.randomUUID();
+                const nextSnapshot = {
+                  ...journalSnapshot,
                   content,
-                  journalSnapshot.authoredCandidateContent,
-                )
-                  ? {
-                      authoredBaseRevision:
-                        journalSnapshot.authoredBaseRevision,
-                      authoredBaseContent: journalSnapshot.authoredBaseContent,
-                      authoredCandidateContent:
-                        journalSnapshot.authoredCandidateContent,
-                    }
-                  : {}),
-              });
-            }),
-        }),
+                  baseContent: base.content,
+                  baseUpdatedAt: base.updatedAt,
+                  baseRevision: base.revision,
+                  saveAttemptId,
+                  priorSaveAttemptIds: undefined,
+                  equivalentSaveAttemptIds: undefined,
+                };
+                const written = writePageDraftJournal({
+                  scope: entry.scope,
+                  snapshot: nextSnapshot,
+                });
+                if (written.snapshot.saveAttemptId !== saveAttemptId)
+                  throw new Error(
+                    "A newer local edit superseded journal replay.",
+                  );
+                journalStorageSnapshot = written.snapshot;
+                journalSnapshot = nextSnapshot;
+                return update.mutateAsync({
+                  id: document.id,
+                  browserSaveAttemptId: saveAttemptId,
+                  ...(localChangedTitle
+                    ? { title: journalSnapshot.title }
+                    : {}),
+                  content,
+                  baseUpdatedAt: base.updatedAt ?? undefined,
+                  baseRevision: base.revision,
+                  ...(localChangedTitle
+                    ? { baseTitle: journalSnapshot.baseTitle }
+                    : {}),
+                  loadedUpdatedAt: base.updatedAt ?? undefined,
+                  loadedContentWasEmpty: base.content === "",
+                  editorSessionId: entry.scope.writerId,
+                  editorEditGeneration: journalSnapshot.editGeneration,
+                  editorSnapshotTitle: localChangedTitle
+                    ? journalSnapshot.title
+                    : winnerTitle,
+                  editorSnapshotContent: content,
+                  ...(journalSnapshot.authoredBaseRevision &&
+                  journalSnapshot.authoredBaseContent !== undefined &&
+                  authoredCandidateMatchesContent(
+                    content,
+                    journalSnapshot.authoredCandidateContent,
+                  )
+                    ? {
+                        authoredBaseRevision:
+                          journalSnapshot.authoredBaseRevision,
+                        authoredBaseContent:
+                          journalSnapshot.authoredBaseContent,
+                        authoredCandidateContent:
+                          journalSnapshot.authoredCandidateContent,
+                      }
+                    : {}),
+                });
+              }),
+          }),
+        (outcome) => {
+          if (outcome.status === "preservation") {
+            if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
+              throw new Error(
+                "The journal changed during History preservation.",
+              );
+            toast.success(t("editor.previewDraftSavedToHistory"));
+            return "preserved";
+          }
+          const intentOutcome =
+            outcome.status === "saved" &&
+            "bodyIntentOutcome" in outcome.document
+              ? outcome.document.bodyIntentOutcome
+              : undefined;
+          if (
+            outcome.status !== "superseded" &&
+            (outcome.status !== "saved" ||
+              (outcome.document.content !== attemptedContent &&
+                !(
+                  intentOutcome &&
+                  typeof intentOutcome === "object" &&
+                  "status" in intentOutcome &&
+                  (intentOutcome.status === "applied" ||
+                    intentOutcome.status === "displaced-preserved")
+                )) ||
+              outcome.document.title !==
+                (localChangedTitle ? entry.snapshot.title : winnerTitle))
+          )
+            return "unsettled";
+          clearPageDraftJournal(entry.scope, journalStorageSnapshot);
+          return "settled";
+        },
       );
-      if (outcome.status === "superseded") {
-        clearPageDraftJournal(entry.scope, journalStorageSnapshot);
-        await owner.step(() =>
-          queryClient.refetchQueries(documentQueryFilter(document.id)),
+      if (settled === "preserved") {
+        await owner.step(
+          () => queryClient.refetchQueries(documentQueryFilter(document.id)),
+          () => setJournalState("checking"),
         );
-        await owner.step(() => drafts.refetch());
-        setJournalState("checking");
         return;
       }
-      if (outcome.status === "preservation") {
-        if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
-          throw new Error("The journal changed during History preservation.");
-        toast.success(t("editor.previewDraftSavedToHistory"));
-        await owner.step(() =>
-          queryClient.refetchQueries(documentQueryFilter(document.id)),
-        );
-        setJournalState("checking");
-        return;
-      }
-      const intentOutcome =
-        outcome.status === "saved" && "bodyIntentOutcome" in outcome.document
-          ? outcome.document.bodyIntentOutcome
-          : undefined;
-      if (
-        outcome.status !== "saved" ||
-        (outcome.document.content !== attemptedContent &&
-          !(
-            intentOutcome &&
-            typeof intentOutcome === "object" &&
-            "status" in intentOutcome &&
-            (intentOutcome.status === "applied" ||
-              intentOutcome.status === "displaced-preserved")
-          )) ||
-        outcome.document.title !==
-          (localChangedTitle ? entry.snapshot.title : winnerTitle)
-      ) {
+      if (settled === "unsettled") {
         await promote();
         return;
       }
-      clearPageDraftJournal(entry.scope, journalStorageSnapshot);
       await owner.step(() =>
         queryClient.refetchQueries(documentQueryFilter(document.id)),
       );
-      await owner.step(() => drafts.refetch());
-      setJournalState("checking");
+      await owner.step(
+        () => drafts.refetch(),
+        () => setJournalState("checking"),
+      );
     })()
       .catch((error: unknown) => {
         const failure = recoveryFailure(error);
@@ -988,66 +1018,76 @@ export function PageDraftRecovery({
     if (!owner) return;
     onAcquired?.();
     setFailure(null);
+    // A page that already holds the draft only needs the draft removed.
+    const pageHoldsReviewed = (
+      result: Awaited<ReturnType<typeof resolvePreviewDraftWithRefresh>>,
+    ) =>
+      result.status === "document_conflict" &&
+      trigger === "reviewed" &&
+      !!result.document &&
+      pageHoldsDraft(draft, result.document);
     try {
-      const result = await resolvePreviewDraftWithRefresh(
-        resolveDraft.mutateAsync,
-        {
-          choice,
-          trigger,
-          documentId: document.id,
-          ...expectedPreviewDraftIdentity(draft),
-          expectedDraftVersion: draft.version,
-          expectedDraftTitle: draft.title,
-          expectedDraftContent: draft.content,
-          expectedDraftBaseTitle: draft.baseTitle ?? null,
-          expectedDocumentTitle: reviewed.title,
-          expectedDocumentUpdatedAt: reviewed.updatedAt,
-        },
-        owner,
-        draft,
-        () => currentDraftRef.current,
-        async () => {
-          await owner.step(() =>
-            queryClient.refetchQueries(documentQueryFilter(document.id), {
-              throwOnError: true,
-            }),
-          );
-          const refreshed = await owner.step(() =>
-            drafts.refetch({ throwOnError: true }),
-          );
-          if (!refreshed.data)
-            throw new Error("The recovery draft could not be read.");
-          return refreshed.data.draft;
+      const result = await owner.step(
+        () =>
+          resolvePreviewDraftWithRefresh(
+            resolveDraft.mutateAsync,
+            {
+              choice,
+              trigger,
+              documentId: document.id,
+              ...expectedPreviewDraftIdentity(draft),
+              expectedDraftVersion: draft.version,
+              expectedDraftTitle: draft.title,
+              expectedDraftContent: draft.content,
+              expectedDraftBaseTitle: draft.baseTitle ?? null,
+              expectedDocumentTitle: reviewed.title,
+              expectedDocumentUpdatedAt: reviewed.updatedAt,
+            },
+            owner,
+            draft,
+            () => currentDraftRef.current,
+            async () => {
+              await owner.step(() =>
+                queryClient.refetchQueries(documentQueryFilter(document.id), {
+                  throwOnError: true,
+                }),
+              );
+              const refreshed = await owner.step(() =>
+                drafts.refetch({ throwOnError: true }),
+              );
+              if (!refreshed.data)
+                throw new Error("The recovery draft could not be read.");
+              return refreshed.data.draft;
+            },
+          ),
+        (result) => {
+          if (result.status !== "resolved") {
+            if (!pageHoldsReviewed(result))
+              showRecoveryReview("conflict", result.document ?? null, draft);
+            return result;
+          }
+          resolvedDraftsRef.current.add(recoveryDraftKey(draft));
+          completeJournalRecovery(draft);
+          if (choice === "use_saved")
+            toast.success(t("editor.previewDraftSavedToHistory"));
+          if (choice === "save_separately")
+            toast.success(t("editor.previewDraftSavedSeparately"), {
+              action: result.urlPath
+                ? {
+                    label: t("editor.previewDraftOpenSavedPage"),
+                    onClick: () => {
+                      if (owner.isActive()) void navigate(result.urlPath!);
+                    },
+                  }
+                : undefined,
+            });
+          return result;
         },
       );
       if (result.status !== "resolved") {
-        if (
-          result.status === "document_conflict" &&
-          trigger === "reviewed" &&
-          result.document &&
-          pageHoldsDraft(draft, result.document)
-        ) {
-          await discardDraft(draft, true, owner);
-          return;
-        }
-        showRecoveryReview("conflict", result.document ?? null, draft);
+        if (pageHoldsReviewed(result)) await discardDraft(draft, true, owner);
         return;
       }
-      resolvedDraftsRef.current.add(recoveryDraftKey(draft));
-      completeJournalRecovery(draft);
-      if (choice === "use_saved")
-        toast.success(t("editor.previewDraftSavedToHistory"));
-      if (choice === "save_separately")
-        toast.success(t("editor.previewDraftSavedSeparately"), {
-          action: result.urlPath
-            ? {
-                label: t("editor.previewDraftOpenSavedPage"),
-                onClick: () => {
-                  if (owner.isActive()) void navigate(result.urlPath!);
-                },
-              }
-            : undefined,
-        });
       await owner.step(() =>
         queryClient.refetchQueries(documentQueryFilter(document.id)),
       );
@@ -1173,16 +1213,16 @@ export function PageDraftRecovery({
   function copyDraft(content: string) {
     const copied = writeClipboardText(content);
     void beginAttempt()
-      .step(() => copied)
-      .then(
+      .step(
+        () => copied,
         (done) => {
           if (done) toast.success(t("editor.unsavedTextCopied"));
           else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
         },
-        (error: unknown) => {
-          if (!(error instanceof RecoveryAttemptEnded)) throw error;
-        },
-      );
+      )
+      .catch((error: unknown) => {
+        if (!(error instanceof RecoveryAttemptEnded)) throw error;
+      });
   }
 
   const hasEditIdentity = Boolean(

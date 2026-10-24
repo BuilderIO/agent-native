@@ -243,11 +243,10 @@ describe("document editor layout", () => {
     let releaseRetention!: () => void;
     const currentVersion = 1;
     let currentGeneration = 1;
-    const retain = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseRetention = resolve;
-        }),
+    const retain = vi.fn((adoptOnceKept: () => boolean) =>
+      new Promise<void>((resolve) => {
+        releaseRetention = resolve;
+      }).then(adoptOnceKept),
     );
     const adopt = vi.fn();
     const result = retainThenAdoptDisplacedWinner({

@@ -3,7 +3,16 @@ import { useEffect, useRef } from "react";
 export interface RecoveryAttempt {
   isActive(): boolean;
   assertActive(): void;
-  step<T>(operation: () => Promise<T>): Promise<T>;
+  /**
+   * Runs `operation` for the owner. `admitted` runs with its answer in the
+   * same turn the owner is found current: the caller resumes a turn later,
+   * after a render that may have ended the owner, so whatever the answer
+   * changes belongs there.
+   */
+  step<T, R = T>(
+    operation: () => Promise<T>,
+    admitted?: (value: T) => R,
+  ): Promise<R>;
 }
 
 /**
@@ -147,7 +156,10 @@ export function useRecoveryAttemptOwner(identity: RecoveryIdentity) {
       assertActive,
       // Both before the operation and once it settles, the step waits while
       // the owner is not known and ends if it turned out to be another one.
-      async step<T>(operation: () => Promise<T>) {
+      async step<T, R = T>(
+        operation: () => Promise<T>,
+        admitted?: (value: T) => R,
+      ) {
         for (let wait = hold(null); wait; wait = hold(null)) await wait;
         let answer: PromiseSettledResult<T>;
         try {
@@ -157,7 +169,9 @@ export function useRecoveryAttemptOwner(identity: RecoveryIdentity) {
         }
         for (let wait = hold(answer); wait; wait = hold(answer)) await wait;
         if (answer.status === "rejected") throw answer.reason;
-        return answer.value;
+        return admitted
+          ? admitted(answer.value)
+          : (answer.value as unknown as R);
       },
     } satisfies RecoveryAttempt;
   };

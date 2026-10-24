@@ -305,6 +305,100 @@ describe("a step while its owner is not known", () => {
   });
 });
 
+describe("what a step's answer changes", () => {
+  const state = (attempt: ReturnType<typeof begin>) =>
+    attempt.isActive() ? "current" : "ended";
+
+  it("happens in the turn the answer is admitted, before a render queued behind it ends the owner", async () => {
+    render(opened);
+    const attempt = begin();
+    const request = held<string>();
+    const order: string[] = [];
+    const step = attempt.step(
+      () => request.promise,
+      (value) => {
+        order.push(`${value} applied while ${state(attempt)}`);
+        return value.length;
+      },
+    );
+    const resumed = step.then(() =>
+      order.push(`caller resumed while ${state(attempt)}`),
+    );
+
+    request.resolve("answer");
+    // Queued behind the answer, as React queues a synchronous render.
+    queueMicrotask(() => {
+      render(reader);
+      order.push("another account read");
+    });
+    await resumed;
+
+    expect(order).toEqual([
+      "answer applied while current",
+      "another account read",
+      "caller resumed while ended",
+    ]);
+    await expect(step).resolves.toBe(6);
+  });
+
+  it("waits with an answer that arrived while the account was unknown, then happens once for the same owner", async () => {
+    render(opened);
+    const request = held<string>();
+    const applied: string[] = [];
+    const seen = watch(
+      begin().step(
+        () => request.promise,
+        (value) => applied.push(value),
+      ),
+    );
+
+    render(signedOut);
+    request.resolve("answer");
+    await flush();
+    expect(applied).toEqual([]);
+
+    render(opened);
+    await flush();
+    expect(applied).toEqual(["answer"]);
+    expect(seen.settled).toEqual({ status: "fulfilled", value: 1 });
+  });
+
+  it("never happens for an owner that ended first, which hands on the answer", async () => {
+    render(opened);
+    const request = held<string>();
+    const applied: string[] = [];
+    const seen = watch(
+      begin().step(
+        () => request.promise,
+        (value) => applied.push(value),
+      ),
+    );
+
+    render(reader);
+    request.resolve("answer");
+    await flush();
+
+    expect(applied).toEqual([]);
+    const ended = (seen.settled as PromiseRejectedResult).reason;
+    expect(ended).toBeInstanceOf(RecoveryAttemptEnded);
+    expect(ended.answer).toEqual({ status: "fulfilled", value: "answer" });
+  });
+
+  it("reports its own failure as the step's", async () => {
+    render(opened);
+    const failure = new Error("The draft changed");
+
+    await expect(
+      begin().step(
+        async () => "answer",
+        () => {
+          throw failure;
+        },
+      ),
+    ).rejects.toBe(failure);
+  });
+});
+
 describe("pageRecoveryIdentity", () => {
   it("leaves the account unknown until the session is read", () => {
     expect(pageRecoveryIdentity(null, page, false)).toEqual([

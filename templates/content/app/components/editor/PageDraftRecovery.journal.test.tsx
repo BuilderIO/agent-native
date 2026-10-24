@@ -1571,6 +1571,60 @@ describe("Page browser journal recovery", () => {
     },
   );
 
+  // The account comes back, then a render queued right behind that ends the
+  // owner, outside any act scope so it commits in its own turn.
+  async function returnThenEnd(session: { email: string; orgId: string }) {
+    let journalAtEnd: unknown[] | null = null;
+    act(() => {
+      state.session = session;
+      render();
+    });
+    queueMicrotask(() => {
+      journalAtEnd = [...state.entries];
+      state.session = { email: "other@example.test", orgId: "org" };
+      state.draft = null;
+      act(() => render());
+    });
+    await new Promise((resume) => setTimeout(resume, 20));
+    await act(async () => {});
+    return journalAtEnd;
+  }
+
+  it("clears the journal as a save receipt answered while the account was unknown is admitted, before a render queued behind it ends the owner", async () => {
+    const session = state.session!;
+    const sent = entry("first", "Local");
+    state.entries = [
+      { ...sent, snapshot: { ...sent.snapshot, saveAttemptId: "a-1" } },
+    ];
+    const receipt = held<unknown>();
+    state.receipt.mockReturnValueOnce(receipt.promise);
+    await act(async () => render());
+    expect(state.receipt).toHaveBeenCalledOnce();
+    state.session = null;
+    await act(async () => render());
+    await act(async () => receipt.resolve({ found: true }));
+    expect(state.entries).toHaveLength(1);
+
+    expect(await returnThenEnd(session)).toEqual([]);
+    expect(state.entries).toEqual([]);
+    expect(state.cleared).toHaveBeenCalledOnce();
+  });
+
+  // The choice's own answer is admitted a turn after its request's, so that
+  // render ends the owner first.
+  it("changes nothing for a choice whose owner ended between its request's answer and its own", async () => {
+    const session = state.session!;
+    const { journal } = await answerWhileUnknown("account");
+    // Only the old answer could settle anything.
+    state.resolve.mockReturnValueOnce(new Promise(() => {}));
+
+    expect(await returnThenEnd(session)).toEqual([journal]);
+    expect(state.entries).toEqual([journal]);
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it.each(["journal", "reviewed"] as const)(
     "keeps the current scope comparison after an old %s response arrives",
     async (flow) => {

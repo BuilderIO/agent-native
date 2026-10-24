@@ -2530,6 +2530,79 @@ describe("a peer title adopted while a recovery draft is retained", () => {
     expect(toastError).not.toHaveBeenCalled();
     expect(fixture.save).not.toHaveBeenCalled();
   });
+
+  it("checks the delete of a draft its save made obsolete for the page that asked, before a render queued behind the answer hands the editor to another", async () => {
+    const createdAt = fixture.page!.createdAt;
+    await retainBodyEdit();
+    const deletion = held();
+    let endedBeforeCheck: boolean | null = null;
+    let ended = false;
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (input.operation !== "delete")
+        throw new Error(`Unexpected ${input.operation}`);
+      await deletion.promise;
+      return {
+        get status() {
+          endedBeforeCheck = ended;
+          return "deleted";
+        },
+        draft: null,
+      };
+    });
+    fixture.save.mockImplementation(async () => ({
+      ...fixture.page!,
+      content: "Local body",
+      revision: "r2",
+      updatedAt: "2026-10-19T12:00:01.000Z",
+    }));
+    const deletes = () =>
+      fixture.mutation.mutateAsync.mock.calls.filter(
+        ([input]) => input.operation === "delete",
+      );
+    await act(async () => vi.advanceTimersByTimeAsync(800));
+    await untilReal(() => deletes().length === 1);
+    expect(deletes()[0]![0]).toMatchObject({ expectedDraftId: "retained-row" });
+
+    // An account change remounts the editor, so the page's creation time is
+    // the fact this editor can briefly not know.
+    fixture.page = {
+      ...fixture.page!,
+      createdAt: undefined,
+    } as unknown as Document;
+    act(() => renderEditor());
+    await act(async () => {
+      deletion.release();
+      await realDelay(20);
+    });
+    expect(endedBeforeCheck).toBeNull();
+
+    act(() => {
+      fixture.page = { ...fixture.page!, createdAt };
+      renderEditor();
+    });
+    // Queued behind the admitted answer, as React queues a synchronous render,
+    // and outside any act scope so that render commits in its own turn.
+    queueMicrotask(() => {
+      ended = true;
+      fixture.page = {
+        ...fixture.page!,
+        createdAt: "2026-10-19T13:00:00.000Z",
+      };
+      act(() => renderEditor());
+    });
+    await realDelay(20);
+    await act(async () => {});
+
+    expect(endedBeforeCheck).toBe(false);
+    expect(fixture.saveFailures).toEqual([
+      expect.objectContaining({
+        handoff: {
+          during: "recovery",
+          result: expect.objectContaining({ contentPersisted: true }),
+        },
+      }),
+    ]);
+  });
 });
 
 it("republishes a newer acknowledged save when an obsolete retry is consumed", async () => {
@@ -2847,6 +2920,56 @@ describe("a retried save whose edit a peer's save already stored", () => {
     }));
     await retryAfterPeerStoredEdit();
     expect(journalKeys()).toHaveLength(1);
+  });
+
+  it("clears the journal as the confirmation is admitted for the page that asked, before a render queued behind it hands the editor to another", async () => {
+    const createdAt = fixture.page!.createdAt;
+    let confirm!: () => void;
+    fixture.save.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          confirm = () => resolve(fixture.page);
+        }),
+    );
+    await retryAfterPeerStoredEdit();
+
+    fixture.page = {
+      ...fixture.page!,
+      createdAt: undefined,
+    } as unknown as Document;
+    act(() => renderEditor());
+    await act(async () => {
+      confirm();
+      await realDelay(20);
+    });
+    expect(journalKeys()).toHaveLength(1);
+
+    let journalAtEnd: string[] | null = null;
+    act(() => {
+      fixture.page = { ...fixture.page!, createdAt };
+      renderEditor();
+    });
+    queueMicrotask(() => {
+      journalAtEnd = journalKeys();
+      fixture.page = {
+        ...fixture.page!,
+        createdAt: "2026-10-19T13:00:00.000Z",
+      };
+      act(() => renderEditor());
+    });
+    await realDelay(20);
+    await act(async () => {});
+
+    expect(journalAtEnd).toEqual([]);
+    expect(journalKeys()).toEqual([]);
+    expect(fixture.saveFailures).toEqual([
+      expect.objectContaining({
+        handoff: {
+          during: "recovery",
+          result: { contentPersisted: true },
+        },
+      }),
+    ]);
   });
 });
 
