@@ -1538,6 +1538,23 @@ describe("flushOpenDocumentEditorToSql", () => {
       });
     });
 
+    it("refuses with a timeout, not as never received, when the editor answered an earlier round and the deadline falls before it takes the latest", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.titleRow.mockResolvedValue({ title: "Older title" });
+      let prepares = 0;
+      respond = (request, target) =>
+        request.phase === "prepare" && ++prepares === 1
+          ? ack(request, target)
+          : null;
+
+      expect(await settle()).toMatchObject({
+        error: { details: { reason: "timeout" } },
+      });
+      expect(prepares).toBeGreaterThan(1);
+    });
+
     it("says the request wasn't delivered while another request holds the mailbox", async () => {
       mocks.awareness.mockResolvedValue([
         editorRow(123, "owner@example.com", TITLE_EDITOR),
@@ -1596,6 +1613,22 @@ describe("flushOpenDocumentEditorToSql", () => {
         expect(mocks.cas).not.toHaveBeenCalled();
       },
     );
+
+    it("refuses with DOCUMENT_NOT_FOUND when the page is deleted while its editors save the title", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.titleRow.mockResolvedValue(null);
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "DOCUMENT_NOT_FOUND",
+          statusCode: 404,
+          details: { documentId: "doc-1" },
+        },
+      });
+      expect(store.size).toBe(0);
+    });
 
     type Target = { clientId: number; editorSessionId: string };
     it.each([
@@ -1866,6 +1899,126 @@ describe("flushOpenDocumentEditorToSql", () => {
         },
       });
       expect(mocks.cas).not.toHaveBeenCalled();
+    });
+
+    it("refuses as unreadable, not as no page switched, when it can't read which pages are switched", async () => {
+      mocks.pageIds.mockRejectedValue(new Error("gate read failed"));
+
+      expect(await saving(["doc-1", "doc-2"])).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          statusCode: 409,
+          details: {
+            documentId: "doc-1",
+            reason: "write_path_unreadable",
+            cause: "gate read failed",
+            retryable: true,
+          },
+        },
+      });
+      expect(mocks.awareness).not.toHaveBeenCalled();
+    });
+
+    // Each page's editor takes the request, then answers 400 ms later.
+    function answerLater() {
+      respond = (request, target) =>
+        request.phase === "prepare"
+          ? ({
+              ...ack(request, target),
+              status: "taken",
+              stabilityToken: undefined,
+              claim: undefined,
+            } as unknown as DocumentFlushAck)
+          : ack(request, target);
+      requestHook = (request, email) => {
+        if (request.phase === "prepare")
+          setTimeout(() => {
+            for (const target of request.targets)
+              store.set(
+                address(email, flushAckKey(request, target.clientId)),
+                ack(request, target),
+              );
+          }, 400);
+      };
+    }
+
+    it("asks four pages' editors at a time, so a large subtree reads a bounded number of times per tick", async () => {
+      const ids = Array.from({ length: 40 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(async (id: string) => [
+        editorRow(1_000 + ids.indexOf(id), "owner@example.com", TITLE_EDITOR),
+      ]);
+      answerLater();
+      const write = mocks.cas.getMockImplementation()!;
+      let mostAsked = 0;
+      mocks.cas.mockImplementation(async (...args: any[]) => {
+        const changed = await write(...args);
+        mostAsked = Math.max(
+          mostAsked,
+          [...store.keys()].filter((key) => key.includes("|flush-request-"))
+            .length,
+        );
+        return changed;
+      });
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      let mostReads = 0;
+      for (let elapsed = 0; elapsed < 20_000; elapsed += 200) {
+        const before = mocks.many.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(200);
+        mostReads = Math.max(mostReads, mocks.many.mock.calls.length - before);
+      }
+
+      const saved = (await result) as {
+        value: { pages: Array<{ documentId: string }> };
+      };
+      expect(saved.value.pages.map((page) => page.documentId)).toEqual(ids);
+      expect(mostAsked).toBe(4);
+      // Each of the four may poll, finish a phase and clean up within one tick.
+      expect(mostReads).toBeLessThanOrEqual(16);
+    });
+
+    it("asks no further page once one refuses, and lets the pages already asked finish", async () => {
+      const ids = Array.from({ length: 8 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(async (id: string) => [
+        editorRow(1_000 + ids.indexOf(id), "owner@example.com", TITLE_EDITOR),
+      ]);
+      answerLater();
+      const later = respond;
+      const laterHook = requestHook!;
+      requestHook = (request, email) => {
+        if (request.id !== "doc-0") laterHook(request, email);
+      };
+      respond = (request, target) =>
+        request.id === "doc-0"
+          ? ({
+              ...ack(request, target),
+              status: "error",
+              errorCode: "title_save_failed",
+            } as DocumentFlushAck)
+          : later(request, target, "owner@example.com");
+
+      expect(await saving(ids)).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: { documentId: "doc-0", reason: "editor_error" },
+        },
+      });
+      const asked = new Set(
+        mocks.cas.mock.calls
+          .filter(([, key, , next]) => key.startsWith("flush-request-") && next)
+          .map(([, key]) => key),
+      );
+      expect([...asked].sort()).toEqual([
+        "flush-request-doc-0",
+        "flush-request-doc-1",
+        "flush-request-doc-2",
+        "flush-request-doc-3",
+      ]);
+      expect(store.size).toBe(0);
     });
 
     it("gives the editors the whole deadline after a slow read of which are open", async () => {

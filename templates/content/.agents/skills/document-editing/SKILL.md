@@ -179,9 +179,10 @@ it. The restore, move or pull didn't go ahead, and titles the editors saved
 stay saved: retry, and if it refuses again, tell the user the open
 editor of page `details.documentId` didn't save its title. A move to another
 space refuses with `PAGE_TITLE_CHANGED` (409, `retryable: true`) when a page's
-title changed after its editors saved it; nothing moved, so retry. When editors
-were asked, a restore or move result's `titleFlush`, or a pull result's
-`editorFlush.titleFlush`, lists each page's editors. One with
+title changed after its editors saved it; nothing moved, so retry. A page
+deleted while its editors saved the title refuses with `DOCUMENT_NOT_FOUND`.
+When editors were asked, a restore or move result's `titleFlush`, or a pull
+result's `editorFlush.titleFlush`, lists each page's editors. One with
 `flush: "unconfirmed"` couldn't be asked, so a title it hadn't saved yet may be
 missing; tell the user.
 

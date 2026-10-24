@@ -5,6 +5,7 @@ import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { saveOpenEditorTitles } from "./_document-flush.js";
@@ -191,6 +192,10 @@ async function lockMoveBetweenSpaces(args: {
       },
     );
   }
+  // The checks before the open editors saved their titles read the
+  // destination, which could be archived or closed to the mover since.
+  if (confirmedTitles.size > 0)
+    await resolveContentSpaceAccess(spaceId, "contributor", { db: tx });
   // A page turned into a collection while the move waited would leave the
   // collection behind in the old space.
   await assertSubtreeCanChangeSpace(tx, lockedPages);

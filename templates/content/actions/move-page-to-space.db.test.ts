@@ -701,6 +701,38 @@ describe("moving a page that takes body writes through its live copy", () => {
     ]);
   });
 
+  it("refuses a move to another space when the destination is archived while the page's editor saves its title", async () => {
+    const orgSpaceId = organizationContentSpaceId(ORG_ID);
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR);
+    const archive = (archivedAt: string | null) =>
+      getDb()
+        .update(schema.contentSpaces)
+        .set({ archivedAt })
+        .where(eq(schema.contentSpaces.id, orgSpaceId));
+    titleSave.after = () => archive(new Date().toISOString());
+
+    try {
+      await expect(
+        as(OWNER, () => moveDocument.run({ id: page.id, spaceId: orgSpaceId })),
+      ).rejects.toMatchObject({
+        errorCode: "SPACE_NOT_FOUND",
+        statusCode: 404,
+      });
+    } finally {
+      await archive(null);
+    }
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: personalContentSpaceId(OWNER),
+        ownerEmail: OWNER,
+      }),
+    ]);
+  });
+
   it("moves to another space as main does once the page's flags are off (SF-11)", async () => {
     const orgSpaceId = organizationContentSpaceId(ORG_ID);
     const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));

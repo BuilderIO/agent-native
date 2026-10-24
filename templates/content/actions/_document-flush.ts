@@ -39,6 +39,9 @@ const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 20_000;
 const BEST_EFFORT_FLUSH_TIMEOUT_MS = 4_000;
 const TITLE_DISCOVERY_CONCURRENCY = 10;
+// Each title handshake polls its acknowledgements every interval, so a large
+// subtree runs only this many at once, under its one deadline.
+const TITLE_SAVE_CONCURRENCY = 4;
 
 function expiredMailbox(value: Record<string, unknown> | null): boolean {
   return (
@@ -148,7 +151,8 @@ export type OpenEditorTitleNotSavedReason =
   | "request_not_delivered"
   | "request_not_received"
   | "acknowledgement_unreadable"
-  | "editors_unreadable";
+  | "editors_unreadable"
+  | "write_path_unreadable";
 
 function titleNotSavedMessage(
   documentId: string,
@@ -167,6 +171,8 @@ function titleNotSavedMessage(
       return `Couldn't read whether the open editor of page ${documentId} saved its title.`;
     case "editors_unreadable":
       return `Couldn't read which editors have page ${documentId} open.`;
+    case "write_path_unreadable":
+      return `Couldn't read whether page ${documentId} takes body writes through its live copy.`;
   }
 }
 
@@ -266,7 +272,7 @@ type HandshakeState = {
   waitingEditors: FlushEditorIdentity[];
   lastEditorError?: { clientId: number; errorCode: string };
   // The title scope's failure reasons: the step the handshake is on, which
-  // editors took the current prepare request, whether a read of the
+  // editors have answered any of its requests, whether a read of the
   // acknowledgements is still running, and why they couldn't be read, while
   // no read has succeeded since.
   operation: "publish" | "acknowledge" | "capture" | null;
@@ -532,7 +538,6 @@ async function confirmEditors<S>(args: {
       state.phase = "prepare";
       const prepareToken = randomUUID();
       const prepare = requests("prepare", prepareToken, prepareToken);
-      state.reached.clear();
       state.operation = "publish";
       await publish(prepare, acquire);
       acquire = false;
@@ -630,7 +635,8 @@ function titleTimeoutReason(
   if (state.readingAcknowledgements || state.unreadAcknowledgements)
     return "acknowledgement_unreadable";
   // An editor marks a title request taken before it saves, so one that never
-  // did never picked the request up.
+  // answered any of this handshake's requests never picked it up. One that
+  // did has the request, though not yet the prepare the server asked again.
   if (
     state.phase === "prepare" &&
     state.waitingEditors.some((editor) => !state.reached.has(editor.clientId))
@@ -713,6 +719,15 @@ async function saveEditorTitle(
         throw titleNotSaved(documentId, "request_not_delivered");
       case "open_editor_flush_invalid_ack":
         throw titleNotSaved(documentId, "acknowledgement_unreadable");
+      case "open_editor_flush_missing_document":
+        throw new ActionContractError(
+          `Page ${documentId} was deleted while its open editors saved its title.`,
+          {
+            errorCode: "DOCUMENT_NOT_FOUND",
+            statusCode: 404,
+            details: { documentId },
+          },
+        );
       default:
         throw error;
     }
@@ -725,12 +740,23 @@ async function saveEditorTitle(
  * that would lose a title an editor hasn't saved. Their bodies need no save:
  * each tab's commit already wrote them. Undefined when none of those pages
  * has an editor that advertises `canFlushTitle`, so the caller returns what
- * main does. Throws OPEN_EDITOR_TITLE_NOT_SAVED before anything is written.
+ * main does. Throws OPEN_EDITOR_TITLE_NOT_SAVED, or DOCUMENT_NOT_FOUND for a
+ * page deleted meanwhile, before the caller writes anything.
  */
 export async function saveOpenEditorTitles(
   documentIds: readonly string[],
 ): Promise<OpenEditorTitleFlush | undefined> {
-  const switched = await liveBodyWriterPageIds(documentIds);
+  let switched: Set<string>;
+  try {
+    switched = await liveBodyWriterPageIds(documentIds);
+  } catch (error) {
+    if (error instanceof ActionContractError) throw error;
+    // Unreadable isn't "none switched": a switched page's editors would go
+    // unasked.
+    throw titleNotSaved(documentIds[0]!, "write_path_unreadable", {
+      cause: error,
+    });
+  }
   if (switched.size === 0) return undefined;
   const ids = documentIds.filter((id) => switched.has(id));
   const open: Array<{ documentId: string; candidates: Candidate[] }> = [];
@@ -765,19 +791,44 @@ export async function saveOpenEditorTitles(
   // The deadline bounds the wait on editors, not reading which are open: a
   // slow read of a subtree with no editor to ask must not refuse a move.
   const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-  // Every page's editors finish before the caller refuses, so none is still
-  // being asked after it returns.
-  const saved = await Promise.allSettled(
-    open.map((page) =>
-      saveEditorTitle(page.documentId, page.candidates, deadline),
+  // A refusal stops new pages being asked, and every page already asked
+  // finishes before the caller refuses, so none is still being asked after
+  // it returns.
+  const saved: Array<
+    PromiseSettledResult<OpenEditorTitleFlush["pages"][number]> | undefined
+  > = [];
+  let next = 0;
+  let refused = false;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(TITLE_SAVE_CONCURRENCY, open.length) },
+      async () => {
+        while (!refused && next < open.length) {
+          const index = next++;
+          const page = open[index]!;
+          try {
+            saved[index] = {
+              status: "fulfilled",
+              value: await saveEditorTitle(
+                page.documentId,
+                page.candidates,
+                deadline,
+              ),
+            };
+          } catch (reason) {
+            refused = true;
+            saved[index] = { status: "rejected", reason };
+          }
+        }
+      },
     ),
   );
-  return {
-    pages: saved.map((result) => {
-      if (result.status === "rejected") throw result.reason;
-      return result.value;
-    }),
-  };
+  const pages: OpenEditorTitleFlush["pages"] = [];
+  for (const result of saved) {
+    if (result?.status === "rejected") throw result.reason;
+    if (result) pages.push(result.value);
+  }
+  return { pages };
 }
 
 export async function flushOpenDocumentEditorToSql(args: {
