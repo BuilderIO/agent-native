@@ -471,10 +471,10 @@ async function setEditsBackToBuilderValue(args: {
     const current = JSON.parse(
       changeSet.fieldChangesJson,
     ) as ContentDatabaseSourceFieldChange[];
+    // Only the property's own change: the page title can push to the same
+    // Builder field and stays Content's edit.
     const fieldChanges = current.filter(
-      (change) =>
-        change.sourceFieldKey !== args.field.sourceFieldKey &&
-        change.localFieldKey !== args.field.localFieldKey,
+      (change) => change.localFieldKey !== args.field.localFieldKey,
     );
     if (fieldChanges.length === current.length) continue;
     await db

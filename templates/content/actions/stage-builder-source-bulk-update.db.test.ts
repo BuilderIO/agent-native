@@ -123,6 +123,7 @@ async function seedBuilderDatabase(args: {
   fixtureRowIndex?: number;
   liveReadConfigured?: boolean;
   liveWritesEnabled?: boolean;
+  sourceFieldKey?: string;
 }) {
   const db = getDb();
   const now = "2026-07-01T12:00:00.000Z";
@@ -131,7 +132,7 @@ async function seedBuilderDatabase(args: {
   const databaseDocumentId = `doc_db_${suffix}`;
   const sourceId = `src_${suffix}`;
   const propertyId = `prop_${suffix}`;
-  const sourceFieldKey = "data.audience";
+  const sourceFieldKey = args.sourceFieldKey ?? "data.audience";
 
   await db.insert(schema.documents).values({
     id: databaseDocumentId,
@@ -564,6 +565,61 @@ describe("stage-builder-source-bulk-update", () => {
       state: "rejected",
       fieldChangesJson: "[]",
     });
+  });
+
+  it("keeps the page title's change when a property on Builder's title field is set back", async () => {
+    // A property named "Title" maps to Builder's title field, as the page
+    // title does.
+    const seeded = await seedBuilderDatabase({
+      existingOpenChangeIndex: 0,
+      sourceFieldKey: "data.title",
+    });
+    const [row] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const [staged] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const titleChange = {
+      propertyId: null,
+      propertyName: "Title",
+      localFieldKey: "title",
+      sourceFieldKey: "data.title",
+      currentValue: "Developers",
+      proposedValue: "My title",
+    };
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({
+        fieldChangesJson: JSON.stringify([
+          ...JSON.parse(staged.fieldChangesJson),
+          titleChange,
+        ]),
+      })
+      .where(changeSetFilter);
+
+    await stage("Developers");
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([titleChange]);
   });
 
   it("keeps a change saved to the review item after the stage read it", async () => {
