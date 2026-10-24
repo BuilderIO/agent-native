@@ -3098,15 +3098,24 @@ function boundedPeriodRequest(userText: string): boolean {
 
 function requestedDbtTimeGrain(userText: string): string | undefined {
   const grains = {
-    day: /\b(?:daily|by\s+day|per\s+day|each\s+day)\b/i,
-    week: /\b(?:weekly|by\s+week|per\s+week|each\s+week|week[- ]over[- ]week)\b/i,
-    month: /\b(?:monthly|by\s+month|per\s+month|each\s+month)\b/i,
-    quarter: /\b(?:quarterly|by\s+quarter|per\s+quarter|each\s+quarter)\b/i,
-    year: /\b(?:yearly|annually|by\s+year|per\s+year|each\s+year)\b/i,
+    day: /\b(?:by\s+day|per\s+day|each\s+day|daily\s+(?:breakdown|buckets?|series|trend|results?))\b/i,
+    week: /\b(?:by\s+week|per\s+week|each\s+week|week[- ]over[- ]week|weekly\s+(?:breakdown|buckets?|series|trend|results?))\b/i,
+    month:
+      /\b(?:by\s+month|per\s+month|each\s+month|for\s+each\s+of\s+(?:the\s+)?(?:last|past|previous|prior)\s+(?:\d+\s+)?(?:full\s+)?calendar\s+months?|monthly\s+(?:breakdown|buckets?|series|trend|results?))\b/i,
+    quarter:
+      /\b(?:by\s+quarter|per\s+quarter|each\s+quarter|quarterly\s+(?:breakdown|buckets?|series|trend|results?))\b/i,
+    year: /\b(?:by\s+year|per\s+year|each\s+year|yearly\s+(?:breakdown|buckets?|series|trend|results?)|annually\s+(?:breakdown|buckets?|series|trend|results?))\b/i,
   } as const;
-  return Object.entries(grains)
+  const requested = Object.entries(grains)
     .find(([, pattern]) => pattern.test(userText))?.[0]
     .toUpperCase();
+  if (requested) return requested;
+
+  return userText
+    .match(
+      /\b(day|week|month|quarter|year)(?:ly)?(?:\s+and\s+[\w-]+){0,2}\s+grain\b/i,
+    )?.[1]
+    ?.toUpperCase();
 }
 
 function requestedNamedDateRanges(

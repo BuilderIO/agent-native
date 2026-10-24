@@ -6304,6 +6304,30 @@ describe("realDataFinalGuard", () => {
     expect(correct).toBeNull();
   });
 
+  it("does not infer a time breakdown from a weekly metric name", () => {
+    const range = { startDate: "2025-01-01", endDate: "2025-12-31" };
+    const metricName = "weekly_active_accounts";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were weekly active accounts for 2025?",
+        draftText: "Weekly active accounts were 42 for 2025.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [dbtMetricCall(range, [], undefined, metricName)],
+        toolResults: [
+          dbtMetricResult(
+            { groupBy: [], timeRange: range },
+            [{ [metricName]: 42 }],
+            {},
+            undefined,
+            metricName,
+          ),
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("uses the latest successful dbt result after an exploratory mismatch", () => {
     const correctRange = { startDate: "2026-07-01", endDate: "2026-07-07" };
     const wrongRange = { startDate: "2026-06-01", endDate: "2026-06-07" };
