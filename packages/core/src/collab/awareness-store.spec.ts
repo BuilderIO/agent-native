@@ -90,8 +90,9 @@ vi.mock("../db/client.js", async () => {
           applies &&
           previous &&
           previous.actor_email !== actorEmail &&
-          previous.last_seen >=
-            Number(args[3]) - (previous.cleared ? 60_000 : 30_000)
+          (previous.actor_email !== null ||
+            previous.last_seen >=
+              Number(args[3]) - (previous.cleared ? 60_000 : 30_000))
         ) {
           applies = false;
         }
@@ -153,11 +154,28 @@ vi.mock("../db/client.js", async () => {
         dbRows.delete(rowKey(String(args[0]), Number(args[1])));
         return { rows: [], rowsAffected: 1 };
       }
-      if (/^\s*DELETE FROM _collab_awareness WHERE last_seen < \?/i.test(sql)) {
+      if (/^\s*UPDATE _collab_awareness\s+SET state = ''/i.test(sql)) {
+        const expiredBefore = Number(args[0]);
+        for (const row of dbRows.values()) {
+          if (
+            row.actor_email !== null &&
+            row.state !== "" &&
+            row.last_seen < expiredBefore
+          ) {
+            row.state = "";
+          }
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (
+        /^\s*DELETE FROM _collab_awareness\s+WHERE last_seen < \?/i.test(sql)
+      ) {
         purgeCalls.count += 1;
         if (purgeFails.value) throw new Error("purge unavailable");
         for (const [key, row] of dbRows) {
-          if (row.last_seen < Number(args[0])) dbRows.delete(key);
+          if (row.actor_email === null && row.last_seen < Number(args[0])) {
+            dbRows.delete(key);
+          }
         }
         return { rows: [], rowsAffected: 0 };
       }
@@ -266,6 +284,7 @@ describe("awareness-store", () => {
       client_sequence: 1,
       client_sequence_raw: 0,
       cleared: false,
+      actor_email: null,
     });
     purgeFails.value = true;
 
@@ -445,6 +464,55 @@ describe("awareness-store", () => {
 
     expect(dbRows.get(rowKey("doc-legacy-owner", 9))).toMatchObject({
       state: "new-owner-state",
+      actor_email: "owner@example.com",
+    });
+  });
+
+  it("retains actor ownership after clearing expired presence state", async () => {
+    await writeAwarenessRow(
+      "doc-expired-owner",
+      9,
+      "owner-state",
+      1_000,
+      1,
+      false,
+      "owner@example.com",
+    );
+
+    await expect(
+      loadAwarenessRowsStrict("doc-expired-owner", 62_000),
+    ).resolves.toEqual([]);
+    expect(dbRows.get(rowKey("doc-expired-owner", 9))).toMatchObject({
+      state: "",
+      cleared: false,
+      actor_email: "owner@example.com",
+    });
+
+    await expect(
+      writeAwarenessRow(
+        "doc-expired-owner",
+        9,
+        "forged-state",
+        62_001,
+        2,
+        false,
+        "viewer@example.com",
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      writeAwarenessRow(
+        "doc-expired-owner",
+        9,
+        "owner-resumed",
+        62_002,
+        2,
+        false,
+        "owner@example.com",
+      ),
+    ).resolves.toBe(true);
+    expect(dbRows.get(rowKey("doc-expired-owner", 9))).toMatchObject({
+      state: "owner-resumed",
       actor_email: "owner@example.com",
     });
   });

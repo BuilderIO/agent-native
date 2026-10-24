@@ -32,8 +32,24 @@ import {
 } from "./awareness.js";
 import { emailToColor, emailToName } from "./types.js";
 
+const testRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+function scopedDocId(docId: string): string {
+  return `${docId}::${testRunId}`;
+}
+
+function docAwareness(docId: string): Map<number, AwarenessEntry> {
+  return getDocAwareness(scopedDocId(docId));
+}
+
 function event(params: Record<string, string> = {}) {
-  return { _params: params, _status: 200 } as any;
+  return {
+    _params: {
+      ...params,
+      ...(params.docId ? { docId: scopedDocId(params.docId) } : {}),
+    },
+    _status: 200,
+  } as any;
 }
 
 function postedAwarenessState(value: string): string {
@@ -165,11 +181,11 @@ describe("postAwareness handler", () => {
     vi.useRealTimers();
     mockReadBody.mockReset();
     mockGetSession.mockReset();
-    getDocAwareness("post-doc").clear();
-    getDocAwareness("post-doc-actor").clear();
-    getDocAwareness("post-doc-agent-id").clear();
-    getDocAwareness("post-doc-identity").clear();
-    getDocAwareness("post-doc-invalid-state").clear();
+    docAwareness("post-doc").clear();
+    docAwareness("post-doc-actor").clear();
+    docAwareness("post-doc-agent-id").clear();
+    docAwareness("post-doc-identity").clear();
+    docAwareness("post-doc-invalid-state").clear();
   });
 
   it("returns 400 when docId is missing", async () => {
@@ -198,9 +214,7 @@ describe("postAwareness handler", () => {
       error: "invalid clientId",
     });
     expect(ev._status).toBe(400);
-    expect(getDocAwareness("post-doc-agent-id").has(AGENT_CLIENT_ID)).toBe(
-      false,
-    );
+    expect(docAwareness("post-doc-agent-id").has(AGENT_CLIENT_ID)).toBe(false);
   });
 
   it("binds posted awareness to the authenticated collaborator", async () => {
@@ -225,7 +239,7 @@ describe("postAwareness handler", () => {
     });
 
     expect(ev._status).toBe(403);
-    expect(getDocAwareness(docId).get(51)?.state).toBe(
+    expect(docAwareness(docId).get(51)?.state).toBe(
       authenticatedAwarenessState("owner-state", "owner@example.com"),
     );
 
@@ -241,7 +255,7 @@ describe("postAwareness handler", () => {
     });
 
     expect(clearEv._status).toBe(403);
-    expect(getDocAwareness(docId).get(51)?.state).toBe(
+    expect(docAwareness(docId).get(51)?.state).toBe(
       authenticatedAwarenessState("owner-state", "owner@example.com"),
     );
   });
@@ -258,7 +272,7 @@ describe("postAwareness handler", () => {
   });
 
   it("rejects a client sequence beyond the allowed legacy clock skew", async () => {
-    const map = getDocAwareness("post-doc");
+    const map = docAwareness("post-doc");
     map.set(99, { clientId: 99, state: "peer-state", lastSeen: Date.now() });
     mockReadBody.mockResolvedValue({
       clientId: 99,
@@ -287,7 +301,7 @@ describe("postAwareness handler", () => {
     const res = await postAwareness(ev);
 
     expect(ev._status).toBe(200);
-    expect(getDocAwareness("post-doc").get(6)?.state).toBe(
+    expect(docAwareness("post-doc").get(6)?.state).toBe(
       authenticatedAwarenessState("client-state"),
     );
     expect(res).toMatchObject({ states: [] });
@@ -313,10 +327,10 @@ describe("postAwareness handler", () => {
 
     expect(ev._status).toBe(409);
     expect(ev._headers).toMatchObject({ "x-awareness-client-sequence": "1" });
-    expect(getDocAwareness(docId).get(15)?.state).toBe(
+    expect(docAwareness(docId).get(15)?.state).toBe(
       authenticatedAwarenessState("current-state"),
     );
-    getDocAwareness(docId).clear();
+    docAwareness(docId).clear();
   });
 
   it("asks clients to resynchronize after any rejected bounded sequence", async () => {
@@ -338,14 +352,14 @@ describe("postAwareness handler", () => {
 
     expect(ev._status).toBe(409);
     expect(ev._headers).toMatchObject({ "x-awareness-client-sequence": "7" });
-    expect(getDocAwareness(docId).get(16)?.state).toBe(
+    expect(docAwareness(docId).get(16)?.state).toBe(
       authenticatedAwarenessState("current-state"),
     );
-    getDocAwareness(docId).clear();
+    docAwareness(docId).clear();
   });
 
   it("stores the sender's state and returns only other clients' states", async () => {
-    const map = getDocAwareness("post-doc");
+    const map = docAwareness("post-doc");
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });
 
     mockReadBody.mockResolvedValue({
@@ -362,7 +376,7 @@ describe("postAwareness handler", () => {
   });
 
   it("clears the sender's state when state is null", async () => {
-    const map = getDocAwareness("post-doc");
+    const map = docAwareness("post-doc");
     map.set(5, { clientId: 5, state: "old-state", lastSeen: Date.now() });
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });
 
@@ -379,7 +393,7 @@ describe("postAwareness handler", () => {
   it("evicts expired peers before responding", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    const map = getDocAwareness("post-doc");
+    const map = docAwareness("post-doc");
     map.set(7, { clientId: 7, state: "expired", lastSeen: 0 });
 
     vi.setSystemTime(40_000);
@@ -419,9 +433,7 @@ describe("postAwareness handler", () => {
 
     await postAwareness(event({ docId: "post-doc-identity" }));
 
-    const stored = JSON.parse(
-      getDocAwareness("post-doc-identity").get(63)!.state,
-    );
+    const stored = JSON.parse(docAwareness("post-doc-identity").get(63)!.state);
     expect(stored.user).toEqual({
       name: "Alice Auth",
       email: "alice@example.com",
@@ -444,13 +456,13 @@ describe("postAwareness handler", () => {
     });
 
     expect(ev._status).toBe(400);
-    expect(getDocAwareness("post-doc-invalid-state").has(64)).toBe(false);
+    expect(docAwareness("post-doc-invalid-state").has(64)).toBe(false);
   });
 });
 
 describe("getActiveUsers handler", () => {
   afterEach(() => {
-    getDocAwareness("users-doc").clear();
+    docAwareness("users-doc").clear();
   });
 
   it("returns 400 when docId is missing", async () => {
@@ -463,7 +475,7 @@ describe("getActiveUsers handler", () => {
   it("lists active client ids and prunes expired ones", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    const map = getDocAwareness("users-doc");
+    const map = docAwareness("users-doc");
     map.set(1, { clientId: 1, state: "a", lastSeen: 0 });
     map.set(2, { clientId: 2, state: "b", lastSeen: 25_000 });
 

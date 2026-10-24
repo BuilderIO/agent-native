@@ -161,13 +161,14 @@ export async function writeAwarenessRow(
             client_sequence_raw = EXCLUDED.client_sequence_raw,
             cleared = EXCLUDED.cleared,
             actor_email = EXCLUDED.actor_email
-          WHERE (
+            WHERE (
                  _collab_awareness.actor_email IS NOT DISTINCT FROM EXCLUDED.actor_email
-                 OR _collab_awareness.last_seen <
+                 OR (_collab_awareness.actor_email IS NULL
+                   AND _collab_awareness.last_seen <
                    EXCLUDED.last_seen - CASE
                      WHEN _collab_awareness.cleared THEN ${ROW_TTL_MS * 2}
                      ELSE ${ROW_TTL_MS}
-                   END
+                   END)
                )
             AND ((EXCLUDED.client_sequence_raw > 0
                  AND (( _collab_awareness.client_sequence_raw > 0
@@ -307,11 +308,24 @@ async function maybePurge(now: number): Promise<void> {
   if (now - _lastPurgeAt < PURGE_INTERVAL_MS) return;
   if (_purgeInFlight) return _purgeInFlight;
   const client = getDbExec();
+  const expiredBefore = now - ROW_TTL_MS * 2;
+  // Keep actor-bound IDs reserved after their transient presence state expires.
   _purgeInFlight = client
     .execute({
-      sql: `DELETE FROM _collab_awareness WHERE last_seen < ?`,
-      args: [now - ROW_TTL_MS * 2],
+      sql: `UPDATE _collab_awareness
+            SET state = ''
+            WHERE actor_email IS NOT NULL
+              AND state <> ''
+              AND last_seen < ?`,
+      args: [expiredBefore],
     })
+    .then(() =>
+      client.execute({
+        sql: `DELETE FROM _collab_awareness
+              WHERE last_seen < ? AND actor_email IS NULL`,
+        args: [expiredBefore],
+      }),
+    )
     .then(() => {
       _lastPurgeAt = now;
     })

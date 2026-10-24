@@ -274,7 +274,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "author_email",
   },
   { table: "agent_team_run_queue", column: "owner_email" },
-  // Presence rows have short TTLs and no organization key for a scoped removal.
+  // Expired presence state is cleared while its client ownership is retained.
   {
     table: "_collab_awareness",
     column: "actor_email",
