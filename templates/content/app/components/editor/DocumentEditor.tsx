@@ -5,6 +5,7 @@ import {
   useCollaborativeDoc,
   emailToColor,
   emailToName,
+  type CollabUpdateAck,
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
@@ -2081,6 +2082,139 @@ type DocumentUpdates = {
   icon?: Document["icon"];
 };
 
+/**
+ * What a save on a page whose body is written through its live copy reports.
+ * The body reads as saved only once the server has acknowledged every
+ * live-copy update; until then the collab client keeps resending them.
+ */
+export function liveCopyBodySaveResult(args: {
+  titleSaved: boolean;
+  bodyAcknowledged: boolean;
+  writePathConfirmed: boolean;
+  stillWritesThroughLiveCopy: boolean;
+}): DocumentSaveResult {
+  // The server stopped deriving the body, and leaving the live copy queued a
+  // legacy save of it.
+  if (!args.stillWritesThroughLiveCopy)
+    return { contentPersisted: false, outcome: "superseded" };
+  if (!args.bodyAcknowledged || !args.writePathConfirmed)
+    return { contentPersisted: false, outcome: "pending_collaboration_flush" };
+  return { contentPersisted: args.titleSaved };
+}
+
+/**
+ * What an editor writing a page's body through its live copy does with an
+ * update's acknowledgment. An update the server already had, such as a resend
+ * whose first answer was lost, changes nothing, so its answer cannot say
+ * whether the server still writes the body from the live copy.
+ */
+export function liveCopyAcknowledgmentAction(
+  ack: CollabUpdateAck,
+): "keep" | "leave" | "confirm" {
+  if (ack.liveCopy === "not_derived") return "leave";
+  return ack.liveCopy === "unchanged" ? "confirm" : "keep";
+}
+
+/** Whether the server still writes the page's body from its live copy. */
+export async function confirmLiveCopyWritePath(
+  readDocument: () => Promise<Pick<Document, "writePath"> | null | undefined>,
+): Promise<boolean> {
+  const writePath = (await readDocument())?.writePath;
+  if (!writePath)
+    throw new Error("The page did not say how its body is written.");
+  return writePath === "live_copy";
+}
+
+/**
+ * Whether an editor writing a page's body through its live copy knows the
+ * server still writes it from there. An acknowledgment that changed nothing
+ * makes it unknown until a check, or a changed update's acknowledgment, says.
+ */
+export function liveCopyWritePathConfirmer(options: {
+  readDocument: () => Promise<Pick<Document, "writePath"> | null | undefined>;
+  leave: () => void;
+}) {
+  let known = true;
+  let left = false;
+  let askAgain = false;
+  let running: Promise<void> | null = null;
+  const leave = () => {
+    left = true;
+    options.leave();
+  };
+  const check = async () => {
+    do {
+      askAgain = false;
+      let live: boolean;
+      try {
+        live = await confirmLiveCopyWritePath(options.readDocument);
+      } catch (error) {
+        // It stays unknown, so a save asks again and reads as unsaved.
+        console.warn(
+          "Could not confirm that this page's body is still written from its live copy.",
+          error,
+        );
+        return;
+      }
+      // An acknowledgment that came in while the page was read may be for an
+      // update the server took after that read, so the answer may be stale.
+      if (askAgain) continue;
+      if (!live) return leave();
+      known = true;
+    } while (askAgain);
+  };
+  const start = () =>
+    (running ??= check().finally(() => {
+      running = null;
+    }));
+  return {
+    acknowledge(action: ReturnType<typeof liveCopyAcknowledgmentAction>) {
+      if (action === "leave") return leave();
+      if (action === "keep") {
+        known = true;
+        if (running) askAgain = true;
+        return;
+      }
+      known = false;
+      askAgain = true;
+      void start();
+    },
+    /** Settles any check, asking again once if it is still unknown. */
+    async confirmed(): Promise<boolean> {
+      while (running) await running;
+      if (!known && !left) await start();
+      return known && !left;
+    },
+  };
+}
+
+/**
+ * Whether a save on a live-copy page sends its title, and against which base.
+ * The page's body commits move its updatedAt without touching the title, so
+ * only a title another writer changed makes this one stale.
+ */
+export function liveCopyTitleSave(args: {
+  title: string;
+  lastSavedTitle: string;
+  documentTitle: string;
+  titleBase: string | undefined;
+}):
+  | { send: false; renamedElsewhere: boolean }
+  | { send: true; titleBase: string } {
+  if (args.title === args.lastSavedTitle)
+    return { send: false, renamedElsewhere: false };
+  const titleBase = args.titleBase ?? args.lastSavedTitle;
+  if (
+    titleRenamedByAnotherWriter({
+      documentTitle: args.documentTitle,
+      titleBase,
+      title: args.title,
+    })
+  )
+    return { send: false, renamedElsewhere: true };
+  return { send: true, titleBase };
+}
+
 export function enqueueDocumentSave<T>(
   queueRef: MutableRefObject<Promise<void>>,
   save: () => Promise<T>,
@@ -3123,6 +3257,8 @@ function PageEditorSessionBody({
   const convergedSaveAttemptRef = useRef<string | null>(null);
   const collabAwarenessRef = useRef<Awareness | null>(null);
   const collabClientIdRef = useRef<number | null>(null);
+  const bodyWritesThroughLiveCopyRef = useRef(false);
+  const leaveLiveCopyRef = useRef<() => void>(() => {});
   const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
@@ -3392,6 +3528,9 @@ function PageEditorSessionBody({
       },
     ) => {
       if (isLocalFileDocument || isLinkedLocalSourceDocument) return;
+      // The collab client keeps a live-copy page's unsent body; a journal
+      // entry would be replayed as a body save.
+      if (bodyWritesThroughLiveCopyRef.current) return;
       const scope = journalScope();
       if (!scope) return;
       const authored =
@@ -3485,12 +3624,46 @@ function PageEditorSessionBody({
     !isDocumentCreationPending(queryClient, document)
       ? documentId
       : null;
+  // Read once per visit: a page switched while its editor is open keeps the
+  // path the editor opened on. Only the server reporting that it no longer
+  // writes the body from the live copy moves an open editor back.
+  const [liveCopyBody, setLiveCopyBody] = useState<boolean | null>(() =>
+    document.writePath ? document.writePath === "live_copy" : null,
+  );
+  if (liveCopyBody === null && document.writePath) {
+    setLiveCopyBody(document.writePath === "live_copy");
+  }
+  const bodyWritesThroughLiveCopy = liveCopyBody === true && collabEnabled;
+  bodyWritesThroughLiveCopyRef.current = bodyWritesThroughLiveCopy;
+  const liveCopyWritePath = useMemo(
+    () =>
+      liveCopyWritePathConfirmer({
+        readDocument: () =>
+          callAction("get-document", { id: documentId }, { method: "GET" }),
+        leave: () => {
+          if (!bodyWritesThroughLiveCopyRef.current) return;
+          bodyWritesThroughLiveCopyRef.current = false;
+          setLiveCopyBody(false);
+          leaveLiveCopyRef.current();
+        },
+      }),
+    [documentId],
+  );
+  const handleUpdateAcknowledged = useCallback(
+    (ack: CollabUpdateAck) => {
+      if (!bodyWritesThroughLiveCopyRef.current) return;
+      liveCopyWritePath.acknowledge(liveCopyAcknowledgmentAction(ack));
+    },
+    [liveCopyWritePath],
+  );
   const {
     ydoc,
     awareness,
     isSynced: collabSynced,
     requestSync: requestCollabSync,
     flushUpdates: flushCollabUpdates,
+    durableUpdatesFailed: collabDurableUpdatesFailed,
+    updatesRefused: collabUpdatesRefused,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -3500,8 +3673,28 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
+    durableUpdates: bodyWritesThroughLiveCopy,
+    requireLiveCopyOutcome: bodyWritesThroughLiveCopy,
+    ...(bodyWritesThroughLiveCopy
+      ? { onUpdateAcknowledged: handleUpdateAcknowledged }
+      : {}),
     onEvent: handleFlushRequestEvent,
   });
+  const flushCollabUpdatesRef = useRef(flushCollabUpdates);
+  flushCollabUpdatesRef.current = flushCollabUpdates;
+  useEffect(() => {
+    if (collabDurableUpdatesFailed) {
+      toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+    }
+  }, [collabDurableUpdatesFailed, t]);
+  // Only the live copy carries a switched page's body, so its body can no
+  // longer save; other pages still save theirs.
+  const bodyUpdatesRefused = bodyWritesThroughLiveCopy && collabUpdatesRefused;
+  useEffect(() => {
+    if (bodyUpdatesRefused) {
+      toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+    }
+  }, [bodyUpdatesRefused, t]);
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
@@ -4162,12 +4355,76 @@ function PageEditorSessionBody({
     isLinkedLocalSourceDocument,
   ]);
 
+  // A page whose body is written through its live copy sends update-document
+  // its title only: any body it carried would be a legacy write, and one
+  // legacy write sends the page back to the legacy path. The body counts as
+  // saved once the server has acknowledged every live-copy update.
+  const saveWithLiveCopyBody = useCallback(
+    async (
+      title: string,
+      options: DocumentSaveOptions,
+    ): Promise<DocumentSaveResult> => {
+      let titleSaved = true;
+      const titleSave = liveCopyTitleSave({
+        title,
+        lastSavedTitle: lastSavedTitleRef.current.title,
+        documentTitle: documentTitleRef.current,
+        titleBase: options.titleBase,
+      });
+      if (!titleSave.send) {
+        if (titleSave.renamedElsewhere) titleSaved = false;
+      } else {
+        const saved = await persistDocumentUpdates(
+          { title },
+          {
+            allowQueuedSave: options.allowQueuedSave,
+            requireActiveEditorSession: options.requireActiveEditorSession,
+            historySessionId: options.historySessionId,
+            telemetryOrigin: options.telemetryOrigin,
+            titleBase: titleSave.titleBase,
+          },
+        );
+        if (
+          isDocumentUpdateConflict(saved) ||
+          isDocumentUpdateSuperseded(saved) ||
+          isDocumentUpdatePreservationRequired(saved)
+        ) {
+          titleSaved = false;
+        } else {
+          adoptConfirmedSaveWatermarks({
+            saved,
+            savedAt: saved.updatedAt ?? new Date().toISOString(),
+            title,
+            content: lastSavedContentRef.current.content,
+            updates: { title },
+            lastSavedTitleRef,
+            lastSavedContentRef,
+          });
+        }
+      }
+      const bodyAcknowledged = await flushBeforeSave(flushCollabUpdates);
+      // An acknowledgment that could not say where the body went is checked
+      // before the save reports.
+      const writePathConfirmed = await liveCopyWritePath.confirmed();
+      return liveCopyBodySaveResult({
+        titleSaved,
+        bodyAcknowledged,
+        writePathConfirmed,
+        stillWritesThroughLiveCopy: bodyWritesThroughLiveCopyRef.current,
+      });
+    },
+    [flushCollabUpdates, liveCopyWritePath, persistDocumentUpdates],
+  );
   const saveDocumentImmediately = useCallback(
     async (
       title: string,
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
+        return { contentPersisted: false, outcome: "abandoned" };
+      if (bodyWritesThroughLiveCopyRef.current)
+        return saveWithLiveCopyBody(title, options);
       options = {
         ...options,
         editorSnapshotTitle: title,
@@ -4175,8 +4432,6 @@ function PageEditorSessionBody({
           options.titleBase ?? lastSavedTitleRef.current.title,
         editorSnapshotContent: content,
       };
-      if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
-        return { contentPersisted: false, outcome: "abandoned" };
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
       const editorEditGeneration =
@@ -4536,6 +4791,7 @@ function PageEditorSessionBody({
       persistDocumentUpdates,
       pushDocumentToNotion,
       queryClient,
+      saveWithLiveCopyBody,
       t,
     ],
   );
@@ -4818,6 +5074,10 @@ function PageEditorSessionBody({
                     : undefined,
                 }),
               retain: (reason, result) => {
+                // The collab client keeps a live-copy page's unsent body; a
+                // recovery draft would come back as a History entry.
+                if (bodyWritesThroughLiveCopyRef.current)
+                  return Promise.resolve();
                 const snapshotChanged =
                   contentEditVersionRef.current !== contentEditVersion ||
                   contentObservationEpochRef.current !==
@@ -5224,7 +5484,8 @@ function PageEditorSessionBody({
     if (
       !current?.updatedAt ||
       current.title !== lastSavedTitleRef.current.title ||
-      current.content !== lastSavedContentRef.current.content
+      (!bodyWritesThroughLiveCopyRef.current &&
+        current.content !== lastSavedContentRef.current.content)
     ) {
       throw new Error(t("editor.historySaveBeforeRestoreFailed"));
     }
@@ -5389,18 +5650,27 @@ function PageEditorSessionBody({
         return false;
       }
 
+      // The collab client's pagehide flush and kept updates carry a
+      // live-copy page's body.
+      const liveCopyBody = bodyWritesThroughLiveCopyRef.current;
       const serverUpdatedAt = documentUpdatedAtRef.current;
-      const titleIsStale =
-        !!serverUpdatedAt &&
-        !!lastSavedTitleRef.current.updatedAt &&
-        serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
+      const titleIsStale = liveCopyBody
+        ? titleRenamedByAnotherWriter({
+            documentTitle: documentTitleRef.current,
+            titleBase: pending.titleBase,
+            title: pending.title,
+          })
+        : !!serverUpdatedAt &&
+          !!lastSavedTitleRef.current.updatedAt &&
+          serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
         !!documentRevisionRef.current &&
         !!pending.contentBase.revision &&
         documentRevisionRef.current !== pending.contentBase.revision;
 
       const titleChanged = pending.title !== pending.titleBase;
-      const contentChanged = pending.content !== pending.contentBase.content;
+      const contentChanged =
+        !liveCopyBody && pending.content !== pending.contentBase.content;
       const updates: Record<string, string> = {};
       if (titleChanged && !titleIsStale) {
         updates.title = pending.title;
@@ -5438,9 +5708,16 @@ function PageEditorSessionBody({
           {
             id: documentId,
             historySessionId: pending.historySessionId,
-            editorSessionId: pending.editorSessionId,
-            editorEditGeneration: pending.editGeneration,
-            browserSaveAttemptId: pending.saveAttemptId,
+            ...(liveCopyBody
+              ? {}
+              : {
+                  editorSessionId: pending.editorSessionId,
+                  editorEditGeneration: pending.editGeneration,
+                  browserSaveAttemptId: pending.saveAttemptId,
+                  editorSnapshotTitle: pending.title,
+                  editorSnapshotTitleBase: pending.titleBase,
+                  editorSnapshotContent: pending.content,
+                }),
             ...(updates.content !== undefined &&
             pending.authoredContentIntent &&
             authoredCandidateMatchesContent(
@@ -5456,9 +5733,6 @@ function PageEditorSessionBody({
                     pending.authoredContentIntent.candidateContent,
                 }
               : {}),
-            editorSnapshotTitle: pending.title,
-            editorSnapshotTitleBase: pending.titleBase,
-            editorSnapshotContent: pending.content,
             ...updates,
             ...(loadedContentWasEmpty !== undefined
               ? { loadedContentWasEmpty }
@@ -5609,6 +5883,22 @@ function PageEditorSessionBody({
       await documentSaveQueueRef.current;
       while (pendingPersistenceRef.current.size > 0)
         await Promise.allSettled([...pendingPersistenceRef.current]);
+      if (
+        bodyWritesThroughLiveCopyRef.current &&
+        !(await flushCollabUpdatesRef.current())
+      )
+        throw new Error(t("editor.liveDocumentSaveBeforeSyncFailed"));
+      // No save result names the revision the server wrote from the live
+      // copy, and its writes send no refresh event: only a read after
+      // delivery lets the saved watermark reach this tab's body.
+      if (
+        bodyWritesThroughLiveCopyRef.current &&
+        readEditorSaveState().unsavedEdits
+      )
+        await queryClient.refetchQueries(
+          { ...documentQueryFilter(documentId), type: "active" },
+          { throwOnError: true },
+        );
       const error = readPrimaryPersistenceError();
       if (error !== undefined) throw error.error;
     },
@@ -7194,6 +7484,11 @@ function PageEditorSessionBody({
       };
       localContentRef.current = newContent;
       publishEditorSaveStateRef.current();
+      if (bodyWritesThroughLiveCopyRef.current) {
+        // The live copy carries this page's body to the server.
+        setLocalContent(newContent);
+        return;
+      }
       journalCurrentDraft(
         localTitleRef.current,
         newContent,
@@ -7237,6 +7532,7 @@ function PageEditorSessionBody({
     remoteSaveTimerRef.current = null;
     const live = liveMarkdownRef.current;
     if (
+      bodyWritesThroughLiveCopyRef.current ||
       live === null ||
       !canEditRef.current ||
       reconcileRecoveryStateRef.current ||
@@ -7266,6 +7562,14 @@ function PageEditorSessionBody({
   };
   const saveConvergedRemoteContentRef = useRef(saveConvergedRemoteContent);
   saveConvergedRemoteContentRef.current = saveConvergedRemoteContent;
+  // The server stopped writing this page's body from its live copy, so the
+  // stored body lacks this tab's latest edits: save them the legacy way.
+  leaveLiveCopyRef.current = () => {
+    const live = liveMarkdownRef.current;
+    if (live === null || !canEditRef.current) return;
+    authoredContentBaseRef.current.edited(live);
+    queueEditorContentSave(live);
+  };
   useEffect(
     () => () => {
       if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
@@ -8428,7 +8732,7 @@ function PageEditorSessionBody({
     textarea.setSelectionRange(end, end);
   }, []);
 
-  const flushLatestPageEdits = useCallback(async () => {
+  const flushLatestPageEdits = useCallback(async (): Promise<void> => {
     if (documentReconcileConflict || localSourceConflict) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
@@ -8452,9 +8756,12 @@ function PageEditorSessionBody({
 
     const title = localTitleRef.current;
     const content = localContentRef.current;
+    const savesThroughLiveCopy = bodyWritesThroughLiveCopyRef.current;
+    const contentUnsaved = () =>
+      !bodyWritesThroughLiveCopyRef.current &&
+      localContentRef.current !== lastSavedContentRef.current.content;
     const hasUnsavedPrimaryEdit =
-      title !== lastSavedTitleRef.current.title ||
-      content !== lastSavedContentRef.current.content;
+      title !== lastSavedTitleRef.current.title || contentUnsaved();
     if (!canEditRef.current && hasUnsavedPrimaryEdit) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
@@ -8485,6 +8792,11 @@ function PageEditorSessionBody({
 
     if (primaryResult.status === "rejected") throw primaryResult.reason;
     if (!primaryResult.value.contentPersisted) {
+      // The page left its live copy during the save: save its body again,
+      // now the legacy way.
+      if (savesThroughLiveCopy && !bodyWritesThroughLiveCopyRef.current) {
+        return flushLatestPageEditsRef.current();
+      }
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
     if (blockFieldsResult.status === "rejected") {
@@ -8502,7 +8814,7 @@ function PageEditorSessionBody({
 
     if (
       localTitleRef.current !== lastSavedTitleRef.current.title ||
-      localContentRef.current !== lastSavedContentRef.current.content
+      contentUnsaved()
     ) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
@@ -9920,6 +10232,7 @@ function PageEditorSessionBody({
                                     : null
                                 }
                                 observeLiveBody={observeLiveBody}
+                                bodyIsLiveCopy={bodyWritesThroughLiveCopy}
                                 replacesStoredBody={replacesStoredBody}
                                 collabSynced={
                                   collabEditorEnabled ? collabSynced : true
