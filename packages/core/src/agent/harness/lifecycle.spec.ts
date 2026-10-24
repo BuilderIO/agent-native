@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   markStoppedIfUnclaimed: vi.fn(),
   startApprovalDispatch: vi.fn(),
   startExpiryCleanup: vi.fn(),
+  finishExpiryCleanup: vi.fn(),
   resolveAdapter: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ vi.mock("./store.js", () => ({
   markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
   startAgentHarnessSessionApprovalDispatch: mocks.startApprovalDispatch,
   startAgentHarnessSessionExpiryCleanup: mocks.startExpiryCleanup,
+  finishAgentHarnessSessionExpiryCleanup: mocks.finishExpiryCleanup,
 }));
 
 vi.mock("./registry.js", () => ({
@@ -82,6 +84,7 @@ describe("agent harness lifecycle", () => {
           if (
             current.status !== "running" ||
             current.followUpClaimId !== expectedClaimId ||
+            current.expiryCleanupId != null ||
             current.approvalResolutionId !==
               (options?.expectedApprovalResolutionId ?? null)
           ) {
@@ -129,7 +132,8 @@ describe("agent harness lifecycle", () => {
       if (
         stored.generation !== generation ||
         stored.status !== "idle" ||
-        stored.pendingApproval
+        stored.pendingApproval ||
+        stored.expiryCleanupId != null
       ) {
         return null;
       }
@@ -147,6 +151,7 @@ describe("agent harness lifecycle", () => {
         if (
           stored.status !== "running" ||
           stored.followUpClaimId !== claimId ||
+          stored.expiryCleanupId != null ||
           stored.generation !== expectedGeneration
         ) {
           return null;
@@ -196,7 +201,8 @@ describe("agent harness lifecycle", () => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
-          stored.approvalResolutionId !== approvalId
+          stored.approvalResolutionId !== approvalId ||
+          stored.expiryCleanupId != null
         ) {
           return null;
         }
@@ -209,20 +215,40 @@ describe("agent harness lifecycle", () => {
       },
     );
     mocks.startExpiryCleanup.mockImplementation(
-      async (_id, expectedStatus, expectedGeneration, start) => {
+      async (_id, expectedStatus, expectedGeneration, cleanupId, start) => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
-          stored.followUpClaimId != null
+          stored.followUpClaimId != null ||
+          stored.approvalResolutionId != null ||
+          stored.expiryCleanupId != null
         ) {
           return null;
         }
         stored = {
           ...stored,
+          expiryCleanupId: cleanupId,
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
         return { session: stored, started: start() };
+      },
+    );
+    mocks.finishExpiryCleanup.mockImplementation(
+      async (_id, cleanupId, expectedGeneration) => {
+        if (
+          stored.expiryCleanupId !== cleanupId ||
+          stored.generation !== expectedGeneration
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          expiryCleanupId: null,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
       },
     );
   });

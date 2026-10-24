@@ -4,6 +4,7 @@ import { resolveAgentHarness } from "./registry.js";
 import {
   AgentHarnessSessionConflictError,
   claimAgentHarnessSessionFollowUp,
+  finishAgentHarnessSessionExpiryCleanup,
   getAgentHarnessSession,
   getAgentHarnessSessionByRunId,
   isAgentHarnessSessionConflictError,
@@ -1637,10 +1638,12 @@ async function detachStaleLiveSession(
   }
   live.expiryCleanupInProgress = true;
   try {
+    const cleanupId = randomUUID();
     const cleanup = await startAgentHarnessSessionExpiryCleanup(
       sessionId,
       durableStatus,
       expectedGeneration,
+      cleanupId,
       () => {
         if (
           durableStatus === "stopped" ||
@@ -1664,7 +1667,42 @@ async function detachStaleLiveSession(
       live.session,
       cleanup.session.generation,
     );
-    await cleanup.started;
+    try {
+      await cleanup.started;
+    } catch (cleanupError) {
+      try {
+        const released = await finishAgentHarnessSessionExpiryCleanup(
+          sessionId,
+          cleanupId,
+          cleanup.session.generation,
+        );
+        if (released) {
+          refreshLiveAgentHarnessSessionGeneration(
+            sessionId,
+            live.session,
+            released.generation,
+          );
+        }
+      } catch (releaseError) {
+        throw new AggregateError(
+          [cleanupError, releaseError],
+          "Harness expiry cleanup and reservation release both failed.",
+        );
+      }
+      throw cleanupError;
+    }
+    const released = await finishAgentHarnessSessionExpiryCleanup(
+      sessionId,
+      cleanupId,
+      cleanup.session.generation,
+    );
+    if (released) {
+      refreshLiveAgentHarnessSessionGeneration(
+        sessionId,
+        live.session,
+        released.generation,
+      );
+    }
     return true;
   } finally {
     live.expiryCleanupInProgress = false;

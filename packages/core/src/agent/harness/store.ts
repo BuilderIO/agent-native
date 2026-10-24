@@ -48,6 +48,7 @@ export interface StoredAgentHarnessSession {
   workspaceRef?: string | null;
   pendingApproval?: unknown;
   approvalResolutionId?: string | null;
+  expiryCleanupId?: string | null;
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
@@ -69,6 +70,7 @@ export interface SaveAgentHarnessSessionInput {
   workspaceRef?: string | null;
   pendingApproval?: unknown;
   approvalResolutionId?: string | null;
+  expiryCleanupId?: string | null;
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
@@ -78,6 +80,7 @@ export interface SaveAgentHarnessSessionInput {
   expectedStatus?: AgentHarnessSessionStatus;
   expectedFollowUpClaimId?: string;
   expectedApprovalResolutionId?: string | null;
+  expectedExpiryCleanupId?: string | null;
   requiresNoApprovalResolution?: boolean;
   existingSession?: StoredAgentHarnessSession | null;
 }
@@ -105,6 +108,7 @@ export const agentHarnessSessionsStore = defineStore({
           workspace_ref TEXT,
           pending_approval TEXT,
           approval_resolution_id TEXT,
+          expiry_cleanup_id TEXT,
           resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
@@ -123,6 +127,7 @@ export const agentHarnessSessionsStore = defineStore({
           "workspace_ref",
           "pending_approval",
           "approval_resolution_id",
+          "expiry_cleanup_id",
           "resolved_approval_ids",
           "owner_email",
           "org_id",
@@ -201,6 +206,10 @@ export async function saveAgentHarnessSession(
       input.approvalResolutionId !== undefined
         ? input.approvalResolutionId
         : (existing?.approvalResolutionId ?? null),
+    expiryCleanupId:
+      input.expiryCleanupId !== undefined
+        ? input.expiryCleanupId
+        : (existing?.expiryCleanupId ?? null),
     resolvedApprovalIds:
       input.resolvedApprovalIds ?? existing?.resolvedApprovalIds ?? [],
     ownerEmail: input.ownerEmail ?? existing?.ownerEmail ?? null,
@@ -226,6 +235,7 @@ export async function saveAgentHarnessSession(
     record.workspaceRef ?? null,
     serializeJson(record.pendingApproval),
     record.approvalResolutionId ?? null,
+    record.expiryCleanupId ?? null,
     serializeJson(record.resolvedApprovalIds),
     record.ownerEmail ?? null,
     record.orgId ?? null,
@@ -240,10 +250,10 @@ export async function saveAgentHarnessSession(
       sql: `INSERT INTO agent_harness_sessions (
               id, harness_name, thread_id, run_id, provider_session_id, status,
               resume_state, workspace_ref, pending_approval, approval_resolution_id,
-              resolved_approval_ids,
+              expiry_cleanup_id, resolved_approval_ids,
               owner_email, org_id, generation, created_at, updated_at, stopped_at,
               follow_up_claim_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING`,
       args: values,
     });
@@ -277,11 +287,20 @@ export async function saveAgentHarnessSession(
     conditions.push("approval_resolution_id = ?");
     conditionArgs.push(input.expectedApprovalResolutionId);
   }
+  if (
+    input.expectedExpiryCleanupId !== undefined &&
+    input.expectedExpiryCleanupId !== null
+  ) {
+    conditions.push("expiry_cleanup_id = ?");
+    conditionArgs.push(input.expectedExpiryCleanupId);
+  } else {
+    conditions.push("expiry_cleanup_id IS NULL");
+  }
   const updated = await client.execute({
     sql: `UPDATE agent_harness_sessions SET
             harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?,
             status = ?, resume_state = ?, workspace_ref = ?, pending_approval = ?,
-            approval_resolution_id = ?, resolved_approval_ids = ?, owner_email = ?,
+            approval_resolution_id = ?, expiry_cleanup_id = ?, resolved_approval_ids = ?, owner_email = ?,
             org_id = ?, generation = ?,
             updated_at = ?, stopped_at = ?, follow_up_claim_id = ?
           WHERE ${conditions.join(" AND ")}`,
@@ -295,6 +314,7 @@ export async function saveAgentHarnessSession(
       record.workspaceRef ?? null,
       serializeJson(record.pendingApproval),
       record.approvalResolutionId ?? null,
+      record.expiryCleanupId ?? null,
       serializeJson(record.resolvedApprovalIds),
       record.ownerEmail ?? null,
       record.orgId ?? null,
@@ -394,6 +414,10 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
           update.approvalResolutionId !== undefined
             ? update.approvalResolutionId
             : existing.approvalResolutionId,
+        expiryCleanupId:
+          update.expiryCleanupId !== undefined
+            ? update.expiryCleanupId
+            : existing.expiryCleanupId,
         resolvedApprovalIds:
           update.resolvedApprovalIds ?? existing.resolvedApprovalIds,
         ownerEmail: update.ownerEmail ?? existing.ownerEmail ?? null,
@@ -408,6 +432,7 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
         expectedFollowUpClaimId: claimId,
         expectedApprovalResolutionId:
           options.expectedApprovalResolutionId ?? null,
+        expectedExpiryCleanupId: null,
         requiresNoApprovalResolution: options.requiresNoApprovalResolution,
         existingSession: existing,
       });
@@ -433,6 +458,7 @@ export async function claimAgentHarnessSessionFollowUp(
               generation = generation + 1, updated_at = ?
           WHERE id = ? AND generation = ? AND status = 'idle'
             AND pending_approval IS NULL
+            AND expiry_cleanup_id IS NULL
           RETURNING *`,
     args: [claimId, Date.now(), id, expectedGeneration],
   });
@@ -464,6 +490,7 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
             SET generation = generation + 1, updated_at = ?
             WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
               AND generation = ?
+              AND expiry_cleanup_id IS NULL
             RETURNING *`,
       args: [Date.now(), id, claimId, expectedGeneration],
     });
@@ -496,6 +523,7 @@ export async function startAgentHarnessSessionApprovalDispatch<T>(
             SET generation = generation + 1, updated_at = ?
             WHERE id = ? AND status = ? AND approval_resolution_id = ?
               AND generation = ?
+              AND expiry_cleanup_id IS NULL
             RETURNING *`,
       args: [Date.now(), id, expectedStatus, approvalId, expectedGeneration],
     });
@@ -511,6 +539,7 @@ export async function startAgentHarnessSessionExpiryCleanup<T>(
   id: string,
   expectedStatus: AgentHarnessSessionStatus,
   expectedGeneration: number,
+  cleanupId: string,
   start: () => T,
 ): Promise<{ session: StoredAgentHarnessSession; started: T } | null> {
   await ensureAgentHarnessSessionTables();
@@ -523,12 +552,13 @@ export async function startAgentHarnessSessionExpiryCleanup<T>(
   return client.transaction(async (tx) => {
     const { rows } = await tx.execute({
       sql: `UPDATE agent_harness_sessions
-            SET generation = generation + 1, updated_at = ?
+            SET expiry_cleanup_id = ?, generation = generation + 1, updated_at = ?
             WHERE id = ? AND status = ? AND generation = ?
               AND follow_up_claim_id IS NULL
               AND approval_resolution_id IS NULL
+              AND expiry_cleanup_id IS NULL
             RETURNING *`,
-      args: [Date.now(), id, expectedStatus, expectedGeneration],
+      args: [cleanupId, Date.now(), id, expectedStatus, expectedGeneration],
     });
     const session = rowToHarnessSession(rows[0]);
     if (!session) return null;
@@ -536,6 +566,27 @@ export async function startAgentHarnessSessionExpiryCleanup<T>(
     const started = start();
     return { session, started };
   });
+}
+
+export async function finishAgentHarnessSessionExpiryCleanup(
+  id: string,
+  cleanupId: string,
+  expectedGeneration: number,
+): Promise<StoredAgentHarnessSession | null> {
+  await ensureAgentHarnessSessionTables();
+  const now = Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE agent_harness_sessions
+          SET expiry_cleanup_id = NULL, generation = generation + 1,
+              updated_at = ?
+          WHERE id = ? AND expiry_cleanup_id = ? AND generation = ?
+          RETURNING *`,
+    args: [now, id, cleanupId, expectedGeneration],
+  });
+  const finished = rowToHarnessSession(rows[0]);
+  if (finished) return finished;
+  const current = await getAgentHarnessSession(id);
+  return current?.expiryCleanupId == null ? current : null;
 }
 
 async function updateAgentHarnessSessionWithStatus(
@@ -591,6 +642,10 @@ async function updateAgentHarnessSessionWithStatus(
       patch.approvalResolutionId !== undefined
         ? patch.approvalResolutionId
         : existing.approvalResolutionId,
+    expiryCleanupId:
+      patch.expiryCleanupId !== undefined
+        ? patch.expiryCleanupId
+        : existing.expiryCleanupId,
     resolvedApprovalIds:
       patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
     ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
@@ -732,6 +787,7 @@ export async function markAgentHarnessSessionStopped(
     sql: `UPDATE agent_harness_sessions
           SET status = ?, stopped_at = ?, pending_approval = NULL,
               follow_up_claim_id = NULL, approval_resolution_id = NULL,
+              expiry_cleanup_id = NULL,
               generation = generation + 1,
               updated_at = ?
           WHERE id = ?
@@ -756,10 +812,12 @@ export async function markAgentHarnessSessionStoppedIfUnclaimed(
     sql: `UPDATE agent_harness_sessions
           SET status = ?, stopped_at = ?, pending_approval = NULL,
               follow_up_claim_id = NULL, approval_resolution_id = NULL,
+              expiry_cleanup_id = NULL,
               generation = generation + 1,
               updated_at = ?
           WHERE id = ? AND status = ? AND generation = ?
             AND follow_up_claim_id IS NULL
+            AND expiry_cleanup_id IS NULL
           RETURNING *`,
     args: [
       status,
@@ -787,6 +845,7 @@ function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
     workspaceRef: stringOrNull(record.workspace_ref),
     pendingApproval: parseJson(record.pending_approval),
     approvalResolutionId: stringOrNull(record.approval_resolution_id),
+    expiryCleanupId: stringOrNull(record.expiry_cleanup_id),
     resolvedApprovalIds: stringArray(record.resolved_approval_ids),
     ownerEmail: stringOrNull(record.owner_email),
     orgId: stringOrNull(record.org_id),

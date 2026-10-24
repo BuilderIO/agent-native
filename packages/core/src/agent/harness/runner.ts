@@ -30,6 +30,16 @@ import type {
 } from "./types.js";
 
 const APPROVAL_RESOLUTION_POLL_INTERVAL_MS = 500;
+const APPROVAL_RESOLUTION_TIMEOUT_MS = 30_000;
+
+export class AgentHarnessApprovalResolutionTimeoutError extends Error {
+  constructor(sessionId: string, approvalId: string) {
+    super(
+      `Harness approval ${approvalId} did not finish resolving before checkpointing session ${sessionId}.`,
+    );
+    this.name = "AgentHarnessApprovalResolutionTimeoutError";
+  }
+}
 
 export interface StartAgentHarnessRunOptions {
   runId: string;
@@ -185,6 +195,9 @@ export function startAgentHarnessRun(
                 storedSessionId,
                 harnessSession,
                 stored.resumeState,
+                undefined,
+                undefined,
+                true,
               );
               return;
             }
@@ -220,16 +233,24 @@ export function startAgentHarnessRun(
         }
 
         let resumeState: unknown = opts.createSession?.resumeState;
-        if (detachOnComplete && harnessSession.detach) {
-          resumeState = await harnessSession.detach();
-        }
         await persistHarnessCheckpoint(
           storedSessionId,
           harnessSession,
           resumeState,
           releaseLiveSessionBeforeCheckpoint,
+          detachOnComplete && harnessSession.detach
+            ? () => harnessSession!.detach!()
+            : undefined,
         );
       } catch (error) {
+        if (
+          error instanceof AgentHarnessApprovalResolutionTimeoutError ||
+          (error instanceof Error &&
+            error.name === "AgentHarnessApprovalResolutionTimeoutError")
+        ) {
+          keepLiveSession = true;
+          throw error;
+        }
         if (isAgentHarnessSessionConflictError(error)) {
           if (!harnessSessionRegistered) {
             await stopHarnessSession(harnessSession);
@@ -291,15 +312,12 @@ async function saveHarnessCheckpoint(
   detachOnComplete: boolean,
   beforeCheckpoint?: () => void,
 ): Promise<void> {
-  let nextResumeState = resumeState;
-  if (detachOnComplete && session.detach) {
-    nextResumeState = await session.detach();
-  }
   await persistHarnessCheckpoint(
     sessionId,
     session,
-    nextResumeState,
+    resumeState,
     beforeCheckpoint,
+    detachOnComplete && session.detach ? () => session.detach!() : undefined,
   );
 }
 
@@ -308,9 +326,14 @@ async function persistHarnessCheckpoint(
   session: AgentHarnessSession,
   resumeState: unknown,
   beforeCheckpoint?: () => void,
+  resolveResumeState?: () => Promise<unknown>,
+  preserveLatestResumeState = false,
 ): Promise<void> {
   let conflict: AgentHarnessSessionConflictError | undefined;
   let attempt = 0;
+  let waitedForApprovalResolution = false;
+  const approvalResolutionDeadline =
+    Date.now() + APPROVAL_RESOLUTION_TIMEOUT_MS;
   while (attempt < 3) {
     const stored = await getAgentHarnessSession(sessionId);
     if (
@@ -323,13 +346,30 @@ async function persistHarnessCheckpoint(
       return;
     }
     if (stored.approvalResolutionId) {
+      const remainingWait = approvalResolutionDeadline - Date.now();
+      if (remainingWait <= 0) {
+        throw new AgentHarnessApprovalResolutionTimeoutError(
+          sessionId,
+          stored.approvalResolutionId,
+        );
+      }
+      waitedForApprovalResolution = true;
       await new Promise((resolve) =>
-        setTimeout(resolve, APPROVAL_RESOLUTION_POLL_INTERVAL_MS),
+        setTimeout(
+          resolve,
+          Math.min(APPROVAL_RESOLUTION_POLL_INTERVAL_MS, remainingWait),
+        ),
       );
       continue;
     }
     const pendingApproval = checkpointPendingApproval(stored);
     try {
+      const checkpointResumeState =
+        waitedForApprovalResolution || preserveLatestResumeState
+          ? stored.resumeState
+          : resolveResumeState
+            ? await resolveResumeState()
+            : resumeState;
       beforeCheckpoint?.();
       const updated = await updateAgentHarnessSessionAtGeneration(
         sessionId,
@@ -337,7 +377,7 @@ async function persistHarnessCheckpoint(
         stored.generation,
         {
           status: "idle",
-          resumeState,
+          resumeState: checkpointResumeState,
           pendingApproval,
         },
         undefined,

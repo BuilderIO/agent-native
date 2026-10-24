@@ -34,6 +34,7 @@ vi.mock("../../db/client.js", () => ({
 
 const {
   claimAgentHarnessSessionFollowUp,
+  finishAgentHarnessSessionExpiryCleanup,
   getAgentHarnessSession,
   markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
@@ -393,6 +394,7 @@ describe("agent harness session store", () => {
         id,
         "idle",
         initial!.generation,
+        "cleanup-under-row-lock",
         () => {
           notifyStart();
         },
@@ -419,6 +421,64 @@ describe("agent harness session store", () => {
     }
   });
 
+  it("keeps follow-up claims fenced until expiry cleanup releases its reservation", async () => {
+    const id = "session-expiry-cleanup-reservation";
+    const cleanupId = "cleanup-expiry-reservation";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expiry-cleanup-reservation",
+      runId: "run-expiry-cleanup-reservation",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    let finishProviderCleanup!: () => void;
+    const providerCleanup = new Promise<void>((resolve) => {
+      finishProviderCleanup = resolve;
+    });
+    const cleanup = await startAgentHarnessSessionExpiryCleanup(
+      id,
+      "idle",
+      initial!.generation,
+      cleanupId,
+      () => providerCleanup,
+    );
+
+    expect(cleanup?.session.expiryCleanupId).toBe(cleanupId);
+    const reserved = await getAgentHarnessSession(id);
+    expect(reserved?.generation).toBe(initial!.generation + 1);
+    await expect(
+      claimAgentHarnessSessionFollowUp(
+        id,
+        reserved!.generation,
+        "follow-up-during-expiry-cleanup",
+      ),
+    ).resolves.toBeNull();
+
+    const finished = await finishAgentHarnessSessionExpiryCleanup(
+      id,
+      cleanupId,
+      cleanup!.session.generation,
+    );
+    expect(finished).toMatchObject({
+      expiryCleanupId: null,
+      generation: cleanup!.session.generation + 1,
+    });
+    await expect(
+      claimAgentHarnessSessionFollowUp(
+        id,
+        finished!.generation,
+        "follow-up-after-expiry-cleanup",
+      ),
+    ).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: "follow-up-after-expiry-cleanup",
+    });
+    finishProviderCleanup();
+  });
+
   it("does not start expiry cleanup after a follow-up claim wins", async () => {
     const id = "session-follow-up-wins-expiry-cleanup";
     await saveAgentHarnessSession({
@@ -443,6 +503,7 @@ describe("agent harness session store", () => {
         id,
         "running",
         claimed!.generation,
+        "cleanup-follow-up-wins",
         start,
       ),
     ).resolves.toBeNull();
@@ -513,6 +574,7 @@ describe("agent harness session store", () => {
         id,
         "idle",
         reserved!.generation,
+        "cleanup-approval-wins",
         start,
       ),
     ).resolves.toBeNull();

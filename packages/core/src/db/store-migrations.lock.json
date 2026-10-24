@@ -53,6 +53,10 @@
       "checksum": "11882889ef267cdb"
     },
     {
+      "name": "agent-harness-sessions-expiry-cleanup",
+      "checksum": "3313363904158445"
+    },
+    {
       "name": "agent-harness-sessions-follow-up-claim-id",
       "checksum": "80b46ffbdbf7f298"
     }

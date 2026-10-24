@@ -33,7 +33,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     'CREATE TABLE "agent_experiment_results" (\n  "id" text NOT NULL,\n  "experiment_id" text NOT NULL,\n  "variant_id" text NOT NULL,\n  "metric" text NOT NULL,\n  "value" real DEFAULT 0 NOT NULL,\n  "sample_size" bigint DEFAULT 0 NOT NULL,\n  "confidence_low" real DEFAULT 0 NOT NULL,\n  "confidence_high" real DEFAULT 0 NOT NULL,\n  "computed_at" bigint NOT NULL\n);',
     'CREATE TABLE "agent_experiments" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "status" text DEFAULT \'draft\'::text NOT NULL,\n  "variants" text DEFAULT \'[]\'::text NOT NULL,\n  "metrics" text DEFAULT \'[]\'::text NOT NULL,\n  "assignment_level" text DEFAULT \'user\'::text NOT NULL,\n  "started_at" bigint,\n  "ended_at" bigint,\n  "created_at" bigint NOT NULL,\n  "owner_email" text\n);',
     'CREATE TABLE "agent_feedback" (\n  "id" text NOT NULL,\n  "run_id" text,\n  "thread_id" text,\n  "message_seq" bigint,\n  "feedback_type" text NOT NULL,\n  "value" text DEFAULT \'\'::text NOT NULL,\n  "idempotency_key" text,\n  "user_id" text,\n  "org_id" text,\n  "source" text DEFAULT \'chat\'::text NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_harness_sessions" (\n  "id" text NOT NULL,\n  "harness_name" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "run_id" text,\n  "provider_session_id" text,\n  "status" text DEFAULT \'idle\'::text NOT NULL,\n  "resume_state" text,\n  "workspace_ref" text,\n  "pending_approval" text,\n  "approval_resolution_id" text,\n  "resolved_approval_ids" text,\n  "owner_email" text,\n  "org_id" text,\n  "generation" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "stopped_at" bigint,\n  "follow_up_claim_id" text\n);',
+    'CREATE TABLE "agent_harness_sessions" (\n  "id" text NOT NULL,\n  "harness_name" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "run_id" text,\n  "provider_session_id" text,\n  "status" text DEFAULT \'idle\'::text NOT NULL,\n  "resume_state" text,\n  "workspace_ref" text,\n  "pending_approval" text,\n  "approval_resolution_id" text,\n  "expiry_cleanup_id" text,\n  "resolved_approval_ids" text,\n  "owner_email" text,\n  "org_id" text,\n  "generation" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "stopped_at" bigint,\n  "follow_up_claim_id" text\n);',
     'CREATE TABLE "agent_human_review_summaries" (\n  "run_id" text NOT NULL,\n  "org_id" text NOT NULL,\n  "ask" text NOT NULL,\n  "outcome" text NOT NULL,\n  "artifacts" text DEFAULT \'[]\'::text NOT NULL,\n  "created_by" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
     'CREATE TABLE "agent_instruction_updates" (\n  "id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "thread_id" text,\n  "target" text NOT NULL,\n  "instruction" text NOT NULL,\n  "feedback" text DEFAULT \'\'::text NOT NULL,\n  "status" text DEFAULT \'draft\'::text NOT NULL,\n  "user_id" text NOT NULL,\n  "org_id" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
     'CREATE TABLE "agent_native_browser_session_requests" (\n  "owner_email" text NOT NULL,\n  "session_id" text NOT NULL,\n  "request_id" text NOT NULL,\n  "type" text NOT NULL,\n  "name" text,\n  "command" text,\n  "payload_json" text,\n  "status" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "claimed_at" bigint,\n  "completed_at" bigint,\n  "expires_at" bigint NOT NULL,\n  "result_json" text,\n  "error" text\n);',
@@ -820,6 +820,11 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
       "agent_harness_sessions",
       "agent-harness-sessions-base-table",
       "709f6e82e6323dcb",
+    ],
+    [
+      "agent_harness_sessions",
+      "agent-harness-sessions-expiry-cleanup",
+      "3313363904158445",
     ],
     [
       "agent_harness_sessions",

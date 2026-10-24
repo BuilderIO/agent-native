@@ -49,7 +49,8 @@ vi.mock("./store.js", () => ({
   markAgentHarnessSessionStopped: mocks.markAgentHarnessSessionStopped,
 }));
 
-const { startAgentHarnessRun } = await import("./runner.js");
+const { AgentHarnessApprovalResolutionTimeoutError, startAgentHarnessRun } =
+  await import("./runner.js");
 
 describe("startAgentHarnessRun", () => {
   beforeEach(() => {
@@ -551,6 +552,7 @@ describe("startAgentHarnessRun", () => {
       generation: 0,
       pendingApproval: null as unknown,
       approvalResolutionId: null as string | null,
+      resumeState: { token: "before-approval" } as unknown,
       resolvedApprovalIds: [] as string[],
     };
     mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
@@ -573,6 +575,7 @@ describe("startAgentHarnessRun", () => {
           ...persistedSession,
           pendingApproval: null,
           approvalResolutionId: null,
+          resumeState: { token: "after-approval" },
           resolvedApprovalIds: [approval.id],
           generation: persistedSession.generation + 1,
         };
@@ -622,7 +625,10 @@ describe("startAgentHarnessRun", () => {
       threadId: "thread-checkpoint-approval",
       adapter,
       input: { prompt: "work" },
-      createSession: { sessionId: "stored-checkpoint-approval" },
+      createSession: {
+        sessionId: "stored-checkpoint-approval",
+        resumeState: { token: "before-approval" },
+      },
     });
     await capturedRunFn?.(() => {}, new AbortController().signal);
 
@@ -649,6 +655,72 @@ describe("startAgentHarnessRun", () => {
         (call) => call[3]?.status === "idle",
       ),
     ).toBe(true);
+    const checkpointCall =
+      mocks.updateAgentHarnessSessionAtGeneration.mock.calls.find(
+        (call) => call[3]?.status === "idle",
+      );
+    expect(checkpointCall?.[3]?.resumeState).toEqual({
+      token: "after-approval",
+    });
+  });
+
+  it("surfaces a typed failure when approval resolution never clears", async () => {
+    vi.useFakeTimers();
+    try {
+      const session = fakeSession("native-stuck-approval", [
+        { type: "text-delta", text: "done" },
+      ]);
+      const adapter = fakeAdapter(session);
+      mocks.getAgentHarnessSession.mockResolvedValue({
+        status: "running",
+        generation: 0,
+        pendingApproval: null,
+        approvalResolutionId: "approval-stuck",
+        resolvedApprovalIds: [],
+      });
+      let capturedRunFn:
+        | ((
+            send: (event: AgentChatEvent) => void,
+            signal: AbortSignal,
+          ) => Promise<void>)
+        | undefined;
+      mocks.startRun.mockImplementation((_runId, _threadId, runFn) => {
+        capturedRunFn = runFn;
+        return {
+          runId: "run-stuck-approval",
+          threadId: "thread-stuck-approval",
+          turnId: "run-stuck-approval",
+          events: [],
+          status: "running",
+          subscribers: new Set(),
+          abort: new AbortController(),
+          startedAt: Date.now(),
+        };
+      });
+      startAgentHarnessRun({
+        runId: "run-stuck-approval",
+        threadId: "thread-stuck-approval",
+        adapter,
+        input: { prompt: "work" },
+        createSession: { sessionId: "stored-stuck-approval" },
+      });
+
+      const execution = capturedRunFn!(() => {}, new AbortController().signal);
+      const timedOut = expect(execution).rejects.toBeInstanceOf(
+        AgentHarnessApprovalResolutionTimeoutError,
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      await timedOut;
+      expect(session.detach).not.toHaveBeenCalled();
+      expect(session.stop).not.toHaveBeenCalled();
+      expect(mocks.updateAgentHarnessSession).not.toHaveBeenCalledWith(
+        "stored-stuck-approval",
+        expect.objectContaining({ status: "errored" }),
+      );
+      expect(mocks.liveSessions.has("stored-stuck-approval")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not restore idle after a stop wins the approval checkpoint race", async () => {
@@ -1000,6 +1072,7 @@ describe("startAgentHarnessRun", () => {
         pendingApproval: { id: "approval-checkpoint" },
         approvalResolutionId: sessionReads < 2 ? "approval-checkpoint" : null,
         resolvedApprovalIds: [],
+        resumeState: { token: sessionReads < 2 ? "before" : "after" },
       };
     });
     const session = fakeSession(
@@ -1049,12 +1122,15 @@ describe("startAgentHarnessRun", () => {
       beginChunk: () => turn.signal,
     });
 
-    expect(session.detach).toHaveBeenCalledOnce();
+    expect(session.detach).not.toHaveBeenCalled();
     expect(mocks.updateAgentHarnessSessionAtGeneration).toHaveBeenCalledWith(
       "stored-checkpoint-during-approval",
       "idle",
       4,
-      expect.objectContaining({ status: "idle" }),
+      expect.objectContaining({
+        status: "idle",
+        resumeState: { token: "after" },
+      }),
       undefined,
       true,
     );

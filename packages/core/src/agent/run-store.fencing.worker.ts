@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
 
 import postgres from "postgres";
@@ -279,6 +280,7 @@ async function main(): Promise<void> {
           threadId,
           expectedStatus,
           expectedGeneration,
+          randomUUID(),
           () => {
             writeSync(1, `${JSON.stringify({ cleanupStarted: true })}\n`);
             return true;
