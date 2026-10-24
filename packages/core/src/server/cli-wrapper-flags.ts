@@ -147,9 +147,11 @@ function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
 }
 
 /**
- * The options object an action module passes to `defineAction`, `"unknown"`
- * when the parser can't tell what they are, or null for a module that
- * defines no action.
+ * The options object passed to the `defineAction` call the module exports as
+ * its default (the export every action loader reads), `"unknown"` when the
+ * parser can't tell what they are, or null for a module that defines no
+ * action. A `defineAction` call that isn't the export proves nothing about
+ * the action that is.
  */
 function actionOptions(program: BabelNode): BabelNode | "unknown" | null {
   const names = new Set(["defineAction"]);
@@ -176,8 +178,7 @@ function actionOptions(program: BabelNode): BabelNode | "unknown" | null {
     }
   });
   const exported = exportedValue(program);
-  const call =
-    calls.length === 1 ? calls[0] : calls.find((c) => c === exported);
+  const call = calls.find((c) => c === exported);
   if (call) return unwrap(call.arguments[0]) ?? "unknown";
   if (calls.length > 0 || exported === "unknown") return "unknown";
   if (!exported || FUNCTIONS.has(exported.type)) return null;

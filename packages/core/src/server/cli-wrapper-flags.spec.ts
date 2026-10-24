@@ -68,6 +68,18 @@ describe("cliWrapperFlagsFromSource", () => {
         "export default createSendAction({ needsApproval: false });",
       ],
       ["a re-exported action", 'export { default } from "./send-base.js";'],
+      [
+        "a defineAction call that isn't the export",
+        "const helper = defineAction({ needsApproval: false });\nexport default createSendAction(helper);",
+      ],
+      [
+        "a defineAction call beside a re-export",
+        'defineAction({ needsApproval: false });\nexport { default } from "./send-base.js";',
+      ],
+      [
+        "an action wrapped by another helper",
+        "export default withLogging(defineAction({ needsApproval: false }));",
+      ],
       ["a source it can't parse", source("  needsApproval: false,,")],
     ] as const) {
       expect(cliWrapperFlagsFromSource(src), label).toEqual(hidden);
