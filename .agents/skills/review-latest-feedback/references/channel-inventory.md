@@ -89,11 +89,15 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   as `{ "channelId": "C...", "rootTs": "..." }` in
   `scope.authorizedRoots`. Repeat that exact request, the requested channel IDs,
   and the same root list in the separate orchestrator confirmation file. A
-  bounded authorization is expanded into its exact in-window root list. Pass
-  this confirmation as the checker's fourth input; without it, held roots stay
-  skipped. The checker verifies the copied request contains an explicit
-  authorization and that every listed root is a directly evidenced held report
-  in the requested window or linked by an in-window reply.
+  bounded time window or channel-level approval does not authorize its roots
+  automatically. Start the unquoted authorization statement with a direct,
+  unconditional grant that covers the full follow-up and names each exact
+  channel ID and root timestamp or Slack permalink.
+  Read-only, claim-only, or reply-only permission does not cover the full
+  operation. Pass this confirmation as the checker's fourth input; without it,
+  held roots stay skipped. Generic permission does not qualify.
+  The checker verifies every listed root is a directly evidenced held report in
+  the requested window or linked by an in-window reply.
 - Record the actual canonical Slack `channelName` in every channel row. Use
   that name only when validating Slack's echoed channel search query; the
   checker also accepts the exact channel ID and rejects any other name. Never
@@ -252,11 +256,14 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   otherwise contradict its reported root.
 - **Held thread:** If the exact root reaction read shows another actor owns any
   workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, hold the root
-  by default. A direct user instruction may authorize follow-ups or reactions
-  for an exact root or bounded sweep scope. Record the exact request and every
+  by default. A direct user instruction may authorize the full held-root
+  follow-up; its unquoted authorization statement must start with a direct,
+  unconditional grant that covers the full operation and names each exact
+  channel ID and root timestamp or Slack permalink. Read-only, claim-only, or
+  reply-only permission is insufficient. Record the exact request and every
   covered root in `scope.userRequest` and `scope.authorizedRoots`, then repeat
-  the same request and root list in the
-  separate orchestrator confirmation file. The checker matches both records,
+  the same request and root list in the separate orchestrator confirmation file.
+  The checker matches both records,
   verifies that each target is a held report root, and then requires the normal
   exact root, thread, reaction, claim, and current-status evidence. The checker
   cannot independently recover the original prompt; keep the copied request
@@ -342,10 +349,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   latter, record `personAssignedSkip.assigneeId` and the exact
   `assignmentTs`; the checker verifies that the complete thread read-back
   assigns the work to that Slack user and that this actor has no workflow claim
-  or reply. Explicit user authorization for an exact held root permits work
-  despite another actor's mark or this actor's `:mag:`; the separate confirmation
-  must match `scope.authorizedRoots`, and the checker requires the normal exact
-  root, thread, reaction, claim, and current-status evidence. The checker
+  or reply. A direct full-follow-up grant can cover exact held roots or a bounded
+  sweep whose roots are expanded in both authorization records; the checker
+  then requires normal exact-root, thread, reaction, claim, and current-status
+  evidence. The checker
   rejects an eligible open report without this claim and status. For every root
   already owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current
   status after the latest human reply; update it only when new human input,

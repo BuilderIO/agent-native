@@ -8,23 +8,23 @@ eligible owned root needs a current same-actor status after the latest human
 reply. Unowned canonical-linked `Clustered` roots and checker-verified
 `personAssignedSkip` roots stay unclaimed and receive no reply when this actor
 has no workflow mark; they are not eligible owned roots. “All Slack items
-replied to” means every root in the bounded inventory carrying this actor's
-`👀` has a current same-thread status after the latest human reply. Do not
-count `✅`-only or `🎫`-only roots as replied; reconcile those separately and
-report any gated skips.
+replied to” means every bounded-inventory root carrying this actor's `👀` has a
+current same-thread status after the latest human reply. Exclude `✅`-only and
+`🎫`-only roots from that reply count; reconcile them separately and report
+gated skips.
 A direct reaction read showing another actor's workflow mark or this actor's
-`:mag:` holds a root by default. A direct user instruction may authorize
-follow-ups and reactions for an exact root or bounded sweep scope. List every
-covered root separately in `scope.authorizedRoots` and the separate
-orchestrator confirmation; the checker matches both records and constrains
-them to the scanned window. For a bounded authorization, the request must
-explicitly cover the sweep's follow-ups and reaction work. Reconcile authorized
-roots through the normal full-thread, claim, and current-status checks. Without
-that checker-matched authorization, record the root and safe-skip reason. A
-root this actor already marked with `👀`, `✅`, or `🎫` always remains in the
-owned-root status gate, including when it is assigned, duplicate, or
-administrative. An unowned root held by another workflow or `:mag:` uses
-`ownershipSkip` until authorized.
+`:mag:` holds a root by default. A direct, unconditional user grant may
+authorize full follow-up and reaction work for exact roots or a bounded sweep.
+List each covered `{channelId, rootTs}` in both `scope.authorizedRoots` and the
+separate orchestrator confirmation; the checker constrains them to the scanned
+window. Reconcile authorized roots through the normal full-thread, claim, and
+current-status checks. Without that matching authorization, record the root
+and safe-skip reason, then do not read or write it. A root this actor already
+marked with `👀`, `✅`, or `🎫` always remains in the owned-root status gate,
+including when assigned, duplicate, or administrative. An unowned held root
+uses `ownershipSkip` until authorized. For an unauthorized root where this
+actor owns both `:mag:` and a workflow mark, use `mag_opt_out` and preserve the
+exact direct reaction-owner record as history without reading the thread.
 Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
@@ -217,7 +217,8 @@ person or team to act, even before ownership is assigned or accepted. Keep the
 mark as history after completion; read back each changed root reaction and
 verify its owner. Record why a mark is absent in the internal ledger. Never
 explain absent `👀` or `✅` in a Slack reply. Emoji text in a reply is not a
-reaction. Preserve every existing reaction. If later proof invalidates a prior
+reaction. Preserve accurate marks and correct this actor's stale or misapplied
+mark only after a fresh reaction read. If later proof invalidates a prior
 checkmark, move that scope out of active `fixedScopes[]` and add a
 `historicalReactionMarks[]` entry with `emoji`, `scope`, `reason`, and the exact
 prior `previousStatus`; keep the explanation in the internal ledger rather
@@ -228,7 +229,7 @@ in the internal ledger. Preserve the recorded evidence and historical action in
 the ledger; do not repeat a closed handoff in Slack unless a current action
 remains. When a recorded action has a validated `publicActionSummary`, it may
 be used for a current `🎫` summary. The checker validates it against the
-recorded action and captured thread; never remove or clean up a reaction.
+recorded action and captured thread; do not remove accurate historical marks.
 Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
 person has accepted it or an external tracker ticket exists. Record each such

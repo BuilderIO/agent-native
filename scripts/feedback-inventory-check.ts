@@ -877,32 +877,22 @@ function validateOwnershipSkipRecord(
 }
 
 function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
-  const assigneeMention = new RegExp("<@" + assigneeId + "(?:\\|[^>]+)?>");
-  return text.split(/[.!?;\n]+/).some((clause) => {
-    const mention = clause.match(assigneeMention);
-    if (!mention || mention.index === undefined) return false;
-    const beforeMention = clause.slice(0, mention.index);
-    const afterMention = clause.slice(mention.index + mention[0].length);
-    const assignsNamedPerson =
-      /\b(?:assign(?:s|ed|ing)?|designat(?:e|es|ed|ing))\b[^.!?;\n]{0,80}\b(?:to|for)\s*$/.test(
-        beforeMention,
-      ) ||
-      /^\s+(?:(?:is|was|has been)\s+)?(?:assigned|designated)\b/i.test(
-        afterMention,
-      ) ||
-      /^\s+(?:is|was)\s+(?:the\s+)?(?:assignee|owner)\b/i.test(afterMention) ||
-      /\b(?:this|it|the (?:issue|ticket|task|action|work|report))\s+(?:is|was)\s+yours\s*$/.test(
-        beforeMention,
-      ) ||
-      /\b(?:please\s+)?(?:take|own|handle|pick up|look at|review)\b[^.!?;\n]{0,60}\b(?:this|the (?:issue|ticket|task|action|work|report))\s*$/.test(
-        beforeMention,
+  const assigneeMention = `<@${assigneeId}(?:\\|[^>]+)?>`;
+  const reportSubject =
+    "(?:this|the)\\s+(?:report|issue|ticket|task|action|work|root|thread)";
+  return withoutQuotedScopeContext(text)
+    .split(/[.!?;\n]+/)
+    .some((clause) => {
+      const directAssignment = new RegExp(
+        `^\\s*(?:i|we)\\s+assigned\\s+${reportSubject}\\s+to\\s+${assigneeMention}\\s*$`,
+        "i",
       );
-    const deniesAssignment =
-      /\b(?:(?:not|never|no longer|is\s+not|was\s+not)\s+(?:assigned|designated|assign(?:ed)?|designat(?:e|ed))|(?:did|do|does|will|would|should|can|could|has|have)\s+not\s+(?:assign|designate))\b/i.test(
-        clause,
+      const passiveAssignment = new RegExp(
+        `^\\s*${reportSubject}\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+${assigneeMention}\\s*$`,
+        "i",
       );
-    return assignsNamedPerson && !deniesAssignment;
-  });
+      return directAssignment.test(clause) || passiveAssignment.test(clause);
+    });
 }
 
 function validatePersonAssignedSkipRecord(
@@ -5371,6 +5361,9 @@ function validateAuthorizedRootsDeclaration(
     );
   }
   if (entries.length === 0) return new Set();
+  const hasBoundedWriteAuthorization =
+    typeof scope.userRequest === "string" &&
+    hasExplicitWorkflowWriteAuthorization(scope.userRequest, []);
   if (
     typeof scope.userRequest !== "string" ||
     !scope.userRequest.trim() ||
@@ -5406,6 +5399,14 @@ function validateAuthorizedRootsDeclaration(
     if (rootKeys.has(key)) {
       throw new Error("scope.authorizedRoots cannot contain duplicate roots");
     }
+    if (
+      !hasBoundedWriteAuthorization &&
+      !userRequestAuthorizesExactRoot(scope.userRequest, entry)
+    ) {
+      throw new Error(
+        `scope.userRequest must explicitly authorize work on exact root ${entry.channelId} ${entry.rootTs}`,
+      );
+    }
     rootKeys.add(key);
   }
   validateOrchestratorScopeConfirmation(
@@ -5415,6 +5416,38 @@ function validateAuthorizedRootsDeclaration(
     entries,
   );
   return rootKeys;
+}
+
+function userRequestAuthorizesExactRoot(
+  userRequest: string,
+  root: AuthorizedRoot,
+): boolean {
+  const action =
+    "(?:(?:read|inspect)\\s+and\\s+)?(?:work(?:\\s+on)?|handle|reconcile|take over|follow up(?:\\s+with)?)";
+  const explicitAuthorization = new RegExp(
+    `^\\s*(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?${action}\\b`,
+    "i",
+  );
+  const grantedPermission = new RegExp(
+    `^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+${action}\\b|^\\s*(?:you may|you can|go ahead and)\\s+${action}\\b|^\\s*you have my permission to\\s+${action}\\b`,
+    "i",
+  );
+  const negationOrCondition =
+    /\b(?:not|never|unless|if|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't)\b/i;
+  const compactTs = root.rootTs.replace(".", "");
+  const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  if (negationOrCondition.test(unquotedRequest)) return false;
+
+  return unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/).some((statement) => {
+    const tokens = statement.match(/[A-Z0-9_]+/g) ?? [];
+    const timestamps = statement.match(/[0-9]+(?:\.[0-9]+)?/g) ?? [];
+    return (
+      (explicitAuthorization.test(statement) ||
+        grantedPermission.test(statement)) &&
+      tokens.includes(root.channelId) &&
+      (timestamps.includes(root.rootTs) || timestamps.includes(compactTs))
+    );
+  });
 }
 
 function validateAuthorizedRootTarget(
@@ -5458,6 +5491,7 @@ function withoutQuotedScopeContext(userRequest: string): string {
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`\n]*`/g, " ")
     .replace(/^\s*>[^\n]*$/gm, " ")
+    .replace(/(^|[\s([{=:,])'[^'\n]*'/gm, "$1 ")
     .replace(/"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)|‘[^’\n]*(?:’|$)/g, " ");
 }
 
@@ -17114,10 +17148,54 @@ if (args[0] === "--self-test" && args.length === 1) {
         ),
       "personAssignedSkip needs an exact root or latest human message assigning work",
     );
+    expectFocusedFailure(
+      "unrelated work cannot establish a report assignment",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned the API migration to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "the assigning actor is not the named assignee",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "<@UOTHER> assigned this report to <@USWEEPER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "future assignment wording is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I will assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "conditional assignment wording is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "If approved, I would assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
 
     const authorizedMagRoot = (() => {
       const userRequest =
-        "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to claim root 10.000000 and post its current status reply despite its :mag: hold.";
+        "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply despite its :mag: hold.";
       const inventory = structuredClone(valid);
       inventory.scope.userRequest = userRequest;
       inventory.scope.narrowingJudgment!.instruction = userRequest;
@@ -17141,6 +17219,13 @@ if (args[0] === "--self-test" && args.length === 1) {
       return inventory;
     })();
     validateTestInventory(authorizedMagRoot);
+    const directWorkAuthorization = structuredClone(authorizedMagRoot);
+    directWorkAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000, including the claim and same-thread status reply.";
+    directWorkAuthorization.scope.narrowingJudgment!.instruction =
+      directWorkAuthorization.scope.userRequest;
+    validateTestInventory(directWorkAuthorization);
+
     const deniedAuthorization = structuredClone(authorizedMagRoot);
     deniedAuthorization.scope.userRequest =
       "I do not authorize you to claim root 10.000000 or post its status reply despite its :mag: hold.";
@@ -17151,14 +17236,57 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(deniedAuthorization),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
     );
+    const incompleteAndConditionalAuthorizations = [
+      [
+        "read-only authorization cannot unlock held-root work",
+        "I authorize you to read Slack root C_TEST 10.000000.",
+      ],
+      [
+        "reply-only authorization cannot unlock held-root work",
+        "I authorize you to reply to Slack root C_TEST 10.000000.",
+      ],
+      [
+        "conditional work authorization cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 only if it is assigned to you.",
+      ],
+      [
+        "a later condition cannot qualify held-root authorization",
+        "I authorize you to work on Slack root C_TEST 10.000000. Only if it is assigned to you.",
+      ],
+      [
+        "negated conditional reply cannot authorize a held root",
+        "Do not reply unless you can reply in Slack root C_TEST 10.000000.",
+      ],
+    ] as const;
+    for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
+      const incompleteAuthorization = structuredClone(authorizedMagRoot);
+      incompleteAuthorization.scope.userRequest = userRequest;
+      incompleteAuthorization.scope.narrowingJudgment!.instruction =
+        userRequest;
+      expectFocusedFailure(
+        name,
+        () => validateTestInventory(incompleteAuthorization),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      );
+    }
+
     const quotedAuthorization = structuredClone(authorizedMagRoot);
     quotedAuthorization.scope.userRequest =
-      'The quoted text says "I authorize root 10.000000".';
+      "The quoted instruction was 'I authorize you to read and work on Slack root C_TEST 10.000000'.";
     quotedAuthorization.scope.narrowingJudgment!.instruction =
       quotedAuthorization.scope.userRequest;
     expectFocusedFailure(
-      "quoted authorization cannot authorize a held root",
+      "straight-single-quoted authorization cannot authorize a held root",
       () => validateTestInventory(quotedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    const authorizationForDifferentRoot = structuredClone(authorizedMagRoot);
+    authorizationForDifferentRoot.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "11.000000" },
+    ];
+    expectFocusedFailure(
+      "authorization for one exact root cannot unlock another",
+      () => validateTestInventory(authorizationForDifferentRoot),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
     );
     const readOnlyAuthorization = structuredClone(authorizedMagRoot);
