@@ -1,6 +1,11 @@
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import {
+  MAX_AWARENESS_CLIENT_SEQUENCE,
+  MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
+  MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS,
+} from "./awareness-sequence.js";
 import type { AwarenessRow } from "./awareness.js";
 
 const ROW_TTL_MS = 30_000;
@@ -42,6 +47,16 @@ export const collabAwarenessStore = defineStore({
         );
       },
     },
+    {
+      name: "client-sequence-raw",
+      run: async () => {
+        await ensureColumnExists(
+          "_collab_awareness",
+          "client_sequence_raw",
+          "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS client_sequence_raw BIGINT NOT NULL DEFAULT 0",
+        );
+      },
+    },
   ],
 });
 
@@ -50,7 +65,8 @@ export function ensureTable(): Promise<void> {
 }
 
 const _lastWrites = new Map<string, { state: string; writtenAt: number }>();
-const _lastPurges = new Map<string, number>();
+let _lastPurgeAt = 0;
+let _purgeInFlight: Promise<void> | undefined;
 
 function writeKey(docId: string, clientId: number): string {
   return `${docId}\0${clientId}`;
@@ -93,27 +109,84 @@ export async function writeAwarenessRow(
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  const isLegacyClockSequence = clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE;
+  if (
+    isLegacyClockSequence &&
+    clientSequence > (lastSeen + MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS) * 1_000
+  ) {
+    return false;
+  }
+  if (
+    !isLegacyClockSequence &&
+    clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+  ) {
+    const { rows } = await client.execute({
+      sql: `SELECT client_sequence, client_sequence_raw
+            FROM _collab_awareness
+            WHERE doc_id = ? AND client_id = ?`,
+      args: [docId, clientId],
+    });
+    if (rows.length === 0) return false;
+  }
+  const storedSequence = isLegacyClockSequence ? 1 : clientSequence;
   const { rows } = await client.execute({
     sql: `INSERT INTO _collab_awareness
-            (doc_id, client_id, state, last_seen, client_sequence, cleared)
-          VALUES (?, ?, ?, ?, ?, ?)
+            (doc_id, client_id, state, last_seen, client_sequence, cleared,
+             client_sequence_raw)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (doc_id, client_id)
           DO UPDATE SET
             state = EXCLUDED.state,
             last_seen = EXCLUDED.last_seen,
-            client_sequence = EXCLUDED.client_sequence,
+            client_sequence = CASE
+              WHEN EXCLUDED.client_sequence_raw > 0 THEN
+                CASE
+                  WHEN _collab_awareness.client_sequence >= ${MAX_AWARENESS_CLIENT_SEQUENCE}
+                    THEN 1
+                  ELSE _collab_awareness.client_sequence + 1
+                END
+              ELSE EXCLUDED.client_sequence
+            END,
+            client_sequence_raw = EXCLUDED.client_sequence_raw,
             cleared = EXCLUDED.cleared
-          WHERE EXCLUDED.client_sequence > _collab_awareness.client_sequence
-             OR (EXCLUDED.client_sequence = 0
+          WHERE (EXCLUDED.client_sequence_raw > 0
+                 AND (( _collab_awareness.client_sequence_raw > 0
+                        AND EXCLUDED.client_sequence_raw > _collab_awareness.client_sequence_raw)
+                   OR (_collab_awareness.client_sequence_raw = 0
+                       AND _collab_awareness.client_sequence > ${MAX_AWARENESS_CLIENT_SEQUENCE}
+                       AND EXCLUDED.client_sequence_raw > _collab_awareness.client_sequence)
+                   OR (_collab_awareness.client_sequence_raw = 0
+                       AND _collab_awareness.client_sequence = 0
+                       AND _collab_awareness.cleared = FALSE)))
+             OR (EXCLUDED.client_sequence_raw = 0
+                 AND EXCLUDED.client_sequence > 0
+                 AND _collab_awareness.cleared = FALSE
+                 AND (((_collab_awareness.client_sequence_raw > 0
+                        OR _collab_awareness.client_sequence > ${MAX_AWARENESS_CLIENT_SEQUENCE})
+                       AND EXCLUDED.client_sequence <= ${MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE})
+                   OR (_collab_awareness.client_sequence_raw = 0
+                       AND _collab_awareness.client_sequence <= ${MAX_AWARENESS_CLIENT_SEQUENCE}
+                       AND EXCLUDED.client_sequence > _collab_awareness.client_sequence
+                       AND EXCLUDED.client_sequence <= _collab_awareness.client_sequence + ${MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE})))
+             OR (EXCLUDED.client_sequence_raw = 0
+                 AND EXCLUDED.client_sequence = 0
                  AND _collab_awareness.client_sequence = 0
                  AND _collab_awareness.cleared = FALSE)
           RETURNING client_id`,
-    args: [docId, clientId, state, lastSeen, clientSequence, cleared],
+    args: [
+      docId,
+      clientId,
+      state,
+      lastSeen,
+      storedSequence,
+      cleared,
+      isLegacyClockSequence ? clientSequence : 0,
+    ],
   });
   const applied = rows.length > 0;
   if (applied) {
     _lastWrites.delete(writeKey(docId, clientId));
-    await maybePurge(docId, lastSeen);
+    await maybePurge(lastSeen);
   }
   return applied;
 }
@@ -152,6 +225,7 @@ export async function loadAwarenessRowsStrict(
   now: number = Date.now(),
 ): Promise<AwarenessRow[]> {
   await ensureTable();
+  await maybePurge(now);
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT client_id, state, last_seen, client_sequence, cleared
@@ -170,19 +244,48 @@ export async function loadAwarenessRowsStrict(
   }));
 }
 
-async function maybePurge(docId: string, now: number): Promise<void> {
-  const last = _lastPurges.get(docId) ?? 0;
-  if (now - last < PURGE_INTERVAL_MS) return;
-  _lastPurges.set(docId, now);
-  const client = getDbExec();
-  await client.execute({
-    sql: `DELETE FROM _collab_awareness WHERE doc_id = ? AND last_seen < ?`,
-    args: [docId, now - ROW_TTL_MS * 2],
+export async function loadAwarenessClientSequence(
+  docId: string,
+  clientId: number,
+): Promise<{ clientSequence: number; cleared: boolean } | undefined> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT client_sequence, cleared
+          FROM _collab_awareness
+          WHERE doc_id = ? AND client_id = ?`,
+    args: [docId, clientId],
   });
+  const row = rows[0] as
+    | { client_sequence?: unknown; cleared?: unknown }
+    | undefined;
+  if (!row) return undefined;
+  return {
+    clientSequence: Number(row.client_sequence ?? 0),
+    cleared: row.cleared === true,
+  };
+}
+
+async function maybePurge(now: number): Promise<void> {
+  if (now - _lastPurgeAt < PURGE_INTERVAL_MS) return;
+  if (_purgeInFlight) return _purgeInFlight;
+  const client = getDbExec();
+  _purgeInFlight = client
+    .execute({
+      sql: `DELETE FROM _collab_awareness WHERE last_seen < ?`,
+      args: [now - ROW_TTL_MS * 2],
+    })
+    .then(() => {
+      _lastPurgeAt = now;
+    })
+    .finally(() => {
+      _purgeInFlight = undefined;
+    });
+  await _purgeInFlight;
 }
 
 export function _resetAwarenessStoreForTests(): void {
   _lastWrites.clear();
-  _lastPurges.clear();
+  _lastPurgeAt = 0;
+  _purgeInFlight = undefined;
   collabAwarenessStore.reset();
 }

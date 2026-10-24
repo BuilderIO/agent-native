@@ -6,6 +6,9 @@ vi.mock("h3", () => ({
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
   },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    (event._headers ??= {})[name.toLowerCase()] = value;
+  },
 }));
 
 const mockReadBody = vi.fn();
@@ -126,6 +129,7 @@ describe("awareness scope retention", () => {
 
 describe("postAwareness handler", () => {
   afterEach(() => {
+    vi.useRealTimers();
     mockReadBody.mockReset();
     getDocAwareness("post-doc").clear();
   });
@@ -145,7 +149,7 @@ describe("postAwareness handler", () => {
     expect(res).toEqual({ error: "clientId and state required" });
   });
 
-  it("rejects a sequence too far ahead of server time", async () => {
+  it("rejects a client sequence beyond the allowed legacy clock skew", async () => {
     const map = getDocAwareness("post-doc");
     map.set(99, { clientId: 99, state: "peer-state", lastSeen: Date.now() });
     mockReadBody.mockResolvedValue({
@@ -160,6 +164,47 @@ describe("postAwareness handler", () => {
     expect(ev._status).toBe(400);
     expect(res).toEqual({ error: "invalid awareness state or clientSequence" });
     expect(map.get(99)?.state).toBe("peer-state");
+  });
+
+  it("accepts legacy wall-clock sequences with substantial clock skew", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mockReadBody.mockResolvedValue({
+      clientId: 6,
+      clientSequence: 2_000_000_000_000,
+      state: "client-state",
+    });
+
+    const ev = event({ docId: "post-doc" });
+    const res = await postAwareness(ev);
+
+    expect(ev._status).toBe(200);
+    expect(getDocAwareness("post-doc").get(6)?.state).toBe("client-state");
+    expect(res).toMatchObject({ states: [] });
+    vi.useRealTimers();
+  });
+
+  it("asks clients to resynchronize after a bounded sequence gap", async () => {
+    const docId = "post-doc-sequence-gap";
+    mockReadBody.mockResolvedValue({
+      clientId: 15,
+      clientSequence: 1,
+      state: "current-state",
+    });
+    await postAwareness(event({ docId }));
+
+    mockReadBody.mockResolvedValue({
+      clientId: 15,
+      clientSequence: 1 + 257,
+      state: "out-of-window-state",
+    });
+    const ev = event({ docId });
+    await postAwareness(ev);
+
+    expect(ev._status).toBe(409);
+    expect(ev._headers).toMatchObject({ "x-awareness-client-sequence": "1" });
+    expect(getDocAwareness(docId).get(15)?.state).toBe("current-state");
+    getDocAwareness(docId).clear();
   });
 
   it("stores the sender's state and returns only other clients' states", async () => {

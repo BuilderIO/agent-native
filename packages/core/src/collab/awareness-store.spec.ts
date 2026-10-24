@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  MAX_AWARENESS_CLIENT_SEQUENCE,
+  MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
+} from "./awareness-sequence.js";
+
 const dbRows = vi.hoisted(
   () =>
     new Map<
@@ -8,11 +13,13 @@ const dbRows = vi.hoisted(
         state: string;
         last_seen: number;
         client_sequence: number;
+        client_sequence_raw: number;
         cleared: boolean;
       }
     >(),
 );
 const dbAvailable = vi.hoisted(() => ({ value: true }));
+const purgeCalls = vi.hoisted(() => ({ count: 0 }));
 
 function rowKey(docId: string, clientId: number): string {
   return `${docId}|${clientId}`;
@@ -36,25 +43,82 @@ vi.mock("../db/client.js", async () => {
         /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\)/i.test(sql)
       ) {
         const key = rowKey(String(args[0]), Number(args[1]));
-        const clientSequence = Number(args[4]);
+        let clientSequence = Number(args[4]);
+        const rawSequence = Number(args[6]);
         const previous = dbRows.get(key);
-        if (
-          !previous ||
-          clientSequence > previous.client_sequence ||
-          (clientSequence === 0 &&
+        let applies = false;
+        if (!previous) {
+          applies =
+            rawSequence > 0 ||
+            clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE;
+        } else if (rawSequence > 0) {
+          applies =
+            previous.client_sequence_raw > 0
+              ? rawSequence > previous.client_sequence_raw
+              : previous.client_sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+                ? rawSequence > previous.client_sequence
+                : previous.client_sequence === 0 && !previous.cleared;
+          if (applies) {
+            clientSequence =
+              previous.client_sequence >= MAX_AWARENESS_CLIENT_SEQUENCE
+                ? 1
+                : previous.client_sequence + 1;
+          }
+        } else if (clientSequence > 0) {
+          applies =
+            !previous.cleared &&
+            (previous.client_sequence_raw > 0 ||
+            previous.client_sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+              ? clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+              : clientSequence > previous.client_sequence &&
+                clientSequence <=
+                  previous.client_sequence +
+                    MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE);
+        } else {
+          applies =
+            previous.client_sequence_raw === 0 &&
             previous.client_sequence === 0 &&
-            (!/AND _collab_awareness\.cleared\s*=\s*FALSE/i.test(sql) ||
-              !previous.cleared))
-        ) {
+            !previous.cleared;
+        }
+        if (applies) {
           dbRows.set(key, {
             state: String(args[2]),
             last_seen: Number(args[3]),
             client_sequence: clientSequence,
+            client_sequence_raw: rawSequence,
             cleared: Boolean(args[5]),
           });
           return { rows: [{ client_id: Number(args[1]) }], rowsAffected: 1 };
         }
         return { rows: [], rowsAffected: 0 };
+      }
+      if (/^\s*SELECT client_sequence, client_sequence_raw/i.test(sql)) {
+        const row = dbRows.get(rowKey(String(args[0]), Number(args[1])));
+        return {
+          rows: row
+            ? [
+                {
+                  client_sequence: row.client_sequence,
+                  client_sequence_raw: row.client_sequence_raw,
+                },
+              ]
+            : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/^\s*SELECT client_sequence, cleared/i.test(sql)) {
+        const row = dbRows.get(rowKey(String(args[0]), Number(args[1])));
+        return {
+          rows: row
+            ? [
+                {
+                  client_sequence: row.client_sequence,
+                  cleared: row.cleared,
+                },
+              ]
+            : [],
+          rowsAffected: 0,
+        };
       }
       if (/last_seen <= \?/i.test(sql)) {
         const key = rowKey(String(args[0]), Number(args[1]));
@@ -72,18 +136,10 @@ vi.mock("../db/client.js", async () => {
         dbRows.delete(rowKey(String(args[0]), Number(args[1])));
         return { rows: [], rowsAffected: 1 };
       }
-      if (
-        /^\s*DELETE FROM _collab_awareness WHERE doc_id = \? AND last_seen < \?/i.test(
-          sql,
-        )
-      ) {
+      if (/^\s*DELETE FROM _collab_awareness WHERE last_seen < \?/i.test(sql)) {
+        purgeCalls.count += 1;
         for (const [key, row] of dbRows) {
-          if (
-            key.startsWith(`${String(args[0])}|`) &&
-            row.last_seen < Number(args[1])
-          ) {
-            dbRows.delete(key);
-          }
+          if (row.last_seen < Number(args[0])) dbRows.delete(key);
         }
         return { rows: [], rowsAffected: 0 };
       }
@@ -143,6 +199,7 @@ import {
 beforeEach(() => {
   dbRows.clear();
   dbAvailable.value = true;
+  purgeCalls.count = 0;
   _resetAwarenessStoreForTests();
 });
 
@@ -170,6 +227,25 @@ describe("awareness-store", () => {
     await upsertAwarenessRow("doc-2", 2, "{}", 50_000);
     const rows = await loadAwarenessRows("doc-2", 60_000);
     expect(rows.map((r) => r.clientId)).toEqual([2]);
+  });
+
+  it("purges expired tombstones across documents on unrelated reads", async () => {
+    await writeAwarenessRow("abandoned-doc", 7, "", 1_000, 10, true);
+
+    await expect(
+      loadAwarenessRowsStrict("active-doc", 70_000),
+    ).resolves.toEqual([]);
+
+    expect(dbRows.has(rowKey("abandoned-doc", 7))).toBe(false);
+  });
+
+  it("shares a global purge across concurrent document reads", async () => {
+    await Promise.all([
+      loadAwarenessRowsStrict("doc-a", 70_000),
+      loadAwarenessRowsStrict("doc-b", 70_000),
+    ]);
+
+    expect(purgeCalls.count).toBe(1);
   });
 
   it("throttles unchanged rewrites within the window", async () => {
@@ -233,6 +309,152 @@ describe("awareness-store", () => {
       state: "",
       last_seen: 1_000,
       client_sequence: 0,
+      client_sequence_raw: 0,
+      cleared: true,
+    });
+  });
+
+  it("normalizes accepted legacy wall clocks before storing their sequence", async () => {
+    const legacyClock = 2_000_000_000_000;
+    await writeAwarenessRow(
+      "doc-clock-skew",
+      7,
+      "legacy-state",
+      1_000,
+      legacyClock,
+      false,
+    );
+
+    expect(dbRows.get(rowKey("doc-clock-skew", 7))).toMatchObject({
+      client_sequence: 1,
+      client_sequence_raw: legacyClock,
+      cleared: false,
+    });
+
+    await expect(
+      writeAwarenessRow("doc-clock-skew", 7, "new-state", 2_000, 1, false),
+    ).resolves.toBe(true);
+
+    expect(dbRows.get(rowKey("doc-clock-skew", 7))).toMatchObject({
+      state: "new-state",
+      client_sequence: 1,
+      client_sequence_raw: 0,
+    });
+
+    await expect(
+      writeAwarenessRow(
+        "doc-clock-skew",
+        7,
+        "stale-legacy-state",
+        3_000,
+        2_000_000_000_000,
+        false,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects a legacy clock far beyond the configured skew window", async () => {
+    await expect(
+      writeAwarenessRow(
+        "doc-clock-limit",
+        7,
+        "attacker-state",
+        1_000,
+        Number.MAX_SAFE_INTEGER,
+        false,
+      ),
+    ).resolves.toBe(false);
+
+    expect(dbRows.has(rowKey("doc-clock-limit", 7))).toBe(false);
+  });
+
+  it("caps first counter writes so a client cannot poison a client id", async () => {
+    await expect(
+      writeAwarenessRow(
+        "doc-sequence-cap",
+        7,
+        "attacker-state",
+        1_000,
+        MAX_AWARENESS_CLIENT_SEQUENCE,
+        false,
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      writeAwarenessRow("doc-sequence-cap", 7, "valid-state", 2_000, 1, false),
+    ).resolves.toBe(true);
+
+    expect(dbRows.get(rowKey("doc-sequence-cap", 7))).toMatchObject({
+      state: "valid-state",
+      client_sequence: 1,
+      client_sequence_raw: 0,
+    });
+  });
+
+  it("preserves legacy clock ordering around clear tombstones", async () => {
+    await writeAwarenessRow(
+      "doc-clock-tombstone",
+      7,
+      "",
+      1_000,
+      2_000_000_000_000,
+      true,
+    );
+
+    await expect(
+      writeAwarenessRow(
+        "doc-clock-tombstone",
+        7,
+        "stale-state",
+        2_000,
+        1_900_000_000_000,
+        false,
+      ),
+    ).resolves.toBe(false);
+
+    await expect(
+      writeAwarenessRow(
+        "doc-clock-tombstone",
+        7,
+        "fresh-state",
+        3_000,
+        2_100_000_000_000,
+        false,
+      ),
+    ).resolves.toBe(true);
+
+    expect(dbRows.get(rowKey("doc-clock-tombstone", 7))).toMatchObject({
+      state: "fresh-state",
+      client_sequence: 2,
+      client_sequence_raw: 2_100_000_000_000,
+      cleared: false,
+    });
+  });
+
+  it("does not let bounded writes replace legacy clear tombstones", async () => {
+    await writeAwarenessRow(
+      "doc-bounded-tombstone",
+      7,
+      "",
+      1_000,
+      2_000_000_000_000,
+      true,
+    );
+
+    await expect(
+      writeAwarenessRow(
+        "doc-bounded-tombstone",
+        7,
+        "stale-state",
+        2_000,
+        2,
+        false,
+      ),
+    ).resolves.toBe(false);
+
+    expect(dbRows.get(rowKey("doc-bounded-tombstone", 7))).toMatchObject({
+      state: "",
+      client_sequence_raw: 2_000_000_000_000,
       cleared: true,
     });
   });

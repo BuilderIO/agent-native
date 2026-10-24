@@ -16,7 +16,10 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
-import { postAwarenessState } from "./awareness-post.js";
+import {
+  forgetAwarenessClientSequence,
+  postAwarenessState,
+} from "./awareness-post.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
@@ -414,7 +417,21 @@ class CollabDocConnection {
         this.ydoc.clientID,
         null,
         true,
-      ).catch(() => {});
+      )
+        .catch(() => {})
+        .finally(() => {
+          forgetAwarenessClientSequence(
+            this.baseUrl,
+            this.docId,
+            this.ydoc.clientID,
+          );
+        });
+    } else {
+      forgetAwarenessClientSequence(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+      );
     }
     this.awareness.destroy();
     this.ydoc.destroy();

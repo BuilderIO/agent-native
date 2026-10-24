@@ -1,17 +1,30 @@
 import { EventEmitter } from "node:events";
 
-import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
+import {
+  defineEventHandler,
+  setResponseHeader,
+  setResponseStatus,
+  getRouterParam,
+} from "h3";
 import type { H3Event } from "h3";
 
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { loadAwarenessRows, writeAwarenessRow } from "./awareness-store.js";
+import {
+  MAX_AWARENESS_CLIENT_SEQUENCE,
+  MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
+  MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS,
+} from "./awareness-sequence.js";
+import {
+  loadAwarenessClientSequence,
+  loadAwarenessRows,
+  writeAwarenessRow,
+} from "./awareness-store.js";
 
 const AWARENESS_TIMEOUT = 30_000;
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 const AWARENESS_SCOPE_TIMEOUT = AWARENESS_TIMEOUT + 5_000;
 const MAX_AWARENESS_SCOPES = 10_000;
-const AWARENESS_SEQUENCE_CLOCK_SKEW_MS = 5_000;
 
 export interface AwarenessEntry {
   clientId: number;
@@ -229,7 +242,11 @@ async function mergeStoredAwareness(
         row.clientSequence > 0 ? row.clientSequence : undefined,
       );
       const existing = map.get(row.clientId);
-      if (existing && row.clientSequence >= (existing.clientSequence ?? 0)) {
+      if (
+        existing &&
+        ((existing.clientSequence ?? 0) > MAX_AWARENESS_CLIENT_SEQUENCE ||
+          row.clientSequence >= (existing.clientSequence ?? 0))
+      ) {
         map.delete(row.clientId);
       }
       continue;
@@ -247,8 +264,10 @@ async function mergeStoredAwareness(
       continue;
     }
     const existing = map.get(row.clientId);
+    const existingSequence = existing?.clientSequence ?? 0;
     if (
       !existing ||
+      existingSequence > MAX_AWARENESS_CLIENT_SEQUENCE ||
       rowSequence > (existing.clientSequence ?? 0) ||
       (rowSequence === (existing.clientSequence ?? 0) &&
         row.lastSeen > existing.lastSeen)
@@ -285,8 +304,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     (clientSequence !== undefined &&
       (!Number.isSafeInteger(clientSequence) ||
         clientSequence < 0 ||
-        clientSequence >
-          (Date.now() + AWARENESS_SEQUENCE_CLOCK_SKEW_MS) * 1_000))
+        (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE &&
+          clientSequence >
+            (Date.now() + MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS) * 1_000)))
   ) {
     setResponseStatus(event, 400);
     return { error: "invalid awareness state or clientSequence" };
@@ -294,7 +314,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   const sequence = clientSequence ?? 0;
   const lastSeen = Date.now();
-  await writeAwarenessRow(
+  const applied = await writeAwarenessRow(
     docId,
     clientId,
     state ?? "",
@@ -302,6 +322,25 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     sequence,
     state === null,
   );
+  if (
+    !applied &&
+    sequence > MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE &&
+    sequence <= MAX_AWARENESS_CLIENT_SEQUENCE
+  ) {
+    const current = await loadAwarenessClientSequence(docId, clientId);
+    if (
+      !current?.cleared &&
+      sequence >
+        (current?.clientSequence ?? 0) + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+    ) {
+      setResponseStatus(event, 409);
+      setResponseHeader(
+        event,
+        "x-awareness-client-sequence",
+        String(current?.clientSequence ?? 0),
+      );
+    }
+  }
 
   const map = getDocAwareness(docId);
   await mergeStoredAwareness(docId, map);

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { postAwarenessState } from "./awareness-post.js";
+import {
+  forgetAwarenessClientSequence,
+  postAwarenessState,
+} from "./awareness-post.js";
 
 describe("postAwarenessState", () => {
   afterEach(() => {
@@ -85,6 +88,80 @@ describe("postAwarenessState", () => {
     expect(requests[1].clientSequence).toBeLessThan(requests[2].clientSequence);
     expect(requests[1].state).toBe(JSON.stringify({ visible: false }));
     expect(requests[2].state).toBeNull();
+  });
+
+  it("uses a bounded monotonic counter instead of the wall clock", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000_000_000);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await postAwarenessState("/collab", "skewed-clock", 5, {
+      visible: true,
+    });
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(request.clientSequence).toBeLessThan(1_000_000);
+  });
+
+  it("resynchronizes a counter after the server rejects a sequence gap", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 409,
+          headers: { "x-awareness-client-sequence": "7" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await postAwarenessState("/collab", "sequence-recovery", 5, {
+      visible: true,
+    });
+    await postAwarenessState("/collab", "sequence-recovery", 5, {
+      visible: true,
+    });
+
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    expect(requests.map(({ clientSequence }) => clientSequence)).toEqual([
+      1, 8,
+    ]);
+  });
+
+  it("forgets per-document counters after in-flight posts finish", async () => {
+    let finishFirst!: (response: Response) => void;
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          finishFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = postAwarenessState("/collab", "sequence-cleanup", 5, {
+      visible: true,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    forgetAwarenessClientSequence("/collab", "sequence-cleanup", 5);
+    finishFirst(new Response(null, { status: 204 }));
+    await first;
+    await postAwarenessState("/collab", "sequence-cleanup", 5, {
+      visible: true,
+    });
+
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    expect(requests.map(({ clientSequence }) => clientSequence)).toEqual([
+      1, 1,
+    ]);
   });
 
   it("keeps the timeout active until the response body is consumed", async () => {
