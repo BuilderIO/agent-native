@@ -593,20 +593,12 @@ function matchesSlackMessageText(
   const appNotificationTail =
     /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i;
   const sourceNotificationTail = sourceText.match(appNotificationTail)?.[0];
-  const normalizedThread = threadText.replace(
-    /^I[’']m looking into this for you\r?\nCancel button\r?\n/i,
-    "",
-  );
-  // Slack search omits block-only bot replies; thread reads append this button label.
+  const normalizedThread = threadText
+    .replace(/^I[’']m looking into this for you\r?\nCancel button\r?\n/i, "")
+    .replace(/\r?\n?Open thread button\s*$/, "");
   if (
     sourceText.trim() === "" &&
-    /\nOpen thread button\s*$/.test(normalizedThread)
-  ) {
-    return true;
-  }
-  if (
-    sourceText.trim() === "" &&
-    /^New submission: Agent(?:-|\s)Native Feedback\r?\n\*What can we improve about Agent(?:-|\s)Native\?:\*[\s\S]*?\r?\nSubmitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>]+>/.test(
+    /^New submission: Agent(?:-|\s)Native Feedback\r?\n\*What can we improve about Agent(?:-|\s)Native\?:\*[\s\S]*?\r?\nSubmitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>]+>(?: by \*[^*\r\n]+\*)?$/.test(
       normalizedThread,
     )
   ) {
@@ -614,7 +606,7 @@ function matchesSlackMessageText(
   }
   if (
     sourceText.trim() === "" &&
-    /^New submission: [^\r\n]+\r?\n\*Email:\* <mailto:[^|>]+\|[^>]+>\r?\n\*App URL:\* <https:\/\/[^|>]+(?:\|[^>]+)?>\r?\n(?:\*[^*\r\n]+:\* [^\r\n]+\r?\n)*\*Source:\* [^\r\n]+\r?\n\*Use case:\* [^\r\n]+\r?\nSubmitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>]+>/.test(
+    /^New submission: [^\r\n]+\r?\n\*Email:\* <mailto:[^|>]+\|[^>]+>\r?\n\*App URL:\* <https:\/\/[^|>]+(?:\|[^>]+)?>\r?\n(?:\*[^*\r\n]+:\* [^\r\n]+\r?\n)*\*Source:\* [^\r\n]+\r?\n\*Use case:\* [^\r\n]+\r?\nSubmitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>]+>(?: by \*[^*\r\n]+\*)?$/.test(
       normalizedThread,
     )
   ) {
@@ -622,7 +614,7 @@ function matchesSlackMessageText(
   }
   if (
     sourceText.trim() === "" &&
-    /^\*<slack:\/\/user\?[^>]+\|@[^>]+> created a [A-Za-z]+ from this message\*\r?\n\*<https:\/\/[^/]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+[^|>]*\|[^>]+>\*\r?\nStatus: \*[^*\r\n]+\*/.test(
+    /^\*<slack:\/\/user\?[^>]+\|@[^>]+> created a [A-Za-z]+ from this message\*\r?\n\*<https:\/\/[^/]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+[^|>]*\|[^>]+>\*\r?\nStatus: \*[^*\r\n]+\*\r?\nType: \*[^*\r\n]+\*\r?\nAssignee: \*[^*\r\n]+\*$/.test(
       normalizedThread,
     )
   ) {
@@ -744,7 +736,7 @@ function matchesSlackMessageText(
     threadGroups.length !== sourceGroups.length ||
     sourceGroups.some(
       (group, index) =>
-        group[1] !== undefined &&
+        group[1] === undefined ||
         group[1].replace(/^@/, "").toLowerCase() !==
           threadGroups[index]![1]!.replace(/^@/, "").toLowerCase(),
     )
@@ -926,6 +918,7 @@ function validatePreservedAdministrativeEye(
   parent: Parent,
   sweepActorId: string,
   threadSnapshot: ThreadSnapshot | undefined,
+  requireFreshReads = false,
 ): boolean {
   const preservation = parent.preservedAdministrativeEye;
   if (!preservation) return false;
@@ -942,6 +935,20 @@ function validatePreservedAdministrativeEye(
   const reactionState = workflowReactionState(
     parent.reactionOwners,
     sweepActorId,
+  );
+  if (requireFreshReads && threadSnapshot) {
+    validateReadAt(
+      threadSnapshot.readAt,
+      `${parentName}.threadSnapshot.readAt`,
+      "read the complete Slack thread again before reconciling this retained 👀",
+    );
+  }
+  validateThreadSnapshotStructure(
+    parentName,
+    parent.ts,
+    threadSnapshot,
+    sweepActorId,
+    requireFreshReads,
   );
   const invalid: string[] = [];
   const require = (condition: unknown, label: string) => {
@@ -986,6 +993,18 @@ function validatePreservedAdministrativeEye(
       parent.ts, "full-thread read-back matches root");
   }
   require(Boolean(reply), "latest reply is in the full-thread read-back");
+  const latestSweepReply = threadSnapshot?.replies
+    .filter((candidate) => candidate.kind === "sweep")
+    .at(-1);
+  require(Boolean(latestSweepReply), "latest sweep reply recorded");
+  if (latestSweepReply && latestReply) {
+    require(latestSweepReply.ts ===
+      latestReply.ts, "latest sweep reply is current");
+    require(latestSweepReply.actorId ===
+      latestReply.actorId, "latest sweep actor matches");
+    require(latestSweepReply.text ===
+      latestReply.text, "latest sweep text matches");
+  }
   if (reply && latestReply) {
     require(reply.actorId === sweepActorId, "read-back actor matches");
     require(reply.kind === "sweep", "read-back identifies a sweep reply");
@@ -4541,6 +4560,7 @@ function validateSupplementalRootAudit(
     parent,
     sweepActorId,
     threadSnapshot,
+    requireFreshReads,
   );
   if (parent.rootClassification === "administrative" && hasOwnedReaction) {
     if (!preservesAdministrativeEye) {
@@ -6973,7 +6993,7 @@ function sourceTextMatchesCapturedSearch(
 ): boolean {
   if (parent.sourceText === capturedSearchText) {
     if (parent.sourceText.trim() !== "") return true;
-    if (parent.ownershipSkip) return true;
+    if (parent.ownershipSkip) return snapshot === undefined;
     const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
     return (
       typeof threadText === "string" &&
@@ -8423,6 +8443,7 @@ function validateInventory(
               parent,
               inventory.sweepActorId,
               threadSnapshot,
+              options.requireFreshReads === true,
             )
           : false;
         const historicalMarks = parent.historicalReactionMarks ?? [];
@@ -9019,6 +9040,7 @@ function validateInventory(
               rootAudit,
               inventory.sweepActorId,
               snapshot,
+              options.requireFreshReads === true,
             )
           ) {
             continue;
@@ -19005,6 +19027,69 @@ if (args[0] === "--self-test" && args.length === 1) {
         throw error;
       }
     }
+    const preservedAdministrativeSnapshot = withTestThreadSnapshots(
+      preservedAdministrativeEyeInventory,
+    ).channels[0]!.threadSnapshots!.find(
+      (snapshot) => snapshot.rootTs === "11.000000",
+    )!;
+    expectFocusedFailure(
+      "preserved administrative eye with an incomplete snapshot",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          preservedAdministrativeRoot,
+          "USWEEPER",
+          { ...preservedAdministrativeSnapshot, replyCount: 0 },
+        ),
+      "threadSnapshot must contain every reply reported by Slack",
+    );
+    const laterAdministrativeReply = {
+      ...preservedAdministrativeSnapshot.replies[0]!,
+      ts: "13.000000",
+      text: `${preservedAdministrativeStatus} A later reply follows.`,
+      workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a later sweep reply",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          preservedAdministrativeRoot,
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            readAt: "2030-01-01T00:00:02.000Z",
+            replyCount: preservedAdministrativeSnapshot.replyCount + 1,
+            replies: [
+              ...preservedAdministrativeSnapshot.replies.map((reply) => ({
+                ...reply,
+                workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+              })),
+              laterAdministrativeReply,
+            ],
+          },
+        ),
+      "latest sweep reply is current",
+    );
+    expectFocusedFailure(
+      "preserved administrative eye with a stale full-thread read",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          preservedAdministrativeRoot,
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            readAt: "2020-01-01T00:00:00.000Z",
+            replies: preservedAdministrativeSnapshot.replies.map((reply) => ({
+              ...reply,
+              workflowReactionReadAt: "2020-01-01T00:00:01.000Z",
+            })),
+          },
+          true,
+        ),
+      "is older than 15 minutes",
+    );
     const paginatedSummary = validateTestInventory({
       ...valid,
       channels: [
@@ -21355,6 +21440,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "*<slack://user?team=TFAKE&amp;id=UFAKE|@Example User> created a Bug from this message*\n*<https://example.atlassian.net/browse/ABC-123?atlOrigin=fake|ABC-123 [Example] Investigate issue>*\nStatus: *Open*\nType: *Bug*\nAssignee: *Unassigned*";
     const blockOnlyBotMessage =
       "A rendered bot response with complete content.\nOpen thread button";
+    const blockOnlyButtonFooter = "Open thread button";
     const blockOnlyIntakeForm =
       "New submission: Product waitlist\n*Email:* <mailto:person@example.com|person@example.com>\n*App URL:* <https://example.com/app>\n*Original request:* Publish the example design.\n*Source:* app_page\n*Use case:* publish\nSubmitted <!date^1792705000^{date_short_pretty} at {time}|2026-10-22T21:36:40.870Z>";
     const blockOnlyFeedbackSubmission =
@@ -21388,10 +21474,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         "The search checks <!subteam^S0FAKE0001|@demo-team> and <!subteam^S0FAKE0002|@example-crew> group mentions.",
         "The search checks demo-team handle and example-crew handle group mentions.",
       ) ||
-      !matchesSlackMessageText(
-        "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
-        "The search checks demo-team handle and example-crew handle group mentions.",
-      ) ||
       matchesSlackMessageText(
         "Status reply. this was sent from a bot.",
         "Status reply. this was sent from a bot.\n\n*Sent using* user text",
@@ -21403,6 +21485,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       matchesSlackMessageText(
         "The search checks <!subteam^S0FAKE0001|@demo-team> group mentions.",
         "The search checks example-crew handle group mentions.",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
+        "The search checks demo-team handle and example-crew handle group mentions.",
       ) ||
       matchesSlackMessageText(
         "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
@@ -21418,9 +21504,26 @@ if (args[0] === "--self-test" && args.length === 1) {
       ) ||
       !matchesSlackMessageText(appPreviewSearchText, appPreviewThreadText) ||
       !matchesSlackMessageText("", jiraExpandedPreview) ||
-      !matchesSlackMessageText("", blockOnlyBotMessage) ||
+      matchesSlackMessageText("", blockOnlyBotMessage) ||
+      !matchesSlackMessageText("", blockOnlyButtonFooter) ||
       !matchesSlackMessageText("", blockOnlyIntakeForm) ||
       !matchesSlackMessageText("", blockOnlyFeedbackSubmission) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyIntakeForm}\nUnrelated trailing content`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyFeedbackSubmission}\nUnrelated trailing content`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${jiraExpandedPreview}\nUnrelated trailing content`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `Unrelated leading content\n${jiraExpandedPreview}`,
+      ) ||
       matchesSlackMessageText(
         "",
         blockOnlyFeedbackSubmission.replace(
@@ -21487,10 +21590,15 @@ if (args[0] === "--self-test" && args.length === 1) {
         { ...heldBlankSearchSource, ownershipSkip: undefined },
         "",
         undefined,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        heldBlankSearchSource,
+        "",
+        ownedThreadSnapshot,
       )
     ) {
       throw new Error(
-        "Feedback inventory checker self-test failed to preserve an exact blank search result only for a held thread.",
+        "Feedback inventory checker self-test failed to preserve an exact blank search result only for a held thread without a snapshot.",
       );
     }
     const omittedJiraSearchSource: Parent = {
