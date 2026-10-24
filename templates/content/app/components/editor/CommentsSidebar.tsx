@@ -1397,6 +1397,8 @@ export function CommentsSidebar({
       ),
     );
   }, []);
+  const latestSelectionRef = useRef(selectedThreadId);
+  latestSelectionRef.current = selectedThreadId;
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectionRef.current;
@@ -2510,6 +2512,21 @@ export function CommentsSidebar({
   const stackGuideHeight =
     Math.max(...stackSpans.map((span) => span.bottom)) - 16 - stackGuideTop;
 
+  // Resolving the open thread closes its card; staying selected would keep it
+  // in the margin with no highlight to sit by. In an open stack the next
+  // thread opens in its place, so the stack stays open for the rest.
+  const closeResolvedThread = (threadId: string) => {
+    const members = expandedStack?.threads ?? [];
+    const index = members.findIndex((member) => member.threadId === threadId);
+    const rest = members.filter((member) => member.threadId !== threadId);
+    const next =
+      index >= 0 && rest.length >= 2
+        ? rest[Math.min(index, rest.length - 1)].threadId
+        : null;
+    setReplyingThreadId(null);
+    onSelectedThreadChange?.(next);
+    return next;
+  };
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
       !canResolve ||
@@ -2520,6 +2537,12 @@ export function CommentsSidebar({
       !startResolution(thread.threadId)
     )
       return;
+    const selectionAfterClose =
+      resolved &&
+      presentation === "inline" &&
+      thread.threadId === selectedThreadId
+        ? closeResolvedThread(thread.threadId)
+        : undefined;
     try {
       await resolveComment.mutateAsync({
         id: thread.comments[0].id,
@@ -2527,6 +2550,13 @@ export function CommentsSidebar({
         resolved,
       });
     } catch (error) {
+      // A failed resolve reopens the thread, so its card opens again too,
+      // unless another thread has been selected since.
+      if (
+        selectionAfterClose !== undefined &&
+        latestSelectionRef.current === selectionAfterClose
+      )
+        onSelectedThreadChange?.(thread.threadId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
