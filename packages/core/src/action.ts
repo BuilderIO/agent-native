@@ -1179,26 +1179,38 @@ export function defineAction(options: any) {
   };
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
   // action-heavy app's cold start, so convert only the schema the agent sees,
-  // and only when something first reads it. The getter is the one place that
-  // converts: it records the verdict against this `tool`, so readers of the
-  // verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  // and only when something first reads it. `convertedParameters` is the one
+  // place that converts: it records the verdict against this `tool`, so readers
+  // of the verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  let convertedParameters: () => ActionTool["parameters"] = () => undefined;
   if (hasSchema) {
     const agentSchema =
       options.agentInputSchema && "~standard" in options.agentInputSchema
         ? options.agentInputSchema
         : options.schema;
     let converted: ConvertedSchema | undefined;
+    convertedParameters = () => {
+      if (!converted) {
+        converted = schemaToJsonSchema(agentSchema, options.description);
+        if (converted.verdict) {
+          recordInputSchemaVerdict(tool, converted.verdict);
+        }
+      }
+      return converted.parameters;
+    };
     Object.defineProperty(tool, "parameters", {
       enumerable: true,
       configurable: true,
-      get() {
-        if (!converted) {
-          converted = schemaToJsonSchema(agentSchema, options.description);
-          if (converted.verdict) {
-            recordInputSchemaVerdict(tool, converted.verdict);
-          }
-        }
-        return converted.parameters;
+      get: convertedParameters,
+      // An assigned schema replaces what the agent sees, as it did when this
+      // was a plain property; validation keeps the converted one.
+      set(value: ActionTool["parameters"]) {
+        Object.defineProperty(tool, "parameters", {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       },
     });
   }
@@ -1362,7 +1374,7 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, () => tool.parameters)
+    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
     : classifiedRun;
 
   const uiOnly: boolean | undefined =

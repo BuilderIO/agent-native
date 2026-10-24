@@ -1535,6 +1535,33 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       /Expected: \{ title\*: string \}/,
     );
   });
+
+  it("takes assigned parameters before or after the first read, and validates with its own", async () => {
+    const replacement = {
+      type: "object" as const,
+      properties: { note: { type: "string" as const } },
+    };
+    const typed = () =>
+      defineAction({
+        description: "Typed",
+        schema: z.object({ title: z.string() }),
+        run: async () => "ok",
+      });
+
+    const unread = typed();
+    unread.tool.parameters = replacement;
+    const read = typed();
+    void read.tool.parameters;
+    Object.assign(read.tool, { parameters: replacement });
+
+    for (const action of [unread, read]) {
+      expect(action.tool.parameters).toBe(replacement);
+      expect({ ...action.tool }.parameters).toBe(replacement);
+      await expect(action.run({} as never)).rejects.toThrow(
+        /Expected: \{ title\*: string \}/,
+      );
+    }
+  });
 });
 
 describe("defineAction schema mode — agentInputSchema (advertised-only override)", () => {

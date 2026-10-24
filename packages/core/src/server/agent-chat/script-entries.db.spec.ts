@@ -2,9 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 const loads = vi.hoisted(() => ({ schema: 0, query: 0, exec: 0, patch: 0 }));
 const calls = vi.hoisted(() => [] as Array<[string, string[]]>);
+const failLoads = vi.hoisted(() => ({ exec: 0 }));
 
 function script(name: keyof typeof loads) {
   loads[name] += 1;
+  if (name === "exec" && failLoads.exec > 0) {
+    failLoads.exec -= 1;
+    throw new Error("exec failed to load");
+  }
   return {
     default: async (args: string[]) => {
       calls.push([name, args]);
@@ -43,6 +48,20 @@ describe("database script entries", () => {
       ["query", ["--sql", "select 1"]],
       ["query", ["--sql", "select 2"]],
     ]);
+  });
+
+  it("fails the call when a script's module fails to load, and retries the load next call", async () => {
+    const entries = await createDbScriptEntries("write");
+    failLoads.exec = 1;
+    calls.length = 0;
+
+    await expect(
+      entries["db-exec"]!.run({ sql: "update t set x = 1" }),
+    ).rejects.toThrow();
+    await expect(
+      entries["db-exec"]!.run({ sql: "update t set x = 1" }),
+    ).resolves.toBe("exec ran");
+    expect(calls).toEqual([["exec", ["--sql", "update t set x = 1"]]]);
   });
 
   it("keeps the write scripts out of read mode", async () => {

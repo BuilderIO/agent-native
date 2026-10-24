@@ -19,9 +19,16 @@ import {
   getRequestUserEmail,
 } from "../request-context.js";
 
+type CliMain = (args: string[]) => Promise<void>;
+
+/** A script whose module loads on its first call. */
+interface LazyCliMain {
+  load: () => Promise<CliMain>;
+}
+
 function wrapCliScript(
   tool: ActionTool,
-  cliDefault: (args: string[]) => Promise<void>,
+  cliDefault: CliMain | LazyCliMain,
   opts?: {
     allowedArgs?: readonly string[];
     readOnly?: boolean;
@@ -44,19 +51,32 @@ function wrapCliScript(
           throw new Error(`Unknown argument: ${k}`);
         }
       }
-      return captureCliOutput(() => cliDefault(serializeCliArgs(args)));
+      // Loaded before output capture, which turns a thrown error into the
+      // call's output: a module that fails to load fails the call.
+      const main =
+        typeof cliDefault === "function" ? cliDefault : await cliDefault.load();
+      return captureCliOutput(() => main(serializeCliArgs(args)));
     },
   };
 }
 
-// A script's module loads on its first call. Importing them while the entries
-// are built is mount-time work every cold instance pays on its first framework
-// request, whether or not it ever queries the database.
+// Importing the scripts while the entries are built is mount-time work every
+// cold instance pays on its first framework request, whether or not it ever
+// queries the database. A failed load isn't kept, so the next call retries it.
 function lazyCliDefault(
-  load: () => Promise<{ default: (args: string[]) => Promise<void> }>,
-): (args: string[]) => Promise<void> {
-  let loaded: ReturnType<typeof load> | undefined;
-  return async (args) => (await (loaded ??= load())).default(args);
+  load: () => Promise<{ default: CliMain }>,
+): LazyCliMain {
+  let loaded: Promise<CliMain> | undefined;
+  return {
+    load: () =>
+      (loaded ??= load().then(
+        (mod) => mod.default,
+        (error: unknown) => {
+          loaded = undefined;
+          throw error;
+        },
+      )),
+  };
 }
 
 export async function createDbScriptEntries(
