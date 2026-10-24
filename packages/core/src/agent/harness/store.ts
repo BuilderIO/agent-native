@@ -376,18 +376,21 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
         | Promise<Partial<Omit<SaveAgentHarnessSessionInput, "id">>>),
   options: {
     expectedApprovalResolutionId?: string | null;
+    allowCurrentApprovalResolution?: boolean;
     requiresNoApprovalResolution?: boolean;
   } = {},
 ): Promise<StoredAgentHarnessSession | null> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await getAgentHarnessSession(id);
+    const expectedApprovalResolutionId = options.allowCurrentApprovalResolution
+      ? (existing?.approvalResolutionId ?? null)
+      : (options.expectedApprovalResolutionId ?? null);
     if (
       !existing ||
       existing.status !== "running" ||
       existing.followUpClaimId !== claimId ||
       (options.requiresNoApprovalResolution && existing.approvalResolutionId) ||
-      existing.approvalResolutionId !==
-        (options.expectedApprovalResolutionId ?? null)
+      existing.approvalResolutionId !== expectedApprovalResolutionId
     ) {
       return null;
     }
@@ -430,8 +433,7 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
         expectedGeneration: existing.generation,
         expectedStatus: "running",
         expectedFollowUpClaimId: claimId,
-        expectedApprovalResolutionId:
-          options.expectedApprovalResolutionId ?? null,
+        expectedApprovalResolutionId,
         expectedExpiryCleanupId: null,
         requiresNoApprovalResolution: options.requiresNoApprovalResolution,
         existingSession: existing,

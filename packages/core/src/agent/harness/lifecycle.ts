@@ -621,6 +621,7 @@ export async function sendAgentHarnessFollowUp(input: {
           firstNext: dispatch.started.firstNext,
           iterator: dispatch.started.iterator,
           liveSession: acquired.live.session,
+          allowCurrentApprovalResolution: true,
           onAbortIteratorClose: (closePromise) => {
             iteratorClosePromise = closePromise;
             void closePromise.catch(() => {});
@@ -649,6 +650,7 @@ export async function sendAgentHarnessFollowUp(input: {
         let hasDetachedResumeState = false;
         finalizing = true;
         let updatedSession: StoredAgentHarnessSession | null = null;
+        let expectedApprovalResolutionId: string | null = null;
         for (
           let attempt = 0;
           attempt < MAX_FOLLOW_UP_FINALIZATION_ATTEMPTS;
@@ -674,7 +676,11 @@ export async function sendAgentHarnessFollowUp(input: {
                     ? persistedApproval
                     : undefined);
                 let resumeState = latest.resumeState ?? session.resumeState;
-                if (!pending && acquired.live.session.detach) {
+                if (
+                  !pending &&
+                  !latest.approvalResolutionId &&
+                  acquired.live.session.detach
+                ) {
                   if (!hasDetachedResumeState) {
                     detachedResumeState = await acquired.live.session.detach();
                     hasDetachedResumeState = true;
@@ -690,7 +696,11 @@ export async function sendAgentHarnessFollowUp(input: {
                   followUpClaimId: null,
                 };
               },
-              { requiresNoApprovalResolution: true },
+              {
+                expectedApprovalResolutionId,
+                requiresNoApprovalResolution:
+                  expectedApprovalResolutionId === null,
+              },
             );
             if (updatedSession) {
               refreshLiveAgentHarnessSessionGeneration(
@@ -698,6 +708,19 @@ export async function sendAgentHarnessFollowUp(input: {
                 acquired.live.session,
                 updatedSession.generation,
               );
+            }
+            if (!updatedSession) {
+              const latest = await getAgentHarnessSessionByRunId(input.runId);
+              if (
+                latest?.status === "running" &&
+                latest.followUpClaimId === claimId
+              ) {
+                expectedApprovalResolutionId =
+                  latest.approvalResolutionId ?? null;
+                if (attempt + 1 < MAX_FOLLOW_UP_FINALIZATION_ATTEMPTS) {
+                  continue;
+                }
+              }
             }
             break;
           } catch (error) {
@@ -1256,6 +1279,7 @@ async function consumeEvents(
     approvalResolutionStatus?: AgentHarnessSessionStatus;
     firstNext?: Promise<IteratorResult<AgentHarnessEvent>>;
     followUpClaimId?: string;
+    allowCurrentApprovalResolution?: boolean;
     iterator?: AsyncIterator<AgentHarnessEvent>;
     liveSession?: AgentHarnessSession;
     onAbortIteratorClose?: (closePromise: Promise<unknown>) => void;
@@ -1277,7 +1301,11 @@ async function consumeEvents(
               sessionId,
               options.followUpClaimId,
               { pendingApproval: event },
-              { expectedApprovalResolutionId: options.approvalResolutionId },
+              {
+                expectedApprovalResolutionId: options.approvalResolutionId,
+                allowCurrentApprovalResolution:
+                  options.allowCurrentApprovalResolution,
+              },
             )
           : options?.approvalResolutionId !== undefined
             ? await updateApprovalContinuationPending(

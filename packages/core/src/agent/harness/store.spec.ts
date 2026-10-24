@@ -647,6 +647,17 @@ describe("agent harness session store", () => {
       approvalResolutionId: approvalId,
     });
 
+    const currentResolution = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      claimId,
+      { pendingApproval: { type: "approval-request", id: "approval-next" } },
+      { allowCurrentApprovalResolution: true },
+    );
+    expect(currentResolution).toMatchObject({
+      pendingApproval: { id: "approval-next" },
+      approvalResolutionId: approvalId,
+    });
+
     let finalizeCalled = false;
 
     await expect(
@@ -666,8 +677,8 @@ describe("agent harness session store", () => {
       status: "running",
       followUpClaimId: claimId,
       approvalResolutionId: approvalId,
-      pendingApproval: { id: "approval-chained" },
-      generation: reserved!.generation + 1,
+      pendingApproval: { id: "approval-next" },
+      generation: reserved!.generation + 2,
     });
     expect(claimed).not.toBeNull();
   });

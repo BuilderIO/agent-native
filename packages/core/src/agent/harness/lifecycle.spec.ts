@@ -81,12 +81,15 @@ describe("agent harness lifecycle", () => {
       async (_id, expectedClaimId, patch, options) => {
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const current = stored;
+          const expectedApprovalResolutionId =
+            options?.allowCurrentApprovalResolution
+              ? current.approvalResolutionId
+              : (options?.expectedApprovalResolutionId ?? null);
           if (
             current.status !== "running" ||
             current.followUpClaimId !== expectedClaimId ||
             current.expiryCleanupId != null ||
-            current.approvalResolutionId !==
-              (options?.expectedApprovalResolutionId ?? null)
+            current.approvalResolutionId !== expectedApprovalResolutionId
           ) {
             return null;
           }
@@ -1002,6 +1005,49 @@ describe("agent harness lifecycle", () => {
       },
     });
     expect(session.detach).not.toHaveBeenCalled();
+  });
+
+  it("persists a chained approval while another approval resolution is reserved", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      stored = {
+        ...stored,
+        approvalResolutionId: "approval-in-flight",
+        generation: stored.generation + 1,
+      };
+      yield approvalEvent("approval-chained-after-resolution");
+      yield { type: "done" } as AgentHarnessEvent;
+    });
+    register(stored, session);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      session: {
+        status: "idle",
+        followUpClaimId: null,
+        approvalResolutionId: "approval-in-flight",
+        pendingApproval: { id: "approval-chained-after-resolution" },
+      },
+    });
+    expect(session.detach).not.toHaveBeenCalled();
+    expect(
+      mocks.updateIfFollowUpClaim.mock.calls.some(
+        (call) => call[3]?.allowCurrentApprovalResolution === true,
+      ),
+    ).toBe(true);
+    expect(
+      mocks.updateIfFollowUpClaim.mock.calls.some(
+        (call) =>
+          call[3]?.expectedApprovalResolutionId === "approval-in-flight" &&
+          call[3]?.requiresNoApprovalResolution === false,
+      ),
+    ).toBe(true);
   });
 
   it("does not restore a current approval resolved before finalization", async () => {
