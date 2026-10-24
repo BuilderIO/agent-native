@@ -1,6 +1,6 @@
 import { getUserSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -119,18 +119,66 @@ export async function readPersonalDatabaseViewOverrides(
   if (stored === null) return null;
   const parsed = personalViewOverridesSchema.safeParse(stored);
   if (parsed.success)
-    return normalizePersonalDatabaseViewOverrides(parsed.data);
+    return withoutDeletedPersonalViewProperties(
+      databaseId,
+      normalizePersonalDatabaseViewOverrides(parsed.data),
+    );
 
   legacyPersonalViewOverridesSchema.parse(stored);
   const [database] = await getDb()
     .select({ systemRole: schema.contentDatabases.systemRole })
     .from(schema.contentDatabases)
     .where(eq(schema.contentDatabases.id, databaseId));
-  return migratePersonalDatabaseViewOverrides(
+  const migrated = migratePersonalDatabaseViewOverrides(
     stored,
     databaseId,
     database?.systemRole ?? null,
   );
+  return migrated && withoutDeletedPersonalViewProperties(databaseId, migrated);
+}
+
+/**
+ * A sort or filter on a deleted property still applies, and the filter hides
+ * every row. Deleting a property cleans the shared views but can't rewrite
+ * every person's saved copy, so each personal view Content returns drops them.
+ */
+export async function withoutDeletedPersonalViewProperties<
+  Overrides extends {
+    views: Array<{ sorts: { key: string }[]; filters: { key: string }[] }>;
+  },
+>(databaseId: string, overrides: Overrides): Promise<Overrides> {
+  const propertyIds = new Set(
+    overrides.views.flatMap((view) =>
+      [...view.sorts, ...view.filters]
+        .map((entry) => entry.key)
+        .filter((key) => key !== "name"),
+    ),
+  );
+  if (propertyIds.size === 0) return overrides;
+  const existing = new Set(
+    (
+      await getDb()
+        .select({ id: schema.documentPropertyDefinitions.id })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            inArray(schema.documentPropertyDefinitions.id, [...propertyIds]),
+          ),
+        )
+    ).map((property) => property.id),
+  );
+  if ([...propertyIds].every((id) => existing.has(id))) return overrides;
+  const kept = (entry: { key: string }) =>
+    entry.key === "name" || existing.has(entry.key);
+  return {
+    ...overrides,
+    views: overrides.views.map((view) => ({
+      ...view,
+      sorts: view.sorts.filter(kept),
+      filters: view.filters.filter(kept),
+    })),
+  } as Overrides;
 }
 
 export function migratePersonalDatabaseViewOverrides(

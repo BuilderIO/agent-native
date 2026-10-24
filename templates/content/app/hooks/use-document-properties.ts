@@ -767,6 +767,14 @@ export function useDeleteDocumentProperty(
       void queryClient.invalidateQueries({
         ...contentDatabaseQueryFilter(databaseDocumentId),
       });
+      // The cached personal view can still sort or filter on the property.
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId },
+        ],
+      });
     },
   });
   return withDatabaseScope(mutation, databaseId);
