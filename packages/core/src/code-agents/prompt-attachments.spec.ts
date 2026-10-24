@@ -71,6 +71,20 @@ describe("formatPromptWithAttachments", () => {
     );
   });
 
+  it("says an empty file is empty instead of asking for a readable copy", () => {
+    const prompt = formatPromptWithAttachments("Edit this", [
+      {
+        name: "empty.svg",
+        text: "",
+        dataUrl: "data:image/svg+xml;base64,",
+      },
+    ]);
+
+    expect(prompt).toContain('<attached-file name="empty.svg">');
+    expect(prompt).toContain("[The attached file has no visible text.]");
+    expect(prompt).not.toContain("<attached-image");
+  });
+
   it("reports a file that is not UTF-8 as an attached-file error", () => {
     expect(
       formatPromptWithAttachments("Use this", [

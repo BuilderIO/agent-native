@@ -37,6 +37,22 @@ describe("normalizeCodeAgentPromptAttachments", () => {
     ]);
   });
 
+  it("keeps file text verbatim, including an empty SVG's", () => {
+    expect(
+      normalizeCodeAgentPromptAttachments([
+        {
+          name: "empty.svg",
+          text: "",
+          dataUrl: "data:image/svg+xml;base64,",
+        },
+        { name: "notes.md", text: "  indented\n" },
+      ]),
+    ).toEqual([
+      { name: "empty.svg", text: "", dataUrl: "data:image/svg+xml;base64," },
+      { name: "notes.md", text: "  indented\n" },
+    ]);
+  });
+
   it("drops values the formatter does not understand", () => {
     expect(
       normalizeCodeAgentPromptAttachments([

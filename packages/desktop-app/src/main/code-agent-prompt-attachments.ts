@@ -35,11 +35,13 @@ export function normalizeCodeAgentPromptAttachments(
       const totalChars = item.totalChars;
       const attachment: CodeAgentPromptAttachment = { name };
       const type = trimmedString(item.type);
-      const text = trimmedString(item.text);
+
       const dataUrl = trimmedString(item.dataUrl);
       if (type) attachment.type = type;
       if (Number.isFinite(size) && size >= 0) attachment.size = size;
-      if (text) attachment.text = text;
+      // File text is content, not a label: keep it verbatim, even empty, so
+      // an empty SVG with a data URL is still read as text, not an image.
+      if (typeof item.text === "string") attachment.text = item.text;
       if (
         typeof totalChars === "number" &&
         Number.isInteger(totalChars) &&

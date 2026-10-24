@@ -68,7 +68,10 @@ function budgetAttachedFileText(
   const shown = text.slice(0, shownChars);
   if (!text.trim()) {
     return {
-      body: "Selected in the UI. If this file is needed, inspect it from the workspace or ask for a readable copy.",
+      body:
+        attachment.text === undefined
+          ? "Selected in the UI. If this file is needed, inspect it from the workspace or ask for a readable copy."
+          : "[The attached file has no visible text.]",
       usedChars: 0,
     };
   }

@@ -545,7 +545,9 @@ export function describeOwnedFileReadFailure(
     case "response-rejected":
       return "the storage provider rejected the file request";
     case "file-too-large":
-      return `the file exceeds the ${formatBase64CharBudget(MAX_INLINE_FILE_BASE64_CHARS)} inline reading limit`;
+      // One code covers both caps, so name both rather than the one that
+      // happens to apply to PDFs.
+      return `the file exceeds its reading limit (${(MAX_OWNED_TEXT_FILE_BYTES / (1024 * 1024)).toFixed(1)} MB for text and SVG files, ${formatBase64CharBudget(MAX_INLINE_FILE_BASE64_CHARS)} for PDFs and spreadsheets)`;
     case "request-candidate-limit":
       return "the request reached its limit for checking attachment storage URLs";
     case "request-byte-limit":
