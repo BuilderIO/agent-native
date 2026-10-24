@@ -59,6 +59,7 @@ export function useClipPlayback(
   const { refetch } = query;
   const [held, setHeld] = useState<ClipPlayback | null>(null);
   const [failure, setFailure] = useState<ClipPlayerError | null>(null);
+  const [retrying, setRetrying] = useState(false);
   // The source a media error already refreshed to; failing again is final.
   const refreshedAfterErrorTo = useRef<string | null | undefined>(undefined);
 
@@ -104,13 +105,18 @@ export function useClipPlayback(
     void refresh(true);
   }, [refresh, videoUrl]);
 
+  // The query keeps the answer a failed refetch replaced, so a retry plays
+  // only what its own refetch returns. The failure it is retrying stays set
+  // until then, which keeps the expiry timer from refetching alongside it.
   const retry = useCallback(() => {
     refreshedAfterErrorTo.current = undefined;
-    setFailure(null);
-    setHeld(null);
-    void refetch();
-  }, [refetch]);
+    setRetrying(true);
+    void refresh(false).finally(() => setRetrying(false));
+  }, [refresh]);
 
+  if (retrying) {
+    return { grant: null, loading: true, error: null, onMediaError, retry };
+  }
   const loadError =
     !grant && query.isError ? (errorCodeOf(query.error) ?? "failed") : null;
   return {
@@ -126,7 +132,8 @@ export type ClipMarkersState =
   | { status: "loading" }
   | { status: "ready"; markers: ClipCommentMarker[] }
   | { status: "off" }
-  | { status: "failed" };
+  /** Markers from an earlier answer may still be there to show. */
+  | { status: "failed"; markers: ClipCommentMarker[] };
 
 /** The Clip's comment threads for the scrubber, when its comments are on. */
 export function useClipMarkers(
@@ -145,12 +152,13 @@ export function useClipMarkers(
     },
   );
   if (!commentsOn) return { status: "off" };
-  if (query.data) return { status: "ready", markers: query.data.markers };
+  // A failed refetch keeps the earlier answer's data, so check the error first.
   if (query.isError) {
     // Comments turned off after the grant was issued: same as off.
     return errorCodeOf(query.error) === "clip_comments_disabled"
       ? { status: "off" }
-      : { status: "failed" };
+      : { status: "failed", markers: query.data?.markers ?? [] };
   }
+  if (query.data) return { status: "ready", markers: query.data.markers };
   return { status: "loading" };
 }

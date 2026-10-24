@@ -206,17 +206,58 @@ describe("useClipPlayback", () => {
     });
   });
 
-  it("starts over on retry", async () => {
-    playbackQuery().refetch.mockResolvedValue({
-      isError: true,
-      error: new Error("down"),
-    });
+  it("plays the grant a retry brings back, not the one that failed", async () => {
+    let answer!: (result: unknown) => void;
+    playbackQuery()
+      .refetch.mockResolvedValueOnce({
+        isError: true,
+        error: new Error("down"),
+      })
+      .mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
     render();
     await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
     expect(latest?.error).toBe("refresh_failed");
 
     act(() => latest!.retry());
+    expect(latest).toMatchObject({ grant: null, loading: true, error: null });
+    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
+
+    await act(async () => answer({ isError: false, data: grant(2) }));
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
+    expect(latest?.error).toBeNull();
+  });
+
+  it("keeps showing a retry that fails again", async () => {
+    playbackQuery()
+      .refetch.mockResolvedValueOnce({
+        isError: true,
+        error: new Error("down"),
+      })
+      .mockResolvedValueOnce({
+        isError: true,
+        error: Object.assign(new Error("down"), {
+          errorCode: "clips_unreachable",
+        }),
+      });
+    render();
+    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
+
+    await act(async () => latest!.retry());
+    expect(latest?.error).toBe("clips_unreachable");
+  });
+
+  it("gives a source that failed after a refresh another chance on retry", async () => {
+    playbackQuery()
+      .refetch.mockResolvedValueOnce({ isError: false, data: grant(2) })
+      .mockResolvedValueOnce({ isError: false, data: grant(3) });
+    render();
+    await act(async () => latest!.onMediaError());
+    await act(async () => latest!.onMediaError());
+    expect(latest?.error).toBe("unplayable");
+
+    await act(async () => latest!.retry());
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(3).playback.videoUrl);
     expect(latest?.error).toBeNull();
   });
 
@@ -267,10 +308,25 @@ describe("useClipMarkers", () => {
       }),
     };
     render();
-    expect(latestMarkers).toEqual({ status: "failed" });
+    expect(latestMarkers).toEqual({ status: "failed", markers: [] });
 
     queries.byName["list-clip-comments"] = fakeQuery();
     render();
     expect(latestMarkers).toEqual({ status: "loading" });
+  });
+
+  it("reports a failed refetch while keeping the markers it already had", () => {
+    const markers = [
+      { id: "c1", videoTimestampMs: 4_000, content: "Hi", authorName: "Ada" },
+    ];
+    queries.byName["list-clip-comments"] = {
+      ...fakeQuery({ markers }),
+      isError: true,
+      error: Object.assign(new Error("down"), {
+        errorCode: "clips_unreachable",
+      }),
+    };
+    render();
+    expect(latestMarkers).toEqual({ status: "failed", markers });
   });
 });

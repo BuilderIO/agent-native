@@ -3,12 +3,12 @@ import { isClipRecordingId } from "./clip-embed-block";
 /**
  * What the video block's Link tab does with a pasted link. Content never
  * fetches the link from its server to decide: a Clips link is recognized by
- * its origin and route, a video page by its host, a video file by its
- * extension, and anything else is loaded by the reader's own browser.
+ * its origin and route, a video page by its host, and anything else is
+ * loaded by the reader's own browser. A file name proves nothing: a link
+ * ending in .mp4 can still answer with a sign-in page.
  */
 export type VideoLinkVerdict =
   | { kind: "clip"; recordingId: string }
-  | { kind: "video" }
   | { kind: "probe" }
   | {
       kind: "refused";
@@ -51,8 +51,6 @@ const VIDEO_PAGE_HOSTS = [
   "tiktok.com",
   "wistia.com",
 ];
-
-const VIDEO_FILE_EXTENSION = /\.(mp4|m4v|webm|mov|ogv|ogg)$/i;
 
 function parseHttpUrl(input: string): URL | null {
   const trimmed = input.trim();
@@ -116,7 +114,6 @@ export function classifyVideoLink(
   if (isVideoPageHost(url.hostname)) {
     return { kind: "refused", reason: "video-page" };
   }
-  if (VIDEO_FILE_EXTENSION.test(url.pathname)) return { kind: "video" };
   return { kind: "probe" };
 }
 
@@ -133,8 +130,6 @@ export async function resolveVideoLink(
     case "clip":
     case "refused":
       return verdict;
-    case "video":
-      return { kind: "video", src };
     case "probe":
       return (await options.probe(src))
         ? { kind: "video", src }

@@ -80,20 +80,14 @@ describe("classifyVideoLink", () => {
     }
   });
 
-  it("accepts a link to a video file without checking it", () => {
+  it("asks the browser about any other http link, video file names included", () => {
     for (const link of [
+      "https://example.com/watch/42",
       "https://cdn.example.com/a/demo.mp4",
       "https://cdn.example.com/a/demo.WEBM?sig=1",
-      "https://cdn.example.com/a/demo.mov",
     ]) {
-      expect(classifyVideoLink(link, off)).toEqual({ kind: "video" });
+      expect(classifyVideoLink(link, off)).toEqual({ kind: "probe" });
     }
-  });
-
-  it("asks the browser about any other http link", () => {
-    expect(classifyVideoLink("https://example.com/watch/42", off)).toEqual({
-      kind: "probe",
-    });
   });
 
   it("refuses what isn't an http link", () => {
@@ -140,7 +134,20 @@ describe("resolveVideoLink", () => {
     ).resolves.toEqual({ kind: "refused", reason: "not-video" });
   });
 
-  it("never asks the browser about a Clip, a video page or a video file", async () => {
+  it("refuses a video file name that doesn't load as a video", async () => {
+    const probe = vi.fn().mockResolvedValue(false);
+    await expect(
+      resolveVideoLink("https://example.com/blog/not-a-video.mp4", {
+        ...on,
+        probe,
+      }),
+    ).resolves.toEqual({ kind: "refused", reason: "not-video" });
+    expect(probe).toHaveBeenCalledWith(
+      "https://example.com/blog/not-a-video.mp4",
+    );
+  });
+
+  it("never asks the browser about a Clip or a video page", async () => {
     const probe = vi.fn().mockResolvedValue(true);
     await expect(
       resolveVideoLink("https://clips.agent-native.com/r/rec_1", {
@@ -151,9 +158,6 @@ describe("resolveVideoLink", () => {
     await expect(
       resolveVideoLink("https://youtu.be/jNQXAC9IVRw", { ...on, probe }),
     ).resolves.toEqual({ kind: "refused", reason: "video-page" });
-    await expect(
-      resolveVideoLink("https://cdn.example.com/a.mp4", { ...on, probe }),
-    ).resolves.toEqual({ kind: "video", src: "https://cdn.example.com/a.mp4" });
     expect(probe).not.toHaveBeenCalled();
   });
 });

@@ -234,7 +234,7 @@ export function ClipEmbed({
     <ClipFrame recordingId={recordingId}>
       <ClipPlayer
         grant={grant}
-        markers={markers.status === "ready" ? markers.markers : []}
+        markers={"markers" in markers ? markers.markers : []}
         onMediaError={playback.onMediaError}
       />
       <ClipCaption

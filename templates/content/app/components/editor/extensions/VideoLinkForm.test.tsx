@@ -130,12 +130,13 @@ describe("VideoLinkForm", () => {
     expect(refusal()).toBe("clipEmbed.linkNotVideo");
   });
 
-  it("embeds a video file, and a link the browser plays", async () => {
+  it("embeds only a link the browser plays, whatever its file name", async () => {
     await submit("https://cdn.example.test/demo.mp4");
-    expect(onVideo).toHaveBeenLastCalledWith(
+    expect(state.probe).toHaveBeenCalledWith(
       "https://cdn.example.test/demo.mp4",
     );
-    expect(state.probe).not.toHaveBeenCalled();
+    expect(refusal()).toBe("clipEmbed.linkNotVideo");
+    expect(onVideo).not.toHaveBeenCalled();
 
     state.probe.mockResolvedValue(true);
     await submit("https://cdn.example.test/stream?id=7");

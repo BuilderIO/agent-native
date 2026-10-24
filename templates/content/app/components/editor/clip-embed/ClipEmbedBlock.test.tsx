@@ -186,6 +186,18 @@ describe("ClipEmbed", () => {
     expect(container.textContent).toContain("clipEmbed.commentsFailed");
   });
 
+  it("keeps the markers it had when a later comment read fails, and says so", () => {
+    queries.byName["list-clip-comments"] = fakeQuery(
+      { markers },
+      refusal("clips_unreachable"),
+    );
+    render();
+    expect(
+      container.querySelectorAll("[data-player-comment-marker]"),
+    ).toHaveLength(2);
+    expect(container.textContent).toContain("clipEmbed.commentsFailed");
+  });
+
   it.each([
     ["clips_not_configured", "clipEmbed.notConfigured"],
     ["clip_not_found", "clipEmbed.notFound"],
