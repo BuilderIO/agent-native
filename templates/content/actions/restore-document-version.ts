@@ -555,7 +555,7 @@ export default defineAction({
           and(
             eq(schema.documents.id, documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.updatedAt, preparedUpdatedAt),
+            eq(schema.documents.updatedAt, expectedUpdatedAt),
           ),
         )
         .returning();

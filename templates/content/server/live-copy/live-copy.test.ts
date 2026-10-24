@@ -3026,6 +3026,72 @@ describe("a version restore on a switched page", () => {
     });
   });
 
+  it("restores through main's path when the flags go off after its tab's title save and an editor saves the body during main's flush", async () => {
+    await switchedPage("restore-tab-dirty", "First draft");
+    await serverEdit("restore-tab-dirty", "Second draft");
+    const versionId = await versionHolding("restore-tab-dirty", "First draft");
+    const before = await metadata("restore-tab-dirty");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-dirty", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-dirty", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-tab-dirty"));
+        await getDbExec().execute({
+          sql: "DELETE FROM _collab_awareness WHERE doc_id = ?",
+          args: ["restore-tab-dirty"],
+        });
+        await setFlags(false);
+      },
+    });
+    beforeEditorFlush.current = async () => {
+      const [row] = await getDb()
+        .select({
+          bodyRevision: schema.documents.bodyRevision,
+          updatedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "restore-tab-dirty"));
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: "Unsaved draft",
+          bodyRevision: row.bodyRevision + 1,
+          updatedAt: new Date(Date.parse(row.updatedAt) + 1_000).toISOString(),
+        })
+        .where(eq(schema.documents.id, "restore-tab-dirty"));
+    };
+
+    try {
+      const restored = await restore(
+        "restore-tab-dirty",
+        versionId,
+        before.updatedAt,
+      );
+
+      await answered;
+      expect(restored).toMatchObject({ content: "First draft" });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect((await page("restore-tab-dirty")).content).toBe("First draft");
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-tab-dirty"));
+    expect(versions).toContainEqual({
+      title: "Tab title",
+      content: "Unsaved draft",
+    });
+  });
+
   it("refuses a restore whose tab couldn't save its title, and changes nothing", async () => {
     await switchedPage("restore-tab-error", "First draft");
     await serverEdit("restore-tab-error", "Second draft");
