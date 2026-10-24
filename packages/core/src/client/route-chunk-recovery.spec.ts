@@ -686,6 +686,57 @@ describe("route chunk recovery", () => {
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
   });
 
+  it("ignores module scripts and preloads that failed on another origin", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/docs/guide",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "SCRIPT",
+        type: "module",
+        src: "https://static.cloudflareinsights.com/beacon.min.js",
+      },
+    } as unknown as Event);
+    dispatchDocument("error", {
+      target: {
+        tagName: "LINK",
+        rel: "modulepreload",
+        href: "https://example.com.cdn.example/docs/assets/guide-1a2b.js",
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
+      },
+    } as unknown as Event);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "SCRIPT",
+        type: "module",
+        src: "https://example.com/docs/assets/guide-1a2b.js",
+      },
+    } as unknown as Event);
+
+    expectRecoveryNavigation(fakeLocation, "https://example.com/docs/guide");
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("recovers a failed inline module script, which has no src", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/docs/guide",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("error", {
+      target: { tagName: "SCRIPT", type: "module", src: "" },
+    } as unknown as Event);
+
+    expectRecoveryNavigation(fakeLocation, "https://example.com/docs/guide");
+  });
+
   it("removes the browser cache buster after the fresh app shell loads", () => {
     const startUrl = new URL(
       "https://example.com/dispatch/apps?tab=activity#latest",

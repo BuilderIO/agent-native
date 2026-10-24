@@ -235,12 +235,14 @@ function clearChunkRecoveryCacheBuster(win: Window): void {
   );
 }
 
-function isModuleAssetLoadFailure(event: Event): boolean {
+function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
   const target = event.target as
     | (EventTarget & {
         hasAttribute?: (name: string) => boolean;
         getAttribute?: (name: string) => string | null;
+        href?: string;
         rel?: string;
+        src?: string;
         tagName?: string;
         type?: string;
       })
@@ -248,11 +250,16 @@ function isModuleAssetLoadFailure(event: Event): boolean {
   const tagName = target?.tagName?.toUpperCase();
   if (tagName === "LINK" && target) {
     if (target.hasAttribute?.(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)) return false;
+    if (target.href && !sameOriginHref(win, target.href)) return false;
     return /(?:^|\s)modulepreload(?:\s|$)/i.test(
       target.getAttribute?.("rel") ?? target.rel ?? "",
     );
   }
-  return tagName === "SCRIPT" && target?.type?.toLowerCase() === "module";
+  if (tagName !== "SCRIPT" || target?.type?.toLowerCase() !== "module") {
+    return false;
+  }
+  // Inline module scripts have no src and are the app's own.
+  return !target.src || sameOriginHref(win, target.src) !== null;
 }
 
 function isAgentNativeDesktop(win: Window): boolean {
@@ -535,7 +542,10 @@ export function installRouteChunkRecovery(
   win.document.addEventListener(
     "error",
     (event) => {
-      if (isModuleAssetLoadFailure(event) && hasViteDevRecovery(win) !== true) {
+      if (
+        isModuleAssetLoadFailure(win, event) &&
+        hasViteDevRecovery(win) !== true
+      ) {
         reloadForStaleChunk(win);
       }
     },

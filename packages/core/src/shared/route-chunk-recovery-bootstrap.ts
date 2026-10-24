@@ -30,6 +30,10 @@ export function isLegacyChunkRecoveryRequest(url: URL): boolean {
   return values.length === 1 && values[0] === CHUNK_RECOVERY_QUERY_VALUE;
 }
 
+// Only the app's own module files count as stale chunks. A content blocker
+// stopping a cross-origin module script, such as an analytics beacon a CDN
+// injects, would otherwise send every page load through recovery. Inline module
+// scripts have no src and are the app's own.
 export const ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT = `(()=>{
 const queryParam=${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
 const queryValue=${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
@@ -57,6 +61,8 @@ return;
 }
 if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;
 const url=new URL(location.href);
+const failedUrl=failedModuleScript?target.src:target.href;
+if(failedUrl&&!String(failedUrl).startsWith(url.origin+"/"))return;
 if(url.pathname.endsWith(pathSuffix)||url.pathname.endsWith(pathSuffix+"/")||url.searchParams.get(queryParam)===queryValue)return;
 const now=Date.now();
 let last=Number(window[reloadKey])||0;

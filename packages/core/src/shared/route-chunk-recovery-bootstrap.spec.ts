@@ -18,7 +18,9 @@ import {
 type BootstrapResourceTarget = {
   getAttribute?: (name: string) => string | null;
   hasAttribute?: (name: string) => boolean;
+  href?: string;
   rel?: string;
+  src?: string;
   tagName: string;
   type?: string;
 };
@@ -208,6 +210,56 @@ describe("route chunk recovery bootstrap", () => {
 
     expect(assign).not.toHaveBeenCalled();
     expect(stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+
+  it("ignores module scripts and preloads that failed on another origin", () => {
+    const { assign, onError } = installBootstrap(
+      "https://example.test/docs/guide",
+    );
+    const stopImmediatePropagation = vi.fn();
+
+    onError({
+      target: {
+        src: "https://static.cloudflareinsights.com/beacon.min.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation,
+    });
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        href: "https://example.test.cdn.example/docs/assets/guide-1a2b.js",
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation,
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+
+  it("still recovers the app's own module files, including inline module scripts", () => {
+    const ownChunk = installBootstrap("https://example.test/docs/guide");
+    const inlineEntry = installBootstrap("https://example.test/docs/guide");
+
+    ownChunk.onError({
+      target: {
+        src: "https://example.test/docs/assets/guide-1a2b.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+    inlineEntry.onError({
+      target: { src: "", tagName: "SCRIPT", type: "module" },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(ownChunk.assign).toHaveBeenCalledOnce();
+    expect(inlineEntry.assign).toHaveBeenCalledOnce();
   });
 
   it("leaves desktop and local development failures to their own recovery paths", () => {
