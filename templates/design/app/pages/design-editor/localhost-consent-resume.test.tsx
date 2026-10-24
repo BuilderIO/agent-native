@@ -184,6 +184,7 @@ describe("localhost write consent across sign-in", () => {
   let latest: LocalhostWriteConsentState | null;
   let routerLocation: { pathname: string; search: string } | null;
   let grantStatus: 200 | 401 | 500;
+  let grantHold: Promise<void> | null;
   let requestHold: Promise<void> | null;
   let calls: Array<{ name: string; body: Record<string, unknown> }>;
   let chatMessages: Array<Record<string, unknown>>;
@@ -200,6 +201,7 @@ describe("localhost write consent across sign-in", () => {
     mocks.sessionStatus = "authenticated";
     mocks.appState.clear();
     grantStatus = 200;
+    grantHold = null;
     requestHold = null;
     calls = [];
     chatMessages = [];
@@ -222,6 +224,7 @@ describe("localhost write consent across sign-in", () => {
             : (JSON.parse(String(init.body)) as Record<string, unknown>);
         calls.push({ name, body });
         if (name === "grant-localhost-write-consent") {
+          if (grantHold) await grantHold;
           if (grantStatus === 500) {
             return Response.json(
               { error: "Bridge unavailable" },
@@ -333,6 +336,68 @@ describe("localhost write consent across sign-in", () => {
     await act(async () => target.click());
     await settle();
   }
+
+  function openLocalRequest(files: string[]) {
+    const events: string[] = [];
+    act(() =>
+      latest!.openLocalConsent({
+        connectionId: CONNECTION_ID,
+        rootPath: "/repo",
+        files,
+        onGranted: () => events.push("granted"),
+        onCancel: () => events.push("cancelled"),
+        onError: () => events.push("error"),
+      }),
+    );
+    return events;
+  }
+
+  function holdGrant(): () => Promise<void> {
+    let release!: () => void;
+    grantHold = new Promise((resolve) => {
+      release = resolve;
+    });
+    return async () => {
+      grantHold = null;
+      release();
+      await settle();
+    };
+  }
+
+  // Every way a person can dismiss the dialog.
+  const dismissals: Array<[string, () => Promise<void>]> = [
+    ["Cancel", () => click("Cancel")],
+    [
+      "Escape",
+      async () => {
+        await act(async () => {
+          document.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          );
+        });
+        await settle();
+      },
+    ],
+    [
+      "a press outside the dialog",
+      async () => {
+        await act(async () => {
+          for (const type of [
+            "pointerdown",
+            "mousedown",
+            "pointerup",
+            "mouseup",
+            "click",
+          ]) {
+            document.body.dispatchEvent(
+              new MouseEvent(type, { bubbles: true, button: 0 }),
+            );
+          }
+        });
+        await settle();
+      },
+    ],
+  ];
 
   // Sign-in is a full-page navigation: capture it, then end this mount the way
   // a page unload would, without closing the dialog.
@@ -477,24 +542,121 @@ describe("localhost write consent across sign-in", () => {
     expect(chatMessages).toHaveLength(0);
   });
 
-  it("runs a local edit's callback after its own grant on the same page", async () => {
+  it("runs a local edit's callback after its own grant on the same page and never cancels it", async () => {
     await mountAt(`/design/${DESIGN_ID}`);
     const onGranted = vi.fn();
+    const onCancel = vi.fn();
     act(() =>
       latest!.openLocalConsent({
         connectionId: CONNECTION_ID,
         rootPath: "/repo",
         files: ["src/Card.tsx"],
         onGranted,
+        onCancel,
       }),
     );
     await settle();
     await click("Allow writes");
 
+    expect(onGranted).toHaveBeenCalledTimes(1);
     expect(onGranted).toHaveBeenCalledWith(GRANT);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(dialogTitled("Allow file writes")).toBeUndefined();
     expect(dialogTitled(copy().approvedTitle)).toBeUndefined();
     expect(callsTo("request-localhost-write-consent")).toHaveLength(0);
   });
+
+  it.each(dismissals)(
+    "cancels a local edit exactly once when %s dismisses it",
+    async (_dismissal, dismiss) => {
+      await mountAt(`/design/${DESIGN_ID}`);
+      const events = openLocalRequest(["src/Card.tsx"]);
+      await settle();
+      expect(dialogTitled("Allow file writes")).toBeDefined();
+
+      await dismiss();
+      expect(events).toEqual(["cancelled"]);
+      expect(dialogTitled("Allow file writes")).toBeUndefined();
+      expect(callsTo("grant-localhost-write-consent")).toHaveLength(0);
+    },
+  );
+
+  it.each(dismissals)(
+    "keeps a granting dialog open through %s until its grant answers",
+    async (_dismissal, dismiss) => {
+      await mountAt(`/design/${DESIGN_ID}`);
+      const events = openLocalRequest(["src/Card.tsx"]);
+      await settle();
+      const release = holdGrant();
+      await click("Allow writes");
+      expect(button("Cancel")?.disabled).toBe(true);
+
+      await dismiss();
+      expect(events).toEqual([]);
+      expect(dialogTitled("Allow file writes")?.textContent).toContain(
+        "Granting…",
+      );
+
+      await release();
+      expect(events).toEqual(["granted"]);
+      expect(dialogTitled("Allow file writes")).toBeUndefined();
+      expect(callsTo("grant-localhost-write-consent")).toHaveLength(1);
+    },
+  );
+
+  const endings: Array<[string, () => void]> = [
+    ["the editor unmounts", () => unmount()],
+    [
+      "the editor closes the request",
+      () => act(() => latest!.onOpenChange(false)),
+    ],
+  ];
+
+  it.each(
+    endings.flatMap(([ending, end]) =>
+      ([200, 500] as const).map((status) => [status, ending, end] as const),
+    ),
+  )("drops a grant answering %i after %s", async (status, _ending, end) => {
+    await mountAt(`/design/${DESIGN_ID}`);
+    const events = openLocalRequest(["src/Card.tsx"]);
+    await settle();
+    const release = holdGrant();
+    await click("Allow writes");
+
+    end();
+    grantStatus = status;
+    await release();
+    expect(events).toEqual([]);
+    expect(dialogTitled("Allow file writes")).toBeUndefined();
+  });
+
+  it.each([200, 500] as const)(
+    "drops an older grant answering %i after a newer request for the same connection replaced it",
+    async (status) => {
+      await mountAt(`/design/${DESIGN_ID}`);
+      const older = openLocalRequest(["src/Card.tsx"]);
+      await settle();
+      const release = holdGrant();
+      await click("Allow writes");
+
+      const newer = openLocalRequest(["src/Next.tsx"]);
+      await settle();
+      expect(button("Allow writes")?.disabled).toBe(false);
+      grantStatus = status;
+      await release();
+      expect(older).toEqual([]);
+      expect(newer).toEqual([]);
+      expect(dialogTitled("Allow file writes")?.textContent).toContain(
+        "src/Next.tsx",
+      );
+
+      grantStatus = 200;
+      await click("Allow writes");
+      expect(newer).toEqual(["granted"]);
+      expect(older).toEqual([]);
+      expect(dialogTitled("Allow file writes")).toBeUndefined();
+    },
+  );
 
   it("says a returned request is no longer pending when it was cleared, expired, or replaced", async () => {
     // Edit access gates the handoff, not a browser sign-in.
@@ -559,11 +721,12 @@ describe("localhost write consent across sign-in", () => {
     setServerRecord(newer);
     await click("Cancel");
 
-    expect(lastBodyTo("clear-localhost-write-consent-request")).toEqual({
-      designId: DESIGN_ID,
-      requestedAt,
-      requestId: "shown-request",
-    });
+    expect(callsTo("clear-localhost-write-consent-request")).toEqual([
+      {
+        name: "clear-localhost-write-consent-request",
+        body: { designId: DESIGN_ID, requestedAt, requestId: "shown-request" },
+      },
+    ]);
     expect(serverRecord()).toEqual(newer);
     expect(dialogTitled("Allow file writes")?.textContent).toContain(
       "src/Next.tsx",

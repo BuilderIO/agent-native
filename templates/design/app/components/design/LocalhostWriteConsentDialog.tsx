@@ -85,37 +85,41 @@ export function LocalhostWriteConsentDialog({
 }: LocalhostWriteConsentDialogProps) {
   const t = useT();
   const { status: sessionStatus } = useSession();
-  const [granting, setGranting] = useState(false);
+  const [grantingFor, setGrantingFor] =
+    useState<LocalhostWriteConsentPayload | null>(null);
   const [preparingFor, setPreparingFor] =
     useState<LocalhostWriteConsentPayload | null>(null);
   const [refusal, setRefusal] = useState<{
     payload: LocalhostWriteConsentPayload;
     kind: ConsentRefusal;
   } | null>(null);
+  const granting = grantingFor !== null && grantingFor === payload;
   const preparingSignIn = preparingFor !== null && preparingFor === payload;
+  const awaitingAnswer = granting || preparingSignIn;
   const sessionPending =
     sessionStatus === "loading" || sessionStatus === "signing-out";
   const blocked =
     (refusal?.payload === payload ? refusal.kind : null) ??
     (sessionStatus === "unauthenticated" ? "sign-in" : null);
 
-  // A sign-in save belongs to the request, design, and connection it started
-  // from; once any of them changes or the dialog unmounts, its late result
-  // must not navigate.
-  const signInOwnerRef = useRef<object | null>(null);
-  useEffect(
-    () => () => {
-      signInOwnerRef.current = null;
-    },
-    [payload, designId, connectionId],
-  );
+  // A grant or sign-in save belongs to the request, design, and connection it
+  // started from; once any of them changes or the dialog unmounts, its late
+  // result must not run the edit, report, close a newer request, or navigate.
+  const liveRequestRef = useRef<object | null>(null);
+  useEffect(() => {
+    liveRequestRef.current = {};
+    return () => {
+      liveRequestRef.current = null;
+    };
+  }, [payload, designId, connectionId]);
 
   async function handleAllowWrites() {
     if (!payload || !designId || !connectionId || sessionPending || blocked) {
       return;
     }
     const requested = payload;
-    setGranting(true);
+    const live = liveRequestRef.current;
+    setGrantingFor(requested);
     try {
       const result = await callAction<{
         grantId: string;
@@ -125,9 +129,11 @@ export function LocalhostWriteConsentDialog({
         designId,
         connectionId,
       });
-      onOpenChange(false);
+      if (liveRequestRef.current !== live) return;
       requested.onGranted(result);
+      onOpenChange(false);
     } catch (error) {
+      if (liveRequestRef.current !== live) return;
       const kind = refusalForGrantError(error);
       if (kind) {
         setRefusal({ payload: requested, kind });
@@ -137,7 +143,7 @@ export function LocalhostWriteConsentDialog({
       if (requested.onError) requested.onError(error);
       else toast.error(actionErrorMessage(error) ?? t("common.genericError"));
     } finally {
-      setGranting(false);
+      setGrantingFor((current) => (current === requested ? null : current));
     }
   }
 
@@ -148,8 +154,7 @@ export function LocalhostWriteConsentDialog({
     event.preventDefault();
     if (!payload || !designId || !connectionId || preparingSignIn) return;
     const requested = payload;
-    const owner = {};
-    signInOwnerRef.current = owner;
+    const live = liveRequestRef.current;
     const returnPath = window.location.pathname;
     setPreparingFor(requested);
     try {
@@ -162,7 +167,7 @@ export function LocalhostWriteConsentDialog({
           resumeAfterSignIn: true,
         },
       );
-      if (signInOwnerRef.current !== owner) return;
+      if (liveRequestRef.current !== live) return;
       if (!queued?.requestId) {
         toast.error(t("designEditor.localhostConsent.prepareSignInError"));
         return;
@@ -173,14 +178,18 @@ export function LocalhostWriteConsentDialog({
         }),
       );
     } catch (error) {
-      if (signInOwnerRef.current !== owner) return;
+      if (liveRequestRef.current !== live) return;
       toast.error(actionErrorMessage(error) ?? t("common.genericError"));
     } finally {
       setPreparingFor((current) => (current === requested ? null : current));
     }
   }
 
+  // Cancel, Escape, and the backdrop all wait for a grant or sign-in save in
+  // flight: cancelling under it would end a request whose answer is still
+  // coming, and a copy saved for sign-in would stay pending and reopen.
   function handleCancel() {
+    if (awaitingAnswer) return;
     payload?.onCancel();
     onOpenChange(false);
   }
@@ -191,11 +200,8 @@ export function LocalhostWriteConsentDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // Closing mid-save would leave the copy saved for sign-in pending,
-        // and it would reopen; the dialog waits for the save like Cancel does.
-        if (!next) {
-          if (!preparingSignIn) handleCancel();
-        } else onOpenChange(next);
+        if (next) onOpenChange(next);
+        else handleCancel();
       }}
     >
       <DialogContent className="max-w-md">
@@ -263,7 +269,7 @@ export function LocalhostWriteConsentDialog({
           <Button
             variant="outline"
             onClick={handleCancel}
-            disabled={granting || preparingSignIn}
+            disabled={awaitingAnswer}
           >
             {"Cancel" /* i18n-ignore */}
           </Button>
@@ -367,8 +373,6 @@ export function useLocalhostWriteConsent({
   const [failedClearKey, setFailedClearKey] = useState<string | null>(null);
   const lastHandledKeyRef = useRef<string | null>(null);
   const resolvedReturnRequestIdRef = useRef<string | null>(null);
-  const payloadRef = useRef(payload);
-  payloadRef.current = payload;
   const returnRequestId = new URLSearchParams(location.search).get(
     LOCALHOST_CONSENT_RETURN_PARAM,
   );
@@ -529,11 +533,10 @@ export function useLocalhostWriteConsent({
     [],
   );
 
+  // Closing is not cancelling: a granted request closes through here too, so
+  // only the dialog's own Cancel calls onCancel.
   const onOpenChange = useCallback((next: boolean) => {
-    if (!next) {
-      payloadRef.current?.onCancel();
-      setPayload(null);
-    }
+    if (!next) setPayload(null);
     setOpen(next);
   }, []);
 
