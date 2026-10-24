@@ -144,6 +144,7 @@ ${supportedUrls}
     );
   }
 
+  const sceneBasedDelegate = source.includes("ExpoReactNativeFactoryProvider");
   return CodeGenerator.mergeContents({
     tag: IOS_SHORTCUT_CALLBACK_TAG,
     src: contents,
@@ -175,8 +176,10 @@ ${supportedUrls}
     )
   }
 `,
-    anchor: /^  \/\/ Linking API$/m,
-    offset: 0,
+    anchor: sceneBasedDelegate
+      ? /^    return agentNativeShortcutURL == nil \? didFinish : false$/m
+      : /^  \/\/ Linking API$/m,
+    offset: sceneBasedDelegate ? 2 : 0,
     comment: "//",
   }).contents;
 }
@@ -231,7 +234,7 @@ function withIosCompanion(config: Parameters<ConfigPlugin>[0]) {
   return withAppDelegate(config, (appDelegateConfig) => {
     if (appDelegateConfig.modResults.language !== "swift") {
       throw new Error(
-        "with-mobile-companion requires the Expo SDK 57 Swift AppDelegate template.",
+        "with-mobile-companion requires a Swift AppDelegate template with supported routing anchors.",
       );
     }
     appDelegateConfig.modResults.contents = addIosShortcutRouting(
