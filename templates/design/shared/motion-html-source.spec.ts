@@ -2103,6 +2103,17 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("rejects :has() when a descendant handler can add a matching class", () => {
+    const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><button onclick="document.getElementById('candidate').classList.add('foo')"></button><i id="candidate"></i></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it("rejects :has() when runtime markup can add a matching descendant", () => {
     const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><div x-html="content"></div></main></body></html>`;
 

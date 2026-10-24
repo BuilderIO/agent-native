@@ -1943,6 +1943,7 @@ function selectorPseudoMatchesNode(
     });
     const dynamic =
       dynamicNestedMatch ||
+      hasRuntimeStructuralMutationInSubtree(node) ||
       hasRuntimeMutationOnSelectorPath(node) ||
       hasRemoteAlpineTeleportToSubtree(node);
     return {
