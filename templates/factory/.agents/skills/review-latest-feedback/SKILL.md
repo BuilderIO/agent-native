@@ -13,7 +13,7 @@ metadata:
 
 # Review Latest Feedback
 
-Four phases, in order. Phase 0 comes before any investigation, not after.
+Follow four phases in order; gate before investigation.
 
 0. **Gate, then claim** every eligible item you intend to tackle with `👀`,
    before investigating any of it.
@@ -21,8 +21,8 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Claim eligible unowned reports with root `👀` before
-investigation and read the mark back; keep it as claim history. Do not
+Output fixes. Claim eligible unowned reports with root `👀` before
+investigating; read the mark back and retain claim history. Do not
 claim/reply on unowned linked `Clustered` roots or verified
 `personAssignedSkip` roots. Reconcile every actor-owned `👀`, `✅`, or `🎫` with
 a current status after the latest human reply, except recorded held skips.
@@ -37,14 +37,14 @@ channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
 (`C0AJ5QV0J03`); honor a narrower invocation. Scan five days by default. A
 timestamp or permalink applies its inclusive lower bound to every scoped
-channel. For a permalink, its channel ID identifies only where the exact linked
-root must appear; it does not limit the cutoff or channel scope. For an
+channel. A permalink's channel ID locates its exact root; it does not limit
+cutoff or channel scope. For an
 explicitly narrowed sweep, verify that the active request names every selected
 channel, then record its exact text and IDs in the separate scope-confirmation
 file. A request can select exactly two channels by linking one report in the
 first and directly asking for “the same in” the second, without saying “only.”
-The checker permits one adjacent-transposition typo in that target only when it
-uniquely matches a selected canonical channel; it rejects incidental or quoted
+Accept one adjacent-transposition typo only when it uniquely matches a selected
+canonical channel; it rejects incidental or quoted
 mentions and prefixes. See [`channel-inventory.md`](references/channel-inventory.md)
 for the scope gate and its confirmation requirements. `#dev-agent-native-feedback`
 is not excluded.
@@ -54,14 +54,14 @@ scan with only the channel filter and that channel's inclusive lower bound.
 Freeze one `windowEndTs` at sweep start and use it for every channel and
 owned-mark search. Messages newer than it belong to the next scheduled sweep;
 never move the boundary to chase arrivals. Exhaust every cursor;
-`slack_read_channel` cannot replace this inventory. Resolve
-each row to its true parent and read the root reactions before opening the thread.
+`slack_read_channel` cannot replace this inventory. Resolve each row to its true parent
+and read root reactions before opening the thread.
 If another actor owns a workflow mark or this actor owns `:mag:`, hold the root
 unless the exact request authorizes it. List each authorized root and the exact
 request in both `scope.authorizedRoots` and the orchestrator confirmation; the
 unquoted request must name each exact channel ID and root timestamp or Slack
 permalink in its authorization statement. Generic permission does not qualify.
-The checker matches them before allowing a claim or status. Preserve marks. Without
+Only a checker-confirmed match allows claim or status. Preserve marks. Without
 that record, do not read, react, or reply. Read unheld threads before
 classifying them. Follow
 [`channel-inventory.md`](references/channel-inventory.md) for exact query
@@ -121,10 +121,9 @@ then add and read back this task's root `👀` before investigating an eligible
 unowned report. An explicitly authorized held root is eligible only when its
 exact root is present in both `scope.authorizedRoots` and the separate
 orchestrator confirmation file. Otherwise use `ownershipSkip` and do not read
-or reply. The authorization must start with a direct, unconditional grant,
-cover full follow-up work on that root, and name its exact timestamp. Read-only,
-claim-only, or reply-only permission does not unlock the complete
-claim-and-status workflow.
+or reply. Require a direct, unconditional grant for full work on this exact
+root and timestamp; read-only/no-write, claim-only, and reply-only grants are
+insufficient.
 
 Reconcile only roots inside this invocation's fixed window and older roots
 explicitly linked by an in-window reply. Include every root with this actor's

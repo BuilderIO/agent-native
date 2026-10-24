@@ -5351,6 +5351,45 @@ function validateAuthorizedRootsDeclaration(
   return rootKeys;
 }
 
+function escapeRegularExpression(value: string): string {
+  return Array.from(value, (character) =>
+    ".+*?^$()[]{}|\\".includes(character) ? "\\" + character : character,
+  ).join("");
+}
+
+function authorizedRootPairAppears(
+  statement: string,
+  root: AuthorizedRoot,
+): boolean {
+  const channelId = escapeRegularExpression(root.channelId);
+  const timestamp = escapeRegularExpression(root.rootTs);
+  const compactTimestamp = escapeRegularExpression(
+    root.rootTs.replace(".", ""),
+  );
+  const connector =
+    "(?:[\\s,:/#()\\-]*(?:(?:slack|root|thread|message|channel|timestamp|ts|in|at|for)\\b[\\s,:/#()\\-]*){0,4})";
+  const exactPair = new RegExp(
+    "\\b" +
+      channelId +
+      "\\b" +
+      connector +
+      timestamp +
+      "(?!\\d)|" +
+      timestamp +
+      "(?!\\d)" +
+      connector +
+      "\\b" +
+      channelId +
+      "\\b",
+    "i",
+  );
+  const slackPermalink = new RegExp(
+    "/archives/" + channelId + "/p" + compactTimestamp + "(?!\\d)",
+    "i",
+  );
+  return exactPair.test(statement) || slackPermalink.test(statement);
+}
+
 function userRequestAuthorizesExactRoot(
   userRequest: string,
   root: AuthorizedRoot,
@@ -5366,21 +5405,18 @@ function userRequestAuthorizesExactRoot(
     "i",
   );
   const negationOrCondition =
-    /\b(?:not|never|unless|if|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't)\b/i;
-  const compactTs = root.rootTs.replace(".", "");
+    /\b(?:not|never|unless|if|except|without|until|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|read[\s-]?only|view[\s-]?only|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
   if (negationOrCondition.test(unquotedRequest)) return false;
 
-  return unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/).some((statement) => {
-    const tokens = statement.match(/[A-Z0-9_]+/g) ?? [];
-    const timestamps = statement.match(/[0-9]+(?:\.[0-9]+)?/g) ?? [];
-    return (
-      (explicitAuthorization.test(statement) ||
-        grantedPermission.test(statement)) &&
-      tokens.includes(root.channelId) &&
-      (timestamps.includes(root.rootTs) || timestamps.includes(compactTs))
+  return unquotedRequest
+    .split(/;|\n+|(?<=[.!?])\s+/)
+    .some(
+      (statement) =>
+        (explicitAuthorization.test(statement) ||
+          grantedPermission.test(statement)) &&
+        authorizedRootPairAppears(statement, root),
     );
-  });
 }
 
 function validateAuthorizedRootTarget(
@@ -17165,6 +17201,14 @@ if (args[0] === "--self-test" && args.length === 1) {
         "negated conditional reply cannot authorize a held root",
         "Do not reply unless you can reply in Slack root C_TEST 10.000000.",
       ],
+      [
+        "trailing read-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000 read-only.",
+      ],
+      [
+        "trailing no-write qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000 with no writes.",
+      ],
     ] as const;
     for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
       const incompleteAuthorization = structuredClone(authorizedMagRoot);
@@ -17177,6 +17221,17 @@ if (args[0] === "--self-test" && args.length === 1) {
         "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
       );
     }
+
+    const crossPairedAuthorization = structuredClone(authorizedMagRoot);
+    crossPairedAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 11.000000 and Slack root C_OTHER 10.000000.";
+    crossPairedAuthorization.scope.narrowingJudgment!.instruction =
+      crossPairedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "cross-paired channel and timestamp cannot authorize a held root",
+      () => validateTestInventory(crossPairedAuthorization),
+      "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+    );
 
     const quotedAuthorization = structuredClone(authorizedMagRoot);
     quotedAuthorization.scope.userRequest =
