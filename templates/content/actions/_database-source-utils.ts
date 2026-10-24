@@ -979,7 +979,24 @@ function stableValueString(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function reviewedBuilderChangeSetRevisionId(
+/**
+ * A review id that no stored change set holds. The same change can be pushed
+ * more than once (every publish or unpublish without a field or body change
+ * hashes alike), so the revision hash alone repeats.
+ */
+export function unusedBuilderChangeSetRevisionId(
+  changeSet: ContentDatabaseSourceChangeSet,
+  usedIds: ReadonlySet<string>,
+) {
+  const revisionId = reviewedBuilderChangeSetRevisionId(changeSet);
+  let id = revisionId;
+  for (let repeat = 2; usedIds.has(id); repeat += 1) {
+    id = `${revisionId}-${repeat}`;
+  }
+  return id;
+}
+
+function reviewedBuilderChangeSetRevisionId(
   changeSet: ContentDatabaseSourceChangeSet,
 ) {
   const revision = createHash("sha256")
@@ -3876,13 +3893,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
           stableValueString(candidate.bodyChange),
     );
 
+  const storedChangeSetIds = new Set(
+    args.storedChangeSets.map((stored) => stored.id),
+  );
   const withUniqueReviewIdentity = (
     candidate: ContentDatabaseSourceChangeSet,
   ): ContentDatabaseSourceChangeSet =>
-    args.storedChangeSets.some((stored) => stored.id === candidate.id)
+    storedChangeSetIds.has(candidate.id)
       ? {
           ...candidate,
-          id: reviewedBuilderChangeSetRevisionId(candidate),
+          id: unusedBuilderChangeSetRevisionId(candidate, storedChangeSetIds),
         }
       : candidate;
 

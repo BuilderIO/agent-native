@@ -899,6 +899,58 @@ describe("Builder source review execution gates", () => {
     expect(response.review.rows[0]?.bodyChange).toEqual(body);
   });
 
+  it("gives a revision an unused id when an earlier one with the same payload was sent", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+      unmatched: true,
+      bodyChange: {
+        summary: "Old approved body",
+        currentExcerpt: "",
+        proposedExcerpt: "Old",
+        currentHash: null,
+        proposedHash: "old-hash",
+        proposedContent: "Old body.",
+        proposedBlocksJson: "[]",
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    });
+    const db = getDb();
+    const [changeSet] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await db
+      .update(schema.documents)
+      .set({
+        content: "Fresh body after the approval.",
+        updatedAt: "2026-07-13T20:00:00.000Z",
+      })
+      .where(eq(schema.documents.id, changeSet.documentId));
+    const prepare = async () =>
+      (
+        await asOwner(() =>
+          prepareReview.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetIds: [seeded.changeSetId],
+            pushModeConfirmation: "autosave",
+          }),
+        )
+      ).review.rows[0]?.changeSetId;
+
+    const first = await prepare();
+    expect(first).toBeTruthy();
+    expect(first).not.toBe(seeded.changeSetId);
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "applied" })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, first!));
+
+    await expect(prepare()).resolves.toBe(`${first}-2`);
+  });
+
   it("freezes an approved body after a failed dispatched attempt", async () => {
     const staleBody = {
       summary: "Approved body evidence",

@@ -363,6 +363,59 @@ it("reviews a staged change with no field edits as its own push", async () => {
   ]);
 });
 
+it("gives a repeated publish or unpublish a review id of its own", async () => {
+  const db = getDb();
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  const reviewedId = async () => {
+    const snapshot = await asOwner(() =>
+      utils.getContentDatabaseSourceSnapshot(database),
+    );
+    const ids = snapshot?.changeSets.map((changeSet) => changeSet.id) ?? [];
+    expect(new Set(ids).size).toBe(ids.length);
+    return snapshot?.changeSets.find(
+      (changeSet) =>
+        changeSet.documentId === "doc_entry_draft" &&
+        changeSet.state === "pending_push",
+    )?.id;
+  };
+
+  const pushed: string[] = [];
+  try {
+    for (let push = 0; push < 3; push += 1) {
+      const id = await reviewedId();
+      expect(id).toBeTruthy();
+      expect(pushed).not.toContain(id);
+      pushed.push(id!);
+      await db.insert(schema.contentDatabaseSourceChangeSets).values({
+        id: id!,
+        ownerEmail: OWNER,
+        sourceId: SOURCE_ID,
+        databaseItemId: "item_doc_entry_draft",
+        documentId: "doc_entry_draft",
+        kind: "metadata_update",
+        direction: "outbound",
+        state: "applied",
+        pushMode: "publish",
+        localOnly: 1,
+        summary: "Published the entry in Builder.",
+        fieldChangesJson: "[]",
+        bodyChangeJson: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    }
+  } finally {
+    for (const id of pushed) {
+      await db
+        .delete(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.id, id));
+    }
+  }
+});
+
 it("keeps a staged change through a refresh until Builder reaches it", async () => {
   await refresh();
   expect(await stagedIntent("doc_entry_draft")).toBe("publish");

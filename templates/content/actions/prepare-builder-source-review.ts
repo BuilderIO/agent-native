@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -36,10 +36,10 @@ import {
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
-  reviewedBuilderChangeSetRevisionId,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
   sourceChangeSetKey,
+  unusedBuilderChangeSetRevisionId,
 } from "./_database-source-utils.js";
 
 export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
@@ -435,7 +435,28 @@ async function approveChangeSetForReview(args: {
   }
 
   const changeSetId = selectedExisting
-    ? reviewedBuilderChangeSetRevisionId(args.changeSet)
+    ? unusedBuilderChangeSetRevisionId(
+        args.changeSet,
+        new Set(
+          (
+            await db
+              .select({ id: schema.contentDatabaseSourceChangeSets.id })
+              .from(schema.contentDatabaseSourceChangeSets)
+              .where(
+                and(
+                  eq(
+                    schema.contentDatabaseSourceChangeSets.sourceId,
+                    args.sourceId,
+                  ),
+                  like(
+                    schema.contentDatabaseSourceChangeSets.id,
+                    `${args.changeSet.id}-revision-%`,
+                  ),
+                ),
+              )
+          ).map((row) => row.id),
+        ),
+      )
     : args.changeSet.id;
   await db.insert(schema.contentDatabaseSourceChangeSets).values({
     id: changeSetId,
