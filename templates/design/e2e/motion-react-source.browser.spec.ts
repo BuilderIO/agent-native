@@ -31,6 +31,7 @@ import {
   expandAllLayers,
   gotoEditor,
   selectByText,
+  waitForDesignPreviewReady,
 } from "./helpers";
 
 const baseURL = e2eBaseURL();
@@ -1504,6 +1505,7 @@ createRoot(document.getElementById("root")!).render(<App />);
     });
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForDesignPreviewReady(page);
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     );
