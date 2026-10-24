@@ -23,6 +23,27 @@ export type FlushLocalSnapshot = {
   claim: DocumentFlushClaim | null;
 };
 
+// A title request asks for the title alone: the body of a page whose body is
+// its live copy can stay unacknowledged without changing the title's answer.
+export type FlushTitleSnapshot = {
+  identity: string;
+  generation: number;
+  title: string;
+};
+
+export type FlushTitleSave =
+  // The title SQL holds from this editor: the one it saved, or the one it
+  // last saved when it had nothing new to save.
+  { status: "saved"; title: string } | { status: "refused"; errorCode: string };
+
+function sameTitle(a: FlushTitleSnapshot, b: FlushTitleSnapshot): boolean {
+  return (
+    a.identity === b.identity &&
+    a.generation === b.generation &&
+    a.title === b.title
+  );
+}
+
 function unchanged(a: FlushLocalSnapshot, b: FlushLocalSnapshot): boolean {
   return (
     a.identity === b.identity &&
@@ -57,6 +78,14 @@ export function createDocumentFlushParticipant(input: {
   documentId: () => string;
   snapshot: (propertyId?: string) => FlushLocalSnapshot;
   drain: (propertyId?: string) => Promise<void>;
+  // Without it, a title request is refused: a whole drain would wait on the
+  // body, which is what the title scope exists to avoid.
+  title?: {
+    snapshot: () => FlushTitleSnapshot;
+    // Saves the title alone and resolves once no older title save of this
+    // editor can still land over it, or else refuses.
+    save: () => Promise<FlushTitleSave>;
+  };
   read?: typeof readClientAppState;
   compare?: typeof compareAndSetClientAppState;
 }) {
@@ -70,6 +99,12 @@ export function createDocumentFlushParticipant(input: {
     prepareToken: string;
     stabilityToken: string;
     snapshot: FlushLocalSnapshot;
+  } | null = null;
+  let preparedTitle: {
+    requestId: string;
+    prepareToken: string;
+    stabilityToken: string;
+    snapshot: FlushTitleSnapshot;
   } | null = null;
 
   return async function respond(value: unknown): Promise<void> {
@@ -144,23 +179,82 @@ export function createDocumentFlushParticipant(input: {
         input.identity()?.clientId === identity!.clientId
       );
     };
-    async function publish(ack: DocumentFlushAck) {
+    // A title prepare's mark on `key`, which only its answer may replace: an
+    // answer already written stays the answer.
+    let taken: DocumentFlushAck | null = null;
+    // False when the request moved on after the write, which is then removed.
+    async function publish(ack: DocumentFlushAck): Promise<boolean> {
       if (!(await stillCurrent()))
         throw new Error("Document flush phase changed before acknowledgment");
-      if (!(await bounded(compare(key, null, ack, { signal: abort.signal })))) {
+      if (
+        !(await bounded(compare(key, taken, ack, { signal: abort.signal })))
+      ) {
         throw new Error("Document flush acknowledgment CAS was refused");
       }
-      if (!(await stillCurrent())) {
-        if (!(await bounded(compare(key, ack, null, { signal: abort.signal }))))
-          throw new Error(
-            "Document flush late acknowledgment cleanup CAS was refused",
-          );
-      }
+      taken = ack.status === "taken" ? ack : null;
+      if (await stillCurrent()) return true;
+      if (!(await bounded(compare(key, ack, null, { signal: abort.signal }))))
+        throw new Error(
+          "Document flush late acknowledgment cleanup CAS was refused",
+        );
+      taken = null;
+      return false;
     }
-    let preparingSnapshot: FlushLocalSnapshot | null = null;
+    let changedSincePrepare: (() => boolean) | null = null;
     try {
       let ack: DocumentFlushAck;
-      if (request.phase === "verify") {
+      if (request.scope === "title" && request.phase === "verify") {
+        const current = input.title?.snapshot();
+        ack =
+          preparedTitle?.requestId === request.requestId &&
+          preparedTitle.prepareToken === request.prepareToken &&
+          current &&
+          sameTitle(preparedTitle.snapshot, current)
+            ? {
+                ...envelope,
+                status: "verified",
+                stabilityToken: preparedTitle.stabilityToken,
+              }
+            : { ...envelope, status: "changed" };
+      } else if (request.scope === "title") {
+        preparedTitle = null;
+        const title = input.title;
+        if (!title)
+          ack = {
+            ...envelope,
+            status: "error",
+            errorCode: "title_flush_unsupported",
+          };
+        else {
+          const before = title.snapshot();
+          changedSincePrepare = () => !sameTitle(before, title.snapshot());
+          if (!(await publish({ ...envelope, status: "taken" }))) {
+            completed.add(key);
+            return;
+          }
+          const saved = await bounded(title.save());
+          const after = title.snapshot();
+          if (saved.status === "refused")
+            ack = { ...envelope, status: "error", errorCode: saved.errorCode };
+          else if (!sameTitle(before, after) || after.title !== saved.title)
+            ack = { ...envelope, status: "changed" };
+          else {
+            const stabilityToken = crypto.randomUUID();
+            preparedTitle = {
+              requestId: request.requestId,
+              prepareToken: request.prepareToken,
+              stabilityToken,
+              snapshot: after,
+            };
+            ack = {
+              ...envelope,
+              status: "prepared",
+              stabilityToken,
+              claim: { kind: "title", title: saved.title },
+            };
+          }
+        }
+      } else if (request.phase === "verify") {
         // This synchronous observation follows delivery of the post-capture token.
         const current = input.snapshot(request.propertyId);
         ack =
@@ -177,7 +271,8 @@ export function createDocumentFlushParticipant(input: {
       } else {
         prepared = null;
         const before = input.snapshot(request.propertyId);
-        preparingSnapshot = before;
+        changedSincePrepare = () =>
+          !unchanged(before, input.snapshot(request.propertyId));
         await bounded(input.drain(request.propertyId));
         let after = input.snapshot(request.propertyId);
         // A drained editor can still be waiting for peer/save convergence.
@@ -232,8 +327,7 @@ export function createDocumentFlushParticipant(input: {
         try {
           await publish({
             ...envelope,
-            ...(preparingSnapshot &&
-            !unchanged(preparingSnapshot, input.snapshot(request.propertyId))
+            ...(changedSincePrepare?.()
               ? { status: "changed" as const }
               : { status: "error" as const, errorCode: "editor_flush_failed" }),
           });

@@ -14,6 +14,8 @@ import {
   createDocumentFlushParticipant,
   createFlushObservedRef,
   type FlushLocalSnapshot,
+  type FlushTitleSave,
+  type FlushTitleSnapshot,
 } from "./document-flush-participant";
 
 const identity = { clientId: 123, editorSessionId: "mounted-editor" };
@@ -228,5 +230,277 @@ describe("fresh document flush participant", () => {
       targets: [{ ...identity, editorSessionId: "other-mount" }],
     });
     expect(compare).not.toHaveBeenCalled();
+  });
+});
+
+describe("title flush participant", () => {
+  let titleLocal: FlushTitleSnapshot;
+  let save: Mock<() => Promise<FlushTitleSave>>;
+  function titleParticipant(withTitle = true) {
+    return createDocumentFlushParticipant({
+      identity: () => identity,
+      documentId: () => "doc",
+      snapshot: () => ({ ...local }),
+      drain,
+      ...(withTitle
+        ? { title: { snapshot: () => ({ ...titleLocal }), save } }
+        : {}),
+      read: read as any,
+      compare,
+    });
+  }
+  const writes = () =>
+    compare.mock.calls.map(([, expected, next]) => ({
+      expected: expected?.status ?? null,
+      next: next?.status ?? null,
+    }));
+  const lastCall = () => compare.mock.calls[compare.mock.calls.length - 1]!;
+  const last = () => lastCall()[2]!;
+
+  afterEach(() => vi.useRealTimers());
+  beforeEach(() => {
+    request = {
+      protocol: 2,
+      id: "doc",
+      requestId: "request",
+      phase: "prepare",
+      phaseToken: "prepare",
+      prepareToken: "prepare",
+      expiresAt: Date.now() + 4000,
+      targets: [identity],
+      scope: "title",
+    };
+    // The body of a page whose body is its live copy can stay unsaved.
+    local = {
+      identity: identity.editorSessionId,
+      generation: 0,
+      observation: 0,
+      valueEpoch: 0,
+      visualVersion: null,
+      title: "New title",
+      content: "Unacknowledged body",
+      clean: false,
+      claim: null,
+    };
+    titleLocal = {
+      identity: identity.editorSessionId,
+      generation: 3,
+      title: "New title",
+    };
+    compare = vi
+      .fn<typeof compareAndSetClientAppState>()
+      .mockResolvedValue(true);
+    read = vi.fn(async () => request);
+    drain = vi
+      .fn<(propertyId?: string) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    save = vi
+      .fn<() => Promise<FlushTitleSave>>()
+      .mockImplementation(async () => ({
+        status: "saved",
+        title: titleLocal.title,
+      }));
+  });
+
+  it("marks the request taken before it saves the title, then replaces the mark with the title it saved", async () => {
+    let writesBeforeSave = -1;
+    save.mockImplementation(async () => {
+      writesBeforeSave = compare.mock.calls.length;
+      return { status: "saved", title: "New title" };
+    });
+    await titleParticipant()(request);
+    expect(writesBeforeSave).toBe(1);
+    expect(writes()).toEqual([
+      { expected: null, next: "taken" },
+      { expected: "taken", next: "prepared" },
+    ]);
+    expect(compare.mock.calls[1]![1]).toEqual(compare.mock.calls[0]![2]);
+    expect(last()).toMatchObject({
+      status: "prepared",
+      phase: "prepare",
+      claim: { kind: "title", title: "New title" },
+    });
+  });
+
+  it("answers without draining the body or waiting for it to save", async () => {
+    await titleParticipant()(request);
+    expect(drain).not.toHaveBeenCalled();
+    expect(last()).toHaveProperty("status", "prepared");
+  });
+
+  it("refuses a title request when it can't save a title alone, without draining the body", async () => {
+    await titleParticipant(false)(request);
+    expect(drain).not.toHaveBeenCalled();
+    expect(writes()).toEqual([{ expected: null, next: "error" }]);
+    expect(last()).toHaveProperty("errorCode", "title_flush_unsupported");
+  });
+
+  it("answers a refused title save with its reason, in place of the taken mark", async () => {
+    save.mockResolvedValue({ status: "refused", errorCode: "title_conflict" });
+    await titleParticipant()(request);
+    expect(writes()).toEqual([
+      { expected: null, next: "taken" },
+      { expected: "taken", next: "error" },
+    ]);
+    expect(last()).toHaveProperty("errorCode", "title_conflict");
+  });
+
+  it("answers a title save that throws with a typed error, in place of the taken mark", async () => {
+    save.mockRejectedValue(new Error("Network down"));
+    await titleParticipant()(request);
+    expect(writes()).toEqual([
+      { expected: null, next: "taken" },
+      { expected: "taken", next: "error" },
+    ]);
+    expect(last()).toHaveProperty("errorCode", "editor_flush_failed");
+  });
+
+  it("answers changed when the title is edited while it saves", async () => {
+    save.mockImplementation(async () => {
+      const saved = titleLocal.title;
+      titleLocal = { ...titleLocal, generation: 4, title: "Newer title" };
+      return { status: "saved", title: saved };
+    });
+    await titleParticipant()(request);
+    expect(writes()).toEqual([
+      { expected: null, next: "taken" },
+      { expected: "taken", next: "changed" },
+    ]);
+  });
+
+  it("answers changed when a title edit is undone while it saves", async () => {
+    save.mockImplementation(async () => {
+      titleLocal = { ...titleLocal, generation: 5 };
+      return { status: "saved", title: titleLocal.title };
+    });
+    await titleParticipant()(request);
+    expect(last()).toHaveProperty("status", "changed");
+  });
+
+  it("answers changed when the title it saved isn't the one it holds", async () => {
+    save.mockResolvedValue({ status: "saved", title: "Older title" });
+    await titleParticipant()(request);
+    expect(last()).toHaveProperty("status", "changed");
+  });
+
+  it("leaves only the taken mark when its save outlives the request", async () => {
+    vi.useFakeTimers();
+    save.mockImplementation(() => new Promise<FlushTitleSave>(() => {}));
+    const pending = titleParticipant()(request);
+    await vi.advanceTimersByTimeAsync(4_000);
+    await pending;
+    expect(writes()).toEqual([{ expected: null, next: "taken" }]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("saves nothing when the request moves on as it marks it taken, and removes its mark", async () => {
+    const original = request;
+    compare.mockImplementation(async () => {
+      request = { ...original, requestId: "successor" };
+      return true;
+    });
+    await titleParticipant()(original);
+    expect(save).not.toHaveBeenCalled();
+    expect(writes()).toEqual([
+      { expected: null, next: "taken" },
+      { expected: "taken", next: null },
+    ]);
+  });
+
+  it("saves nothing when another answer holds its key", async () => {
+    compare.mockResolvedValue(false);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await titleParticipant()(request);
+    expect(save).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(
+      "Document flush acknowledgment failed",
+      expect.anything(),
+    );
+    error.mockRestore();
+  });
+
+  it("verifies the title it prepared while it stays unchanged, though the body changes", async () => {
+    const respond = titleParticipant();
+    await respond(request);
+    const prepared = last();
+    local = { ...local, generation: 9, content: "More unacknowledged body" };
+    request = { ...request, phase: "verify", phaseToken: "after-S" };
+    await respond(request);
+    expect(last()).toMatchObject({
+      status: "verified",
+      phase: "verify",
+      stabilityToken: prepared.stabilityToken,
+    });
+    expect(lastCall()[1]).toBeNull();
+  });
+
+  it("refuses to verify a title edited since it prepared", async () => {
+    const respond = titleParticipant();
+    await respond(request);
+    titleLocal = { ...titleLocal, generation: 4, title: "Newer title" };
+    request = { ...request, phase: "verify", phaseToken: "after-S" };
+    await respond(request);
+    expect(last()).toHaveProperty("status", "changed");
+  });
+
+  it("refuses to verify a stale prepare token, or a prepare that didn't answer prepared", async () => {
+    const respond = titleParticipant();
+    await respond(request);
+    request = {
+      ...request,
+      phase: "verify",
+      phaseToken: "after-S",
+      prepareToken: "old-prepare",
+    };
+    await respond(request);
+    expect(last()).toHaveProperty("status", "changed");
+
+    save.mockResolvedValue({ status: "refused", errorCode: "title_conflict" });
+    request = {
+      ...request,
+      phase: "prepare",
+      phaseToken: "prepare-again",
+      prepareToken: "prepare-again",
+    };
+    await respond(request);
+    request = { ...request, phase: "verify", phaseToken: "after-S-again" };
+    await respond(request);
+    expect(last()).toHaveProperty("status", "changed");
+  });
+
+  it("doesn't take a title prepare as a whole flush's", async () => {
+    const respond = titleParticipant();
+    await respond(request);
+    const { scope: _scope, ...whole } = request;
+    local = {
+      ...local,
+      clean: true,
+      claim: {
+        kind: "document",
+        save: { revision: "r1", title: "New title", titleUpdatedAt: null },
+      },
+    };
+    request = { ...whole, phase: "verify", phaseToken: "after-S" };
+    await respond(request);
+    expect(last()).toHaveProperty("status", "changed");
+  });
+
+  it("answers each prepare round the server asks again", async () => {
+    const respond = titleParticipant();
+    await respond(request);
+    request = {
+      ...request,
+      phaseToken: "prepare-again",
+      prepareToken: "prepare-again",
+    };
+    await respond(request);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(writes()).toEqual([
+      { expected: null, next: "taken" },
+      { expected: "taken", next: "prepared" },
+      { expected: null, next: "taken" },
+      { expected: "taken", next: "prepared" },
+    ]);
+    expect(compare.mock.calls[2]![0]).toContain("prepare-again");
   });
 });
