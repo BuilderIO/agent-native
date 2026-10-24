@@ -23,6 +23,7 @@ import {
   describeOwnedImageReadFailure,
   hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
+  ownedAttachmentBytePool,
   type OwnedAttachmentHydrationBudget,
   type OwnedAttachmentReadFailure,
   type OwnedFileReadFailureCode,
@@ -434,7 +435,10 @@ export async function preUploadAttachments(opts: {
         } else {
           if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
             hydration = { kind: "failed", code: "request-time-limit" };
-          } else if (attachmentHydrationBudget.remainingBytes <= 0) {
+          } else if (
+            attachmentHydrationBudget[ownedAttachmentBytePool(fileMediaType)] <=
+            0
+          ) {
             hydration = { kind: "failed", code: "request-byte-limit" };
           } else {
             hydration = await hydrateOwnedFileUrl(

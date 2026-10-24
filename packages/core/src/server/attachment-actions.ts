@@ -30,8 +30,25 @@ function attachmentResourcePath(
   name: string,
   index: number,
 ): string {
-  const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-  return `attachments/${threadId}/${batch}-${index}-${safe}`;
+  return `attachments/${threadId}/${batch}-${index}-${storedAttachmentFileName(name)}`;
+}
+
+// Every non-path character used to become "_", so 设计.md and 规格.md shared
+// a stored name. Each is now spelled as its code point between underscores,
+// and "_" itself is escaped, so distinct names stay distinct.
+function storedAttachmentFileName(name: string): string {
+  return Array.from(name, (char) =>
+    /[a-zA-Z0-9.-]/.test(char)
+      ? char
+      : `_${char.codePointAt(0)!.toString(16)}_`,
+  )
+    .join("")
+    .slice(0, 200);
+}
+
+/** How paths written before batch ids spelled a name. */
+function legacyAttachmentFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
 }
 
 // Paths are `<batch>-<index>-<name>`; ones written before batches existed
@@ -51,10 +68,19 @@ function parseStoredAttachmentPath(path: string): {
     : { batch: "", index: -1, name: basename };
 }
 
-function compareNewestAttachmentFirst(a: string, b: string): number {
-  const left = parseStoredAttachmentPath(a);
-  const right = parseStoredAttachmentPath(b);
+function compareNewestAttachmentFirst(
+  a: { path: string; updatedAt?: number },
+  b: { path: string; updatedAt?: number },
+): number {
+  const left = parseStoredAttachmentPath(a.path);
+  const right = parseStoredAttachmentPath(b.path);
   if (left.batch !== right.batch) return left.batch < right.batch ? 1 : -1;
+  // A legacy index only orders files within one message, so legacy paths
+  // from different turns are ordered by when they were written.
+  if (!left.batch) {
+    const byTime = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    if (byTime !== 0) return byTime;
+  }
   return right.index - left.index;
 }
 
@@ -348,20 +374,28 @@ export function createCoreAttachmentActionEntries(): Record<
             includeAgentScratch: true,
           });
 
-          const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+          const storedName = (m: { path: string }) => {
+            const parsed = parseStoredAttachmentPath(m.path);
+            return {
+              actual: parsed.name,
+              wanted: parsed.batch
+                ? storedAttachmentFileName(name)
+                : legacyAttachmentFileName(name),
+            };
+          };
           const exact = path
             ? metas.filter((m) => m.path === path)
-            : metas.filter(
-                (m) => parseStoredAttachmentPath(m.path).name === safeName,
-              );
+            : metas.filter((m) => {
+                const { actual, wanted } = storedName(m);
+                return actual === wanted;
+              });
           const candidates =
             exact.length > 0 || path
               ? exact
-              : metas.filter(
-                  (m) =>
-                    parseStoredAttachmentPath(m.path).name.toLowerCase() ===
-                    safeName.toLowerCase(),
-                );
+              : metas.filter((m) => {
+                  const { actual, wanted } = storedName(m);
+                  return actual.toLowerCase() === wanted.toLowerCase();
+                });
 
           if (candidates.length === 0) {
             return {
@@ -369,9 +403,7 @@ export function createCoreAttachmentActionEntries(): Record<
             };
           }
 
-          const [meta, next] = candidates.sort((a, b) =>
-            compareNewestAttachmentFirst(a.path, b.path),
-          );
+          const [meta, next] = candidates.sort(compareNewestAttachmentFirst);
           const newestBatch = parseStoredAttachmentPath(meta.path).batch;
           // Legacy paths have no batch, so they never prove two files were
           // sent together.

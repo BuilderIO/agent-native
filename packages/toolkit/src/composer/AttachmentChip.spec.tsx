@@ -49,9 +49,9 @@ describe("AttachmentChip", () => {
 
   it("shows a file the browser cannot read before it is sent", async () => {
     const file = new File(["# Design"], "DESIGN.md", { type: "text/markdown" });
-    vi.spyOn(file, "slice").mockReturnValue({
-      arrayBuffer: () => Promise.reject(new Error("NotReadableError")),
-    } as unknown as Blob);
+    vi.spyOn(file, "arrayBuffer").mockRejectedValue(
+      new Error("NotReadableError"),
+    );
 
     await renderChip(file);
 

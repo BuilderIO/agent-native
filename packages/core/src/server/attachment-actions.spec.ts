@@ -746,6 +746,66 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     expect(result.content).toBe(envelopeShaped);
   });
 
+  it("keeps non-ASCII names that share a length distinct", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "设计.md",
+          contentType: "text/markdown",
+          text: "a",
+        },
+        {
+          type: "file",
+          name: "规格.md",
+          contentType: "text/markdown",
+          text: "b",
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+    const [first, second] = resourcePutMock.mock.calls.map(
+      (call) => call[1] as string,
+    );
+    expect(first).not.toBe(second.replace(/-1-/, "-0-"));
+
+    vi.clearAllMocks();
+    resourceListMock.mockResolvedValue([
+      { id: "res-design", path: first },
+      { id: "res-spec", path: second },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-spec" ? "spec" : "design"),
+    );
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "规格.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(result.content).toBe("spec");
+  });
+
+  it("reads the most recently written of two legacy same-name files", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-old", path: "attachments/thread-1/3-DESIGN.md", updatedAt: 1 },
+      { id: "res-new", path: "attachments/thread-1/0-DESIGN.md", updatedAt: 2 },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-new" ? "new" : "old"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("new");
+  });
+
   it("rejects a path outside stored attachments", async () => {
     const result = await createCoreAttachmentActionEntries()[
       "read-attachment"

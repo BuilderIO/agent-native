@@ -227,26 +227,24 @@ export function isInlineableAgentPromptFile(file: File): boolean {
   );
 }
 
-const PROBE_BYTES = 64 * 1024;
-
-/** What the composer chip shows before send, using the same limits as the read. */
+/**
+ * What the composer chip shows before send, using the same checks as the read.
+ * The size check above bounds this full decode at 8 MB, so the chip never
+ * clears a file the send-time read will reject.
+ */
 export async function probeAgentPromptAttachment(
   file: File,
 ): Promise<AgentPromptAttachmentReadError | null> {
   if (!isInlineableAgentPromptFile(file)) return null;
   if (file.size > AGENT_PROMPT_MAX_TEXT_FILE_BYTES) return "too-large";
-  let head: ArrayBuffer;
+  let bytes: ArrayBuffer;
   try {
-    head = await file.slice(0, PROBE_BYTES).arrayBuffer();
+    bytes = await file.arrayBuffer();
   } catch {
     return "read-failed";
   }
   try {
-    // A larger file is checked by its head here and in full when it is read;
-    // stream keeps a character cut at the slice edge from looking invalid.
-    new TextDecoder("utf-8", { fatal: true }).decode(head, {
-      stream: file.size > PROBE_BYTES,
-    });
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return null;
   } catch {
     return "not-utf8";

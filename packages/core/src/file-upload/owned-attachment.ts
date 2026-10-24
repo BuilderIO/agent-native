@@ -84,11 +84,13 @@ export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES =
 export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = 8 * 1024 * 1024;
 /**
  * Text and SVG are decoded and shown as a head plus a stored copy, never sent
- * whole, so they can use the full request budget. The composer's
- * AGENT_PROMPT_MAX_TEXT_FILE_BYTES must match, or its chip promises a read the
- * server refuses.
+ * whole, so they get their own per-file cap and request pool; sharing the
+ * image/PDF pool would let one large text file starve its sibling images.
+ * The composer's AGENT_PROMPT_MAX_TEXT_FILE_BYTES must match the per-file cap,
+ * or its chip promises a read the server refuses.
  */
-export const MAX_OWNED_TEXT_FILE_BYTES = MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
+export const MAX_OWNED_TEXT_FILE_BYTES = 8 * 1024 * 1024;
+export const MAX_OWNED_TEXT_HYDRATION_BYTES = 8 * 1024 * 1024;
 export const MAX_OWNED_IMAGE_HYDRATION_BYTES =
   MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
 export const OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS = 20_000;
@@ -99,6 +101,17 @@ export interface OwnedAttachmentHydrationBudget {
   deadlineAt: number;
   remainingCandidates: number;
   remainingBytes: number;
+  remainingTextBytes: number;
+}
+
+export type OwnedAttachmentBytePool = "remainingBytes" | "remainingTextBytes";
+
+export function ownedAttachmentBytePool(
+  declaredMediaType: string | undefined,
+): OwnedAttachmentBytePool {
+  return isTextLikeMimeType(declaredMediaType)
+    ? "remainingTextBytes"
+    : "remainingBytes";
 }
 
 export type OwnedImageHydrationBudget = OwnedAttachmentHydrationBudget;
@@ -110,6 +123,7 @@ export function createOwnedAttachmentHydrationBudget(
     deadlineAt: now + OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS,
     remainingCandidates: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
     remainingBytes: MAX_OWNED_ATTACHMENT_HYDRATION_BYTES,
+    remainingTextBytes: MAX_OWNED_TEXT_HYDRATION_BYTES,
   };
 }
 
@@ -167,8 +181,9 @@ async function readResponseBytes(
   signal: AbortSignal,
   maxInlineBytes: number,
   oversizedCode: "image-too-large" | "file-too-large",
+  pool: OwnedAttachmentBytePool,
 ): Promise<Uint8Array> {
-  const requestBytesAtStart = budget.remainingBytes;
+  const requestBytesAtStart = budget[pool];
   const maxBytes = Math.min(maxInlineBytes, requestBytesAtStart);
   const limitCode =
     requestBytesAtStart < maxInlineBytes
@@ -203,10 +218,7 @@ async function readResponseBytes(
       if (done) break;
       const nextTotalBytes = totalBytes + value.byteLength;
       if (nextTotalBytes > maxBytes) {
-        budget.remainingBytes = Math.max(
-          0,
-          requestBytesAtStart - nextTotalBytes,
-        );
+        budget[pool] = Math.max(0, requestBytesAtStart - nextTotalBytes);
         await reader.cancel().catch(() => {});
         throw Object.assign(
           new Error("Image response exceeds its hydration byte limit"),
@@ -216,7 +228,7 @@ async function readResponseBytes(
         );
       }
       totalBytes = nextTotalBytes;
-      budget.remainingBytes = Math.max(0, requestBytesAtStart - totalBytes);
+      budget[pool] = Math.max(0, requestBytesAtStart - totalBytes);
       chunks.push(value);
     }
   } finally {
@@ -259,10 +271,12 @@ async function readOwnedUrlBytes<
   accept: string;
   /** A zero-byte body is a real empty file, not a failed read. */
   allowEmpty?: boolean;
+  pool?: OwnedAttachmentBytePool;
 }): Promise<OwnedUrlReadResult<TooLargeCode>> {
+  const pool = args.pool ?? "remainingBytes";
   const url = parseOwnedHttpsUrl(args.value);
   if (!url) return { kind: "failed", code: "invalid-url" };
-  if (args.budget.remainingBytes <= 0) {
+  if (args.budget[pool] <= 0) {
     return { kind: "failed", code: "request-byte-limit" };
   }
 
@@ -352,6 +366,7 @@ async function readOwnedUrlBytes<
         bodyController.signal,
         args.maxInlineBytes,
         args.oversizedCode,
+        pool,
       ),
       bodyController.signal,
     );
@@ -459,6 +474,7 @@ export async function hydrateOwnedFileUrl(
       ? MAX_OWNED_TEXT_FILE_BYTES
       : MAX_OWNED_INLINE_FILE_BYTES,
     allowEmpty: isTextLikeMimeType(declaredMediaType),
+    pool: ownedAttachmentBytePool(declaredMediaType),
     oversizedCode: "file-too-large",
     accept:
       "application/pdf, text/*, application/json, application/xml, application/yaml, application/x-yaml, image/svg+xml, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",

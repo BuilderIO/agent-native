@@ -215,14 +215,24 @@ describe("prompt attachment helpers", () => {
     await expect(probeAgentPromptAttachment(file)).resolves.toBe("too-large");
   });
 
+  it("flags invalid UTF-8 anywhere in the file before send", async () => {
+    const file = new File(
+      ["a".repeat(200 * 1024), new Uint8Array([0xff])],
+      "notes.md",
+      { type: "text/markdown" },
+    );
+
+    await expect(probeAgentPromptAttachment(file)).resolves.toBe("not-utf8");
+  });
+
   it("probes readable files for the composer chip", async () => {
     const readable = new File(["hello"], "notes.md", { type: "text/markdown" });
     const unreadable = new File(["hello"], "notes.md", {
       type: "text/markdown",
     });
-    vi.spyOn(unreadable, "slice").mockReturnValue({
-      arrayBuffer: () => Promise.reject(new Error("NotReadableError")),
-    } as unknown as Blob);
+    vi.spyOn(unreadable, "arrayBuffer").mockRejectedValue(
+      new Error("NotReadableError"),
+    );
 
     await expect(probeAgentPromptAttachment(readable)).resolves.toBeNull();
     await expect(probeAgentPromptAttachment(unreadable)).resolves.toBe(
