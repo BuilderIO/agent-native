@@ -3687,6 +3687,7 @@ export async function markTurnAborted(
     throw new StaleExecutionFenceError(fence);
   }
   await ensureRunTables();
+  await ensureAgentToolApprovalTable();
   const now = Date.now();
   const client = getDbExec();
   if (!client.transaction) {
@@ -3772,11 +3773,12 @@ export async function markTurnAborted(
           .map((row) => String((row as { id?: unknown }).id ?? ""))
           .filter(Boolean),
       );
-      if (
+      const turnPending =
         latest &&
-        latest.continuation_pending !== true &&
-        !isContinuationTerminalReason(latest.terminal_reason ?? "")
-      ) {
+        (latest.continuation_pending === true ||
+          isContinuationTerminalReason(latest.terminal_reason ?? "") ||
+          (await hasPendingCurrentTurnApproval(threadId, tx, turnId)));
+      if (latest && !turnPending) {
         return "already_terminal" as const;
       }
     }

@@ -269,6 +269,7 @@ export async function isAgentToolAlwaysAllowed(
 export async function hasPendingCurrentTurnApproval(
   threadId: string,
   tx: DbExec,
+  turnId?: string,
 ): Promise<boolean> {
   const { rows } = await tx.execute({
     sql: `WITH latest_run AS (
@@ -283,6 +284,7 @@ export async function hasPendingCurrentTurnApproval(
           WHERE approval.thread_id = ? AND approval.status = 'pending'
             AND approval.expires_at > ?
             AND latest_run.status IN ('running', 'completed')
+            AND (CAST(? AS TEXT) IS NULL OR latest_run.turn_id = ?)
             AND NOT EXISTS (
               SELECT 1 FROM agent_runs stopped
               WHERE stopped.thread_id = approval.thread_id
@@ -291,7 +293,7 @@ export async function hasPendingCurrentTurnApproval(
                 AND stopped.status = 'aborted'
             )
           LIMIT 1`,
-    args: [threadId, threadId, Date.now()],
+    args: [threadId, threadId, Date.now(), turnId ?? null, turnId ?? null],
   });
   return rows.length > 0;
 }

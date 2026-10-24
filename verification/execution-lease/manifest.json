@@ -59,7 +59,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "b73b8ef7ad369e8f6a01ba8c3a7641affa5d6c93",
+    "syncCommit": "2e967d9f11fd31699b4f1bc71bbca8b57a2a3024",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -129,7 +129,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "markTurnAborted",
-        "sha256": "faaef7711ac57308a0c64e3c4ac9f37ef67e50702d96f2e1f23a33258d9fd0d7"
+        "sha256": "f6c5f75f3300b91c40a05c4c92e9e9eec0b8ffecac6ab62a4e4f63349a320112"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",

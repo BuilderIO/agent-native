@@ -40,6 +40,8 @@ Helper invariants, checked in the same runs:
 - Approval scheduling between turns is outside this one-turn model. The queued
   submission approval gate only defers a new turn; it leaves the same-turn
   `InsertRun` transition and all execution lease and step journal writes unchanged.
+  Stopping a completed approval pause also writes the turn-abort marker without
+  changing a run or lease; this is a stuttering step for the model's `AbortTurn`.
 
 ## Results at 38ce309e5da9
 

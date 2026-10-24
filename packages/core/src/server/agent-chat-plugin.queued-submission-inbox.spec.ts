@@ -1033,8 +1033,14 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
-  it.each(["expired", "aborted", "interrupted", "superseded"] as const)(
-    "does not let an %s approval pause block queued work",
+  it.each([
+    "expired",
+    "aborted",
+    "stopped-after-pause",
+    "interrupted",
+    "superseded",
+  ] as const)(
+    "allows queued follow-ups to claim their run slot when approval state is %s",
     async (state) => {
       const threadId = `thread-${randomUUID()}`;
       const turnId = `turn-${randomUUID()}`;
@@ -1054,6 +1060,11 @@ describe("queued submission inbox recurring sweep", () => {
       });
       if (state === "aborted") await markTurnAborted(threadId, turnId);
       else await updateRunStatus(runId, "completed");
+      if (state === "stopped-after-pause") {
+        await expect(markTurnAborted(threadId, turnId)).resolves.toBe(
+          "aborted",
+        );
+      }
       if (state === "superseded") {
         const later = Date.now() + 1;
         vi.spyOn(Date, "now").mockReturnValue(later);
