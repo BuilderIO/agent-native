@@ -191,11 +191,15 @@ describe("lexAgentSql (bigquery)", () => {
     })),
   );
 
-  it.each(literalForms)(
-    "pairs backslashes before delimiters in $form literals",
-    ({ prefix, quote }) => {
-      const literal = `${prefix}${quote}\\${quote}inside${quote}`;
-      const sql = `SELECT ${literal}; DELETE FROM audit_rows WHERE TRUE; -- ${quote}`;
+  it.each(
+    literalForms.flatMap((form) =>
+      [1, 3].map((backslashes) => ({ ...form, backslashes })),
+    ),
+  )(
+    "reads a literal with an escaped quote as one token ($form, $backslashes backslashes)",
+    ({ prefix, quote, backslashes }) => {
+      const literal = `${prefix}${quote}${"\\".repeat(backslashes)}${quote}inside${quote}`;
+      const sql = `SELECT ${literal}; SELECT * FROM notes; -- ${quote}`;
       const tokens = bq(sql);
       expect(
         tokens
@@ -207,23 +211,39 @@ describe("lexAgentSql (bigquery)", () => {
         tokens
           .filter((token) => token.kind === "word")
           .map((token) => token.value),
-      ).toEqual(["select", "delete", "from", "audit_rows", "where", "true"]);
+      ).toEqual(["select", "select", "from", "notes"]);
       for (const token of tokens) {
         expect(sql.slice(token.start, token.end)).toBe(token.text);
       }
     },
   );
 
-  it.each(literalForms)(
-    "closes $form literals after an even backslash run",
+  it.each(literalForms.filter(({ quote }) => quote.length === 3))(
+    "closes a triple-quoted literal after an escaped quote ($form)",
     ({ prefix, quote }) => {
-      const literal = `${prefix}${quote}tail\\\\${quote}`;
+      const literal = `${prefix}${quote}x\\${quote[0]}${quote}`;
       expect(
-        bq(`SELECT ${literal} FROM audit_rows`).map((token) => token.text),
-      ).toEqual(["SELECT", literal, "FROM", "audit_rows"]);
-      expect(() => bq(`SELECT ${prefix}${quote}tail\\${quote}`)).toThrow(
-        AgentSqlSyntaxError,
-      );
+        bq(`SELECT ${literal} FROM notes`).map((token) => token.text),
+      ).toEqual(["SELECT", literal, "FROM", "notes"]);
+    },
+  );
+
+  it.each(
+    literalForms.flatMap((form) =>
+      [2, 4].map((backslashes) => ({ ...form, backslashes })),
+    ),
+  )(
+    "closes a literal after an even number of backslashes ($form, $backslashes backslashes)",
+    ({ prefix, quote, backslashes }) => {
+      const literal = `${prefix}${quote}tail${"\\".repeat(backslashes)}${quote}`;
+      expect(
+        bq(`SELECT ${literal} FROM notes`).map((token) => token.text),
+      ).toEqual(["SELECT", literal, "FROM", "notes"]);
+      expect(() =>
+        bq(
+          `SELECT ${prefix}${quote}tail${"\\".repeat(backslashes - 1)}${quote}`,
+        ),
+      ).toThrow(AgentSqlSyntaxError);
     },
   );
 

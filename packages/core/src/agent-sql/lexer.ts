@@ -383,10 +383,8 @@ function lexBigQuery(s: Scanner): void {
       (literal[1].length > 0 || ch === "'" || ch === '"')
     ) {
       s.pos += literal[1].length;
-      // A raw prefix changes only the value: GoogleSQL still pairs a
-      // backslash with the next character when finding the closing quote, so
-      // r'\'' is one literal. Ending at the escaped quote would misread every
-      // token after it.
+      // Raw strings keep their backslashes, but a backslash still protects
+      // the next quote from closing the literal.
       s.readQuoted(
         literal[2],
         { backslashEscapes: true, doubledQuoteEscapes: false },
