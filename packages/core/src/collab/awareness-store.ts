@@ -1,5 +1,9 @@
 import { getDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
@@ -90,6 +94,31 @@ export const collabAwarenessStore = defineStore({
         );
       },
     },
+    {
+      name: "expiry-indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "_collab_awareness_active_actor_expiry_idx",
+          `CREATE INDEX IF NOT EXISTS _collab_awareness_active_actor_expiry_idx
+           ON _collab_awareness (last_seen)
+           WHERE actor_email IS NOT NULL AND state <> ''`,
+        );
+        await ensureIndexExists(
+          "_collab_awareness_actor_reservation_expiry_idx",
+          `CREATE INDEX IF NOT EXISTS _collab_awareness_actor_reservation_expiry_idx
+           ON _collab_awareness (
+             (COALESCE(actor_email_expires_at, last_seen + ${ACTOR_RESERVATION_TTL_MS}))
+           )
+           WHERE actor_email IS NOT NULL`,
+        );
+        await ensureIndexExists(
+          "_collab_awareness_anonymous_expiry_idx",
+          `CREATE INDEX IF NOT EXISTS _collab_awareness_anonymous_expiry_idx
+           ON _collab_awareness (last_seen)
+           WHERE actor_email IS NULL`,
+        );
+      },
+    },
   ],
 });
 
@@ -153,18 +182,9 @@ export async function writeAwarenessRow(
   ) {
     return false;
   }
-  if (
+  const requiresExistingRow =
     !isLegacyClockSequence &&
-    clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
-  ) {
-    const { rows } = await client.execute({
-      sql: `SELECT client_sequence, client_sequence_raw
-            FROM _collab_awareness
-            WHERE doc_id = ? AND client_id = ?`,
-      args: [docId, clientId],
-    });
-    if (rows.length === 0) return false;
-  }
+    clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE;
   const storedSequence = isLegacyClockSequence ? 1 : clientSequence;
   if (cleared) {
     // Keep ownership, sequence validation, and clearing in one conflict update.
@@ -199,12 +219,19 @@ export async function writeAwarenessRow(
       : clientSequence > 0
         ? [clientSequence, clientSequence, clientSequence]
         : [];
+    const insertSource = requiresExistingRow
+      ? `SELECT ?, ?, '', ?, ?, TRUE, ?, ?, NULL, ?
+           WHERE EXISTS (
+             SELECT 1 FROM _collab_awareness
+             WHERE doc_id = ? AND client_id = ?
+           )`
+      : `VALUES (?, ?, '', ?, ?, TRUE, ?, ?, NULL, ?)`;
     const { rows } = await client.execute({
       sql: `INSERT INTO _collab_awareness
               (doc_id, client_id, state, last_seen, client_sequence, cleared,
                client_sequence_raw, actor_email, clear_token_hash,
                actor_email_expires_at)
-            VALUES (?, ?, '', ?, ?, TRUE, ?, ?, NULL, ?)
+            ${insertSource}
             ON CONFLICT (doc_id, client_id)
             DO UPDATE SET
               state = '',
@@ -253,6 +280,7 @@ export async function writeAwarenessRow(
         isLegacyClockSequence ? clientSequence : 0,
         normalizedActorEmail,
         normalizedActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
+        ...(requiresExistingRow ? [docId, clientId] : []),
         ...(isLegacyClockSequence ? [clientSequence] : []),
         normalizedActorEmail,
         normalizedClearTokenHash,
@@ -266,12 +294,19 @@ export async function writeAwarenessRow(
     }
     return applied;
   }
+  const insertSource = requiresExistingRow
+    ? `SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1 FROM _collab_awareness
+           WHERE doc_id = ? AND client_id = ?
+         )`
+    : `VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   const { rows } = await client.execute({
     sql: `INSERT INTO _collab_awareness
             (doc_id, client_id, state, last_seen, client_sequence, cleared,
              client_sequence_raw, actor_email, clear_token_hash,
              actor_email_expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ${insertSource}
           ON CONFLICT (doc_id, client_id)
           DO UPDATE SET
             state = EXCLUDED.state,
@@ -349,6 +384,7 @@ export async function writeAwarenessRow(
       normalizedActorEmail,
       normalizedClearTokenHash,
       normalizedActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
+      ...(requiresExistingRow ? [docId, clientId] : []),
     ],
   });
   const applied = rows.length > 0;

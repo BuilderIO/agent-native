@@ -36,6 +36,7 @@ const clearRace = vi.hoisted(() => ({ value: false }));
 const clearUpsertQuery = vi.hoisted(() => ({
   value: null as null | { sql: string; args: unknown[] },
 }));
+const executedSql = vi.hoisted(() => [] as string[]);
 
 function rowKey(docId: string, clientId: number): string {
   return `${docId}|${clientId}`;
@@ -48,6 +49,7 @@ vi.mock("../db/client.js", async () => {
     execute: async (query: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
+      executedSql.push(sql);
       const ledger = storeLedgerResult(sql);
       if (ledger) return ledger;
 
@@ -83,6 +85,16 @@ vi.mock("../db/client.js", async () => {
           sql,
         )
       ) {
+        const hasExistingRowGuard =
+          /WHERE EXISTS \(\s*SELECT 1 FROM _collab_awareness\s+WHERE doc_id = \? AND client_id = \?\s*\)/i.test(
+            sql,
+          );
+        if (
+          hasExistingRowGuard &&
+          !dbRows.has(rowKey(String(args[7]), Number(args[8])))
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
         if (typeof query !== "string") {
           clearUpsertQuery.value = { sql, args: [...args] };
         }
@@ -98,6 +110,7 @@ vi.mock("../db/client.js", async () => {
           typeof args[6] === "number" ? Number(args[6]) : null;
         const isLegacyClockSequence = sql.includes("client_sequence + 1");
         let argumentIndex = 7;
+        if (hasExistingRowGuard) argumentIndex += 2;
         if (isLegacyClockSequence) argumentIndex++;
         const tokenActorEmail = args[argumentIndex++];
         const tokenHashPresent = args[argumentIndex++];
@@ -186,6 +199,16 @@ vi.mock("../db/client.js", async () => {
         /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
         /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\)/i.test(sql)
       ) {
+        const hasExistingRowGuard =
+          /WHERE EXISTS \(\s*SELECT 1 FROM _collab_awareness\s+WHERE doc_id = \? AND client_id = \?\s*\)/i.test(
+            sql,
+          );
+        if (
+          hasExistingRowGuard &&
+          !dbRows.has(rowKey(String(args[10]), Number(args[11])))
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
         const key = rowKey(String(args[0]), Number(args[1]));
         let clientSequence = Number(args[4]);
         const rawSequence = Number(args[6]);
@@ -475,6 +498,7 @@ vi.mock("../db/client.js", async () => {
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {
@@ -496,6 +520,7 @@ beforeEach(() => {
   purgeStarted.signal = undefined;
   clearRace.value = false;
   clearUpsertQuery.value = null;
+  executedSql.length = 0;
   _resetAwarenessStoreForTests();
 });
 
@@ -702,7 +727,7 @@ describe("awareness-store", () => {
         9,
         "",
         1_500,
-        3,
+        MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE + 2,
         true,
         "owner@example.com",
       ),
@@ -711,7 +736,7 @@ describe("awareness-store", () => {
     expect(dbRows.get(rowKey("doc-clear-race", 9))).toMatchObject({
       state: "",
       last_seen: 2_000,
-      client_sequence: 3,
+      client_sequence: MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE + 2,
       client_sequence_raw: 0,
       cleared: true,
       actor_email: "owner@example.com",
@@ -764,7 +789,7 @@ describe("awareness-store", () => {
           {
             state: "",
             last_seen: 2_000,
-            client_sequence: 3,
+            client_sequence: MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE + 2,
             cleared: true,
           },
         ],
@@ -1172,6 +1197,39 @@ describe("awareness-store", () => {
       client_sequence: 1,
       client_sequence_raw: 0,
     });
+  });
+
+  it("checks large bounded sequence jumps in the upsert statement", async () => {
+    await writeAwarenessRow(
+      "doc-sequence-jump",
+      7,
+      "old-state",
+      1_000,
+      1,
+      false,
+    );
+    executedSql.length = 0;
+
+    await expect(
+      writeAwarenessRow(
+        "doc-sequence-jump",
+        7,
+        "new-state",
+        2_000,
+        MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE + 1,
+        false,
+      ),
+    ).resolves.toBe(true);
+
+    expect(
+      executedSql.filter((sql) =>
+        /SELECT client_sequence, client_sequence_raw/i.test(sql),
+      ),
+    ).toHaveLength(0);
+    expect(executedSql).toHaveLength(1);
+    expect(executedSql[0]).toMatch(
+      /WHERE EXISTS \(\s*SELECT 1 FROM _collab_awareness/i,
+    );
   });
 
   it("preserves legacy clock ordering around clear tombstones", async () => {

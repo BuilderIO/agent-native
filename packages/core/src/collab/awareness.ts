@@ -286,14 +286,32 @@ function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
 async function mergeStoredAwareness(
   docId: string,
   map: Map<number, AwarenessEntry>,
+  authoritativeClientId?: number,
 ): Promise<void> {
   const now = Date.now();
   const rows = await loadAwarenessRows(docId, now);
   for (const row of rows) {
+    const authoritative = row.clientId === authoritativeClientId;
     const clear = _awarenessClearTombstones.get(
       awarenessKey(docId, row.clientId),
     );
+    const rowSequence = row.clientSequence ?? 0;
     if (row.actorEmail && clear && row.actorEmail !== clear.actorEmail) {
+      forgetAwarenessClear(docId, row.clientId);
+    }
+    if (authoritative) {
+      if (
+        isBlockedByAwarenessClear(
+          docId,
+          row.clientId,
+          row.lastSeen,
+          rowSequence,
+          now,
+        )
+      ) {
+        map.delete(row.clientId);
+        continue;
+      }
       forgetAwarenessClear(docId, row.clientId);
     }
     if (row.cleared) {
@@ -306,15 +324,19 @@ async function mergeStoredAwareness(
       );
       const existing = map.get(row.clientId);
       if (
-        existing &&
-        ((existing.clientSequence ?? 0) > MAX_AWARENESS_CLIENT_SEQUENCE ||
-          row.clientSequence >= (existing.clientSequence ?? 0))
+        authoritative ||
+        (existing &&
+          ((existing.clientSequence ?? 0) > MAX_AWARENESS_CLIENT_SEQUENCE ||
+            row.clientSequence >= (existing.clientSequence ?? 0)))
       ) {
         map.delete(row.clientId);
       }
       continue;
     }
-    const rowSequence = row.clientSequence ?? 0;
+    if (authoritative) {
+      map.set(row.clientId, { ...row, clientSequence: rowSequence });
+      continue;
+    }
     if (
       isBlockedByAwarenessClear(
         docId,
@@ -715,6 +737,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const unsyncedAttemptOrder = _unsyncedAwarenessWrites.get(localKey);
   const reconcilesUnsyncedLocalWrite =
     unsyncedAttemptOrder !== undefined && attemptOrder > unsyncedAttemptOrder;
+  const useAuthoritativeStoredRow =
+    applied &&
+    (unsyncedAttemptOrder === undefined || reconcilesUnsyncedLocalWrite);
   const hasLocalOrderingState =
     localEntry !== undefined || _awarenessClearTombstones.has(localKey);
   if (
@@ -750,7 +775,11 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     );
   }
   try {
-    await mergeStoredAwareness(docId, map);
+    await mergeStoredAwareness(
+      docId,
+      map,
+      useAuthoritativeStoredRow ? clientId : undefined,
+    );
   } catch (error) {
     if (applied) {
       cleanExpired(map, docId);
