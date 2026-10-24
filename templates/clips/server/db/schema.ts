@@ -478,6 +478,7 @@ export const meetings = table("clips_meetings", {
   scheduledEnd: text("scheduled_end"),
   actualStart: text("actual_start"),
   actualEnd: text("actual_end"),
+  captureStopRevision: integer("capture_stop_revision").notNull().default(0),
   endReason: text("end_reason"),
   platform: text("platform", {
     enum: ["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"],

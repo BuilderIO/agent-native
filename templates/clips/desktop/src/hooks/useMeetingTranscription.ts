@@ -3,7 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import type { ClipsActionError } from "../lib/clips-action";
+import { ClipsActionError } from "../lib/clips-action";
 import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import {
@@ -49,6 +49,10 @@ interface MeetingTranscriptionSession {
   resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
   recordingId: string | null;
+  captureStopState: {
+    revision: number | null;
+    actualEnd: string | null;
+  } | null;
   lines: TranscriptLine[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
@@ -106,7 +110,8 @@ interface Props {
 }
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
-const MEETING_ENDED_POLL_MS = 30_000;
+const MEETING_ENDED_POLL_MS = 5_000;
+const MEETING_RECOVERY_POLL_MS = 30_000;
 const TRANSCRIPTION_STOP_SETTLE_MS = 1_500;
 const MEETING_ACTION_TIMEOUT_MS = 10_000;
 const RECOVERY_RETRY_INITIAL_MS = 3_000;
@@ -683,6 +688,7 @@ export function useMeetingTranscription({
           historyInFlight: null,
           engineStartInFlight: null,
           startRecordingInFlight: null,
+          captureStopState: null,
           flushInFlight: null,
           flushSeq: 0,
           dirtySeq: 0,
@@ -788,6 +794,8 @@ export function useMeetingTranscription({
             callClipsAction<{
               meetingId?: string;
               scheduledEnd?: string | null;
+              captureStopRevision?: number;
+              actualEnd?: string | null;
               recording?: { id?: string | null } | null;
             }>("start-meeting-recording", { meetingId }, { signal }),
           MEETING_ACTION_TIMEOUT_MS,
@@ -802,6 +810,10 @@ export function useMeetingTranscription({
         const recordingId = result.recording?.id;
         session.meetingId = resolvedMeetingId;
         session.recordingId = recordingId ?? null;
+        session.captureStopState = {
+          revision: result.captureStopRevision ?? null,
+          actualEnd: result.actualEnd ?? null,
+        };
         if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
@@ -1590,24 +1602,119 @@ export function useMeetingTranscription({
         );
         return;
       }
-      if (!enabled || session.stopping) return;
-      callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
-        "get-meeting",
-        { id: session.meetingId },
-        { method: "GET" },
-      )
-        .then((data) => {
-          if (sessionRef.current !== session || session.stopping) return;
-          if (!data?.meeting?.actualEnd) return;
-          stopTranscription("server-ended").catch(() => {});
-        })
-        .catch(() => {
-          // Best-effort — a failed poll just waits for the next tick or the
-          // native detector.
-        });
-    }, MEETING_ENDED_POLL_MS);
+    }, MEETING_RECOVERY_POLL_MS);
     return () => window.clearInterval(timer);
   }, [acknowledgeQuitTeardown, callClipsAction, enabled, stopTranscription]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let disposed = false;
+    let inFlight = false;
+    let unlistenStart: (() => void) | undefined;
+    let legacySession: MeetingTranscriptionSession | null = null;
+    const checkEnded = async (legacyTick = false) => {
+      const session = sessionRef.current;
+      if (
+        disposed ||
+        inFlight ||
+        !session ||
+        !session.captureStopState ||
+        legacyTick !== (legacySession === session) ||
+        session.stopping ||
+        session.stopPending
+      )
+        return;
+      inFlight = true;
+      try {
+        const data = await withMeetingActionTimeout(
+          (signal) =>
+            callClipsAction<{
+              meeting?: {
+                actualEnd?: string | null;
+                captureStopRevision?: number;
+              } | null;
+              reason?: "unavailable";
+            }>(
+              legacyTick ? "get-meeting" : "get-meeting-capture-state",
+              { id: session.meetingId },
+              { method: "GET", signal },
+            ),
+          MEETING_ACTION_TIMEOUT_MS,
+          "Checking whether the meeting ended timed out.",
+        );
+        if (
+          disposed ||
+          sessionRef.current !== session ||
+          session.stopping ||
+          session.stopPending
+        )
+          return;
+        if (!data?.meeting) {
+          throw new Error("Meeting capture state is unavailable.");
+        }
+        const revision = data.meeting.captureStopRevision;
+        const initial = session.captureStopState;
+        // A revision catches repeated Ends; the timestamp also catches
+        // server recovery paths that close a meeting without a stop request.
+        const ended = legacyTick
+          ? Boolean(data.meeting.actualEnd)
+          : (initial.revision !== null &&
+              revision !== undefined &&
+              revision > initial.revision) ||
+            Boolean(
+              data.meeting.actualEnd &&
+              data.meeting.actualEnd !== initial.actualEnd,
+            );
+        if (ended) await stopTranscription("server-ended");
+      } catch (error) {
+        if (
+          !disposed &&
+          sessionRef.current === session &&
+          !legacyTick &&
+          ((error instanceof ClipsActionError &&
+            ((error.status === 404 && !error.code) ||
+              error.code === "unknown_action" ||
+              error.code === "action_not_found")) ||
+            (error instanceof Error &&
+              (!(error instanceof ClipsActionError) || !error.code) &&
+              /unknown action|action(?: .*?)? not found/i.test(error.message)))
+        )
+          legacySession = session;
+        if (!disposed)
+          console.warn("[clips-popover] meeting end check failed:", error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const check = () => void checkEnded();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    const timer = window.setInterval(check, MEETING_ENDED_POLL_MS);
+    const legacyTimer = window.setInterval(
+      () => void checkEnded(true),
+      MEETING_RECOVERY_POLL_MS,
+    );
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    listen("meetings:transcription-started", check)
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else unlistenStart = unlisten;
+      })
+      .catch((error) => {
+        console.warn("[clips-popover] meeting end listener failed:", error);
+      });
+    check();
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.clearInterval(legacyTimer);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      unlistenStart?.();
+    };
+  }, [callClipsAction, enabled, stopTranscription]);
 
   useEffect(() => {
     if (!enabled) return;
