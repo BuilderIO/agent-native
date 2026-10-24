@@ -283,6 +283,23 @@ describe("context-item round trip", () => {
     expect(toggleAgentSelectable("panel", "p1")).toBe("added");
   });
 
+  it("sizes a loading provider item with its message instead of throwing", () => {
+    registerAgentSelectable(
+      selectable("panel", "p1", null, "x".repeat(60 * 1024)),
+    );
+    reserveAgentSelectContext([
+      {
+        key: "reference",
+        title: "Reference",
+        context: "loading",
+        status: "pending",
+        statusMessage: "y".repeat(8 * 1024),
+      },
+    ]);
+
+    expect(toggleAgentSelectable("panel", "p1")).toBe("too-large");
+  });
+
   it("ignores provider context from composers that are not showing", () => {
     for (let index = 0; index < 31; index += 1) {
       setAgentChatContextItem({
@@ -417,6 +434,26 @@ describe("pick mode", () => {
       false,
     );
     expect(listAgentSelection()).toEqual([]);
+  });
+
+  it("lets an open dialog take Escape first", () => {
+    setup();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const input = document.createElement("input");
+    dialog.appendChild(input);
+    document.body.appendChild(dialog);
+    input.focus();
+    setAgentSelectMode(true);
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(getAgentSelectSnapshot().active).toBe(true);
   });
 
   it("exits on Escape and keeps the key from the app", () => {

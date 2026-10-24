@@ -4,7 +4,7 @@ import {
   useAgentSelectableSource,
   type AgentSelectable,
 } from "@agent-native/toolkit/app/agent-select";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
 
@@ -16,6 +16,11 @@ const TEXT_LIMIT = 200;
 export interface DesignSelectScreen {
   id: string;
   filename: string;
+}
+
+/** Design files; only HTML files render as screens on the canvas. */
+export interface DesignSelectFile extends DesignSelectScreen {
+  fileType: string;
 }
 
 function escapeAttribute(value: string): string {
@@ -168,9 +173,13 @@ export function designElementSelectable(
 export function useDesignAgentSelect(
   designId: string | undefined,
   designTitle: string | undefined,
-  screens: readonly DesignSelectScreen[],
+  files: readonly DesignSelectFile[],
 ): void {
   const title = designTitle?.trim() || designId || "";
+  const screens = useMemo(
+    () => files.filter((file) => file.fileType === "html"),
+    [files],
+  );
   const screenKey = screens
     .map((screen) => `${screen.id}\u0000${screen.filename}`)
     .join("\n");

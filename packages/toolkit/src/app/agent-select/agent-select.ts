@@ -17,6 +17,7 @@ import {
 import {
   COMPOSER_CONTEXT_MAX_ITEMS,
   composerContextFits,
+  type AgentChatContextItem as ComposerAgentChatContextItem,
 } from "@agent-native/toolkit/composer";
 
 /**
@@ -62,11 +63,7 @@ export interface AgentSelectableSource {
   resolve(target: Element): AgentSelectable | null;
 }
 
-interface ComposerContextEntry {
-  key: string;
-  title: string;
-  context: string;
-}
+type ComposerContextEntry = ComposerAgentChatContextItem;
 
 interface ContextReservation {
   items: readonly ComposerContextEntry[];
@@ -318,8 +315,6 @@ function addSelection(
     title: target.title.trim() || target.id,
     context: target.getContext(),
   };
-  // Only the staged fields: readiness is the composer's to enforce at submit,
-  // so the fit check answers only about the count and size limits.
   const coreItems = listAgentChatContext();
   const coreKeys = new Set(coreItems.map((candidate) => candidate.key));
   const reserved = [...store().reserved.values()]
@@ -332,11 +327,13 @@ function addSelection(
         candidate.key !== key &&
         !(options.exclusive && isSameKindSelection(candidate.key, target.kind)),
     )
-    .map(({ key: itemKey, title, context }) => ({
-      key: itemKey,
-      title,
-      context,
-    }));
+    // Every field the send snapshot counts stays. A provider item still
+    // loading is the composer's to hold at send, so it is sized, not refused.
+    .map((candidate: ComposerContextEntry) =>
+      candidate.status && candidate.status !== "ready"
+        ? { ...candidate, blocksSubmission: false }
+        : candidate,
+    );
   if (!composerContextFits([...existing, item])) {
     const reason =
       existing.length >= COMPOSER_CONTEXT_MAX_ITEMS
@@ -529,6 +526,7 @@ const HOVER_ATTRIBUTE = "data-agent-select-hover";
 /** Mark a region (the agent sidebar, dialogs) that pick mode must not touch. */
 export const AGENT_SELECT_IGNORE_ATTRIBUTE = "data-agent-select-ignore";
 const IGNORE_SELECTOR = `[${AGENT_SELECT_IGNORE_ATTRIBUTE}], .agent-sidebar-panel, [data-agent-composer-slot], [role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]`;
+const OPEN_LAYER_SELECTOR = `[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]`;
 const STYLE_ID = "agent-native-agent-select-style";
 const OVERLAY_Z_INDEX = "2147483000";
 
@@ -867,6 +865,8 @@ function startPickMode(): () => void {
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
+    // An open dialog or menu closes first; the next Escape ends pick mode.
+    if (document.activeElement?.closest(OPEN_LAYER_SELECTOR)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     setAgentSelectMode(false);

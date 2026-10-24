@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import {
   Tooltip,
   TooltipContent,
@@ -25,11 +26,7 @@ export interface AgentSelectToggleProps {
    * Context this composer sends besides core's items, such as its context
    * provider's chips, so picks respect the submission limits.
    */
-  reservedContextItems?: readonly {
-    key: string;
-    title: string;
-    context: string;
-  }[];
+  reservedContextItems?: readonly AgentChatContextItem[];
 }
 
 export function AgentSelectToggle({
