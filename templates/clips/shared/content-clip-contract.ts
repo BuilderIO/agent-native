@@ -174,4 +174,22 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   tooLarge: "upload_too_large",
   /** The editor has too many uploads in progress. */
   tooMany: "too_many_uploads",
+  /**
+   * A start repeated with an `uploadKey` whose upload already has the whole
+   * file: `recordingId` names the Clip and `status` is `processing` or
+   * `ready`. Nothing was made.
+   */
+  alreadyFinished: "upload_already_finished",
+  /**
+   * A start repeated with an `uploadKey` while the first start is still
+   * making its recording. Repeat it again in a few seconds; after about ten
+   * minutes without a recording the answer becomes `upload_key_used`.
+   */
+  uploadStarting: "upload_starting",
+  /**
+   * A start repeated with an `uploadKey` that can't continue: its upload
+   * was cancelled or failed, never got its recording, began in another
+   * block, or was for a file of another type or size.
+   */
+  keyUsed: "upload_key_used",
 } as const;

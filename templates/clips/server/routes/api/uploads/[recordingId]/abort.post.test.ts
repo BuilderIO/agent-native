@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
@@ -50,6 +51,8 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) =>
+    mockCompareAndSetAppState(...args),
   compareAndSetManyAppState: (...args: unknown[]) =>
     mockCompareAndSetManyAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
@@ -167,6 +170,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockDeleteRecordingChunks.mockResolvedValue(2);
     mockCompareAndSetManyAppState.mockResolvedValue(true);
+    mockCompareAndSetAppState.mockResolvedValue(true);
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockGetResumableSession.mockResolvedValue(null);
     mockAbortSession.mockResolvedValue(undefined);
@@ -783,6 +787,148 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec-1" }),
     );
+  });
+
+  describe("for a caller that lets an accepted final chunk win", () => {
+    const uploading = {
+      id: "rec-1",
+      status: "uploading",
+      videoUrl: null,
+      failureReason: null,
+      failureCode: null,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const uploadState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    // What a final chunk holds from before it takes the bytes until the
+    // recording moves on or the chunk fails.
+    const claim = {
+      claimId: "claim-1",
+      claimedAt: "2026-10-24T00:00:00.000Z",
+    };
+    const claimKey = "recording-upload-final-chunk-rec-1";
+
+    function contentCancel() {
+      return handleAbortRecordingUpload({} as any, {
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        finalChunkWins: true,
+        body: {
+          failureCode: "upload_aborted",
+          reason: "The Content page gave up this upload.",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+      });
+    }
+
+    function readStates(
+      states: Array<Record<string, unknown>>,
+      claims: Array<Record<string, unknown> | null> = [],
+    ) {
+      mockReadAppState.mockImplementation(async (key: string) =>
+        key === "recording-media-verification-rec-1"
+          ? null
+          : key === claimKey
+            ? (claims.shift() ?? null)
+            : states.shift(),
+      );
+    }
+
+    it("leaves the upload to its claimed final chunk, noting the cancel for it", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates([uploadState], [claim, claim]);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetAppState).toHaveBeenCalledWith(claimKey, claim, {
+        ...claim,
+        cancelRequested: true,
+      });
+      expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    });
+
+    it("leaves the upload to a final chunk that claims it between the cancel's read and its own claim", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(
+        [uploadState, { ...uploadState, finalChunkClaimedAt: claim.claimedAt }],
+        [null, claim, claim],
+      );
+      mockCompareAndSetManyAppState.mockResolvedValueOnce(false);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).toHaveBeenCalledTimes(1);
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("cancels an upload whose final chunk failed, whatever its state said meanwhile", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates([{ ...uploadState, status: "processing" }]);
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+        chunksCleared: 2,
+      });
+
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: "failed" })]),
+      );
+    });
+
+    it("leaves a recording that finalization moved on before verification starts", async () => {
+      mockSelectRows.rows = [{ ...uploading, status: "processing" }];
+      readStates([uploadState]);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("still cancels while the final chunk isn't in", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates([uploadState]);
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+      });
+
+      expect(mockEqCalls).toContainEqual(["recordings.status", "uploading"]);
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: "failed",
+            failureCode: "upload_aborted",
+          }),
+        ]),
+      );
+    });
   });
 
   it("aborts provider storage before deleting a resumable session", async () => {

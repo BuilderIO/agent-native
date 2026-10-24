@@ -6,12 +6,21 @@ import type { z } from "zod";
 import createRecording from "../../actions/create-recording.js";
 import type { createRecordingSchema } from "../../actions/lib/create-recording-schema.js";
 import {
+  addRecordingUploadTicket,
   createRecordingUploadTicket,
   releaseRecordingUploadTicket,
 } from "./recording-upload-ticket.js";
 import { getCurrentOwnerEmail, nanoid } from "./recordings.js";
 
 type CreateRecordingArgs = z.input<typeof createRecordingSchema>;
+
+interface UploadFile {
+  mimeType: string;
+  sizeBytes: number;
+  durationMs?: number;
+  width?: number;
+  height?: number;
+}
 
 export interface RecordingUploadStart {
   recordingId: string;
@@ -34,13 +43,8 @@ export async function startRecordingUpload(
     recordingId?: string;
     title?: string;
     visibility: NonNullable<CreateRecordingArgs["visibility"]>;
-    mimeType: string;
-    sizeBytes: number;
-    durationMs?: number;
-    width?: number;
-    height?: number;
     recordingSource: NonNullable<CreateRecordingArgs["recordingSource"]>;
-  },
+  } & UploadFile,
   actionContext?: ActionRunContext,
 ): Promise<RecordingUploadStart> {
   const ownerEmail = getCurrentOwnerEmail();
@@ -86,6 +90,37 @@ export async function startRecordingUpload(
     throw error;
   }
 
+  return {
+    recordingId,
+    ticket: ticket.token,
+    expiresAt: new Date(ticket.expiresAt).toISOString(),
+    ...uploadPlan(input),
+  };
+}
+
+/**
+ * Another ticket for an upload already in "uploading", planned for the file
+ * its first start described. Earlier tickets keep working.
+ */
+export async function reissueRecordingUpload(
+  input: { recordingId: string } & UploadFile,
+): Promise<RecordingUploadStart> {
+  const ticket = await addRecordingUploadTicket(
+    getCurrentOwnerEmail(),
+    input.recordingId,
+    getRequestContext()?.authUserId,
+  );
+  return {
+    recordingId: input.recordingId,
+    ticket: ticket.token,
+    expiresAt: new Date(ticket.expiresAt).toISOString(),
+    ...uploadPlan(input),
+  };
+}
+
+function uploadPlan(
+  input: UploadFile,
+): Pick<RecordingUploadStart, "chunkSizeBytes" | "totalChunks" | "chunkQuery"> {
   const totalChunks = Math.max(
     1,
     Math.ceil(input.sizeBytes / UPLOAD_SLICE_BYTES),
@@ -100,12 +135,5 @@ export async function startRecordingUpload(
   if (input.width) chunkQuery.set("width", String(input.width));
   if (input.height) chunkQuery.set("height", String(input.height));
 
-  return {
-    recordingId,
-    ticket: ticket.token,
-    expiresAt: new Date(ticket.expiresAt).toISOString(),
-    chunkSizeBytes: UPLOAD_SLICE_BYTES,
-    totalChunks,
-    chunkQuery,
-  };
+  return { chunkSizeBytes: UPLOAD_SLICE_BYTES, totalChunks, chunkQuery };
 }

@@ -372,4 +372,43 @@ describe("recording upload tickets", () => {
       requireRecordingUploadTicketOwner(ticketEvent(first.token), "rec-1"),
     ).resolves.toMatchObject({ recordingId: "rec-1" });
   });
+
+  it("replaces a recording's token for a new agent ticket, and keeps it alongside a repeated start's", async () => {
+    const {
+      addRecordingUploadTicket,
+      createRecordingUploadTicket,
+      requireRecordingUploadTicketOwner,
+    } = await import("./recording-upload-ticket.js");
+    const opens = (token: string) =>
+      requireRecordingUploadTicketOwner(ticketEvent(token), "rec-1").then(
+        () => true,
+        () => false,
+      );
+
+    const replaced = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+      "user-1",
+    );
+    const agent = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+      "user-1",
+    );
+    const repeat = await addRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+      "user-1",
+    );
+
+    expect(await opens(replaced.token)).toBe(false);
+    expect(await opens(agent.token)).toBe(true);
+    expect(await opens(repeat.token)).toBe(true);
+    const stored = JSON.parse(settings.get(storageKey)!);
+    expect(Object.keys(stored.tickets)).toEqual(["rec-1"]);
+    expect(stored.tickets["rec-1"]).toMatchObject({
+      reservedAt: agent.reservedAt,
+      authUserId: "user-1",
+    });
+  });
 });
