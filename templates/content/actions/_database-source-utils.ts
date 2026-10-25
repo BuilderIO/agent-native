@@ -6262,34 +6262,24 @@ export async function materializeSourceFieldPropertyValues(args: {
       Array.from(new Set(changing.map((key) => desired.get(key)!.propertyId))),
       Array.from(new Set(changing.map((key) => desired.get(key)!.documentId))),
     );
-    const upserts: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
-    for (const key of changing) {
-      if (!differs(current, key)) continue;
-      const want = desired.get(key)!;
-      const stored = current.get(key);
-      upserts.push({
-        id: stored?.id ?? nanoid(),
-        ownerEmail: stored?.ownerEmail ?? args.database.ownerEmail,
-        documentId: want.documentId,
-        propertyId: want.propertyId,
-        valueJson: want.valueJson,
-        createdAt: stored?.createdAt ?? args.now,
-        updatedAt: args.now,
-      });
-    }
-    for (const chunk of chunks(upserts, bulkChunkSizeForColumnCount(7))) {
-      if (chunk.length === 0) continue;
-      await tx
-        .insert(schema.documentPropertyValues)
-        .values(chunk)
-        .onConflictDoUpdate({
-          target: schema.documentPropertyValues.id,
-          set: {
-            valueJson: sql`excluded.value_json`,
-            updatedAt: sql`excluded.updated_at`,
-          },
-        });
-    }
+    await upsertSourcePropertyValues(
+      tx,
+      changing
+        .filter((key) => differs(current, key))
+        .map((key) => {
+          const want = desired.get(key)!;
+          const stored = current.get(key);
+          return {
+            id: stored?.id ?? nanoid(),
+            ownerEmail: stored?.ownerEmail ?? args.database.ownerEmail,
+            documentId: want.documentId,
+            propertyId: want.propertyId,
+            valueJson: want.valueJson,
+            createdAt: stored?.createdAt ?? args.now,
+            updatedAt: args.now,
+          };
+        }),
+    );
   });
 }
 
@@ -6346,6 +6336,29 @@ async function readStoredSourceFieldValues(
   return new Map(
     rows.map((row) => [`${row.documentId}\0${row.propertyId}`, row]),
   );
+}
+
+/**
+ * Writes source-managed values in chunked upserts. Pass each existing value's
+ * own id, so a value already stored is updated in place.
+ */
+async function upsertSourcePropertyValues(
+  tx: ReturnType<typeof getDb>,
+  upserts: (typeof schema.documentPropertyValues.$inferInsert)[],
+) {
+  for (const chunk of chunks(upserts, bulkChunkSizeForColumnCount(7))) {
+    if (chunk.length === 0) continue;
+    await tx
+      .insert(schema.documentPropertyValues)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: schema.documentPropertyValues.id,
+        set: {
+          valueJson: sql`excluded.value_json`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+  }
 }
 
 function openChangeSetKey(row: ContentDatabaseSourceChangeSetRowDb) {
@@ -8216,83 +8229,77 @@ export async function ensureDatabaseSourceProperty(args: {
     );
   }
 
-  // Under the collection's mutation lock, like every other value write, so a
-  // guarded write can't fill a row's Source between the read and the insert.
+  // What each row's Source should hold: the source that owns it, else Local.
+  const rows = await db
+    .select({
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      sourceId: schema.contentDatabaseSourceRows.sourceId,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      inArray(
+        schema.contentDatabaseSourceRows.sourceId,
+        sources.map((source) => source.id),
+      ),
+    );
+  const ownerSourceIdByDocumentId = new Map<string, string>();
+  for (const row of rows) {
+    if (row.documentId)
+      ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
+  }
+  const items = await db
+    .select({ documentId: schema.contentDatabaseItems.documentId })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
+  const desired = new Map(
+    items.map((item) => [
+      item.documentId,
+      serializePropertyValue(
+        ownerSourceIdByDocumentId.get(item.documentId) ??
+          SOURCE_LOCAL_OPTION_ID,
+      ),
+    ]),
+  );
+  const key = (documentId: string) => `${documentId}\0${propertyId}`;
+  const differs = (
+    stored: Map<string, StoredSourceFieldValue>,
+    documentId: string,
+  ) => stored.get(key(documentId))?.valueJson !== desired.get(documentId);
+  const before = await readStoredSourceFieldValues(db, [propertyId], null);
+  const changing = Array.from(desired.keys()).filter((documentId) =>
+    differs(before, documentId),
+  );
+  if (changing.length === 0) return;
+
+  // Only the write takes the collection's mutation lock, like every other
+  // value write, as in materializeSourceFieldPropertyValues: the scans above
+  // hold up no other writer, and the values about to change are read again
+  // under the lock, so one filled since is updated in place, not doubled.
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
     await lockContentDatabaseMutation(tx, args.database.id);
-    const rows = await tx
-      .select({
-        documentId: schema.contentDatabaseSourceRows.documentId,
-        sourceId: schema.contentDatabaseSourceRows.sourceId,
-      })
-      .from(schema.contentDatabaseSourceRows)
-      .where(
-        inArray(
-          schema.contentDatabaseSourceRows.sourceId,
-          sources.map((source) => source.id),
-        ),
-      );
-    const ownerSourceIdByDocumentId = new Map<string, string>();
-    for (const row of rows) {
-      if (row.documentId)
-        ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
-    }
-
-    const items = await tx
-      .select({ documentId: schema.contentDatabaseItems.documentId })
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
-    // One read and a few chunked upserts rather than a round trip per row,
-    // so a large collection holds the lock briefly.
-    const existingByDocumentId = new Map<
-      string,
-      { id: string; valueJson: string; createdAt: string; ownerEmail: string }
-    >();
-    for (const value of await tx
-      .select({
-        id: schema.documentPropertyValues.id,
-        documentId: schema.documentPropertyValues.documentId,
-        valueJson: schema.documentPropertyValues.valueJson,
-        createdAt: schema.documentPropertyValues.createdAt,
-        ownerEmail: schema.documentPropertyValues.ownerEmail,
-      })
-      .from(schema.documentPropertyValues)
-      .where(eq(schema.documentPropertyValues.propertyId, propertyId))) {
-      if (!existingByDocumentId.has(value.documentId))
-        existingByDocumentId.set(value.documentId, value);
-    }
-    const upserts: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
-    for (const item of items) {
-      const optionId =
-        ownerSourceIdByDocumentId.get(item.documentId) ??
-        SOURCE_LOCAL_OPTION_ID;
-      const valueJson = serializePropertyValue(optionId);
-      const existing = existingByDocumentId.get(item.documentId);
-      if (existing?.valueJson === valueJson) continue;
-      upserts.push({
-        id: existing?.id ?? crypto.randomUUID(),
-        ownerEmail: existing?.ownerEmail ?? args.database.ownerEmail,
-        documentId: item.documentId,
-        propertyId,
-        valueJson,
-        createdAt: existing?.createdAt ?? args.now,
-        updatedAt: args.now,
-      });
-    }
-    for (const chunk of chunks(upserts, bulkChunkSizeForColumnCount(7))) {
-      if (chunk.length === 0) continue;
-      await tx
-        .insert(schema.documentPropertyValues)
-        .values(chunk)
-        .onConflictDoUpdate({
-          target: schema.documentPropertyValues.id,
-          set: {
-            valueJson: sql`excluded.value_json`,
-            updatedAt: sql`excluded.updated_at`,
-          },
-        });
-    }
+    const current = await readStoredSourceFieldValues(
+      tx,
+      [propertyId],
+      changing,
+    );
+    await upsertSourcePropertyValues(
+      tx,
+      changing
+        .filter((documentId) => differs(current, documentId))
+        .map((documentId) => {
+          const stored = current.get(key(documentId));
+          return {
+            id: stored?.id ?? crypto.randomUUID(),
+            ownerEmail: stored?.ownerEmail ?? args.database.ownerEmail,
+            documentId,
+            propertyId,
+            valueJson: desired.get(documentId)!,
+            createdAt: stored?.createdAt ?? args.now,
+            updatedAt: args.now,
+          };
+        }),
+    );
   });
 }
 
