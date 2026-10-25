@@ -9,7 +9,10 @@ import {
   initYDocWithJson,
   type PatchOp,
 } from "./json-to-yjs.js";
-import type { LiveCopyCatchUp } from "./live-copy-tasks.js";
+import {
+  SNAPSHOT_ADOPTION_MAP,
+  type LiveCopyCatchUp,
+} from "./live-copy-tasks.js";
 import {
   applyLiveCopyUpdate,
   assertLiveCopy,
@@ -1117,6 +1120,120 @@ export async function seedXmlFragmentIfEmpty(
       );
     },
     "seedXmlFragmentIfEmpty",
+  );
+}
+
+export type SnapshotAdoptionStatus =
+  | "adopted"
+  | "already-adopted"
+  | "rebase"
+  | "stale";
+
+function adoptedRevisionOf(doc: Y.Doc): string | null {
+  const revision = doc.getMap(SNAPSHOT_ADOPTION_MAP).get("revision");
+  return typeof revision === "string" ? revision : null;
+}
+
+/**
+ * Takes a saved-body snapshot into the live doc at most once per revision.
+ * Every open editor proposes the same change, and without one arbiter each
+ * editor's inserts survive the merge, so the text appears once per editor.
+ *
+ * `adoptionUpdate` is the proposing editor's whole doc with the snapshot
+ * taken in. A proposal built before the server took in another revision is
+ * refused with `rebase`: its inserts would land beside that revision's.
+ */
+export async function adoptSnapshotOnce(
+  docId: string,
+  adoptionUpdate: Uint8Array,
+  revision: string,
+  options: {
+    isCurrent?: () => Promise<boolean> | boolean;
+    requestSource?: string;
+  } = {},
+): Promise<{
+  status: SnapshotAdoptionStatus;
+  state: Uint8Array;
+  adoptedRevision: string | null;
+}> {
+  if (!revision) throw new Error("A snapshot revision is required");
+  const proposal = new Y.Doc();
+  let baseRevision: string | null;
+  try {
+    Y.applyUpdate(proposal, adoptionUpdate);
+    if (proposal.store.pendingStructs || proposal.store.pendingDs) {
+      throw new Error(
+        "Snapshot adoption update must hold the proposing editor's whole doc",
+      );
+    }
+    baseRevision = adoptedRevisionOf(proposal);
+  } finally {
+    proposal.destroy();
+  }
+  return withDocWriteLock(
+    docId,
+    async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const stored = await loadYDocRecord(docId);
+        const committed = new Y.Doc();
+        try {
+          if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+          const adoptedRevision = adoptedRevisionOf(committed);
+          const answer = (status: SnapshotAdoptionStatus) => ({
+            status,
+            state: Y.encodeStateAsUpdate(committed),
+            adoptedRevision,
+          });
+          if (adoptedRevision === revision) return answer("already-adopted");
+          if (adoptedRevision !== baseRevision) return answer("rebase");
+          // The saved body can move on once this check passes; the newer
+          // revision is then proposed against this one, which is in the doc.
+          if (options.isCurrent && !(await options.isCurrent())) {
+            return answer("stale");
+          }
+
+          const beforeVector = Y.encodeStateVector(committed);
+          committed.transact(() => {
+            Y.applyUpdate(committed, adoptionUpdate);
+            committed.getMap(SNAPSHOT_ADOPTION_MAP).set("revision", revision);
+          });
+          if (committed.store.pendingStructs || committed.store.pendingDs) {
+            throw new Error(
+              "Snapshot adoption update depends on state the server does not have",
+            );
+          }
+          const state = Y.encodeStateAsUpdate(committed);
+          const committedUpdate = Y.encodeStateAsUpdate(
+            committed,
+            beforeVector,
+          );
+          const textSnapshot =
+            committed.getText(DEFAULT_FIELD).toString() ||
+            extractTextFromYXml(committed.getXmlFragment("default"));
+          const saved = await trySaveYDocState(
+            docId,
+            state,
+            textSnapshot,
+            stored?.version ?? null,
+          );
+          if (!saved) continue;
+
+          releaseDoc(docId);
+          emitCollabUpdate(
+            docId,
+            uint8ArrayToBase64(committedUpdate),
+            options.requestSource,
+          );
+          return { status: "adopted", state, adoptedRevision: revision };
+        } finally {
+          committed.destroy();
+        }
+      }
+      throw new CollabBaseVersionConflictError(
+        `Document ${docId} kept changing while a saved snapshot was being adopted.`,
+      );
+    },
+    "adoptSnapshotOnce",
   );
 }
 

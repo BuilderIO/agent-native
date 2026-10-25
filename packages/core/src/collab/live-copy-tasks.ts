@@ -13,6 +13,12 @@ export const LIVE_COPY_TASK = {
   edit: "liveCopy.edit",
 } as const;
 
+/**
+ * Y.Map holding the saved-body revision a legacy page's live doc last took in.
+ * It carries no body content, so a live copy may hold it next to the field.
+ */
+export const SNAPSHOT_ADOPTION_MAP = "agentNativeSnapshotAdoption";
+
 export interface LiveCopyTaskRefusal {
   kind: "refused";
   reason: string;
@@ -160,7 +166,8 @@ function fieldHasContent(doc: Y.Doc, field: string): boolean {
 function assertOnlyField(doc: Y.Doc, field: string): void {
   const stray: string[] = [];
   for (const [name, type] of doc.share) {
-    if (name !== field && hasLiveContent(type)) stray.push(name);
+    if (name === field || name === SNAPSHOT_ADOPTION_MAP) continue;
+    if (hasLiveContent(type)) stray.push(name);
   }
   if (stray.length > 0) {
     fail(

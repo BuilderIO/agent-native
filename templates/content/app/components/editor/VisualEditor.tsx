@@ -4338,6 +4338,31 @@ export function VisualEditor({
     },
     [documentId],
   );
+  const requestSnapshotAdoption = useCallback(
+    async ({ revision, update }: { revision: string; update: Uint8Array }) => {
+      if (!documentId)
+        throw new Error("A document ID is required to adopt a snapshot.");
+      let binary = "";
+      for (const byte of update) binary += String.fromCharCode(byte);
+      const result = await callAction<{
+        status: "adopted" | "already-adopted" | "rebase" | "stale";
+        adoptedRevision: string | null;
+        stateBase64: string;
+      }>("adopt-document-snapshot", {
+        id: documentId,
+        revision,
+        adoptionUpdateBase64: btoa(binary),
+      });
+      return {
+        status: result.status,
+        adoptedRevision: result.adoptedRevision,
+        state: Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        ),
+      };
+    },
+    [documentId],
+  );
   const onInitialSeedError = useCallback(
     (error: unknown) => {
       if (initialSeedErrorShownRef.current) return;
@@ -4420,6 +4445,8 @@ export function VisualEditor({
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
+    requestSnapshotAdoption:
+      ydoc && editable && documentId ? requestSnapshotAdoption : undefined,
     onInitialSeedError,
     overlapPolicy: "prefer-live",
     editable,
