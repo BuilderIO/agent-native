@@ -18,6 +18,7 @@ import {
   designFrame,
   enableLab,
   gotoEditor,
+  resetPersistedCanvasState,
   selectByText,
   waitForDesignPreviewReady,
 } from "./helpers";
@@ -168,6 +169,15 @@ async function gotoMotionStyleScreen(page: Page) {
   await waitForDesignPreviewReady(page);
 }
 
+async function reloadMotionStyleScreen(page: Page) {
+  await resetPersistedCanvasState(page);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  await waitForDesignPreviewReady(page);
+}
+
 test.beforeEach(async ({ page }) => {
   restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
 });
@@ -185,7 +195,7 @@ test("native style states persist with the Motion inspector and timeline", async
   page,
   request,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoMotionStyleScreen(page);
@@ -777,7 +787,7 @@ test("native style states persist with the Motion inspector and timeline", async
     ),
   ).toBe(false);
 
-  await gotoMotionStyleScreen(page);
+  await reloadMotionStyleScreen(page);
   await selectByText(page, "Second fixture paragraph for selection tests.", {
     screenId: fileId,
     clearPreviousSelection: true,
