@@ -216,7 +216,9 @@ describe("/api/thumbnail/:recordingId route", () => {
       );
       const event = makeEvent();
 
-      expect(await handler(event as any)).toEqual({ error: "Not found" });
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
       expect(event.status).toBe(404);
       expect(fetch).not.toHaveBeenCalled();
       expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
@@ -237,7 +239,9 @@ describe("/api/thumbnail/:recordingId route", () => {
           headers: { "content-type": "image/jpeg" },
         }),
       );
-      const result = await handler(makeEvent() as any);
+      const result = await handler(
+        makeEvent() as unknown as Parameters<typeof handler>[0],
+      );
       expect(result).toBeInstanceOf(Response);
       expect(await (result as Response).text()).toBe("thumbnail");
     },
