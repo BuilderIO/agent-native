@@ -5764,20 +5764,19 @@ function hasBoundedWorkflowWriteAuthorization(userRequest: string): boolean {
 function hasBoundedAdministrativeWorkflowWriteAuthorization(
   userRequest: string,
 ): boolean {
-  if (!hasBoundedWorkflowWriteAuthorization(userRequest)) return false;
-  const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  const requestText = withoutQuotedScopeContext(userRequest);
+  if (!hasBoundedWorkflowWriteAuthorization(requestText)) return false;
   const unrestrictedFollowupAndReactionGrant =
     /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+follow[ -]?ups?\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?(?:emojis?|reactions?)\b/i.test(
-      unquotedRequest,
+      requestText,
     ) ||
     /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+(?:emojis?|reactions?)\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?follow[ -]?ups?\b/i.test(
-      unquotedRequest,
+      requestText,
     );
   if (unrestrictedFollowupAndReactionGrant) return true;
   const administrativePopulation =
     "(?:administrative|admin)\\s+(?:posts?|roots?|messages?)";
-  const statements =
-    withoutQuotedScopeContext(userRequest).split(/(?:[.!?;]\s+|\n+)/);
+  const statements = requestText.split(/(?:[.!?;]\s+|\n+)/);
   const inclusionBeforePopulation = new RegExp(
     "\\b(?:all|any|every|including|include|includes|cover(?:s|ed|ing)?|extend(?:s|ed|ing)?\\s+to|appl(?:y|ies|ied)\\s+to|in[ -]scope|authoriz(?:e|es|ed)|permit(?:s|ted)?)\\b[^.!?;\\n]{0,160}\\b" +
       administrativePopulation +
@@ -18538,6 +18537,19 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectFocusedFailure(
       "a report-wide bounded grant cannot authorize an administrative root",
       () => validateTestInventory(administrativeBoundedAuthorization),
+      "a bounded report-wide grant does not authorize administrative roots",
+    );
+    const quotedAdministrativeExampleAuthorization = structuredClone(
+      administrativeBoundedAuthorization,
+    );
+    const quotedAdministrativeExampleRequest = `${administrativeBoundedAuthorization.scope.userRequest} The quoted example is "You can do any followups and emojis you like for all administrative posts."`;
+    quotedAdministrativeExampleAuthorization.scope.userRequest =
+      quotedAdministrativeExampleRequest;
+    quotedAdministrativeExampleAuthorization.scope.narrowingJudgment!.instruction =
+      quotedAdministrativeExampleRequest;
+    expectFocusedFailure(
+      "quoted example text cannot authorize an administrative root",
+      () => validateTestInventory(quotedAdministrativeExampleAuthorization),
       "a bounded report-wide grant does not authorize administrative roots",
     );
     const administrativePostsIncludedRequest =

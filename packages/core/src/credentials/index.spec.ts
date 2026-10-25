@@ -688,7 +688,7 @@ describe("credentials encryption at rest", () => {
     ]);
   });
 
-  it("does not let a member's unreadable personal key fall through to the org credential", async () => {
+  it("does not fall through to an org key when a member's personal key is unreadable", async () => {
     const error = new AppSecretDecryptionError({
       scope: "user",
       scopeId: "member@example.test",

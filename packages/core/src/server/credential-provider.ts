@@ -2231,8 +2231,8 @@ export async function resolveSecretDetailed(
         isPersonalProviderPolicyKey(key) &&
         (await isPersonalProviderKeyUseRestricted({ email }));
 
-      let userSecret: Awaited<ReturnType<typeof readAppSecret>> = null;
       let personalReadError: AppSecretDecryptionError | undefined;
+      let userSecret: ReadSecretResult | null = null;
       if (!options.skipUserScope && !personalRestricted) {
         try {
           userSecret = await readAppSecret({

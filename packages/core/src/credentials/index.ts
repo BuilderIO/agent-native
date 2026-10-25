@@ -273,6 +273,8 @@ export async function resolveCredentialDetailed(
     ctx.credentialScope !== "org" &&
     Boolean(personal || personalReadError) &&
     (await readsOrgCredentialFirst(orgId, ctx.userEmail));
+  // A member's own credential has precedence. If it cannot be read, do not
+  // silently run the request with a shared org credential instead.
   if (personalReadError && !orgCredentialFirst) throw personalReadError;
   if (personal && !orgCredentialFirst) return personal;
 

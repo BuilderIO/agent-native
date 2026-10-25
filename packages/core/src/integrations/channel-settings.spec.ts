@@ -196,6 +196,7 @@ vi.mock("./config-store.js", () => ({
 }));
 
 import { readAppSecret } from "../secrets/storage.js";
+import manageMessagingChannel from "./actions/manage-messaging-channel.js";
 import {
   listMessagingChannels,
   registerMessagingChannelWebhook,
@@ -369,6 +370,32 @@ describe("channel settings", () => {
       "SENDGRID_API_KEY",
       "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]);
+  });
+
+  it("keeps removal tokens in the settings UI and hides the mutation tool from agents", async () => {
+    store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "fake-bot-token");
+
+    const agentResult = await listMessagingChannels({
+      ...OWNER,
+      caller: "tool",
+    });
+    const agentCredential = agentResult.channels
+      .find((channel) => channel.platform === "telegram")
+      ?.credentials.find(
+        (credential) => credential.key === "TELEGRAM_BOT_TOKEN",
+      );
+    const uiResult = await listMessagingChannels(OWNER);
+    const uiCredential = uiResult.channels
+      .find((channel) => channel.platform === "telegram")
+      ?.credentials.find(
+        (credential) => credential.key === "TELEGRAM_BOT_TOKEN",
+      );
+
+    expect(agentCredential).toMatchObject({ removable: true });
+    expect(agentCredential).not.toHaveProperty("removalConfirmation");
+    expect(uiCredential?.removalConfirmation).toBeTruthy();
+    expect(manageMessagingChannel.agentTool).toBe(false);
+    expect(manageMessagingChannel.uiOnly).toBe(true);
   });
 
   it("shows members the state but not where credentials come from", async () => {
