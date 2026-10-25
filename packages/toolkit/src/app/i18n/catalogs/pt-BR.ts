@@ -2489,6 +2489,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "Tentar novamente",
   "settingsShell.channels.setup.unreadable":
     "Não foi possível ler uma credencial salva. Insira um valor substituto.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Isso substitui apenas sua credencial pessoal; as credenciais de outras pessoas permanecem iguais.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Não foi possível ler algumas credenciais salvas do canal. Substitua-as antes de ativar este canal.",
   "settingsShell.channels.setup.addToEnvironment":
@@ -3302,11 +3304,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "O {{provider}} recusou esta chave em {{date}}. Peça a um proprietário ou administrador para substituí-la.",
   "settingsModel.rejectedHeadline": "O {{provider}} recusou esta chave",
+  "settingsModel.unreadable":
+    "Não foi possível ler a configuração salva do provedor. Substitua-a para restaurar o acesso.",
+  "settingsModel.unreadableAskAdmin":
+    "Não foi possível ler a configuração salva do provedor. Peça a um proprietário ou administrador para substituí-la.",
   "settingsModel.remove": "Remover",
   "settingsModel.removeProvider": "Remover provedor",
   "settingsModel.removeTitle": "Remover {{provider}}?",
   "settingsModel.removing": "Removendo",
   "settingsModel.replace": "Substituir",
+  "settingsModel.replaceEndpoint": "Substituir endpoint",
   "settingsModel.replaceKey": "Substituir chave",
   "settingsModel.restrictBody":
     "Os membros só podem usar provedores da organização.",

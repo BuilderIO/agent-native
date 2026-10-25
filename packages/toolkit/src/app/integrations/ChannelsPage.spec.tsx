@@ -139,7 +139,10 @@ function channel(
         ? { removalConfirmation: `confirmation:${key}` }
         : {}),
       ...(unreadableScopes[key]
-        ? { unreadableScope: unreadableScopes[key] }
+        ? {
+            unreadableScope: unreadableScopes[key],
+            repairScope: unreadableScopes[key],
+          }
         : {}),
     })),
     ...patch,
@@ -628,6 +631,9 @@ describe("ChannelsPage", () => {
     );
     expect(credential?.textContent).toContain(
       "Set in the deployment environment",
+    );
+    expect(credential?.textContent).toContain(
+      "This replaces only your personal credential; other users' credentials stay unchanged.",
     );
     await act(async () =>
       document

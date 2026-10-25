@@ -40,6 +40,29 @@ describe("generation deck refresh", () => {
     expect(refreshOpenDeck).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retry a null refresh after the caller cancels", async () => {
+    vi.useFakeTimers();
+    const refreshOpenDeck = vi.fn().mockResolvedValueOnce(null);
+    const controller = new AbortController();
+
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    await Promise.resolve();
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("returns unavailable for a rejected refresh", async () => {
     const refreshOpenDeck = vi
       .fn()

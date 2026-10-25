@@ -402,6 +402,7 @@ describe("channel settings", () => {
       key: "TELEGRAM_BOT_TOKEN",
       source: "environment",
       unreadableScope: "user",
+      repairScope: "user",
       removable: true,
     });
     expect(telegram).not.toHaveProperty("configurationUnavailable");
@@ -414,6 +415,35 @@ describe("channel settings", () => {
       "fake-replacement-token",
     );
     expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
+  });
+
+  it("repairs only the caller's unreadable personal credential and keeps it personal", async () => {
+    const personalRef = `user:${OWNER.userEmail}:TELEGRAM_BOT_TOKEN`;
+    store.set(personalRef, "corrupted-personal-token");
+    unreadable.add(personalRef);
+    store.set(
+      `workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`,
+      "fake-webhook-secret",
+    );
+
+    const listed = await listMessagingChannels(OWNER);
+    const telegram = listed.channels.find((row) => row.platform === "telegram");
+    expect(telegram?.credentials[0]).toMatchObject({
+      source: "unreadable",
+      unreadableScope: "user",
+      repairScope: "user",
+    });
+
+    const repaired = await saveMessagingChannelCredentials(OWNER, "telegram", {
+      TELEGRAM_BOT_TOKEN: "fake-personal-replacement-token",
+    });
+
+    expect(store.get(personalRef)).toBe("fake-personal-replacement-token");
+    expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
+    expect(repaired.channel).toMatchObject({
+      state: "off",
+      configured: true,
+    });
   });
 
   it("replaces an unreadable organization credential at its exact scope", async () => {

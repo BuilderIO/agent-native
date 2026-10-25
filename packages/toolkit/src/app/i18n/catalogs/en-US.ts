@@ -2355,6 +2355,8 @@ const messages = {
   "settingsShell.channels.retry": "Retry",
   "settingsShell.channels.setup.unreadable":
     "A saved credential could not be read. Enter a replacement value.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "This replaces only your personal credential; other users' credentials stay unchanged.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Some saved channel credentials could not be read. Replace them before enabling this channel.",
   "settingsShell.channels.setup.addToEnvironment":
@@ -3141,11 +3143,16 @@ const messages = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} rejected this key on {{date}}. Ask an owner or admin to replace it.",
   "settingsModel.rejectedHeadline": "{{provider}} rejected this key",
+  "settingsModel.unreadable":
+    "Saved provider data is unreadable. Replace it to restore access.",
+  "settingsModel.unreadableAskAdmin":
+    "Saved provider data is unreadable. Ask an owner or admin to replace it.",
   "settingsModel.remove": "Remove",
   "settingsModel.removeProvider": "Remove provider",
   "settingsModel.removeTitle": "Remove {{provider}}?",
   "settingsModel.removing": "Removing",
   "settingsModel.replace": "Replace",
+  "settingsModel.replaceEndpoint": "Replace endpoint",
   "settingsModel.replaceKey": "Replace key",
   "settingsModel.restrictBody": "Members can only use organization providers.",
   "settingsModel.restrictConfirm": "Restrict keys",

@@ -2501,6 +2501,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "Reintentar",
   "settingsShell.channels.setup.unreadable":
     "No se puede leer una credencial guardada. Introduce un valor de reemplazo.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Esto solo reemplaza tu credencial personal; las credenciales de otras personas no cambian.",
   "settingsShell.channels.setup.configurationUnavailable":
     "No se pueden leer algunas credenciales guardadas del canal. Sustitúyelas antes de activar este canal.",
   "settingsShell.channels.setup.addToEnvironment":
@@ -3312,11 +3314,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} rechazó esta clave el {{date}}. Pide a un propietario o administrador que la sustituya.",
   "settingsModel.rejectedHeadline": "{{provider}} rechazó esta clave",
+  "settingsModel.unreadable":
+    "No se puede leer la configuración guardada del proveedor. Sustitúyela para recuperar el acceso.",
+  "settingsModel.unreadableAskAdmin":
+    "No se puede leer la configuración guardada del proveedor. Pide a un propietario o administrador que la sustituya.",
   "settingsModel.remove": "Quitar",
   "settingsModel.removeProvider": "Quitar proveedor",
   "settingsModel.removeTitle": "¿Quitar {{provider}}?",
   "settingsModel.removing": "Quitando",
   "settingsModel.replace": "Sustituir",
+  "settingsModel.replaceEndpoint": "Sustituir endpoint",
   "settingsModel.replaceKey": "Sustituir clave",
   "settingsModel.restrictBody":
     "Los miembros solo pueden usar proveedores de la organización.",

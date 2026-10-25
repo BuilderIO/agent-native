@@ -2186,6 +2186,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "重試",
   "settingsShell.channels.setup.unreadable":
     "無法讀取已儲存的憑證。請輸入替代值。",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "這只會取代你的個人憑證；其他使用者的憑證不會變更。",
   "settingsShell.channels.setup.configurationUnavailable":
     "部分已儲存的頻道憑證無法讀取。請在啟用此頻道前取代它們。",
   "settingsShell.channels.setup.addToEnvironment": "請新增到部署環境中",
@@ -2871,11 +2873,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} 已於 {{date}} 拒絕此金鑰。請擁有者或管理員替換。",
   "settingsModel.rejectedHeadline": "{{provider}} 拒絕了此金鑰",
+  "settingsModel.unreadable":
+    "無法讀取已儲存的供應商設定。替換它以恢復存取權。",
+  "settingsModel.unreadableAskAdmin":
+    "無法讀取已儲存的供應商設定。請擁有者或管理員替換。",
   "settingsModel.remove": "移除",
   "settingsModel.removeProvider": "移除供應商",
   "settingsModel.removeTitle": "要移除 {{provider}} 嗎？",
   "settingsModel.removing": "正在移除",
   "settingsModel.replace": "替換",
+  "settingsModel.replaceEndpoint": "替換端點",
   "settingsModel.replaceKey": "替換金鑰",
   "settingsModel.restrictBody": "成員只能使用組織供應商。",
   "settingsModel.restrictConfirm": "限制金鑰",

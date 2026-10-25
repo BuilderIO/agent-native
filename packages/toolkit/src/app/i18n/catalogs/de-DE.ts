@@ -2475,6 +2475,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "Erneut versuchen",
   "settingsShell.channels.setup.unreadable":
     "Ein gespeicherter Zugangswert ist nicht lesbar. Gib einen Ersatzwert ein.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Dadurch wird nur dein persönlicher Zugangswert ersetzt; die Zugangsdaten anderer bleiben unverändert.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Einige gespeicherte Kanalzugangsdaten können nicht gelesen werden. Ersetze sie, bevor du diesen Kanal aktivierst.",
   "settingsShell.channels.setup.addToEnvironment":
@@ -3291,11 +3293,16 @@ const messages: ToolkitAgentChatTranslation = {
     "{{provider}} hat diesen Schlüssel am {{date}} abgelehnt. Bitte einen Inhaber oder Admin, ihn zu ersetzen.",
   "settingsModel.rejectedHeadline":
     "{{provider}} hat diesen Schlüssel abgelehnt",
+  "settingsModel.unreadable":
+    "Die gespeicherte Anbietereinstellung ist nicht lesbar. Ersetze sie, um den Zugriff wiederherzustellen.",
+  "settingsModel.unreadableAskAdmin":
+    "Die gespeicherte Anbietereinstellung ist nicht lesbar. Bitte einen Inhaber oder Admin, sie zu ersetzen.",
   "settingsModel.remove": "Entfernen",
   "settingsModel.removeProvider": "Anbieter entfernen",
   "settingsModel.removeTitle": "{{provider}} entfernen?",
   "settingsModel.removing": "Wird entfernt",
   "settingsModel.replace": "Ersetzen",
+  "settingsModel.replaceEndpoint": "Endpunkt ersetzen",
   "settingsModel.replaceKey": "Schlüssel ersetzen",
   "settingsModel.restrictBody":
     "Mitglieder können nur Anbieter der Organisation nutzen.",

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { hashEmail } from "./remote-store.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+import {
+  hashEmail,
+  InvalidMcpHeaderConfigurationError,
+} from "./remote-store.js";
 import {
   buildMergedConfig,
   formatMcpConnectError,
@@ -13,6 +17,7 @@ const mockedSettings = vi.hoisted(() => ({
   readError: null as Error | null,
   readKeys: [] as string[],
 }));
+const appSecretMocks = vi.hoisted(() => ({ read: vi.fn() }));
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 
@@ -48,6 +53,11 @@ vi.mock("../settings/store.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../secrets/storage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../secrets/storage.js")>();
+  return { ...actual, readAppSecret: appSecretMocks.read };
+});
+
 vi.mock("./config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./config.js")>();
   return {
@@ -69,6 +79,7 @@ beforeEach(() => {
   mockedSettings.all = {};
   mockedSettings.readError = null;
   mockedSettings.readKeys = [];
+  appSecretMocks.read.mockReset().mockResolvedValue(null);
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
 });
@@ -199,6 +210,101 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       type: "stdio",
       command: "npx",
       args: ["-y", "@playwright/mcp@0.0.75"],
+    });
+  });
+
+  it("keeps a malformed remote server failed without hiding healthy servers or built-ins", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headers: { Accept: "application/json" },
+            headerSecretKey: "mcp_headers:broken-server",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      [`u:${userEmail}:mcp-builtin-capabilities`]: {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+    appSecretMocks.read.mockResolvedValue({ value: "not-json" });
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+    const brokenServer = config?.servers[`${userPrefix}broken-server`];
+
+    expect(brokenServer).toMatchObject({
+      type: "http",
+      url: "https://broken.example.test/mcp",
+      configurationError: expect.any(InvalidMcpHeaderConfigurationError),
+    });
+    expect(brokenServer).not.toHaveProperty("headers");
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+    expect(config?.servers[`${userPrefix}chrome-devtools`]).toMatchObject({
+      type: "stdio",
+      command: "npx",
+    });
+  });
+
+  it("keeps an undecryptable remote header secret isolated to its server", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headerSecretKey: "mcp_headers:broken-server",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      [`u:${userEmail}:mcp-builtin-capabilities`]: {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+    appSecretMocks.read.mockRejectedValue(
+      new AppSecretDecryptionError({ scope: "user", scopeId: userEmail }),
+    );
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+
+    expect(config?.servers[`${userPrefix}broken-server`]).toMatchObject({
+      type: "http",
+      url: "https://broken.example.test/mcp",
+      configurationError: expect.any(AppSecretDecryptionError),
+    });
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+    expect(config?.servers[`${userPrefix}chrome-devtools`]).toMatchObject({
+      type: "stdio",
+      command: "npx",
     });
   });
 

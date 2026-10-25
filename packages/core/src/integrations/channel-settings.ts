@@ -69,7 +69,7 @@ export interface ChannelCredentialStatus {
   removable: boolean;
   /** Scope where the unreadable ciphertext was found. */
   unreadableScope?: SecretScope;
-  /** Scope where replacement will be written. */
+  /** Scope where replacement will be written; `user` is the caller's own row. */
   repairScope?: SecretScope;
   /** Opaque exact-ref confirmation required by `remove-credentials`. */
   removalConfirmation?: string;
@@ -229,6 +229,8 @@ function repairTargetForError(
 ): ChannelCredentialRef | undefined {
   if (!isChannelsManaged(key) || !error.scope || !error.scopeId)
     return undefined;
+  // The resolver fails on an unreadable personal row before trying workspace
+  // credentials, so only its owner can repair that exact row.
   const exactRef = exactUnreadableRef(key, access, error);
   if (exactRef) return exactRef;
 

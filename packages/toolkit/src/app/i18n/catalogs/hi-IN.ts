@@ -2314,6 +2314,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "फिर से कोशिश करें",
   "settingsShell.channels.setup.unreadable":
     "सेव की गई क्रेडेंशियल पढ़ी नहीं जा सकी। उसकी जगह नया मान डालें।",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "यह केवल आपकी निजी क्रेडेंशियल को बदलता है; अन्य लोगों की क्रेडेंशियल नहीं बदलेंगी।",
   "settingsShell.channels.setup.configurationUnavailable":
     "चैनल की सेव की गई कुछ क्रेडेंशियल नहीं पढ़ी जा सकीं। इस चैनल को चालू करने से पहले उन्हें बदलें।",
   "settingsShell.channels.setup.addToEnvironment":
@@ -3073,11 +3075,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} ने {{date}} को यह कुंजी अस्वीकार कर दी। किसी मालिक या एडमिन से इसे बदलने को कहें।",
   "settingsModel.rejectedHeadline": "{{provider}} ने यह कुंजी अस्वीकार कर दी",
+  "settingsModel.unreadable":
+    "सेव की गई प्रदाता सेटिंग पढ़ी नहीं जा सकती। पहुँच बहाल करने के लिए इसे बदलें।",
+  "settingsModel.unreadableAskAdmin":
+    "सेव की गई प्रदाता सेटिंग पढ़ी नहीं जा सकती। किसी मालिक या एडमिन से इसे बदलने को कहें।",
   "settingsModel.remove": "हटाएँ",
   "settingsModel.removeProvider": "प्रदाता हटाएँ",
   "settingsModel.removeTitle": "{{provider}} हटाएँ?",
   "settingsModel.removing": "हटाया जा रहा है",
   "settingsModel.replace": "बदलें",
+  "settingsModel.replaceEndpoint": "एंडपॉइंट बदलें",
   "settingsModel.replaceKey": "कुंजी बदलें",
   "settingsModel.restrictBody": "सदस्य सिर्फ़ संगठन के प्रदाता इस्तेमाल कर सकते हैं।",
   "settingsModel.restrictConfirm": "कुंजियाँ प्रतिबंधित करें",

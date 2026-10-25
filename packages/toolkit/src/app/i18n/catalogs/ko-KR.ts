@@ -2315,6 +2315,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "다시 시도",
   "settingsShell.channels.setup.unreadable":
     "저장된 자격 증명을 읽을 수 없습니다. 대체 값을 입력하세요.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "이렇게 하면 본인 개인 자격 증명만 교체되며, 다른 사용자의 자격 증명은 변경되지 않습니다.",
   "settingsShell.channels.setup.configurationUnavailable":
     "저장된 채널 자격 증명 일부를 읽을 수 없습니다. 이 채널을 사용 설정하기 전에 교체하세요.",
   "settingsShell.channels.setup.addToEnvironment": "배포 환경에 추가하세요",
@@ -3090,11 +3092,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}}에서 {{date}}에 이 키를 거부했습니다. 소유자나 관리자에게 교체를 요청하세요.",
   "settingsModel.rejectedHeadline": "{{provider}}에서 이 키를 거부했습니다",
+  "settingsModel.unreadable":
+    "저장된 공급자 설정을 읽을 수 없습니다. 액세스를 복구하려면 교체하세요.",
+  "settingsModel.unreadableAskAdmin":
+    "저장된 공급자 설정을 읽을 수 없습니다. 소유자나 관리자에게 교체를 요청하세요.",
   "settingsModel.remove": "삭제",
   "settingsModel.removeProvider": "공급자 삭제",
   "settingsModel.removeTitle": "{{provider}}을(를) 삭제할까요?",
   "settingsModel.removing": "삭제하는 중",
   "settingsModel.replace": "교체",
+  "settingsModel.replaceEndpoint": "엔드포인트 교체",
   "settingsModel.replaceKey": "키 교체",
   "settingsModel.restrictBody": "멤버는 조직 공급자만 사용할 수 있습니다.",
   "settingsModel.restrictConfirm": "키 제한",

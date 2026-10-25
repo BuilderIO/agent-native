@@ -654,6 +654,14 @@ function ChannelSetupDialog({
                     </span>
                   )}
                 </Label>
+                {item.repairScope === "user" ? (
+                  <p
+                    className="text-xs text-muted-foreground"
+                    data-channel-repair-scope="user"
+                  >
+                    {t(`${K}.setup.personalCredentialOnly`)}
+                  </p>
+                ) : null}
                 <CredentialValue
                   credential={item}
                   inputId={inputId}

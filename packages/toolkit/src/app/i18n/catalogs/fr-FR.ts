@@ -2519,6 +2519,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "Réessayer",
   "settingsShell.channels.setup.unreadable":
     "Un identifiant enregistré est illisible. Saisissez une valeur de remplacement.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Cela remplace uniquement votre identifiant personnel ; ceux des autres utilisateurs restent inchangés.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Certains identifiants de canal enregistrés sont illisibles. Remplacez-les avant d’activer ce canal.",
   "settingsShell.channels.setup.addToEnvironment":
@@ -3343,11 +3345,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} a refusé cette clé le {{date}}. Demandez à un propriétaire ou un administrateur de la remplacer.",
   "settingsModel.rejectedHeadline": "{{provider}} a refusé cette clé",
+  "settingsModel.unreadable":
+    "Le paramètre enregistré du fournisseur est illisible. Remplacez-le pour rétablir l’accès.",
+  "settingsModel.unreadableAskAdmin":
+    "Le paramètre enregistré du fournisseur est illisible. Demandez à un propriétaire ou un administrateur de le remplacer.",
   "settingsModel.remove": "Supprimer",
   "settingsModel.removeProvider": "Supprimer le fournisseur",
   "settingsModel.removeTitle": "Supprimer {{provider}} ?",
   "settingsModel.removing": "Suppression",
   "settingsModel.replace": "Remplacer",
+  "settingsModel.replaceEndpoint": "Remplacer le point de terminaison",
   "settingsModel.replaceKey": "Remplacer la clé",
   "settingsModel.restrictBody":
     "Les membres ne peuvent utiliser que les fournisseurs de l’organisation.",

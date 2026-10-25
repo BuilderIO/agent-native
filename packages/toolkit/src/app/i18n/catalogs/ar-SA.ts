@@ -2499,6 +2499,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.retry": "إعادة المحاولة",
   "settingsShell.channels.setup.unreadable":
     "تعذّرت قراءة بيانات اعتماد محفوظة. أدخل قيمة بديلة.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "يستبدل هذا بيانات اعتمادك الشخصية فقط؛ وتظل بيانات اعتماد المستخدمين الآخرين كما هي.",
   "settingsShell.channels.setup.configurationUnavailable":
     "تعذّرت قراءة بعض بيانات اعتماد القناة المحفوظة. استبدلها قبل تفعيل هذه القناة.",
   "settingsShell.channels.setup.addToEnvironment": "أضفه إلى بيئة النشر",
@@ -3264,11 +3266,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "رفض {{provider}} هذا المفتاح في {{date}}. اطلب من مالك أو مسؤول استبداله.",
   "settingsModel.rejectedHeadline": "رفض {{provider}} هذا المفتاح",
+  "settingsModel.unreadable":
+    "تعذّر قراءة إعداد المزوّد المحفوظ. استبدله لاستعادة الوصول.",
+  "settingsModel.unreadableAskAdmin":
+    "تعذّر قراءة إعداد المزوّد المحفوظ. اطلب من مالك أو مسؤول استبداله.",
   "settingsModel.remove": "إزالة",
   "settingsModel.removeProvider": "إزالة المزوّد",
   "settingsModel.removeTitle": "هل تريد إزالة {{provider}}؟",
   "settingsModel.removing": "جارٍ الإزالة",
   "settingsModel.replace": "استبدال",
+  "settingsModel.replaceEndpoint": "استبدال نقطة النهاية",
   "settingsModel.replaceKey": "استبدال المفتاح",
   "settingsModel.restrictBody": "يمكن للأعضاء استخدام مزوّدي المؤسسة فقط.",
   "settingsModel.restrictConfirm": "تقييد المفاتيح",
