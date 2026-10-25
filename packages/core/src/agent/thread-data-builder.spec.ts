@@ -7150,6 +7150,8 @@ describe("live-client twins", () => {
   const sourceOf = (relativePath: string): string =>
     readFileSync(new URL(relativePath, import.meta.url), "utf8");
 
+  // Compared without whitespace or trailing commas: `pnpm mutation:changed`
+  // reprints an instrumented file in a different layout than its twin.
   const functionBody = (source: string, name: string): string => {
     const start = source.indexOf(`function ${name}(`);
     expect(start, `${name} not found`).toBeGreaterThan(-1);
@@ -7161,8 +7163,8 @@ describe("live-client twins", () => {
         return source
           .slice(open + 1, i)
           .replace(/\/\/[^\n]*/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
+          .replace(/\s+/g, "")
+          .replace(/,([)\]}])/g, "$1");
       }
     }
     throw new Error(`unterminated body for ${name}`);
