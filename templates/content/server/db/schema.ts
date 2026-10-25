@@ -1185,7 +1185,7 @@ export const contentWebhookDeliveries = table(
     ),
     index("content_webhook_deliveries_webhook_idx").on(
       delivery.webhookId,
-      delivery.createdAt,
+      delivery.sequence,
     ),
   ],
 );

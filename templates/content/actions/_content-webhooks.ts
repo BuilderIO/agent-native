@@ -69,7 +69,9 @@ const LEASE_MS = 60_000;
 const CLAIM_BATCH = 20;
 /**
  * At most this many of one webhook's deliveries in a batch. Webhooks send at
- * the same time, each in order, so a slow receiver holds up only itself.
+ * the same time, so a slow receiver holds up only itself. A batch sends one
+ * webhook's deliveries in sequence order, but a retried delivery can arrive
+ * after later ones; receivers order by `sequence`, as the skill says.
  */
 const PER_WEBHOOK_BATCH = 3;
 /** Rows per insert: 11 bound values each, far below Postgres's 65,535. */
@@ -766,7 +768,7 @@ export async function drainContentWebhookDeliveries(
   while (!expired()) {
     const groups = await dueDeliveriesByWebhook(db, CLAIM_BATCH);
     if (!groups.length) break;
-    // Each webhook's deliveries go in order; different webhooks at once.
+    // One webhook's batch goes in sequence order; different webhooks at once.
     const claimed = await Promise.all(groups.map(sendInOrder));
     if (!claimed.some(Boolean)) break;
   }

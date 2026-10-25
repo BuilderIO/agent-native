@@ -914,4 +914,32 @@ describe("content webhooks", () => {
       );
     expect(stored).toEqual([]);
   });
+
+  it("W2-4: holds a collection to ten webhooks when they're added at once", async () => {
+    const ids = await fixture();
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, index) =>
+        asOwner(() =>
+          createWebhook.run({
+            databaseId: ids.databaseId,
+            url: `${RECEIVER_URL}?n=${index}`,
+            events: ["comment.created"],
+          }),
+        ),
+      ),
+    );
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(10);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toMatchObject({ errorCode: "WEBHOOK_LIMIT" });
+      }
+    }
+    const stored = await getDb()
+      .select()
+      .from(schema.contentWebhooks)
+      .where(eq(schema.contentWebhooks.scopeId, ids.databaseId));
+    expect(stored).toHaveLength(10);
+  });
 });

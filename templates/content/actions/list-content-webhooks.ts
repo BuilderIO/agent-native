@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, desc, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -79,35 +79,22 @@ export default defineAction({
     if (!rows.length) return { webhooks: [] };
 
     // The newest few per webhook, so a busy webhook can't push another's
-    // failures out of the list.
+    // failures out of the list. Each read walks the (webhook, sequence)
+    // index from the newest end and stops after a few rows.
     const deliveries = schema.contentWebhookDeliveries;
-    const ranked = db
-      .select({
-        id: deliveries.id,
-        rank: sql<number>`row_number() over (partition by ${deliveries.webhookId} order by ${deliveries.sequence} desc)`.as(
-          "rank",
-        ),
-      })
-      .from(deliveries)
-      .where(
-        inArray(
-          deliveries.webhookId,
-          rows.map((row) => row.id),
-        ),
-      )
-      .as("ranked");
-    const recent = await db
-      .select(getTableColumns(deliveries))
-      .from(deliveries)
-      .innerJoin(ranked, eq(ranked.id, deliveries.id))
-      .where(lte(ranked.rank, RECENT_DELIVERIES))
-      .orderBy(desc(deliveries.sequence));
+    const recent = await Promise.all(
+      rows.map((row) =>
+        db
+          .select()
+          .from(deliveries)
+          .where(eq(deliveries.webhookId, row.id))
+          .orderBy(desc(deliveries.sequence))
+          .limit(RECENT_DELIVERIES),
+      ),
+    );
     return {
-      webhooks: rows.map((row) =>
-        serializeContentWebhook(
-          row,
-          recent.filter((delivery) => delivery.webhookId === row.id),
-        ),
+      webhooks: rows.map((row, index) =>
+        serializeContentWebhook(row, recent[index]),
       ),
     };
   },

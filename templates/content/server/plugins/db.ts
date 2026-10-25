@@ -1567,7 +1567,7 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_webhook_deliveries_due_idx
           ON content_webhook_deliveries (status, next_attempt_at);
         CREATE INDEX IF NOT EXISTS content_webhook_deliveries_webhook_idx
-          ON content_webhook_deliveries (webhook_id, created_at)`,
+          ON content_webhook_deliveries (webhook_id, sequence)`,
     },
   ],
   { table: "content_migrations" },

@@ -3,7 +3,7 @@ import { defineAction } from "@agent-native/core/action";
 import { isBlockedExtensionUrl } from "@agent-native/core/extensions/url-safety";
 import { deleteAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -126,23 +126,6 @@ export default defineAction({
       : null;
     if (propertyIds) await assertPropertiesInScope(scope, propertyIds);
 
-    const db = getDb();
-    const existing = await db
-      .select({ id: schema.contentWebhooks.id })
-      .from(schema.contentWebhooks)
-      .where(
-        and(
-          eq(schema.contentWebhooks.scopeType, scope.scopeType),
-          eq(schema.contentWebhooks.scopeId, scope.scopeId),
-        ),
-      );
-    if (existing.length >= MAX_WEBHOOKS_PER_SCOPE) {
-      throw new ActionContractError(
-        `A ${scope.scopeType === "database" ? "collection" : "page"} can have at most ${MAX_WEBHOOKS_PER_SCOPE} webhooks; remove one first.`,
-        { errorCode: "WEBHOOK_LIMIT", statusCode: 409 },
-      );
-    }
-
     const id = `wh_${nanoid(16)}`;
     const secret = generateContentWebhookSecret();
     const secretRef = scope.orgId
@@ -180,7 +163,29 @@ export default defineAction({
       updatedAt: now,
     };
     try {
-      await db.insert(schema.contentWebhooks).values(row);
+      await getDb().transaction(async (tx) => {
+        // One lock per collection or page, so two registrations can't both
+        // count room for one more.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-webhook-scope:${scope.scopeType}:${scope.scopeId}`}, 0::bigint))`,
+        );
+        const existing = await tx
+          .select({ id: schema.contentWebhooks.id })
+          .from(schema.contentWebhooks)
+          .where(
+            and(
+              eq(schema.contentWebhooks.scopeType, scope.scopeType),
+              eq(schema.contentWebhooks.scopeId, scope.scopeId),
+            ),
+          );
+        if (existing.length >= MAX_WEBHOOKS_PER_SCOPE) {
+          throw new ActionContractError(
+            `A ${scope.scopeType === "database" ? "collection" : "page"} can have at most ${MAX_WEBHOOKS_PER_SCOPE} webhooks; remove one first.`,
+            { errorCode: "WEBHOOK_LIMIT", statusCode: 409 },
+          );
+        }
+        await tx.insert(schema.contentWebhooks).values(row);
+      });
     } catch (error) {
       await deleteAppSecret(secretRef).catch(() => undefined);
       throw error;
