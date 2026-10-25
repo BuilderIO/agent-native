@@ -24,6 +24,12 @@ export interface SuggestionPlacement {
   to: YjsRelativePosition;
 }
 
+/**
+ * A letter, digit or combining mark. One typed onto either end of the placed
+ * words makes a different word than was reviewed.
+ */
+export const WORD_CHARACTER = /[\p{L}\p{N}\p{M}]/u;
+
 function itemId(value: unknown): YjsItemId | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const { client, clock, ...rest } = value as Record<string, unknown>;

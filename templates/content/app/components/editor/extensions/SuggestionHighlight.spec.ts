@@ -1881,6 +1881,18 @@ describe("settling suggestions", () => {
     expect(erase(6, 8)).toBe("Before after");
   });
 
+  it("holds a letter that would join the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(1, "x")).toBe("Before after");
+    expect(type(7, "x")).toBe("Before after");
+    expect(
+      base.applyTransaction(base.tr.delete(7, 8)).state.doc.textContent,
+    ).toBe("Before after");
+    expect(type(7, ",")).toBe("Before, after");
+  });
+
   it("keeps typing right beside the words an accepted suggestion is replacing", () => {
     const base = setSpecs(state(), [settling]);
     const type = (at: number, text: string) =>

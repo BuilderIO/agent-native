@@ -1,6 +1,7 @@
 import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   resolveMarkdownSuggestionRange,
   resolveMarkdownSuggestionRangeInContext,
@@ -841,9 +842,10 @@ export function editsSettlingSuggestion(
     transaction.getMeta("addToHistory") === false
   )
     return false;
-  let ranges = specs
+  const held = specs
     .filter((spec) => spec.settling || spec.frozen)
     .map(({ from, to }) => ({ from, to }));
+  let ranges = held;
   for (const step of transaction.steps) {
     if (ranges.length === 0) return false;
     const touched: Array<{ from: number; to: number }> = [];
@@ -854,9 +856,8 @@ export function editsSettlingSuggestion(
     map.forEach((oldStart, oldEnd) =>
       touched.push({ from: oldStart, to: oldEnd }),
     );
-    // Typing right beside the words leaves them as reviewed; if a letter joins
-    // them, the server turns the accept down instead. A point has no inside,
-    // so typing exactly there waits.
+    // Typing right beside the words leaves them as reviewed. A point has no
+    // inside, so typing exactly there waits.
     if (
       touched.some((edit) =>
         ranges.some((range) =>
@@ -872,7 +873,54 @@ export function editsSettlingSuggestion(
       to: map.map(range.to, -1),
     }));
   }
-  return false;
+  // A letter typed onto either end, or a space taken away there, makes a
+  // different word than was reviewed, which the server would turn down. So
+  // that waits too. An end that is a space or punctuation has no word to join.
+  return held.some(
+    (range, index) =>
+      range.from !== range.to &&
+      (["before", "after"] as const).some((side) => {
+        const was = side === "before" ? range.from : range.to;
+        const is = side === "before" ? ranges[index]!.from : ranges[index]!.to;
+        const outside = characterBeside(transaction.doc, is, side);
+        return (
+          WORD_CHARACTER.test(outside) &&
+          WORD_CHARACTER.test(
+            characterBeside(
+              transaction.doc,
+              is,
+              side === "before" ? "after" : "before",
+            ),
+          ) &&
+          outside !== characterBeside(transaction.before, was, side)
+        );
+      }),
+  );
+}
+
+/** The character beside `position` within its textblock, or "". */
+function characterBeside(
+  doc: ProseMirrorNode,
+  position: number,
+  side: "before" | "after",
+): string {
+  const $position = doc.resolve(position);
+  const { parent, parentOffset: offset } = $position;
+  if (!parent.isTextblock) return "";
+  const characters = Array.from(
+    side === "before"
+      ? parent.textBetween(Math.max(0, offset - 2), offset, "", "￼")
+      : parent.textBetween(
+          offset,
+          Math.min(parent.content.size, offset + 2),
+          "",
+          "￼",
+        ),
+  );
+  return (
+    (side === "before" ? characters[characters.length - 1] : characters[0]) ??
+    ""
+  );
 }
 
 /**

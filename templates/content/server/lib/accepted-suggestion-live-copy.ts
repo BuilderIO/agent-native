@@ -14,6 +14,7 @@ import * as Y from "yjs";
 import { docToNfm, type PMNode } from "../../shared/nfm.js";
 import {
   parseSuggestionPlacement,
+  WORD_CHARACTER,
   type SuggestionPlacement,
 } from "../../shared/suggestion-placement.js";
 
@@ -27,7 +28,6 @@ type StoredChange = {
 };
 
 const OBJECT_REPLACEMENT = "￼";
-const WORD_CHARACTER = /[\p{L}\p{N}\p{M}]/u;
 // Every runtime this serves has Intl.Segmenter; its types arrive with ES2022.
 type GraphemeSegmenter = {
   segment(text: string): Iterable<{ segment: string }>;
