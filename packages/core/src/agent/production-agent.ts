@@ -14424,11 +14424,11 @@ export function createProductionAgentHandler(
 
     // Unlike the DB experiment above, this runs even when the client pinned the
     // default model: chat clients always send the default, so keying off the
-    // resolved default is what lets the arm reach real traffic. It stays out of
-    // a turn that already has a DB assignment, so the singular experiment trace
-    // tags always name exactly one experiment.
+    // resolved default is what lets the arm reach real traffic. Background
+    // automations are out of scope. A DB experiment that did not override the
+    // model is an unrelated assignment, so it does not block this one.
     const hostedModelExperiment =
-      experimentAssignments.length === 0
+      modelSelectionSource !== "experiment" && !isBackgroundWorker
         ? resolveHostedModelExperiment({
             userEmail: ownerEmail,
             engineName: engine.name,
@@ -14440,7 +14440,10 @@ export function createProductionAgentHandler(
           })
         : null;
     if (hostedModelExperiment) {
-      experimentAssignments = [hostedModelExperiment.assignment];
+      experimentAssignments = [
+        ...experimentAssignments,
+        hostedModelExperiment.assignment,
+      ];
       if (hostedModelExperiment.treatment) {
         effectiveModel = normalizeModelForEngine(
           engine,
