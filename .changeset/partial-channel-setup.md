@@ -2,4 +2,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Keep the Channels credential dialog open until required channel credentials are configured.
+Improve recovery from unreadable credentials in Channels and file storage settings.

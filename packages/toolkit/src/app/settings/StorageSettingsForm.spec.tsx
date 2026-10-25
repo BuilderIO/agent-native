@@ -232,7 +232,7 @@ describe("StorageSettingsForm", () => {
     );
   });
 
-  it("requires unreadable credentials to be replaced and preserves unreadable optional values", () => {
+  it("requires unreadable credentials to be replaced and clears blank unreadable optional values", () => {
     queryState.data = {
       ...savedStatus,
       configured: false,
@@ -256,8 +256,7 @@ describe("StorageSettingsForm", () => {
       operation: "save",
       accessKeyId: "replacement-key",
     });
-    expect(input).not.toHaveProperty("region");
-    expect(input).not.toHaveProperty("publicBaseUrl");
+    expect(input).toMatchObject({ region: "", publicBaseUrl: "" });
   });
 
   it("keeps saved keys by leaving them out of the save", () => {

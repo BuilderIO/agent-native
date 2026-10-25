@@ -135,6 +135,9 @@ function channel(
       source: sources[key] ?? null,
       removable:
         sources[key] === "saved" || unreadableScopes[key] !== undefined,
+      ...(sources[key] === "saved" || unreadableScopes[key] !== undefined
+        ? { removalConfirmation: `confirmation:${key}` }
+        : {}),
       ...(unreadableScopes[key]
         ? { unreadableScope: unreadableScopes[key] }
         : {}),
@@ -743,6 +746,16 @@ describe("ChannelsPage", () => {
     expect(actions.manage).toHaveBeenCalledWith({
       operation: "remove-credentials",
       platform: "telegram",
+      confirmedCredentials: [
+        {
+          key: "TELEGRAM_BOT_TOKEN",
+          removalConfirmation: "confirmation:TELEGRAM_BOT_TOKEN",
+        },
+        {
+          key: "TELEGRAM_WEBHOOK_SECRET",
+          removalConfirmation: "confirmation:TELEGRAM_WEBHOOK_SECRET",
+        },
+      ],
     });
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });

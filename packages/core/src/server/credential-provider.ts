@@ -11,6 +11,7 @@ import {
   isTransientDatabaseError,
 } from "../db/client.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
+import type { ReadSecretResult } from "../secrets/storage.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
@@ -379,6 +380,15 @@ function shouldTraceCredentialResolve(): boolean {
 // ---------------------------------------------------------------------------
 
 type BuilderCredentialSource = "user" | "org" | "workspace" | "env";
+const BUILDER_CONNECTION_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+] as const;
+const BUILDER_CONNECTION_KEY_SET = new Set<string>(BUILDER_CONNECTION_KEYS);
+const BUILDER_METADATA_KEYS = BUILDER_CREDENTIAL_KEYS.filter(
+  (key) => !BUILDER_CONNECTION_KEY_SET.has(key),
+);
+
 interface BuilderResolvedCredentials {
   privateKey: string | null;
   publicKey: string | null;
@@ -391,6 +401,7 @@ interface BuilderResolvedCredentials {
   isEnterprise: boolean | null;
   isFreeAccount: boolean | null;
   source: Exclude<BuilderCredentialSource, "env">;
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
 }
 
 async function isCompleteBuilderConnection(
@@ -420,11 +431,38 @@ async function readBuilderCredentialScope(
   scope: "user" | "org" | "workspace",
   scopeId: string,
 ): Promise<BuilderResolvedCredentials> {
-  const secrets = await readAppSecrets({
-    keys: BUILDER_CREDENTIAL_KEYS,
-    scope,
-    scopeId,
-  });
+  const args = { scope, scopeId };
+  let optionalMetadataLookupFailure: "unreadable" | "unavailable" | undefined;
+  let secrets: Map<string, ReadSecretResult>;
+  try {
+    secrets = await readAppSecrets({
+      keys: BUILDER_CREDENTIAL_KEYS,
+      ...args,
+    });
+  } catch (error) {
+    if (!(error instanceof AppSecretDecryptionError)) throw error;
+
+    // A batch failure does not identify which row was unreadable. Re-read the
+    // required pair together so corruption there still fails this scope, then
+    // isolate optional metadata reads and report their failure separately.
+    secrets = await readAppSecrets({ keys: BUILDER_CONNECTION_KEYS, ...args });
+    const metadata = await Promise.all(
+      BUILDER_METADATA_KEYS.map(async (key) => {
+        try {
+          return await readAppSecrets({ keys: [key], ...args });
+        } catch (metadataError) {
+          optionalMetadataLookupFailure =
+            metadataError instanceof AppSecretDecryptionError
+              ? (optionalMetadataLookupFailure ?? "unreadable")
+              : "unavailable";
+          return new Map<string, ReadSecretResult>();
+        }
+      }),
+    );
+    for (const result of metadata) {
+      for (const [key, secret] of result) secrets.set(key, secret);
+    }
+  }
   const value = (key: string): string | null => secrets.get(key)?.value ?? null;
   return {
     privateKey: value("BUILDER_PRIVATE_KEY"),
@@ -438,6 +476,7 @@ async function readBuilderCredentialScope(
     isEnterprise: readOptionalBuilderBoolean(value("BUILDER_IS_ENTERPRISE")),
     isFreeAccount: readOptionalBuilderBoolean(value("BUILDER_IS_FREE_ACCOUNT")),
     source: scope === "workspace" ? "workspace" : scope,
+    ...(optionalMetadataLookupFailure ? { optionalMetadataLookupFailure } : {}),
   };
 }
 
@@ -972,6 +1011,8 @@ export interface BuilderCredentialsDetailed {
   source: BuilderCredentialSource | null;
   /** True when a lookup failed, rather than answering cleanly with "no row". */
   lookupFailed: boolean;
+  /** Optional Builder profile metadata failed after the required key pair was read. */
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   cause?: unknown;
 }
 
@@ -1010,6 +1051,11 @@ export async function resolveBuilderCredentialsDetailed(
       isFreeAccount,
       source,
       lookupFailed: false,
+      ...(scoped.optionalMetadataLookupFailure
+        ? {
+            optionalMetadataLookupFailure: scoped.optionalMetadataLookupFailure,
+          }
+        : {}),
     };
   }
   const canUseEnv =

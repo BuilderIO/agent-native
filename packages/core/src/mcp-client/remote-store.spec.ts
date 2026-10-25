@@ -41,6 +41,7 @@ import {
   addFirstPartyRemoteServer,
   addOAuthRemoteServer,
   addRemoteServer,
+  InvalidMcpHeaderConfigurationError,
   isFirstPartyRemoteEndpointTrusted,
   materializeHeaders,
   removeRemoteServer,
@@ -566,7 +567,7 @@ describe("first-party remote MCP metadata", () => {
 });
 
 describe("stored remote MCP headers", () => {
-  it("propagates an unreadable saved header secret", async () => {
+  it("propagates an unreadable saved header secret instead of treating it as invalid configuration", async () => {
     const error = new AppSecretDecryptionError({
       scope: "workspace",
       scopeId: "org-1",
@@ -584,24 +585,33 @@ describe("stored remote MCP headers", () => {
     ).rejects.toBe(error);
   });
 
-  it("keeps clear headers available when a saved header secret has malformed JSON", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    appSecretMocks.read.mockResolvedValue({ value: "not-json" });
+  it.each([
+    ["malformed JSON", "not-json", "invalid-json"],
+    ["a non-object JSON value", "[]", "invalid-shape"],
+    [
+      "a non-string header value",
+      '{"Authorization":"Bearer token","Retry-After":5}',
+      "invalid-shape",
+    ],
+  ] as const)(
+    "rejects %s saved header configuration without returning clear headers",
+    async (_description, value, reason) => {
+      appSecretMocks.read.mockResolvedValue({ value });
 
-    await expect(
-      materializeHeaders("org", "org-1", {
-        id: "mcps_headers",
-        name: "example",
-        url: "https://mcp.example.com/",
-        headers: { Accept: "application/json" },
-        headerSecretKey: "mcp_headers:example",
-        createdAt: 1,
-      }),
-    ).resolves.toEqual({ Accept: "application/json" });
-
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to parse MCP headers for example"),
-    );
-    warn.mockRestore();
-  });
+      await expect(
+        toHttpServerConfigAsync("org", "org-1", {
+          id: "mcps_headers",
+          name: "example",
+          url: "https://mcp.example.com/",
+          headers: { Accept: "application/json" },
+          headerSecretKey: "mcp_headers:example",
+          createdAt: 1,
+        }),
+      ).rejects.toMatchObject<InvalidMcpHeaderConfigurationError>({
+        name: "InvalidMcpHeaderConfigurationError",
+        code: "invalid_mcp_header_configuration",
+        reason,
+      });
+    },
+  );
 });

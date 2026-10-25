@@ -300,13 +300,8 @@ function LoadedStorageSettingsForm({
       endpoint: values.endpoint.trim(),
       bucket: values.bucket.trim(),
     };
-    if (values.region.trim() || !status.unreadableFields.includes("region"))
-      input.region = values.region.trim();
-    if (
-      values.publicBaseUrl.trim() ||
-      !status.unreadableFields.includes("publicBaseUrl")
-    )
-      input.publicBaseUrl = values.publicBaseUrl.trim();
+    input.region = values.region.trim();
+    input.publicBaseUrl = values.publicBaseUrl.trim();
     if (values.accessKeyId.trim())
       input.accessKeyId = values.accessKeyId.trim();
     if (values.secretAccessKey.trim()) {

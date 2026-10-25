@@ -6,6 +6,10 @@ const store = vi.hoisted(() => new Map<string, string>());
 const env = vi.hoisted(() => new Map<string, string>());
 const configs = vi.hoisted(() => new Map<string, boolean>());
 const unreadable = vi.hoisted(() => new Set<string>());
+const vaultErrors = vi.hoisted(
+  () => new Map<string, { scope: string; scopeId: string }>(),
+);
+const resolverActivity = vi.hoisted(() => ({ active: 0, maxActive: 0 }));
 const isUnreadable = (args: { key: string; scope: string; scopeId: string }) =>
   unreadable.has(args.key) ||
   unreadable.has(`${args.scope}:${args.scopeId}:${args.key}`);
@@ -88,35 +92,56 @@ vi.mock("../server/personal-provider-key-policy.js", () => ({
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError,
   resolveSecretDetailed: async (key: string) => {
-    const refs = [
-      { scope: "user", scopeId: OWNER.userEmail },
-      { scope: "org", scopeId: ORG },
-      { scope: "workspace", scopeId: ORG },
-      { scope: "workspace", scopeId: `solo:${OWNER.userEmail}` },
-    ];
-    for (const ref of refs) {
-      const value = store.get(`${ref.scope}:${ref.scopeId}:${key}`);
-      if (value === undefined) continue;
-      if (isUnreadable({ ...ref, key })) {
+    if (readErrorRef.error) throw readErrorRef.error;
+    resolverActivity.active++;
+    resolverActivity.maxActive = Math.max(
+      resolverActivity.maxActive,
+      resolverActivity.active,
+    );
+    await Promise.resolve();
+    try {
+      const refs = [
+        { scope: "user", scopeId: OWNER.userEmail },
+        { scope: "org", scopeId: ORG },
+        { scope: "workspace", scopeId: ORG },
+        { scope: "workspace", scopeId: `solo:${OWNER.userEmail}` },
+      ];
+      for (const ref of refs) {
+        const value = store.get(`${ref.scope}:${ref.scopeId}:${key}`);
+        if (value === undefined) continue;
+        if (isUnreadable({ ...ref, key })) {
+          const fromEnv = env.get(key);
+          return {
+            value: fromEnv ?? null,
+            lookupFailed: true,
+            cause: new AppSecretDecryptionError(ref),
+            ...(fromEnv ? { source: "env" } : {}),
+          };
+        }
+        return {
+          value,
+          lookupFailed: false,
+          source: ref.scope,
+          ...ref,
+        };
+      }
+      const vaultError = vaultErrors.get(key);
+      if (vaultError) {
         const fromEnv = env.get(key);
         return {
           value: fromEnv ?? null,
           lookupFailed: true,
-          cause: new AppSecretDecryptionError(ref),
+          cause: new AppSecretDecryptionError(vaultError),
           ...(fromEnv ? { source: "env" } : {}),
         };
       }
-      return {
-        value,
-        lookupFailed: false,
-        source: ref.scope,
-        ...ref,
-      };
+      const fromEnv = env.get(key);
+      return fromEnv
+        ? { value: fromEnv, lookupFailed: false, source: "env" }
+        : { value: null, lookupFailed: false };
+    } finally {
+      resolverActivity.active--;
     }
-    const fromEnv = env.get(key);
-    return fromEnv
-      ? { value: fromEnv, lookupFailed: false, source: "env" }
-      : { value: null, lookupFailed: false };
   },
 }));
 
@@ -127,6 +152,7 @@ vi.mock("./config-store.js", () => ({
       : null,
 }));
 
+import { readAppSecret } from "../secrets/storage.js";
 import {
   listMessagingChannels,
   registerMessagingChannelWebhook,
@@ -198,6 +224,9 @@ describe("channel settings", () => {
     env.clear();
     configs.clear();
     unreadable.clear();
+    vaultErrors.clear();
+    resolverActivity.active = 0;
+    resolverActivity.maxActive = 0;
     readErrorRef.error = null;
     roleRef.role = "owner";
     mounted = {
@@ -219,6 +248,27 @@ describe("channel settings", () => {
   });
 
   afterEach(() => setMountedChannels(null));
+
+  async function confirmedRemovals(
+    platform: string,
+    selectedKeys?: readonly string[],
+  ) {
+    const listed = await listMessagingChannels(OWNER);
+    const credentials =
+      listed.channels.find((item) => item.platform === platform)?.credentials ??
+      [];
+    return credentials
+      .filter(
+        (item) =>
+          item.removable &&
+          item.removalConfirmation &&
+          (!selectedKeys || selectedKeys.includes(item.key)),
+      )
+      .map((item) => ({
+        key: item.key,
+        removalConfirmation: item.removalConfirmation!,
+      }));
+  }
 
   it("lists each adapter's own keys with where each value comes from", async () => {
     env.set("TELEGRAM_WEBHOOK_SECRET", "fake-env-secret");
@@ -262,6 +312,8 @@ describe("channel settings", () => {
     });
     // No secret value leaves the server.
     expect(JSON.stringify(result)).not.toContain("fake-");
+    expect(readAppSecret).not.toHaveBeenCalled();
+    expect(resolverActivity.maxActive).toBeGreaterThan(1);
   });
 
   it("shows members the state but not where credentials come from", async () => {
@@ -407,6 +459,52 @@ describe("channel settings", () => {
     expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
   });
 
+  it.each(["org", "workspace"] as const)(
+    "repairs an unreadable designated-vault %s credential with a usable workspace override",
+    async (scope) => {
+      vaultErrors.set("TELEGRAM_BOT_TOKEN", {
+        scope,
+        scopeId: "designated-vault",
+      });
+      env.set("TELEGRAM_WEBHOOK_SECRET", "fake-env-webhook-secret");
+
+      const listed = await listMessagingChannels(OWNER);
+      const telegram = listed.channels.find(
+        (row) => row.platform === "telegram",
+      );
+      expect(telegram?.credentials[0]).toMatchObject({
+        source: "unreadable",
+        unreadableScope: scope,
+        repairScope: "workspace",
+        removable: false,
+      });
+      expect(JSON.stringify(telegram)).not.toContain("designated-vault");
+
+      const repaired = await saveMessagingChannelCredentials(
+        OWNER,
+        "telegram",
+        { TELEGRAM_BOT_TOKEN: "fake-vault-replacement-token" },
+      );
+
+      expect(store.get(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(
+        "fake-vault-replacement-token",
+      );
+      expect(repaired.channel).toMatchObject({
+        state: "off",
+        configured: true,
+      });
+      expect(repaired.channel.configurationUnavailable).toBeUndefined();
+
+      const enabled = await setMessagingChannelEnabled(OWNER, "telegram", true);
+      expect(enabled.channel.state).toBe("on");
+      expect(mounted.setEnabled).toHaveBeenCalledWith(
+        "telegram",
+        true,
+        expect.objectContaining({ actorEmail: OWNER.userEmail }),
+      );
+    },
+  );
+
   it("propagates channel credential query failures instead of reporting unreadable values", async () => {
     const error = new Error("database unavailable");
     readErrorRef.error = error;
@@ -452,7 +550,7 @@ describe("channel settings", () => {
       setMessagingChannelEnabled(OWNER, "telegram", false),
     ).rejects.toMatchObject({ statusCode: 403 });
     await expect(
-      removeMessagingChannelCredentials(OWNER, "telegram"),
+      removeMessagingChannelCredentials(OWNER, "telegram", []),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(store.size).toBe(0);
     expect(mounted.setEnabled).not.toHaveBeenCalled();
@@ -462,7 +560,12 @@ describe("channel settings", () => {
     store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "fake-bot-token");
     env.set("TELEGRAM_WEBHOOK_SECRET", "fake-env-secret");
 
-    const result = await removeMessagingChannelCredentials(OWNER, "telegram");
+    const confirmed = await confirmedRemovals("telegram");
+    const result = await removeMessagingChannelCredentials(
+      OWNER,
+      "telegram",
+      confirmed,
+    );
 
     expect(result.removedKeys).toEqual(["TELEGRAM_BOT_TOKEN"]);
     expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
@@ -470,12 +573,61 @@ describe("channel settings", () => {
     expect(result.channel.state).toBe("not-set-up");
   });
 
+  it("removes only the credential refs the caller confirmed", async () => {
+    store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "fake-bot-token");
+    store.set(
+      `workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`,
+      "fake-webhook-secret",
+    );
+    const confirmed = await confirmedRemovals("telegram", [
+      "TELEGRAM_BOT_TOKEN",
+    ]);
+
+    const result = await removeMessagingChannelCredentials(
+      OWNER,
+      "telegram",
+      confirmed,
+    );
+
+    expect(result.removedKeys).toEqual(["TELEGRAM_BOT_TOKEN"]);
+    expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
+    expect(store.get(`workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`)).toBe(
+      "fake-webhook-secret",
+    );
+  });
+
+  it("rejects a stale removal confirmation when the unreadable scope changes", async () => {
+    const userRef = `user:${OWNER.userEmail}:TELEGRAM_BOT_TOKEN`;
+    const orgRef = `org:${ORG}:TELEGRAM_BOT_TOKEN`;
+    store.set(userRef, "corrupted-user-token");
+    store.set(orgRef, "corrupted-org-token");
+    unreadable.add(userRef);
+    unreadable.add(orgRef);
+    const confirmed = await confirmedRemovals("telegram", [
+      "TELEGRAM_BOT_TOKEN",
+    ]);
+
+    store.delete(userRef);
+    await expect(
+      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "channel_removal_confirmation_stale",
+    });
+    expect(store.get(orgRef)).toBe("corrupted-org-token");
+  });
+
   it("removes known channel credentials when one saved value is unreadable", async () => {
     store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "corrupted-ciphertext");
     store.set(`workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`, "fake-secret");
     unreadable.add("TELEGRAM_BOT_TOKEN");
 
-    const result = await removeMessagingChannelCredentials(OWNER, "telegram");
+    const confirmed = await confirmedRemovals("telegram");
+    const result = await removeMessagingChannelCredentials(
+      OWNER,
+      "telegram",
+      confirmed,
+    );
 
     expect(result.removedKeys).toEqual([
       "TELEGRAM_BOT_TOKEN",
@@ -492,7 +644,12 @@ describe("channel settings", () => {
     store.set("org:foreign-org:TELEGRAM_WEBHOOK_SECRET", "fake-foreign-secret");
     unreadable.add(`org:${ORG}:TELEGRAM_WEBHOOK_SECRET`);
 
-    const result = await removeMessagingChannelCredentials(OWNER, "telegram");
+    const confirmed = await confirmedRemovals("telegram");
+    const result = await removeMessagingChannelCredentials(
+      OWNER,
+      "telegram",
+      confirmed,
+    );
 
     expect(result.removedKeys).toEqual(["TELEGRAM_WEBHOOK_SECRET"]);
     expect(store.get(`user:${OWNER.userEmail}:TELEGRAM_BOT_TOKEN`)).toBe(
@@ -509,7 +666,12 @@ describe("channel settings", () => {
     store.set(soloRef, "corrupted-solo-token");
     unreadable.add(soloRef);
 
-    const result = await removeMessagingChannelCredentials(OWNER, "telegram");
+    const confirmed = await confirmedRemovals("telegram");
+    const result = await removeMessagingChannelCredentials(
+      OWNER,
+      "telegram",
+      confirmed,
+    );
 
     expect(result.removedKeys).toEqual(["TELEGRAM_BOT_TOKEN"]);
     expect(store.has(soloRef)).toBe(false);
@@ -518,6 +680,7 @@ describe("channel settings", () => {
 
   it("preflights store failures before writing or deleting any credential", async () => {
     store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "fake-existing-token");
+    const confirmed = await confirmedRemovals("telegram");
     const error = new Error("database unavailable");
     readErrorRef.error = error;
 
@@ -530,7 +693,7 @@ describe("channel settings", () => {
       "fake-existing-token",
     );
     await expect(
-      removeMessagingChannelCredentials(OWNER, "telegram"),
+      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
     ).rejects.toBe(error);
     expect(store.get(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(
       "fake-existing-token",

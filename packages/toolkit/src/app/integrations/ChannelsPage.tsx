@@ -130,11 +130,15 @@ type ManageChannelArgs =
       values: Record<string, string>;
     }
   | {
-      operation:
-        | "enable"
-        | "disable"
-        | "remove-credentials"
-        | "register-webhook";
+      operation: "remove-credentials";
+      platform: string;
+      confirmedCredentials: Array<{
+        key: string;
+        removalConfirmation: string;
+      }>;
+    }
+  | {
+      operation: "enable" | "disable" | "register-webhook";
       platform: string;
     };
 
@@ -735,12 +739,15 @@ function RemoveCredentialsDialog({
   open,
   onOpenChange,
   channel,
-  keys,
+  credentials,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channel: IntegrationCatalogEntry;
-  keys: readonly string[];
+  credentials: readonly {
+    key: string;
+    removalConfirmation: string;
+  }[];
 }) {
   const t = useT();
   const remove = useManageChannel();
@@ -763,7 +770,7 @@ function RemoveCredentialsDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ul className="flex flex-col gap-1 font-mono text-xs text-foreground">
-          {keys.map((key) => (
+          {credentials.map(({ key }) => (
             <li key={key}>{key}</li>
           ))}
         </ul>
@@ -789,7 +796,16 @@ function RemoveCredentialsDialog({
             aria-busy={remove.isPending}
             onClick={() =>
               remove.mutate(
-                { operation: "remove-credentials", platform: channel.id },
+                {
+                  operation: "remove-credentials",
+                  platform: channel.id,
+                  confirmedCredentials: credentials.map(
+                    ({ key, removalConfirmation }) => ({
+                      key,
+                      removalConfirmation,
+                    }),
+                  ),
+                },
                 { onSuccess: () => onOpenChange(false) },
               )
             }
@@ -902,11 +918,16 @@ function ChannelDetail({
     typeof status?.details?.serviceAccountEmail === "string"
       ? status.details.serviceAccountEmail
       : null;
-  const removableKeys = canManage
-    ? (status?.credentials ?? [])
-        .filter((item) => item.removable)
-        .map((item) => item.key)
+  const removableCredentials = canManage
+    ? (status?.credentials ?? []).filter(
+        (
+          item,
+        ): item is ChannelCredentialStatus & {
+          removalConfirmation: string;
+        } => item.removable && typeof item.removalConfirmation === "string",
+      )
     : [];
+  const removableKeys = removableCredentials.map((item) => item.key);
   const setUp = state !== null && state !== "not-set-up";
 
   const mentionRow =
@@ -1171,7 +1192,7 @@ function ChannelDetail({
             open={removeOpen}
             onOpenChange={setRemoveOpen}
             channel={channel}
-            keys={removableKeys}
+            credentials={removableCredentials}
           />
         </>
       ) : null}

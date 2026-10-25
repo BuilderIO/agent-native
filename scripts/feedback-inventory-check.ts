@@ -8984,8 +8984,19 @@ function validateInventory(
   const hasBoundedWriteAuthorization =
     typeof scope.userRequest === "string" &&
     hasBoundedWorkflowWriteAuthorization(scope.userRequest);
+  const includesAdministrativeRootsInBoundedGrant =
+    typeof scope.userRequest === "string" &&
+    hasBoundedAdministrativeWorkflowWriteAuthorization(scope.userRequest);
   const authorizedRootKeysInScope = new Set<string>();
   const inScopeRootEyeKeys = new Set<string>();
+  const isBoundedEyeRootInGrantedPopulation = (
+    root: Parent,
+    key: string,
+  ): boolean =>
+    root.rootClassification === "report" ||
+    (root.rootClassification === "administrative" &&
+      (includesAdministrativeRootsInBoundedGrant ||
+        authorizedRootKeys.has(key)));
 
   slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -10198,7 +10209,12 @@ function validateInventory(
         slackTimestampFromMicros(
           slackTimestamp(root.ts, `${name} root ${root.ts}.ts`),
         );
-      if (inWindowRootReferences.has(key)) inScopeRootEyeKeys.add(key);
+      if (
+        inWindowRootReferences.has(key) &&
+        isBoundedEyeRootInGrantedPopulation(root, key)
+      ) {
+        inScopeRootEyeKeys.add(key);
+      }
     }
 
     const supplementalRoots = new Set<string>();
@@ -10466,7 +10482,10 @@ function validateInventory(
       ).toString();
       if (referencedSupplementalRoots.has(rootTimestamp)) {
         const key = `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`;
-        if (rootAudit.reactionOwners.eyes?.length) {
+        if (
+          rootAudit.reactionOwners.eyes?.length &&
+          isBoundedEyeRootInGrantedPopulation(rootAudit, key)
+        ) {
           inScopeRootEyeKeys.add(key);
         }
         if (authorizedRootKeys.has(key)) authorizedRootKeysInScope.add(key);
@@ -21543,6 +21562,20 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateTestInventory(
       withTestThreadSnapshots(preservedAdministrativeEyeInventory),
     );
+    const reportOnlyBoundedAdministrativeSweep = structuredClone(
+      preservedAdministrativeEyeInventory,
+    );
+    const reportOnlyBoundedRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.";
+    reportOnlyBoundedAdministrativeSweep.scope.userRequest =
+      reportOnlyBoundedRequest;
+    reportOnlyBoundedAdministrativeSweep.scope.narrowingJudgment!.instruction =
+      reportOnlyBoundedRequest;
+    reportOnlyBoundedAdministrativeSweep.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+    ];
+    validateTestInventory(reportOnlyBoundedAdministrativeSweep);
+
     const currentAdministrativeStatus = structuredClone(
       preservedAdministrativeEyeInventory,
     );
@@ -21568,6 +21601,32 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     };
     validateTestInventory(withTestThreadSnapshots(currentAdministrativeStatus));
+    const includedAdministrativePostsRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim any followups, send same-thread status replies, and add emojis for all reports and administrative posts.";
+    const omittedIncludedAdministrativeRoot = structuredClone(
+      currentAdministrativeStatus,
+    );
+    omittedIncludedAdministrativeRoot.scope.userRequest =
+      includedAdministrativePostsRequest;
+    omittedIncludedAdministrativeRoot.scope.narrowingJudgment!.instruction =
+      includedAdministrativePostsRequest;
+    omittedIncludedAdministrativeRoot.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+    ];
+    expectFocusedFailure(
+      "an explicitly included administrative root is required in bounded authorization",
+      () => validateTestInventory(omittedIncludedAdministrativeRoot),
+      "a bounded direct grant must list every in-scope root with a root-level 👀 in scope.authorizedRoots",
+    );
+    const includedAuthorizedAdministrativeRoot = structuredClone(
+      omittedIncludedAdministrativeRoot,
+    );
+    includedAuthorizedAdministrativeRoot.scope.authorizedRoots!.push({
+      channelId: "C_TEST",
+      rootTs: "11.000000",
+    });
+    validateTestInventory(includedAuthorizedAdministrativeRoot);
+
     const preservedStatusVariants = [
       preservedAdministrativeStatus,
       [

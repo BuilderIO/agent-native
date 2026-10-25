@@ -1442,7 +1442,7 @@ describe("resolveBuilderCredentialsDetailed", () => {
     expect(result.source).toBeNull();
   });
 
-  it("preserves an undecryptable row as a failed Builder lookup", async () => {
+  it("preserves an undecryptable required pair as a failed Builder lookup", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     const error = new AppSecretDecryptionError();
@@ -1457,6 +1457,46 @@ describe("resolveBuilderCredentialsDetailed", () => {
       source: null,
     });
     expect(result.cause).toBe(error);
+    expect(mockReadAppSecrets).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a usable Builder pair when optional metadata is unreadable", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecrets.mockImplementation(
+      async ({ keys, scope, scopeId }: any) => {
+        if (keys.length > 2) {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        if (keys.length === 2) {
+          return scope === "org" && scopeId === "builder_io"
+            ? new Map([
+                ["BUILDER_PRIVATE_KEY", { value: "org-private-key" }],
+                ["BUILDER_PUBLIC_KEY", { value: "org-public-key" }],
+              ])
+            : new Map();
+        }
+        if (
+          scope === "org" &&
+          scopeId === "builder_io" &&
+          keys[0] === "BUILDER_USER_ID"
+        ) {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        return new Map();
+      },
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({
+      source: "org",
+      privateKey: "org-private-key",
+      publicKey: "org-public-key",
+      userId: null,
+      lookupFailed: false,
+      optionalMetadataLookupFailure: "unreadable",
+    });
   });
 
   it("sets lookupFailed=false when the row is simply absent", async () => {

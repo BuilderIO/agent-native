@@ -11,7 +11,7 @@ import {
 
 export default defineAction({
   description:
-    'Set up, turn on, or turn off one of this app\'s messaging channels. Owners and admins only; the change applies to everyone who messages this app\'s agent. "save-credentials" saves `values` (credential name to value, names from list-messaging-channels) in the workspace by default, or replaces the exact unreadable Channels-managed scope reported by list-messaging-channels; a credential with saveable: false can only be set in the deployment environment. "enable" turns a set-up channel on and fails with channel_not_configured while required credentials are missing, or credential_store_unavailable when saved credentials cannot be read. Replace unreadable saveable credentials or remove Channels-managed credentials before enabling. "disable" turns it off. "remove-credentials" deletes workspace credentials saved from Channels plus any exact unreadable Channels-managed scope reported for those keys, without deleting readable user or organization credentials or deployment variables; the agent stops replying there unless another scope or the deployment still provides the credentials. "register-webhook" registers the webhook URL with the provider (Telegram). Call list-messaging-channels first.',
+    'Set up, turn on, or turn off one of this app\'s messaging channels. Owners and admins only; the change applies to everyone who messages this app\'s agent. "save-credentials" saves `values` (credential name to value, names from list-messaging-channels) in the workspace by default, or replaces the unreadable scope reported by list-messaging-channels; a credential with saveable: false can only be set in the deployment environment. "enable" turns a set-up channel on and fails while required credentials are missing or saved credentials cannot be read. Replace unreadable saveable credentials or remove Channels-managed credentials before enabling. "disable" turns it off. "remove-credentials" deletes only the exact removable credential references listed by list-messaging-channels and confirmed by the owner; pass each selected credential\'s `key` and `removalConfirmation` in `confirmedCredentials`. Refresh the list and ask the owner to confirm again if a token is stale. It does not delete credentials stored elsewhere or deployment variables. "register-webhook" registers the webhook URL with the provider (Telegram). Call list-messaging-channels first.',
   schema: z.object({
     operation: z
       .enum([
@@ -36,6 +36,17 @@ export default defineAction({
       .optional()
       .describe(
         'save-credentials only: credential name to value, e.g. {"TELEGRAM_BOT_TOKEN": "..."}. Names come from the channel\'s credentials.',
+      ),
+    confirmedCredentials: z
+      .array(
+        z.object({
+          key: z.string().min(1),
+          removalConfirmation: z.string().min(1),
+        }),
+      )
+      .optional()
+      .describe(
+        "remove-credentials only: the exact {key, removalConfirmation} pairs for credentials listed as removable by list-messaging-channels and explicitly confirmed by the owner. Refresh the list and confirm again if the token is stale.",
       ),
   }),
   // Credentials for a deployment-wide bot are not something a sandboxed
@@ -63,7 +74,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: true,
   },
-  run: async ({ operation, platform, values }, ctx) => {
+  run: async ({ operation, platform, values, confirmedCredentials }, ctx) => {
     switch (operation) {
       case "save-credentials":
         return saveMessagingChannelCredentials(ctx, platform, values ?? {});
@@ -75,7 +86,11 @@ export default defineAction({
           operation === "enable",
         );
       case "remove-credentials":
-        return removeMessagingChannelCredentials(ctx, platform);
+        return removeMessagingChannelCredentials(
+          ctx,
+          platform,
+          confirmedCredentials ?? [],
+        );
       case "register-webhook":
         return registerMessagingChannelWebhook(ctx, platform);
     }

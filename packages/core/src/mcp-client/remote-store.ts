@@ -48,6 +48,17 @@ const SETTINGS_KEY = "mcp-servers-remote";
 
 export type RemoteMcpScope = "user" | "org";
 
+export class InvalidMcpHeaderConfigurationError extends Error {
+  readonly code = "invalid_mcp_header_configuration";
+
+  constructor(readonly reason: "invalid-json" | "invalid-shape") {
+    super(
+      "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+    );
+    this.name = "InvalidMcpHeaderConfigurationError";
+  }
+}
+
 function toSecretScope(scope: RemoteMcpScope): SecretScope {
   return scope === "user" ? "user" : "workspace";
 }
@@ -634,22 +645,16 @@ export async function materializeHeaders(
       try {
         parsed = JSON.parse(secret.value);
       } catch {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[mcp-client] Failed to parse MCP headers for ${stored.name}: invalid JSON`,
-        );
-        return Object.keys(merged).length > 0 ? merged : undefined;
+        throw new InvalidMcpHeaderConfigurationError("invalid-json");
       }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[mcp-client] Failed to parse MCP headers for ${stored.name}: expected a JSON object`,
-        );
-        return Object.keys(merged).length > 0 ? merged : undefined;
+        throw new InvalidMcpHeaderConfigurationError("invalid-shape");
       }
-      for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === "string") merged[k] = v;
+      const entries = Object.entries(parsed);
+      if (entries.some(([, value]) => typeof value !== "string")) {
+        throw new InvalidMcpHeaderConfigurationError("invalid-shape");
       }
+      for (const [key, value] of entries) merged[key] = value;
     }
   }
   return Object.keys(merged).length > 0 ? merged : undefined;
