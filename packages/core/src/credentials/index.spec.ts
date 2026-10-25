@@ -688,6 +688,31 @@ describe("credentials encryption at rest", () => {
     ]);
   });
 
+  it("does not let a member's unreadable personal key fall through to the org credential", async () => {
+    const error = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@example.test",
+    });
+    readOrgMemberRole.mockResolvedValue("member");
+    readAppSecret.mockImplementation(async (ref: any) => {
+      if (ref.scope === "user") throw error;
+      return ref.scope === "org"
+        ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
+        : null;
+    });
+    const { resolveCredentialDetailed } = await import("./index.js");
+
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toBe(error);
+    expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
+      "user",
+    ]);
+  });
+
   it("returns undefined when the encryption key rotated (cannot decrypt)", async () => {
     process.env.SECRETS_ENCRYPTION_KEY = "key-A";
     const { saveCredential, resolveCredential } = await import("./index.js");

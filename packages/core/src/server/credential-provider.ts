@@ -902,12 +902,27 @@ async function resolveScopedBuilderCredentials(
     if (orgLookupCause !== undefined) {
       return { creds: null, lookupFailed: true, cause: orgLookupCause };
     }
-    const personal = await tryPersonal();
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+    let personal: BuilderResolvedCredentials | null = null;
+    let personalReadError: AppSecretDecryptionError | undefined;
+    try {
+      personal = await tryPersonal();
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      personalReadError = error;
+    }
+    const orgCredentialFirst =
+      Boolean(personal || personalReadError) &&
+      (await readsOrgCredentialFirst(orgId, email));
+    // A member's unreadable personal row still has precedence over shared
+    // keys; returning an org value would silently change the credential used.
+    if (personalReadError && !orgCredentialFirst) throw personalReadError;
+    if (personal && !orgCredentialFirst) {
       return { creds: personal, lookupFailed: false };
     }
-    const creds = (await tryOrg()) ?? personal;
+    const creds = await tryOrg();
     if (creds) return { creds, lookupFailed: false };
+    if (personalReadError) throw personalReadError;
+    if (personal) return { creds: personal, lookupFailed: false };
 
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
@@ -1056,6 +1071,23 @@ export async function resolveBuilderCredentialsDetailed(
             optionalMetadataLookupFailure: scoped.optionalMetadataLookupFailure,
           }
         : {}),
+    };
+  }
+  if (lookupFailed) {
+    return {
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: true,
+      cause,
     };
   }
   const canUseEnv =
@@ -2199,14 +2231,20 @@ export async function resolveSecretDetailed(
         isPersonalProviderPolicyKey(key) &&
         (await isPersonalProviderKeyUseRestricted({ email }));
 
-      const userSecret =
-        options.skipUserScope || personalRestricted
-          ? null
-          : await readAppSecret({
-              key,
-              scope: "user",
-              scopeId: email,
-            });
+      let userSecret: Awaited<ReturnType<typeof readAppSecret>> = null;
+      let personalReadError: AppSecretDecryptionError | undefined;
+      if (!options.skipUserScope && !personalRestricted) {
+        try {
+          userSecret = await readAppSecret({
+            key,
+            scope: "user",
+            scopeId: email,
+          });
+        } catch (error) {
+          if (!(error instanceof AppSecretDecryptionError)) throw error;
+          personalReadError = error;
+        }
+      }
       const personal: ResolvedSecretDetail | null = userSecret?.value
         ? {
             value: userSecret.value,
@@ -2223,8 +2261,12 @@ export async function resolveSecretDetailed(
 
       // The beta suite writes one user-scoped credential and must never turn a
       // rejected or missing test key into a charge against a shared scope.
-      if (syntheticTraffic)
+      if (syntheticTraffic) {
+        if (personalReadError) {
+          return { value: null, lookupFailed: true, cause: personalReadError };
+        }
         return personal ?? { value: null, lookupFailed: false };
+      }
 
       let orgId: string | null | undefined = getRequestOrgId();
       if (!orgId) {
@@ -2240,7 +2282,13 @@ export async function resolveSecretDetailed(
       }
 
       // An owner or admin runs on the organization's key ahead of their own.
-      if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+      const orgCredentialFirst =
+        Boolean(personal || personalReadError) &&
+        (await readsOrgCredentialFirst(orgId, email));
+      if (personalReadError && !orgCredentialFirst) {
+        return { value: null, lookupFailed: true, cause: personalReadError };
+      }
+      if (personal && !orgCredentialFirst) {
         return personal;
       }
 
@@ -2283,6 +2331,9 @@ export async function resolveSecretDetailed(
             scopeId: orgId,
           };
         }
+      }
+      if (personalReadError) {
+        return { value: null, lookupFailed: true, cause: personalReadError };
       }
       if (personal) return personal;
 

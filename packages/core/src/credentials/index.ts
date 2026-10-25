@@ -273,6 +273,7 @@ export async function resolveCredentialDetailed(
     ctx.credentialScope !== "org" &&
     Boolean(personal || personalReadError) &&
     (await readsOrgCredentialFirst(orgId, ctx.userEmail));
+  if (personalReadError && !orgCredentialFirst) throw personalReadError;
   if (personal && !orgCredentialFirst) return personal;
 
   if (orgId) {
