@@ -36,7 +36,6 @@ import {
   resolveVercelDeploymentProtectionHeaders,
   normalizeBuilderAgentAttachments,
   runBuilderAgent,
-  withConfiguredAppBasePath,
   type BuilderAgentAttachment,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
@@ -633,7 +632,7 @@ function workspaceAppUrl(appPath: string): string | null {
   if (!base) return null;
   try {
     const baseUrl = new URL(
-      withConfiguredAppBasePath(projectEnvironmentUrl(base)),
+      addBasePath(projectEnvironmentUrl(base), getConfiguredAppBasePath()),
     );
     return appendWorkspaceAppPath(baseUrl, appPath);
   } catch {
