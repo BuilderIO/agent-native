@@ -738,6 +738,7 @@ async function processIncomingMessage(
         orgId,
         apiKey: jevCredentials.apiKey,
         personalApiKey: jevCredentials.personalApiKey,
+        directApiKey: jevCredentials.directApiKey,
         builderAuth: jevCredentials.builderAuth,
         selfAppId: options.appId,
         workspaceAppsEnabled: Boolean(actions["call-agent"]),

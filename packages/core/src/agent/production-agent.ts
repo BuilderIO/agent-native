@@ -799,10 +799,8 @@ async function getOwnerApiKeyDetailed(
     }
   } catch {
     lookupFailed = true;
-    if (syntheticTraffic) {
-      reportLookupFailure();
-      return undefined;
-    }
+    reportLookupFailure();
+    return undefined;
   }
   if (syntheticTraffic || personalRestricted) {
     reportLookupFailure();
@@ -867,12 +865,15 @@ export async function getOwnerJevApiKey(
 async function getOwnerJevApiKeyCredential(
   ownerEmail: string | null | undefined,
 ): Promise<{
-  credential: { apiKey: string; source: "user" | "deployment" } | null;
+  credential: {
+    apiKey: string;
+    source: "user" | "org" | "workspace" | "deployment";
+  } | null;
   lookupFailed: boolean;
 }> {
   if (!ownerEmail) return { credential: null, lookupFailed: false };
   const cacheKey = [
-    "jev-source-v1",
+    "jev-source-v2",
     ownerEmail,
     getRequestOrgId() ?? `solo:${ownerEmail}`,
     getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
@@ -885,26 +886,33 @@ async function getOwnerJevApiKeyCredential(
     const apiKey = cached.value.slice(separator + 1);
     return {
       credential:
-        (source === "user" || source === "deployment") && apiKey
+        (source === "user" ||
+          source === "org" ||
+          source === "workspace" ||
+          source === "deployment") &&
+        apiKey
           ? { apiKey, source }
           : null,
       lookupFailed: false,
     };
   }
-  let lookupFailed = false;
-  const value = await getOwnerApiKey("jev", ownerEmail, {
+  const lookupState: { failed: boolean } = { failed: false };
+  const ownerCredential = await getOwnerApiKeyDetailed("jev", ownerEmail, {
     onLookupFailure: () => {
-      lookupFailed = true;
+      lookupState.failed = true;
     },
   });
-  if (value) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, `user:${value}`);
+  if (ownerCredential) {
+    const source = ownerCredential.credentialProvenance.scope;
+    if (!lookupState.failed) {
+      writeOptionalKeyCache(cacheKey, `${source}:${ownerCredential.apiKey}`);
+    }
     return {
-      credential: { apiKey: value, source: "user" },
-      lookupFailed,
+      credential: { apiKey: ownerCredential.apiKey, source },
+      lookupFailed: lookupState.failed,
     };
   }
-  if (lookupFailed) return { credential: null, lookupFailed: true };
+  if (lookupState.failed) return { credential: null, lookupFailed: true };
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -916,22 +924,21 @@ async function getOwnerJevApiKeyCredential(
       value: deployKey,
     }))
   ) {
-    if (!lookupFailed) {
-      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
-    }
+    writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
     return {
       credential: { apiKey: deployKey, source: "deployment" },
       lookupFailed: false,
     };
   }
 
-  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  writeOptionalKeyCache(cacheKey, undefined);
   return { credential: null, lookupFailed: false };
 }
 
 export interface JevContextCredentials {
   apiKey: string | undefined;
   personalApiKey: string | undefined;
+  directApiKey?: string;
   builderAuth: BuilderGatewayAuth | null;
   apiKeyLookupFailed?: boolean;
   builderAuthLookupFailed?: boolean;
@@ -956,6 +963,11 @@ export async function getJevContextCredentials(
     apiKey: credential?.apiKey,
     personalApiKey:
       credential?.source === "user" ? credential.apiKey : undefined,
+    ...(credential &&
+    credential.source !== "deployment" &&
+    credential.source !== "user"
+      ? { directApiKey: credential.apiKey }
+      : {}),
     builderAuth: builderAuthLookup.builderAuth,
     ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
     ...(builderAuthLookup.lookupFailed
@@ -991,11 +1003,23 @@ const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
 export async function getOwnerApiKeyForEngine(
   engineName: string,
   ownerEmail: string | null | undefined,
+  options?: {
+    allowDeploymentFallback?: boolean;
+    onLookupFailure?: () => void;
+  },
 ): Promise<ResolvedOwnerApiKey> {
+  const lookupState: { failed: boolean } = { failed: false };
+  const reportLookupFailure = (): void => {
+    if (lookupState.failed) return;
+    lookupState.failed = true;
+    options?.onLookupFailure?.();
+  };
   try {
     const provider = engineToProvider(engineName);
     const envVar = PROVIDER_TO_ENV[provider];
-    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail);
+    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail, {
+      onLookupFailure: reportLookupFailure,
+    });
     if (ownerKey) {
       return {
         apiKey: ownerKey.apiKey,
@@ -1003,7 +1027,12 @@ export async function getOwnerApiKeyForEngine(
         credentialProvenance: ownerKey.credentialProvenance,
       };
     }
-    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+    if (
+      lookupState.failed ||
+      options?.allowDeploymentFallback === false ||
+      !envVar ||
+      !canUseDeployCredentialFallbackForRequest(envVar)
+    ) {
       return NO_OWNER_API_KEY;
     }
     const envKey = readDeployCredentialEnv(envVar);
@@ -1019,6 +1048,7 @@ export async function getOwnerApiKeyForEngine(
     }
     return NO_OWNER_API_KEY;
   } catch {
+    reportLookupFailure();
     return NO_OWNER_API_KEY;
   }
 }
@@ -15192,6 +15222,7 @@ export function createProductionAgentHandler(
         deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
@@ -15208,6 +15239,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
