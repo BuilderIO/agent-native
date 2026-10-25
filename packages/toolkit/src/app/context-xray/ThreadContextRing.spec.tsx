@@ -5,6 +5,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { threadHasFinishedReply } from "./use-thread-context-usage.js";
+
 const queries = vi.hoisted(
   () =>
     new Map<string, { data?: unknown; isError?: boolean; error?: unknown }>(),
@@ -307,5 +309,25 @@ describe("ThreadContextRing", () => {
       ),
     ).toEqual(["System", "Tool results", "Conversation", "free-space"]);
     expect(document.body.textContent).not.toContain("Context X-Ray");
+  });
+});
+
+describe("threadHasFinishedReply", () => {
+  it("waits for a finished assistant reply before the manifest is read", () => {
+    expect(threadHasFinishedReply([])).toBe(false);
+    expect(threadHasFinishedReply([{ role: "user" }])).toBe(false);
+    expect(
+      threadHasFinishedReply([
+        { role: "user" },
+        { role: "assistant", status: "streaming" },
+      ]),
+    ).toBe(false);
+    expect(
+      threadHasFinishedReply([
+        { role: "user" },
+        { role: "assistant", status: "complete" },
+      ]),
+    ).toBe(true);
+    expect(threadHasFinishedReply([{ role: "assistant" }])).toBe(true);
   });
 });

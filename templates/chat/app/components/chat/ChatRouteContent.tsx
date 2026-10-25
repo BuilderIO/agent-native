@@ -28,6 +28,7 @@ import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
+  useAgentThreadSelector,
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/toolkit/app/agentkit/react/context";
@@ -53,7 +54,10 @@ import {
   getReplyRequestMode,
   isMissingLlmProviderRunError,
 } from "@agent-native/toolkit/app/chat/chat/run-recovery";
-import { ThreadContextRing } from "@agent-native/toolkit/app/context-xray";
+import {
+  ThreadContextRing,
+  threadHasFinishedReply,
+} from "@agent-native/toolkit/app/context-xray";
 import {
   ComposerNotice,
   type PromptComposerFile,
@@ -416,6 +420,13 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatContextRing({ threadId }: { threadId: string }) {
+  const enabled = useAgentThreadSelector((thread) =>
+    threadHasFinishedReply(thread.messages),
+  );
+  return <ThreadContextRing threadId={threadId} enabled={enabled} />;
 }
 
 function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
@@ -1380,7 +1391,7 @@ function ChatCanvas({
         onStartNewChat={() => navigate(NEW_CHAT_PATH)}
         composerProps={{
           requireAgentEngine: true,
-          contextUsageSlot: <ThreadContextRing threadId={threadId} />,
+          contextUsageSlot: <ChatContextRing threadId={threadId} />,
           initialText,
           initialTextKey,
           ...(recoveryOptions

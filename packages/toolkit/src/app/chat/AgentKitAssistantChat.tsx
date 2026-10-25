@@ -172,6 +172,7 @@ import {
 } from "../agentkit/react/pending-submissions.js";
 import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
+import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -6135,10 +6136,7 @@ function AgentKitComposerSurface({
             <ThreadContextRing
               threadId={threadId}
               model={props.selectedModel ?? props.defaultModel}
-              enabled={
-                thread.messages.length > 0 ||
-                Object.keys(thread.runs).length > 0
-              }
+              enabled={threadHasFinishedReply(thread.messages)}
             />
           }
           selectedEngine={props.selectedEngine}

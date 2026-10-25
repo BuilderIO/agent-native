@@ -94,8 +94,21 @@ function isThreadNotFound(error: unknown): boolean {
 }
 
 /**
- * Pass `enabled: false` until the thread exists on the server (it has a
- * message or a run); a draft has no manifest to ask for.
+ * True once the thread has a finished assistant reply. Only the server writes
+ * one, so the thread is saved and a model call was measured; before that the
+ * manifest read is a 404 the browser reports as a console error.
+ */
+export function threadHasFinishedReply(
+  messages: ReadonlyArray<{ role: string; status?: string }>,
+): boolean {
+  return messages.some(
+    (message) => message.role === "assistant" && message.status !== "streaming",
+  );
+}
+
+/**
+ * Pass `enabled: false` until the thread exists on the server (see
+ * `threadHasFinishedReply`); a draft has no manifest to ask for.
  */
 export function useThreadContextUsage({
   threadId,
