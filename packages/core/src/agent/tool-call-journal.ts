@@ -939,9 +939,10 @@ export function findInterruptedJournalEntryForCall(
 }
 
 /**
- * The earliest unclaimed finished entry with a durable step that this call's
- * identity matches. Each finished entry carries its own result, so identical
- * calls pair with identical entries in ledger order.
+ * The earliest-started unclaimed finished entry with a durable step that this
+ * call's identity matches. Each finished entry carries its own result, so
+ * identical calls pair with identical entries in the order they started;
+ * entries are listed in the order they finished.
  */
 export function findFinishedJournalStepForCall(
   entries: readonly ToolCallJournalEntry[],
@@ -950,12 +951,16 @@ export function findFinishedJournalStepForCall(
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
-  const [match] = journalStepEntriesForCall(
+  const match = journalStepEntriesForCall(
     entries,
     toolName,
     argumentsHash,
     input,
     consumedKeys,
+  ).reduce<ToolCallJournalEntry | undefined>(
+    (earliest, entry) =>
+      earliest === undefined || entry.order < earliest.order ? entry : earliest,
+    undefined,
   );
   if (match) consumedKeys?.add(match.key);
   return match;

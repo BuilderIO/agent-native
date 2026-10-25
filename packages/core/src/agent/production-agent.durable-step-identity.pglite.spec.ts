@@ -584,6 +584,78 @@ describe("durable execution step identity", () => {
     }
   });
 
+  it("pairs repeated finished slot-only steps by start order when they finished out of order", async () => {
+    const threadId = "thread-resume-reversed-finished-slot-only-steps";
+    const turnId = "turn-resume-reversed-finished-slot-only-steps";
+    const priorRunId = "run-before-release-reversed";
+    let saves = 0;
+    const run = vi.fn(
+      async ({ title }: { title: string }) => `Saved ${title} as #${++saves}`,
+    );
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: priorRunId,
+      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      messages: [request],
+      run,
+    });
+    const slotOnlyStepIds: string[] = [];
+    for (const slot of [1, 2]) {
+      slotOnlyStepIds.push(
+        await recordUnderSlotOnlyId({
+          threadId,
+          priorRunId,
+          priorEvents,
+          slot,
+        }),
+      );
+    }
+    // The second call finished first.
+    await insertRunEvents(
+      priorRunId,
+      [2, 1].map((slot, index) => {
+        const priorDone = priorEvents.find(
+          (event) =>
+            event.type === "tool_done" &&
+            event.id === `${priorRunId}-call-${slot}`,
+        );
+        if (!priorDone) throw new Error("The prior run did not finish");
+        return {
+          seq: 10 + index,
+          eventAt: Date.now(),
+          eventData: JSON.stringify({
+            ...priorDone,
+            executionStepId: slotOnlyStepIds[slot - 1],
+          }),
+        };
+      }),
+    );
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-reversed",
+      titles: ["Q3 plan", "Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      run,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    for (const [index, executionStepId] of slotOnlyStepIds.entries()) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          id: `run-after-release-reversed-call-${index}`,
+          executionStepId,
+          result: expect.stringContaining(`Saved Q3 plan as #${index + 2}`),
+        }),
+      );
+    }
+  });
+
   it("holds a moved write whose slot-only step from before this release may have run", async () => {
     const threadId = "thread-resume-moved-dispatched-step";
     const turnId = "turn-resume-moved-dispatched-step";
