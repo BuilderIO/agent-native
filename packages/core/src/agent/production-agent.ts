@@ -392,7 +392,6 @@ import {
   readLedgerEntry,
   beginAgentExecutionStep,
   completeAgentExecutionStep,
-  getCompletedAgentExecutionStepIdsForIntent,
   markAgentExecutionStepDispatched,
   resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
@@ -4669,9 +4668,6 @@ function findCurrentTurnStartForContinuation(
   return 0;
 }
 
-/** Slots of a checkpoint searched for a step recorded under a slot-only ID. */
-const SLOT_ONLY_STEP_SCAN_LIMIT = 256;
-
 function durableToolCallCheckpointId(messages: EngineMessage[]): string {
   const turnMessages = messages
     .slice(findCurrentTurnStartForContinuation(messages))
@@ -8560,7 +8556,6 @@ export async function runAgentLoop(opts: {
     const toolCallIndexes = new Map(
       toolCallParts.map((toolCall, index) => [toolCall, index]),
     );
-    const claimedSlotOnlyStepIds = new Set<string>();
     const historyToolCallByCall = new Map(
       toolCallParts.map((toolCall) => [
         toolCall,
@@ -9590,7 +9585,9 @@ export async function runAgentLoop(opts: {
       // A continuation re-asks the model from the same checkpoint and may
       // reorder or replace its calls, so a step is named by the call itself;
       // the occurrence count only separates identical calls in one response.
-      // Every earlier call was prepared before this one runs.
+      // Every earlier call was prepared before this one runs. A step named
+      // under another scheme is found through the run ledger, whose tool_start
+      // persists before any dispatch.
       const logicalExecutionStepId =
         toolCallIndex === undefined
           ? undefined
@@ -9642,59 +9639,14 @@ export async function runAgentLoop(opts: {
         interruptedStep?.executionStepId ?? legacyInterruptedStepId;
       const ambiguousLegacyInterruptedWrite =
         !actionIsReadOnly && legacyInterruptedStep.status === "ambiguous";
-      const executionStepInputJson = JSON.stringify({
-        argumentsHash,
-        input: stripInlineBytes(preparedCallArguments(intent), "placeholder"),
-      });
-      const namespacedStepId = (stepId: string) =>
-        opts.durableStepIdForToolCall?.(stepId) ?? stepId;
-      let modelExecutionStepId =
-        executionFence &&
-        logicalExecutionStepId &&
-        !interruptedStepId &&
-        !ambiguousLegacyInterruptedWrite
-          ? namespacedStepId(logicalExecutionStepId)
-          : undefined;
-      if (
-        executionFence &&
-        modelExecutionStepId &&
-        (internalContinuationTurn ||
-          opts.recoverCompletedExecutionSteps === true)
-      ) {
-        // A turn resumed across the release that named steps by their call
-        // completed its earlier steps under slot-only IDs, and the call may
-        // have moved since. Only this checkpoint's slots qualify: an identical
-        // call from an earlier checkpoint is a deliberate repeat.
-        const completedStepIds = new Set(
-          await getCompletedAgentExecutionStepIdsForIntent(
-            executionFence.threadId,
-            executionFence.turnId,
-            toolCall.name,
-            executionStepInputJson,
-          ),
-        );
-        for (
-          let slot = 0;
-          completedStepIds.size > 0 && slot < SLOT_ONLY_STEP_SCAN_LIMIT;
-          slot++
-        ) {
-          const slotOnlyStepId = namespacedStepId(
-            `model-step:${createHash("sha256")
-              .update(`${durableStepCheckpointId}:${slot}`)
-              .digest("hex")}`,
-          );
-          if (
-            completedStepIds.has(slotOnlyStepId) &&
-            !claimedSlotOnlyStepIds.has(slotOnlyStepId)
-          ) {
-            claimedSlotOnlyStepIds.add(slotOnlyStepId);
-            modelExecutionStepId = slotOnlyStepId;
-            break;
-          }
-        }
-      }
       executionStepId = executionFence
-        ? (interruptedStepId ?? modelExecutionStepId)
+        ? (interruptedStepId ??
+          (ambiguousLegacyInterruptedWrite
+            ? undefined
+            : logicalExecutionStepId
+              ? (opts.durableStepIdForToolCall?.(logicalExecutionStepId) ??
+                logicalExecutionStepId)
+              : undefined))
         : undefined;
       const historyToolCall = historyToolCallByCall.get(originalToolCall);
       if (historyToolCall?.type === "tool-call" && executionStepId) {
@@ -9711,7 +9663,13 @@ export async function runAgentLoop(opts: {
               stepId: executionStepId,
               operationId: executionStepId,
               toolName: toolCall.name,
-              inputJson: executionStepInputJson,
+              inputJson: JSON.stringify({
+                argumentsHash,
+                input: stripInlineBytes(
+                  preparedCallArguments(intent),
+                  "placeholder",
+                ),
+              }),
               replayPolicy: actionIsReadOnly
                 ? "read-only"
                 : actionRetrySafe

@@ -103,6 +103,7 @@ async function runCreateDecks(opts: {
   titles: string[];
   messages: EngineMessage[];
   internalContinuation?: boolean;
+  retrySafe?: boolean;
   run: (args: { title: string }) => Promise<string>;
 }): Promise<AgentChatEvent[]> {
   await insertRun(opts.runId, opts.threadId, opts.turnId);
@@ -145,7 +146,7 @@ async function runCreateDecks(opts: {
             },
           },
           readOnly: false,
-          retrySafe: true,
+          retrySafe: opts.retrySafe ?? true,
           run: opts.run,
         },
       },
@@ -157,6 +158,54 @@ async function runCreateDecks(opts: {
     }),
   );
   return events;
+}
+
+/**
+ * Rewrites a prior run's step as the release before call-derived IDs left it:
+ * under the slot-only ID, with the ledger holding its start but not its result.
+ */
+async function recordUnderSlotOnlyId(opts: {
+  threadId: string;
+  priorRunId: string;
+  priorEvents: AgentChatEvent[];
+  slot: number;
+  dispatchedOnly?: boolean;
+}): Promise<string> {
+  const priorStart = opts.priorEvents.find(
+    (event) =>
+      event.type === "tool_start" &&
+      event.id === `${opts.priorRunId}-call-${opts.slot}`,
+  );
+  if (priorStart?.type !== "tool_start" || !priorStart.executionStepId) {
+    throw new Error("The prior run did not start a durable step");
+  }
+  const checkpoint = createHash("sha256")
+    .update(JSON.stringify([request]))
+    .digest("hex");
+  const slotOnlyStepId = `model-step:${createHash("sha256")
+    .update(`${checkpoint}:${opts.slot}`)
+    .digest("hex")}`;
+  await pglite.query(
+    `UPDATE agent_execution_steps
+        SET step_id = ?, operation_id = ?${
+          opts.dispatchedOnly
+            ? ", status = 'dispatched', result_json = NULL, error_json = NULL"
+            : ""
+        }
+      WHERE thread_id = ? AND step_id = ?`,
+    [slotOnlyStepId, slotOnlyStepId, opts.threadId, priorStart.executionStepId],
+  );
+  await insertRunEvents(opts.priorRunId, [
+    {
+      seq: opts.slot,
+      eventAt: Date.now(),
+      eventData: JSON.stringify({
+        ...priorStart,
+        executionStepId: slotOnlyStepId,
+      }),
+    },
+  ]);
+  return slotOnlyStepId;
 }
 
 async function stepRows(threadId: string) {
@@ -290,12 +339,12 @@ describe("durable execution step identity", () => {
     expect(await stepRows(threadId)).toHaveLength(4);
   });
 
-  it("replays a step completed under the slot-only ID before this release", async () => {
+  it("replays a step recorded under the slot-only ID before this release", async () => {
     const threadId = "thread-resume-slot-only-step";
     const turnId = "turn-resume-slot-only-step";
     const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
 
-    await runCreateDecks({
+    const priorEvents = await runCreateDecks({
       threadId,
       turnId,
       runId: "run-before-release",
@@ -303,18 +352,12 @@ describe("durable execution step identity", () => {
       messages: [request],
       run,
     });
-    const checkpoint = createHash("sha256")
-      .update(JSON.stringify([request]))
-      .digest("hex");
-    const slotOnlyStepId = `model-step:${createHash("sha256")
-      .update(`${checkpoint}:0`)
-      .digest("hex")}`;
-    await pglite.query(
-      `UPDATE agent_execution_steps
-          SET step_id = ?, operation_id = ?
-        WHERE thread_id = ?`,
-      [slotOnlyStepId, slotOnlyStepId, threadId],
-    );
+    const slotOnlyStepId = await recordUnderSlotOnlyId({
+      threadId,
+      priorRunId: "run-before-release",
+      priorEvents,
+      slot: 0,
+    });
 
     const events = await runCreateDecks({
       threadId,
@@ -331,6 +374,7 @@ describe("durable execution step identity", () => {
       expect.objectContaining({
         type: "tool_done",
         id: "run-after-release-call-0",
+        executionStepId: slotOnlyStepId,
         result: expect.stringContaining("Saved Q3 plan"),
       }),
     );
@@ -352,37 +396,12 @@ describe("durable execution step identity", () => {
       messages: [request],
       run,
     });
-    const priorStart = priorEvents.find(
-      (event) =>
-        event.type === "tool_start" &&
-        event.id === "run-before-release-move-call-1",
-    );
-    if (priorStart?.type !== "tool_start" || !priorStart.executionStepId) {
-      throw new Error("The prior run did not start a durable step");
-    }
-    const checkpoint = createHash("sha256")
-      .update(JSON.stringify([request]))
-      .digest("hex");
-    const slotOnlyStepId = `model-step:${createHash("sha256")
-      .update(`${checkpoint}:1`)
-      .digest("hex")}`;
-    await pglite.query(
-      `UPDATE agent_execution_steps
-          SET step_id = ?, operation_id = ?
-        WHERE thread_id = ? AND step_id = ?`,
-      [slotOnlyStepId, slotOnlyStepId, threadId, priorStart.executionStepId],
-    );
-    // The run ledger kept the start but lost the result before history did.
-    await insertRunEvents("run-before-release-move", [
-      {
-        seq: 0,
-        eventAt: Date.now(),
-        eventData: JSON.stringify({
-          ...priorStart,
-          executionStepId: slotOnlyStepId,
-        }),
-      },
-    ]);
+    const slotOnlyStepId = await recordUnderSlotOnlyId({
+      threadId,
+      priorRunId: "run-before-release-move",
+      priorEvents,
+      slot: 1,
+    });
 
     const events = await runCreateDecks({
       threadId,
@@ -408,70 +427,51 @@ describe("durable execution step identity", () => {
     );
   });
 
-  it("replays slot-only steps completed before this release when their calls move without a ledger", async () => {
-    const threadId = "thread-resume-moved-completed-slot-only";
-    const turnId = "turn-resume-moved-completed-slot-only";
+  it("holds a moved write whose slot-only step from before this release may have run", async () => {
+    const threadId = "thread-resume-moved-dispatched-step";
+    const turnId = "turn-resume-moved-dispatched-step";
     const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
 
     const priorEvents = await runCreateDecks({
       threadId,
       turnId,
-      runId: "run-before-release-completed",
-      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      runId: "run-before-release-dispatch",
+      titles: ["Q4 plan", "Q3 plan"],
       messages: [request],
+      retrySafe: false,
       run,
     });
-    const checkpoint = createHash("sha256")
-      .update(JSON.stringify([request]))
-      .digest("hex");
-    const slotOnlyStepIds: string[] = [];
-    for (const slot of [1, 2]) {
-      const priorStart = priorEvents.find(
-        (event) =>
-          event.type === "tool_start" &&
-          event.id === `run-before-release-completed-call-${slot}`,
-      );
-      if (priorStart?.type !== "tool_start" || !priorStart.executionStepId) {
-        throw new Error("The prior run did not start a durable step");
-      }
-      const slotOnlyStepId = `model-step:${createHash("sha256")
-        .update(`${checkpoint}:${slot}`)
-        .digest("hex")}`;
-      slotOnlyStepIds.push(slotOnlyStepId);
-      await pglite.query(
-        `UPDATE agent_execution_steps
-            SET step_id = ?, operation_id = ?
-          WHERE thread_id = ? AND step_id = ?`,
-        [slotOnlyStepId, slotOnlyStepId, threadId, priorStart.executionStepId],
-      );
-    }
+    await recordUnderSlotOnlyId({
+      threadId,
+      priorRunId: "run-before-release-dispatch",
+      priorEvents,
+      slot: 1,
+      dispatchedOnly: true,
+    });
 
     const events = await runCreateDecks({
       threadId,
       turnId,
-      runId: "run-after-release-completed",
-      titles: ["Q3 plan", "Q3 plan", "Q3 plan"],
+      runId: "run-after-release-dispatch",
+      titles: ["Q3 plan"],
       messages: [request, continuePrompt],
       internalContinuation: true,
+      retrySafe: false,
       run,
     });
 
     expect(run.mock.calls.map(([args]) => args.title)).toEqual([
       "Q4 plan",
       "Q3 plan",
-      "Q3 plan",
-      "Q3 plan",
     ]);
-    for (const [slot, executionStepId] of slotOnlyStepIds.entries()) {
-      expect(events).toContainEqual(
-        expect.objectContaining({
-          type: "tool_done",
-          id: `run-after-release-completed-call-${slot}`,
-          executionStepId,
-          result: expect.stringContaining("Saved Q3 plan"),
-        }),
-      );
-    }
-    expect(await stepRows(threadId)).toHaveLength(4);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-dispatch-call-0",
+        isError: true,
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+    expect(await stepRows(threadId)).toHaveLength(2);
   });
 });

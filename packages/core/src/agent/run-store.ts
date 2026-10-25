@@ -1177,40 +1177,6 @@ export async function getCompletedAgentExecutionSteps(
   return completed;
 }
 
-/** IDs of a turn's completed steps that recorded exactly this call intent. */
-export async function getCompletedAgentExecutionStepIdsForIntent(
-  threadId: string,
-  turnId: string,
-  toolName: string,
-  inputJson: string,
-): Promise<string[]> {
-  await ensureRunTables();
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT step_id
-          FROM agent_execution_steps
-          WHERE thread_id = ? AND turn_id = ? AND status = 'completed'
-            AND tool_name = ? AND input_json = ?`,
-    args: [threadId, turnId, toolName, inputJson],
-  });
-  return rows.map((raw, rowIndex) => {
-    const stepId = (raw as { step_id?: unknown } | null)?.step_id;
-    if (typeof stepId !== "string" || stepId.trim().length === 0) {
-      throw new AgentRunJournalUnreadableError(
-        threadId,
-        turnId,
-        rowIndex,
-        "invalid_execution_step",
-        {
-          cause: new Error(
-            "Completed execution-step lookup returned an invalid step id",
-          ),
-        },
-      );
-    }
-    return stepId;
-  });
-}
-
 const LEDGER_RESULT_MAX_CHARS = 8_000;
 const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 
