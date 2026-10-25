@@ -8,12 +8,9 @@ import type { Awareness } from "y-protocols/awareness";
 import {
   Doc as YDoc,
   applyUpdate,
-  decodeStateVector,
   encodeStateAsUpdate,
-  encodeStateVector,
   equalSnapshots,
   snapshot,
-  type Transaction as YTransaction,
   type XmlFragment,
 } from "yjs";
 
@@ -92,10 +89,6 @@ function adoptedMarkerOf(doc: YDoc): {
     revision: typeof revision === "string" ? revision : null,
     body: typeof body === "string" ? body : null,
   };
-}
-
-function ownClock(doc: YDoc): number {
-  return decodeStateVector(encodeStateVector(doc)).get(doc.clientID) ?? 0;
 }
 
 /** Whether the doc `whole` encodes already holds every change in `part`. */
@@ -1126,50 +1119,12 @@ export function useCollabReconcile({
           } finally {
             scratch.destroy();
           }
-          const builtFrom = editor.state.doc;
-          const builtClock = ownClock(ydoc);
           const proposedMarker = adoptedMarkerOf(ydoc).revision;
           const proposedBase = authoritativeBaseRef.current;
-          // This editor's own edits from here on: the doc as last typed, and
-          // the items it deleted itself. The server's doc can reach it
-          // through the provider before its answer does.
-          let typed = builtFrom;
-          const deletedHere: Array<[number, number]> = [];
-          const watchTyping = (transaction: YTransaction) => {
-            if (!transaction.local) return;
-            typed = editor.state.doc;
-            for (const item of transaction.deleteSet.clients.get(
-              ydoc.clientID,
-            ) ?? []) {
-              deletedHere.push([item.clock, item.clock + item.len]);
-            }
-          };
-          ydoc.on("afterTransaction", watchTyping);
           adoptionInFlightRef.current = true;
           let failures = 0;
           const release = () => {
-            ydoc.off("afterTransaction", watchTyping);
             adoptionInFlightRef.current = false;
-          };
-          // Whether something other than this editor deleted text it typed
-          // since the proposal was built.
-          const typingLost = () => {
-            const typedTo = ownClock(ydoc);
-            for (const item of snapshot(ydoc).ds.clients.get(ydoc.clientID) ??
-              []) {
-              const end = Math.min(item.clock + item.len, typedTo);
-              for (
-                let clock = Math.max(item.clock, builtClock);
-                clock < end;
-                clock += 1
-              ) {
-                if (
-                  !deletedHere.some(([from, to]) => clock >= from && clock < to)
-                )
-                  return true;
-              }
-            }
-            return false;
           };
           const backoff = (attempt: number) =>
             Math.min(
@@ -1214,25 +1169,6 @@ export function useCollabReconcile({
             // Not `retry`: cleanup must not drop the in-flight mark with it.
             setTimeout(propose, backoff(failures));
           };
-          // Typing made while the proposal was out, in a block it removes, is
-          // deleted with that block when the server's doc lands. It goes back
-          // in as this editor's own edit, kept as typing made before the
-          // proposal would have been.
-          const restoreTyping = () => {
-            const plan = planDocReconcile(typed, builtFrom, editor.state.doc, {
-              overlapPolicy,
-            });
-            // "noop": every change the server made overlaps typing, which wins.
-            const restored =
-              plan.status === "applied"
-                ? plan.mergedDoc
-                : plan.status === "noop"
-                  ? typed
-                  : null;
-            if (restored) {
-              applyDocSurgically(editor, restored, { programmatic: false });
-            }
-          };
           const propose = () => {
             if (cancelled || editor.isDestroyed) {
               release();
@@ -1275,7 +1211,6 @@ export function useCollabReconcile({
                       }
                     : null;
                 if (adopted) seenAdoptionRef.current = adopted.revision;
-                if (taken && typingLost()) restoreTyping();
                 if (cancelled) {
                   // The newer snapshot that cancelled this one is planned
                   // against the revision the doc holds.

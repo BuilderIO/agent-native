@@ -378,8 +378,6 @@ export function surgicalApplyTarget(
 export function applyDocSurgically(
   editor: Editor,
   newDoc: ProseMirrorNode,
-  // Off for an edit that stands for the user's own, which is then saved.
-  { programmatic = true }: { programmatic?: boolean } = {},
 ): "applied" | "noop" | "failed" {
   try {
     const oldDoc = editor.state.doc;
@@ -395,7 +393,7 @@ export function applyDocSurgically(
     const tr = editor.state.tr;
     tr.replaceWith(diff.fromPos, diff.toPos, fragment);
     tr.setMeta("addToHistory", false);
-    if (programmatic) tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+    tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);
     return "applied";
   } catch {

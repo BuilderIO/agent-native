@@ -711,7 +711,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
 
   it.each([
     ["before the proposal", true],
-    ["while the proposal is out", false],
+    ["while the proposal is out, and sent before the server takes it", false],
   ])(
     "keeps typing made %s in a paragraph the snapshot removes",
     async (_case, typedFirst) => {
@@ -727,9 +727,16 @@ describe("useCollabReconcile — snapshot adoption", () => {
         await act(async () => vi.advanceTimersByTimeAsync(100));
         // Typed first, the typing wins over the removal outright.
         expect(tabs.adoptionCalls).toHaveLength(typedFirst ? 0 : 1);
-        if (!typedFirst) tabs.type(0, "Unsaved ");
-        tabs.settleAdoptions();
-        await act(async () => vi.advanceTimersByTimeAsync(100));
+        if (!typedFirst) {
+          // The server holds the typing the proposal lacks, so it sends the
+          // proposal back to be built again, and the typing then wins.
+          tabs.type(0, "Unsaved ");
+          tabs.push(0);
+        }
+        for (let step = 0; step < 3; step += 1) {
+          tabs.settleAdoptions();
+          await act(async () => vi.advanceTimersByTimeAsync(100));
+        }
         tabs.push(0);
         expect(tabs.markdown()).toEqual([
           "Unsaved Alpha paragraph.\n\nBravo paragraph.",
