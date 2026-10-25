@@ -918,16 +918,14 @@ async function getOwnerJevApiKeyCredential(
       value: deployKey,
     }))
   ) {
-    if (!lookupState.failed) {
-      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
-    }
+    writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
     return {
       credential: { apiKey: deployKey, source: "deployment" },
       lookupFailed: false,
     };
   }
 
-  if (!lookupState.failed) writeOptionalKeyCache(cacheKey, undefined);
+  writeOptionalKeyCache(cacheKey, undefined);
   return { credential: null, lookupFailed: false };
 }
 
