@@ -56,6 +56,7 @@ vi.mock("../org/service-principal-guard.js", async (importActual) => ({
 const {
   McpIdentityVerificationUnavailableError,
   McpIdentityVerificationRefusedError,
+  hasVerifiedMcpUserIdentity,
   resolveMcpIdentityOrgId,
   verifyAuth,
 } = await import("./build-server.js");
@@ -1575,6 +1576,188 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyAuth — organization-member delegation for MCP", () => {
+  const resource = "https://workspace.example.test/dispatch/mcp";
+  const orgSecret = "delegation-org-secret";
+  const event = {
+    node: {
+      req: {
+        headers: {
+          host: "workspace.example.test",
+          "x-forwarded-proto": "https",
+        },
+      },
+    },
+    context: {},
+  };
+
+  async function delegatedToken(
+    secret = orgSecret,
+    audience = resource,
+    additionalClaims: Record<string, unknown> = {},
+  ): Promise<string> {
+    return new jose.SignJWT({
+      typ: "agent-native-org-member-delegation",
+      sub: "member@example.test",
+      org_domain: "example.test",
+      ...additionalClaims,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setJti("delegation-jti")
+      .setExpirationTime("5m")
+      .setAudience(audience)
+      .sign(new TextEncoder().encode(secret));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    process.env.A2A_SECRET = SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "receiver-org",
+      orgDomain: "example.test",
+      secret: orgSecret,
+      a2aMemberDelegationEnabled: true,
+    });
+    isOrgMemberForA2AMock.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+  });
+
+  it("accepts the exact MCP audience only after org opt-in and current membership", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken()}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        requestOrigin: "https://workspace.example.test",
+        event,
+      },
+    );
+
+    expect(res).toMatchObject({
+      authed: true,
+      identity: {
+        userEmail: "member@example.test",
+        identityAssurance: "org-member",
+        orgId: "receiver-org",
+        orgDomain: "example.test",
+      },
+    });
+    expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
+      "receiver-org",
+      "member@example.test",
+      event,
+    );
+    expect(hasVerifiedMcpUserIdentity(res.identity)).toBe(false);
+  });
+
+  it.each([
+    ["member delegation disabled", { a2aMemberDelegationEnabled: false }],
+    ["sender is no longer a member", { member: false }],
+  ])("rejects when %s", async (_label, condition) => {
+    if ("a2aMemberDelegationEnabled" in condition) {
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "receiver-org",
+        orgDomain: "example.test",
+        secret: orgSecret,
+        a2aMemberDelegationEnabled: false,
+      });
+    } else {
+      isOrgMemberForA2AMock.mockResolvedValue(false);
+    }
+
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken()}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        event,
+      },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+  });
+
+  it("rejects a delegation minted for a different MCP audience", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(orgSecret, "https://other.example.test/mcp")}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a delegation minted for the same host without the mounted path", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(
+        orgSecret,
+        "https://workspace.example.test/mcp",
+      )}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("does not reclassify a rejected delegation as a static access token", async () => {
+    const token = await delegatedToken(
+      orgSecret,
+      "https://other.example.test/mcp",
+      { scope: "mcp-connect" },
+    );
+    process.env.ACCESS_TOKEN = token;
+
+    const res = await verifyAuth(`Bearer ${token}`, "owner@example.test", {
+      resourceUrl: resource,
+      event,
+    });
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an org secret that equals the receiver deployment secret", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "receiver-org",
+      orgDomain: "example.test",
+      secret: SECRET,
+      a2aMemberDelegationEnabled: true,
+    });
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(SECRET)}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an unavailable membership lookup as retryable", async () => {
+    isOrgMemberForA2AMock.mockRejectedValue(new Error("database unavailable"));
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken()}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        event,
+      },
+    );
+
+    expect(res).toEqual({ authed: false, unavailable: true });
   });
 });
 

@@ -313,6 +313,8 @@ export async function verifyA2AToken(
   event?: any,
   audienceOptions?: {
     routePrefix?: string;
+    /** Trusted audience(s) supplied by the mounted route that is verifying the token. */
+    expectedAudience?: string | string[];
     allowBaseAudience?: boolean;
     includeClaims?: boolean;
     /** Only use the deployment-wide secret, never an org-domain secret. */
@@ -466,6 +468,7 @@ async function verifyA2ATokenInternal(
   event?: any,
   audienceOptions?: {
     routePrefix?: string;
+    expectedAudience?: string | string[];
     allowBaseAudience?: boolean;
     includeClaims?: boolean;
     globalSecretOnly?: boolean;
@@ -535,8 +538,12 @@ async function verifyA2ATokenInternal(
     // whose `aud` targets ANOTHER service verify against a shared secret. A
     // token that self-declares an audience must be checked against ours, so
     // when we have nothing to check it against we reject rather than skip.
-    const aud = expectedJwtAudience(event, audienceOptions);
-    if (!aud) return { payload: { email: null, orgDomain: null } };
+    const aud =
+      audienceOptions?.expectedAudience ??
+      expectedJwtAudience(event, audienceOptions);
+    if (!aud || (Array.isArray(aud) && aud.length === 0)) {
+      return { payload: { email: null, orgDomain: null } };
+    }
     verifyOptions.audience = aud;
   }
   if (
