@@ -2834,6 +2834,17 @@ export interface OAuthCustodyBuilderKeyStatus {
   optionalMetadataLookupFailure?: "unreadable" | "unavailable";
 }
 
+export function hasUnavailableBuilderCredentialPair(credentials: {
+  privateKey: string | null;
+  publicKey: string | null;
+  lookupFailed: boolean;
+}): boolean {
+  return (
+    credentials.lookupFailed &&
+    !(credentials.privateKey && credentials.publicKey)
+  );
+}
+
 /**
  * Resolves the classic Builder key-pair status for a request that already
  * has Builder MCP OAuth custody (the connection-status handler's `configured`
@@ -4345,10 +4356,7 @@ export function createCoreRoutesPlugin(
               } = await import("./credential-provider.js");
               const creds = await resolveBuilderCredentialsDetailed();
               const credentialSource = creds.source;
-              if (
-                creds.lookupFailed &&
-                !(creds.privateKey && creds.publicKey)
-              ) {
+              if (hasUnavailableBuilderCredentialPair(creds)) {
                 return withConnectToken({
                   ...requestStatus,
                   configured: false,

@@ -2365,6 +2365,8 @@ const messages: ToolkitAgentChatTranslation = {
     "保存された認証情報を読み取れません。新しい値を入力してください。",
   "settingsShell.channels.setup.personalCredentialOnly":
     "置き換わるのはあなた個人の認証情報のみです。他のユーザーの認証情報は変更されません。",
+  "settingsShell.channels.setup.repairUnavailable":
+    "この認証情報は別の設定領域で管理されています。このチャネルを設定する前に、そちらで更新してください。",
   "settingsShell.channels.setup.configurationUnavailable":
     "保存されたチャネル認証情報の一部を読み取れません。チャネルを有効にする前に置き換えてください。",
   "settingsShell.channels.setup.addToEnvironment":

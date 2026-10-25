@@ -5727,6 +5727,10 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
     `\\b(?:skip|leave|avoid|ignore|exclude|omit)\\b${populationInSentence}[^.!?;\\n]{0,60}\\b(?:alone|untouched|out of scope|off limits)\\b`,
     "i",
   );
+  const populationMustRemainUntouched = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,80}\\b(?:must|should|need to|needs to|have to|has to|are to|is to)\\s+(?:remain\\s+)?untouched\\b`,
+    "i",
+  );
   const populationDeclaredOutOfScope = new RegExp(
     `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:(?:is|are|remain|stays?)\\s+)?(?:off limits|out of scope|excluded|not included|not in scope|not to be (?:handled|processed|worked on|reconciled|replied to|followed up on))\\b`,
     "i",
@@ -5745,6 +5749,7 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
       negatedPopulationAction.test(sentence) ||
       passiveNegatedPopulationAction.test(sentence) ||
       exclusionLeavesPopulationAlone.test(sentence) ||
+      populationMustRemainUntouched.test(sentence) ||
       populationDeclaredOutOfScope.test(sentence),
   );
 }
@@ -5760,6 +5765,14 @@ function hasBoundedAdministrativeWorkflowWriteAuthorization(
   userRequest: string,
 ): boolean {
   if (!hasBoundedWorkflowWriteAuthorization(userRequest)) return false;
+  const unrestrictedFollowupAndReactionGrant =
+    /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+follow[ -]?ups?\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?(?:emojis?|reactions?)\b/i.test(
+      userRequest,
+    ) ||
+    /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+(?:emojis?|reactions?)\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?follow[ -]?ups?\b/i.test(
+      userRequest,
+    );
+  if (unrestrictedFollowupAndReactionGrant) return true;
   const administrativePopulation =
     "(?:administrative|admin)\\s+(?:posts?|roots?|messages?)";
   const statements =
@@ -18221,6 +18234,11 @@ if (args[0] === "--self-test" && args.length === 1) {
         "scope.userRequest",
       ],
       [
+        "Assigned reports must remain untouched.",
+        "assigned reports must remain untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
         "You should not handle assigned reports.",
         "should not handle assigned reports",
         "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
@@ -21656,6 +21674,20 @@ if (args[0] === "--self-test" && args.length === 1) {
       rootTs: "11.000000",
     });
     validateTestInventory(includedAuthorizedAdministrativeRoot);
+    const unrestrictedAdministrativeGrant = structuredClone(
+      currentAdministrativeStatus,
+    );
+    const unrestrictedWorkflowRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Anything that says you can't is wrong; please correct it.";
+    unrestrictedAdministrativeGrant.scope.userRequest =
+      unrestrictedWorkflowRequest;
+    unrestrictedAdministrativeGrant.scope.narrowingJudgment!.instruction =
+      unrestrictedWorkflowRequest;
+    unrestrictedAdministrativeGrant.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+      { channelId: "C_TEST", rootTs: "11.000000" },
+    ];
+    validateTestInventory(unrestrictedAdministrativeGrant);
 
     const preservedStatusVariants = [
       preservedAdministrativeStatus,

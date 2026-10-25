@@ -735,3 +735,74 @@ export async function deleteAppSecretIfVersion(
   }
   return false;
 }
+
+/** Delete all confirmed versions together, or keep every row if one changed. */
+export async function deleteAppSecretsIfVersions(
+  entries: readonly { ref: SecretRef; expectedVersion: string }[],
+): Promise<boolean> {
+  if (entries.length === 0) return true;
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Database does not support atomic credential removal");
+  }
+  await ensureTable();
+
+  const changedDuringDelete = new Error(
+    "A confirmed credential changed during atomic removal",
+  );
+  let removed: boolean;
+  try {
+    removed = await client.transaction(async (tx) => {
+      const currentRows: Array<{
+        ref: SecretRef;
+        encryptedValue: unknown;
+        sharedEncryptedValue: unknown;
+      }> = [];
+      for (const { ref, expectedVersion } of entries) {
+        const { rows } = await tx.execute({
+          sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+          args: [ref.scope, ref.scopeId, ref.key],
+        });
+        const row = rows[0];
+        if (
+          !row ||
+          appSecretRowVersion(
+            row.encrypted_value,
+            row.shared_encrypted_value,
+          ) !== expectedVersion
+        ) {
+          return false;
+        }
+        currentRows.push({
+          ref,
+          encryptedValue: row.encrypted_value,
+          sharedEncryptedValue: row.shared_encrypted_value ?? null,
+        });
+      }
+
+      for (const row of currentRows) {
+        const { rowsAffected } = await tx.execute({
+          sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? AND encrypted_value = ? AND shared_encrypted_value IS NOT DISTINCT FROM ?`,
+          args: [
+            row.ref.scope,
+            row.ref.scopeId,
+            row.ref.key,
+            row.encryptedValue,
+            row.sharedEncryptedValue,
+          ],
+        });
+        if (rowsAffected !== 1) throw changedDuringDelete;
+      }
+      return true;
+    });
+  } catch (error) {
+    if (error === changedDuringDelete) return false;
+    throw error;
+  }
+
+  if (!removed) return false;
+  for (const { ref } of entries) invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
+  return true;
+}

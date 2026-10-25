@@ -2508,6 +2508,8 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّرت قراءة بيانات اعتماد محفوظة. أدخل قيمة بديلة.",
   "settingsShell.channels.setup.personalCredentialOnly":
     "يستبدل هذا بيانات اعتمادك الشخصية فقط؛ وتظل بيانات اعتماد المستخدمين الآخرين كما هي.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "تتم إدارة بيانات الاعتماد هذه في قسم إعدادات آخر. حدّثها هناك قبل إعداد هذه القناة.",
   "settingsShell.channels.setup.configurationUnavailable":
     "تعذّرت قراءة بعض بيانات اعتماد القناة المحفوظة. استبدلها قبل تفعيل هذه القناة.",
   "settingsShell.channels.setup.addToEnvironment": "أضفه إلى بيئة النشر",

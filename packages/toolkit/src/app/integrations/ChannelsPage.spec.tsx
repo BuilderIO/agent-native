@@ -50,6 +50,8 @@ vi.mock("@agent-native/core/client/use-action", async () => {
     },
     actionErrorMessage: (error: unknown) =>
       (error as { actionMessage?: string } | undefined)?.actionMessage,
+    actionErrorCode: (error: unknown) =>
+      (error as { errorCode?: string } | undefined)?.errorCode,
   };
 });
 
@@ -106,6 +108,7 @@ const REQUIRED_KEYS: Record<string, string[]> = {
 type ChannelPatch = Partial<Omit<MessagingChannelStatus, "credentials">> & {
   sources?: Record<string, ChannelCredentialStatus["source"]>;
   unreadableScopes?: Record<string, ChannelCredentialStatus["unreadableScope"]>;
+  unrepairableKeys?: string[];
   removalScopes?: Record<string, ChannelCredentialStatus["removalScope"]>;
 };
 
@@ -114,6 +117,7 @@ function channel(
   {
     sources = {},
     unreadableScopes = {},
+    unrepairableKeys = [],
     removalScopes = {},
     ...patch
   }: ChannelPatch = {},
@@ -152,7 +156,9 @@ function channel(
         ...(unreadableScopes[key]
           ? {
               unreadableScope: unreadableScopes[key],
-              repairScope: unreadableScopes[key],
+              ...(!unrepairableKeys.includes(key)
+                ? { repairScope: unreadableScopes[key] }
+                : {}),
             }
           : {}),
       };
@@ -173,9 +179,10 @@ function listed(
   };
 }
 
-function actionError(message: string) {
+function actionError(message: string, errorCode?: string) {
   return Object.assign(new Error(`Action failed: ${message}`), {
     actionMessage: message,
+    ...(errorCode ? { errorCode } : {}),
   });
 }
 
@@ -675,6 +682,7 @@ describe("ChannelsPage", () => {
           enabled: true,
           configurationUnavailable: true,
           sources: { SLACK_SIGNING_SECRET: "unreadable" },
+          unreadableScopes: { SLACK_SIGNING_SECRET: "user" },
         },
       }),
     );
@@ -700,6 +708,62 @@ describe("ChannelsPage", () => {
     expect(document.body.textContent).toContain(
       "Some required variables are still missing.",
     );
+  });
+
+  it("directs an unrepairable unreadable credential to its owning settings area", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        email: {
+          configurationUnavailable: true,
+          sources: { EMAIL_AGENT_ADDRESS: "unreadable" },
+          unreadableScopes: { EMAIL_AGENT_ADDRESS: "org" },
+          unrepairableKeys: ["EMAIL_AGENT_ADDRESS"],
+        },
+      }),
+    );
+    await render("email");
+    await openSetup();
+
+    expect(document.body.textContent).toContain(
+      "This credential is owned by another settings area. Update it there before setting up this channel.",
+    );
+    expect(
+      document.querySelector("#channel-email-EMAIL_AGENT_ADDRESS"),
+    ).toBeNull();
+    expect(
+      document.querySelector(
+        'button[aria-label="Replace EMAIL_AGENT_ADDRESS"]',
+      ),
+    ).toBeNull();
+    expect(buttonNamed("Close")).not.toBeNull();
+  });
+
+  it("localizes a credential repair rejection by its typed action code", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        slack: {
+          configurationUnavailable: true,
+          sources: { SLACK_SIGNING_SECRET: "unreadable" },
+          unreadableScopes: { SLACK_SIGNING_SECRET: "user" },
+        },
+      }),
+    );
+    actions.manage.mockRejectedValue(
+      actionError("English server detail", "credential_repair_unavailable"),
+    );
+    await render("slack");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#mention button")?.click(),
+    );
+    await flush();
+    await type("channel-slack-SLACK_SIGNING_SECRET", "replacement-secret");
+    await act(async () => buttonNamed("Save and turn on")?.click());
+    await flush();
+
+    expect(document.body.textContent).toContain(
+      "This credential is owned by another settings area. Update it there before setting up this channel.",
+    );
+    expect(document.body.textContent).not.toContain("English server detail");
   });
 
   it("shows keys the deployment sets without an input", async () => {
@@ -834,6 +898,14 @@ describe("ChannelsPage", () => {
     );
     expect(dialog?.textContent).not.toContain("for everyone");
     expect(dialog?.textContent).not.toContain("only your personal credentials");
+    expect(
+      Array.from(dialog?.querySelectorAll("li") ?? [], (item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual([
+      "TELEGRAM_BOT_TOKENPersonal",
+      "TELEGRAM_WEBHOOK_SECRETWorkspace",
+    ]);
   });
 
   it("keeps the confirm open with the server's reason when removal fails", async () => {

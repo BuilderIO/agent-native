@@ -5,6 +5,7 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
   isMissingAppSecretsTableError,
@@ -236,6 +237,7 @@ export async function resolveCredentialDetailed(
 ): Promise<ResolvedCredential | undefined> {
   if (!ctx?.userEmail) return undefined;
 
+  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   // Stored but unused while the org restricts a member's provider keys.
   const personalRestricted =
     ctx.credentialScope !== "org" &&
@@ -247,22 +249,31 @@ export async function resolveCredentialDetailed(
     ));
 
   let personal: ResolvedCredential | undefined;
+  let personalReadError: AppSecretDecryptionError | undefined;
   if (ctx.credentialScope !== "org" && !personalRestricted) {
-    const value =
-      (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
-      (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
-    if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
+    try {
+      const value =
+        (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
+        (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
+      if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      personalReadError = error;
+    }
   }
 
-  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
-  // Before the personal answer: without the org, an owner's role is unknown.
+  // Without the org, an owner's precedence cannot be determined safely.
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
-  // An owner or admin runs on the organization's credential ahead of their own.
-  if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
-    return personal;
-  }
+  // Usually role lookup is needed only when a personal value is available.
+  // An unreadable personal row also needs this check so it cannot mask an org
+  // credential that takes precedence for an owner or admin.
+  const orgCredentialFirst =
+    ctx.credentialScope !== "org" &&
+    Boolean(personal || personalReadError) &&
+    (await readsOrgCredentialFirst(orgId, ctx.userEmail));
+  if (personal && !orgCredentialFirst) return personal;
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);
@@ -284,6 +295,7 @@ export async function resolveCredentialDetailed(
   }
 
   if (ctx.credentialScope === "org") return undefined;
+  if (personalReadError) throw personalReadError;
   if (personal) return personal;
 
   // Solo-workspace fallback: always checked, even when an org id was found

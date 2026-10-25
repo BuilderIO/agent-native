@@ -72,6 +72,7 @@ import {
 } from "./principal.js";
 import {
   InvalidMcpHeaderConfigurationError,
+  McpHeaderSecretUnavailableError,
   addRemoteServer,
   listRemoteServers,
   mergedConfigKey,
@@ -281,7 +282,8 @@ export async function buildMergedConfig(
         if (
           !(
             error instanceof InvalidMcpHeaderConfigurationError ||
-            error instanceof AppSecretDecryptionError
+            error instanceof AppSecretDecryptionError ||
+            error instanceof McpHeaderSecretUnavailableError
           )
         ) {
           throw error;
@@ -1219,6 +1221,14 @@ async function handleTestExisting(
         error:
           "A saved MCP server credential could not be read. Retry or replace it before testing.",
         errorCode: error.errorCode,
+      };
+    }
+    if (error instanceof McpHeaderSecretUnavailableError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
       };
     }
     throw error;

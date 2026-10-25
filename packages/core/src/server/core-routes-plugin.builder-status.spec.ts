@@ -20,6 +20,7 @@ import {
   builderEffectiveConnectionFor,
   getBuilderConnectErrorDisposition,
   getBuilderConnectErrorKey,
+  hasUnavailableBuilderCredentialPair,
   mountBuilderStatusRouteAliases,
   resolveBuilderConnectionsStatus,
   resolveOAuthCustodyBuilderKeyStatus,
@@ -160,6 +161,32 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
     expect(thrown.privateKeyConfigured).toBe(false);
     expect(thrown.publicKeyConfigured).toBe(false);
     expect(thrown).toMatchObject({ keyLookupFailed: true });
+  });
+});
+
+describe("Builder credential pair availability", () => {
+  it("keeps an unreadable absent key pair distinct from confirmed absence", () => {
+    expect(
+      hasUnavailableBuilderCredentialPair({
+        privateKey: null,
+        publicKey: null,
+        lookupFailed: true,
+      }),
+    ).toBe(true);
+    expect(
+      hasUnavailableBuilderCredentialPair({
+        privateKey: null,
+        publicKey: null,
+        lookupFailed: false,
+      }),
+    ).toBe(false);
+    expect(
+      hasUnavailableBuilderCredentialPair({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        lookupFailed: true,
+      }),
+    ).toBe(false);
   });
 });
 

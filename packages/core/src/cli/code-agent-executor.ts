@@ -43,6 +43,7 @@ import {
   type StructuredToolMetadata,
 } from "../coding-tools/index.js";
 import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
+import type { McpConfig } from "../mcp-client/config.js";
 import {
   buildMergedConfig,
   McpClientManager,
@@ -76,6 +77,7 @@ import {
 import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   claudeMcpConfig,
+  codeAgentMcpConfigurationErrors,
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
   restrictCodeAgentMcpConfig,
@@ -692,11 +694,12 @@ async function executeClaudeCliRun(options: {
     // executeCodexCliRun), through a private file rather than argv because
     // the headers can carry session cookies or bearer tokens.
     const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
-    const mcpConfig = claudeMcpConfig(
+    const mcpConfigSource =
       process.env.MCP_SERVERS === undefined && mcpPrincipal
         ? await buildMergedConfig(mcpPrincipal)
-        : null,
-    );
+        : null;
+    appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfigSource);
+    const mcpConfig = claudeMcpConfig(mcpConfigSource);
     let mcpConfigPath: string | undefined;
     let result: Awaited<ReturnType<typeof runClaudeCodeParticipant>>;
     try {
@@ -1588,6 +1591,7 @@ async function executeCodexCliRun(options: {
     process.env.MCP_SERVERS === undefined && mcpPrincipal
       ? await buildMergedConfig(mcpPrincipal)
       : null;
+  appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfig);
   const args = [
     ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
@@ -2160,6 +2164,20 @@ function metadataString(
 ): string | undefined {
   const value = run.metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function appendCodeAgentMcpConfigurationErrors(
+  runId: string,
+  config: McpConfig | null,
+): void {
+  for (const { serverId, message } of codeAgentMcpConfigurationErrors(config)) {
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: `MCP server ${serverId} is unavailable for this run: ${message}`,
+      metadata: { type: "mcp-config-error", serverId },
+    });
+  }
 }
 
 async function startCodeAgentMcpManager(

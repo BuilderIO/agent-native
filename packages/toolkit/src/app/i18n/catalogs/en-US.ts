@@ -2364,6 +2364,8 @@ const messages = {
     "A saved credential could not be read. Enter a replacement value.",
   "settingsShell.channels.setup.personalCredentialOnly":
     "This replaces only your personal credential; other users' credentials stay unchanged.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "This credential is owned by another settings area. Update it there before setting up this channel.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Some saved channel credentials could not be read. Replace them before enabling this channel.",
   "settingsShell.channels.setup.addToEnvironment":

@@ -2323,6 +2323,8 @@ const messages: ToolkitAgentChatTranslation = {
     "सेव की गई क्रेडेंशियल पढ़ी नहीं जा सकी। उसकी जगह नया मान डालें।",
   "settingsShell.channels.setup.personalCredentialOnly":
     "यह केवल आपकी निजी क्रेडेंशियल को बदलता है; अन्य लोगों की क्रेडेंशियल नहीं बदलेंगी।",
+  "settingsShell.channels.setup.repairUnavailable":
+    "यह क्रेडेंशियल सेटिंग के किसी दूसरे हिस्से का है। इस चैनल को सेट अप करने से पहले इसे वहीं अपडेट करें।",
   "settingsShell.channels.setup.configurationUnavailable":
     "चैनल की सेव की गई कुछ क्रेडेंशियल नहीं पढ़ी जा सकीं। इस चैनल को चालू करने से पहले उन्हें बदलें।",
   "settingsShell.channels.setup.addToEnvironment":

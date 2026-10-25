@@ -2529,6 +2529,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Un identifiant enregistré est illisible. Saisissez une valeur de remplacement.",
   "settingsShell.channels.setup.personalCredentialOnly":
     "Cela remplace uniquement votre identifiant personnel ; ceux des autres utilisateurs restent inchangés.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Cet identifiant est géré dans une autre section des paramètres. Mettez-le à jour là-bas avant de configurer ce canal.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Certains identifiants de canal enregistrés sont illisibles. Remplacez-les avant d’activer ce canal.",
   "settingsShell.channels.setup.addToEnvironment":

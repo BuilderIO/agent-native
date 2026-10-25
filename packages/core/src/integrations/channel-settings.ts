@@ -22,7 +22,7 @@ import {
 } from "../secrets/managed-keys.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
-  deleteAppSecretIfVersion,
+  deleteAppSecretsIfVersions,
   readAppSecretVersion,
   writeAppSecret,
 } from "../secrets/storage.js";
@@ -30,6 +30,7 @@ import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { EnvKeyConfig } from "../server/create-server.js";
 import {
   CredentialStoreUnavailableError,
+  prefetchSecrets,
   resolveSecretDetailed,
 } from "../server/credential-provider.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
@@ -321,6 +322,16 @@ async function repairTargetFor(
         ? repairTargetForError(key, access, resolved.cause)
         : undefined;
     if (!ref) {
+      if (resolved.cause instanceof AppSecretDecryptionError) {
+        fail(
+          "Channels can't safely repair this saved credential. Update it in the settings area that owns it, then try again.",
+          {
+            statusCode: 409,
+            errorCode: "credential_repair_unavailable",
+            details: { key },
+          },
+        );
+      }
       fail(
         "Couldn't identify the saved credential that needs repair. Try again.",
         {
@@ -495,6 +506,16 @@ export async function listMessagingChannels(
   const access = await resolveChannelAccess(ctx);
   const mounted = getMountedChannels();
   if (!mounted) return { canManage: access.canManage, channels: [] };
+  if (access.canManage) {
+    const keys = [
+      ...new Set(
+        mounted.adapters.flatMap((adapter) =>
+          adapter.getRequiredEnvKeys().map((item) => item.key),
+        ),
+      ),
+    ];
+    await prefetchSecrets(keys);
+  }
   const baseUrl = channelBaseUrl(ctx);
   const channels = await Promise.all(
     mounted.adapters.map((adapter) =>
@@ -729,20 +750,24 @@ export async function removeMessagingChannelCredentials(
     refsToRemove.push({ ref: removalRef, version: removalVersion });
   }
 
-  const removedKeys: string[] = [];
-  for (const { ref, version } of refsToRemove) {
-    if (!(await deleteAppSecretIfVersion(ref, version))) {
-      fail(
-        "The channel credentials changed. Refresh and confirm removal again.",
-        {
-          statusCode: 409,
-          errorCode: "channel_removal_confirmation_stale",
-          details: { key: ref.key },
-        },
-      );
-    }
-    if (!removedKeys.includes(ref.key)) removedKeys.push(ref.key);
+  if (
+    !(await deleteAppSecretsIfVersions(
+      refsToRemove.map(({ ref, version }) => ({
+        ref,
+        expectedVersion: version,
+      })),
+    ))
+  ) {
+    fail(
+      "The channel credentials changed. Refresh and confirm removal again.",
+      {
+        statusCode: 409,
+        errorCode: "channel_removal_confirmation_stale",
+        details: { keys: refsToRemove.map(({ ref }) => ref.key) },
+      },
+    );
   }
+  const removedKeys = [...new Set(refsToRemove.map(({ ref }) => ref.key))];
   const channel = await readChannelStatus(
     mounted,
     adapter,

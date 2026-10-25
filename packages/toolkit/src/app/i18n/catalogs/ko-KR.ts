@@ -2324,6 +2324,8 @@ const messages: ToolkitAgentChatTranslation = {
     "저장된 자격 증명을 읽을 수 없습니다. 대체 값을 입력하세요.",
   "settingsShell.channels.setup.personalCredentialOnly":
     "이렇게 하면 본인 개인 자격 증명만 교체되며, 다른 사용자의 자격 증명은 변경되지 않습니다.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "이 자격 증명은 다른 설정 영역에서 관리됩니다. 이 채널을 설정하기 전에 해당 영역에서 업데이트하세요.",
   "settingsShell.channels.setup.configurationUnavailable":
     "저장된 채널 자격 증명 일부를 읽을 수 없습니다. 이 채널을 사용 설정하기 전에 교체하세요.",
   "settingsShell.channels.setup.addToEnvironment": "배포 환경에 추가하세요",

@@ -43,6 +43,7 @@ import {
   addRemoteServer,
   InvalidMcpHeaderConfigurationError,
   isFirstPartyRemoteEndpointTrusted,
+  McpHeaderSecretUnavailableError,
   materializeHeaders,
   removeRemoteServer,
   replaceOAuthRemoteServer,
@@ -583,6 +584,43 @@ describe("stored remote MCP headers", () => {
         createdAt: 1,
       }),
     ).rejects.toBe(error);
+  });
+
+  it("fails when a stored header reference no longer has a secret row", async () => {
+    appSecretMocks.read.mockResolvedValue(null);
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headerSecretKey: "mcp_headers:missing",
+        createdAt: 1,
+      }),
+    ).rejects.toMatchObject<InvalidMcpHeaderConfigurationError>({
+      name: "InvalidMcpHeaderConfigurationError",
+      code: "invalid_mcp_header_configuration",
+      reason: "missing-secret",
+    });
+  });
+
+  it("wraps transient header-secret store errors without exposing the cause", async () => {
+    appSecretMocks.read.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).rejects.toMatchObject<McpHeaderSecretUnavailableError>({
+      name: "McpHeaderSecretUnavailableError",
+      code: "mcp_header_secret_unavailable",
+      message:
+        "Could not read the saved MCP header credential. Retry after the settings store is available.",
+    });
   });
 
   it.each([

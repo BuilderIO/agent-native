@@ -2179,6 +2179,8 @@ const messages: ToolkitAgentChatTranslation = {
     "无法读取已保存的凭据。请输入替代值。",
   "settingsShell.channels.setup.personalCredentialOnly":
     "这只会替换你的个人凭据；其他用户的凭据不会更改。",
+  "settingsShell.channels.setup.repairUnavailable":
+    "此凭据由其他设置区域管理。请先在那里更新，再设置此频道。",
   "settingsShell.channels.setup.configurationUnavailable":
     "部分已保存的频道凭据无法读取。请在启用此频道前替换它们。",
   "settingsShell.channels.setup.addToEnvironment": "请添加到部署环境中",

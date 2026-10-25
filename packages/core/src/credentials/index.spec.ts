@@ -666,6 +666,28 @@ describe("credentials encryption at rest", () => {
     );
   });
 
+  it("does not let an unreadable personal key block an owner or admin's org credential", async () => {
+    readOrgMemberRole.mockResolvedValue("admin");
+    readAppSecret.mockImplementation(async (ref: any) => {
+      if (ref.scope === "user") throw new AppSecretDecryptionError(ref);
+      return ref.scope === "org"
+        ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
+        : null;
+    });
+    const { resolveCredentialDetailed } = await import("./index.js");
+
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toMatchObject({ value: "shared-org-token", scope: "org" });
+    expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
+      "user",
+      "org",
+    ]);
+  });
+
   it("returns undefined when the encryption key rotated (cannot decrypt)", async () => {
     process.env.SECRETS_ENCRYPTION_KEY = "key-A";
     const { saveCredential, resolveCredential } = await import("./index.js");
