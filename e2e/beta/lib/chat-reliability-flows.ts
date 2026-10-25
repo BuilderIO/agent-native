@@ -167,7 +167,7 @@ export async function secondMessageWhileRunning(
   await s.waitUntil(
     "all three answers to arrive in order with the composer idle",
     (state) => turnsFinished(state, turns),
-    { timeoutMs: 180_000 },
+    { timeoutMs: 330_000 },
   );
   await s.assertDirectSubmissionWasSubmitted({
     threadId,

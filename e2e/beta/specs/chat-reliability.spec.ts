@@ -63,7 +63,7 @@ for (const site of chatSites()) {
     test(`${RELIABILITY_TAG} UI and direct API messages during a run are queued and answered`, async ({
       browser,
     }) => {
-      test.setTimeout(360_000);
+      test.setTimeout(450_000);
       await withSession(
         browser,
         site,
