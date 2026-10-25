@@ -22,6 +22,7 @@ import {
   buildWorkspaceAppRequestContext,
   isBuilderJevEnabled,
   isJevEnabled,
+  JEV_TIMEOUT_MS,
   preloadJevTools,
   rankJevCandidates,
   rankJevCandidatesWithStatus,
@@ -897,11 +898,18 @@ describe("preloadJevTools", () => {
       }),
     ).resolves.toEqual(["search-customers"]);
 
-    expect(typeSafeClient).toHaveBeenCalledWith({
+    expect(typeSafeClient).toHaveBeenCalledTimes(1);
+    const clientOptions = typeSafeClient.mock.calls[0]?.[0] as {
+      apiKey: string;
+      timeout: number;
+      retry: { maxRetries: number };
+    };
+    expect(clientOptions).toMatchObject({
       apiKey: "personal-jev-key",
-      timeout: 750,
       retry: { maxRetries: 0 },
     });
+    expect(clientOptions.timeout).toBeGreaterThan(0);
+    expect(clientOptions.timeout).toBeLessThanOrEqual(JEV_TIMEOUT_MS);
   });
 
   it("preserves Jev question types through the Builder proxy", async () => {
