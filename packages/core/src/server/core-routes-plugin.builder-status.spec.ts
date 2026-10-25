@@ -20,6 +20,7 @@ import {
   builderEffectiveConnectionFor,
   getBuilderConnectErrorDisposition,
   getBuilderConnectErrorKey,
+  hasUsableBuilderCredentialPair,
   hasUnavailableBuilderCredentialPair,
   mountBuilderStatusRouteAliases,
   resolveBuilderConnectionsStatus,
@@ -210,6 +211,23 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
 });
 
 describe("Builder credential pair availability", () => {
+  it("does not treat an env pair as usable after a saved-credential lookup fails", () => {
+    expect(
+      hasUsableBuilderCredentialPair({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        lookupFailed: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasUsableBuilderCredentialPair({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        lookupFailed: false,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps an unreadable absent key pair distinct from confirmed absence", () => {
     expect(
       hasUnavailableBuilderCredentialPair({

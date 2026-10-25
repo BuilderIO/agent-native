@@ -498,6 +498,7 @@ describe("executeCodeAgentRun", () => {
       });
     const binDir = path.join(root, "bin");
     const argsPath = path.join(root, "claude-args.json");
+    const promptPath = path.join(root, "claude-prompt.txt");
     fs.mkdirSync(binDir, { recursive: true });
     fs.writeFileSync(
       path.join(binDir, "claude"),
@@ -511,6 +512,7 @@ describe("executeCodeAgentRun", () => {
         "}",
         `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
         "process.stdin.resume();",
+        `process.stdin.on('data', chunk => fs.appendFileSync(${JSON.stringify(promptPath)}, chunk));`,
         "process.stdin.on('end', () => {",
         "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
         "});",
@@ -531,6 +533,9 @@ describe("executeCodeAgentRun", () => {
 
       const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
       expect(args).not.toContain("--mcp-config");
+      expect(fs.readFileSync(promptPath, "utf8")).toContain(
+        "Do not claim to have used them.",
+      );
       expect(listCodeAgentTranscriptEvents(run.id)).toContainEqual(
         expect.objectContaining({
           kind: "status",

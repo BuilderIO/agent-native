@@ -18244,6 +18244,11 @@ if (args[0] === "--self-test" && args.length === 1) {
         "scope.userRequest must explicitly authorize work on exact root",
       ],
       [
+        "Assigned reports must stay untouched.",
+        "assigned reports must stay untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
         "Assigned reports must be left alone.",
         "assigned reports must be left alone",
         "scope.userRequest must explicitly authorize work on exact root",

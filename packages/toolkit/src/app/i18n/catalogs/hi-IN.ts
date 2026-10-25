@@ -2335,6 +2335,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "वैकल्पिक",
   "settingsShell.channels.setup.replace": "बदलें",
   "settingsShell.channels.setup.replaceAria": "{{key}} बदलें",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "इस सेव की गई क्रेडेंशियल को इसकी संबंधित इंटीग्रेशन सेटिंग में बदलें।",
   "settingsShell.channels.setup.save": "सहेजें",
   "settingsShell.channels.setup.saveAndTurnOn": "सहेजें और चालू करें",
   "settingsShell.channels.setup.saving": "सेव हो रहा है…",

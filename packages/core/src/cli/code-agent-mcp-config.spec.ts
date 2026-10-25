@@ -205,6 +205,45 @@ describe("code-agent MCP config", () => {
     expect(claudeMcpConfig(null, {})).toBeNull();
   });
 
+  it("omits MCP servers with unreadable saved configuration and reports them", () => {
+    const config: McpConfig = {
+      servers: {
+        unavailable: {
+          type: "http",
+          url: "https://unavailable.example/mcp",
+          configurationError: new Error("saved credential unavailable"),
+        },
+        available: {
+          type: "http",
+          url: "https://available.example/mcp",
+          headers: { Authorization: "Bearer placeholder-token" },
+        },
+      },
+    };
+
+    expect(codeAgentMcpConfigurationErrors(config, {})).toEqual([
+      {
+        serverId: "unavailable",
+        message: "saved credential unavailable",
+      },
+    ]);
+    expect(claudeMcpConfig(config, {})).toEqual({
+      mcpServers: {
+        available: {
+          type: "http",
+          url: "https://available.example/mcp",
+          headers: { Authorization: "Bearer placeholder-token" },
+        },
+      },
+    });
+    expect(codexMcpConfigArgs(config, {})).toEqual([
+      "-c",
+      'mcp_servers.available.url="https://available.example/mcp"',
+      "-c",
+      'mcp_servers.available.http_headers={"Authorization"="Bearer placeholder-token"}',
+    ]);
+  });
+
   it("rejects server ids that normalize to the same key", () => {
     const environment = {
       MCP_SERVERS: JSON.stringify({

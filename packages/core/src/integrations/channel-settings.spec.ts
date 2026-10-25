@@ -13,7 +13,6 @@ const resolverActivity = vi.hoisted(() => ({ active: 0, maxActive: 0 }));
 const prefetchSecretsMock = vi.hoisted(() =>
   vi.fn(async (_keys: readonly string[]) => {}),
 );
-const deleteRace = vi.hoisted(() => ({ rotateBeforeDelete: false }));
 const isUnreadable = (args: { key: string; scope: string; scopeId: string }) =>
   unreadable.has(args.key) ||
   unreadable.has(`${args.scope}:${args.scopeId}:${args.key}`);
@@ -93,25 +92,13 @@ vi.mock("../secrets/storage.js", () => ({
   ),
   deleteAppSecretsIfVersions: vi.fn(
     async (
-      entries: readonly {
+      expected: readonly {
         ref: { key: string; scope: string; scopeId: string };
         expectedVersion: string;
       }[],
     ) => {
-      if (deleteRace.rotateBeforeDelete) {
-        deleteRace.rotateBeforeDelete = false;
-        const first = entries[0];
-        if (first) {
-          const { ref } = first;
-          store.set(
-            `${ref.scope}:${ref.scopeId}:${ref.key}`,
-            "fake-raced-rotation-token",
-          );
-        }
-        return false;
-      }
       if (
-        entries.some(
+        expected.some(
           ({ ref, expectedVersion }) =>
             store.get(`${ref.scope}:${ref.scopeId}:${ref.key}`) !==
             expectedVersion,
@@ -119,7 +106,7 @@ vi.mock("../secrets/storage.js", () => ({
       ) {
         return false;
       }
-      for (const { ref } of entries) {
+      for (const { ref } of expected) {
         store.delete(`${ref.scope}:${ref.scopeId}:${ref.key}`);
       }
       return true;
@@ -195,10 +182,14 @@ vi.mock("./config-store.js", () => ({
       : null,
 }));
 
-import { readAppSecret } from "../secrets/storage.js";
-import manageMessagingChannel from "./actions/manage-messaging-channel.js";
 import {
+  deleteAppSecretsIfVersions,
+  readAppSecret,
+} from "../secrets/storage.js";
+import {
+  confirmMessagingChannelCredentialRemoval,
   listMessagingChannels,
+  prepareMessagingChannelCredentialRemoval,
   registerMessagingChannelWebhook,
   removeMessagingChannelCredentials,
   saveMessagingChannelCredentials,
@@ -257,7 +248,11 @@ const GOOGLE_DOCS_KEYS: EnvKeyConfig[] = [
   },
 ];
 const EMAIL_KEYS: EnvKeyConfig[] = [
-  { key: "SENDGRID_API_KEY", label: "SendGrid API Key", required: true },
+  {
+    key: "EMAIL_TRANSACTIONAL_API_KEY",
+    label: "Email API Key",
+    required: true,
+  },
 ];
 
 describe("channel settings", () => {
@@ -275,13 +270,11 @@ describe("channel settings", () => {
     resolverActivity.active = 0;
     resolverActivity.maxActive = 0;
     prefetchSecretsMock.mockReset().mockResolvedValue(undefined);
-    deleteRace.rotateBeforeDelete = false;
     readErrorRef.error = null;
     roleRef.role = "owner";
     mounted = {
       adapters: [
         fakeAdapter("telegram", TELEGRAM_KEYS),
-        fakeAdapter("email", EMAIL_KEYS),
         fakeAdapter("google-docs", GOOGLE_DOCS_KEYS),
       ],
       webhookUrl: (baseUrl, platform) =>
@@ -307,17 +300,23 @@ describe("channel settings", () => {
     const credentials =
       listed.channels.find((item) => item.platform === platform)?.credentials ??
       [];
-    return credentials
+    const keys = credentials
       .filter(
         (item) =>
-          item.removable &&
-          item.removalConfirmation &&
-          (!selectedKeys || selectedKeys.includes(item.key)),
+          item.removable && (!selectedKeys || selectedKeys.includes(item.key)),
       )
-      .map((item) => ({
-        key: item.key,
-        removalConfirmation: item.removalConfirmation!,
-      }));
+      .map(({ key }) => key);
+    const prepared = await prepareMessagingChannelCredentialRemoval(
+      OWNER,
+      platform,
+      keys,
+    );
+    const confirmed = await confirmMessagingChannelCredentialRemoval(
+      OWNER,
+      platform,
+      prepared.credentials.map(({ key, candidate }) => ({ key, candidate })),
+    );
+    return confirmed.credentials;
   }
 
   it("lists each adapter's own keys with where each value comes from", async () => {
@@ -367,35 +366,46 @@ describe("channel settings", () => {
     expect(prefetchSecretsMock).toHaveBeenCalledWith([
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
-      "SENDGRID_API_KEY",
       "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]);
   });
 
-  it("keeps removal tokens in the settings UI and hides the mutation tool from agents", async () => {
+  it("does not include removal authorizations in the read-only channel listing", async () => {
     store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "fake-bot-token");
 
-    const agentResult = await listMessagingChannels({
-      ...OWNER,
-      caller: "tool",
-    });
-    const agentCredential = agentResult.channels
-      .find((channel) => channel.platform === "telegram")
-      ?.credentials.find(
-        (credential) => credential.key === "TELEGRAM_BOT_TOKEN",
-      );
-    const uiResult = await listMessagingChannels(OWNER);
-    const uiCredential = uiResult.channels
-      .find((channel) => channel.platform === "telegram")
-      ?.credentials.find(
-        (credential) => credential.key === "TELEGRAM_BOT_TOKEN",
-      );
+    const listed = await listMessagingChannels(OWNER);
+    const telegram = listed.channels.find((row) => row.platform === "telegram");
+    expect(telegram?.credentials[0]?.removable).toBe(true);
+    expect(telegram?.credentials[0]).not.toHaveProperty("removalConfirmation");
+  });
 
-    expect(agentCredential).toMatchObject({ removable: true });
-    expect(agentCredential).not.toHaveProperty("removalConfirmation");
-    expect(uiCredential?.removalConfirmation).toBeTruthy();
-    expect(manageMessagingChannel.agentTool).toBe(false);
-    expect(manageMessagingChannel.uiOnly).toBe(true);
+  it("issues a removal token only after the UI candidate still matches", async () => {
+    const ref = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
+    store.set(ref, "fake-original-bot-token");
+    const prepared = await prepareMessagingChannelCredentialRemoval(
+      OWNER,
+      "telegram",
+      ["TELEGRAM_BOT_TOKEN"],
+    );
+    expect(prepared.credentials).toEqual([
+      {
+        key: "TELEGRAM_BOT_TOKEN",
+        candidate: expect.any(String),
+        removalScope: "workspace",
+      },
+    ]);
+
+    store.set(ref, "fake-rotated-bot-token");
+    await expect(
+      confirmMessagingChannelCredentialRemoval(
+        OWNER,
+        "telegram",
+        prepared.credentials.map(({ key, candidate }) => ({ key, candidate })),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "channel_removal_confirmation_stale",
+    });
   });
 
   it("shows members the state but not where credentials come from", async () => {
@@ -550,31 +560,22 @@ describe("channel settings", () => {
     expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
   });
 
-  it("refuses to repair an unreadable email credential from Channels", async () => {
-    const key = "SENDGRID_API_KEY";
-    const orgRef = `org:${ORG}:${key}`;
-    store.set(orgRef, "corrupted-org-sendgrid-key");
-    unreadable.add(orgRef);
-
-    const listed = await listMessagingChannels(OWNER);
-    const email = listed.channels.find((row) => row.platform === "email");
-    expect(email?.credentials[0]).toMatchObject({
-      source: "unreadable",
-      unreadableScope: "org",
-    });
-    expect(email?.credentials[0]).not.toHaveProperty("repairScope");
+  it("does not write an unreadable email credential into an ineffective workspace scope", async () => {
+    const key = "EMAIL_TRANSACTIONAL_API_KEY";
+    mounted.adapters.push(fakeAdapter("email", EMAIL_KEYS));
+    setMountedChannels(mounted);
+    vaultErrors.set(key, { scope: "org", scopeId: ORG });
 
     await expect(
       saveMessagingChannelCredentials(OWNER, "email", {
-        [key]: "fake-replacement-sendgrid-key",
+        [key]: "fake-email-token",
       }),
     ).rejects.toMatchObject({
       statusCode: 409,
       errorCode: "credential_repair_unavailable",
-      message: expect.stringContaining("settings area that owns it"),
+      message:
+        "This saved credential cannot be repaired from Channels. Replace it in the settings that own its scope.",
     });
-
-    expect(store.get(orgRef)).toBe("corrupted-org-sendgrid-key");
     expect(store.has(`workspace:${ORG}:${key}`)).toBe(false);
   });
 
@@ -692,6 +693,11 @@ describe("channel settings", () => {
     await expect(
       removeMessagingChannelCredentials(OWNER, "telegram", []),
     ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      prepareMessagingChannelCredentialRemoval(OWNER, "telegram", [
+        "TELEGRAM_BOT_TOKEN",
+      ]),
+    ).rejects.toMatchObject({ statusCode: 403, errorCode: "forbidden" });
     expect(store.size).toBe(0);
     expect(mounted.setEnabled).not.toHaveBeenCalled();
   });
@@ -774,13 +780,13 @@ describe("channel settings", () => {
     expect(store.get(ref)).toBe("fake-rotated-bot-token");
   });
 
-  it("rejects a rotation between confirmation validation and atomic delete", async () => {
-    const ref = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
-    store.set(ref, "fake-original-bot-token");
-    const confirmed = await confirmedRemovals("telegram", [
-      "TELEGRAM_BOT_TOKEN",
-    ]);
-    deleteRace.rotateBeforeDelete = true;
+  it("keeps the whole credential set when an atomic removal detects a concurrent rotation", async () => {
+    const botToken = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
+    const webhookSecret = `workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`;
+    store.set(botToken, "fake-bot-token");
+    store.set(webhookSecret, "fake-webhook-secret");
+    const confirmed = await confirmedRemovals("telegram");
+    vi.mocked(deleteAppSecretsIfVersions).mockResolvedValueOnce(false);
 
     await expect(
       removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
@@ -788,28 +794,8 @@ describe("channel settings", () => {
       statusCode: 409,
       errorCode: "channel_removal_confirmation_stale",
     });
-    expect(store.get(ref)).toBe("fake-raced-rotation-token");
-  });
-
-  it("does not partially remove credentials when a later key has rotated", async () => {
-    const tokenRef = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
-    const webhookRef = `workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`;
-    store.set(tokenRef, "fake-original-bot-token");
-    store.set(webhookRef, "fake-original-webhook-secret");
-    const confirmed = await confirmedRemovals("telegram", [
-      "TELEGRAM_BOT_TOKEN",
-      "TELEGRAM_WEBHOOK_SECRET",
-    ]);
-
-    store.set(webhookRef, "fake-rotated-webhook-secret");
-    await expect(
-      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
-    ).rejects.toMatchObject({
-      statusCode: 409,
-      errorCode: "channel_removal_confirmation_stale",
-    });
-    expect(store.get(tokenRef)).toBe("fake-original-bot-token");
-    expect(store.get(webhookRef)).toBe("fake-rotated-webhook-secret");
+    expect(store.get(botToken)).toBe("fake-bot-token");
+    expect(store.get(webhookSecret)).toBe("fake-webhook-secret");
   });
 
   it("removes known channel credentials when one saved value is unreadable", async () => {

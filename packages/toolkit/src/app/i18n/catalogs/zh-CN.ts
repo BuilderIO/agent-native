@@ -2190,6 +2190,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "可选",
   "settingsShell.channels.setup.replace": "替换",
   "settingsShell.channels.setup.replaceAria": "替换 {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "请在对应的集成设置中替换此已保存的凭据。",
   "settingsShell.channels.setup.save": "保存",
   "settingsShell.channels.setup.saveAndTurnOn": "保存并开启",
   "settingsShell.channels.setup.saving": "正在保存…",

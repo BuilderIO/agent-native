@@ -3070,6 +3070,14 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     requestSessionId: sessionId,
     retiredSessionId: sessionId,
     outgoingAbortWarningAgeMs: 150,
+    outgoingAbortErrorText: "NS_BINDING_ABORTED",
+    sameOrigin: true,
+    requestResourceType: "fetch",
+    requestSourceIsMainFrame: true,
+    requestFrameUrl: "http://localhost/deck/slide-1",
+    outgoingDocumentUrl: "http://localhost/deck/slide-1",
+    requestStartedDuringNavigation: true,
+    requestStartedBeforeReloadCommit: true,
     competingSameTypeRequest: false,
   };
   const failedRegistration = {
@@ -3081,6 +3089,25 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
       failedClaim,
     ]),
   ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...failedClaim,
+        outgoingNavigationAbort: false,
+        pendingOutgoingAbort: true,
+      },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...failedClaim,
+        outgoingNavigationAbort: false,
+        pendingOutgoingAbort: true,
+        competingSameTypeRequest: true,
+      },
+    ]),
+  ).toBe(false);
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(
       heartbeatWarning,

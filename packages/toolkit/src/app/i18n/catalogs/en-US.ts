@@ -2377,6 +2377,8 @@ const messages = {
   "settingsShell.channels.setup.optional": "Optional",
   "settingsShell.channels.setup.replace": "Replace",
   "settingsShell.channels.setup.replaceAria": "Replace {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Replace this saved credential in its owning integration settings.",
   "settingsShell.channels.setup.save": "Save",
   "settingsShell.channels.setup.saveAndTurnOn": "Save and turn on",
   "settingsShell.channels.setup.saving": "Saving…",

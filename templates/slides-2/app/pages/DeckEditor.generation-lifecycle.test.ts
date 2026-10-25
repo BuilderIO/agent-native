@@ -66,13 +66,15 @@ describe("generation deck refresh", () => {
   it("discards an in-flight refresh result after the caller cancels", async () => {
     const deck = { id: "deck-1" } as unknown as Deck;
     let finishRefresh!: (value: Deck | null) => void;
-    const refreshOpenDeck = vi.fn(
-      () =>
-        new Promise<Deck | null>((resolve) => {
-          finishRefresh = resolve;
-        }),
-    );
     const controller = new AbortController();
+    const refreshOpenDeck = vi.fn(
+      (_deckId: string, options?: { signal?: AbortSignal }) => {
+        expect(options?.signal).toBe(controller.signal);
+        return new Promise<Deck | null>((resolve) => {
+          finishRefresh = resolve;
+        });
+      },
+    );
 
     const result = refreshDeckForGenerationOutcome(
       refreshOpenDeck,

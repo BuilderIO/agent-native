@@ -703,67 +703,66 @@ export async function deleteAppSecretIfVersion(
   ref: SecretRef,
   expectedVersion: string,
 ): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
-    args: [ref.scope, ref.scopeId, ref.key],
-  });
-  const row = rows[0];
-  if (
-    !row ||
-    appSecretRowVersion(row.encrypted_value, row.shared_encrypted_value) !==
-      expectedVersion
-  ) {
-    return false;
-  }
-  const { rowsAffected } = await client.execute({
-    sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? AND encrypted_value = ? AND shared_encrypted_value IS NOT DISTINCT FROM ?`,
-    args: [
-      ref.scope,
-      ref.scopeId,
-      ref.key,
-      row.encrypted_value,
-      row.shared_encrypted_value ?? null,
-    ],
-  });
-  if (rowsAffected > 0) {
-    invalidateRequestSecret(ref);
-    invalidateOptionalKeyCache();
-    invalidateAgentEngineStatusCache();
-    return true;
-  }
-  return false;
+  return deleteAppSecretsIfVersions([{ ref, expectedVersion }]);
 }
 
-/** Delete all confirmed versions together, or keep every row if one changed. */
+/**
+ * Delete a confirmed set only while every stored ciphertext still matches.
+ * Locking and deleting the rows in one transaction prevents a rotation from
+ * leaving a partially removed credential set.
+ */
 export async function deleteAppSecretsIfVersions(
-  entries: readonly { ref: SecretRef; expectedVersion: string }[],
+  expectedSecrets: readonly {
+    ref: SecretRef;
+    expectedVersion: string;
+  }[],
 ): Promise<boolean> {
-  if (entries.length === 0) return true;
+  if (expectedSecrets.length === 0) return true;
+  const unique = new Map(
+    expectedSecrets.map((entry) => [
+      JSON.stringify([entry.ref.scope, entry.ref.scopeId, entry.ref.key]),
+      entry,
+    ]),
+  );
+  if (unique.size !== expectedSecrets.length) return false;
+
+  await ensureTable();
   const client = getDbExec();
   if (!client.transaction) {
-    throw new Error("Database does not support atomic credential removal");
+    throw new Error("Atomic secret removal requires transaction support.");
   }
-  await ensureTable();
 
-  const changedDuringDelete = new Error(
-    "A confirmed credential changed during atomic removal",
+  const entries = [...unique.values()].sort((a, b) =>
+    JSON.stringify([a.ref.scope, a.ref.scopeId, a.ref.key]).localeCompare(
+      JSON.stringify([b.ref.scope, b.ref.scopeId, b.ref.key]),
+    ),
   );
-  let removed: boolean;
+  const identity = (row: Record<string, unknown>) =>
+    JSON.stringify([row.scope, row.scope_id, row.key]);
+  class SecretVersionChangedError extends Error {}
+
+  let deleted: boolean;
   try {
-    removed = await client.transaction(async (tx) => {
-      const currentRows: Array<{
-        ref: SecretRef;
-        encryptedValue: unknown;
-        sharedEncryptedValue: unknown;
-      }> = [];
+    deleted = await client.transaction(async (tx) => {
+      const where = entries
+        .map(() => `(scope = ? AND scope_id = ? AND key = ?)`)
+        .join(" OR ");
+      const args = entries.flatMap(({ ref }) => [
+        ref.scope,
+        ref.scopeId,
+        ref.key,
+      ]);
+      const { rows } = await tx.execute({
+        sql: `SELECT scope, scope_id, key, encrypted_value, shared_encrypted_value FROM app_secrets WHERE ${where} FOR UPDATE`,
+        args,
+      });
+      const rowsByIdentity = new Map(rows.map((row) => [identity(row), row]));
+      if (rowsByIdentity.size !== entries.length) return false;
+
       for (const { ref, expectedVersion } of entries) {
-        const { rows } = await tx.execute({
-          sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
-          args: [ref.scope, ref.scopeId, ref.key],
-        });
-        const row = rows[0];
+        const row = rowsByIdentity.get(
+          JSON.stringify([ref.scope, ref.scopeId, ref.key]),
+        );
         if (
           !row ||
           appSecretRowVersion(
@@ -773,34 +772,32 @@ export async function deleteAppSecretsIfVersions(
         ) {
           return false;
         }
-        currentRows.push({
-          ref,
-          encryptedValue: row.encrypted_value,
-          sharedEncryptedValue: row.shared_encrypted_value ?? null,
-        });
       }
 
-      for (const row of currentRows) {
+      for (const { ref } of entries) {
+        const row = rowsByIdentity.get(
+          JSON.stringify([ref.scope, ref.scopeId, ref.key]),
+        )!;
         const { rowsAffected } = await tx.execute({
           sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? AND encrypted_value = ? AND shared_encrypted_value IS NOT DISTINCT FROM ?`,
           args: [
-            row.ref.scope,
-            row.ref.scopeId,
-            row.ref.key,
-            row.encryptedValue,
-            row.sharedEncryptedValue,
+            ref.scope,
+            ref.scopeId,
+            ref.key,
+            row.encrypted_value,
+            row.shared_encrypted_value ?? null,
           ],
         });
-        if (rowsAffected !== 1) throw changedDuringDelete;
+        if (rowsAffected !== 1) throw new SecretVersionChangedError();
       }
       return true;
     });
   } catch (error) {
-    if (error === changedDuringDelete) return false;
+    if (error instanceof SecretVersionChangedError) return false;
     throw error;
   }
 
-  if (!removed) return false;
+  if (!deleted) return false;
   for (const { ref } of entries) invalidateRequestSecret(ref);
   invalidateOptionalKeyCache();
   invalidateAgentEngineStatusCache();

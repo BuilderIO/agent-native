@@ -803,6 +803,21 @@ export function builderEffectiveConnectionFor(
   return source ?? null;
 }
 
+export function hasUsableBuilderCredentialPair(credentials: {
+  privateKey: string | null;
+  publicKey: string | null;
+  lookupFailed: boolean;
+}): credentials is {
+  privateKey: string;
+  publicKey: string;
+  lookupFailed: false;
+} {
+  return (
+    !credentials.lookupFailed &&
+    Boolean(credentials.privateKey && credentials.publicKey)
+  );
+}
+
 /**
  * How a Builder.io connection is held. Account activation and older connect
  * flows store a key pair instead of an OAuth grant, and that pair is just as
@@ -4401,7 +4416,7 @@ export function createCoreRoutesPlugin(
               } = await import("./credential-provider.js");
               const creds = await resolveBuilderCredentialsDetailed();
               const credentialSource = creds.source;
-              if (hasUnavailableBuilderCredentialPair(creds)) {
+              if (creds.lookupFailed) {
                 return withConnectToken({
                   ...requestStatus,
                   configured: false,
@@ -4454,7 +4469,7 @@ export function createCoreRoutesPlugin(
                   },
                 });
               }
-              if (creds.privateKey && creds.publicKey) {
+              if (hasUsableBuilderCredentialPair(creds)) {
                 // Best-effort: surface the real space name(s) from Builder's
                 // Admin API. Stay NON-BLOCKING — return whatever is cached now
                 // and refresh in the background for the next poll. Falls back

@@ -885,6 +885,41 @@ describe("secrets storage CRUD (real pglite)", () => {
       "SLACK_BOT_TOKEN",
     ]);
   });
+
+  it("keeps a confirmed batch intact when one secret has rotated", async () => {
+    const first = { ...userRef, key: "FIRST_KEY" };
+    const second = { ...userRef, key: "SECOND_KEY" };
+    await mod.writeAppSecret({ ...first, value: "first-original-value" });
+    await mod.writeAppSecret({ ...second, value: "second-original-value" });
+    const firstVersion = await mod.readAppSecretVersion(first);
+    const secondVersion = await mod.readAppSecretVersion(second);
+    expect(firstVersion).toBeTruthy();
+    expect(secondVersion).toBeTruthy();
+
+    await mod.writeAppSecret({ ...second, value: "second-rotated-value" });
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: first, expectedVersion: firstVersion! },
+        { ref: second, expectedVersion: secondVersion! },
+      ]),
+    ).resolves.toBe(false);
+    await expect(mod.readAppSecret(first)).resolves.toMatchObject({
+      value: "first-original-value",
+    });
+    await expect(mod.readAppSecret(second)).resolves.toMatchObject({
+      value: "second-rotated-value",
+    });
+
+    const currentSecondVersion = await mod.readAppSecretVersion(second);
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: first, expectedVersion: firstVersion! },
+        { ref: second, expectedVersion: currentSecondVersion! },
+      ]),
+    ).resolves.toBe(true);
+    await expect(mod.readAppSecret(first)).resolves.toBeNull();
+    await expect(mod.readAppSecret(second)).resolves.toBeNull();
+  });
 });
 
 describe("last4 preview", () => {

@@ -698,6 +698,7 @@ async function executeClaudeCliRun(options: {
       process.env.MCP_SERVERS === undefined && mcpPrincipal
         ? await buildMergedConfig(mcpPrincipal)
         : null;
+    const mcpPromptNotice = codeAgentMcpPromptNotice(mcpConfigSource);
     appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfigSource);
     const mcpConfig = claudeMcpConfig(mcpConfigSource);
     let mcpConfigPath: string | undefined;
@@ -718,7 +719,10 @@ async function executeClaudeCliRun(options: {
           options.permissionMode === "full-auto"
             ? "driver"
             : "watchdog",
-        prompt: buildClaudeCliPrompt(options.run, options.prompt),
+        prompt: buildClaudeCliPrompt(
+          options.run,
+          withCodeAgentMcpPromptNotice(options.prompt, mcpPromptNotice),
+        ),
         cwd,
         model,
         effort: reasoningEffort,
@@ -880,6 +884,20 @@ async function executeClaudeCliRun(options: {
     });
   }
   return executeCodeAgentRun(followUpInput);
+}
+
+function codeAgentMcpPromptNotice(
+  config: McpConfig | null,
+): string | undefined {
+  if (codeAgentMcpConfigurationErrors(config).length === 0) return undefined;
+  return "Some app-managed MCP servers are unavailable in this run because their saved configuration could not be read; the affected servers were omitted. Do not claim to have used them. If the task depends on them, ask the user to reconnect them.";
+}
+
+function withCodeAgentMcpPromptNotice(
+  prompt: string,
+  notice: string | undefined,
+): string {
+  return notice ? `${prompt}\n\n${notice}` : prompt;
 }
 
 function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
@@ -1591,6 +1609,7 @@ async function executeCodexCliRun(options: {
     process.env.MCP_SERVERS === undefined && mcpPrincipal
       ? await buildMergedConfig(mcpPrincipal)
       : null;
+  const mcpPromptNotice = codeAgentMcpPromptNotice(mcpConfig);
   appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfig);
   const args = [
     ...codexMcpConfigArgs(mcpConfig),
@@ -1635,7 +1654,10 @@ async function executeCodexCliRun(options: {
     const result = await runCodexCliProcess({
       args,
       cwd,
-      prompt: buildCodexCliPrompt(options.run, options.prompt),
+      prompt: buildCodexCliPrompt(
+        options.run,
+        withCodeAgentMcpPromptNotice(options.prompt, mcpPromptNotice),
+      ),
       stdout: options.stdout,
       streamToolOutputToStdout,
       onEvent: (event) => {

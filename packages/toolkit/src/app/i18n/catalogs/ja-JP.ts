@@ -2378,6 +2378,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "任意",
   "settingsShell.channels.setup.replace": "置き換え",
   "settingsShell.channels.setup.replaceAria": "{{key}} を置き換え",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "この保存済み認証情報は、該当する連携設定で置き換えてください。",
   "settingsShell.channels.setup.save": "保存",
   "settingsShell.channels.setup.saveAndTurnOn": "保存してオンにする",
   "settingsShell.channels.setup.saving": "保存中…",

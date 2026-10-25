@@ -2498,6 +2498,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "Optional",
   "settingsShell.channels.setup.replace": "Ersetzen",
   "settingsShell.channels.setup.replaceAria": "{{key}} ersetzen",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Ersetze diesen gespeicherten Zugangswert in den zugehörigen Integrationseinstellungen.",
   "settingsShell.channels.setup.save": "Speichern",
   "settingsShell.channels.setup.saveAndTurnOn": "Speichern und aktivieren",
   "settingsShell.channels.setup.saving": "Wird gespeichert…",

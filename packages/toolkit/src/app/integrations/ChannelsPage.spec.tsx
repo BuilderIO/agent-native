@@ -16,6 +16,8 @@ import type { SettingsPageContext } from "../settings/shell/registry.js";
 
 const actions = vi.hoisted(() => ({
   list: vi.fn(),
+  prepareRemoval: vi.fn(),
+  confirmRemoval: vi.fn(),
   manage: vi.fn(),
 }));
 
@@ -27,10 +29,16 @@ vi.mock("../shared/index.js", () => agent);
 vi.mock("@agent-native/core/client/use-action", async () => {
   const { useMutation, useQuery, useQueryClient } =
     await import("@tanstack/react-query");
-  const call = (name: string, params: unknown) =>
-    name === "list-messaging-channels"
-      ? actions.list(params)
-      : actions.manage(params);
+  const call = (name: string, params: unknown) => {
+    if (name === "list-messaging-channels") return actions.list(params);
+    if (name === "prepare-messaging-channel-credential-removal") {
+      return actions.prepareRemoval(params);
+    }
+    if (name === "confirm-messaging-channel-credential-removal") {
+      return actions.confirmRemoval(params);
+    }
+    return actions.manage(params);
+  };
   return {
     useActionQuery: (name: string, params?: unknown) =>
       useQuery({
@@ -50,8 +58,6 @@ vi.mock("@agent-native/core/client/use-action", async () => {
     },
     actionErrorMessage: (error: unknown) =>
       (error as { actionMessage?: string } | undefined)?.actionMessage,
-    actionErrorCode: (error: unknown) =>
-      (error as { errorCode?: string } | undefined)?.errorCode,
   };
 });
 
@@ -108,7 +114,7 @@ const REQUIRED_KEYS: Record<string, string[]> = {
 type ChannelPatch = Partial<Omit<MessagingChannelStatus, "credentials">> & {
   sources?: Record<string, ChannelCredentialStatus["source"]>;
   unreadableScopes?: Record<string, ChannelCredentialStatus["unreadableScope"]>;
-  unrepairableKeys?: string[];
+  repairScopes?: Record<string, ChannelCredentialStatus["repairScope"]>;
   removalScopes?: Record<string, ChannelCredentialStatus["removalScope"]>;
 };
 
@@ -117,7 +123,7 @@ function channel(
   {
     sources = {},
     unreadableScopes = {},
-    unrepairableKeys = [],
+    repairScopes = {},
     removalScopes = {},
     ...patch
   }: ChannelPatch = {},
@@ -144,6 +150,9 @@ function channel(
         removalScopes[key] ??
         unreadableScopes[key] ??
         (sources[key] === "saved" ? "workspace" : undefined);
+      const repairScope = Object.hasOwn(repairScopes, key)
+        ? repairScopes[key]
+        : unreadableScopes[key];
       return {
         key,
         label: key,
@@ -151,16 +160,11 @@ function channel(
         saveable: key !== "GOOGLE_SERVICE_ACCOUNT_KEY",
         source: sources[key] ?? null,
         removable,
-        ...(removable ? { removalConfirmation: `confirmation:${key}` } : {}),
         ...(removalScope ? { removalScope } : {}),
         ...(unreadableScopes[key]
-          ? {
-              unreadableScope: unreadableScopes[key],
-              ...(!unrepairableKeys.includes(key)
-                ? { repairScope: unreadableScopes[key] }
-                : {}),
-            }
+          ? { unreadableScope: unreadableScopes[key] }
           : {}),
+        ...(repairScope ? { repairScope } : {}),
       };
     }),
     ...patch,
@@ -179,10 +183,9 @@ function listed(
   };
 }
 
-function actionError(message: string, errorCode?: string) {
+function actionError(message: string) {
   return Object.assign(new Error(`Action failed: ${message}`), {
     actionMessage: message,
-    ...(errorCode ? { errorCode } : {}),
   });
 }
 
@@ -290,6 +293,23 @@ describe("ChannelsPage", () => {
       defaultOptions: { queries: { retry: false } },
     });
     actions.list.mockResolvedValue(listed());
+    actions.prepareRemoval.mockImplementation(
+      async ({ keys }: { keys: string[] }) => ({
+        credentials: keys.map((key) => ({
+          key,
+          candidate: `candidate:${key}`,
+          removalScope: "workspace",
+        })),
+      }),
+    );
+    actions.confirmRemoval.mockImplementation(
+      async ({ candidates }: { candidates: Array<{ key: string }> }) => ({
+        credentials: candidates.map(({ key }) => ({
+          key,
+          removalConfirmation: `confirmation:${key}`,
+        })),
+      }),
+    );
     actions.manage.mockImplementation(async (args: { platform: string }) => ({
       channel: channel(args.platform),
       message: "ok",
@@ -674,6 +694,33 @@ describe("ChannelsPage", () => {
     ]);
   });
 
+  it("directs unreadable credentials without a Channels repair scope to their owning settings", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        telegram: {
+          configurationUnavailable: true,
+          sources: { TELEGRAM_BOT_TOKEN: "unreadable" },
+          unreadableScopes: { TELEGRAM_BOT_TOKEN: "org" },
+          repairScopes: { TELEGRAM_BOT_TOKEN: undefined },
+        },
+      }),
+    );
+    await render("telegram");
+    await openSetup();
+
+    const credential = document.querySelector(
+      '[data-channel-credential="TELEGRAM_BOT_TOKEN"]',
+    );
+    expect(credential?.textContent).toContain(
+      "Replace this saved credential in its owning integration settings.",
+    );
+    expect(
+      credential?.querySelector(
+        'button[aria-label="Replace TELEGRAM_BOT_TOKEN"]',
+      ),
+    ).toBeNull();
+  });
+
   it("replaces an unreadable credential on an enabled channel without enabling it again", async () => {
     actions.list.mockResolvedValue(
       listed({
@@ -682,7 +729,7 @@ describe("ChannelsPage", () => {
           enabled: true,
           configurationUnavailable: true,
           sources: { SLACK_SIGNING_SECRET: "unreadable" },
-          unreadableScopes: { SLACK_SIGNING_SECRET: "user" },
+          repairScopes: { SLACK_SIGNING_SECRET: "workspace" },
         },
       }),
     );
@@ -708,62 +755,6 @@ describe("ChannelsPage", () => {
     expect(document.body.textContent).toContain(
       "Some required variables are still missing.",
     );
-  });
-
-  it("directs an unrepairable unreadable credential to its owning settings area", async () => {
-    actions.list.mockResolvedValue(
-      listed({
-        email: {
-          configurationUnavailable: true,
-          sources: { EMAIL_AGENT_ADDRESS: "unreadable" },
-          unreadableScopes: { EMAIL_AGENT_ADDRESS: "org" },
-          unrepairableKeys: ["EMAIL_AGENT_ADDRESS"],
-        },
-      }),
-    );
-    await render("email");
-    await openSetup();
-
-    expect(document.body.textContent).toContain(
-      "This credential is owned by another settings area. Update it there before setting up this channel.",
-    );
-    expect(
-      document.querySelector("#channel-email-EMAIL_AGENT_ADDRESS"),
-    ).toBeNull();
-    expect(
-      document.querySelector(
-        'button[aria-label="Replace EMAIL_AGENT_ADDRESS"]',
-      ),
-    ).toBeNull();
-    expect(buttonNamed("Close")).not.toBeNull();
-  });
-
-  it("localizes a credential repair rejection by its typed action code", async () => {
-    actions.list.mockResolvedValue(
-      listed({
-        slack: {
-          configurationUnavailable: true,
-          sources: { SLACK_SIGNING_SECRET: "unreadable" },
-          unreadableScopes: { SLACK_SIGNING_SECRET: "user" },
-        },
-      }),
-    );
-    actions.manage.mockRejectedValue(
-      actionError("English server detail", "credential_repair_unavailable"),
-    );
-    await render("slack");
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>("#mention button")?.click(),
-    );
-    await flush();
-    await type("channel-slack-SLACK_SIGNING_SECRET", "replacement-secret");
-    await act(async () => buttonNamed("Save and turn on")?.click());
-    await flush();
-
-    expect(document.body.textContent).toContain(
-      "This credential is owned by another settings area. Update it there before setting up this channel.",
-    );
-    expect(document.body.textContent).not.toContain("English server detail");
   });
 
   it("shows keys the deployment sets without an input", async () => {
@@ -821,10 +812,28 @@ describe("ChannelsPage", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Remove Telegram credentials?");
     expect(dialog?.textContent).toContain("TELEGRAM_WEBHOOK_SECRET");
+    expect(actions.prepareRemoval).toHaveBeenCalledWith({
+      platform: "telegram",
+      keys: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"],
+    });
+    expect(actions.confirmRemoval).not.toHaveBeenCalled();
     expect(actions.manage).not.toHaveBeenCalled();
 
     await act(async () => buttonNamed("Remove", dialog!)?.click());
     await flush();
+    expect(actions.confirmRemoval).toHaveBeenCalledWith({
+      platform: "telegram",
+      candidates: [
+        {
+          key: "TELEGRAM_BOT_TOKEN",
+          candidate: "candidate:TELEGRAM_BOT_TOKEN",
+        },
+        {
+          key: "TELEGRAM_WEBHOOK_SECRET",
+          candidate: "candidate:TELEGRAM_WEBHOOK_SECRET",
+        },
+      ],
+    });
     expect(actions.manage).toHaveBeenCalledWith({
       operation: "remove-credentials",
       platform: "telegram",
@@ -898,14 +907,6 @@ describe("ChannelsPage", () => {
     );
     expect(dialog?.textContent).not.toContain("for everyone");
     expect(dialog?.textContent).not.toContain("only your personal credentials");
-    expect(
-      Array.from(dialog?.querySelectorAll("li") ?? [], (item) =>
-        item.textContent?.trim(),
-      ),
-    ).toEqual([
-      "TELEGRAM_BOT_TOKENPersonal",
-      "TELEGRAM_WEBHOOK_SECRETWorkspace",
-    ]);
   });
 
   it("keeps the confirm open with the server's reason when removal fails", async () => {

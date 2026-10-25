@@ -2336,6 +2336,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "선택 사항",
   "settingsShell.channels.setup.replace": "교체",
   "settingsShell.channels.setup.replaceAria": "{{key}} 교체",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "저장된 이 자격 증명은 해당 연동 설정에서 교체하세요.",
   "settingsShell.channels.setup.save": "저장",
   "settingsShell.channels.setup.saveAndTurnOn": "저장하고 켜기",
   "settingsShell.channels.setup.saving": "저장 중…",
