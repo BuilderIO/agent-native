@@ -390,7 +390,7 @@ test("restored stale generation with existing output keeps its stale warning", a
     resolveGetDesignContinued();
   });
 
-  await page.reload();
+  await page.reload({ waitUntil: "commit" });
   try {
     await getDesignRequested;
     await expect
