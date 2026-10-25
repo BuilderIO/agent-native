@@ -392,7 +392,7 @@ import {
   readLedgerEntry,
   beginAgentExecutionStep,
   completeAgentExecutionStep,
-  getCompletedAgentExecutionSteps,
+  getCompletedAgentExecutionStepIdsForIntent,
   markAgentExecutionStepDispatched,
   resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
@@ -4669,6 +4669,9 @@ function findCurrentTurnStartForContinuation(
   return 0;
 }
 
+/** Slots of a checkpoint searched for a step recorded under a slot-only ID. */
+const SLOT_ONLY_STEP_SCAN_LIMIT = 256;
+
 function durableToolCallCheckpointId(messages: EngineMessage[]): string {
   const turnMessages = messages
     .slice(findCurrentTurnStartForContinuation(messages))
@@ -8557,6 +8560,7 @@ export async function runAgentLoop(opts: {
     const toolCallIndexes = new Map(
       toolCallParts.map((toolCall, index) => [toolCall, index]),
     );
+    const claimedSlotOnlyStepIds = new Set<string>();
     const historyToolCallByCall = new Map(
       toolCallParts.map((toolCall) => [
         toolCall,
@@ -9658,22 +9662,35 @@ export async function runAgentLoop(opts: {
           opts.recoverCompletedExecutionSteps === true)
       ) {
         // A turn resumed across the release that named steps by their call
-        // completed its earlier steps under the slot-only ID.
-        const slotOnlyStepId = namespacedStepId(
-          `model-step:${createHash("sha256")
-            .update(`${durableStepCheckpointId}:${toolCallIndex}`)
-            .digest("hex")}`,
+        // completed its earlier steps under slot-only IDs, and the call may
+        // have moved since. Only this checkpoint's slots qualify: an identical
+        // call from an earlier checkpoint is a deliberate repeat.
+        const completedStepIds = new Set(
+          await getCompletedAgentExecutionStepIdsForIntent(
+            executionFence.threadId,
+            executionFence.turnId,
+            toolCall.name,
+            executionStepInputJson,
+          ),
         );
-        const [slotOnlyStep] = await getCompletedAgentExecutionSteps(
-          executionFence.threadId,
-          executionFence.turnId,
-          [slotOnlyStepId],
-        );
-        if (
-          slotOnlyStep?.toolName === toolCall.name &&
-          slotOnlyStep.inputJson === executionStepInputJson
+        for (
+          let slot = 0;
+          completedStepIds.size > 0 && slot < SLOT_ONLY_STEP_SCAN_LIMIT;
+          slot++
         ) {
-          modelExecutionStepId = slotOnlyStepId;
+          const slotOnlyStepId = namespacedStepId(
+            `model-step:${createHash("sha256")
+              .update(`${durableStepCheckpointId}:${slot}`)
+              .digest("hex")}`,
+          );
+          if (
+            completedStepIds.has(slotOnlyStepId) &&
+            !claimedSlotOnlyStepIds.has(slotOnlyStepId)
+          ) {
+            claimedSlotOnlyStepIds.add(slotOnlyStepId);
+            modelExecutionStepId = slotOnlyStepId;
+            break;
+          }
         }
       }
       executionStepId = executionFence

@@ -407,4 +407,71 @@ describe("durable execution step identity", () => {
       }),
     );
   });
+
+  it("replays slot-only steps completed before this release when their calls move without a ledger", async () => {
+    const threadId = "thread-resume-moved-completed-slot-only";
+    const turnId = "turn-resume-moved-completed-slot-only";
+    const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-before-release-completed",
+      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      messages: [request],
+      run,
+    });
+    const checkpoint = createHash("sha256")
+      .update(JSON.stringify([request]))
+      .digest("hex");
+    const slotOnlyStepIds: string[] = [];
+    for (const slot of [1, 2]) {
+      const priorStart = priorEvents.find(
+        (event) =>
+          event.type === "tool_start" &&
+          event.id === `run-before-release-completed-call-${slot}`,
+      );
+      if (priorStart?.type !== "tool_start" || !priorStart.executionStepId) {
+        throw new Error("The prior run did not start a durable step");
+      }
+      const slotOnlyStepId = `model-step:${createHash("sha256")
+        .update(`${checkpoint}:${slot}`)
+        .digest("hex")}`;
+      slotOnlyStepIds.push(slotOnlyStepId);
+      await pglite.query(
+        `UPDATE agent_execution_steps
+            SET step_id = ?, operation_id = ?
+          WHERE thread_id = ? AND step_id = ?`,
+        [slotOnlyStepId, slotOnlyStepId, threadId, priorStart.executionStepId],
+      );
+    }
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-completed",
+      titles: ["Q3 plan", "Q3 plan", "Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      run,
+    });
+
+    expect(run.mock.calls.map(([args]) => args.title)).toEqual([
+      "Q4 plan",
+      "Q3 plan",
+      "Q3 plan",
+      "Q3 plan",
+    ]);
+    for (const [slot, executionStepId] of slotOnlyStepIds.entries()) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          id: `run-after-release-completed-call-${slot}`,
+          executionStepId,
+          result: expect.stringContaining("Saved Q3 plan"),
+        }),
+      );
+    }
+    expect(await stepRows(threadId)).toHaveLength(4);
+  });
 });
