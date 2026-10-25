@@ -1073,7 +1073,8 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
     terminalReason: "error:stale_run",
     runId: "r",
     dispatchMode: "background-processing",
-    diagStage: '{"stage":"stale_run_reaped","detail":"PRIVATE_DETAIL"}',
+    diagStage:
+      '{"stage":"stale_run_recovery_attempted","detail":"declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
     workerStage: '{"stage":"worker_started","detail":"PRIVATE_DETAIL"}',
     heartbeatAt: 123,
     lastProgressAt: 456,
@@ -1086,7 +1087,9 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
       terminalReason: "error:stale_run",
       runId: "r",
       dispatchMode: "background-processing",
-      diagStage: "stale_run_reaped",
+      diagStage: "stale_run_recovery_attempted",
+      diagEvidence:
+        "declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
       workerStage: "worker_started",
       heartbeatAt: 123,
       lastProgressAt: 456,

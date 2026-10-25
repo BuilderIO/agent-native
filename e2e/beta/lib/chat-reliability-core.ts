@@ -975,14 +975,28 @@ export interface ActiveRunView {
   detail: string;
 }
 
-function diagnosticStage(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+function inspectRunDiagnostic(value: unknown): {
+  stage: string | null;
+  evidence: string | null;
+} {
+  if (typeof value !== "string") return { stage: null, evidence: null };
   const parsed = parseJson(value);
   const diagnostic = parsed.ok ? asRecord(parsed.value) : null;
   const stage = diagnostic?.stage;
-  return typeof stage === "string" && /^[a-z][a-z_]*$/.test(stage)
-    ? stage
-    : null;
+  const safeStage =
+    typeof stage === "string" && /^[a-z][a-z_]*$/.test(stage) ? stage : null;
+  const detail = diagnostic?.detail;
+  const safeEvidence =
+    typeof detail === "string"
+      ? [
+          ...detail.matchAll(
+            /(?:^|\s)(window=\d+|dispatch=(?:none|background(?:-processing)?|inline)|redispatchable=[01]|sinceHeartbeat=\d+|sinceProgress=\d+|hbAheadOfProgress=-?\d+|runAge=\d+|inFlight=[01]|inFlightFor=\d+|priorDiag=[a-z_]+|priorWorker=[a-z_]+|declined reason=[a-z_]+)/g,
+          ),
+        ]
+          .map((match) => match[1])
+          .join(" ") || null
+      : null;
+  return { stage: safeStage, evidence: safeEvidence };
 }
 
 /** Reads `GET /runs/active?threadId=`: `active:false` is the server saying idle. */
@@ -994,14 +1008,16 @@ export function inspectActiveRun(body: unknown): ActiveRunView {
       detail: `unexpected body ${JSON.stringify(body)?.slice(0, 200)}`,
     };
   }
+  const diagStage = inspectRunDiagnostic(record.diagStage);
   const detail = JSON.stringify({
     active: record.active,
     status: record.status,
     terminalReason: record.terminalReason ?? null,
     runId: record.runId ?? null,
     dispatchMode: record.dispatchMode ?? null,
-    diagStage: diagnosticStage(record.diagStage),
-    workerStage: diagnosticStage(record.workerStage),
+    diagStage: diagStage.stage,
+    diagEvidence: diagStage.evidence,
+    workerStage: inspectRunDiagnostic(record.workerStage).stage,
     heartbeatAt: record.heartbeatAt ?? null,
     lastProgressAt: record.lastProgressAt ?? null,
   });
