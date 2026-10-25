@@ -224,5 +224,12 @@ describe("expectedCalibrationError", () => {
     expect(() =>
       expectedCalibrationError({ gold: [true], probabilities: [0.5], bins: 0 }),
     ).toThrow(/positive integer/);
+    expect(() =>
+      expectedCalibrationError({
+        gold: [true],
+        probabilities: [0.5],
+        bins: 10_001,
+      }),
+    ).toThrow(/no greater than 10000/);
   });
 });

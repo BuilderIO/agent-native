@@ -62,6 +62,7 @@ export interface ThresholdSweepInput {
 }
 
 const WILSON_Z_95 = 1.959963984540054;
+const MAX_CALIBRATION_BINS = 10_000;
 
 function assertEqualLength(
   gold: readonly unknown[],
@@ -341,8 +342,10 @@ export function expectedCalibrationError({
   assertBinaryGold(gold);
   validateProbabilityArray(probabilities);
   assertEqualLength(gold, probabilities, "probabilities");
-  if (!Number.isInteger(bins) || bins <= 0) {
-    throw new RangeError("bins must be a positive integer");
+  if (!Number.isSafeInteger(bins) || bins <= 0 || bins > MAX_CALIBRATION_BINS) {
+    throw new RangeError(
+      `bins must be a positive integer no greater than ${MAX_CALIBRATION_BINS}`,
+    );
   }
   if (gold.length === 0) return null;
 
