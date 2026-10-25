@@ -24,6 +24,11 @@ export async function waitForEditorBoot(
   page: Page,
   startedAt = Date.now(),
 ): Promise<void> {
+  const testInfo = test.info();
+  // A timeout of 0 means the run disabled timeouts; adding to it would enable one.
+  const counted = testInfo.timeout > 0;
+  // Reserved up front, so a test already near its deadline is not cut off mid-boot.
+  if (counted) testInfo.setTimeout(testInfo.timeout + EDITOR_BOOT_TIMEOUT);
   await expect(
     page.locator(EDITOR_ROOT),
     `the Design editor at ${page.url()} did not boot`,
@@ -32,7 +37,6 @@ export async function waitForEditorBoot(
   // A helper that navigates through the rails' wrapped navigation waits again; give that time back once.
   const from = Math.max(startedAt, returnedUntil.get(page) ?? 0);
   returnedUntil.set(page, now);
-  const testInfo = test.info();
-  // A timeout of 0 means the run disabled timeouts; adding to it would enable one.
-  if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + now - from);
+  if (counted)
+    testInfo.setTimeout(testInfo.timeout - EDITOR_BOOT_TIMEOUT + now - from);
 }

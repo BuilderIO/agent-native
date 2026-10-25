@@ -426,7 +426,13 @@ export class App {
       ) {
         await this.attachRecorderReport(testInfo);
       }
-      const tabId = await this.browserTabId();
+      const tabId = await this.browserTabId().catch((error: Error) => {
+        this.failures.push({
+          kind: "render context not released",
+          detail: `the tab id was unreadable: ${error.message}`,
+        });
+        return null;
+      });
       await this.page.goto("about:blank").catch(() => {});
       if (tabId)
         await this.releaseRenderContext(tabId).catch((error: Error) => {

@@ -94,6 +94,8 @@ async function warmupFailure(
       return null;
     } catch (error) {
       failure = (error as Error).message.split("\n")[0];
+      if (page.isClosed()) return failure;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }
   return failure;
