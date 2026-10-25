@@ -929,6 +929,29 @@ function snapshotProperties(context: MutationContext) {
   }));
 }
 
+/**
+ * A row's generation and change ID for every stored-value property, cleared
+ * ones included, as reads list them.
+ */
+function snapshotGenerationMaps(
+  context: MutationContext,
+  snapshot: RowSnapshot,
+) {
+  const properties = snapshotProperties(context);
+  return {
+    propertyGenerations: propertyGenerationsFor(
+      snapshot.document.id,
+      properties,
+      { of: (_, propertyId) => snapshotGeneration(snapshot, propertyId) },
+    ),
+    propertyChangeIds: propertyChangeIdsFor(
+      snapshot.document.id,
+      properties,
+      new Map([[snapshot.document.id, snapshot.changeIds]]),
+    ),
+  };
+}
+
 export function revisionPropertyIds(context: MutationContext) {
   return new Set(
     context.definitions
@@ -1088,17 +1111,7 @@ function resultForReceipt(
           parsePropertyValue(valueJson),
         ]),
       ),
-      // Every stored-value property, cleared ones included, as reads list them.
-      propertyGenerations: propertyGenerationsFor(
-        snapshot.document.id,
-        snapshotProperties(context),
-        { of: (_, propertyId) => snapshotGeneration(snapshot, propertyId) },
-      ),
-      propertyChangeIds: propertyChangeIdsFor(
-        snapshot.document.id,
-        snapshotProperties(context),
-        new Map([[snapshot.document.id, snapshot.changeIds]]),
-      ),
+      ...snapshotGenerationMaps(context, snapshot),
     },
   };
   return { receipt };
@@ -2549,22 +2562,9 @@ async function patchRowsInsideTransaction(
               parsePropertyValue(snapshot.values.get(propertyId)!),
             ]),
         ),
-        propertyGenerations: Object.fromEntries(
-          [...patch.keys()]
-            .sort()
-            .map((propertyId) => [
-              propertyId,
-              snapshotGeneration(snapshot, propertyId),
-            ]),
-        ),
-        propertyChangeIds: Object.fromEntries(
-          [...patch.keys()]
-            .sort()
-            .map((propertyId) => [
-              propertyId,
-              snapshot.changeIds.get(propertyId) ?? null,
-            ]),
-        ),
+        // The whole row, like update receipts, so a caller can guard its
+        // next write to any property; propertyValues stays the patched ones.
+        ...snapshotGenerationMaps(context, snapshot),
       },
     };
   });

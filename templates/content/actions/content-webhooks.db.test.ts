@@ -1610,6 +1610,37 @@ describe("property generations", () => {
     );
     expect(updated.receipt.readback.propertyChangeIds![owner]).toBeNull();
 
+    const patchContract = await contract(ids.databaseId);
+    const patched = await asOwner(() =>
+      patchRows.run({
+        ...envelope(patchContract, "cleared-patch-receipt"),
+        rows: [
+          {
+            itemId: row.itemId,
+            documentId: row.documentId,
+            expectedRowRevision: afterUpdate.rowRevision!,
+            propertyEntries: [
+              {
+                propertyId: ids.properties.rank,
+                propertyType: "number" as const,
+                value: 7,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const afterPatch = await readItem(ids.databaseId, row.itemId);
+    expect(patched.receipt.rows[0].readback.propertyGenerations).toEqual(
+      afterPatch.propertyGenerations,
+    );
+    expect(patched.receipt.rows[0].readback.propertyChangeIds).toEqual(
+      afterPatch.propertyChangeIds,
+    );
+    expect(patched.receipt.rows[0].readback.propertyGenerations![owner]).toBe(
+      tombstone,
+    );
+
     const written = await asOwner(() =>
       setProperty.run({
         documentId: row.documentId,
@@ -1740,17 +1771,17 @@ describe("property generations", () => {
       "fresh-patch",
       secondRead.propertyGenerations![ids.properties.turn],
     );
-    expect(
-      patched.receipt.rows.map((receipt) =>
-        Object.keys(receipt.readback.propertyGenerations ?? {}),
-      ),
-    ).toEqual([[ids.properties.rank], [ids.properties.rank]]);
     expect(await storedValue(first.documentId, ids.properties.rank)).toBe(20);
-    const patchedFirst = await readItem(ids.databaseId, first.itemId);
-    expect(patched.receipt.rows[0].readback.propertyChangeIds).toEqual({
-      [ids.properties.rank]:
-        patchedFirst.propertyChangeIds![ids.properties.rank],
-    });
+    // Both maps cover the whole row, not just the patched property.
+    for (const [index, patchedRow] of [first, second].entries()) {
+      const fresh = await readItem(ids.databaseId, patchedRow.itemId);
+      expect(patched.receipt.rows[index].readback.propertyGenerations).toEqual(
+        fresh.propertyGenerations,
+      );
+      expect(patched.receipt.rows[index].readback.propertyChangeIds).toEqual(
+        fresh.propertyChangeIds,
+      );
+    }
   });
 
   it("a change ID moves only when its own value does, and reads, writes and events agree", async () => {
