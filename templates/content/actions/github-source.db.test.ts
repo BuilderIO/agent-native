@@ -77,8 +77,8 @@ const github = vi.hoisted(() => {
     connected: true as boolean | null,
     /** The workspace each branch and file read ran in. */
     readOrgIds: [] as Array<string | undefined>,
-    /** The workspace each upload ran in. */
-    uploadOrgIds: [] as Array<string | undefined>,
+    /** The workspace each upload and file storage lookup ran in. */
+    storageOrgIds: [] as Array<string | undefined>,
   };
   let commitCount = 0;
   return {
@@ -111,7 +111,7 @@ const github = vi.hoisted(() => {
       state.hangHead = false;
       state.connected = true;
       state.readOrgIds = [];
-      state.uploadOrgIds = [];
+      state.storageOrgIds = [];
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -323,12 +323,14 @@ vi.mock("@agent-native/core/file-upload", async () => {
   const { getRequestOrgId } =
     await import("@agent-native/core/server/request-context");
   return {
-    getActiveFileUploadProviderForRequest: async () =>
-      github.state.noStorage ? null : { id: "test" },
+    getActiveFileUploadProviderForRequest: async () => {
+      github.state.storageOrgIds.push(getRequestOrgId());
+      return github.state.noStorage ? null : { id: "test" };
+    },
     uploadFile: async (input: { filename: string }) => {
       if (github.state.noStorage) return null;
       github.state.uploadAttempts.push(input.filename);
-      github.state.uploadOrgIds.push(getRequestOrgId());
+      github.state.storageOrgIds.push(getRequestOrgId());
       if (github.state.emptyUploads > 0) {
         github.state.emptyUploads -= 1;
         return null;
@@ -1574,19 +1576,26 @@ describe("GitHub folder source", () => {
       "docs/images/diagram.png": "PNGDATA",
     });
     github.state.readOrgIds = [];
+    github.state.noStorage = true;
 
     // A background sync runs with no request of its own.
-    const synced = await syncGitHubSource({
-      sourceId: await sourceId(database.id),
-      budgetMs: 30_000,
-    });
+    const id = await sourceId(database.id);
+    const synced = await syncGitHubSource({ sourceId: id, budgetMs: 30_000 });
     expect(synced).toMatchObject({ state: "synced", updated: 1 });
     expect(github.state.readOrgIds.length).toBeGreaterThan(0);
     expect(new Set(github.state.readOrgIds)).toEqual(new Set(["org-linker"]));
-    expect(github.state.uploadOrgIds).toEqual([undefined]);
     expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
       "One, edited",
     ]);
+
+    // Once storage is set up, the next sync finds it and adds the waiting
+    // image, both in the collection's own context, with no workspace.
+    github.state.noStorage = false;
+    github.state.storageOrgIds = [];
+    await syncGitHubSource({ sourceId: id, budgetMs: 30_000 });
+    expect(github.state.uploads).toBe(1);
+    expect(github.state.storageOrgIds.length).toBeGreaterThan(1);
+    expect(new Set(github.state.storageOrgIds)).toEqual(new Set([undefined]));
   });
 
   it("keeps GitHub pages view only for agents and records specific problems", async () => {

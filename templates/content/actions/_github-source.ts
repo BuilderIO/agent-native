@@ -2293,7 +2293,7 @@ export async function syncGitHubSource(
     storageFound =
       state.imagesWaiting > 0
         ? Boolean(
-            await readAsLinker(state, database.orgId, () =>
+            await asLinker(state, database.orgId, () =>
               getActiveFileUploadProviderForRequest(),
             ),
           )
