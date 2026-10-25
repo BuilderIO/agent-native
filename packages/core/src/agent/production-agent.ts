@@ -392,6 +392,7 @@ import {
   readLedgerEntry,
   beginAgentExecutionStep,
   completeAgentExecutionStep,
+  getCompletedAgentExecutionSteps,
   markAgentExecutionStepDispatched,
   resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
@@ -9582,8 +9583,10 @@ export async function runAgentLoop(opts: {
 
       const executionFence = currentExecutionFence();
       const toolCallIndex = toolCallIndexes.get(originalToolCall);
-      // A continuation re-asks the model from the same checkpoint and may get a
-      // different call in the same slot, so the call itself is part of its ID.
+      // A continuation re-asks the model from the same checkpoint and may
+      // reorder or replace its calls, so a step is named by the call itself;
+      // the occurrence count only separates identical calls in one response.
+      // Every earlier call was prepared before this one runs.
       const logicalExecutionStepId =
         toolCallIndex === undefined
           ? undefined
@@ -9591,9 +9594,17 @@ export async function runAgentLoop(opts: {
               .update(
                 JSON.stringify([
                   durableStepCheckpointId,
-                  toolCallIndex,
                   toolCall.name,
                   argumentsHash,
+                  toolCallParts.slice(0, toolCallIndex).filter((earlier) => {
+                    const earlierPrepared = toolCallIntents.get(earlier);
+                    return (
+                      earlier.name === toolCall.name &&
+                      earlierPrepared?.status === "prepared" &&
+                      earlierPrepared.intent.valid &&
+                      earlierPrepared.intent.argumentsHash === argumentsHash
+                    );
+                  }).length,
                 ]),
               )
               .digest("hex")}`;
@@ -9627,14 +9638,46 @@ export async function runAgentLoop(opts: {
         interruptedStep?.executionStepId ?? legacyInterruptedStepId;
       const ambiguousLegacyInterruptedWrite =
         !actionIsReadOnly && legacyInterruptedStep.status === "ambiguous";
+      const executionStepInputJson = JSON.stringify({
+        argumentsHash,
+        input: stripInlineBytes(preparedCallArguments(intent), "placeholder"),
+      });
+      const namespacedStepId = (stepId: string) =>
+        opts.durableStepIdForToolCall?.(stepId) ?? stepId;
+      let modelExecutionStepId =
+        executionFence &&
+        logicalExecutionStepId &&
+        !interruptedStepId &&
+        !ambiguousLegacyInterruptedWrite
+          ? namespacedStepId(logicalExecutionStepId)
+          : undefined;
+      if (
+        executionFence &&
+        modelExecutionStepId &&
+        (internalContinuationTurn ||
+          opts.recoverCompletedExecutionSteps === true)
+      ) {
+        // A turn resumed across the release that named steps by their call
+        // completed its earlier steps under the slot-only ID.
+        const slotOnlyStepId = namespacedStepId(
+          `model-step:${createHash("sha256")
+            .update(`${durableStepCheckpointId}:${toolCallIndex}`)
+            .digest("hex")}`,
+        );
+        const [slotOnlyStep] = await getCompletedAgentExecutionSteps(
+          executionFence.threadId,
+          executionFence.turnId,
+          [slotOnlyStepId],
+        );
+        if (
+          slotOnlyStep?.toolName === toolCall.name &&
+          slotOnlyStep.inputJson === executionStepInputJson
+        ) {
+          modelExecutionStepId = slotOnlyStepId;
+        }
+      }
       executionStepId = executionFence
-        ? (interruptedStepId ??
-          (ambiguousLegacyInterruptedWrite
-            ? undefined
-            : logicalExecutionStepId
-              ? (opts.durableStepIdForToolCall?.(logicalExecutionStepId) ??
-                logicalExecutionStepId)
-              : undefined))
+        ? (interruptedStepId ?? modelExecutionStepId)
         : undefined;
       const historyToolCall = historyToolCallByCall.get(originalToolCall);
       if (historyToolCall?.type === "tool-call" && executionStepId) {
@@ -9651,13 +9694,7 @@ export async function runAgentLoop(opts: {
               stepId: executionStepId,
               operationId: executionStepId,
               toolName: toolCall.name,
-              inputJson: JSON.stringify({
-                argumentsHash,
-                input: stripInlineBytes(
-                  preparedCallArguments(intent),
-                  "placeholder",
-                ),
-              }),
+              inputJson: executionStepInputJson,
               replayPolicy: actionIsReadOnly
                 ? "read-only"
                 : actionRetrySafe
