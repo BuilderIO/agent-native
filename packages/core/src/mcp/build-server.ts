@@ -3869,7 +3869,6 @@ async function verifyA2AJwtForMcp(
     try {
       delegatedIdentity = await verifyA2AToken(token, event, {
         expectedAudience: audiences,
-        includeClaims: true,
         requireAudience: true,
       });
     } catch (error) {
@@ -3881,17 +3880,17 @@ async function verifyA2AJwtForMcp(
     if (
       delegatedIdentity.identityAssurance !== "org-member" ||
       !delegatedIdentity.email ||
-      !delegatedIdentity.orgId ||
-      !delegatedIdentity.claims
+      !delegatedIdentity.orgId
     ) {
       return null;
     }
     return {
       payload: {
-        ...delegatedIdentity.claims,
         sub: delegatedIdentity.email,
         org_id: delegatedIdentity.orgId,
-        org_domain: delegatedIdentity.orgDomain,
+        ...(delegatedIdentity.orgDomain
+          ? { org_domain: delegatedIdentity.orgDomain }
+          : {}),
       },
       identityAssurance: "org-member",
     };

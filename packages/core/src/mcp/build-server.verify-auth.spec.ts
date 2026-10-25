@@ -1660,6 +1660,30 @@ describe("verifyAuth — organization-member delegation for MCP", () => {
     expect(hasVerifiedMcpUserIdentity(res.identity)).toBe(false);
   });
 
+  it("does not grant MCP caller flags from org-member token claims", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(orgSecret, resource, {
+        agent_native_first_party_mcp: true,
+        catalog_scope: "full",
+      })}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toMatchObject({
+      authed: true,
+      identity: {
+        userEmail: "member@example.test",
+        identityAssurance: "org-member",
+        orgId: "receiver-org",
+        orgDomain: "example.test",
+      },
+      fullSurface: true,
+      fullCatalog: false,
+    });
+    expect(res.identity).not.toHaveProperty("firstPartyMcp");
+  });
+
   it.each([
     ["member delegation disabled", { a2aMemberDelegationEnabled: false }],
     ["sender is no longer a member", { member: false }],

@@ -2249,6 +2249,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
   });
 
   it("does not send the source app's local org ID to the target", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+
     await runWithRequestContext(
       {
         userEmail: "owner@example.test",
@@ -2378,11 +2380,46 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
   });
 
-  it("does not retry with an org secret that matches the deployment secret", async () => {
+  it("uses member delegation when the org secret matches the source deployment secret", async () => {
     vi.stubEnv("A2A_SECRET", "source-deployment-secret");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("source-deployment-secret");
     mocks.managerGetConnectErrorStatus.mockReturnValueOnce(401);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      "source-deployment-secret",
+      "http://localhost:8086/mcp",
+    );
+  });
+
+  it("does not treat a bare status number in an error message as an auth refusal", async () => {
+    vi.stubEnv("A2A_SECRET", "source-deployment-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.managerStart.mockRejectedValueOnce(
+      new Error(
+        "MCP response body mentions reference 403 from an unrelated request",
+      ),
+    );
 
     await expect(
       runWithRequestContext(
@@ -2397,10 +2434,11 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
             path: "/dashboards",
           }),
       ),
-    ).rejects.toThrow("Target MCP authentication was rejected");
+    ).rejects.toThrow(/reference 403 from an unrelated request/);
 
     expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.signA2AOrgMemberDelegationToken).not.toHaveBeenCalled();
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
   });
 
   it("does not retry an action-level authorization error with member delegation", async () => {

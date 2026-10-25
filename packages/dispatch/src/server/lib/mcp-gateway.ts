@@ -1212,7 +1212,7 @@ class TargetMcpAuthenticationRejectedError extends Error {
 }
 
 function isTargetMcpAuthenticationRejected(error: unknown): boolean {
-  const status = httpStatusFromError(error) ?? targetMcpErrorStatus(error);
+  const status = httpStatusFromError(error);
   return status === 401 || status === 403;
 }
 
@@ -1308,7 +1308,7 @@ async function createTargetMcpUserCredentials(input: {
   if (getGlobalA2ASecret()) {
     credentials.push({
       strategy: "deployment-user",
-      token: await signA2AToken(input.ownerEmail, orgDomain, undefined, {
+      token: await signA2AToken(input.ownerEmail, undefined, undefined, {
         expiresIn: "5m",
         audience,
         preferGlobalSecret: true,
@@ -1319,9 +1319,7 @@ async function createTargetMcpUserCredentials(input: {
   const loadOrgMemberCredential = async () => {
     if (!input.orgId || !orgDomain) return undefined;
     const orgSecret = await getOrgA2ASecret(input.orgId);
-    if (!orgSecret || orgSecret.trim() === getGlobalA2ASecret()) {
-      return undefined;
-    }
+    if (!orgSecret) return undefined;
     return {
       strategy: "org-member-delegation" as const,
       token: await signA2AOrgMemberDelegationToken(
