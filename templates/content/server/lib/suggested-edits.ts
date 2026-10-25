@@ -141,8 +141,9 @@ async function acceptOnLegacyWriter<T>(
     );
   // `apply` reads presence inside the transaction, once the live copy is
   // held. A process's first read can set up the presence table, which PGlite
-  // can't do inside a transaction, so one read happens here first.
-  await loadAwarenessRows(context.resourceId);
+  // can't do inside a transaction, so one read happens here first. If it
+  // fails, the read in the transaction reports that when an accept needs it.
+  await loadAwarenessRows(context.resourceId).catch(() => undefined);
   const result = await withPreparedYDocMutation(
     context.resourceId,
     acceptedSuggestionRequestSource(context.ctx?.requestSource),
