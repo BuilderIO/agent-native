@@ -3,6 +3,63 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 export const SESSION_TOKEN_KEY = "agent-native:session-token";
+const nativeTokenMutationTails = new Map<string, Promise<void>>();
+const nativeTokenMutationVersions = new Map<string, number>();
+
+function nativeTokenMutationVersion(logicalKey: string): number {
+  return nativeTokenMutationVersions.get(logicalKey) ?? 0;
+}
+
+function advanceNativeTokenMutationVersion(logicalKey: string): void {
+  nativeTokenMutationVersions.set(
+    logicalKey,
+    nativeTokenMutationVersion(logicalKey) + 1,
+  );
+}
+
+async function waitForNativeTokenMutations(logicalKey: string): Promise<void> {
+  while (true) {
+    const pending = nativeTokenMutationTails.get(logicalKey);
+    if (!pending) return;
+    await pending;
+  }
+}
+
+async function withNativeTokenMutationLock<T>(
+  logicalKey: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous =
+    nativeTokenMutationTails.get(logicalKey) ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => turn);
+  nativeTokenMutationTails.set(logicalKey, tail);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (nativeTokenMutationTails.get(logicalKey) === tail) {
+      nativeTokenMutationTails.delete(logicalKey);
+    }
+  }
+}
+
+async function withNativeTokenMutation<T>(
+  logicalKey: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  advanceNativeTokenMutationVersion(logicalKey);
+  try {
+    return await withNativeTokenMutationLock(logicalKey, operation);
+  } finally {
+    advanceNativeTokenMutationVersion(logicalKey);
+  }
+}
 
 function secureStoreKey(logicalKey: string): string {
   return Array.from(logicalKey, (character) =>
@@ -25,17 +82,56 @@ export async function getSessionToken(
   }
 
   const key = secureStoreKey(logicalKey);
-  const secured = clean(await SecureStore.getItemAsync(key));
-  if (secured) return secured;
+  while (true) {
+    await waitForNativeTokenMutations(logicalKey);
+    const readVersion = nativeTokenMutationVersion(logicalKey);
+    const secured = clean(await SecureStore.getItemAsync(key));
+    if (
+      readVersion !== nativeTokenMutationVersion(logicalKey) ||
+      nativeTokenMutationTails.has(logicalKey)
+    ) {
+      continue;
+    }
+    if (secured) return secured;
 
-  const legacy = clean(await AsyncStorage.getItem(logicalKey));
-  if (!legacy) return null;
+    // Read legacy storage before taking the mutation lock. A timed-out storage
+    // read must not block a later sign-in or sign-out behind an unresolved lock.
+    const legacy = clean(await AsyncStorage.getItem(logicalKey));
+    if (
+      readVersion !== nativeTokenMutationVersion(logicalKey) ||
+      nativeTokenMutationTails.has(logicalKey)
+    ) {
+      continue;
+    }
+    if (!legacy) return null;
 
-  await SecureStore.setItemAsync(key, legacy, {
-    keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
-  });
-  await AsyncStorage.removeItem(logicalKey);
-  return legacy;
+    const migration = await withNativeTokenMutationLock(
+      logicalKey,
+      async () => {
+        if (readVersion !== nativeTokenMutationVersion(logicalKey)) {
+          return { status: "retry" } as const;
+        }
+        advanceNativeTokenMutationVersion(logicalKey);
+        try {
+          await SecureStore.setItemAsync(key, legacy, {
+            keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+          });
+          await AsyncStorage.removeItem(logicalKey);
+          return { status: "migrated", token: legacy } as const;
+        } finally {
+          advanceNativeTokenMutationVersion(logicalKey);
+        }
+      },
+    );
+    if (
+      migration.status === "retry" ||
+      nativeTokenMutationVersion(logicalKey) !== readVersion + 2 ||
+      nativeTokenMutationTails.has(logicalKey)
+    ) {
+      continue;
+    }
+    return migration.token;
+  }
 }
 
 export async function saveSessionToken(
@@ -50,10 +146,12 @@ export async function saveSessionToken(
     return;
   }
 
-  await SecureStore.setItemAsync(secureStoreKey(logicalKey), value, {
-    keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+  await withNativeTokenMutation(logicalKey, async () => {
+    await SecureStore.setItemAsync(secureStoreKey(logicalKey), value, {
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+    });
+    await AsyncStorage.removeItem(logicalKey);
   });
-  await AsyncStorage.removeItem(logicalKey);
 }
 
 export async function clearSessionToken(
@@ -64,8 +162,12 @@ export async function clearSessionToken(
     return;
   }
 
-  await Promise.all([
-    SecureStore.deleteItemAsync(secureStoreKey(logicalKey)),
-    AsyncStorage.removeItem(logicalKey),
-  ]);
+  await withNativeTokenMutation(logicalKey, async () => {
+    const results = await Promise.allSettled([
+      SecureStore.deleteItemAsync(secureStoreKey(logicalKey)),
+      AsyncStorage.removeItem(logicalKey),
+    ]);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  });
 }

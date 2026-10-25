@@ -29,6 +29,9 @@ vi.mock("expo-secure-store", () => ({
 
 vi.mock("react-native", () => ({ Platform: platform }));
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+
 import {
   clearSessionToken,
   getSessionToken,
@@ -61,6 +64,83 @@ describe("secure mobile session token storage", () => {
 
     await clearSessionToken();
     await expect(getSessionToken()).resolves.toBeNull();
+  });
+
+  it("does not let a delayed legacy read overwrite a newer saved token", async () => {
+    plaintextStorage.set(SESSION_TOKEN_KEY, "legacy-token");
+    let resolveSecureRead!: (value: string | null) => void;
+    vi.mocked(SecureStore.getItemAsync).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveSecureRead = resolve)),
+    );
+
+    const delayedRead = getSessionToken();
+    await saveSessionToken("new-token");
+    resolveSecureRead(null);
+
+    await expect(delayedRead).resolves.toBe("new-token");
+    await expect(getSessionToken()).resolves.toBe("new-token");
+    expect(plaintextStorage.has(SESSION_TOKEN_KEY)).toBe(false);
+  });
+
+  it("does not let a never-settling legacy read block a later save", async () => {
+    const logicalKey = "agent-native:session-token:unresolved-legacy-read";
+    let markLegacyReadStarted!: () => void;
+    const legacyReadStarted = new Promise<void>(
+      (resolve) => (markLegacyReadStarted = resolve),
+    );
+    vi.mocked(AsyncStorage.getItem).mockImplementationOnce(() => {
+      markLegacyReadStarted();
+      return new Promise<null>(() => {});
+    });
+
+    const pendingRead = getSessionToken(logicalKey);
+    await legacyReadStarted;
+    const save = saveSessionToken("new-token", logicalKey);
+    const saveFinished = await Promise.race([
+      save.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
+    ]);
+
+    expect(saveFinished).toBe(true);
+    await expect(getSessionToken(logicalKey)).resolves.toBe("new-token");
+    void pendingRead;
+  });
+
+  it("holds the mutation lock until both token deletions settle", async () => {
+    let releaseSecureDelete!: () => void;
+    let markSecureDeleteStarted!: () => void;
+    const secureDeleteStarted = new Promise<void>(
+      (resolve) => (markSecureDeleteStarted = resolve),
+    );
+    vi.mocked(SecureStore.deleteItemAsync).mockImplementationOnce(
+      (key) =>
+        new Promise<void>((resolve) => {
+          markSecureDeleteStarted();
+          releaseSecureDelete = () => {
+            secureStorage.delete(key);
+            resolve();
+          };
+        }),
+    );
+    const asyncStorageFailure = new Error("AsyncStorage delete failed");
+    vi.mocked(AsyncStorage.removeItem).mockRejectedValueOnce(
+      asyncStorageFailure,
+    );
+
+    const clearing = clearSessionToken().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await secureDeleteStarted;
+    const saving = saveSessionToken("new-token");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect([...secureStorage.values()]).toEqual([]);
+
+    releaseSecureDelete();
+    await expect(clearing).resolves.toBe(asyncStorageFailure);
+    await saving;
+    await expect(getSessionToken()).resolves.toBe("new-token");
   });
 
   it("uses web storage when SecureStore is unavailable", async () => {
