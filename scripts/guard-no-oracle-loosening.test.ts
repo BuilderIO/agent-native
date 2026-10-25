@@ -189,6 +189,9 @@ describe("disabled-test and expect-anything in test files", () => {
       "apps/web/tests/login.e2e.ts",
       "apps/web/e2e/login.ts",
       "apps/web/actions/login.test.tsx",
+      "apps/web/tests/login.e2e.mjs",
+      "apps/web/actions/login.spec.cjs",
+      "apps/web/actions/login.test.jsx",
     ]) {
       assert.deepEqual(
         flagged({ [rel]: { source, added: [1] } }),
@@ -234,6 +237,18 @@ describe("disabled-test and expect-anything in test files", () => {
     );
   });
 
+  it("flags expect.anything() through an aliased expect import, but not a partial match", () => {
+    const source = [
+      `import { expect as check } from "${VITEST}";`,
+      "check(value).toEqual(check.anything());",
+      "check(value).toEqual({ id: check.anything() });",
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:2: expect-anything`,
+    ]);
+  });
+
   it("only reports lines this branch added", () => {
     const source = 'it.skip("old", () => {});\nit("new", () => {});';
     assert.deepEqual(flagged({ [SPEC]: { source, added: [2] } }), []);
@@ -244,7 +259,11 @@ describe("disabled-test and expect-anything in test files", () => {
     assert.equal(isTestFile("a/b.test.tsx"), true);
     assert.equal(isTestFile("a/b.e2e.ts"), true);
     assert.equal(isTestFile("a/e2e/b.ts"), true);
+    assert.equal(isTestFile("a/b.test.mjs"), true);
+    assert.equal(isTestFile("a/b.spec.jsx"), true);
+    assert.equal(isTestFile("a/b.e2e.cjs"), true);
     assert.equal(isTestFile("a/b.ts"), false);
+    assert.equal(isTestFile("a/b.mjs"), false);
     assert.equal(isTestFile("a/e2elsewhere/b.ts"), false);
   });
 
@@ -557,6 +576,39 @@ describe("assertions-removed", () => {
     );
   });
 
+  it("flags a .spec.mjs file that adds .skip and drops an assertion", () => {
+    const mjs = "templates/mail/actions/send.spec.mjs";
+    const diff = [
+      `diff --git a/${mjs} b/${mjs}`,
+      `--- a/${mjs}`,
+      `+++ b/${mjs}`,
+      "@@ -10,2 +10,1 @@",
+      "-  expect(result.status).toBe(200);",
+      '-  expect(result.body.id).toBe("msg_1");',
+      '+  it.skip("sends the message", async () => {',
+    ].join("\n");
+    const lines = Array.from(
+      { length: 9 },
+      (_, index) => `// line ${index + 1}`,
+    );
+    const source = [
+      ...lines,
+      '  it.skip("sends the message", async () => {',
+      "  });",
+    ].join("\n");
+    const base = [
+      ...lines,
+      "  expect(result.status).toBe(200);",
+      '  expect(result.body.id).toBe("msg_1");',
+      "  });",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [mjs]: { source, added: [10] } }, diff, { [mjs]: base }),
+      [`${mjs}:10: disabled-test`, `${mjs}:10: assertions-removed`],
+    );
+  });
+
   it("counts calls, not lines: one line that loses one of two assertions is flagged", () => {
     const diff = [
       `diff --git a/${SPEC} b/${SPEC}`,
@@ -705,6 +757,57 @@ describe("assertions-removed", () => {
         { [SPEC]: otherBase },
       ),
       [],
+    );
+  });
+
+  it("counts named node:assert imports, as members or direct callees, as assertions", () => {
+    const imports = [
+      'import { strict as checks } from "node:assert";',
+      'import { equal, deepStrictEqual } from "node:assert/strict";',
+    ];
+    const base = [
+      ...imports,
+      "checks.equal(a, b);",
+      "deepStrictEqual(c, d);",
+      "equal(e, f);",
+    ].join("\n");
+    const memberDiff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -3 +2,0 @@",
+      "-checks.equal(a, b);",
+    ].join("\n");
+    const directDiff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -5 +4,0 @@",
+      "-equal(e, f);",
+    ].join("\n");
+
+    const memberSource = [
+      ...imports,
+      "deepStrictEqual(c, d);",
+      "equal(e, f);",
+    ].join("\n");
+    assert.deepEqual(
+      flagged({ [SPEC]: { source: memberSource, added: [] } }, memberDiff, {
+        [SPEC]: base,
+      }),
+      [`${SPEC}:2: assertions-removed`],
+    );
+
+    const directSource = [
+      ...imports,
+      "checks.equal(a, b);",
+      "deepStrictEqual(c, d);",
+    ].join("\n");
+    assert.deepEqual(
+      flagged({ [SPEC]: { source: directSource, added: [] } }, directDiff, {
+        [SPEC]: base,
+      }),
+      [`${SPEC}:4: assertions-removed`],
     );
   });
 

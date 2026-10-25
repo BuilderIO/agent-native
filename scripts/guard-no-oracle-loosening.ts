@@ -66,7 +66,8 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 
 const MIN_REASON_LENGTH = 10;
 const PRAGMA_MARKER = "oracle-change:";
-const TEST_FILE = /(?:\.(?:spec|test)\.tsx?|\.e2e\.ts)$|(?:^|\/)e2e\//;
+const TEST_FILE =
+  /(?:\.(?:spec|test)\.(?:tsx?|jsx?|mjs|cjs)|\.e2e\.(?:tsx?|jsx?|mjs|cjs))$|(?:^|\/)e2e\//;
 const CONFIG_FILE =
   /(?:^|\/)(?:vitest\.config\.[^/]+|vitest\.[^/]+\.config\.[^/]+|playwright\.config\.[^/]+)$/;
 const PACKAGE_JSON = /(?:^|\/)package\.json$/;
@@ -152,7 +153,10 @@ export function isTestFile(relPath: string): boolean {
 }
 
 function scriptKind(file: string): ts.ScriptKind {
-  return /\.[cm]?tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  if (/\.[cm]?tsx$/.test(file)) return ts.ScriptKind.TSX;
+  if (/\.[cm]?ts$/.test(file)) return ts.ScriptKind.TS;
+  if (/\.jsx$/.test(file)) return ts.ScriptKind.JSX;
+  return ts.ScriptKind.JS;
 }
 
 function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
@@ -268,10 +272,6 @@ function reportable(message: string, reason: string | null): string | null {
   return `${message} (oracle-change reason is shorter than ${MIN_REASON_LENGTH} characters)`;
 }
 
-function isIdentifierNamed(node: ts.Expression, name: string): boolean {
-  return ts.isIdentifier(node) && node.text === name;
-}
-
 const TEST_ROOTS = new Set(["it", "test", "describe", "suite", "bench"]);
 
 interface ImportScope {
@@ -308,6 +308,11 @@ function importScope(sourceFile: ts.SourceFile): ImportScope {
       if (clause?.name !== undefined) assertRoots.add(clause.name.text);
       if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
         assertRoots.add(bindings.name.text);
+      }
+      if (bindings !== undefined && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          assertRoots.add(element.name.text);
+        }
       }
       continue;
     }
@@ -439,7 +444,8 @@ export function findDisabledTests(
           });
         } else if (
           name === "anything" &&
-          isIdentifierNamed(inner, "expect") &&
+          ts.isIdentifier(inner) &&
+          scope.expectRoots.has(inner.text) &&
           isWholeExpectedValue(node)
         ) {
           at(site, {
