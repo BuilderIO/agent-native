@@ -572,15 +572,11 @@ function validateSourceFilesInSnapshot(
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
   const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
-  const replySnapshot = snapshot.replies.find(
-    (reply) => reply.ts === parent.ts,
+  const botReplyTextUnavailableInSearch = isOmittedBotReplySearchBody(
+    parent,
+    parent.sourceText ?? "",
+    snapshot,
   );
-  // Public search omits the body of some bot replies; their full-thread read is the source text.
-  const botReplyTextUnavailableInSearch =
-    parent.sourceText === "" &&
-    parent.ts !== parent.threadParentTs &&
-    replySnapshot?.kind === "bot" &&
-    Boolean(snapshotText?.trim());
   if (
     JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
   ) {
@@ -607,6 +603,23 @@ function sourceTextFromThreadSnapshot(
   if (!snapshot) return undefined;
   if (parent.ts === parent.threadParentTs) return snapshot.rootText;
   return snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
+}
+
+function isOmittedBotReplySearchBody(
+  parent: Parent,
+  capturedSearchText: string,
+  snapshot: ThreadSnapshot | undefined,
+): boolean {
+  if (
+    parent.sourceText !== "" ||
+    capturedSearchText !== "" ||
+    parent.ts === parent.threadParentTs ||
+    snapshot?.rootTs !== parent.threadParentTs
+  ) {
+    return false;
+  }
+  const reply = snapshot.replies.find((item) => item.ts === parent.ts);
+  return reply?.kind === "bot" && Boolean(reply.text.trim());
 }
 
 function isExpandedJiraIssuePreview(text: string): boolean {
@@ -5506,14 +5519,11 @@ function hasExplicitWorkflowWriteAuthorization(
   );
   const boundedFollowupAndReaction =
     boundedGrantIndex >= 0 &&
-    !hasExplicitNoReactionRestriction(sentences[boundedGrantIndex]!) &&
-    !sentences
-      .slice(boundedGrantIndex + 1)
-      .some(
-        (sentence) =>
-          hasExplicitNoReactionRestriction(sentence) ||
-          partialWriteQualifier.test(sentence),
-      );
+    !sentences.some(
+      (sentence) =>
+        hasExplicitNoReactionRestriction(sentence) ||
+        partialWriteQualifier.test(sentence),
+    );
   const exactRootWriteActions =
     roots.length > 0 &&
     roots.every(
@@ -7869,6 +7879,9 @@ function sourceTextMatchesCapturedSearch(
 ): boolean {
   if (parent.sourceText === capturedSearchText) {
     if (parent.sourceText.trim() !== "") return true;
+    if (isOmittedBotReplySearchBody(parent, capturedSearchText, snapshot)) {
+      return true;
+    }
     if (parent.ownershipSkip) return snapshot === undefined;
     const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
     return (
@@ -8493,6 +8506,8 @@ function validateOwnedMarkSearches(
         usedPageLimitRecoveries.add(recoveryIndex);
         activeBefore = before;
         expectedCursor = null;
+        // Cursor tokens can restart when a capped search resumes from a new before bound.
+        seenCursors.clear();
       }
 
       for (const row of page.rows) {
@@ -17845,6 +17860,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       boundedAuthorization.scope.userRequest;
     validateTestInventory(boundedAuthorization);
 
+    for (const restriction of ["This is read-only.", "No reactions."]) {
+      const earlierRestriction = structuredClone(authorizedMagRoot);
+      earlierRestriction.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. ${restriction} You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.`;
+      earlierRestriction.scope.narrowingJudgment!.instruction =
+        earlierRestriction.scope.userRequest;
+      expectFocusedFailure(
+        `a preceding ${restriction.toLowerCase()} restriction blocks later broad write authorization`,
+        () => validateTestInventory(earlierRestriction),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      );
+    }
+
     const unrelatedFollowupCannotExtendReadOnlyAuthorization =
       structuredClone(authorizedMagRoot);
     unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest =
@@ -23055,6 +23082,98 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test lost a recovered owned root mark",
       );
     }
+    const reusedOwnedMarkCursor = "reused-owned-cursor";
+    const repeatedCursorOwnedMarkPages: OwnedMarkSearchPage[] = [
+      {
+        cursor: null,
+        before: ownershipChannel.scanQuery.before,
+        nextCursor: reusedOwnedMarkCursor,
+        exhausted: false,
+        readAt: new Date(now - 2_600).toISOString(),
+        messageCount: 1,
+        rows: [{ ts: "11.000000", root: "11.000000", text: "newer report" }],
+      },
+      {
+        cursor: reusedOwnedMarkCursor,
+        before: ownershipChannel.scanQuery.before,
+        nextCursor: "owned-cap",
+        exhausted: false,
+        readAt: ownedMarkCappedPageReadAt,
+        messageCount: 1,
+        rows: ownedMarkCappedRows,
+      },
+      {
+        cursor: null,
+        before: "10.999998",
+        nextCursor: reusedOwnedMarkCursor,
+        exhausted: false,
+        readAt: new Date(now - 2_100).toISOString(),
+        messageCount: 1,
+        rows: ownedMarkResumedRows,
+      },
+      {
+        cursor: reusedOwnedMarkCursor,
+        before: "10.999998",
+        nextCursor: null,
+        exhausted: true,
+        readAt: ownedMarkResumedPageReadAt,
+        messageCount: 1,
+        rows: [{ ts: "10.400000", root: "10.400000", text: "older report" }],
+      },
+    ];
+    const ownedMarkRecovery = cappedOwnedMarkSearches.find(
+      (search) => search.emoji === "eyes",
+    )?.pageLimitRecoveries?.[0];
+    if (!ownedMarkRecovery) {
+      throw new Error("self-test owned-mark cap fixture lost its recovery");
+    }
+    const repeatedCursorOwnedMarkSearches = ownershipSearches.map((search) =>
+      search.emoji === "eyes"
+        ? {
+            ...search,
+            pages: repeatedCursorOwnedMarkPages,
+            pageLimitRecoveries: [ownedMarkRecovery],
+          }
+        : search,
+    );
+    const repeatedCursorOwnedMarkRawPages: RawOwnedMarkSearchPages = {
+      ...ownershipPages,
+      [ownershipChannel.channelName]: {
+        ...ownershipPages[ownershipChannel.channelName]!,
+        eyes: repeatedCursorOwnedMarkPages.map((page) => ({
+          ...page,
+          sourceTimestamps: page.rows.map((row) => row.ts),
+          rows: page.rows.map((row) => ({ ...row, rawText: row.text })),
+        })),
+      },
+    };
+    const repeatedCursorOwnedMarkResult = validateOwnedMarkSearches(
+      {
+        ...ownershipChannel,
+        ownedMarkSearches: repeatedCursorOwnedMarkSearches,
+      },
+      ownershipChannel.channelName,
+      valid.sweepActorId,
+      now - 3_000,
+      repeatedCursorOwnedMarkRawPages,
+      true,
+    );
+    for (const timestamp of [
+      "11.000000",
+      "10.999999",
+      "10.500000",
+      "10.400000",
+    ]) {
+      const ts = slackTimestamp(
+        timestamp,
+        "self-test reused owned-mark cursor",
+      ).toString();
+      if (repeatedCursorOwnedMarkResult.eyes.get(ts) !== ts) {
+        throw new Error(
+          "Feedback inventory checker self-test lost an owned mark across a reused recovery cursor",
+        );
+      }
+    }
     if (
       parseStructuredJsonTextBlock("ordinary text block", "self-test") !==
       undefined
@@ -23555,6 +23674,95 @@ if (args[0] === "--self-test" && args.length === 1) {
         },
       ],
     };
+    const omittedBotReplyParent: Parent = {
+      ...connectorOmissionRoot,
+      ts: "10.100000",
+      threadParentTs: "10.000000",
+      sourceText: "",
+    };
+    const omittedBotReplySnapshot: ThreadSnapshot = {
+      ...ownedThreadSnapshot,
+      replies: [
+        {
+          ...ownedThreadSnapshot.replies[0]!,
+          actorId: "B_AGENT",
+          kind: "bot",
+          text: "Created an issue.",
+        },
+      ],
+    };
+    const omittedBotReplyReceiptInventory: Inventory = {
+      ...connectorOmissionInventory,
+      channels: connectorOmissionInventory.channels.map((channel) => {
+        const pages = channel.pages.map((page) => {
+          if (!page.parents.some((parent) => parent.ts === "10.000000")) {
+            return page;
+          }
+          const parents = [...page.parents, omittedBotReplyParent].sort(
+            (left, right) =>
+              slackTimestamp(right.ts, "self-test bot reply ordering") >
+              slackTimestamp(left.ts, "self-test bot reply ordering")
+                ? 1
+                : -1,
+          );
+          return {
+            ...page,
+            messageCount: parents.length,
+            sourceTimestamps: parents.map((parent) => parent.ts),
+            parents,
+          };
+        });
+        return {
+          ...channel,
+          pages,
+          threadSnapshots: [
+            ...(channel.threadSnapshots ?? []).filter(
+              (snapshot) => snapshot.rootTs !== "10.000000",
+            ),
+            omittedBotReplySnapshot,
+          ],
+        };
+      }),
+    };
+    const omittedBotReplyReceipt = sourceReceiptFor(
+      omittedBotReplyReceiptInventory,
+    );
+    validateSourceReceipt(
+      omittedBotReplyReceiptInventory,
+      omittedBotReplyReceipt,
+      rawSourcePagesFor(omittedBotReplyReceipt),
+      true,
+    );
+    expectFocusedFailure(
+      "omitted human reply body cannot use the bot search exemption",
+      () => {
+        const nonBotInventory: Inventory = {
+          ...omittedBotReplyReceiptInventory,
+          channels: omittedBotReplyReceiptInventory.channels.map((channel) => ({
+            ...channel,
+            threadSnapshots: channel.threadSnapshots?.map((snapshot) =>
+              snapshot.rootTs === "10.000000"
+                ? {
+                    ...snapshot,
+                    replies: snapshot.replies.map((reply) => ({
+                      ...reply,
+                      kind: "human" as const,
+                    })),
+                  }
+                : snapshot,
+            ),
+          })),
+        };
+        const receipt = sourceReceiptFor(nonBotInventory);
+        validateSourceReceipt(
+          nonBotInventory,
+          receipt,
+          rawSourcePagesFor(receipt),
+          true,
+        );
+      },
+      "text must match the captured Slack result",
+    );
     validateRootClassificationText(
       "search rendering removed inline-code delimiters",
       {
