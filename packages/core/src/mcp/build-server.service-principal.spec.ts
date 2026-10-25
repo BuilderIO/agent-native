@@ -82,11 +82,13 @@ function config(): MCPConfig {
 async function clientFor(
   identity: MCPCallerIdentity,
   mcpConfig: MCPConfig = config(),
+  requestMeta: { inlineMcpApps?: boolean } = {},
 ) {
   const server = await createMCPServerForRequest(mcpConfig, identity, {
     origin: "http://localhost:8100",
     transport: "http",
     fullCatalog: true,
+    ...requestMeta,
   } as any);
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -328,12 +330,20 @@ describe("MCP App resources for a service principal", () => {
     };
   }
 
-  beforeEach(() => {
-    appCardsLab.optedIn = new Set(["alice@example.com", SVC]);
-  });
+  // Cards on for the request, as on the directory catalog. The lab never
+  // turns them on for a service principal.
+  const cards = { inlineMcpApps: true };
 
   afterEach(() => {
     appCardsLab.optedIn.clear();
+  });
+
+  it("never gives a service principal cards from the lab", async () => {
+    activeWithGrant(null);
+    appCardsLab.optedIn = new Set([SVC]);
+    const client = await clientFor(serviceIdentity, widgetConfig());
+
+    expect((await client.listResources()).resources).toEqual([]);
   });
 
   it("lists, templates, and reads only widgets inside the grant", async () => {
@@ -341,6 +351,7 @@ describe("MCP App resources for a service principal", () => {
     const open = await clientFor(
       { ...serviceIdentity, userEmail: "alice@example.com" },
       widgetConfig(),
+      cards,
     );
     const all = (await open.listResources()).resources;
     expect(all.map((r) => r.name)).toEqual(
@@ -349,7 +360,7 @@ describe("MCP App resources for a service principal", () => {
     const deniedUri = all.find((r) => r.name === "delete-doc")!.uri;
 
     activeWithGrant(["list-docs"]);
-    const client = await clientFor(serviceIdentity, widgetConfig());
+    const client = await clientFor(serviceIdentity, widgetConfig(), cards);
     const { resources } = await client.listResources();
     expect(resources.map((r) => r.name)).toEqual(["list-docs"]);
     const { resourceTemplates } = await client.listResourceTemplates();
@@ -376,7 +387,7 @@ describe("MCP App resources for a service principal", () => {
       status: "suspended",
       policy: { lifecycle: "suspended", allowedActions: null },
     });
-    const client = await clientFor(serviceIdentity, widgetConfig());
+    const client = await clientFor(serviceIdentity, widgetConfig(), cards);
 
     await expect(call(client)).rejects.toThrow(/suspended or retired/i);
 
@@ -394,7 +405,7 @@ describe("MCP App resources for a service principal", () => {
 
   it("does not audit a retryable policy-store failure as a denial", async () => {
     evaluateServicePrincipalMock.mockResolvedValue({ status: "unavailable" });
-    const client = await clientFor(serviceIdentity, widgetConfig());
+    const client = await clientFor(serviceIdentity, widgetConfig(), cards);
 
     await expect(
       client.readResource({ uri: "ui://docs/list-docs" }),

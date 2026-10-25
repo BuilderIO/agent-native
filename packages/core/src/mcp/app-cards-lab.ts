@@ -33,16 +33,17 @@ export function registerMcpAppCardsLab(): void {
 
 /**
  * Whether this caller's own lab choice asks for MCP Apps cards. No email
- * (standalone stdio, a shared token with no owner) means no cards. A choice
- * that can't be read, or a server that never registered the lab, also means
- * no cards, and logs why.
+ * (standalone stdio, a shared token with no owner) or a service principal
+ * means no cards, since the lab is a person's choice. A choice that can't be
+ * read, or a server that never registered the lab, also means no cards, and
+ * logs why.
  */
 export async function isMcpAppsInlineEnabled(
   identity: MCPCallerIdentity | undefined,
 ): Promise<boolean> {
   warnIfRetiredInlineEnvSet();
   const email = identity?.userEmail?.trim();
-  if (!email) return false;
+  if (!email || identity?.identityAssurance === "service") return false;
   try {
     return await getUserLabEnabled(
       email,

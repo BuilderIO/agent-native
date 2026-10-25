@@ -110,8 +110,15 @@ describe("App cards in chat apps lab", () => {
     ]);
   });
 
-  it("quietly gives no cards without an email", async () => {
+  it("quietly gives no cards without an email or to a service principal", async () => {
     registerMcpAppCardsLab();
+    savedLabs.set("svc-ci@service.org_1", { [MCP_APP_CARDS_LAB.key]: true });
+    expect(
+      await isMcpAppsInlineEnabled({
+        ...caller("svc-ci@service.org_1", "org_1"),
+        identityAssurance: "service",
+      }),
+    ).toBe(false);
     expect(await isMcpAppsInlineEnabled(undefined)).toBe(false);
     expect(await isMcpAppsInlineEnabled(caller(undefined))).toBe(false);
     expect(await isMcpAppsInlineEnabled(caller("  "))).toBe(false);
