@@ -223,6 +223,9 @@ function LoadedStorageSettingsForm({
   const [values, setValues] = useState<FormValues>(() =>
     valuesFromStatus(status),
   );
+  const [editedFields, setEditedFields] = useState<Set<FileStorageField>>(
+    () => new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<string | null>(null);
@@ -253,6 +256,7 @@ function LoadedStorageSettingsForm({
 
   const setValue = (field: FileStorageField, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
+    setEditedFields((current) => new Set(current).add(field));
     setFieldErrors((current) => {
       if (!current[field]) return current;
       const next = { ...current };
@@ -300,8 +304,18 @@ function LoadedStorageSettingsForm({
       endpoint: values.endpoint.trim(),
       bucket: values.bucket.trim(),
     };
-    input.region = values.region.trim();
-    input.publicBaseUrl = values.publicBaseUrl.trim();
+    if (
+      !status.unreadableFields.includes("region") ||
+      editedFields.has("region")
+    ) {
+      input.region = values.region.trim();
+    }
+    if (
+      !status.unreadableFields.includes("publicBaseUrl") ||
+      editedFields.has("publicBaseUrl")
+    ) {
+      input.publicBaseUrl = values.publicBaseUrl.trim();
+    }
     if (values.accessKeyId.trim())
       input.accessKeyId = values.accessKeyId.trim();
     if (values.secretAccessKey.trim()) {
@@ -312,6 +326,7 @@ function LoadedStorageSettingsForm({
     setNotice(null);
     manage.mutate(input, {
       onSuccess: (result) => {
+        setEditedFields(new Set());
         setValues((current) => ({
           ...current,
           accessKeyId: "",

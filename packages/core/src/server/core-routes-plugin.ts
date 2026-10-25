@@ -4414,6 +4414,9 @@ export function createCoreRoutesPlugin(
                       creds.isFreeAccount ??
                       envStatus.isFreeAccount ??
                       undefined,
+                    optionalMetadataLookupFailure:
+                      creds.optionalMetadataLookupFailure,
+                    credentialLookupFailed: creds.lookupFailed,
                     credentialSource: credentialSource ?? undefined,
                     canDisconnect:
                       credentialSource === "user" ||

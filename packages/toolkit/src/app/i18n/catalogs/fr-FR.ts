@@ -2510,6 +2510,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Supprimer les identifiants {{platform}}",
   "settingsShell.channels.removeCredentials.body":
     "L'agent cesse de répondre dans {{platform}} pour tout le monde, sauf si l'environnement de déploiement définit aussi ces clés.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Cela supprime uniquement vos identifiants personnels pour {{platform}}. Les identifiants et les réponses des autres utilisateurs ne seront pas affectés.",
   "settingsShell.channels.removeCredentials.confirm": "Supprimer",
   "settingsShell.channels.removeCredentials.failed":
     "Impossible de supprimer les identifiants.",

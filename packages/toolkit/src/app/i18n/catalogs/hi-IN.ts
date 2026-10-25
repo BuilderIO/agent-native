@@ -2306,6 +2306,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria": "{{platform}} क्रेडेंशियल हटाएं",
   "settingsShell.channels.removeCredentials.body":
     "जब तक डिप्लॉयमेंट एनवायरनमेंट भी ये कुंजियां सेट नहीं करता, एजेंट सभी के लिए {{platform}} में जवाब देना बंद कर देगा।",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "इससे {{platform}} के लिए सिर्फ़ आपकी व्यक्तिगत क्रेडेंशियल हटेंगी। अन्य उपयोगकर्ताओं की क्रेडेंशियल और जवाब प्रभावित नहीं होंगे।",
   "settingsShell.channels.removeCredentials.confirm": "हटाएं",
   "settingsShell.channels.removeCredentials.failed": "क्रेडेंशियल हटाए नहीं जा सके।",
   "settingsShell.channels.removeCredentials.removing": "हटाया जा रहा है…",

@@ -2466,6 +2466,8 @@ const messages: ToolkitAgentChatTranslation = {
     "{{platform}}-Zugangsdaten entfernen",
   "settingsShell.channels.removeCredentials.body":
     "Der Agent antwortet für alle nicht mehr in {{platform}}, es sei denn, die Deployment-Umgebung setzt diese Schlüssel ebenfalls.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Dadurch werden nur deine persönlichen Zugangsdaten für {{platform}} entfernt. Zugangsdaten und Antworten anderer Nutzer bleiben unverändert.",
   "settingsShell.channels.removeCredentials.confirm": "Entfernen",
   "settingsShell.channels.removeCredentials.failed":
     "Die Zugangsdaten konnten nicht entfernt werden.",

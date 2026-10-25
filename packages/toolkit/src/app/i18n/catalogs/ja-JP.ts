@@ -2347,6 +2347,8 @@ const messages: ToolkitAgentChatTranslation = {
     "{{platform}} の認証情報を削除",
   "settingsShell.channels.removeCredentials.body":
     "デプロイ環境でもこれらのキーが設定されていない限り、エージェントは全員に対して {{platform}} で返信しなくなります。",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "{{platform}} のあなた個人の認証情報のみが削除されます。他のユーザーの認証情報や返信には影響しません。",
   "settingsShell.channels.removeCredentials.confirm": "削除",
   "settingsShell.channels.removeCredentials.failed":
     "認証情報を削除できませんでした。",

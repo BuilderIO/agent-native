@@ -755,10 +755,14 @@ function RemoveCredentialsDialog({
   credentials: readonly {
     key: string;
     removalConfirmation: string;
+    unreadableScope?: ChannelCredentialStatus["unreadableScope"];
   }[];
 }) {
   const t = useT();
   const remove = useManageChannel();
+  const personalOnly = credentials.every(
+    ({ unreadableScope }) => unreadableScope === "user",
+  );
   return (
     <AlertDialog
       open={open}
@@ -774,7 +778,10 @@ function RemoveCredentialsDialog({
             {t(`${K}.removeCredentials.title`, { platform: channel.name })}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {t(`${K}.removeCredentials.body`, { platform: channel.name })}
+            {t(
+              `${K}.removeCredentials.${personalOnly ? "personalBody" : "body"}`,
+              { platform: channel.name },
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ul className="flex flex-col gap-1 font-mono text-xs text-foreground">

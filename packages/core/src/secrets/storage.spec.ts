@@ -616,6 +616,7 @@ describe("secrets storage CRUD (real pglite)", () => {
       value: "first-value",
       description: "initial",
     });
+    const firstVersion = await mod.readAppSecretVersion(userRef);
     const secondId = await mod.writeAppSecret({
       ...userRef,
       value: "second-value-9999",
@@ -624,6 +625,7 @@ describe("secrets storage CRUD (real pglite)", () => {
     });
 
     expect(secondId).toBe(firstId);
+    expect(await mod.readAppSecretVersion(userRef)).not.toBe(firstVersion);
 
     const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)

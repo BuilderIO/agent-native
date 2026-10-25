@@ -2490,6 +2490,8 @@ const messages: ToolkitAgentChatTranslation = {
     "إزالة بيانات اعتماد {{platform}}",
   "settingsShell.channels.removeCredentials.body":
     "يتوقف الوكيل عن الرد في {{platform}} للجميع، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "يزيل هذا بيانات اعتمادك الشخصية لـ {{platform}} فقط. لن تتأثر بيانات اعتماد المستخدمين الآخرين أو ردودهم.",
   "settingsShell.channels.removeCredentials.confirm": "إزالة",
   "settingsShell.channels.removeCredentials.failed":
     "تعذّرت إزالة بيانات الاعتماد.",

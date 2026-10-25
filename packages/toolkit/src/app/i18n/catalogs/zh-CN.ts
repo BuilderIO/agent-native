@@ -2163,6 +2163,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria": "移除 {{platform}} 凭据",
   "settingsShell.channels.removeCredentials.body":
     "除非部署环境也设置了这些密钥，否则代理将不再为任何人在 {{platform}} 中回复。",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "这只会移除你在 {{platform}} 的个人凭据，不会影响其他用户的凭据或回复。",
   "settingsShell.channels.removeCredentials.confirm": "移除",
   "settingsShell.channels.removeCredentials.failed": "无法移除凭据。",
   "settingsShell.channels.removeCredentials.removing": "正在移除…",

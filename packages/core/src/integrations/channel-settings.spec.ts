@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EnvKeyConfig } from "../server/create-server.js";
 
 const store = vi.hoisted(() => new Map<string, string>());
+const versions = vi.hoisted(() => new Map<string, number>());
+const nextVersion = vi.hoisted(() => ({ value: 2 }));
 const env = vi.hoisted(() => new Map<string, string>());
 const configs = vi.hoisted(() => new Map<string, boolean>());
 const unreadable = vi.hoisted(() => new Set<string>());
@@ -66,6 +68,14 @@ vi.mock("../secrets/storage.js", () => ({
       return value === undefined ? null : { value };
     },
   ),
+  readAppSecretVersion: vi.fn(
+    async (args: { key: string; scope: string; scopeId: string }) => {
+      if (readErrorRef.error) throw readErrorRef.error;
+      const storageKey = `${args.scope}:${args.scopeId}:${args.key}`;
+      if (!store.has(storageKey)) return null;
+      return String(versions.get(storageKey) ?? 1);
+    },
+  ),
   writeAppSecret: vi.fn(
     async (args: {
       key: string;
@@ -73,15 +83,20 @@ vi.mock("../secrets/storage.js", () => ({
       scope: string;
       scopeId: string;
     }) => {
-      store.set(`${args.scope}:${args.scopeId}:${args.key}`, args.value);
+      const storageKey = `${args.scope}:${args.scopeId}:${args.key}`;
+      store.set(storageKey, args.value);
+      versions.set(storageKey, nextVersion.value++);
       unreadable.delete(args.key);
       unreadable.delete(`${args.scope}:${args.scopeId}:${args.key}`);
       return "id";
     },
   ),
   deleteAppSecret: vi.fn(
-    async (ref: { key: string; scope: string; scopeId: string }) =>
-      store.delete(`${ref.scope}:${ref.scopeId}:${ref.key}`),
+    async (ref: { key: string; scope: string; scopeId: string }) => {
+      const storageKey = `${ref.scope}:${ref.scopeId}:${ref.key}`;
+      versions.delete(storageKey);
+      return store.delete(storageKey);
+    },
   ),
 }));
 
@@ -221,6 +236,8 @@ describe("channel settings", () => {
 
   beforeEach(() => {
     store.clear();
+    versions.clear();
+    nextVersion.value = 2;
     env.clear();
     configs.clear();
     unreadable.clear();
@@ -624,6 +641,27 @@ describe("channel settings", () => {
     expect(store.get(`workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`)).toBe(
       "fake-webhook-secret",
     );
+  });
+
+  it("rejects a stale removal confirmation after the saved credential rotates", async () => {
+    const storageKey = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
+    store.set(storageKey, "fake-original-token");
+    versions.set(storageKey, 1);
+    const confirmed = await confirmedRemovals("telegram", [
+      "TELEGRAM_BOT_TOKEN",
+    ]);
+
+    await saveMessagingChannelCredentials(OWNER, "telegram", {
+      TELEGRAM_BOT_TOKEN: "fake-rotated-token",
+    });
+
+    await expect(
+      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "channel_removal_confirmation_stale",
+    });
+    expect(store.get(storageKey)).toBe("fake-rotated-token");
   });
 
   it("rejects a stale removal confirmation when the unreadable scope changes", async () => {

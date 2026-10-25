@@ -2492,6 +2492,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Quitar las credenciales de {{platform}}",
   "settingsShell.channels.removeCredentials.body":
     "El agente deja de responder en {{platform}} para todos, salvo que el entorno de despliegue también defina estas claves.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Esto solo elimina tus credenciales personales de {{platform}}. No afectará a las credenciales ni a las respuestas de otros usuarios.",
   "settingsShell.channels.removeCredentials.confirm": "Quitar",
   "settingsShell.channels.removeCredentials.failed":
     "No se pudieron quitar las credenciales.",

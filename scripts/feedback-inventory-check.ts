@@ -5617,7 +5617,7 @@ function userRequestExcludesExactRoot(
   root: AuthorizedRoot,
 ): boolean {
   const exclusion =
-    /\b(?:do not|don't|never|cannot|can't|shouldn't|mustn't|won't)\s+(?:touch|work on|handle|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over)\b|\b(?:exclude|excluded|skip|leave out|omit|avoid)\b/i;
+    /\b(?:do not|don't|never|cannot|can't|shouldn't|should not|mustn't|must not|won't)\s+(?:touch|work on|handle|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over)\b|\b(?:exclude|excluded|skip|leave out|omit|avoid)\b/i;
   const statements =
     withoutQuotedScopeContext(userRequest).split(/;|\n+|(?<=[.!?])\s+/);
   return statements.some(
@@ -5716,7 +5716,7 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
     "i",
   );
   const negatedPopulationAction = new RegExp(
-    `\\b(?:do not|don't|never|cannot|can't|shouldn't|mustn't|won't)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on|process|address|include)\\b${populationInSentence}`,
+    `\\b(?:do not|don't|never|cannot|can't|shouldn't|should not|mustn't|must not|won't)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on|process|address|include)\\b${populationInSentence}`,
     "i",
   );
   const exclusionLeavesPopulationAlone = new RegExp(
@@ -18196,6 +18196,26 @@ if (args[0] === "--self-test" && args.length === 1) {
         "scope.userRequest",
       ],
       [
+        "You shouldn't process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
+        "shouldn't process assigned reports beyond the general negation window",
+        "scope.userRequest",
+      ],
+      [
+        "You should not process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
+        "should not process assigned reports beyond the general negation window",
+        "scope.userRequest",
+      ],
+      [
+        "You mustn't process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
+        "mustn't process assigned reports beyond the general negation window",
+        "scope.userRequest",
+      ],
+      [
+        "You must not process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
+        "must not process assigned reports beyond the general negation window",
+        "scope.userRequest",
+      ],
+      [
         "Assigned reports are off limits.",
         "assigned reports are off limits",
         "scope.userRequest",
@@ -18377,16 +18397,21 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(authorizationForDifferentRoot),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
     );
-    const explicitlyExcludedRoot = structuredClone(authorizedMagRoot);
-    explicitlyExcludedRoot.scope.userRequest =
-      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but don't touch C_TEST 10.000000.";
-    explicitlyExcludedRoot.scope.narrowingJudgment!.instruction =
-      explicitlyExcludedRoot.scope.userRequest;
-    expectFocusedFailure(
-      "an exact-root exclusion blocks a preceding broad authorization",
-      () => validateTestInventory(explicitlyExcludedRoot),
-      "scope.userRequest explicitly excludes an authorized root",
-    );
+    for (const [exclusion, label] of [
+      ["don't touch", "contraction"],
+      ["should not touch", "should not"],
+      ["must not touch", "must not"],
+    ] as const) {
+      const explicitlyExcludedRoot = structuredClone(authorizedMagRoot);
+      explicitlyExcludedRoot.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but ${exclusion} C_TEST 10.000000.`;
+      explicitlyExcludedRoot.scope.narrowingJudgment!.instruction =
+        explicitlyExcludedRoot.scope.userRequest;
+      expectFocusedFailure(
+        `an exact-root exclusion blocks a preceding broad authorization (${label})`,
+        () => validateTestInventory(explicitlyExcludedRoot),
+        "scope.userRequest explicitly excludes an authorized root",
+      );
+    }
     const anaphoricRootExclusion = structuredClone(authorizedMagRoot);
     anaphoricRootExclusion.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, don't touch it.";

@@ -451,10 +451,11 @@ async function readBuilderCredentialScope(
         try {
           return await readAppSecrets({ keys: [key], ...args });
         } catch (metadataError) {
+          if (!(metadataError instanceof AppSecretDecryptionError)) {
+            throw metadataError;
+          }
           optionalMetadataLookupFailure =
-            metadataError instanceof AppSecretDecryptionError
-              ? (optionalMetadataLookupFailure ?? "unreadable")
-              : "unavailable";
+            optionalMetadataLookupFailure ?? "unreadable";
           return new Map<string, ReadSecretResult>();
         }
       }),
@@ -1150,6 +1151,8 @@ export async function resolveBuilderCredentials(
   subscriptionName: string | null;
   isEnterprise: boolean | null;
   isFreeAccount: boolean | null;
+  lookupFailed?: boolean;
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
 }> {
   const {
     privateKey,
@@ -1162,6 +1165,8 @@ export async function resolveBuilderCredentials(
     subscriptionName,
     isEnterprise,
     isFreeAccount,
+    lookupFailed,
+    optionalMetadataLookupFailure,
   } = await resolveBuilderCredentialsDetailed(identity);
   return {
     privateKey,
@@ -1174,6 +1179,8 @@ export async function resolveBuilderCredentials(
     subscriptionName,
     isEnterprise,
     isFreeAccount,
+    ...(lookupFailed ? { lookupFailed: true } : {}),
+    ...(optionalMetadataLookupFailure ? { optionalMetadataLookupFailure } : {}),
   };
 }
 

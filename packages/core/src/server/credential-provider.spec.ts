@@ -1497,6 +1497,51 @@ describe("resolveBuilderCredentialsDetailed", () => {
       lookupFailed: false,
       optionalMetadataLookupFailure: "unreadable",
     });
+
+    await expect(resolveBuilderCredentials()).resolves.toMatchObject({
+      privateKey: "org-private-key",
+      optionalMetadataLookupFailure: "unreadable",
+    });
+  });
+
+  it("propagates transient optional metadata read failures", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    const storeError = new Error("database unavailable");
+    mockReadAppSecrets.mockImplementation(
+      async ({ keys, scope, scopeId }: any) => {
+        if (keys.length > 2) {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        if (keys.length === 2) {
+          return scope === "org" && scopeId === "builder_io"
+            ? new Map([
+                ["BUILDER_PRIVATE_KEY", { value: "org-private-key" }],
+                ["BUILDER_PUBLIC_KEY", { value: "org-public-key" }],
+              ])
+            : new Map();
+        }
+        if (
+          scope === "org" &&
+          scopeId === "builder_io" &&
+          keys[0] === "BUILDER_USER_ID"
+        ) {
+          throw storeError;
+        }
+        return new Map();
+      },
+    );
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      lookupFailed: true,
+      cause: storeError,
+      privateKey: null,
+      publicKey: null,
+      source: null,
+    });
+    await expect(resolveBuilderCredentials()).resolves.toMatchObject({
+      lookupFailed: true,
+    });
   });
 
   it("sets lookupFailed=false when the row is simply absent", async () => {

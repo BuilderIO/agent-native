@@ -21,7 +21,11 @@ import {
   SECRET_MANAGERS,
 } from "../secrets/managed-keys.js";
 import type { SecretScope } from "../secrets/register.js";
-import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
+import {
+  deleteAppSecret,
+  readAppSecretVersion,
+  writeAppSecret,
+} from "../secrets/storage.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { EnvKeyConfig } from "../server/create-server.js";
 import {
@@ -254,9 +258,12 @@ type RemovalKind = "saved" | "unreadable";
 function removalResourceId(
   ref: ChannelCredentialRef,
   kind: RemovalKind,
+  version: string,
 ): string {
   const refFingerprint = createHash("sha256")
-    .update(`${ref.key}\u0000${ref.scope}\u0000${ref.scopeId}\u0000${kind}`)
+    .update(
+      `${ref.key}\u0000${ref.scope}\u0000${ref.scopeId}\u0000${kind}\u0000${version}`,
+    )
     .digest("base64url");
   return `channels-removal:${refFingerprint}`;
 }
@@ -265,9 +272,10 @@ function removalConfirmation(
   ref: ChannelCredentialRef,
   email: string,
   kind: RemovalKind,
+  version: string,
 ): string {
   return signShortLivedToken({
-    resourceId: removalResourceId(ref, kind),
+    resourceId: removalResourceId(ref, kind, version),
     viewerEmail: email,
   });
 }
@@ -276,11 +284,12 @@ function confirmsRemoval(
   ref: ChannelCredentialRef,
   email: string,
   kind: RemovalKind,
+  version: string,
   confirmation: string,
 ): boolean {
   const result = verifyShortLivedToken(
     confirmation,
-    removalResourceId(ref, kind),
+    removalResourceId(ref, kind, version),
   );
   return result.ok && result.viewerEmail === email;
 }
@@ -328,6 +337,7 @@ interface ResolvedChannelCredentialStatus {
   status: ChannelCredentialStatus;
   removalRef?: ChannelCredentialRef;
   removalKind?: RemovalKind;
+  removalVersion?: string;
 }
 
 async function readCredentialStatus(
@@ -372,7 +382,15 @@ async function readCredentialStatus(
     : source === "saved"
       ? "saved"
       : undefined;
-  const removable = removalRef !== undefined && isChannelsManaged(item.key);
+  const removalVersion =
+    removalRef && isChannelsManaged(item.key)
+      ? await readAppSecretVersion(removalRef)
+      : null;
+  const removable =
+    removalRef !== undefined &&
+    isChannelsManaged(item.key) &&
+    typeof removalVersion === "string" &&
+    removalVersion.length > 0;
   return {
     status: {
       key: item.key,
@@ -390,12 +408,14 @@ async function readCredentialStatus(
               removalRef,
               access.email,
               removalKind!,
+              removalVersion!,
             ),
           }
         : {}),
     },
     ...(removalRef ? { removalRef } : {}),
     ...(removalKind ? { removalKind } : {}),
+    ...(removable ? { removalVersion } : {}),
   };
 }
 
@@ -673,14 +693,27 @@ export async function removeMessagingChannelCredentials(
     ),
   );
   const refsToRemove: ChannelCredentialRef[] = [];
-  for (const { status, removalRef, removalKind } of credentials) {
+  for (const {
+    status,
+    removalRef,
+    removalKind,
+    removalVersion,
+  } of credentials) {
     const confirmation = uniqueConfirmed.get(status.key);
     if (
       !status.removable ||
       !removalRef ||
       !removalKind ||
+      typeof removalVersion !== "string" ||
+      removalVersion.length === 0 ||
       !confirmation ||
-      !confirmsRemoval(removalRef, access.email, removalKind, confirmation)
+      !confirmsRemoval(
+        removalRef,
+        access.email,
+        removalKind,
+        removalVersion,
+        confirmation,
+      )
     ) {
       fail(
         "The channel credentials changed. Refresh and confirm removal again.",

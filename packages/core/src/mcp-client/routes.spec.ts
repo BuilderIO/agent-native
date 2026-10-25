@@ -859,6 +859,52 @@ describe("MCP server routes", () => {
     expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
+  it("returns actionable invalid-header errors when testing an existing server", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
+    mockedSettings.all["u:alice@example.com:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "broken",
+          name: "Broken server",
+          url: "https://mcp.example.test/mcp",
+          headerSecretKey: "mcp_headers:broken",
+          createdAt: 1,
+        },
+      ],
+    };
+    appSecretMocks.read.mockResolvedValue({ value: "not-json" });
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/broken/test?scope=user",
+      "POST",
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      ok: false,
+      error:
+        "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+    });
+  });
+
   it("does not list local built-ins in production runtimes", async () => {
     vi.stubEnv("NODE_ENV", "production");
     mockedSettings.all = {

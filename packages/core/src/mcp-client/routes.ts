@@ -1200,7 +1200,14 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  let config: Awaited<ReturnType<typeof toHttpServerConfigAsync>>;
+  try {
+    config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  } catch (error) {
+    if (!(error instanceof InvalidMcpHeaderConfigurationError)) throw error;
+    setResponseStatus(event, 400);
+    return { ok: false, error: error.message };
+  }
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
     setResponseStatus(event, 400);

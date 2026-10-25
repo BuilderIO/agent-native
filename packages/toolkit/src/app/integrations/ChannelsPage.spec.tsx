@@ -745,6 +745,9 @@ describe("ChannelsPage", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Remove Telegram credentials?");
     expect(dialog?.textContent).toContain("TELEGRAM_WEBHOOK_SECRET");
+    expect(dialog?.textContent).toContain(
+      "The agent stops replying in Telegram for everyone, unless the deployment environment also sets these keys.",
+    );
     expect(actions.manage).not.toHaveBeenCalled();
 
     await act(async () => buttonNamed("Remove", dialog!)?.click());
@@ -764,6 +767,47 @@ describe("ChannelsPage", () => {
       ],
     });
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it("confirms personal credential removal without implying a channel-wide change", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        telegram: {
+          configured: true,
+          enabled: true,
+          unreadableScopes: { TELEGRAM_BOT_TOKEN: "user" },
+        },
+      }),
+    );
+    await render("telegram");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove Telegram credentials"]',
+        )
+        ?.click(),
+    );
+    await flush();
+
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("TELEGRAM_BOT_TOKEN");
+    expect(dialog?.textContent).toContain(
+      "This removes only your personal credentials for Telegram. Other users' credentials and replies won't be affected.",
+    );
+    expect(dialog?.textContent).not.toContain("for everyone");
+
+    await act(async () => buttonNamed("Remove", dialog!)?.click());
+    await flush();
+    expect(actions.manage).toHaveBeenCalledWith({
+      operation: "remove-credentials",
+      platform: "telegram",
+      confirmedCredentials: [
+        {
+          key: "TELEGRAM_BOT_TOKEN",
+          removalConfirmation: "confirmation:TELEGRAM_BOT_TOKEN",
+        },
+      ],
+    });
   });
 
   it("keeps the confirm open with the server's reason when removal fails", async () => {

@@ -87,6 +87,10 @@ export interface BuilderStatus {
   subscriptionName?: string;
   isEnterprise?: boolean;
   isFreeAccount?: boolean;
+  /** A saved Builder credential lookup failed; the result may use a fallback. */
+  credentialLookupFailed?: boolean;
+  /** Optional account details could not be decrypted from saved credentials. */
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   connectError?: { message: string; at: number; code?: string };
   authError?: { message: string; at: number };
 }

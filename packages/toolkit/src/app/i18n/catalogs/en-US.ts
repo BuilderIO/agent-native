@@ -2346,6 +2346,8 @@ const messages = {
     "Remove {{platform}} credentials",
   "settingsShell.channels.removeCredentials.body":
     "The agent stops replying in {{platform}} for everyone, unless the deployment environment also sets these keys.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "This removes only your personal credentials for {{platform}}. Other users' credentials and replies won't be affected.",
   "settingsShell.channels.removeCredentials.confirm": "Remove",
   "settingsShell.channels.removeCredentials.failed":
     "Couldn't remove the credentials.",

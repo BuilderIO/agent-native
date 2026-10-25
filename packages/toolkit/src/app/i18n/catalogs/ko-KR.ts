@@ -2306,6 +2306,8 @@ const messages: ToolkitAgentChatTranslation = {
     "{{platform}} 자격 증명 제거",
   "settingsShell.channels.removeCredentials.body":
     "배포 환경에서도 이 키를 설정하지 않는 한, 에이전트가 모든 사용자에게 {{platform}}에서 더 이상 응답하지 않습니다.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "{{platform}}의 개인 자격 증명만 제거됩니다. 다른 사용자의 자격 증명과 응답에는 영향을 주지 않습니다.",
   "settingsShell.channels.removeCredentials.confirm": "제거",
   "settingsShell.channels.removeCredentials.failed":
     "자격 증명을 제거하지 못했습니다.",

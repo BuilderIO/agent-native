@@ -18,7 +18,7 @@
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   getDbExec,
@@ -546,6 +546,29 @@ export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
     args: [ref.scope, ref.scopeId, ref.key],
   });
   return rows.length > 0;
+}
+
+/**
+ * Read an opaque version for a secret row without decrypting or returning its
+ * value. The ciphertext changes on every write, including same-millisecond
+ * rotations, so consumers can bind confirmations to the exact saved row.
+ */
+export async function readAppSecretVersion(
+  ref: SecretRef,
+): Promise<string | null> {
+  await ensureTable();
+  const { key, scope, scopeId } = ref;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [scope, scopeId, key],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return createHash("sha256")
+    .update(String(row.encrypted_value ?? ""))
+    .update("\u0000")
+    .update(String(row.shared_encrypted_value ?? ""))
+    .digest("base64url");
 }
 
 export async function readAppSecretMeta(
