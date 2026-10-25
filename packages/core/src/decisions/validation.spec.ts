@@ -1,6 +1,48 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { validateDecisionInput } from "./validation.js";
+const providerMocks = vi.hoisted(() => ({
+  getJevContextCredentials: vi.fn(),
+  getOwnerApiKeyForEngine: vi.fn(),
+  isJevEnabled: vi.fn(),
+  JevProviderRequestError: class JevProviderRequestError extends Error {},
+  requestJev: vi.fn(),
+  DecisionProviderRequestError: class DecisionProviderRequestError extends Error {},
+  requestOpenAiDecision: vi.fn(),
+}));
+
+vi.mock("../agent/production-agent.js", () => ({
+  getJevContextCredentials: providerMocks.getJevContextCredentials,
+  getOwnerApiKeyForEngine: providerMocks.getOwnerApiKeyForEngine,
+}));
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: () => ({
+    decisions: { providerOrder: ["jev", "openai"], timeoutMs: 10_000 },
+  }),
+}));
+vi.mock("../server/request-context.js", () => ({
+  getRequestOrgId: () => "org-example",
+}));
+vi.mock("./providers/jev.js", () => ({
+  JevProviderRequestError: providerMocks.JevProviderRequestError,
+  isJevEnabled: providerMocks.isJevEnabled,
+  requestJev: providerMocks.requestJev,
+}));
+vi.mock("./providers/openai.js", () => ({
+  OPENAI_DECISIONS_MODEL: "gpt-6-luna",
+  DecisionProviderRequestError: providerMocks.DecisionProviderRequestError,
+  requestOpenAiDecision: providerMocks.requestOpenAiDecision,
+}));
+
+import { decide } from "./decide.js";
+import type { DecisionInput } from "./types.js";
+import {
+  MAX_DECISION_PAYLOAD_BYTES,
+  validateDecisionInput,
+} from "./validation.js";
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 function decisionInput(value: unknown) {
   return {
@@ -110,5 +152,60 @@ describe("validateDecisionInput JSON values", () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("decision payload size", () => {
+  const oversizedInputs: Array<[string, DecisionInput]> = [
+    ["text", "x".repeat(MAX_DECISION_PAYLOAD_BYTES)],
+    ["JSON", [{ type: "json", value: "x".repeat(MAX_DECISION_PAYLOAD_BYTES) }]],
+    [
+      "aggregate text parts",
+      [
+        { type: "text", text: "x".repeat(130 * 1024) },
+        { type: "text", text: "x".repeat(130 * 1024) },
+      ],
+    ],
+  ];
+
+  it.each(oversizedInputs)(
+    "rejects oversized %s before provider calls",
+    async (_label, input) => {
+      const result = await decide({
+        ownerEmail: "owner@example.test",
+        input,
+        questions: decisionInput(null).questions,
+        options: { providers: ["openai"] },
+      });
+
+      expect(result).toEqual({ status: "failed", reason: "invalid_input" });
+      expect(providerMocks.requestJev).not.toHaveBeenCalled();
+      expect(providerMocks.requestOpenAiDecision).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts a payload below the aggregate limit", () => {
+    expect(
+      validateDecisionInput({
+        input: "x".repeat(MAX_DECISION_PAYLOAD_BYTES - 1024),
+        questions: decisionInput(null).questions,
+      }),
+    ).toBe(true);
+  });
+
+  it("counts UTF-8 bytes at the aggregate payload limit", () => {
+    const questions = decisionInput(null).questions;
+    const emptyInputPayloadBytes = new TextEncoder().encode(
+      JSON.stringify({ input: "", questions }),
+    ).length;
+    const remainingBytes = MAX_DECISION_PAYLOAD_BYTES - emptyInputPayloadBytes;
+    const input =
+      "🧪".repeat(Math.floor(remainingBytes / 4)) +
+      "x".repeat(remainingBytes % 4);
+
+    expect(validateDecisionInput({ input, questions })).toBe(true);
+    expect(validateDecisionInput({ input: `${input}x`, questions })).toBe(
+      false,
+    );
   });
 });

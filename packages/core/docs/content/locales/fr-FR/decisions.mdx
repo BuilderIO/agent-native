@@ -21,6 +21,8 @@ const input = [
 ];
 ```
 
+La taille JSON sérialisée combinée de `input` et `questions` ne doit pas dépasser 256 Kio.
+
 Chaque question possède un nom et des instructions. Son type détermine les champs supplémentaires :
 
 | Type        | Champs supplémentaires                                           | Objectif                                |
@@ -113,7 +115,7 @@ En cas de réussite, result.status vaut ok. Le résultat contient provider, mode
 
 La prise en charge des questions peut varier selon le fournisseur et le modèle. decide() tient compte des capacités. Ne supposez donc pas que chaque fournisseur prend en charge tous les types de question. N’annoncez une combinaison fournisseur, modèle et type de question qu’après l’avoir vérifiée. Le résultat réussi identifie le fournisseur et le modèle qui ont répondu.
 
-L’ordre des fournisseurs peut être configuré pour chaque espace de travail. Par défaut, ils sont essayés dans cet ordre : Builder Jev, une clé Jev personnelle, puis OpenAI. Si aucun fournisseur n’est configuré, `decide()` renvoie `not_configured`. Dans la configuration de l’espace de travail, `decisions.providerOrder` définit l’ordre des fournisseurs et `decisions.timeoutMs` le délai par fournisseur ; leurs alias d’environnement sont `DECISIONS_PROVIDER_ORDER` (séparé par des virgules) et `DECISIONS_TIMEOUT_MS`. Toute clé de seuil ou de cache propre à un fournisseur doit inclure à la fois le fournisseur et le modèle afin de ne pas réutiliser l’étalonnage ou les résultats d’un modèle pour un autre.
+L’ordre des fournisseurs peut être configuré pour chaque espace de travail. Par défaut, ils sont essayés dans cet ordre : Builder Jev, une clé Jev personnelle, puis OpenAI. Si aucun fournisseur n’est configuré, `decide()` renvoie `not_configured`. Dans la configuration de l’espace de travail, `decisions.providerOrder` définit l’ordre des fournisseurs. `decisions.timeoutMs` définit le budget total d’une décision. Il inclut la recherche des identifiants et l’exécution du fournisseur. Tous les essais de fournisseur partagent ce budget. Les alias d’environnement sont `DECISIONS_PROVIDER_ORDER` (séparé par des virgules) et `DECISIONS_TIMEOUT_MS`. Toute clé de seuil ou de cache propre à un fournisseur doit inclure à la fois le fournisseur et le modèle afin de ne pas réutiliser l’étalonnage ou les résultats d’un modèle pour un autre.
 Les capacités des fournisseurs dépendent de la route. Le proxy Builder Jev est vérifié pour `predicate` et `choice`. Le `score` Jev reste non vérifié et désactivé par son indicateur de capacité ; `decide()` ignore Jev pour les questions de score et passe au fournisseur configuré suivant. `getDecisionsStatus()` renvoie l’état de vérification des capacités et indique si chacune est activée. L’API OpenAI Decisions accepte des questions de score avec 2 à 10 niveaux ordonnés ; des fixtures conformes au format documenté couvrent la conversion des requêtes et des réponses.
 
 decide() renvoie des classifications ou des scores que l’appelant interprète. Utilisez une action autorisée distincte pour toute modification ultérieure des données de l’application.

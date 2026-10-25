@@ -21,6 +21,8 @@ const input = [
 ];
 ```
 
+`input` 和 `questions` 序列化为 JSON 后的总大小不得超过 256 KiB。
+
 每个问题都有 name 和 instructions。问题类型决定了额外字段：
 
 | 类型        | 额外字段                           | 用途                   |
@@ -113,7 +115,7 @@ const urgency = triage.answers["urgency"];
 
 不同提供方和模型支持的问题类型可能不同。decide() 会考虑能力，因此不要假定所有提供方都支持所有问题类型。只有在验证后，才能宣传某个提供方、模型和问题类型组合。成功结果会标明作答的提供方和模型。
 
-每个工作区都可以单独配置提供方顺序。默认按以下顺序尝试：Builder Jev、个人 Jev 密钥，然后是 OpenAI。如果没有配置任何提供方，`decide()` 会返回 `not_configured`。工作区配置中的 `decisions.providerOrder` 控制提供方顺序，`decisions.timeoutMs` 设置每个提供方的超时时间；对应的环境变量别名为 `DECISIONS_PROVIDER_ORDER`（逗号分隔）和 `DECISIONS_TIMEOUT_MS`。按提供方设置的阈值或缓存键必须同时包含提供方和模型，避免将一个模型的校准结果或缓存结果用于另一个模型。
+每个工作区都可以单独配置提供方顺序。默认按以下顺序尝试：Builder Jev、个人 Jev 密钥，然后是 OpenAI。如果没有配置任何提供方，`decide()` 会返回 `not_configured`。工作区配置中的 `decisions.providerOrder` 控制提供方顺序。`decisions.timeoutMs` 设置单次决策的总时间预算，包括凭据查找和提供方执行。所有提供方尝试共享此预算。对应的环境变量别名为 `DECISIONS_PROVIDER_ORDER`（逗号分隔）和 `DECISIONS_TIMEOUT_MS`。按提供方设置的阈值或缓存键必须同时包含提供方和模型，避免将一个模型的校准结果或缓存结果用于另一个模型。
 提供方能力取决于调用路由。Builder Jev 代理已验证支持 `predicate` 和 `choice`。Jev `score` 尚未验证，并由能力标志保持禁用；对于 score 问题，`decide()` 会跳过 Jev 并继续尝试下一个已配置的提供方。`getDecisionsStatus()` 会返回能力的验证状态以及各项能力是否启用。OpenAI Decisions API 支持使用 2–10 个有序级别的 score 问题；文档格式的 fixtures 覆盖了请求和响应映射。
 
 decide() 返回由调用方解释的分类或分数。若要进一步更改应用数据，请使用单独且经过授权的 action。
