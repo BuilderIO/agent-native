@@ -3,8 +3,8 @@
  *
  * Server code counts and tracks inside the request. A serverless instance can
  * freeze once the response is sent, so a count scheduled with `setTimeout`,
- * `setImmediate` or `queueMicrotask` may run only when the instance next
- * thaws, or never. Content's save-outcome and editor-mount counters both
+ * `setInterval`, `setImmediate` or `queueMicrotask` may run only when the
+ * instance next thaws, or never. Content's save-outcome and editor-mount counters both
  * deferred their count this way.
  *
  * `countOutcome` only bumps an in-memory window, so call it in the request and
@@ -16,9 +16,14 @@
  *     // coercion-ok: a count cannot change the response.
  *   }
  *
- * The guard scans every server source file (actions and server directories)
- * for a timer callback that calls a tracking or count function. A timer that
- * has to defer one says why, on any line of the timer call or the line above:
+ * The guard scans every server source file (actions and server directories
+ * of templates, community templates, apps and packages) for a timer callback
+ * that calls `track`, a `track…` wrapper such as `trackLifecycleEvent`, or a
+ * count helper. It follows a callback passed by name, functions the same file
+ * defines, and names the file binds to a timer (`const defer = setTimeout`).
+ * It does not follow helpers imported from other files unless their names say
+ * they track or count. A timer that has to defer a count says why, on any line
+ * of the timer call or the line above:
  *
  *   // guard:allow-deferred-count — <why the count can wait>
  */
@@ -37,13 +42,17 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-deferred-count\b/;
 const IN_SCOPE =
-  /^(?:(?:templates|apps)\/[^/]+\/(?:actions|server)\/|packages\/[^/]+\/src\/(?:.+\/)?(?:actions|server)\/)/;
+  /^(?:(?:templates|community-templates|apps)\/[^/]+\/(?:actions|server)\/|packages\/[^/]+\/src\/(?:.+\/)?(?:actions|server)\/)/;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
-const TIMERS = new Set(["setTimeout", "setImmediate", "queueMicrotask"]);
+const TIMERS = new Set([
+  "setTimeout",
+  "setInterval",
+  "setImmediate",
+  "queueMicrotask",
+]);
+const TIMER_WORD = /setTimeout|setInterval|setImmediate|queueMicrotask/;
 const COUNTS = new Set([
-  "track",
-  "trackEvent",
   "countOutcome",
   "countActionFailure",
   "countAttachmentOutcome",
@@ -70,12 +79,97 @@ function calleeName(expression: ts.Expression): string | undefined {
   return undefined;
 }
 
-function callsCount(node: ts.Node): boolean {
+/** `track`, its wrappers such as `trackEvent`, and the count helpers. */
+function isCountName(name: string): boolean {
+  return COUNTS.has(name) || /^track(?:[A-Z]\w*)?$/.test(name);
+}
+
+function functionBody(node: ts.Node | undefined): ts.Node | undefined {
+  if (!node) return undefined;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+    return node.body;
+  }
+  return undefined;
+}
+
+/** Functions the file defines by name, so a helper's count is seen. */
+function localFunctions(sourceFile: ts.SourceFile): Map<string, ts.Node> {
+  const functions = new Map<string, ts.Node>();
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      functions.set(node.name.text, node.body);
+    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const body = functionBody(node.initializer);
+      if (body) functions.set(node.name.text, body);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return functions;
+}
+
+function isTimerReference(expression: ts.Expression): boolean {
+  const name = calleeName(expression);
+  if (name && TIMERS.has(name)) return true;
+  // `setTimeout.bind(globalThis)`
+  return (
+    ts.isCallExpression(expression) &&
+    ts.isPropertyAccessExpression(expression.expression) &&
+    expression.expression.name.text === "bind" &&
+    isTimerReference(expression.expression.expression)
+  );
+}
+
+/** Names the file binds to a timer, such as `const defer = setTimeout`. */
+function timerAliases(sourceFile: ts.SourceFile): Set<string> {
+  const aliases = new Set<string>();
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isTimerReference(node.initializer)
+    ) {
+      aliases.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return aliases;
+}
+
+function callsCount(
+  node: ts.Node,
+  functions: ReadonlyMap<string, ts.Node>,
+  followed: Set<string>,
+): boolean {
   if (ts.isCallExpression(node)) {
     const name = calleeName(node.expression);
-    if (name && COUNTS.has(name)) return true;
+    if (name && isCountName(name)) return true;
+    if (name && ts.isIdentifier(node.expression) && !followed.has(name)) {
+      followed.add(name);
+      const helper = functions.get(name);
+      if (helper && callsCount(helper, functions, followed)) return true;
+    }
   }
-  return ts.forEachChild(node, callsCount) ?? false;
+  return (
+    ts.forEachChild(node, (child) => callsCount(child, functions, followed)) ??
+    false
+  );
+}
+
+function deferredCallbackCounts(
+  callback: ts.Expression | undefined,
+  functions: ReadonlyMap<string, ts.Node>,
+): boolean {
+  if (!callback) return false;
+  if (ts.isIdentifier(callback)) {
+    if (isCountName(callback.text)) return true;
+    const helper = functions.get(callback.text);
+    return !!helper && callsCount(helper, functions, new Set([callback.text]));
+  }
+  const body = functionBody(callback);
+  return !!body && callsCount(body, functions, new Set());
 }
 
 export function findDeferredCounts(
@@ -94,17 +188,17 @@ export function findDeferredCounts(
   );
   const lines = source.split(/\r?\n/);
   const findings: DeferredCountFinding[] = [];
+  const functions = localFunctions(sourceFile);
+  const aliases = timerAliases(sourceFile);
+  const isTimer = (expression: ts.Expression) =>
+    (ts.isIdentifier(expression) && aliases.has(expression.text)) ||
+    TIMERS.has(calleeName(expression) ?? "");
 
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
-      const name = calleeName(node.expression);
-      const callback = node.arguments[0];
       if (
-        name &&
-        TIMERS.has(name) &&
-        callback &&
-        (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
-        callsCount(callback.body)
+        isTimer(node.expression) &&
+        deferredCallbackCounts(node.arguments[0], functions)
       ) {
         const start =
           sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
@@ -134,7 +228,15 @@ export function findDeferredCounts(
 function serverSourceFiles(): string[] {
   const listed = execFileSync(
     "git",
-    ["ls-files", "-z", "--", "templates", "apps", "packages"],
+    [
+      "ls-files",
+      "-z",
+      "--",
+      "templates",
+      "community-templates",
+      "apps",
+      "packages",
+    ],
     { cwd: rootDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
   return listed.split("\0").filter((rel) => rel && isServerSourcePath(rel));
@@ -164,7 +266,7 @@ function main() {
       process.exit(GUARD_EXIT_COULD_NOT_RUN);
     }
     inspected += 1;
-    if (!/setTimeout|setImmediate|queueMicrotask/.test(source)) continue;
+    if (!TIMER_WORD.test(source)) continue;
     findings.push(...findDeferredCounts(rel, source));
   }
 

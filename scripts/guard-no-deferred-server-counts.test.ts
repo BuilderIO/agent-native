@@ -28,6 +28,43 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(flagged(source), [1, 6, 7, 8]);
   });
 
+  it("flags intervals and tracking wrappers", () => {
+    const source = [
+      'setInterval(() => countOutcome("content_editor_mount_counts", {}), 60_000);',
+      'setTimeout(() => trackLifecycleEvent("page_opened"), 0);',
+      'setTimeout(() => trackActionEvent("edit-document", {}), 0);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [1, 2, 3]);
+  });
+
+  it("follows callbacks and helpers the file defines", () => {
+    const source = [
+      "function flushCounts() {",
+      '  countOutcome("content_editor_mount_counts", {});',
+      "}",
+      "const report = () => flushCounts();",
+      "setTimeout(flushCounts, 0);",
+      "setTimeout(() => report(), 0);",
+      "setTimeout(report);",
+      "setTimeout(track, 0);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [5, 6, 7, 8]);
+  });
+
+  it("follows names the file binds to a timer", () => {
+    const source = [
+      "const defer = setTimeout;",
+      "const later = globalThis.setImmediate.bind(globalThis);",
+      'defer(() => countOutcome("content_editor_mount_counts", {}), 0);',
+      'later(() => track("page_saved"));',
+      'queue.defer(() => countOutcome("content_editor_mount_counts", {}));',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [3, 4]);
+  });
+
   it("allows counts inside the request and timers that do not count", () => {
     const source = [
       "try {",
@@ -37,6 +74,11 @@ describe("deferred server counts guard", () => {
       "}",
       "const timer = setTimeout(() => controller.abort(), 5_000);",
       "setTimeout(resolve, 0);",
+      "function retry() {",
+      "  return fetchAgain();",
+      "}",
+      "setTimeout(retry, 1_000);",
+      "setInterval(() => sweepExpired(), 60_000);",
     ].join("\n");
 
     assert.deepEqual(flagged(source), []);
@@ -65,6 +107,12 @@ describe("deferred server counts guard", () => {
     );
     assert.equal(
       isServerSourcePath("packages/core/src/server/action-routes.ts"),
+      true,
+    );
+    assert.equal(
+      isServerSourcePath(
+        "community-templates/account-expert/actions/get-workflow.ts",
+      ),
       true,
     );
     assert.equal(
