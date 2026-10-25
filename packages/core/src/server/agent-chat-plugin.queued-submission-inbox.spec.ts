@@ -1906,6 +1906,71 @@ describe("queued submission inbox recurring sweep", () => {
     }
   }, 20_000);
 
+  it("does not spend admission retries when the post-claim active-run lookup fails", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+    inboxHarness.afterInboxClaim = async () => {
+      inboxHarness.failActiveRunCheckThreadId = threadId;
+    };
+    inboxHarness.admit = async () => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: `run-${messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${messageId}`;
+    };
+    const runSweep = await createSweepHandler();
+
+    try {
+      const firstResponse = await runSweep();
+      expect(firstResponse.status).toBe(500);
+      await expect(firstResponse.json()).resolves.toMatchObject({
+        queuedSubmissionDrain: {
+          claimed: 1,
+          deferred: 1,
+          failed: 1,
+          scanned: 1,
+        },
+      });
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "queued", retryCount: 0 });
+      expect(inboxHarness.admissionAttempts).toEqual([]);
+
+      const recoveredResponse = await runSweep();
+      expect(recoveredResponse.status).toBe(200);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+      expect(inboxHarness.admissionAttempts).toEqual([messageId]);
+      expect(inboxHarness.admissions).toHaveLength(1);
+    } finally {
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
   it("admits a queued receipt once through the authenticated sweep", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;

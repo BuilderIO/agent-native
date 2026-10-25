@@ -9118,7 +9118,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           let claimId: string | undefined;
           let retryCount = receipt.retryCount;
           let recoveryMutationAttempted = false;
-          let activeRunPreflightError: { error: unknown } | undefined;
+          let activeRunLookupError: { error: unknown } | undefined;
           const retryClaimedReceipt = async (countRetry = false) => {
             if (!claimId) {
               throw new Error(
@@ -9238,7 +9238,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   continue;
                 }
               } catch (error) {
-                activeRunPreflightError = { error };
+                activeRunLookupError = { error };
               }
             }
 
@@ -9256,17 +9256,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error.code !== "queued_message_id_conflict"
               ) {
                 claimId = undefined;
-                if (activeRunPreflightError) {
-                  throw activeRunPreflightError.error;
+                if (activeRunLookupError) {
+                  throw activeRunLookupError.error;
                 }
                 deferReceipt(receipt.threadId);
                 continue;
               }
               throw error;
             }
-            if (activeRunPreflightError && !claim?.claimedMessage) {
+            if (activeRunLookupError && !claim?.claimedMessage) {
               claimId = undefined;
-              throw activeRunPreflightError.error;
+              throw activeRunLookupError.error;
             }
             if (claim?.receiptUnavailable) {
               claimId = undefined;
@@ -9313,11 +9313,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               } else {
                 deferReceipt(receipt.threadId);
               }
-              if (activeRunPreflightError) {
+              if (activeRunLookupError) {
                 result.failed += 1;
                 console.error(
-                  `[agent-chat] active-run preflight failed for ${receipt.messageId}:`,
-                  activeRunPreflightError.error,
+                  `[agent-chat] active-run lookup failed for ${receipt.messageId}:`,
+                  activeRunLookupError.error,
                 );
               }
               await mutateThreadQueuedMessages(receipt.threadId, {
@@ -9389,10 +9389,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             }
 
-            if (activeRunPreflightError) {
-              throw activeRunPreflightError.error;
+            if (activeRunLookupError) {
+              throw activeRunLookupError.error;
             }
-            const active = await getActiveRunForThreadAsync(receipt.threadId);
+            let active: Awaited<ReturnType<typeof getActiveRunForThreadAsync>>;
+            try {
+              active = await getActiveRunForThreadAsync(receipt.threadId);
+            } catch (error) {
+              activeRunLookupError = { error };
+              throw error;
+            }
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
                 // The completion drain may already have collided with this
@@ -9680,8 +9686,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               error,
             );
             if (
-              activeRunPreflightError &&
-              Object.is(error, activeRunPreflightError.error)
+              activeRunLookupError &&
+              Object.is(error, activeRunLookupError.error)
             ) {
               if (claimId) {
                 try {
@@ -9693,7 +9699,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   claimId = undefined;
                 } catch (releaseError) {
                   console.error(
-                    `[agent-chat] could not release queued submission ${receipt.messageId} after active-run preflight failed:`,
+                    `[agent-chat] could not release queued submission ${receipt.messageId} after active-run lookup failed:`,
                     releaseError,
                   );
                 }
