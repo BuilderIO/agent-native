@@ -153,10 +153,23 @@ function specFile(spec: string): string {
   return spec.slice(0, colon);
 }
 
+const SOURCE_FILE = /\.tsx?$/;
+
+/** Whether a spec such as `index.browser.spec.ts` names a sibling module (`index.browser.ts`). */
+function namesSiblingSource(
+  spec: string,
+  base: string,
+  sources: ReadonlySet<string>,
+): boolean {
+  const stem = spec.replace(/\.(?:spec|test)\.tsx?$/, "");
+  if (stem === base) return false;
+  return sources.has(`${stem}.ts`) || sources.has(`${stem}.tsx`);
+}
+
 /** Whether `text` imports `./<base>` statically, re-exports it, or imports it dynamically. */
 function importsModule(text: string, base: string): boolean {
   const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const target = `\\./${escaped}(?:\\.js|\\.ts)?["']`;
+  const target = `\\./${escaped}(?:\\.jsx?|\\.tsx?)?["']`;
   return new RegExp(
     `(?:\\bfrom|\\bimport)\\s*["']${target}|\\bimport\\s*\\(\\s*["']${target}`,
   ).test(text);
@@ -186,8 +199,18 @@ export function namedSpecs(
     const directory = path.posix.dirname(file);
     const base = path.posix.basename(file).replace(/\.tsx?$/, "");
     const entries = listDirectory(directory);
+    // `index.browser.spec.ts` beside `index.browser.ts` is that module's spec,
+    // not `index.ts`'s, so a variant naming a sibling source file is skipped.
+    const sources = new Set(
+      entries.filter(
+        (entry) => SOURCE_FILE.test(entry) && !TEST_FILE.test(entry),
+      ),
+    );
     let selected = entries.filter(
-      (entry) => entry.startsWith(`${base}.`) && TEST_FILE.test(entry),
+      (entry) =>
+        entry.startsWith(`${base}.`) &&
+        TEST_FILE.test(entry) &&
+        !namesSiblingSource(entry, base, sources),
     );
     if (selected.length === 0) {
       selected = entries.filter(

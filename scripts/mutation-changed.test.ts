@@ -155,6 +155,35 @@ test("does not count session-store.spec.ts, which imports only ./session-store, 
   );
 });
 
+test("does not take a sibling module's dot spec, and falls back to importers instead", () => {
+  const listing = [
+    "index.ts",
+    "index.browser.ts",
+    "index.browser.spec.ts",
+    "exports.spec.ts",
+  ];
+  const files = {
+    "src/index.browser.spec.ts": `import { x } from "./index.browser";`,
+    "src/exports.spec.ts": `import * as core from "./index";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/index.ts:1-2"], () => listing, readFrom(files)),
+    { include: ["src/exports.spec.ts"], missing: [] },
+  );
+});
+
+test("matches explicit .tsx and .jsx import suffixes", () => {
+  const listing = ["a.spec.tsx", "b.spec.ts"];
+  const files = {
+    "src/a.spec.tsx": `import { Widget } from "./widget.tsx";`,
+    "src/b.spec.ts": `import { Widget } from "./widget.jsx";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/widget.tsx:1-2"], () => listing, readFrom(files)),
+    { include: ["src/a.spec.tsx", "src/b.spec.ts"], missing: [] },
+  );
+});
+
 test("reports surviving and uncovered mutants with their location", () => {
   const report = {
     files: {
