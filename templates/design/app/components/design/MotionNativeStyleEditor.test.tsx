@@ -125,6 +125,29 @@ describe("MotionNativeStyleEditor", () => {
     ).toBe("M 0 100 L 25 75 L 100 0");
   });
 
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 continues the nearest
+  // segment outside the provided stop range: https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("extends CSS linear() stop previews along their nearest segments", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0 20%, 1 80%)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 133.33 L 20 100 L 80 0 L 100 -33.33");
+  });
+
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 resolves equal stop
+  // inputs to point B: https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
   it("clamps descending CSS linear() stop positions to the preceding stop", async () => {
     await act(async () => {
       root.render(
@@ -141,7 +164,29 @@ describe("MotionNativeStyleEditor", () => {
       container
         .querySelector("svg[data-easing-curve] path[data-curve-path]")
         ?.getAttribute("d"),
-    ).toBe("M 80 100 L 80 0");
+    ).toBe("M 0 0 L 80 0 L 100 0");
+  });
+
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 selects the last point
+  // at an equal input, so intermediate points in a run are not outputs:
+  // https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("draws only the output limits for CSS linear() stops at equal positions", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0, 0.4 50%, 0.9 50%, 0.6 50%, 1)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 100 L 50 60 L 50 40 L 100 0");
   });
 
   it.each(["steps(1, jump-none)", "steps(129, end)"])(
@@ -466,6 +511,23 @@ describe("MotionNativeStyleEditor", () => {
       expect(trigger.getAttribute("aria-expanded")).toBe("true");
     });
   }
+
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 continues the nearest
+  // segment outside the provided stop range: https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("renders a valid compact path for a selected CSS linear() easing", async () => {
+    await renderPicker({ value: "linear(0 20%, 1 80%)" });
+    await openEasingPicker("designEditor.motion.customBezier");
+
+    const preview = document.body.querySelector<SVGSVGElement>(
+      'svg[data-motion-easing-preview="custom-bezier"]',
+    );
+    expect(preview?.querySelector("path")?.getAttribute("d")).toBe(
+      "M1 18 L3.8 14 L12.2 2 L15 -2",
+    );
+    expect(preview?.querySelector("path")?.getAttribute("d")).not.toMatch(
+      /\bL\s+L\b/,
+    );
+  });
 
   it("orders easing presets with Hold first", async () => {
     await renderPicker();

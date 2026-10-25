@@ -3478,6 +3478,36 @@ function Card() {
     ).toMatchObject({ status: "unsupported", code: "missing-node" });
   });
 
+  it("allows metadata-only React capability when easing variables remain", () => {
+    const modulePath = "src/components/Card.tsx";
+    const moduleVersionHash = "a".repeat(64);
+    const easingVariables = [
+      { id: "gentle", name: "Gentle", value: "ease-in-out" },
+    ];
+    const authored = apply(source, { easingVariables }).source;
+    const easingOnly = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      timeline: { ...makeTimeline(), tracks: [] },
+      easingVariables,
+    }).source;
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: easingOnly,
+        targetNodeIds: [],
+        modulePath,
+        moduleVersionHash,
+      }),
+    ).toEqual({
+      status: "supported",
+      modulePath,
+      moduleVersionHash,
+      targetNodeIds: [],
+    });
+  });
+
   it("rejects malformed managed styles and stale or missing metadata", () => {
     const malformed = source.replace(
       '    <main className="card">',

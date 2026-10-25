@@ -1790,7 +1790,9 @@ export function MotionEasingPicker({
     return mode === "spring" ? springOption : !springOption;
   });
   const selectedPreset = pickerOptions.find((option) => {
-    if (option.value === "custom-bezier") return isCustomBezier(value);
+    if (option.value === "custom-bezier") {
+      return isCustomBezier(value) || parseLinearStops(value) !== null;
+    }
     if (option.value === "custom-spring")
       return parseSpringToken(value) !== null;
     return option.value === value;
@@ -1953,7 +1955,8 @@ export function MotionEasingPicker({
                   pickerOptions.map((option) => {
                     const selected =
                       option.value === "custom-bezier"
-                        ? isCustomBezier(value)
+                        ? isCustomBezier(value) ||
+                          parseLinearStops(value) !== null
                         : option.value === "custom-spring"
                           ? parseSpringToken(value) !== null
                           : option.value === value;
@@ -2477,9 +2480,11 @@ export function MotionBezierCurveEditor({
   }, [value]);
 
   if (!points) {
-    const staticPath = isStepFunction ?? pathFromLinearStops(linearPoints);
+    const previewLinearPoints = linearPreviewPoints(linearPoints);
+    const staticPath =
+      isStepFunction ?? pathFromLinearStops(previewLinearPoints);
     if (!staticPath) return null;
-    const outputs = linearPoints?.map((point) => point.output) ?? [0, 1];
+    const outputs = previewLinearPoints?.map((point) => point.output) ?? [0, 1];
     const minY = 100 - Math.max(1, ...outputs) * 100;
     const maxY = 100 - Math.min(0, ...outputs) * 100;
     return (
@@ -3027,7 +3032,8 @@ function easingPreviewValue(
   selectedValue: string,
 ): string {
   if (optionValue === "custom-bezier") {
-    return isCustomBezier(selectedValue)
+    return isCustomBezier(selectedValue) ||
+      parseLinearStops(selectedValue) !== null
       ? selectedValue
       : MOTION_DEFAULT_CUSTOM_BEZIER;
   }
@@ -3072,19 +3078,15 @@ function easingPreviewPath(value: string): string {
         (_match, y) => ` V${14 - (Number(y) / 100) * 12}`,
       );
   }
-  const linearPath = pathFromLinearStops(parseLinearStops(value));
-  if (linearPath) {
-    return linearPath
-      .replace(
-        /^M\s*(-?[\d.]+)\s+(-?[\d.]+)/,
-        (_match, x, y) =>
-          `M${1 + (Number(x) / 100) * 14} ${14 - (Number(y) / 100) * 12}`,
-      )
-      .replace(
-        /\s+(-?[\d.]+)\s+(-?[\d.]+)/g,
-        (_match, x, y) =>
-          ` L${1 + (Number(x) / 100) * 14} ${14 - (Number(y) / 100) * 12}`,
-      );
+  const linearPoints = parseLinearStops(value);
+  if (linearPoints) {
+    const previewPoints = linearPreviewPoints(linearPoints)!;
+    const toPreviewPoint = ({ position, output }: LinearStopPoint) =>
+      `${formatEasingNumber(1 + (position / 100) * 14)} ${formatEasingNumber(14 - output * 12)}`;
+    return `M${toPreviewPoint(previewPoints[0]!)} L${previewPoints
+      .slice(1)
+      .map(toPreviewPoint)
+      .join(" L")}`;
   }
 
   const [x1, y1, x2, y2] =
@@ -3267,6 +3269,90 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
     position: position!,
     output,
   }));
+}
+
+function linearPreviewPoints(
+  points: LinearStopPoint[] | null,
+): LinearStopPoint[] | null {
+  if (!points || points.length < 2) return points;
+
+  const first = points[0]!;
+  const second = points[1]!;
+  let preview = [...points];
+
+  if (first.position > 0) {
+    if (first.position === second.position) {
+      let firstRunEnd = 1;
+      while (
+        firstRunEnd + 1 < points.length &&
+        points[firstRunEnd + 1]!.position === first.position
+      ) {
+        firstRunEnd += 1;
+      }
+      preview = [
+        { position: 0, output: second.output },
+        { position: first.position, output: second.output },
+        ...points.slice(firstRunEnd),
+      ];
+    } else {
+      preview.unshift({
+        position: 0,
+        output: extrapolateLinearOutput(first, second, 0),
+      });
+    }
+  } else if (first.position === 0 && first.position === second.position) {
+    let firstRunEnd = 1;
+    while (
+      firstRunEnd + 1 < points.length &&
+      points[firstRunEnd + 1]!.position === first.position
+    ) {
+      firstRunEnd += 1;
+    }
+    preview = points.slice(firstRunEnd);
+  }
+
+  const last = points[points.length - 1]!;
+  if (last.position < 100) {
+    const penultimate = points[points.length - 2]!;
+    preview.push({
+      position: 100,
+      output: extrapolateLinearOutput(penultimate, last, 100),
+    });
+  }
+
+  const curve: LinearStopPoint[] = [];
+  for (let index = 0; index < preview.length; ) {
+    let lastIndex = index;
+    while (
+      lastIndex + 1 < preview.length &&
+      preview[lastIndex + 1]!.position === preview[index]!.position
+    ) {
+      lastIndex += 1;
+    }
+
+    curve.push(preview[index]!);
+    if (
+      lastIndex > index &&
+      preview[lastIndex]!.output !== preview[index]!.output
+    ) {
+      // Intermediate equal-input stops do not contribute output values.
+      curve.push(preview[lastIndex]!);
+    }
+    index = lastIndex + 1;
+  }
+
+  return curve;
+}
+
+function extrapolateLinearOutput(
+  first: LinearStopPoint,
+  second: LinearStopPoint,
+  position: number,
+): number {
+  if (first.position === second.position) return second.output;
+  const progress =
+    (position - first.position) / (second.position - first.position);
+  return first.output + progress * (second.output - first.output);
 }
 
 function pathFromLinearStops(points: LinearStopPoint[] | null): string | null {

@@ -666,6 +666,7 @@ export function inspectMotionReactSourceWriteCapability(args: {
       const canEditMetadata =
         read.status === "valid" &&
         ((read.document?.animationStyles?.length ?? 0) > 0 ||
+          (read.document?.easingVariables?.length ?? 0) > 0 ||
           read.document?.audioClips !== undefined);
       if (!canEditMetadata) {
         throw new MotionReactSourceError(
