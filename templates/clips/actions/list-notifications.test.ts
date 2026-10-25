@@ -40,8 +40,10 @@ vi.mock("@agent-native/core/user-profile/server", () => ({
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => state.email,
-  sameOwnerEmail: (a: string, b: string) =>
-    a?.toLowerCase() === b?.toLowerCase(),
+  sameOwnerEmail: (
+    a: string | null | undefined,
+    b: string | null | undefined,
+  ) => a?.toLowerCase() === b?.toLowerCase(),
 }));
 vi.mock("../server/lib/user-identities.js", () => ({
   profileNameFor: () => "Fake author",
@@ -71,12 +73,16 @@ vi.mock("../server/db/index.js", () => ({
           const rows =
             table === tables.recordings
               ? [
-                  Object.fromEntries(
-                    Object.entries(projection!).map(([key, column]) => [
-                      key,
-                      state.recording[column as keyof typeof state.recording],
-                    ]),
-                  ),
+                  projection
+                    ? Object.fromEntries(
+                        Object.entries(projection).map(([key, column]) => [
+                          key,
+                          state.recording[
+                            column as keyof typeof state.recording
+                          ],
+                        ]),
+                      )
+                    : state.recording,
                 ]
               : table === tables.recordingComments
                 ? [

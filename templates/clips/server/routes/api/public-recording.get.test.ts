@@ -249,7 +249,9 @@ describe("/api/public-recording route", () => {
         mockResolveAccess.mockResolvedValue({ role, resource: recording });
       }
 
-      expect(await handler(event as any)).toEqual({ error: "Not found" });
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
       expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
       expect(mockSignShortLivedToken).not.toHaveBeenCalled();
       expect(mockSignScopedAgentAccessToken).not.toHaveBeenCalled();
@@ -273,7 +275,11 @@ describe("/api/public-recording route", () => {
       });
       mockResolveAccess.mockResolvedValue({ role, resource: recording });
 
-      expect(await handler({ setCookies: [] } as any)).toMatchObject({
+      expect(
+        await handler({ setCookies: [] } as unknown as Parameters<
+          typeof handler
+        >[0]),
+      ).toMatchObject({
         recording: { id: "rec-1" },
       });
     },
