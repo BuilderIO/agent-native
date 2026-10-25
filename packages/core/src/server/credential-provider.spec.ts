@@ -1504,10 +1504,10 @@ describe("resolveBuilderCredentialsDetailed", () => {
     });
   });
 
-  it("propagates transient optional metadata read failures", async () => {
+  it("preserves transient optional metadata read failures", async () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
-    const storeError = new Error("database unavailable");
+    const transient = new Error("temporary metadata store failure");
     mockReadAppSecrets.mockImplementation(
       async ({ keys, scope, scopeId }: any) => {
         if (keys.length > 2) {
@@ -1526,19 +1526,16 @@ describe("resolveBuilderCredentialsDetailed", () => {
           scopeId === "builder_io" &&
           keys[0] === "BUILDER_USER_ID"
         ) {
-          throw storeError;
+          throw transient;
         }
         return new Map();
       },
     );
 
-    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-      lookupFailed: true,
-      cause: storeError,
-      privateKey: null,
-      publicKey: null,
-      source: null,
-    });
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({ lookupFailed: true, source: null });
+    expect(result.cause).toBe(transient);
     await expect(resolveBuilderCredentials()).resolves.toMatchObject({
       lookupFailed: true,
     });
@@ -3449,6 +3446,73 @@ describe("Restrict personal API keys", () => {
         resolveSecretPair(["SVC_ID", "SVC_SECRET"]),
       ).resolves.toEqual([`id-${expected}`, `secret-${expected}`]);
     }
+  });
+
+  it("uses an owner's org secret before an unreadable personal row", async () => {
+    restrictOrg("owner", false);
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
+      if (scope === "user") {
+        throw new AppSecretDecryptionError({ scope, scopeId });
+      }
+      return scope === "org"
+        ? { value: "test-org-token", last4: "oken", updatedAt: 1 }
+        : null;
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({
+      value: "test-org-token",
+      lookupFailed: false,
+      source: "org",
+    });
+    expect(mockReadAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
+      "org",
+      "workspace",
+    ]);
+  });
+
+  it("does not fall through to an org secret when a member's personal row is unreadable", async () => {
+    restrictOrg("member", false);
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
+      if (scope === "user") {
+        throw new AppSecretDecryptionError({ scope, scopeId });
+      }
+      return scope === "org"
+        ? { value: "test-org-token", last4: "oken", updatedAt: 1 }
+        : null;
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    expect(mockReadAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
+      "user",
+    ]);
+  });
+
+  it("uses an owner's org Builder pair before an unreadable personal pair", async () => {
+    restrictOrg("owner", false);
+    mockReadAppSecret.mockImplementation(
+      async ({ scope, scopeId, key }: any) => {
+        if (scope === "user") {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        if (scope !== "org") return null;
+        const value = key === "BUILDER_PRIVATE_KEY" ? "bpk-org" : "pub-org";
+        return { value, last4: value.slice(-4), updatedAt: 1 };
+      },
+    );
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "bpk-org",
+      publicKey: "pub-org",
+      source: "org",
+      lookupFailed: false,
+    });
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "bpk-org",
+    );
   });
 
   it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {

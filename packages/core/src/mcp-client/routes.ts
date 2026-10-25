@@ -72,6 +72,7 @@ import {
 } from "./principal.js";
 import {
   InvalidMcpHeaderConfigurationError,
+  RemoteMcpConfigurationUnavailableError,
   addRemoteServer,
   listRemoteServers,
   mergedConfigKey,
@@ -278,14 +279,11 @@ export async function buildMergedConfig(
           stored,
         );
       } catch (error) {
-        if (
-          !(
-            error instanceof InvalidMcpHeaderConfigurationError ||
-            error instanceof AppSecretDecryptionError
-          )
-        ) {
-          throw error;
-        }
+        const configurationError =
+          error instanceof InvalidMcpHeaderConfigurationError ||
+          error instanceof AppSecretDecryptionError
+            ? error
+            : new RemoteMcpConfigurationUnavailableError();
         servers[mergedKey] = {
           type: "http",
           url: stored.url,
@@ -297,7 +295,7 @@ export async function buildMergedConfig(
             ? { firstPartyOrgId: ownerId }
             : {}),
           description: stored.description,
-          configurationError: error,
+          configurationError,
         };
       }
     }
@@ -1204,12 +1202,22 @@ async function handleTestExisting(
   try {
     config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
   } catch (error) {
-    if (
-      error instanceof AppSecretDecryptionError ||
-      error instanceof InvalidMcpHeaderConfigurationError
-    ) {
+    if (error instanceof InvalidMcpHeaderConfigurationError) {
       setResponseStatus(event, 400);
-      return { ok: false, error: error.message };
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    if (error instanceof AppSecretDecryptionError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error:
+          "A saved MCP server credential could not be read. Retry or replace it before testing.",
+        errorCode: error.errorCode,
+      };
     }
     throw error;
   }

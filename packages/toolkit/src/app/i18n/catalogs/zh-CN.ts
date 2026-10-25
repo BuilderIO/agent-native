@@ -1787,6 +1787,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.unreadable":
     "部分已保存的存储设置无法检查。请重试，或在保存前替换无法读取的必填值。",
   "settings.storage.unreadableField": "无法读取此已保存的值。请重新输入。",
+  "settings.storage.clearUnreadableField": "清除无法读取的{{field}}",
+  "settings.storage.unreadableFieldCleared": "保存时将删除此已保存的值。",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
   "settings.audit.action": "操作",
   "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
@@ -2162,9 +2164,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.action": "移除",
   "settingsShell.channels.removeCredentials.aria": "移除 {{platform}} 凭据",
   "settingsShell.channels.removeCredentials.body":
-    "除非部署环境也设置了这些密钥，否则代理将不再为任何人在 {{platform}} 中回复。",
+    "移除这些工作区凭据后，代理可能无法在 {{platform}} 中回复任何人，除非部署环境也设置了这些密钥。",
   "settingsShell.channels.removeCredentials.personalBody":
-    "这只会移除你在 {{platform}} 的个人凭据，不会影响其他用户的凭据或回复。",
+    "这只会移除你在 {{platform}} 中的个人凭据。其他用户和工作区的凭据保持不变。",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "这会移除 {{platform}} 的选定已保存凭据。其他已保存凭据不会更改。",
   "settingsShell.channels.removeCredentials.confirm": "移除",
   "settingsShell.channels.removeCredentials.failed": "无法移除凭据。",
   "settingsShell.channels.removeCredentials.removing": "正在移除…",
@@ -2184,6 +2188,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "可选",
   "settingsShell.channels.setup.replace": "替换",
   "settingsShell.channels.setup.replaceAria": "替换 {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "请在对应的集成设置中替换此已保存的凭据。",
   "settingsShell.channels.setup.save": "保存",
   "settingsShell.channels.setup.saveAndTurnOn": "保存并开启",
   "settingsShell.channels.setup.saving": "正在保存…",
@@ -2439,6 +2445,8 @@ const messages: ToolkitAgentChatTranslation = {
     "模型访问、浏览器自动化、文件存储和工作区身份。提供免费套餐。",
   "settingsShell.integrations.builderStatusFailed":
     "连接状态暂时不可用。请重试以再次检查。",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "无法读取部分已保存的 Builder 账户信息。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "设计",
   "settingsShell.integrations.category.engineering": "工程",

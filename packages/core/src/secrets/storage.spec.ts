@@ -36,6 +36,7 @@ async function createPgliteExec() {
         const info = await pglite.prepare(sql).run(...args);
         return { rows: [], rowsAffected: info.changes };
       },
+      transaction: <T>(fn: (tx: any) => Promise<T>) => pglite.transaction(fn),
     },
   };
 }
@@ -616,7 +617,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       value: "first-value",
       description: "initial",
     });
-    const firstVersion = await mod.readAppSecretVersion(userRef);
     const secondId = await mod.writeAppSecret({
       ...userRef,
       value: "second-value-9999",
@@ -625,7 +625,6 @@ describe("secrets storage CRUD (real pglite)", () => {
     });
 
     expect(secondId).toBe(firstId);
-    expect(await mod.readAppSecretVersion(userRef)).not.toBe(firstVersion);
 
     const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
@@ -824,16 +823,61 @@ describe("secrets storage CRUD (real pglite)", () => {
     expect(await mod.deleteAppSecret(userRef)).toBe(false);
   });
 
-  it("does not delete a secret that changed after removal was confirmed", async () => {
+  it("deletes a secret only while its ciphertext version is unchanged", async () => {
     await mod.writeAppSecret({ ...userRef, value: "original-value" });
     const originalVersion = await mod.readAppSecretVersion(userRef);
-    expect(originalVersion).not.toBeNull();
+    expect(originalVersion).toBeTruthy();
 
-    await mod.writeAppSecret({ ...userRef, value: "replacement-value" });
+    await mod.writeAppSecret({ ...userRef, value: "rotated-value" });
+    await expect(
+      mod.deleteAppSecretIfVersion(userRef, originalVersion!),
+    ).resolves.toBe(false);
+    await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
+      value: "rotated-value",
+    });
 
-    expect(await mod.deleteAppSecret(userRef, originalVersion!)).toBe(false);
-    expect((await mod.readAppSecret(userRef))?.value).toBe("replacement-value");
-    expect(await mod.deleteAppSecret(userRef)).toBe(true);
+    const currentVersion = await mod.readAppSecretVersion(userRef);
+    expect(currentVersion).toBeTruthy();
+    await expect(
+      mod.deleteAppSecretIfVersion(userRef, currentVersion!),
+    ).resolves.toBe(true);
+    await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
+  });
+
+  it("removes a confirmed credential set atomically when one row has rotated", async () => {
+    const first = { ...userRef, key: "FIRST_KEY" };
+    const second = { ...userRef, key: "SECOND_KEY" };
+    await mod.writeAppSecret({ ...first, value: "first-original-value" });
+    await mod.writeAppSecret({ ...second, value: "second-original-value" });
+    const firstVersion = await mod.readAppSecretVersion(first);
+    const secondVersion = await mod.readAppSecretVersion(second);
+    expect(firstVersion).toBeTruthy();
+    expect(secondVersion).toBeTruthy();
+
+    await mod.writeAppSecret({ ...second, value: "second-rotated-value" });
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: first, expectedVersion: firstVersion! },
+        { ref: second, expectedVersion: secondVersion! },
+      ]),
+    ).resolves.toBe(false);
+
+    await expect(mod.readAppSecret(first)).resolves.toMatchObject({
+      value: "first-original-value",
+    });
+    await expect(mod.readAppSecret(second)).resolves.toMatchObject({
+      value: "second-rotated-value",
+    });
+
+    const currentSecondVersion = await mod.readAppSecretVersion(second);
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: first, expectedVersion: firstVersion! },
+        { ref: second, expectedVersion: currentSecondVersion! },
+      ]),
+    ).resolves.toBe(true);
+    await expect(mod.readAppSecret(first)).resolves.toBeNull();
+    await expect(mod.readAppSecret(second)).resolves.toBeNull();
   });
 });
 

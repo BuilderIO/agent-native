@@ -3082,6 +3082,25 @@ it("matches only outgoing browser-session requests canceled by the slide reload"
     ]),
   ).toBe(true);
   expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...failedClaim,
+        outgoingNavigationAbort: false,
+        pendingOutgoingAbort: true,
+      },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...failedClaim,
+        outgoingNavigationAbort: false,
+        pendingOutgoingAbort: true,
+        competingSameTypeRequest: true,
+      },
+    ]),
+  ).toBe(false);
+  expect(
     isExpectedSaveReloadBrowserSessionConsoleError(
       heartbeatWarning,
       "save/reload",

@@ -454,8 +454,7 @@ async function readBuilderCredentialScope(
           if (!(metadataError instanceof AppSecretDecryptionError)) {
             throw metadataError;
           }
-          optionalMetadataLookupFailure =
-            optionalMetadataLookupFailure ?? "unreadable";
+          optionalMetadataLookupFailure ??= "unreadable";
           return new Map<string, ReadSecretResult>();
         }
       }),
@@ -667,10 +666,9 @@ async function resolveScopedBuilderCredential(
         cause: orgLookupCause,
       };
     }
-    const personal = await readPersonal();
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
-      return personal;
-    }
+    const orgCredentialFirst = await readsOrgCredentialFirst(orgId, email);
+    const personal = orgCredentialFirst ? null : await readPersonal();
+    if (personal) return personal;
 
     // 2. Per-org shared credential: when one teammate connects Builder
     //    as an owner/admin we write the OAuth result at org scope so
@@ -717,8 +715,10 @@ async function resolveScopedBuilderCredential(
         );
       }
     }
-    if (personal) return personal;
-
+    if (orgCredentialFirst) {
+      const personal = await readPersonal();
+      if (personal) return personal;
+    }
     // 3. Solo-workspace fallback: always checked, even when an org id was
     //    found above. Older no-org connect flows wrote here, so a credential
     //    written before the user joined/created an org must not become
@@ -903,12 +903,15 @@ async function resolveScopedBuilderCredentials(
     if (orgLookupCause !== undefined) {
       return { creds: null, lookupFailed: true, cause: orgLookupCause };
     }
-    const personal = await tryPersonal();
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
-      return { creds: personal, lookupFailed: false };
+    const orgCredentialFirst = await readsOrgCredentialFirst(orgId, email);
+    const personal = orgCredentialFirst ? null : await tryPersonal();
+    if (personal) return { creds: personal, lookupFailed: false };
+    const org = await tryOrg();
+    if (org) return { creds: org, lookupFailed: false };
+    if (orgCredentialFirst) {
+      const personal = await tryPersonal();
+      if (personal) return { creds: personal, lookupFailed: false };
     }
-    const creds = (await tryOrg()) ?? personal;
-    if (creds) return { creds, lookupFailed: false };
 
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
@@ -2200,32 +2203,33 @@ export async function resolveSecretDetailed(
         isPersonalProviderPolicyKey(key) &&
         (await isPersonalProviderKeyUseRestricted({ email }));
 
-      const userSecret =
-        options.skipUserScope || personalRestricted
-          ? null
-          : await readAppSecret({
-              key,
-              scope: "user",
+      const readPersonal = async (): Promise<ResolvedSecretDetail | null> => {
+        if (options.skipUserScope || personalRestricted) return null;
+        const userSecret = await readAppSecret({
+          key,
+          scope: "user",
+          scopeId: email,
+        });
+        return userSecret?.value
+          ? {
+              value: userSecret.value,
+              lookupFailed: false,
+              source: "user",
               scopeId: email,
-            });
-      const personal: ResolvedSecretDetail | null = userSecret?.value
-        ? {
-            value: userSecret.value,
-            lookupFailed: false,
-            source: "user",
-            scopeId: email,
-          }
-        : null;
-      if (personal && traceLookup) {
-        console.log(
-          `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
-        );
-      }
-
+            }
+          : null;
+      };
       // The beta suite writes one user-scoped credential and must never turn a
       // rejected or missing test key into a charge against a shared scope.
-      if (syntheticTraffic)
+      if (syntheticTraffic) {
+        const personal = await readPersonal();
+        if (personal && traceLookup) {
+          console.log(
+            `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
+          );
+        }
         return personal ?? { value: null, lookupFailed: false };
+      }
 
       let orgId: string | null | undefined = getRequestOrgId();
       if (!orgId) {
@@ -2240,10 +2244,16 @@ export async function resolveSecretDetailed(
         return { value: null, lookupFailed: true, cause };
       }
 
-      // An owner or admin runs on the organization's key ahead of their own.
-      if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
-        return personal;
+      // Check precedence before reading the personal row: an unreadable owner
+      // row must not prevent a valid organization credential from answering.
+      const orgCredentialFirst = await readsOrgCredentialFirst(orgId, email);
+      const personal = orgCredentialFirst ? null : await readPersonal();
+      if (personal && traceLookup) {
+        console.log(
+          `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
+        );
       }
+      if (personal) return personal;
 
       if (orgId) {
         const [orgRead, workspaceRead] = await Promise.allSettled([
@@ -2285,7 +2295,15 @@ export async function resolveSecretDetailed(
           };
         }
       }
-      if (personal) return personal;
+      if (orgCredentialFirst) {
+        const personal = await readPersonal();
+        if (personal && traceLookup) {
+          console.log(
+            `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
+          );
+        }
+        if (personal) return personal;
+      }
 
       // Solo-workspace fallback: always checked, even when an org id was found
       // above. A secret written before the user joined/created an org lives

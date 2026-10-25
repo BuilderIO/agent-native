@@ -106,6 +106,7 @@ export function fileStorageProviderPreset(id: FileStorageProviderId): {
 
 type FormValues = Record<FileStorageField, string>;
 type FieldErrors = Partial<Record<FileStorageField, string>>;
+type TouchedFields = Partial<Record<FileStorageField, true>>;
 
 const EMPTY_VALUES: FormValues = {
   endpoint: "",
@@ -223,9 +224,7 @@ function LoadedStorageSettingsForm({
   const [values, setValues] = useState<FormValues>(() =>
     valuesFromStatus(status),
   );
-  const [editedFields, setEditedFields] = useState<Set<FileStorageField>>(
-    () => new Set(),
-  );
+  const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<string | null>(null);
@@ -251,12 +250,13 @@ function LoadedStorageSettingsForm({
       accessKeyId: current.accessKeyId,
       secretAccessKey: current.secretAccessKey,
     }));
+    setTouchedFields({});
     if (status.provider) setProvider(status.provider);
   }, [savedSignature]);
 
   const setValue = (field: FileStorageField, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
-    setEditedFields((current) => new Set(current).add(field));
+    setTouchedFields((current) => ({ ...current, [field]: true }));
     setFieldErrors((current) => {
       if (!current[field]) return current;
       const next = { ...current };
@@ -304,15 +304,12 @@ function LoadedStorageSettingsForm({
       endpoint: values.endpoint.trim(),
       bucket: values.bucket.trim(),
     };
-    if (
-      !status.unreadableFields.includes("region") ||
-      editedFields.has("region")
-    ) {
+    if (!status.unreadableFields.includes("region") || touchedFields.region) {
       input.region = values.region.trim();
     }
     if (
       !status.unreadableFields.includes("publicBaseUrl") ||
-      editedFields.has("publicBaseUrl")
+      touchedFields.publicBaseUrl
     ) {
       input.publicBaseUrl = values.publicBaseUrl.trim();
     }
@@ -326,12 +323,12 @@ function LoadedStorageSettingsForm({
     setNotice(null);
     manage.mutate(input, {
       onSuccess: (result) => {
-        setEditedFields(new Set());
         setValues((current) => ({
           ...current,
           accessKeyId: "",
           secretAccessKey: "",
         }));
+        setTouchedFields({});
         setNotice(
           t("agentChat.settings.storage.savedNotice", {
             bucket: result.status.bucket ?? input.bucket,
@@ -364,6 +361,7 @@ function LoadedStorageSettingsForm({
         onSuccess: (result) => {
           setConfirmClear(false);
           setValues(EMPTY_VALUES);
+          setTouchedFields({});
           setFieldErrors({});
           setNotice(
             result.status.builderUploadConfigured
@@ -404,10 +402,19 @@ function LoadedStorageSettingsForm({
     } = {},
   ) => {
     const fieldError = fieldErrors[field];
+    const unreadable = status.unreadableFields.includes(field);
+    const unreadableOptional =
+      unreadable &&
+      (field === "region" ||
+        (field === "publicBaseUrl" && !status.publicUrlRequired));
+    const clearingUnreadableOptional =
+      unreadableOptional && touchedFields[field] && !values[field].trim();
     const note =
       fieldError ??
-      (status.unreadableFields.includes(field)
-        ? t("agentChat.settings.storage.unreadableField")
+      (unreadable
+        ? clearingUnreadableOptional
+          ? t("agentChat.settings.storage.unreadableFieldCleared")
+          : t("agentChat.settings.storage.unreadableField")
         : options.hint);
     const noteId = `${fieldId(field)}-note`;
     return (
@@ -435,6 +442,22 @@ function LoadedStorageSettingsForm({
           >
             {note}
           </p>
+        ) : null}
+        {unreadableOptional &&
+        !values[field].trim() &&
+        !touchedFields[field] ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto w-fit p-0 text-xs"
+            disabled={pending !== null}
+            onClick={() => setValue(field, "")}
+          >
+            {t("agentChat.settings.storage.clearUnreadableField", {
+              field: label,
+            })}
+          </Button>
         ) : null}
       </div>
     );

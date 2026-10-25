@@ -20,6 +20,7 @@ import {
   builderEffectiveConnectionFor,
   getBuilderConnectErrorDisposition,
   getBuilderConnectErrorKey,
+  hasUsableBuilderCredentialPair,
   mountBuilderStatusRouteAliases,
   resolveBuilderConnectionsStatus,
   resolveOAuthCustodyBuilderKeyStatus,
@@ -137,6 +138,21 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
     });
     expect(softFailure).toMatchObject({ keyLookupFailed: true });
 
+    const unreadableMetadata = await resolveOAuthCustodyBuilderKeyStatus({
+      resolveCredentialsDetailed: async () => ({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        orgName: null,
+        lookupFailed: false,
+        optionalMetadataLookupFailure: "unreadable",
+      }),
+    });
+    expect(unreadableMetadata).toMatchObject({
+      privateKeyConfigured: true,
+      publicKeyConfigured: true,
+      optionalMetadataLookupFailure: "unreadable",
+    });
+
     const thrown = await resolveOAuthCustodyBuilderKeyStatus({
       resolveCredentialsDetailed: async () => {
         throw new Error("credential store unavailable");
@@ -145,6 +161,25 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
     expect(thrown.privateKeyConfigured).toBe(false);
     expect(thrown.publicKeyConfigured).toBe(false);
     expect(thrown).toMatchObject({ keyLookupFailed: true });
+  });
+});
+
+describe("Builder credential pair status", () => {
+  it("does not treat an env pair as usable after a saved-credential lookup fails", () => {
+    expect(
+      hasUsableBuilderCredentialPair({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        lookupFailed: true,
+      }),
+    ).toBe(false);
+    expect(
+      hasUsableBuilderCredentialPair({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        lookupFailed: false,
+      }),
+    ).toBe(true);
   });
 });
 

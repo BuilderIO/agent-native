@@ -5,6 +5,7 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
   isMissingAppSecretsTableError,
@@ -247,11 +248,17 @@ export async function resolveCredentialDetailed(
     ));
 
   let personal: ResolvedCredential | undefined;
+  let personalReadError: AppSecretDecryptionError | undefined;
   if (ctx.credentialScope !== "org" && !personalRestricted) {
-    const value =
-      (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
-      (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
-    if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
+    try {
+      const value =
+        (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
+        (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
+      if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      personalReadError = error;
+    }
   }
 
   if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
@@ -259,10 +266,12 @@ export async function resolveCredentialDetailed(
   // Before the personal answer: without the org, an owner's role is unknown.
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
+  const orgCredentialFirst =
+    Boolean(personal || personalReadError) &&
+    (await readsOrgCredentialFirst(orgId, ctx.userEmail));
   // An owner or admin runs on the organization's credential ahead of their own.
-  if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
-    return personal;
-  }
+  if (personal && !orgCredentialFirst) return personal;
+  if (personalReadError && !orgCredentialFirst) throw personalReadError;
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);
@@ -284,6 +293,7 @@ export async function resolveCredentialDetailed(
   }
 
   if (ctx.credentialScope === "org") return undefined;
+  if (personalReadError) throw personalReadError;
   if (personal) return personal;
 
   // Solo-workspace fallback: always checked, even when an org id was found

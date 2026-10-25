@@ -2048,6 +2048,9 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّر التحقق من بعض إعدادات التخزين المحفوظة. أعد المحاولة أو استبدل القيم المطلوبة التي تعذّرت قراءتها قبل الحفظ.",
   "settings.storage.unreadableField":
     "تعذّرت قراءة القيمة المحفوظة. أدخلها مرة أخرى.",
+  "settings.storage.clearUnreadableField": "مسح {{field}} الذي تعذّرت قراءته",
+  "settings.storage.unreadableFieldCleared":
+    "ستتم إزالة هذه القيمة المحفوظة عند الحفظ.",
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
   "settings.audit.action": "الإجراء",
@@ -2489,9 +2492,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "إزالة بيانات اعتماد {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "يتوقف الوكيل عن الرد في {{platform}} للجميع، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
+    "قد تؤدي إزالة بيانات الاعتماد هذه من مساحة العمل إلى توقف الوكيل عن الرد على الجميع في {{platform}}، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
   "settingsShell.channels.removeCredentials.personalBody":
-    "يزيل هذا بيانات اعتمادك الشخصية لـ {{platform}} فقط. لن تتأثر بيانات اعتماد المستخدمين الآخرين أو ردودهم.",
+    "سيؤدي ذلك إلى إزالة بيانات اعتمادك الشخصية لـ {{platform}} فقط. لن تتغير بيانات اعتماد المستخدمين الآخرين ومساحة العمل.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "يؤدي ذلك إلى إزالة بيانات الاعتماد المحفوظة المحددة لـ {{platform}}. وتظل بيانات الاعتماد المحفوظة الأخرى دون تغيير.",
   "settingsShell.channels.removeCredentials.confirm": "إزالة",
   "settingsShell.channels.removeCredentials.failed":
     "تعذّرت إزالة بيانات الاعتماد.",
@@ -2512,6 +2517,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "اختياري",
   "settingsShell.channels.setup.replace": "استبدال",
   "settingsShell.channels.setup.replaceAria": "استبدال {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "استبدل بيانات الاعتماد المحفوظة هذه من إعدادات التكامل المالكة لها.",
   "settingsShell.channels.setup.save": "حفظ",
   "settingsShell.channels.setup.saveAndTurnOn": "حفظ وتشغيل",
   "settingsShell.channels.setup.saving": "جارٍ الحفظ…",
@@ -2812,6 +2819,8 @@ const messages: ToolkitAgentChatTranslation = {
     "الوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
   "settingsShell.integrations.builderStatusFailed":
     "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "تعذّرت قراءة بعض بيانات حساب Builder المحفوظة.",
   "settingsShell.integrations.category.analytics": "التحليلات",
   "settingsShell.integrations.category.design": "التصميم",
   "settingsShell.integrations.category.engineering": "الهندسة",

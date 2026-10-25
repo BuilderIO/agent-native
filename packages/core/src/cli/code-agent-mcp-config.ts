@@ -145,6 +145,23 @@ export function codexMcpConfigArgs(
   return args;
 }
 
+export function codeAgentMcpConfigurationErrors(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
+  return Object.entries(servers)
+    .filter(
+      ([, server]) =>
+        server.type === "http" && Boolean(server.configurationError),
+    )
+    .map(([id]) => id);
+}
+
 /**
  * Callers must also pass `--strict-mcp-config` (Claude's equivalent of
  * `--ignore-user-config`), or user-level MCP servers join this scoped set.
@@ -186,7 +203,8 @@ function codeAgentHttpMcpServers(
   // its credential headers) silently replace another. Reject that instead.
   const idsByKey = new Map<string, string>();
   return Object.entries(servers).flatMap(([serverId, server]) => {
-    if (server.type !== "http" || !server.url) return [];
+    if (server.type !== "http" || !server.url || server.configurationError)
+      return [];
     const key = codexConfigKey(serverId);
     const existing = idsByKey.get(key);
     if (existing !== undefined) {

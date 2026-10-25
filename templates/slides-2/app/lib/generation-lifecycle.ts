@@ -36,11 +36,13 @@ export async function refreshDeckForGenerationOutcome<TDeck>(
 ): Promise<GenerationDeckRefreshResult<TDeck>> {
   const endedAt = now();
   if (signal?.aborted) return { status: "cancelled", endedAt };
+
   try {
     let refreshedDeck = signal
       ? await refreshOpenDeck(deckId, { signal })
       : await refreshOpenDeck(deckId);
     if (signal?.aborted) return { status: "cancelled", endedAt };
+
     if (refreshedDeck === null) {
       const retry = await waitForRefreshRetry(signal);
       if (!retry) return { status: "cancelled", endedAt };
@@ -53,7 +55,8 @@ export async function refreshDeckForGenerationOutcome<TDeck>(
       ? { status: "ready", deck: refreshedDeck, endedAt }
       : { status: "not_ready", endedAt };
   } catch {
-    if (signal?.aborted) return { status: "cancelled", endedAt };
-    return { status: "failed", endedAt };
+    return signal?.aborted
+      ? { status: "cancelled", endedAt }
+      : { status: "failed", endedAt };
   }
 }

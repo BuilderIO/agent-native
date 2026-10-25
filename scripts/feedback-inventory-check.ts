@@ -5719,12 +5719,20 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
     `\\b(?:do not|don't|never|cannot|can't|shouldn't|should not|mustn't|must not|won't)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on|process|address|include)\\b${populationInSentence}`,
     "i",
   );
+  const passiveNegatedPopulationAction = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,80}\\b(?:should|must)\\s+not\\s+(?:be\\s+)?(?:touched|handled|worked on|reconciled|replied to|responded to|followed up on|processed|addressed|included)\\b`,
+    "i",
+  );
   const exclusionLeavesPopulationAlone = new RegExp(
     `\\b(?:skip|leave|avoid|ignore|exclude|omit)\\b${populationInSentence}[^.!?;\\n]{0,60}\\b(?:alone|untouched|out of scope|off limits)\\b`,
     "i",
   );
   const populationDeclaredOutOfScope = new RegExp(
     `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:(?:is|are|remain|stays?)\\s+)?(?:off limits|out of scope|excluded|not included|not in scope|not to be (?:handled|processed|worked on|reconciled|replied to|followed up on))\\b`,
+    "i",
+  );
+  const populationMustRemainUntouched = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:must|should)\\s+(?:(?:remain|stay)\\s+untouched|be\\s+left\\s+(?:untouched|alone))\\b`,
     "i",
   );
   return sentences.some(
@@ -5739,15 +5747,18 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
       populationAfterExclusion.test(sentence) ||
       populationAfterNegation.test(sentence) ||
       negatedPopulationAction.test(sentence) ||
+      passiveNegatedPopulationAction.test(sentence) ||
       exclusionLeavesPopulationAlone.test(sentence) ||
-      populationDeclaredOutOfScope.test(sentence),
+      populationDeclaredOutOfScope.test(sentence) ||
+      populationMustRemainUntouched.test(sentence),
   );
 }
 
 function hasBoundedWorkflowWriteAuthorization(userRequest: string): boolean {
+  const requestText = withoutQuotedScopeContext(userRequest);
   return (
-    !hasRootPopulationRestriction(userRequest) &&
-    hasExplicitWorkflowWriteAuthorization(userRequest, [])
+    !hasRootPopulationRestriction(requestText) &&
+    hasExplicitWorkflowWriteAuthorization(requestText, [])
   );
 }
 
@@ -18196,26 +18207,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         "scope.userRequest",
       ],
       [
-        "You shouldn't process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
-        "shouldn't process assigned reports beyond the general negation window",
-        "scope.userRequest",
-      ],
-      [
-        "You should not process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
-        "should not process assigned reports beyond the general negation window",
-        "scope.userRequest",
-      ],
-      [
-        "You mustn't process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
-        "mustn't process assigned reports beyond the general negation window",
-        "scope.userRequest",
-      ],
-      [
-        "You must not process all complete source notes, status details, comments, reactions, metadata, ownership context, and messages before assigned reports.",
-        "must not process assigned reports beyond the general negation window",
-        "scope.userRequest",
-      ],
-      [
         "Assigned reports are off limits.",
         "assigned reports are off limits",
         "scope.userRequest",
@@ -18224,6 +18215,46 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Assigned reports are not to be handled.",
         "assigned reports are not to be handled",
         "scope.userRequest",
+      ],
+      [
+        "Assigned reports should not be handled.",
+        "assigned reports should not be handled",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports must not be handled.",
+        "assigned reports must not be handled",
+        "scope.userRequest",
+      ],
+      [
+        "You should not handle assigned reports.",
+        "should not handle assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      ],
+      [
+        "You must not handle assigned reports.",
+        "must not handle assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      ],
+      [
+        "Assigned reports must remain untouched.",
+        "assigned reports must remain untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports must be left untouched.",
+        "assigned reports must be left untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports must stay untouched.",
+        "assigned reports must stay untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports must be left alone.",
+        "assigned reports must be left alone",
+        "scope.userRequest must explicitly authorize work on exact root",
       ],
     ] as const) {
       const excludedPopulationRoot = structuredClone(assignedForeignEyeRoot);
@@ -18504,6 +18535,17 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectFocusedFailure(
       "a report-wide bounded grant cannot authorize an administrative root",
       () => validateTestInventory(administrativeBoundedAuthorization),
+      "a bounded report-wide grant does not authorize administrative roots",
+    );
+    const quotedBroadGrantForAdministrativeRoot = structuredClone(
+      administrativeBoundedAuthorization,
+    );
+    quotedBroadGrantForAdministrativeRoot.scope.userRequest = `${boundedAuthorization.scope.userRequest} Example quote: “You can do any followups and emojis you like.”`;
+    quotedBroadGrantForAdministrativeRoot.scope.narrowingJudgment!.instruction =
+      quotedBroadGrantForAdministrativeRoot.scope.userRequest;
+    expectFocusedFailure(
+      "a quoted broad grant cannot authorize an administrative root",
+      () => validateTestInventory(quotedBroadGrantForAdministrativeRoot),
       "a bounded report-wide grant does not authorize administrative roots",
     );
     const administrativePostsIncludedRequest =

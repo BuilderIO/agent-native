@@ -567,6 +567,25 @@ describe("first-party remote MCP metadata", () => {
 });
 
 describe("stored remote MCP headers", () => {
+  it("rejects a missing saved header secret reference instead of dropping auth", async () => {
+    appSecretMocks.read.mockResolvedValue(null);
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headers: { Accept: "application/json" },
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).rejects.toMatchObject<InvalidMcpHeaderConfigurationError>({
+      name: "InvalidMcpHeaderConfigurationError",
+      code: "invalid_mcp_header_configuration",
+      reason: "missing-secret",
+    });
+  });
+
   it("propagates an unreadable saved header secret instead of treating it as invalid configuration", async () => {
     const error = new AppSecretDecryptionError({
       scope: "workspace",

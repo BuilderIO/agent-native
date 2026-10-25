@@ -4,6 +4,7 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   hashEmail,
   InvalidMcpHeaderConfigurationError,
+  RemoteMcpConfigurationUnavailableError,
 } from "./remote-store.js";
 import {
   buildMergedConfig,
@@ -308,6 +309,46 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
     });
   });
 
+  it("keeps a transient header-store failure isolated to its server", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headerSecretKey: "mcp_headers:broken-server",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+    };
+    appSecretMocks.read.mockRejectedValue(new Error("database timed out"));
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+    const brokenServer = config?.servers[`${userPrefix}broken-server`];
+
+    expect(brokenServer?.configurationError).toBeInstanceOf(
+      RemoteMcpConfigurationUnavailableError,
+    );
+    expect(brokenServer?.configurationError?.message).toBe(
+      "Could not read this MCP server's saved configuration. Retry before reconnecting.",
+    );
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+  });
+
   it("keeps browser built-ins exclusive while merging settings", async () => {
     mockedSettings.all = {
       "u:alice@example.com:mcp-builtin-capabilities": {
@@ -459,6 +500,7 @@ describe("MCP server routes", () => {
       ok: false,
       error:
         "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+      errorCode: "invalid_mcp_header_configuration",
     });
 
     appSecretMocks.read.mockRejectedValueOnce(
@@ -469,10 +511,12 @@ describe("MCP server routes", () => {
       "/_agent-native/mcp/servers/broken/test?scope=user",
       "POST",
     );
-    expect(unreadable.status).toBe(400);
+    expect(unreadable.status).toBe(503);
     expect(unreadable.body).toEqual({
       ok: false,
-      error: "A saved connection could not be decrypted.",
+      error:
+        "A saved MCP server credential could not be read. Retry or replace it before testing.",
+      errorCode: "app_secret_unreadable",
     });
   });
 
@@ -918,20 +962,20 @@ describe("MCP server routes", () => {
     expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
-  it("returns actionable invalid-header errors when testing an existing server", async () => {
+  it("returns the typed invalid-header error from an existing-server test", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
     getOrgContextMock.mockResolvedValue({
       email: "alice@example.com",
-      orgId: null,
-      role: null,
+      orgId: "acme",
+      role: "member",
     });
-    mockedSettings.all["u:alice@example.com:mcp-servers-remote"] = {
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
       servers: [
         {
-          id: "broken",
-          name: "Broken server",
+          id: "demo",
+          name: "demo",
           url: "https://mcp.example.test/mcp",
-          headerSecretKey: "mcp_headers:broken",
+          headerSecretKey: "mcp_headers:demo",
           createdAt: 1,
         },
       ],
@@ -952,7 +996,7 @@ describe("MCP server routes", () => {
 
     const response = await dispatchMountedRoute(
       nitroApp,
-      "/_agent-native/mcp/servers/broken/test?scope=user",
+      "/_agent-native/mcp/servers/demo/test?scope=org",
       "POST",
     );
 
@@ -961,6 +1005,56 @@ describe("MCP server routes", () => {
       ok: false,
       error:
         "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+      errorCode: "invalid_mcp_header_configuration",
+    });
+  });
+
+  it("returns a retryable typed error when an existing-server secret is unreadable", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "demo",
+          name: "demo",
+          url: "https://mcp.example.test/mcp",
+          headerSecretKey: "mcp_headers:demo",
+          createdAt: 1,
+        },
+      ],
+    };
+    appSecretMocks.read.mockRejectedValue(
+      new AppSecretDecryptionError({ scope: "workspace", scopeId: "acme" }),
+    );
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/test?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      ok: false,
+      error:
+        "A saved MCP server credential could not be read. Retry or replace it before testing.",
+      errorCode: "app_secret_unreadable",
     });
   });
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { ResolvedSecretDetail } from "./credential-provider.js";
 
 const mocks = vi.hoisted(() => ({
@@ -123,6 +124,48 @@ describe("Gemini key aliases", () => {
       row("workspace-key", "workspace", "org-1"),
     );
     await expect(resolveGeminiApiKey()).resolves.toBe("workspace-key");
+  });
+
+  it("keeps a readable canonical key when only a lower-priority legacy scope is unreadable", async () => {
+    mocks.rows.set(GEMINI_API_KEY, row("chat-key", "user", "a@example.com"));
+    mocks.rows.set(LEGACY_GEMINI_API_KEY, {
+      value: null,
+      lookupFailed: true,
+      cause: new AppSecretDecryptionError({
+        scope: "org",
+        scopeId: "org-1",
+      }),
+    });
+
+    await expect(resolveGeminiApiKeyDetailed()).resolves.toMatchObject({
+      value: "chat-key",
+      key: GEMINI_API_KEY,
+      lookupFailed: false,
+    });
+    await expect(resolveGeminiApiKey()).resolves.toBe("chat-key");
+  });
+
+  it("keeps the lookup failure when an unreadable legacy scope could outrank the canonical key", async () => {
+    mocks.rows.set(GEMINI_API_KEY, row("org-key", "org", "org-1"));
+    const cause = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "a@example.com",
+    });
+    mocks.rows.set(LEGACY_GEMINI_API_KEY, {
+      value: null,
+      lookupFailed: true,
+      cause,
+    });
+
+    await expect(resolveGeminiApiKeyDetailed()).resolves.toMatchObject({
+      value: "org-key",
+      key: GEMINI_API_KEY,
+      lookupFailed: true,
+      cause,
+    });
+    await expect(resolveGeminiApiKey()).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
   });
 
   it("passes skipUserScope to both names for the shared-fallback check", async () => {

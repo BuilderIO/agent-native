@@ -1174,6 +1174,7 @@ type WatchedRequestNavigationCandidate = {
   competingClaimStartedAfterNavigation?: boolean;
   competingSameUrlClaimStartedAfterNavigation?: boolean;
   competingRegistrationStartedAfterNavigation?: boolean;
+  pendingOutgoingAbort?: boolean;
   outgoingNavigationAbort?: boolean;
   outgoingRequestKind?: "poll" | "heartbeat";
   requestSessionId?: string | null;
@@ -1448,7 +1449,8 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
     // excuses the warning.
     const aborted = candidates.filter(
       (candidate) =>
-        candidate.outgoingNavigationAbort === true &&
+        (candidate.outgoingNavigationAbort === true ||
+          candidate.pendingOutgoingAbort === true) &&
         candidate.outgoingRequestKind === outgoingRequestKind &&
         candidate.requestSessionId !== null &&
         candidate.requestSessionId === candidate.retiredSessionId &&
@@ -3026,6 +3028,7 @@ export async function runAuthoringFuzz(
           hasCompetingClaimStartedAfterNavigation(request),
         competingRegistrationStartedAfterNavigation:
           hasCompetingRegistrationStartedAfterNavigation(request),
+        pendingOutgoingAbort: candidate.pendingOutgoingAbort,
         outgoingNavigationAbort: candidate.outgoingNavigationAbort,
         outgoingRequestKind: candidate.outgoingRequestKind ?? undefined,
         requestSessionId: candidate.requestSessionId,

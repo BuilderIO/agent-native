@@ -16,6 +16,8 @@ import type { SettingsPageContext } from "../settings/shell/registry.js";
 
 const actions = vi.hoisted(() => ({
   list: vi.fn(),
+  prepareRemoval: vi.fn(),
+  confirmRemoval: vi.fn(),
   manage: vi.fn(),
 }));
 
@@ -27,10 +29,16 @@ vi.mock("../shared/index.js", () => agent);
 vi.mock("@agent-native/core/client/use-action", async () => {
   const { useMutation, useQuery, useQueryClient } =
     await import("@tanstack/react-query");
-  const call = (name: string, params: unknown) =>
-    name === "list-messaging-channels"
-      ? actions.list(params)
-      : actions.manage(params);
+  const call = (name: string, params: unknown) => {
+    if (name === "list-messaging-channels") return actions.list(params);
+    if (name === "prepare-messaging-channel-credential-removal") {
+      return actions.prepareRemoval(params);
+    }
+    if (name === "confirm-messaging-channel-credential-removal") {
+      return actions.confirmRemoval(params);
+    }
+    return actions.manage(params);
+  };
   return {
     useActionQuery: (name: string, params?: unknown) =>
       useQuery({
@@ -106,11 +114,19 @@ const REQUIRED_KEYS: Record<string, string[]> = {
 type ChannelPatch = Partial<Omit<MessagingChannelStatus, "credentials">> & {
   sources?: Record<string, ChannelCredentialStatus["source"]>;
   unreadableScopes?: Record<string, ChannelCredentialStatus["unreadableScope"]>;
+  repairScopes?: Record<string, ChannelCredentialStatus["repairScope"]>;
+  removalScopes?: Record<string, ChannelCredentialStatus["removalScope"]>;
 };
 
 function channel(
   platform: string,
-  { sources = {}, unreadableScopes = {}, ...patch }: ChannelPatch = {},
+  {
+    sources = {},
+    unreadableScopes = {},
+    repairScopes = {},
+    removalScopes = {},
+    ...patch
+  }: ChannelPatch = {},
 ): MessagingChannelStatus {
   const configured = patch.configured ?? false;
   const enabled = patch.enabled ?? false;
@@ -127,24 +143,30 @@ function channel(
           ? "on"
           : "off",
     webhookUrl: `https://clips.example.com/_agent-native/integrations/${platform}/webhook`,
-    credentials: (REQUIRED_KEYS[platform] ?? []).map((key) => ({
-      key,
-      label: key,
-      required: key !== "SLACK_BOT_TOKEN",
-      saveable: key !== "GOOGLE_SERVICE_ACCOUNT_KEY",
-      source: sources[key] ?? null,
-      removable:
-        sources[key] === "saved" || unreadableScopes[key] !== undefined,
-      ...(sources[key] === "saved" || unreadableScopes[key] !== undefined
-        ? { removalConfirmation: `confirmation:${key}` }
-        : {}),
-      ...(unreadableScopes[key]
-        ? {
-            unreadableScope: unreadableScopes[key],
-            repairScope: unreadableScopes[key],
-          }
-        : {}),
-    })),
+    credentials: (REQUIRED_KEYS[platform] ?? []).map((key) => {
+      const removable =
+        sources[key] === "saved" || unreadableScopes[key] !== undefined;
+      const removalScope =
+        removalScopes[key] ??
+        unreadableScopes[key] ??
+        (sources[key] === "saved" ? "workspace" : undefined);
+      const repairScope = Object.hasOwn(repairScopes, key)
+        ? repairScopes[key]
+        : unreadableScopes[key];
+      return {
+        key,
+        label: key,
+        required: key !== "SLACK_BOT_TOKEN",
+        saveable: key !== "GOOGLE_SERVICE_ACCOUNT_KEY",
+        source: sources[key] ?? null,
+        removable,
+        ...(removalScope ? { removalScope } : {}),
+        ...(unreadableScopes[key]
+          ? { unreadableScope: unreadableScopes[key] }
+          : {}),
+        ...(repairScope ? { repairScope } : {}),
+      };
+    }),
     ...patch,
   };
 }
@@ -271,6 +293,23 @@ describe("ChannelsPage", () => {
       defaultOptions: { queries: { retry: false } },
     });
     actions.list.mockResolvedValue(listed());
+    actions.prepareRemoval.mockImplementation(
+      async ({ keys }: { keys: string[] }) => ({
+        credentials: keys.map((key) => ({
+          key,
+          candidate: `candidate:${key}`,
+          removalScope: "workspace",
+        })),
+      }),
+    );
+    actions.confirmRemoval.mockImplementation(
+      async ({ candidates }: { candidates: Array<{ key: string }> }) => ({
+        credentials: candidates.map(({ key }) => ({
+          key,
+          removalConfirmation: `confirmation:${key}`,
+        })),
+      }),
+    );
     actions.manage.mockImplementation(async (args: { platform: string }) => ({
       channel: channel(args.platform),
       message: "ok",
@@ -655,6 +694,33 @@ describe("ChannelsPage", () => {
     ]);
   });
 
+  it("directs unreadable credentials without a Channels repair scope to their owning settings", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        telegram: {
+          configurationUnavailable: true,
+          sources: { TELEGRAM_BOT_TOKEN: "unreadable" },
+          unreadableScopes: { TELEGRAM_BOT_TOKEN: "org" },
+          repairScopes: { TELEGRAM_BOT_TOKEN: undefined },
+        },
+      }),
+    );
+    await render("telegram");
+    await openSetup();
+
+    const credential = document.querySelector(
+      '[data-channel-credential="TELEGRAM_BOT_TOKEN"]',
+    );
+    expect(credential?.textContent).toContain(
+      "Replace this saved credential in its owning integration settings.",
+    );
+    expect(
+      credential?.querySelector(
+        'button[aria-label="Replace TELEGRAM_BOT_TOKEN"]',
+      ),
+    ).toBeNull();
+  });
+
   it("replaces an unreadable credential on an enabled channel without enabling it again", async () => {
     actions.list.mockResolvedValue(
       listed({
@@ -745,13 +811,28 @@ describe("ChannelsPage", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Remove Telegram credentials?");
     expect(dialog?.textContent).toContain("TELEGRAM_WEBHOOK_SECRET");
-    expect(dialog?.textContent).toContain(
-      "The agent stops replying in Telegram for everyone, unless the deployment environment also sets these keys.",
-    );
+    expect(actions.prepareRemoval).toHaveBeenCalledWith({
+      platform: "telegram",
+      keys: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"],
+    });
+    expect(actions.confirmRemoval).not.toHaveBeenCalled();
     expect(actions.manage).not.toHaveBeenCalled();
 
     await act(async () => buttonNamed("Remove", dialog!)?.click());
     await flush();
+    expect(actions.confirmRemoval).toHaveBeenCalledWith({
+      platform: "telegram",
+      candidates: [
+        {
+          key: "TELEGRAM_BOT_TOKEN",
+          candidate: "candidate:TELEGRAM_BOT_TOKEN",
+        },
+        {
+          key: "TELEGRAM_WEBHOOK_SECRET",
+          candidate: "candidate:TELEGRAM_WEBHOOK_SECRET",
+        },
+      ],
+    });
     expect(actions.manage).toHaveBeenCalledWith({
       operation: "remove-credentials",
       platform: "telegram",
@@ -769,13 +850,13 @@ describe("ChannelsPage", () => {
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
-  it("confirms personal credential removal without implying a channel-wide change", async () => {
+  it("uses personal-scope copy when removing only the caller's credential", async () => {
     actions.list.mockResolvedValue(
       listed({
         telegram: {
-          configured: true,
-          enabled: true,
+          configurationUnavailable: true,
           unreadableScopes: { TELEGRAM_BOT_TOKEN: "user" },
+          sources: { TELEGRAM_BOT_TOKEN: "unreadable" },
         },
       }),
     );
@@ -790,24 +871,41 @@ describe("ChannelsPage", () => {
     await flush();
 
     const dialog = document.querySelector('[role="alertdialog"]');
-    expect(dialog?.textContent).toContain("TELEGRAM_BOT_TOKEN");
     expect(dialog?.textContent).toContain(
-      "This removes only your personal credentials for Telegram. Other users' credentials and replies won't be affected.",
+      "This removes only your personal credentials for Telegram.",
     );
     expect(dialog?.textContent).not.toContain("for everyone");
+  });
 
-    await act(async () => buttonNamed("Remove", dialog!)?.click());
-    await flush();
-    expect(actions.manage).toHaveBeenCalledWith({
-      operation: "remove-credentials",
-      platform: "telegram",
-      confirmedCredentials: [
-        {
-          key: "TELEGRAM_BOT_TOKEN",
-          removalConfirmation: "confirmation:TELEGRAM_BOT_TOKEN",
+  it("uses scope-neutral copy when removing both personal and workspace credentials", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        telegram: {
+          configurationUnavailable: true,
+          unreadableScopes: { TELEGRAM_BOT_TOKEN: "user" },
+          sources: {
+            TELEGRAM_BOT_TOKEN: "unreadable",
+            TELEGRAM_WEBHOOK_SECRET: "saved",
+          },
         },
-      ],
-    });
+      }),
+    );
+    await render("telegram");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove Telegram credentials"]',
+        )
+        ?.click(),
+    );
+    await flush();
+
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain(
+      "This removes the selected saved credentials for Telegram.",
+    );
+    expect(dialog?.textContent).not.toContain("for everyone");
+    expect(dialog?.textContent).not.toContain("only your personal credentials");
   });
 
   it("keeps the confirm open with the server's reason when removal fails", async () => {

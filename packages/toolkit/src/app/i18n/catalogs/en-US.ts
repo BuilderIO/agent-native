@@ -1926,6 +1926,9 @@ const messages = {
     "Some saved storage settings could not be checked. Retry, or replace unreadable required values before saving.",
   "settings.storage.unreadableField":
     "This saved value could not be read. Enter it again.",
+  "settings.storage.clearUnreadableField": "Clear unreadable {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "This saved value will be removed when you save.",
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
   "settings.audit.action": "Action",
@@ -2345,9 +2348,11 @@ const messages = {
   "settingsShell.channels.removeCredentials.aria":
     "Remove {{platform}} credentials",
   "settingsShell.channels.removeCredentials.body":
-    "The agent stops replying in {{platform}} for everyone, unless the deployment environment also sets these keys.",
+    "Removing these workspace credentials may stop the agent from replying in {{platform}} for everyone, unless the deployment environment also sets these keys.",
   "settingsShell.channels.removeCredentials.personalBody":
-    "This removes only your personal credentials for {{platform}}. Other users' credentials and replies won't be affected.",
+    "This removes only your personal credentials for {{platform}}. Other users' and workspace credentials stay unchanged.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "This removes the selected saved credentials for {{platform}}. Other saved credentials stay unchanged.",
   "settingsShell.channels.removeCredentials.confirm": "Remove",
   "settingsShell.channels.removeCredentials.failed":
     "Couldn't remove the credentials.",
@@ -2370,6 +2375,8 @@ const messages = {
   "settingsShell.channels.setup.optional": "Optional",
   "settingsShell.channels.setup.replace": "Replace",
   "settingsShell.channels.setup.replaceAria": "Replace {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Replace this saved credential in its owning integration settings.",
   "settingsShell.channels.setup.save": "Save",
   "settingsShell.channels.setup.saveAndTurnOn": "Save and turn on",
   "settingsShell.channels.setup.saving": "Saving…",
@@ -2688,6 +2695,8 @@ const messages = {
     "Model access, browser automation, file storage, and workspace identity. Free tier available.",
   "settingsShell.integrations.builderStatusFailed":
     "Connection status is unavailable. Retry to check again.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Some saved Builder account details could not be read.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engineering",
