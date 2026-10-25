@@ -33,4 +33,4 @@ Polish the AgentKit chat experience:
 - The model chip's effort label uses the strong muted text color, so it meets 4.5:1 on dark composers.
 - The context ring no longer asks for a manifest before a new chat has a message, and a thread the server has not saved reads as `absent` rather than as an error.
 - A fresh chat in the agent panel starts on the app's configured default model (the server's current engine first), the same model the home composer starts on, with effort unset so the provider default runs. Core exports `resolveDefaultModelSelection()`, which both pickers use. Explicit choices are still kept per surface.
-- Chat history rail rows show only the chat title; the chat history popover list keeps each row's relative time.
+- Chat history rail rows no longer show a relative time; the chat history popover list keeps it.

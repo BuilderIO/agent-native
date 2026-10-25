@@ -1526,7 +1526,7 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Current Dispatch work");
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
-    // Rail rows are title-only; timestamps stay in the popover list.
+    // Rail rows show no relative time; it stays in the popover list.
     expect(container.textContent).not.toContain("5m ago");
     expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
     const sourceToggle = container.querySelector(
