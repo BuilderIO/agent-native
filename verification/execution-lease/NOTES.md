@@ -48,11 +48,13 @@ Helper invariants, checked in the same runs:
 - A run stopped by request saves its completion under a fence with
   `outlivesStop` (`run-manager.ts` `withWorkerFence`), which
   `lockAndAssertCurrentExecutionFences` accepts while the lease row still names
-  the run and generation, however expired. The framework writes only the
-  chat-thread projection under it, never a step-journal write or an action
-  effect, so `Current` stays the fence for every modelled action. App-supplied
-  completion hooks run under the same fence and, like other app code, are
-  outside the model. A claim
+  the run and generation, however expired. Of the framework's writes in that
+  callback, only the chat-thread projection (`updateThreadData`) goes through
+  `withFencedExecutionWrite` and so through this check; none is a step-journal
+  write or an action effect, so `Current` stays the fence for every modelled
+  action. Other writes in the callback are not fence-checked and are outside
+  the model: completing the tracked progress run (`completeProgressRun`) and
+  whatever app-supplied completion hooks do. A claim
   replaces owner and generation under the same row lock, so the stopped run's
   save cannot land in a successor's turn.
 - Not covered: thread content folding, liveness (an abandoned run is
