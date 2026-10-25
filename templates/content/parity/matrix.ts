@@ -699,7 +699,7 @@ export const parityMatrix: ParityRow[] = [
       "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
     uiEntrypoints: [],
     durableEffect:
-      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID.",
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID. Only edits to a value send property.changed: deleting a property, a type change that clears values, deleting rows or pages, imports, source syncs, and row migrations send no events.",
     uiImplementation:
       "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
     status: "action-backed",
