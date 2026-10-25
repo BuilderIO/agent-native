@@ -144,6 +144,7 @@ import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
   isAgentChatAiSetupRequiredError,
 } from "../server/agent-chat-ai-setup.js";
+import { finalizeClaimedAgentChatProcessRunFailure } from "../server/agent-chat/process-run-failure.js";
 import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
   preloadJevContextWithStatus,
@@ -386,7 +387,7 @@ import {
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
-import type { ActiveRun } from "./run-manager.js";
+import type { ActiveRun, StartedRun } from "./run-manager.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,
@@ -526,6 +527,7 @@ export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
 export const BACKGROUND_SETUP_HEARTBEAT_MAX_MS =
   BACKGROUND_PROCESSING_RUN_STALE_MS;
+export const BACKGROUND_SETUP_FINALIZATION_MAX_MS = 10_000;
 const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
@@ -11709,6 +11711,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   continuationCount: number;
   runsInBackgroundFunction: boolean;
   backgroundRuntimeDetail?: string;
+  onSetupDeadline?: (stopHeartbeat: () => void) => void;
   deps?: {
     recordRunDiagnostic?: typeof recordRunDiagnostic;
     insertRun?: typeof insertRun;
@@ -11716,13 +11719,12 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     updateRunHeartbeat?: typeof updateRunHeartbeat;
     isTurnAborted?: typeof isTurnAborted;
     markRunAborted?: typeof markRunAborted;
-    abortRunDurably?: typeof abortRunDurably;
   };
 }): Promise<
   | {
       claimed: true;
+      setupDeadlineExceeded: () => boolean;
       stopSetupHeartbeat: () => void;
-      setupDeadlineExpired: () => boolean;
     }
   | { claimed: false; skipped: string }
 > {
@@ -11732,7 +11734,6 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   const heartbeat = opts.deps?.updateRunHeartbeat ?? updateRunHeartbeat;
   const turnAborted = opts.deps?.isTurnAborted ?? isTurnAborted;
   const abortRun = opts.deps?.markRunAborted ?? markRunAborted;
-  const abortRunDurablyForSetup = opts.deps?.abortRunDurably ?? abortRunDurably;
   const threadId =
     typeof opts.threadId === "string" && opts.threadId.trim()
       ? opts.threadId.trim()
@@ -11748,8 +11749,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let setupHeartbeatDeadline: ReturnType<typeof setTimeout> | undefined;
   let setupHeartbeatStarted = false;
-  let setupHeartbeatStopped = false;
-  let setupTimedOut = false;
+  let setupDeadlineExceeded = false;
   const preclaimHeartbeatStartedAt = Date.now();
   const heartbeatWhileUnclaimed = () => {
     if (
@@ -11769,7 +11769,6 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       });
   };
   const stopPreclaimHeartbeat = () => {
-    setupHeartbeatStopped = true;
     if (preclaimHeartbeatTimer !== undefined) {
       clearInterval(preclaimHeartbeatTimer);
       preclaimHeartbeatTimer = undefined;
@@ -11780,8 +11779,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }
   };
   const keepSetupAlive = () => {
-    // A timeout must terminalize the run before this heartbeat can stop.
-    setupHeartbeatStopped = false;
+    // Keep the run fresh until handoff, then fail setup if handoff never arrives.
     setupHeartbeatStarted = true;
     if (preclaimHeartbeatTimer === undefined) {
       preclaimHeartbeatTimer = setInterval(
@@ -11791,24 +11789,20 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }
     setupHeartbeatDeadline = setTimeout(() => {
       setupHeartbeatDeadline = undefined;
-      if (setupHeartbeatStopped) return;
-      setupTimedOut = true;
-      void abortRunDurablyForSetup(opts.runId, "background_setup_timeout")
-        .then(() => stopPreclaimHeartbeat())
-        .catch((error) => {
-          captureError(error, {
-            route: "/_agent-native/agent-chat",
-            aiTraceId: opts.runId,
-            tags: {
-              source: "agent-chat",
-              failureClass: "background-setup-timeout-abort",
-            },
-            extra: {
-              runId: opts.runId,
-              setupTimeoutMs: BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
-            },
-          });
-        });
+      setupDeadlineExceeded = true;
+      if (!opts.onSetupDeadline) {
+        stopPreclaimHeartbeat();
+        return;
+      }
+      try {
+        opts.onSetupDeadline(stopPreclaimHeartbeat);
+      } catch (error) {
+        stopPreclaimHeartbeat();
+        console.error(
+          "[agent-chat] background setup deadline handler failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
     }, BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
   };
 
@@ -11864,11 +11858,13 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     startupHeartbeatHandedOff = true;
     return {
       claimed: true,
+      setupDeadlineExceeded: () => setupDeadlineExceeded,
       stopSetupHeartbeat: stopPreclaimHeartbeat,
-      setupDeadlineExpired: () => setupTimedOut,
     };
   } finally {
-    if (!startupHeartbeatHandedOff) stopPreclaimHeartbeat();
+    if (!startupHeartbeatHandedOff && !setupDeadlineExceeded) {
+      stopPreclaimHeartbeat();
+    }
   }
 }
 
@@ -13298,7 +13294,8 @@ export function createProductionAgentHandler(
     const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
     let stopBackgroundSetupHeartbeat: (() => void) | undefined;
-    let backgroundSetupDeadlineExpired: (() => boolean) | undefined;
+    let backgroundSetupDeadlineExceeded: (() => boolean) | undefined;
+    let backgroundSetupStartedRun: StartedRun | undefined;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
         runId: bgRunId,
@@ -13311,19 +13308,58 @@ export function createProductionAgentHandler(
         continuationCount: backgroundContinuationCount,
         runsInBackgroundFunction,
         backgroundRuntimeDetail,
+        onSetupDeadline: (stopSetupHeartbeat) => {
+          backgroundSetupStartedRun?.abort.abort();
+          const finalizationTimeout = setTimeout(() => {
+            captureError(
+              new Error("Background setup failure finalization timed out"),
+              {
+                route: "/_agent-native/agent-chat",
+                aiTraceId: bgRunId,
+                tags: {
+                  source: "agent-chat",
+                  failureClass: "background-setup-timeout-finalization",
+                },
+                extra: {
+                  runId: bgRunId,
+                  finalizationTimeoutMs: BACKGROUND_SETUP_FINALIZATION_MAX_MS,
+                },
+              },
+            );
+            stopSetupHeartbeat();
+          }, BACKGROUND_SETUP_FINALIZATION_MAX_MS);
+          void finalizeClaimedAgentChatProcessRunFailure(
+            bgRunId,
+            new Error("Background worker setup heartbeat deadline exceeded"),
+          )
+            .catch((error) => {
+              captureError(error, {
+                route: "/_agent-native/agent-chat",
+                aiTraceId: bgRunId,
+                tags: {
+                  source: "agent-chat",
+                  failureClass: "background-setup-timeout-finalization",
+                },
+                extra: { runId: bgRunId },
+              });
+            })
+            .finally(() => {
+              clearTimeout(finalizationTimeout);
+              stopSetupHeartbeat();
+            });
+        },
       });
       if (!earlyClaim.claimed) {
         return { ok: true, skipped: earlyClaim.skipped };
       }
       backgroundRunClaimedEarly = true;
-      backgroundSetupDeadlineExpired = earlyClaim.setupDeadlineExpired;
-      if (backgroundSetupDeadlineExpired()) {
+      backgroundSetupDeadlineExceeded = earlyClaim.setupDeadlineExceeded;
+      if (earlyClaim.setupDeadlineExceeded()) {
         return { ok: true, skipped: "setup-deadline" };
       }
       const response = event.node?.res;
-      // A disconnect does not prove the serverless worker stopped its setup.
       const stopOnResponseFinish = () => {
-        if (earlyClaim.setupDeadlineExpired()) return;
+        if (earlyClaim.setupDeadlineExceeded()) return;
         earlyClaim.stopSetupHeartbeat();
         response?.removeListener("finish", stopOnResponseFinish);
         if (stopBackgroundSetupHeartbeat === stopOnResponseFinish) {
@@ -16170,8 +16206,7 @@ export function createProductionAgentHandler(
       },
     );
 
-    // The timeout aborts the claimed row; never start a run after setup expires.
-    if (backgroundSetupDeadlineExpired?.()) {
+    if (backgroundSetupDeadlineExceeded?.()) {
       return { ok: true, skipped: "setup-deadline" };
     }
 
@@ -16179,6 +16214,7 @@ export function createProductionAgentHandler(
       runId,
       effectiveThreadId,
       async (rawSend, signal, control) => {
+        if (backgroundSetupDeadlineExceeded?.()) return;
         const send = (event: AgentChatEvent) => {
           rawSend(event);
           updateTrackedProgressFromEvent(event);
@@ -16929,6 +16965,7 @@ export function createProductionAgentHandler(
         attemptCount: backgroundContinuationCount,
       },
     );
+    backgroundSetupStartedRun = startedRun;
     void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());
 
     if (isBackgroundWorker) {
