@@ -18,10 +18,10 @@ import {
   resolveSecretManagedBy,
   SECRET_MANAGERS,
 } from "../secrets/managed-keys.js";
+import type { SecretScope } from "../secrets/register.js";
 import {
   deleteAppSecret,
   readAppSecret,
-  readAppSecrets,
   writeAppSecret,
 } from "../secrets/storage.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -65,6 +65,8 @@ export interface ChannelCredentialStatus {
   source: ChannelCredentialSource | null;
   /** Saved from Channels, so `remove-credentials` deletes it. */
   removable: boolean;
+  /** Exact saved scope with unreadable ciphertext that Channels can repair. */
+  unreadableScope?: SecretScope;
 }
 
 export interface MessagingChannelStatus {
@@ -92,6 +94,7 @@ export interface MessagingChannelsStatus {
 interface ChannelAccess {
   email: string;
   scopeId: string;
+  orgId: string | null;
   canManage: boolean;
 }
 
@@ -103,11 +106,13 @@ async function resolveChannelAccess(
   const orgId = ctx?.orgId?.trim();
   // Matches `checkOrgAdmin` in the integrations plugin: without an org there
   // is one user and no role gradient.
-  if (!orgId) return { email, scopeId: `solo:${email}`, canManage: true };
+  if (!orgId)
+    return { email, scopeId: `solo:${email}`, orgId: null, canManage: true };
   const role = await readOrgMemberRole(orgId, email);
   return {
     email,
     scopeId: orgId,
+    orgId,
     canManage: role === "owner" || role === "admin",
   };
 }
@@ -167,61 +172,131 @@ function isChannelsManaged(key: string): boolean {
   return resolveSecretManagedBy(key)?.id === SECRET_MANAGERS.channels.id;
 }
 
+interface ChannelCredentialRef {
+  key: string;
+  scope: SecretScope;
+  scopeId: string;
+}
+
+function recoveryRefsFor(
+  key: string,
+  access: ChannelAccess,
+): ChannelCredentialRef[] {
+  return [
+    { key, scope: "user", scopeId: access.email },
+    ...(access.orgId
+      ? [{ key, scope: "org" as const, scopeId: access.orgId }]
+      : []),
+    { key, scope: "workspace", scopeId: access.scopeId },
+  ];
+}
+
+function allowedRecoveryRef(
+  key: string,
+  access: ChannelAccess,
+  error: AppSecretDecryptionError,
+): ChannelCredentialRef | undefined {
+  if (!isChannelsManaged(key) || !error.scope || !error.scopeId)
+    return undefined;
+  return recoveryRefsFor(key, access).find(
+    (ref) => ref.scope === error.scope && ref.scopeId === error.scopeId,
+  );
+}
+
+async function unreadableCredentialRefs(
+  key: string,
+  access: ChannelAccess,
+): Promise<ChannelCredentialRef[]> {
+  if (!isChannelsManaged(key)) return [];
+  const unreadable: ChannelCredentialRef[] = [];
+  for (const ref of recoveryRefsFor(key, access)) {
+    try {
+      await readAppSecret(ref);
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      if (
+        (error.scope && error.scope !== ref.scope) ||
+        (error.scopeId && error.scopeId !== ref.scopeId)
+      ) {
+        throw error;
+      }
+      unreadable.push(ref);
+    }
+  }
+  return unreadable;
+}
+
+function requireReadableCredentialLookup(
+  key: string,
+  resolved: Awaited<ReturnType<typeof resolveSecretDetailed>>,
+): void {
+  if (!resolved.lookupFailed) return;
+  if (resolved.cause instanceof AppSecretDecryptionError) return;
+  fail("Couldn't read the saved channel credentials. Try again.", {
+    statusCode: 503,
+    errorCode: "credential_store_unavailable",
+    details: { key },
+  });
+}
+
+async function repairTargetFor(
+  key: string,
+  access: ChannelAccess,
+): Promise<ChannelCredentialRef | undefined> {
+  const unreadable = await unreadableCredentialRefs(key, access);
+  const resolved = await resolveSecretDetailed(key);
+  requireReadableCredentialLookup(key, resolved);
+  if (resolved.lookupFailed) {
+    const ref =
+      resolved.cause instanceof AppSecretDecryptionError
+        ? allowedRecoveryRef(key, access, resolved.cause)
+        : undefined;
+    if (!ref) {
+      fail(
+        "Couldn't identify the saved credential that needs repair. Try again.",
+        {
+          statusCode: 503,
+          errorCode: "credential_store_unavailable",
+          details: { key },
+        },
+      );
+    }
+    return ref;
+  }
+  return unreadable[0];
+}
+
 async function readCredentialStatuses(
   keys: readonly EnvKeyConfig[],
   access: ChannelAccess,
 ): Promise<ChannelCredentialStatus[]> {
-  let saved = new Map<string, { value: string }>();
-  const unreadable = new Set<string>();
-  if (access.canManage) {
-    try {
-      saved = await readAppSecrets({
-        keys: keys.map((item) => item.key),
-        scope: "workspace",
-        scopeId: access.scopeId,
-      });
-    } catch (error) {
-      if (!(error instanceof AppSecretDecryptionError)) throw error;
-      for (const item of keys) {
-        try {
-          const value = await readAppSecret({
-            key: item.key,
-            scope: "workspace",
-            scopeId: access.scopeId,
-          });
-          if (value) saved.set(item.key, value);
-        } catch (readError) {
-          if (!(readError instanceof AppSecretDecryptionError)) throw readError;
-          unreadable.add(item.key);
-        }
-      }
-    }
-  }
   const statuses: ChannelCredentialStatus[] = [];
   for (const item of keys) {
     let source: ChannelCredentialSource | null = null;
-    let workspaceUnreadable = false;
+    let unreadableScope: SecretScope | undefined;
     if (access.canManage) {
-      if (unreadable.has(item.key)) {
+      const unreadable = await unreadableCredentialRefs(item.key, access);
+      const resolved = await resolveSecretDetailed(item.key);
+      requireReadableCredentialLookup(item.key, resolved);
+      const resolverRecovery =
+        resolved.lookupFailed &&
+        resolved.cause instanceof AppSecretDecryptionError
+          ? allowedRecoveryRef(item.key, access, resolved.cause)
+          : undefined;
+      const recovery = resolved.lookupFailed
+        ? resolverRecovery
+        : unreadable[0];
+      unreadableScope = recovery?.scope;
+      if (resolved.value) {
+        source =
+          resolved.source === "env"
+            ? "environment"
+            : resolved.source === "workspace" &&
+                resolved.scopeId === access.scopeId
+              ? "saved"
+              : "elsewhere";
+      } else if (resolved.lookupFailed || unreadableScope) {
         source = "unreadable";
-        workspaceUnreadable = true;
-      } else if (saved.get(item.key)?.value) {
-        source = "saved";
-      } else {
-        const resolved = await resolveSecretDetailed(item.key);
-        if (resolved.lookupFailed) {
-          if (resolved.cause instanceof AppSecretDecryptionError) {
-            source = "unreadable";
-          } else {
-            fail("Couldn't read the saved channel credentials. Try again.", {
-              statusCode: 503,
-              errorCode: "credential_store_unavailable",
-            });
-          }
-        }
-        if (!source && resolved.value) {
-          source = resolved.source === "env" ? "environment" : "elsewhere";
-        }
       }
     }
     statuses.push({
@@ -232,8 +307,9 @@ async function readCredentialStatuses(
       saveable: item.deploymentOnly !== true,
       source,
       removable:
-        (source === "saved" || workspaceUnreadable) &&
+        (source === "saved" || unreadableScope !== undefined) &&
         isChannelsManaged(item.key),
+      ...(unreadableScope ? { unreadableScope } : {}),
     });
   }
   return statuses;
@@ -409,12 +485,24 @@ export async function saveMessagingChannelCredentials(
     }
     writes.push([key, value]);
   }
-  for (const [key, value] of writes) {
+  const targets = await Promise.all(
+    writes.map(
+      async ([key]) =>
+        (await repairTargetFor(key, access)) ?? {
+          key,
+          scope: "workspace" as const,
+          scopeId: access.scopeId,
+        },
+    ),
+  );
+  for (const [[key, value], target] of writes.map(
+    (entry, index) => [entry, targets[index]] as const,
+  )) {
     await writeAppSecret({
       key,
       value,
-      scope: "workspace",
-      scopeId: access.scopeId,
+      scope: target.scope,
+      scopeId: target.scopeId,
       description: `${adapter.label} channel credential`,
     });
   }
@@ -447,16 +535,40 @@ export async function removeMessagingChannelCredentials(
     .getRequiredEnvKeys()
     .map((item) => item.key)
     .filter(isChannelsManaged);
-  const removedKeys: string[] = [];
+  const refsToRemove: ChannelCredentialRef[] = [];
   for (const key of keys) {
-    if (
-      await deleteAppSecret({
-        key,
-        scope: "workspace",
-        scopeId: access.scopeId,
-      })
-    ) {
-      removedKeys.push(key);
+    refsToRemove.push({ key, scope: "workspace", scopeId: access.scopeId });
+    refsToRemove.push(...(await unreadableCredentialRefs(key, access)));
+    const resolved = await resolveSecretDetailed(key);
+    requireReadableCredentialLookup(key, resolved);
+    if (resolved.lookupFailed) {
+      const ref =
+        resolved.cause instanceof AppSecretDecryptionError
+          ? allowedRecoveryRef(key, access, resolved.cause)
+          : undefined;
+      if (!ref) {
+        fail(
+          "Couldn't identify the saved credential that needs repair. Try again.",
+          {
+            statusCode: 503,
+            errorCode: "credential_store_unavailable",
+            details: { key },
+          },
+        );
+      }
+      refsToRemove.push(ref);
+    }
+  }
+  const uniqueRefs = new Map(
+    refsToRemove.map((ref) => [
+      `${ref.scope}\u0000${ref.scopeId}\u0000${ref.key}`,
+      ref,
+    ]),
+  );
+  const removedKeys: string[] = [];
+  for (const ref of uniqueRefs.values()) {
+    if ((await deleteAppSecret(ref)) && !removedKeys.includes(ref.key)) {
+      removedKeys.push(ref.key);
     }
   }
   const channel = await readChannelStatus(

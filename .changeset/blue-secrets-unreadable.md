@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Report undecryptable saved connections as unavailable instead of missing.
+Keep usable credential fallbacks active and let Channels repair only the exact unreadable saved scope.

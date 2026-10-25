@@ -430,7 +430,7 @@ async function readAppSecretUncached(
     );
   } catch {
     warnUndecryptableSecret(ref);
-    throw new AppSecretDecryptionError();
+    throw new AppSecretDecryptionError(ref);
   }
   if (decrypted.needsSharedCiphertext) {
     await populateSharedAppSecret(
@@ -493,7 +493,10 @@ export async function readAppSecrets(args: {
         scope: args.scope,
         scopeId: args.scopeId,
       });
-      throw new AppSecretDecryptionError();
+      throw new AppSecretDecryptionError({
+        scope: args.scope,
+        scopeId: args.scopeId,
+      });
     }
     if (decrypted.needsSharedCiphertext) {
       await populateSharedAppSecret(

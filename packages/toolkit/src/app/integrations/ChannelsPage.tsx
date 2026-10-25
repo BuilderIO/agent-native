@@ -435,6 +435,30 @@ function CredentialValue({
       />
     );
   }
+  if (credential.unreadableScope) {
+    const statusLabel =
+      credential.source === "environment"
+        ? t(`${K}.setup.setInEnvironment`)
+        : credential.source === "elsewhere"
+          ? t(`${K}.setup.savedElsewhere`)
+          : credential.source === "saved"
+            ? t(`${K}.setup.saved`)
+            : t(`${K}.setup.unreadable`);
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">{statusLabel}</p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="xs"
+          aria-label={t(`${K}.setup.replaceAria`, { key: credential.key })}
+          onClick={onReplace}
+        >
+          {t(`${K}.setup.replace`)}
+        </Button>
+      </div>
+    );
+  }
   if (credential.source === "saved") {
     return (
       <div className="flex items-center justify-between gap-2">
@@ -500,7 +524,8 @@ function ChannelSetupDialog({
     (item.source === null ||
       ((item.source === "saved" || item.source === "unreadable") &&
         replacing.has(item.key)) ||
-      item.source === "unreadable");
+      item.source === "unreadable" ||
+      (item.unreadableScope !== undefined && replacing.has(item.key)));
   const filled = credentials
     .filter(isEditing)
     .map((item) => [item.key, values[item.key]?.trim() ?? ""] as const)
@@ -520,7 +545,8 @@ function ChannelSetupDialog({
       item.saveable &&
       (item.source === null ||
         item.source === "saved" ||
-        item.source === "unreadable"),
+        item.source === "unreadable" ||
+        item.unreadableScope !== undefined),
   );
   const readOnly = !canSaveHere && state !== "off";
   const nothingToDo =

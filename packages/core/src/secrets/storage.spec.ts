@@ -730,10 +730,14 @@ describe("secrets storage CRUD (real pglite)", () => {
       await expect(batchRead()).rejects.toMatchObject({
         name: "AppSecretDecryptionError",
         errorCode: "app_secret_unreadable",
+        scope: userRef.scope,
+        scopeId: userRef.scopeId,
       });
       await expect(mod.readAppSecret(userRef)).rejects.toMatchObject({
         name: "AppSecretDecryptionError",
         errorCode: "app_secret_unreadable",
+        scope: userRef.scope,
+        scopeId: userRef.scopeId,
       });
     });
 
@@ -1232,6 +1236,8 @@ describe("development process on a shared database", () => {
     await expect(mod.readAppSecret(orgRef)).rejects.toMatchObject({
       name: "AppSecretDecryptionError",
       errorCode: "app_secret_unreadable",
+      scope: orgRef.scope,
+      scopeId: orgRef.scopeId,
     });
     await expect(
       mod.readAppSecrets({
@@ -1242,6 +1248,8 @@ describe("development process on a shared database", () => {
     ).rejects.toMatchObject({
       name: "AppSecretDecryptionError",
       errorCode: "app_secret_unreadable",
+      scope: orgRef.scope,
+      scopeId: orgRef.scopeId,
     });
 
     expect(warn).toHaveBeenCalledTimes(1);

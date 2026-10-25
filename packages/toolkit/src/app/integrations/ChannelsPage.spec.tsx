@@ -105,11 +105,12 @@ const REQUIRED_KEYS: Record<string, string[]> = {
 
 type ChannelPatch = Partial<Omit<MessagingChannelStatus, "credentials">> & {
   sources?: Record<string, ChannelCredentialStatus["source"]>;
+  unreadableScopes?: Record<string, ChannelCredentialStatus["unreadableScope"]>;
 };
 
 function channel(
   platform: string,
-  { sources = {}, ...patch }: ChannelPatch = {},
+  { sources = {}, unreadableScopes = {}, ...patch }: ChannelPatch = {},
 ): MessagingChannelStatus {
   const configured = patch.configured ?? false;
   const enabled = patch.enabled ?? false;
@@ -132,7 +133,11 @@ function channel(
       required: key !== "SLACK_BOT_TOKEN",
       saveable: key !== "GOOGLE_SERVICE_ACCOUNT_KEY",
       source: sources[key] ?? null,
-      removable: sources[key] === "saved",
+      removable:
+        sources[key] === "saved" || unreadableScopes[key] !== undefined,
+      ...(unreadableScopes[key]
+        ? { unreadableScope: unreadableScopes[key] }
+        : {}),
     })),
     ...patch,
   };
@@ -590,6 +595,49 @@ describe("ChannelsPage", () => {
         operation: "save-credentials",
         platform: "slack",
         values: { SLACK_SIGNING_SECRET: "fake-new-secret" },
+      },
+    ]);
+  });
+
+  it("offers repair for an unreadable saved scope while keeping an environment fallback active", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        slack: {
+          configured: true,
+          enabled: true,
+          sources: { SLACK_SIGNING_SECRET: "environment" },
+          unreadableScopes: { SLACK_SIGNING_SECRET: "user" },
+        },
+      }),
+    );
+    await render("slack");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#mention button")?.click(),
+    );
+    await flush();
+
+    const credential = document.querySelector(
+      '[data-channel-credential="SLACK_SIGNING_SECRET"]',
+    );
+    expect(credential?.textContent).toContain(
+      "Set in the deployment environment",
+    );
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Replace SLACK_SIGNING_SECRET"]',
+        )
+        ?.click(),
+    );
+    await type("channel-slack-SLACK_SIGNING_SECRET", "replacement-secret");
+    await act(async () => buttonNamed("Save")?.click());
+    await flush();
+
+    expect(actions.manage.mock.calls.map(([args]) => args)).toEqual([
+      {
+        operation: "save-credentials",
+        platform: "slack",
+        values: { SLACK_SIGNING_SECRET: "replacement-secret" },
       },
     ]);
   });

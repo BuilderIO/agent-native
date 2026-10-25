@@ -338,6 +338,8 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   // Browser-extension session ids; the row identity is owner_email.
   "agent_native_browser_sessions.session_id",
   "agent_native_browser_session_requests.session_id",
+  // Stable AgentHarness session primary key; owner email is rekeyed on its parent session row.
+  "agent_harness_session_events.session_id",
 ]);
 
 const IDENTITY_COLUMN_PATTERN =
