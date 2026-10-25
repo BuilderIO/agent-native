@@ -1001,7 +1001,8 @@ function parseWorkspaceAppsGatewayResponse(
   const apps = parseWorkspaceAppsManifest(parsed, () => {
     invalidUrlCount += 1;
   });
-  if (!apps || apps.length + invalidUrlCount !== rawApps.length) return null;
+  if (!apps) return invalidUrlCount === rawApps.length ? [] : null;
+  if (apps.length + invalidUrlCount !== rawApps.length) return null;
   const ids = new Set(apps.map((app) => app.id.toLowerCase()));
   return ids.size === apps.length ? apps : null;
 }
@@ -2226,8 +2227,16 @@ function workspaceAppsManifestCandidates(): string[] {
 function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   for (const file of workspaceAppsManifestCandidates()) {
     if (!fs.existsSync(file)) continue;
-    const apps = parseWorkspaceAppsManifest(readJson(file));
-    if (apps) return apps;
+    try {
+      const apps = parseWorkspaceAppsManifest(readJson(file));
+      if (apps) return apps;
+    } catch (error) {
+      if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+      console.warn(
+        `[dispatch] Could not read Workspace app manifest ${file}; skipping source`,
+        error,
+      );
+    }
   }
   return null;
 }

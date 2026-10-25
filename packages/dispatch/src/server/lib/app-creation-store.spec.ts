@@ -519,6 +519,47 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("returns an empty list when every gateway registry app URL is invalid", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          apps: [
+            {
+              id: "invalid-url",
+              name: "Invalid URL",
+              path: "/invalid-url",
+              url: "not-a-url",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+      const apps = await runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[dispatch] Could not resolve Workspace app invalid-url; skipping app",
+        expect.any(Error),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it.each([
     [
       "gateway mount path",
@@ -1531,6 +1572,49 @@ describe("listWorkspaceApps", () => {
       expect(apps.map((app) => app.id)).not.toContain("invalid-url");
       expect(warnSpy).toHaveBeenCalledWith(
         "[dispatch] Could not resolve Workspace app invalid-url; skipping app",
+        expect.any(Error),
+      );
+    } finally {
+      warnSpy.mockRestore();
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a malformed manifest file and continues to the next candidate", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const malformedManifest = path.join(
+      workspaceRoot,
+      ".agent-native",
+      "workspace-apps.json",
+    );
+    try {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      fs.mkdirSync(path.dirname(malformedManifest), { recursive: true });
+      fs.writeFileSync(malformedManifest, "{");
+      fs.writeFileSync(
+        path.join(workspaceRoot, "workspace-apps.json"),
+        JSON.stringify([
+          {
+            id: "healthy-app",
+            name: "Healthy App",
+            path: "/healthy-app",
+          },
+        ]),
+      );
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toContain("healthy-app");
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[dispatch] Could not read Workspace app manifest ${malformedManifest}; skipping source`,
         expect.any(Error),
       );
     } finally {
