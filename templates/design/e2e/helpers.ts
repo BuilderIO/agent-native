@@ -529,6 +529,11 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
+  await waitForEditorBoot(page);
+}
+
+/** After a goto or reload: a cold editor boot takes ~12-16 s on CI runners. */
+export async function waitForEditorBoot(page: Page): Promise<void> {
   const designMode = page.locator(
     '[data-design-top-bar] [data-design-mode="edit"]',
   );
