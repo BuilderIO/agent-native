@@ -854,15 +854,22 @@ export function editsSettlingSuggestion(
     map.forEach((oldStart, oldEnd) =>
       touched.push({ from: oldStart, to: oldEnd }),
     );
+    // Typing right beside the words leaves them as reviewed; if a letter joins
+    // them, the server turns the accept down instead. A point has no inside,
+    // so typing exactly there waits.
     if (
       touched.some((edit) =>
-        ranges.some((range) => edit.from <= range.to && edit.to >= range.from),
+        ranges.some((range) =>
+          range.from === range.to
+            ? edit.from <= range.to && edit.to >= range.from
+            : edit.from < range.to && edit.to > range.from,
+        ),
       )
     )
       return true;
     ranges = ranges.map((range) => ({
-      from: map.map(range.from, -1),
-      to: map.map(range.to, 1),
+      from: map.map(range.from, 1),
+      to: map.map(range.to, -1),
     }));
   }
   return false;

@@ -52,6 +52,7 @@ import {
   supportedSuggestionStructure,
 } from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
+import { parseSuggestionPlacement } from "../../shared/suggestion-placement.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { getDb, schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
@@ -1168,7 +1169,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         },
       )
     ) {
-      if (await openInEditor(context.resourceId)) {
+      // A click that says where the words were comes from an open editor.
+      if (
+        parseSuggestionPlacement(context.placement) !== null ||
+        (await openInEditor(context.resourceId))
+      ) {
         fail(
           "The words this suggestion changes were just edited, so it wasn't accepted.",
           { statusCode: 409, errorCode: "suggestion_conflict" },

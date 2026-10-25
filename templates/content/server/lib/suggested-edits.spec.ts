@@ -1256,6 +1256,40 @@ describe("accepting into the live copy", () => {
     expect(coordination.ydoc.persist).not.toHaveBeenCalled();
   });
 
+  it("refuses an accept with a placement over edited words even without presence", async () => {
+    // The click came from an open editor, whatever presence says.
+    const { tx, storedBody } = pageTransaction();
+    const coordination = decisionCoordination();
+    coordination.ydoc.doc = liveCopy(stored).doc;
+    const lazy = placementOf(coordination.ydoc.doc, "lazy");
+    const paragraph = coordination.ydoc.doc
+      .getXmlFragment("default")
+      .get(0) as Y.XmlElement;
+    const text = paragraph.get(0) as Y.XmlText;
+    coordination.ydoc.doc.transact(() => {
+      text.delete(4, 4);
+      text.insert(4, "idle");
+    });
+    await expect(
+      contentDocumentSuggestionAdapter.apply(
+        acceptContext(
+          replaceWord(stored, "lazy", "sleepy"),
+          "suggestion-1",
+          tx,
+          coordination,
+          lazy,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+    expect(liveMarkdown(coordination.ydoc.doc)).toBe(
+      "The idle dog sleeps.\nSecond paragraph.",
+    );
+    expect(storedBody()).toBeUndefined();
+  });
+
   it("brings a live copy behind a save to the accepted Page when nobody has it open", async () => {
     // The agent's own presence after its save isn't a person typing.
     present.mockResolvedValueOnce([

@@ -303,6 +303,92 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
     );
   });
 
+  it("keeps typing beside reviewed words that end in a space", () => {
+    for (const typingArrivedFirst of [false, true]) {
+      expect(
+        acceptWhileTyping({
+          stored: "The cat sleeps.",
+          next: "The sleeps.",
+          words: "cat ",
+          typing: typeAt("happily ", before("sleeps")),
+          typingArrivedFirst,
+        }),
+      ).toBe("The happily sleeps.");
+    }
+  });
+
+  it("keeps a word typed before reviewed words that start with a space", () => {
+    const input = {
+      stored: "The cat sleeps.",
+      next: "The sleeps.",
+      words: " cat",
+      typing: typeAt(" happy", before(" cat")),
+    };
+    expect(acceptWhileTyping(input)).toBe("The happy sleeps.");
+    // y-prosemirror records " happy" as "happy " after the reviewed space, so
+    // once it arrives it is inside the words and the accept waits.
+    expect(() =>
+      acceptWhileTyping({ ...input, typingArrivedFirst: true }),
+    ).toThrow(refused);
+  });
+
+  it("keeps typing beside words a suggestion replaces", () => {
+    for (let run = 0; run < 12; run += 1) {
+      for (const typingArrivedFirst of [false, true]) {
+        expect(
+          acceptWhileTyping({
+            stored: "A cat day.",
+            next: "A dog day.",
+            words: "cat",
+            typing: typeAt("!", after("cat")),
+            typingArrivedFirst,
+          }),
+        ).toBe("A dog! day.");
+        expect(
+          acceptWhileTyping({
+            stored: "The cat sleeps.",
+            next: "The dog sleeps.",
+            words: " cat",
+            typing: typeAt(" happy", before(" cat")),
+          }),
+        ).toBe("The happy dog sleeps.");
+        expect(
+          acceptWhileTyping({
+            stored: "A cat day.",
+            next: "A big cat day.",
+            words: "cat",
+            typing: typeAt("!", after("cat")),
+            typingArrivedFirst,
+          }),
+        ).toBe("A big cat! day.");
+      }
+    }
+  });
+
+  it("refuses, rather than changing the twin, when someone edited the reviewed words", () => {
+    const stored = "The lazy dog.\nThe lazy dog.";
+    const {
+      server,
+      browsers: [browser, other],
+    } = session(stored, 2);
+    const placement = placementOf(browser!, "lazy");
+    Y.applyUpdate(
+      server,
+      edit(other!, (current) => {
+        const { from, to } = find(current, "lazy");
+        return current.replace(
+          from,
+          to,
+          new Slice(Fragment.from(schema.text("active")), 0, 0),
+        );
+      }),
+    );
+    expect(() =>
+      accept(server, stored, "The sleepy dog.\nThe lazy dog.", placement),
+    ).toThrow(refused);
+    expect(markdownOf(server)).toBe("The active dog.\nThe lazy dog.");
+  });
+
   it("refuses a link someone else split while the reviewer looked", () => {
     const stored = "Read [one two three](https://old.example) today.";
     const {
@@ -449,6 +535,32 @@ describe("writeAcceptedSuggestion without a placement", () => {
     expect(() => accept(server, stored, "Yes!\nMiddle.\nYes.")).toThrow(
       refused,
     );
+  });
+
+  it("refuses, rather than changing the twin, a repeated paragraph with typing", () => {
+    const stored = "The lazy dog.\nThe lazy dog.";
+    const {
+      server,
+      browsers: [browser],
+    } = session(stored);
+    Y.applyUpdate(server, edit(browser!, typeAt(" Typed.", endOf("lazy"))));
+    expect(() =>
+      accept(server, stored, "The sleepy dog.\nThe lazy dog."),
+    ).toThrow(refused);
+    expect(markdownOf(server)).toBe("The lazy dog. Typed.\nThe lazy dog.");
+  });
+
+  it("refuses, rather than changing the twin, repeated blocks with typing", () => {
+    const stored = "Alpha.\nBeta.\nAlpha.\nBeta.";
+    const {
+      server,
+      browsers: [browser],
+    } = session(stored);
+    Y.applyUpdate(server, edit(browser!, typeAt(" Typed.", endOf("Alpha"))));
+    expect(() => accept(server, stored, "Gamma.\nAlpha.\nBeta.")).toThrow(
+      refused,
+    );
+    expect(markdownOf(server)).toBe("Alpha. Typed.\nBeta.\nAlpha.\nBeta.");
   });
 });
 

@@ -1875,8 +1875,23 @@ describe("settling suggestions", () => {
     const type = (at: number, text: string) =>
       base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
     expect(type(3, "x")).toBe("Before after");
-    expect(type(7, "x")).toBe("Before after");
     expect(type(13, "!")).toBe("Before after!");
+    const erase = (from: number, to: number) =>
+      base.applyTransaction(base.tr.delete(from, to)).state.doc.textContent;
+    expect(erase(6, 8)).toBe("Before after");
+  });
+
+  it("keeps typing right beside the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(7, " really")).toBe("Before really after");
+    expect(type(1, "So ")).toBe("So Before after");
+    const typed = base.applyTransaction(base.tr.insertText(" really", 7));
+    expect(
+      typed.state.applyTransaction(typed.state.tr.insertText("!", 8)).state.doc
+        .textContent,
+    ).toBe("Before !really after");
   });
 
   it("lets live sync replace those words, and leaves pending suggestions editable", () => {

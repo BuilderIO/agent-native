@@ -111,21 +111,77 @@ function textSplice(before: string, after: string) {
 }
 
 /**
- * Replaces `from` with `to` in `text` at `offset`. Yjs ties inserted text to
- * the character on its left, which for text added at the very start is the
- * one before the range, shared with anyone typing there. So the first
- * character is retyped instead, and the new text follows it.
+ * Deletes `length` characters at `index`. y-prosemirror records typing as
+ * far right as the text allows, so a space typed before " cat" goes in after
+ * its space. When the same characters follow the deleted ones, the deletion
+ * moves right over them too, and that typing stays whole.
+ */
+function deleteText(text: Y.XmlText, index: number, length: number) {
+  const characters = new Map<number, string>();
+  let position = 0;
+  for (const { segment } of graphemes.segment(plainText(text))) {
+    characters.set(position, segment);
+    position += segment.length;
+  }
+  let start = index;
+  for (;;) {
+    const first = characters.get(start);
+    if (
+      !first ||
+      first === OBJECT_REPLACEMENT ||
+      characters.get(start + length) !== first
+    )
+      break;
+    start += first.length;
+  }
+  text.delete(start, length);
+}
+
+/**
+ * Replaces `from` with `to` in `text` at `offset`. Yjs places new text by the
+ * characters on either side of it, and puts anyone else's typing between the
+ * same two characters in client order. So the new text goes in between
+ * characters inside `from`, where nobody typing beside it is, before the old
+ * text is deleted. A character next to the change is retyped when the change
+ * has no inside of its own.
  */
 function spliceText(text: Y.XmlText, offset: number, from: string, to: string) {
-  let { at, remove, insert } = textSplice(from, to);
-  if (at === 0 && remove === 0 && insert && from) {
-    const [first] = Array.from(graphemes.segment(from), (part) => part.segment);
-    remove = first!.length;
-    insert += first;
+  const { at, remove, insert } = textSplice(from, to);
+  if (!insert) {
+    if (remove) deleteText(text, offset + at, remove);
+    return;
   }
-  // Deleting first ties the insert to the deleted text, inside the range.
-  if (remove) text.delete(offset + at, remove);
-  if (insert) text.insert(offset + at, insert);
+  const boundaries = [0];
+  for (const { segment } of graphemes.segment(from))
+    boundaries.push(boundaries[boundaries.length - 1]! + segment.length);
+  const lastBefore = (limit: number) =>
+    boundaries.reduce((best, boundary) => (boundary < limit ? boundary : best));
+  let start = at;
+  let end = at + remove;
+  let anchor = at;
+  if (remove) {
+    // Between the last two characters replaced, or after a lone one.
+    const inside = lastBefore(end);
+    anchor = inside > at ? inside : end < from.length || at === 0 ? end : at;
+  } else if (at === 0) {
+    // New text at the start goes in after the first character, retyped.
+    end = boundaries[1] ?? 0;
+    anchor = end;
+  } else {
+    // New text follows what's before it, so it goes in ahead of the
+    // character before it, retyped, rather than beside what comes next.
+    const previous = lastBefore(at);
+    if (previous > 0) {
+      start = previous;
+      anchor = previous;
+    }
+  }
+  const replacement =
+    from.slice(start, at) + insert + from.slice(at + remove, end);
+  text.insert(offset + anchor, replacement);
+  if (end > anchor)
+    text.delete(offset + anchor + replacement.length, end - anchor);
+  if (anchor > start) text.delete(offset + start, anchor - start);
 }
 
 /**
@@ -344,12 +400,16 @@ function writeAtPlacement(
     return false;
   }
   // A letter typed onto either end makes a different word than was reviewed.
+  // An end that is a space or punctuation has no word for a letter to join.
   for (const side of ["before", "after"] as const) {
-    const liveCharacter = characterBeside(
+    const edge = side === "before" ? range.blockFrom : range.blockTo;
+    const inside = characterBeside(
       range.textblock,
-      side === "before" ? range.blockFrom : range.blockTo,
-      side,
+      edge,
+      side === "before" ? "after" : "before",
     );
+    if (length > 0 && !WORD_CHARACTER.test(inside)) continue;
+    const liveCharacter = characterBeside(range.textblock, edge, side);
     const storedCharacter = characterBeside(
       chosen.textblock,
       side === "before" ? chosen.offset : chosen.offset + length,
@@ -376,13 +436,14 @@ function writeAtPlacement(
   return true;
 }
 
+/** Where `page` holds a paragraph reading exactly `stored`, if only once. */
 function uniqueTextblock(
-  live: ProseMirrorNode,
+  page: ProseMirrorNode,
   stored: ProseMirrorNode,
 ): number | null {
   let found: number | null = null;
   let count = 0;
-  live.descendants((node, position) => {
+  page.descendants((node, position) => {
     if (count > 1) return false;
     if (!node.isTextblock) return true;
     if (node.eq(stored)) {
@@ -435,6 +496,28 @@ function liveBlockRun(
 }
 
 /**
+ * Whether the stored blocks `first` to `end` can be only one place in the
+ * stored Page. Once one of two repeated copies changes in the live copy, the
+ * other is the only match left and would take the edit instead.
+ */
+function storedRunIsUnique(
+  before: ProseMirrorNode,
+  first: number,
+  end: number,
+): boolean {
+  if (end === first) return liveBlockRun(before, before, first, end) === first;
+  const size = end - first;
+  for (let offset = 0; offset + size <= before.childCount; offset += 1) {
+    if (offset === first) continue;
+    let matches = true;
+    for (let index = 0; matches && index < size; index += 1)
+      matches = before.child(offset + index).eq(before.child(first + index));
+    if (matches) return false;
+  }
+  return true;
+}
+
+/**
  * Without the reviewer's place, the change goes in only where the live copy
  * still holds the paragraph, or the blocks, exactly as stored.
  */
@@ -460,9 +543,12 @@ function writeWhereUnchanged(
   ) {
     const stored = $start.parent;
     const next = $next.parent;
+    // A paragraph the stored Page repeats can't be told from its twin.
     const position = unchanged
       ? $start.before()
-      : uniqueTextblock(live, stored);
+      : uniqueTextblock(before, stored) === null
+        ? null
+        : uniqueTextblock(live, stored);
     if (position === null) return false;
     const element = liveElementAt(fragment, live, position);
     if (!element) return false;
@@ -504,7 +590,11 @@ function writeWhereUnchanged(
     shared += 1;
   const end = before.childCount - shared;
   const nextEnd = after.childCount - shared;
-  const offset = unchanged ? first : liveBlockRun(live, before, first, end);
+  const offset = unchanged
+    ? first
+    : storedRunIsUnique(before, first, end)
+      ? liveBlockRun(live, before, first, end)
+      : null;
   if (offset === null) return false;
   const blocks: ProseMirrorNode[] = [];
   for (let index = first; index < nextEnd; index += 1)
