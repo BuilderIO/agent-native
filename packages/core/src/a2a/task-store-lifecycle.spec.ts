@@ -453,6 +453,33 @@ describe("task-store lifecycle (real pglite)", () => {
     });
   });
 
+  describe("updateTask state preconditions", () => {
+    it("does not overwrite a canceled task with a late synchronous result", async () => {
+      const { cancelA2ATask, createTask, getTask, updateTask } =
+        await loadStore();
+      const task = await createTask(makeMessage("run synchronously"));
+      await updateTask(task.id, { state: "working" });
+
+      await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
+        status: "canceled",
+      });
+      await expect(
+        updateTask(
+          task.id,
+          {
+            state: "completed",
+            message: makeMessage("late result", "agent"),
+          },
+          undefined,
+          { expectedState: "working" },
+        ),
+      ).resolves.toBeNull();
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "canceled" },
+      });
+    });
+  });
+
   describe("claimA2ATaskForProcessing", () => {
     it("claims a freshly submitted task and flips it to processing", async () => {
       const { createTask, claimA2ATaskForProcessing, getTask } =

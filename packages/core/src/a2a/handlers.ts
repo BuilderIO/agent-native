@@ -77,6 +77,7 @@ import type {
   JsonRpcResponse,
   Message,
   Artifact,
+  Task,
 } from "./types.js";
 
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
@@ -912,6 +913,22 @@ function hasUnboundVerifiedOrgIdentity(event?: any): boolean {
   return Boolean(verifiedEmail && verifiedOrgDomain && !verifiedOrgId);
 }
 
+async function updateSynchronousTask(
+  taskId: string,
+  update: Parameters<typeof updateTask>[1],
+): Promise<Task> {
+  const updated = await updateTask(taskId, update, undefined, {
+    expectedState: "working",
+  });
+  if (updated) return updated;
+
+  const current = await getTask(taskId);
+  if (!current || current.status.state === "working") {
+    throw new Error(`A2A task ${taskId} could not be settled from working`);
+  }
+  return current;
+}
+
 async function handleSend(
   params: Record<string, unknown>,
   config: A2AConfig,
@@ -1084,7 +1101,16 @@ async function handleSend(
         _id: 0,
       };
     }
-    await updateTask(task.id, { state: "working" });
+    const working = await updateTask(task.id, { state: "working" }, undefined, {
+      expectedState: "submitted",
+    });
+    if (!working) {
+      const current = await getTask(task.id);
+      if (!current || current.status.state === "submitted") {
+        throw new Error(`A2A task ${task.id} could not start processing`);
+      }
+      return { ...jsonRpcResult(0, current), _id: 0 };
+    }
 
     const ctx = makeHandlerContext(
       task.id,
@@ -1107,14 +1133,14 @@ async function handleSend(
           lastMessage = msg;
         }
         if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
-          const updated = await updateTask(task.id, {
+          const updated = await updateSynchronousTask(task.id, {
             state: "input-required",
             message: lastMessage,
           });
           return { ...jsonRpcResult(0, updated), _id: 0 };
         }
         await ctx.persistFileArtifacts();
-        const updated = await updateTask(task.id, {
+        const updated = await updateSynchronousTask(task.id, {
           state: "completed",
           message: lastMessage,
           artifacts: ctx.artifacts.length > 0 ? ctx.artifacts : undefined,
@@ -1128,14 +1154,14 @@ async function handleSend(
         ...(handlerResult.artifacts ?? []),
       ];
       if (handlerResult.taskState === "input-required") {
-        const updated = await updateTask(task.id, {
+        const updated = await updateSynchronousTask(task.id, {
           state: "input-required",
           message: handlerResult.message,
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
       }
       await ctx.persistFileArtifacts();
-      const updated = await updateTask(task.id, {
+      const updated = await updateSynchronousTask(task.id, {
         state: "completed",
         message: handlerResult.message,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
@@ -1143,10 +1169,13 @@ async function handleSend(
       return { ...jsonRpcResult(0, updated), _id: 0 };
     } catch (err: any) {
       const failureMessage = taskFailureMessage(err, "Handler failed");
-      await updateTask(task.id, {
+      const updated = await updateSynchronousTask(task.id, {
         state: "failed",
         message: failureMessage,
       });
+      if (updated.status.state !== "failed") {
+        return { ...jsonRpcResult(0, updated), _id: 0 };
+      }
       return {
         ...jsonRpcError(
           0,

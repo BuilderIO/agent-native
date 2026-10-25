@@ -162,11 +162,12 @@ export function namedSpecs(
   for (const file of files) {
     const directory = path.posix.dirname(file);
     const base = path.posix.basename(file).replace(/\.tsx?$/, "");
-    const named = listDirectory(directory).filter(
-      (entry) =>
-        TEST_FILE.test(entry) &&
-        (entry.startsWith(`${base}.`) || entry.startsWith(`${base}-`)),
-    );
+    const namedBasenames = new Set([base, `${base}.db`, `${base}-lifecycle`]);
+    const named = listDirectory(directory).filter((entry) => {
+      if (!TEST_FILE.test(entry)) return false;
+      const testBase = entry.replace(/\.(?:spec|test)\.tsx?$/, "");
+      return namedBasenames.has(testBase);
+    });
     if (named.length === 0) missing.push(file);
     for (const entry of named) include.add(`${directory}/${entry}`);
   }

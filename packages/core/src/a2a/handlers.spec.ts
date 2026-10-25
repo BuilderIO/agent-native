@@ -11,6 +11,7 @@ import {
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
+import { cancelA2ATask, getTask } from "./task-store.js";
 import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());
@@ -30,6 +31,9 @@ const claimTaskExecutionLeaseMock = vi.hoisted(() =>
 );
 const renewTaskExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
+const taskStoreHarness = vi.hoisted(() => ({
+  latestTaskId: null as string | null,
+}));
 
 vi.mock("../agent/run-store.js", () => ({
   claimTaskExecutionLease: claimTaskExecutionLeaseMock,
@@ -81,6 +85,7 @@ vi.mock("./task-store.js", () => {
       updatedAt: Date.now(),
     };
     tasks[id] = task;
+    taskStoreHarness.latestTaskId = id;
     return task;
   };
   return {
@@ -142,7 +147,12 @@ vi.mock("./task-store.js", () => {
     async setTaskOwnerScope(id: string, ownerScope: string | null) {
       if (tasks[id]) tasks[id].ownerScope = ownerScope;
     },
-    async updateTask(id: string, update: any, accessScope?: any) {
+    async updateTask(
+      id: string,
+      update: any,
+      accessScope?: any,
+      options?: { expectedState?: string },
+    ) {
       const task = tasks[id];
       if (
         !task ||
@@ -153,6 +163,12 @@ vi.mock("./task-store.js", () => {
               (accessScope.ownerScope ?? "").toLowerCase()))
       )
         return null;
+      if (
+        options?.expectedState &&
+        task.status.state !== options.expectedState
+      ) {
+        return null;
+      }
       if (update.state) {
         task.status = {
           state: update.state,
@@ -361,6 +377,7 @@ function mockEvent(): any {
 
 describe("handleJsonRpc", () => {
   beforeEach(() => {
+    taskStoreHarness.latestTaskId = null;
     evaluateServicePrincipalMock.mockReset();
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     recordServicePrincipalDenialMock.mockReset();
@@ -2065,6 +2082,69 @@ describe("handleJsonRpc", () => {
     expect(result.error).toBeUndefined();
     expect(result.result.status.message.parts[0].text).toBe("event-present");
   });
+
+  it.each(["completed", "failed"] as const)(
+    "preserves cancellation when the synchronous handler finishes as %s",
+    async (outcome) => {
+      let releaseHandler!: (result: any) => void;
+      let rejectHandler!: (error: Error) => void;
+      let markHandlerStarted!: () => void;
+      const handlerStarted = new Promise<void>((resolve) => {
+        markHandlerStarted = resolve;
+      });
+      const handlerResult = new Promise<any>((resolve, reject) => {
+        releaseHandler = resolve;
+        rejectHandler = reject;
+      });
+      const config: A2AConfig = {
+        ...customHandler,
+        handler: vi.fn(() => {
+          markHandlerStarted();
+          return handlerResult;
+        }),
+      };
+      const request = handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "run synchronously" }],
+            },
+          },
+        },
+        mockEvent(),
+        config,
+      );
+
+      await handlerStarted;
+      const taskId = taskStoreHarness.latestTaskId;
+      expect(taskId).toBeTruthy();
+      await expect(cancelA2ATask(taskId!)).resolves.toMatchObject({
+        status: "canceled",
+      });
+
+      if (outcome === "completed") {
+        releaseHandler({
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "late result" }],
+          },
+        });
+      } else {
+        rejectHandler(new Error("handler exploded"));
+      }
+
+      const response = await request;
+      expect(response.error).toBeUndefined();
+      expect(response.result.status.state).toBe("canceled");
+      await expect(getTask(taskId!)).resolves.toMatchObject({
+        status: { state: "canceled" },
+      });
+    },
+  );
 
   it("handles message/send with invalid message", async () => {
     const event = mockEvent();

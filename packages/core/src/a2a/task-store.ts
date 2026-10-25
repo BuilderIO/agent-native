@@ -892,6 +892,7 @@ export async function updateTask(
     artifacts?: Artifact[];
   },
   accessScope?: A2ATaskAccessScope,
+  options: { expectedState?: TaskState } = {},
 ): Promise<Task | null> {
   assertA2APersistablePayload(update.message, "A2A task message");
   assertA2APersistablePayload(update.artifacts, "A2A task artifacts");
@@ -930,8 +931,11 @@ export async function updateTask(
       assertA2APersistablePayload(task.history, "A2A task history");
       assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
 
+      const expectedStatePredicate = options.expectedState
+        ? " AND status_state = ?"
+        : "";
       const result = await tx.execute({
-        sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
+        sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}${expectedStatePredicate}`,
         args: [
           task.status.state,
           task.status.message ? JSON.stringify(task.status.message) : null,
@@ -941,10 +945,14 @@ export async function updateTask(
           now,
           id,
           ...predicate.args,
+          ...(options.expectedState ? [options.expectedState] : []),
         ],
       });
 
-      if (accessScope && getAffectedRowCount(result) !== 1) {
+      if (
+        (accessScope || options.expectedState) &&
+        getAffectedRowCount(result) !== 1
+      ) {
         return null;
       }
 

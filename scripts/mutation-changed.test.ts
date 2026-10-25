@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   contiguousRanges,
   mutateSpecs,
+  namedSpecs,
   survivingMutants,
 } from "./mutation-changed.ts";
 
@@ -36,6 +37,32 @@ test("mutates only added Core source lines, as packages/core-relative ranges", (
     "src/shared/merge-by-id.ts:3-4",
     "src/shared/merge-by-id.ts:9-9",
   ]);
+});
+
+test("matches only documented spec name variants for a mutated file", () => {
+  const entries = [
+    "session.spec.ts",
+    "session.db.spec.ts",
+    "session-lifecycle.test.ts",
+    "session-store.spec.ts",
+    "session-store-lifecycle.spec.ts",
+  ];
+
+  assert.deepEqual(
+    namedSpecs(["src/session.ts:1-2"], () => entries),
+    {
+      include: [
+        "src/session-lifecycle.test.ts",
+        "src/session.db.spec.ts",
+        "src/session.spec.ts",
+      ],
+      missing: [],
+    },
+  );
+  assert.deepEqual(
+    namedSpecs(["src/session.ts:1-2"], () => ["session-store.spec.ts"]),
+    { include: [], missing: ["src/session.ts"] },
+  );
 });
 
 test("reports surviving and uncovered mutants with their location", () => {
