@@ -277,23 +277,37 @@ function overRateLimit(peer: ContentClipPeer, kind: RateKind) {
 }
 
 /**
+ * Starts a new window for `key`. A full map drops its oldest bucket rather
+ * than refuse anyone: refusing would turn away every new reader on every page
+ * in this process, while dropping only gives one reader, page and Clip a fresh
+ * window.
+ */
+function startWindow(
+  buckets: Map<string, RateBucket>,
+  key: string,
+  now: number,
+): void {
+  buckets.delete(key);
+  if (buckets.size >= rateBucketLimit) pruneExpired(buckets, now);
+  const oldest = buckets.keys().next();
+  if (buckets.size >= rateBucketLimit && !oldest.done) {
+    buckets.delete(oldest.value);
+  }
+  buckets.set(key, { count: 1, reset: now + RATE_LIMIT_WINDOW_MS });
+}
+
+/**
  * Counts a request against a Clip it opened. Content mints a token for any
  * recording id a page reader names, so a bucket made before the Clip opened
- * would let made-up ids fill the map and lock every reader out.
+ * would let a reader name made-up ids until their own spent bucket dropped
+ * out of the map.
  */
 function rateLimited(peer: ContentClipPeer, kind: RateKind) {
   const key = clipKey(peer, kind);
   const now = Date.now();
   const existing = rateBuckets.get(key);
   if (!existing || existing.reset < now) {
-    if (existing) rateBuckets.delete(key);
-    if (rateBuckets.size >= rateBucketLimit) {
-      pruneExpired(rateBuckets, now);
-    }
-    if (rateBuckets.size >= rateBucketLimit) {
-      return tooManyRequests();
-    }
-    rateBuckets.set(key, { count: 1, reset: now + RATE_LIMIT_WINDOW_MS });
+    startWindow(rateBuckets, key, now);
     return null;
   }
   if (existing.count >= RATE_LIMITS[kind]) {
@@ -312,14 +326,7 @@ function countMiss(peer: ContentClipPeer, kind: RateKind): void {
     existing.count += 1;
     return;
   }
-  missBuckets.delete(key);
-  if (missBuckets.size >= rateBucketLimit) pruneExpired(missBuckets, now);
-  // Dropping the oldest only forgets a reader's misses; it locks no one out.
-  const oldest = missBuckets.keys().next();
-  if (missBuckets.size >= rateBucketLimit && !oldest.done) {
-    missBuckets.delete(oldest.value);
-  }
-  missBuckets.set(key, { count: 1, reset: now + RATE_LIMIT_WINDOW_MS });
+  startWindow(missBuckets, key, now);
 }
 
 export function __resetContentClipRateLimitsForTests(
