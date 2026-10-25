@@ -83,6 +83,31 @@ vi.mock("./_property-generations.js", async (importOriginal) => {
   };
 });
 
+const lockHook = vi.hoisted(() => ({
+  /** Runs once inside the next collection lock call, just before the lock. */
+  beforeNext: null as null | ((tx: any) => Promise<unknown>),
+}));
+
+// Lets a test land a write between a source writer's unlocked scan and the
+// locked write that follows it.
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    lockContentDatabaseMutation: async (
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) => {
+      const write = lockHook.beforeNext;
+      lockHook.beforeNext = null;
+      if (write) await write(args[0]);
+      return actual.lockContentDatabaseMutation(...args);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-webhooks-${process.pid}-${Date.now()}.pglite`,
@@ -2171,5 +2196,94 @@ describe("property generations", () => {
     expect(second[1].generation).toBeGreaterThan(first[1].generation);
     expect(second[1].updatedAt).toBe("2026-10-24T11:00:00.000Z");
     for (const row of [0, 2]) expect(second[row]).toEqual(first[row]);
+  });
+
+  it("the source writers work out their writes again under the lock", async () => {
+    const ids = await fixture(2);
+    const {
+      ensureDatabaseSourceProperty,
+      materializeSourceFieldPropertyValues,
+    } = await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = ["Sheet A", "Sheet B"].map((name, index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: name,
+      sourceTable: name,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    const links = schema.contentDatabaseSourceRows;
+    await getDb()
+      .insert(links)
+      .values(
+        ids.rows.map((row, index) => ({
+          id: `${row.itemId}-link`,
+          ownerEmail: OWNER,
+          sourceId: sources[0].id,
+          databaseItemId: row.itemId,
+          documentId: row.documentId,
+          sourceRowId: `row-${index}`,
+          sourceQualifiedId: `row-${index}`,
+          sourceDisplayKey: `row-${index}`,
+          sourceValuesJson: JSON.stringify({ note: "from the scan" }),
+        })),
+      );
+
+    // A refresh of the first row lands between the materializer's scan and
+    // its lock. The write must carry the refresh, not what the scan read.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceValuesJson: JSON.stringify({ note: "from the refresh" }) })
+        .where(eq(links.documentId, ids.rows[0].documentId));
+    await materializeSourceFieldPropertyValues({
+      database,
+      sourceId: sources[0].id,
+      fields: [
+        { propertyId: ids.properties.notes, sourceFieldKey: "note" },
+      ] as never,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    expect(
+      await storedValue(ids.rows[0].documentId, ids.properties.notes),
+    ).toBe("from the refresh");
+    expect(
+      await storedValue(ids.rows[1].documentId, ids.properties.notes),
+    ).toBe("from the scan");
+
+    // The second row moves to the other source between the Source column's
+    // scan and its lock.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceId: sources[1].id })
+        .where(eq(links.documentId, ids.rows[1].documentId));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    const [source] = await getDb()
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(await storedValue(ids.rows[0].documentId, source.id)).toBe(
+      sources[0].id,
+    );
+    expect(await storedValue(ids.rows[1].documentId, source.id)).toBe(
+      sources[1].id,
+    );
   });
 });
