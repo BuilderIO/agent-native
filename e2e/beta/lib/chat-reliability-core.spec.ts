@@ -1066,6 +1066,35 @@ test("the active-run read distinguishes idle, active, and unreadable", () => {
   assert.equal(inspectActiveRun(null).kind, "unreadable");
 });
 
+test("active-run diagnostics keep stage labels and omit stage details", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    terminalReason: "error:stale_run",
+    runId: "r",
+    dispatchMode: "background-processing",
+    diagStage: '{"stage":"stale_run_reaped","detail":"PRIVATE_DETAIL"}',
+    workerStage: '{"stage":"worker_started","detail":"PRIVATE_DETAIL"}',
+    heartbeatAt: 123,
+    lastProgressAt: 456,
+  });
+  assert.equal(
+    view.detail,
+    JSON.stringify({
+      active: false,
+      status: "errored",
+      terminalReason: "error:stale_run",
+      runId: "r",
+      dispatchMode: "background-processing",
+      diagStage: "stale_run_reaped",
+      workerStage: "worker_started",
+      heartbeatAt: 123,
+      lastProgressAt: 456,
+    }),
+  );
+  assert.doesNotMatch(view.detail, /PRIVATE_DETAIL/);
+});
+
 test("text helpers", () => {
   assert.equal(countOccurrences("a-b-a", "a"), 2);
   assert.equal(countOccurrences("abc", ""), 0);

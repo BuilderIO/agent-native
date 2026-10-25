@@ -975,6 +975,16 @@ export interface ActiveRunView {
   detail: string;
 }
 
+function diagnosticStage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const parsed = parseJson(value);
+  const diagnostic = parsed.ok ? asRecord(parsed.value) : null;
+  const stage = diagnostic?.stage;
+  return typeof stage === "string" && /^[a-z][a-z_]*$/.test(stage)
+    ? stage
+    : null;
+}
+
 /** Reads `GET /runs/active?threadId=`: `active:false` is the server saying idle. */
 export function inspectActiveRun(body: unknown): ActiveRunView {
   const record = asRecord(body);
@@ -989,6 +999,11 @@ export function inspectActiveRun(body: unknown): ActiveRunView {
     status: record.status,
     terminalReason: record.terminalReason ?? null,
     runId: record.runId ?? null,
+    dispatchMode: record.dispatchMode ?? null,
+    diagStage: diagnosticStage(record.diagStage),
+    workerStage: diagnosticStage(record.workerStage),
+    heartbeatAt: record.heartbeatAt ?? null,
+    lastProgressAt: record.lastProgressAt ?? null,
   });
   return { kind: record.active ? "active" : "idle", detail };
 }
