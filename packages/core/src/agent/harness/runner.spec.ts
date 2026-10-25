@@ -7,6 +7,14 @@ import type { AgentHarnessAdapter, AgentHarnessEvent } from "./types.js";
 const mocks = vi.hoisted(() => ({
   liveSessions: new Map<string, { session: object; generation: number }>(),
   startRun: vi.fn(),
+  resolveRunSoftTimeoutMs: vi.fn(
+    (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
+      overrideMs ?? (options?.useHostedDefault ? 40_000 : 0),
+  ),
+  resolveRunNoProgressTimeoutMs: vi.fn(
+    (options: { overrideMs?: number; backgroundOverrideMs?: number }) =>
+      options.backgroundOverrideMs ?? options.overrideMs ?? 0,
+  ),
   registerLiveAgentHarnessSession: vi.fn(),
   getLiveAgentHarnessSessionGeneration: vi.fn(),
   refreshLiveAgentHarnessSessionGeneration: vi.fn(),
@@ -22,6 +30,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../run-manager.js", () => ({
   startRun: mocks.startRun,
+  resolveRunSoftTimeoutMs: mocks.resolveRunSoftTimeoutMs,
+  resolveRunNoProgressTimeoutMs: mocks.resolveRunNoProgressTimeoutMs,
 }));
 
 vi.mock("./lifecycle.js", () => ({

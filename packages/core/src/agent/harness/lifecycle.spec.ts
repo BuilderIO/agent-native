@@ -2,6 +2,13 @@ import { performance } from "node:perf_hooks";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  RunChunkControl,
+  RunStatus,
+  StartRunOptions,
+  StartedRun,
+} from "../run-manager.js";
+import type { AgentChatEvent } from "../types.js";
 import type { StoredAgentHarnessSession } from "./store.js";
 import type {
   AgentHarnessAdapter,
@@ -10,6 +17,8 @@ import type {
 } from "./types.js";
 
 const mocks = vi.hoisted(() => ({
+  startRun: vi.fn(),
+  startRunFinalStatuses: [] as string[],
   getByRunId: vi.fn(),
   getById: vi.fn(),
   update: vi.fn(),
@@ -38,6 +47,10 @@ const mocks = vi.hoisted(() => ({
   startExpiryCleanup: vi.fn(),
   finishExpiryCleanup: vi.fn(),
   resolveAdapter: vi.fn(),
+}));
+
+vi.mock("../run-manager.js", () => ({
+  startRun: mocks.startRun,
 }));
 
 vi.mock("./store.js", () => ({
@@ -104,6 +117,54 @@ describe("agent harness lifecycle", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.startRunFinalStatuses.length = 0;
+    mocks.startRun.mockImplementation(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: AgentChatEvent) => Promise<void>,
+          signal: AbortSignal,
+          control: RunChunkControl,
+        ) => Promise<void>,
+        _onComplete: unknown,
+        options: StartRunOptions = {},
+      ) => {
+        const abort = new AbortController();
+        const started = {
+          runId,
+          threadId,
+          turnId: options.turnId ?? runId,
+          ...(options.parentId !== undefined
+            ? { parentId: options.parentId }
+            : {}),
+          events: [],
+          status: "running" as RunStatus,
+          subscribers: new Set(),
+          abort,
+          startedAt: Date.now(),
+          livenessReady: Promise.resolve(true),
+          finalized: Promise.resolve(),
+        } satisfies StartedRun;
+        const control: RunChunkControl = {
+          turnSignal: abort.signal,
+          chunkSignal: abort.signal,
+          chunkBoundaryReason: () => null,
+          beginChunk: () => abort.signal,
+        };
+        started.finalized = Promise.resolve().then(async () => {
+          try {
+            await runFn(async () => {}, abort.signal, control);
+            started.status =
+              (mocks.startRunFinalStatuses.shift() as RunStatus | undefined) ??
+              (abort.signal.aborted ? "aborted" : "completed");
+          } catch {
+            started.status = "errored";
+          }
+        });
+        return started;
+      },
+    );
     stored = storedSession(`session-${Math.random()}`, `run-${Math.random()}`);
     mocks.getByRunId.mockImplementation(async () => stored);
     mocks.getById.mockImplementation(async () => stored);
@@ -398,7 +459,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        const started = start();
+        const started = await start();
         return { session: stored, started };
       },
     );
@@ -1064,6 +1125,15 @@ describe("agent harness lifecycle", () => {
 
   it("runs a follow-up through a live session and persists detached state", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
+    stored.runPolicy = {
+      softTimeoutMs: 1_250,
+      noProgressTimeoutMs: 500,
+      backgroundFunction: false,
+      recoverChunkBoundaries: true,
+      engineName: "fake-engine",
+      model: "model-v1",
+      attemptCount: 2,
+    };
     register(stored, session);
 
     const result = await sendAgentHarnessFollowUp({
@@ -1079,7 +1149,62 @@ describe("agent harness lifecycle", () => {
         metadata: undefined,
       }),
     );
+    expect(mocks.startRun).toHaveBeenCalledOnce();
+    const followUpId = mocks.claimFollowUp.mock.calls[0]?.[3].followUpId;
+    expect(mocks.startRun).toHaveBeenCalledWith(
+      followUpId,
+      stored.threadId,
+      expect.any(Function),
+      undefined,
+      expect.objectContaining({
+        turnId: followUpId,
+        parentId: stored.runId,
+        executionLease: true,
+        softTimeoutMs: 1_250,
+        noProgressTimeoutMs: 500,
+        recoverChunkBoundaries: true,
+        engineName: "fake-engine",
+        model: "model-v1",
+        attemptCount: 2,
+      }),
+    );
+    expect(mocks.claimFollowUp).toHaveBeenCalledWith(
+      stored.id,
+      0,
+      expect.any(String),
+      expect.objectContaining({ deadlineDurationMs: 24 * 60 * 60 * 1_000 }),
+    );
     expect(stored.resumeState).toEqual({ token: "next" });
+  });
+
+  it("continues a truncated follow-up under the same logical turn", async () => {
+    const session = fakeSession([{ type: "text-delta", text: "first slice" }]);
+    const continueTurn = vi.fn(async function* () {
+      yield { type: "text-delta", text: "second slice" } as const;
+    });
+    const checkpoint = vi.fn(async () => ({ token: "checkpoint" }));
+    session.continueTurn = continueTurn;
+    session.checkpoint = checkpoint;
+    mocks.startRunFinalStatuses.push("truncated");
+    register(stored, session);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.startRun).toHaveBeenCalledTimes(2);
+    expect(session.streamTurn).toHaveBeenCalledOnce();
+    expect(continueTurn).toHaveBeenCalledOnce();
+    expect(checkpoint).toHaveBeenCalledOnce();
+    expect(stored.resumeState).toEqual({ token: "next" });
+    expect(mocks.startRun.mock.calls[1]?.[4]).toMatchObject({
+      turnId: mocks.startRun.mock.calls[0]?.[4].turnId,
+      parentId: stored.runId,
+      executionLease: true,
+    });
   });
 
   it("does not start provider work after its follow-up claim is lost", async () => {
@@ -1502,7 +1627,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        return { session: stored, started: start() };
+        return { session: stored, started: await start() };
       },
     );
 

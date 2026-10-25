@@ -265,6 +265,25 @@ async function stopBarrierWorker(worker: BarrierWorker): Promise<void> {
   await worker.closed;
 }
 
+async function killProcessAndWait(pid: number): Promise<void> {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error(`Native harness process ${pid} did not exit after SIGKILL.`);
+}
+
 function workerJson<T>(result: WorkerResult): T {
   try {
     const output = result.stdout.trim();
@@ -542,6 +561,132 @@ describe.skipIf(!databaseUrl)(
           ]);
         } finally {
           await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
+    it("recovers an approval from the real follow-up driver after killing its worker and native subprocess", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:native-follow-up-session`;
+        const runId = `${prefix}:native-follow-up-run`;
+        const nativeSessionId = `${prefix}:native-session`;
+        const approvalId = `${nativeSessionId}:approval`;
+        const effectId = `${prefix}:native-effect`;
+        await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "subprocess-follow-up-approval-test",
+            threadId: `${prefix}:thread`,
+            runId,
+            status: "idle",
+            resumeState: { sessionId: nativeSessionId },
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const worker = startBarrierWorker(
+          "harness-follow-up-native-approval-crash",
+          sessionId,
+          "unused",
+          runId,
+          "unused",
+          JSON.stringify({
+            approvalId,
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+            effectId,
+          }),
+        );
+        let nativePid: number | undefined;
+        try {
+          const ready = await worker.ready;
+          expect(Number(ready.databaseBackendPid)).toBeGreaterThan(0);
+          expect(ready.approvalId).toBe(approvalId);
+          nativePid = Number(ready.nativePid);
+          expect(Number.isSafeInteger(nativePid)).toBe(true);
+          expect(nativePid).toBeGreaterThan(0);
+
+          const dispatched = await withDbExec(executor(sql), () =>
+            getAgentHarnessSession(sessionId),
+          );
+          expect(dispatched).toMatchObject({
+            status: "running",
+            pendingApproval: expect.objectContaining({
+              type: "approval-request",
+              id: approvalId,
+            }),
+          });
+          expect(dispatched?.followUpDispatchedAt).toBeGreaterThan(0);
+          const [effectBeforeCrash] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${effectId}
+          `;
+          expect(Number(effectBeforeCrash?.effect_count)).toBe(1);
+
+          worker.child.kill("SIGKILL");
+          expect((await worker.closed).signal).toBe("SIGKILL");
+          await killProcessAndWait(nativePid);
+          nativePid = undefined;
+
+          await sql`
+            UPDATE agent_harness_sessions
+            SET follow_up_claim_expires_at = ${Date.now() - 1}
+            WHERE id = ${sessionId} AND follow_up_claim_id IS NOT NULL
+          `;
+          const recovered = await runWorker(
+            "harness-follow-up-native-approval-recover",
+            sessionId,
+            "unused",
+            runId,
+            "unused",
+            JSON.stringify({
+              approvalId,
+              ownerEmail: "owner@example.com",
+              orgId: prefix,
+              effectId,
+            }),
+          );
+          expect(recovered.exitCode).toBe(0);
+          const result = workerJson<{
+            recovered: number;
+            reconciledOutcome: string | null;
+            ok: boolean;
+            status: string;
+            followUpOutcome: string | null;
+            resolvedApprovalIds: string[];
+            pendingApproval: unknown;
+            nativeApprovalAck?: {
+              id: string;
+              approved: boolean;
+            };
+            nativeExitCode: number | null;
+            effectCount: number;
+            transcript: Array<Record<string, unknown>>;
+          }>(recovered);
+          expect(result).toMatchObject({
+            recovered: expect.any(Number),
+            reconciledOutcome: "unknown",
+            ok: true,
+            status: "idle",
+            followUpOutcome: "unknown",
+            pendingApproval: null,
+            nativeApprovalAck: { id: approvalId, approved: true },
+            nativeExitCode: 0,
+            effectCount: 1,
+          });
+          expect(result.recovered).toBeGreaterThanOrEqual(1);
+          expect(result.resolvedApprovalIds).toContain(approvalId);
+          expect(result.transcript).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                type: "error",
+                errorCode: "harness_follow_up_outcome_unknown",
+              }),
+            ]),
+          );
+        } finally {
+          await stopBarrierWorker(worker);
+          if (nativePid !== undefined) await killProcessAndWait(nativePid);
         }
       });
     }, 45_000);
@@ -1170,7 +1315,7 @@ describe.skipIf(!databaseUrl)(
             releaseLiveAgentHarnessSession(sessionId, nativeSession);
           }
         }
-      });
+      }, 4);
     }, 45_000);
 
     it("serializes independent workers and rejects the old generation after takeover", async () => {

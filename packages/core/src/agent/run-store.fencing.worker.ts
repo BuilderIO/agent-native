@@ -22,11 +22,15 @@ import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   releaseLiveAgentHarnessSession,
   resolveAgentHarnessApproval,
+  sendAgentHarnessFollowUp,
+  sweepExpiredAgentHarnessFollowUps,
 } from "./harness/lifecycle.js";
 import { registerAgentHarness } from "./harness/registry.js";
 import {
   claimAgentHarnessSessionFollowUp,
   ensureAgentHarnessSessionTables,
+  getAgentHarnessSession,
+  listAgentHarnessSessionEvents,
   markAgentHarnessSessionFollowUpDispatched,
   markAgentHarnessSessionStopped,
   persistAgentHarnessApprovalEvent,
@@ -133,12 +137,19 @@ class SubprocessApprovalSession implements AgentHarnessSession {
   }>;
   lastApprovalAck: NativeApprovalAck | undefined;
   exitCode: number | null = null;
+  private readonly turnEvent: Promise<AgentHarnessEvent>;
   private resolveReady!: () => void;
   private rejectReady!: (error: Error) => void;
+  private resolveTurnEvent!: (event: AgentHarnessEvent) => void;
+  private rejectTurnEvent!: (error: Error) => void;
   private resolveApprovalAck: ((ack: NativeApprovalAck) => void) | undefined;
   private rejectApprovalAck: ((error: Error) => void) | undefined;
 
-  constructor(nativeSessionId: string, storedSessionId: string) {
+  constructor(
+    nativeSessionId: string,
+    storedSessionId: string,
+    private readonly recordTurnStart?: () => Promise<void>,
+  ) {
     this.id = storedSessionId;
     const fixturePath = fileURLToPath(
       new URL("./run-store.fencing.native-harness.fixture.ts", import.meta.url),
@@ -160,6 +171,10 @@ class SubprocessApprovalSession implements AgentHarnessSession {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
+    this.turnEvent = new Promise<AgentHarnessEvent>((resolve, reject) => {
+      this.resolveTurnEvent = resolve;
+      this.rejectTurnEvent = reject;
+    });
     this.closed = new Promise((resolve) => {
       this.child.once("close", (exitCode, signal) => {
         this.exitCode = exitCode;
@@ -179,6 +194,19 @@ class SubprocessApprovalSession implements AgentHarnessSession {
         return;
       }
       if (
+        message.type === "approval-request" &&
+        typeof message.id === "string" &&
+        typeof message.message === "string"
+      ) {
+        this.resolveTurnEvent({
+          type: "approval-request",
+          id: message.id,
+          message: message.message,
+          ...(typeof message.tool === "string" ? { tool: message.tool } : {}),
+        });
+        return;
+      }
+      if (
         message.type === "approval-ack" &&
         typeof message.sessionId === "string" &&
         typeof message.id === "string" &&
@@ -193,13 +221,21 @@ class SubprocessApprovalSession implements AgentHarnessSession {
     });
     this.child.once("error", (error) => {
       this.rejectReady(error);
+      this.rejectTurnEvent(error);
       this.rejectApprovalAck?.(error);
     });
     this.child.stderr.resume();
   }
 
-  async *streamTurn(): AsyncGenerator<AgentHarnessEvent> {
-    throw new Error("The approval recovery test does not start a new turn.");
+  async *streamTurn(input: {
+    prompt?: string;
+  }): AsyncGenerator<AgentHarnessEvent> {
+    await this.ready;
+    await this.recordTurnStart?.();
+    this.child.stdin.write(
+      `${JSON.stringify({ type: "start-turn", prompt: input.prompt })}\n`,
+    );
+    yield await this.turnEvent;
   }
 
   rejectStartup(error: Error): void {
@@ -254,7 +290,11 @@ async function main(): Promise<void> {
   if (!mode || !threadId || !turnId || !runId) {
     throw new Error("Expected mode, threadId, turnId, and runId");
   }
-  const sql = postgres(databaseUrl, { max: 1 });
+  const sql = postgres(databaseUrl, {
+    // The follow-up dispatch row lock stays open while run-manager starts on a
+    // second connection, matching the production pool's concurrent requests.
+    max: mode.startsWith("harness-follow-up-native-approval-") ? 4 : 1,
+  });
   try {
     await withDbExec(executor(sql), async () => {
       if (!mode.startsWith("harness-")) {
@@ -355,6 +395,151 @@ async function main(): Promise<void> {
             pendingApproval: result.session?.pendingApproval ?? null,
             nativeApprovalAck: nativeSession?.lastApprovalAck,
             nativeExitCode: nativeSession?.exitCode,
+          }),
+        );
+        return;
+      }
+      if (
+        mode === "harness-follow-up-native-approval-crash" ||
+        mode === "harness-follow-up-native-approval-recover"
+      ) {
+        await withMigrationRuntime(async () => {
+          await ensureRunTables();
+          await ensureAgentHarnessSessionTables();
+        });
+        const { approvalId, ownerEmail, orgId, effectId } = JSON.parse(
+          extra ?? "null",
+        ) as {
+          approvalId: string;
+          ownerEmail: string;
+          orgId: string;
+          effectId?: string;
+        };
+        let nativeSession: SubprocessApprovalSession | undefined;
+        const adapter: AgentHarnessAdapter = {
+          name: "subprocess-follow-up-approval-test",
+          label: "Subprocess follow-up approval test",
+          description:
+            "Exercises native follow-up approval recovery across worker processes.",
+          capabilities: {
+            sandbox: false,
+            resumable: true,
+            approvals: true,
+            hostTools: false,
+            fileEvents: false,
+          },
+          async createSession(options) {
+            const resumeState = options.resumeState as
+              | { sessionId?: unknown }
+              | undefined;
+            if (typeof resumeState?.sessionId !== "string") {
+              throw new Error("A persisted native session id is required.");
+            }
+            const session = new SubprocessApprovalSession(
+              resumeState.sessionId,
+              options.sessionId ?? threadId,
+              effectId
+                ? async () => {
+                    await sql`
+                      INSERT INTO agent_harness_test_effects (effect_id, effect_count)
+                      VALUES (${effectId}, 1)
+                      ON CONFLICT (effect_id) DO UPDATE SET
+                        effect_count = agent_harness_test_effects.effect_count + 1
+                    `;
+                  }
+                : undefined,
+            );
+            nativeSession = session;
+            const readyTimeout = setTimeout(
+              () =>
+                session.rejectStartup(
+                  new Error("Native harness did not start."),
+                ),
+              10_000,
+            );
+            try {
+              await session.ready;
+            } catch (error) {
+              await session.stop();
+              throw error;
+            } finally {
+              clearTimeout(readyTimeout);
+            }
+            return session;
+          },
+        };
+        registerAgentHarness({
+          name: adapter.name,
+          label: adapter.label,
+          description: adapter.description,
+          capabilities: adapter.capabilities,
+          create: () => adapter,
+        });
+
+        if (mode === "harness-follow-up-native-approval-crash") {
+          const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+          const result = await sendAgentHarnessFollowUp({
+            runId,
+            prompt: "Run the native action and request approval",
+            scope: { ownerEmail, orgId },
+            onHarnessEvent: async (event) => {
+              if (event.type !== "approval-request") return;
+              writeSync(
+                1,
+                `${JSON.stringify({
+                  ready: true,
+                  nativePid: nativeSession?.child.pid,
+                  databaseBackendPid: Number(pid),
+                  approvalId: event.id,
+                })}\n`,
+              );
+              await waitForContinue();
+            },
+          });
+          writeSync(1, JSON.stringify({ status: result.session?.status }));
+          return;
+        }
+
+        const recovery = await sweepExpiredAgentHarnessFollowUps();
+        const reconciled = await getAgentHarnessSession(threadId);
+        let result;
+        try {
+          result = await resolveAgentHarnessApproval({
+            runId,
+            approval: { id: approvalId, approved: true },
+            scope: { ownerEmail, orgId },
+          });
+        } finally {
+          if (nativeSession) {
+            releaseLiveAgentHarnessSession(threadId, nativeSession);
+            await nativeSession.stop();
+          }
+        }
+        const latest = await getAgentHarnessSession(threadId);
+        const transcript = await listAgentHarnessSessionEvents(threadId);
+        const effectRows = effectId
+          ? await sql`
+              SELECT effect_count AS "effectCount"
+              FROM agent_harness_test_effects WHERE effect_id = ${effectId}
+            `
+          : [];
+        writeSync(
+          1,
+          JSON.stringify({
+            recovered: recovery.recovered,
+            reconciledOutcome: reconciled?.followUpOutcome,
+            ok: result.ok,
+            status: latest?.status,
+            followUpOutcome: latest?.followUpOutcome,
+            resolvedApprovalIds: latest?.resolvedApprovalIds ?? [],
+            pendingApproval: latest?.pendingApproval ?? null,
+            nativeApprovalAck: nativeSession?.lastApprovalAck,
+            nativeExitCode: nativeSession?.exitCode,
+            effectCount: Number(
+              (effectRows[0] as { effectCount?: unknown } | undefined)
+                ?.effectCount ?? 0,
+            ),
+            transcript: transcript.map((entry) => entry.event),
           }),
         );
         return;

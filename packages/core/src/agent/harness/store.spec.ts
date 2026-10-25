@@ -98,6 +98,31 @@ describe("agent harness session store", () => {
     expect(rows[0]?.indexdef).toContain("(run_id, id)");
   });
 
+  it("persists the resolved run policy needed by resumed follow-ups", async () => {
+    __resetStoreLedgerSnapshotForTests();
+    const runPolicy = {
+      softTimeoutMs: 42_000,
+      noProgressTimeoutMs: 31_500,
+      backgroundFunction: false,
+      recoverChunkBoundaries: true,
+      engineName: "fake-engine",
+      model: "model-v1",
+      attemptCount: 3,
+    };
+    await saveAgentHarnessSession({
+      id: "session-run-policy",
+      harnessName: "fake",
+      threadId: "thread-run-policy",
+      runId: "run-run-policy",
+      status: "idle",
+      runPolicy,
+    });
+
+    await expect(
+      getAgentHarnessSession("session-run-policy"),
+    ).resolves.toMatchObject({ runPolicy });
+  });
+
   it("allows only one follow-up claim for a session generation", async () => {
     __resetStoreLedgerSnapshotForTests();
     await saveAgentHarnessSession({
@@ -701,9 +726,13 @@ describe("agent harness session store", () => {
     );
 
     let releaseCommit!: () => void;
+    let releaseProviderDispatch!: () => void;
     let notifyStart!: () => void;
     const commitGate = new Promise<void>((resolve) => {
       releaseCommit = resolve;
+    });
+    const providerDispatchGate = new Promise<void>((resolve) => {
+      releaseProviderDispatch = resolve;
     });
     const providerStarted = new Promise<void>((resolve) => {
       notifyStart = resolve;
@@ -725,6 +754,7 @@ describe("agent harness session store", () => {
         () => {
           order.push("provider-start");
           notifyStart();
+          return providerDispatchGate;
         },
       );
       await providerStarted;
@@ -738,6 +768,9 @@ describe("agent harness session store", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(stopFinished).toBe(false);
       releaseCommit();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(stopFinished).toBe(false);
+      releaseProviderDispatch();
 
       const admitted = await dispatch;
       await stop;
@@ -749,6 +782,7 @@ describe("agent harness session store", () => {
       expect(order).toEqual(["provider-start", "stop-complete"]);
     } finally {
       releaseCommit();
+      releaseProviderDispatch();
       rawClient.transaction = originalTransaction;
     }
 

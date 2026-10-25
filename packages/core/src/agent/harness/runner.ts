@@ -11,6 +11,7 @@ import {
   refreshLiveAgentHarnessSessionGeneration,
   releaseLiveAgentHarnessSession,
 } from "./lifecycle.js";
+import { resolveAgentHarnessRunPolicy } from "./run-policy.js";
 import {
   AgentHarnessSessionConflictError,
   getAgentHarnessSession,
@@ -68,6 +69,10 @@ export function startAgentHarnessRun(
 ): ActiveRun {
   let harnessSession: AgentHarnessSession | undefined = opts.session;
   const detachOnComplete = opts.detachOnComplete !== false;
+  const runPolicy = resolveAgentHarnessRunPolicy(
+    opts.runOptions,
+    opts.runOptions?.engineName ?? opts.adapter.name,
+  );
 
   return startRun(
     opts.runId,
@@ -116,6 +121,7 @@ export function startAgentHarnessRun(
           threadId: opts.threadId,
           runId: opts.runId,
           providerSessionId: harnessSession.id,
+          runPolicy,
           status: "running",
           resumeState: opts.createSession?.resumeState,
           ownerEmail: opts.ownerEmail ?? opts.createSession?.ownerEmail ?? null,
