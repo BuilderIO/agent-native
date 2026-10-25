@@ -3773,9 +3773,27 @@ async function connectAfterEnsure(
   const exitCodeBeforeConnect = process.exitCode;
   process.exitCode = undefined;
   let connectFailed = false;
+  // Clears the device flow's "Waiting for approval…" line, which Ctrl+C
+  // leaves behind whether or not the sign-in had finished.
+  const clearWaitingLine = () => {
+    if (signInSkipped() && process.stdout.isTTY) {
+      process.stdout.write("\r\x1b[K");
+    }
+  };
+  const failedResult = (reason?: string) => {
+    clearSpinner();
+    writeAuthMessage();
+    options.telemetry?.track("skills_cli connect failed", {
+      error: reason ?? "sign-in failed",
+    });
+    connectLog?.(
+      `Could not finish authentication automatically${reason ? ` (${reason})` : ""}. ` +
+        `Run it later with: ${connectCommand}`,
+    );
+    return { connected: false, connectCommand };
+  };
   const skippedResult = () => {
-    // Clears the device flow's "Waiting for approval…" line.
-    if (process.stdout.isTTY) process.stdout.write("\r\x1b[K");
+    clearWaitingLine();
     connectLog?.(
       `Sign-in skipped. ${installTarget.displayName} is installed; ` +
         `to finish the sign-in later, run: ${connectCommand}`,
@@ -3810,9 +3828,12 @@ async function connectAfterEnsure(
       });
     }
     connectFailed = Boolean(process.exitCode);
-    // A Ctrl+C after the sign-in finished only cut short an optional step,
-    // such as the Plans publish token, so runConnect still succeeded.
-    if (signInSkipped() && connectFailed) return skippedResult();
+    if (connectFailed) {
+      return signInSkipped() ? skippedResult() : failedResult();
+    }
+    // A Ctrl+C that lands here came after the sign-in finished. It only cut
+    // short an optional step, such as the Plans publish token.
+    clearWaitingLine();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
@@ -3820,16 +3841,7 @@ async function connectAfterEnsure(
   } catch (err: any) {
     connectFailed = Boolean(process.exitCode);
     if (signInSkipped()) return skippedResult();
-    clearSpinner();
-    writeAuthMessage();
-    options.telemetry?.track("skills_cli connect failed", {
-      error: err?.message ?? String(err),
-    });
-    connectLog?.(
-      `Could not finish authentication automatically (${err?.message ?? err}). ` +
-        `Run it later with: ${connectCommand}`,
-    );
-    return { connected: false, connectCommand };
+    return failedResult(err?.message ?? String(err));
   } finally {
     stopListeningForSkip();
     // Skipping isn't a failure; only a sign-in that failed on its own keeps

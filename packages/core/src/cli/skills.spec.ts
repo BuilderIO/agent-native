@@ -1015,6 +1015,95 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("clears the waiting line when Ctrl+C lands after the sign-in finished", async () => {
+    const root = tmpDir();
+    let skipSignIn: (() => void) | undefined;
+    const isTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const write = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          connectLog: () => {},
+          listenForSignInSkip: (skip) => {
+            skipSignIn = skip;
+            return () => {};
+          },
+          runConnect: async () => {
+            skipSignIn?.();
+          },
+          runCommand: async () => 0,
+        },
+      );
+
+      expect(result.connected).toBe(true);
+      expect(write).toHaveBeenCalledWith("\r\x1b[K");
+    } finally {
+      if (isTTY) Object.defineProperty(process.stdout, "isTTY", isTTY);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("reports a sign-in that fails without throwing as not connected", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    const exitCodeBefore = process.exitCode;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          connectLog: (message) => connectLog.push(message),
+          listenForSignInSkip: () => () => {},
+          // runConnect reports a failed sign-in through the exit code and
+          // returns normally.
+          runConnect: async () => {
+            process.exitCode = 1;
+          },
+          runCommand: async () => 0,
+        },
+      );
+
+      const connectCommand =
+        "npx @agent-native/core@latest connect " +
+        "https://assets.agent-native.com --client codex --scope project";
+      expect(result.connected).toBe(false);
+      expect(result.connectCommand).toBe(connectCommand);
+      expect(connectLog).toContain(
+        "Could not finish authentication automatically. " +
+          `Run it later with: ${connectCommand}`,
+      );
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = exitCodeBefore;
+    }
+  });
+
   it("stops polling for the browser sign-in once Ctrl+C skips it", async () => {
     const root = tmpDir();
     const connectLog: string[] = [];
