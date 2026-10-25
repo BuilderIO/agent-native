@@ -1575,6 +1575,39 @@ describe("MotionDock — timeline body anatomy", () => {
     ]);
   });
 
+  it("clears easing selection when an added native style is selected", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const addedStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+    };
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle, addedStyle],
+      onLiveStateChange,
+    });
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
   it("clears the easing selection when selecting a native style row", async () => {
     const onLiveStateChange = vi.fn();
     await renderInteractive({
@@ -1598,6 +1631,36 @@ describe("MotionDock — timeline body anatomy", () => {
     if (!nativeStyleButton)
       throw new Error("Native style row was not rendered");
     await act(async () => nativeStyleButton.click());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears easing selection when a native style is removed", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const removeButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove animation Position"]',
+    );
+    if (!removeButton)
+      throw new Error("Native-style remove button was not rendered");
+    await act(async () => removeButton.click());
 
     expect(
       onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,

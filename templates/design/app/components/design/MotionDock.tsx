@@ -718,6 +718,7 @@ export function MotionDock({
           addedStyle,
           addedIndex,
         );
+        setSelectedEasingSegmentKey(null);
         setSelectedNativeStyleIdentity(identity);
         onNativeStyleSelectionChange?.(identity);
       }
@@ -768,6 +769,7 @@ export function MotionDock({
           null,
         );
       }
+      setSelectedEasingSegmentKey(null);
       setSelectedNativeStyleIdentity(nextSelection);
       if (nextSelection) onNativeStyleSelectionChange?.(nextSelection);
       onNativeStyleRemove?.(instance, index);
