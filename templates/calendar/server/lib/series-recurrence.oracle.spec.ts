@@ -41,18 +41,28 @@ const RRULE_WEEKDAY: Record<Code, number> = {
 
 const DAY_MIN = Date.UTC(2020, 0, 1) / DAY_MS;
 const DAY_MAX = Date.UTC(2035, 11, 31) / DAY_MS;
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterForZone(timeZone: string): Intl.DateTimeFormat {
+  let formatter = zoneFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    });
+    zoneFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
 
 function zoneWall(instant: number, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  }).formatToParts(new Date(instant));
+  const parts = formatterForZone(timeZone).formatToParts(new Date(instant));
   const field = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((part) => part.type === type)?.value);
   return Date.UTC(

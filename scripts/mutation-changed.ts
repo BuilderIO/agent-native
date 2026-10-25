@@ -170,8 +170,9 @@ function namesSiblingSource(
 function importsModule(text: string, base: string): boolean {
   const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const target = `\\./${escaped}(?:\\.jsx?|\\.tsx?)?["']`;
+  const trivia = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*`;
   return new RegExp(
-    `(?:\\bfrom|\\bimport)\\s*["']${target}|\\bimport\\s*\\(\\s*["']${target}`,
+    `(?:\\bfrom|\\bimport)\\s*["']${target}|\\bimport\\s*\\(${trivia}["']${target}`,
   ).test(text);
 }
 

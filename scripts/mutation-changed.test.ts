@@ -133,6 +133,17 @@ test("matches static imports, re-exports, and dynamic imports with either quote 
   );
 });
 
+test("matches dynamic imports with comment trivia before the module specifier", () => {
+  const listing = ["imports.spec.ts"];
+  const files = {
+    "src/imports.spec.ts": `const feature = await import(/* test note */ "./feature");`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/feature.ts:1-2"], () => listing, readFrom(files)),
+    { include: ["src/imports.spec.ts"], missing: [] },
+  );
+});
+
 test("does not select a same-directory spec that does not import the module", () => {
   const listing = ["unrelated.spec.ts", "session.ts"];
   const files = {
