@@ -9065,6 +9065,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           result.deferred += 1;
           deferredThreads.add(threadId);
         };
+        const scheduleFollowUpDrain = (threadId: string) => {
+          if (drainOptions.threadId) return;
+          scheduleQueuedSubmissionInboxDrain({
+            threadId,
+            turnContinues: false,
+            waitUntil: getRequestRunContext()?.waitUntil,
+            drain: drainQueuedSubmissionInbox,
+            onError: (error) => {
+              console.error(
+                `[agent-chat] queued-submission release follow-up drain failed for ${threadId}:`,
+                error,
+              );
+            },
+          });
+        };
         const deadlineAt = Date.now() + 30_000;
         const maxAdmissions = 5;
 
@@ -9298,6 +9313,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               } else {
                 deferReceipt(receipt.threadId);
               }
+              if (activeRunPreflightError) {
+                result.failed += 1;
+                console.error(
+                  `[agent-chat] active-run preflight failed for ${receipt.messageId}:`,
+                  activeRunPreflightError.error,
+                );
+              }
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
@@ -9373,8 +9395,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
-                // Run completion triggers another drain; a retry timestamp
-                // here would hide this receipt from that follow-up.
+                // The completion drain may already have collided with this
+                // claim, so retry after releasing without setting a backoff.
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -9382,6 +9404,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 });
                 claimId = undefined;
                 deferReceipt(receipt.threadId);
+                scheduleFollowUpDrain(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -9607,11 +9630,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (responseCode === "run_slot_busy") {
-              // The thread's run slot is still held by a run that is ending. That
-              // is a wait, not a failed admission: release the claim without
-              // spending a retry or setting a backoff, so the completion drain
-              // for that run can claim this receipt. A backoff here would make
-              // that drain skip it until the recurring sweep.
+              // The run-completion drain may have collided with this claim, so
+              // release without backoff and schedule another thread-scoped drain.
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
@@ -9619,6 +9639,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               });
               claimId = undefined;
               deferReceipt(receipt.threadId);
+              scheduleFollowUpDrain(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }
@@ -9658,6 +9679,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               `[agent-chat] queued submission drain failed for ${receipt.messageId}:`,
               error,
             );
+            if (
+              activeRunPreflightError &&
+              Object.is(error, activeRunPreflightError.error)
+            ) {
+              if (claimId) {
+                try {
+                  await mutateThreadQueuedMessages(receipt.threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                  claimId = undefined;
+                } catch (releaseError) {
+                  console.error(
+                    `[agent-chat] could not release queued submission ${receipt.messageId} after active-run preflight failed:`,
+                    releaseError,
+                  );
+                }
+              }
+              deferReceipt(receipt.threadId);
+              continue;
+            }
             try {
               await recoverClaimedReceipt();
             } catch (releaseError) {

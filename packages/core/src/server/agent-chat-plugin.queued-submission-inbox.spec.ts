@@ -29,6 +29,8 @@ const inboxHarness = vi.hoisted(() => ({
     status: number;
     response: Record<string, unknown>;
   } | null,
+  afterAdmissionFailure: null as (() => Promise<void>) | null,
+  afterInboxClaim: null as (() => Promise<void>) | null,
   failReceiptRead: null as {
     threadId: string;
     messageId: string;
@@ -46,6 +48,7 @@ const inboxHarness = vi.hoisted(() => ({
   turnAbort: null as ((runId: string, reason: string) => Promise<void>) | null,
   receiptReads: [] as Array<[string, string]>,
   queueMutations: [] as Array<{ threadId: string; type: string }>,
+  claimBusyCount: 0,
   failActiveRunCheckThreadId: null as string | null,
 }));
 
@@ -130,7 +133,14 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
         threadId: args[0],
         type: args[1].type,
       });
-      return actual.mutateThreadQueuedMessages(...args);
+      const result = await actual.mutateThreadQueuedMessages(...args);
+      if (result?.claimBusy) inboxHarness.claimBusyCount += 1;
+      if (result?.claimedMessage) {
+        const afterInboxClaim = inboxHarness.afterInboxClaim;
+        inboxHarness.afterInboxClaim = null;
+        await afterInboxClaim?.();
+      }
+      return result;
     },
     recordQueuedSubmissionInterruptRun: async (
       input: Parameters<typeof actual.recordQueuedSubmissionInterruptRun>[0],
@@ -190,6 +200,10 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
           }
           const admissionFailure = inboxHarness.admissionFailure;
           if (admissionFailure?.messageId === messageId) {
+            const afterAdmissionFailure = inboxHarness.afterAdmissionFailure;
+            inboxHarness.afterAdmissionFailure = null;
+            await afterAdmissionFailure?.();
+            inboxHarness.admissionFailure = null;
             event.res.status = admissionFailure.status;
             return admissionFailure.response;
           }
@@ -438,6 +452,8 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.admit = null;
     inboxHarness.admissionThrow = null;
     inboxHarness.admissionFailure = null;
+    inboxHarness.afterAdmissionFailure = null;
+    inboxHarness.afterInboxClaim = null;
     inboxHarness.failReceiptRead = null;
     inboxHarness.activeRun = null;
     inboxHarness.completeRun = null;
@@ -447,6 +463,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.turnAbort = null;
     inboxHarness.receiptReads.length = 0;
     inboxHarness.queueMutations.length = 0;
+    inboxHarness.claimBusyCount = 0;
     inboxHarness.failActiveRunCheckThreadId = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
@@ -1126,6 +1143,74 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
+  it("retries a completion drain after the broad sweep releases a busy receipt", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+    inboxHarness.admissionFailure = {
+      messageId,
+      status: 409,
+      response: {
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+      },
+    };
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: `run-${messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${String(body.queuedMessageId)}`;
+    };
+    const runSweep = await createSweepHandler();
+    inboxHarness.afterAdmissionFailure = async () => {
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-completed-before-sweep-release",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-completed-before-sweep-release",
+        },
+        threadId,
+      );
+      await vi.waitFor(() => expect(inboxHarness.claimBusyCount).toBe(1));
+    };
+
+    const response = await runSweep();
+
+    expect(response.status).toBe(200);
+    await vi.waitFor(async () => {
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+    });
+    expect(inboxHarness.admissionAttempts).toEqual([messageId, messageId]);
+    expect(inboxHarness.admissions).toHaveLength(1);
+  }, 20_000);
+
   it("surfaces an active-run lookup failure when another drain holds the receipt claim", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
@@ -1178,6 +1263,61 @@ describe("queued submission inbox recurring sweep", () => {
         messageId,
         claimId: "other-drain",
       });
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("surfaces an active-run lookup failure even if another drain submits the receipt", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+    inboxHarness.failActiveRunCheckThreadId = threadId;
+    inboxHarness.afterInboxClaim = async () => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before submit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: "run-from-concurrent-drain",
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+    };
+    const runSweep = await createSweepHandler();
+
+    try {
+      const response = await runSweep();
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        queuedSubmissionDrain: {
+          claimed: 1,
+          failed: 1,
+          scanned: 1,
+          submitted: 1,
+        },
+      });
+      expect(inboxHarness.admissionAttempts).toEqual([]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+    } finally {
       consoleError.mockRestore();
     }
   }, 20_000);
@@ -1621,7 +1761,7 @@ describe("queued submission inbox recurring sweep", () => {
     }
   }, 20_000);
 
-  it("defers a thread after a claimed receipt is retried and released", async () => {
+  it("does not spend admission retries when active-run lookup fails", async () => {
     const threadId = `thread-${randomUUID()}`;
     const otherThreadId = `thread-${randomUUID()}`;
     const actor = { email: "inbox-owner@example.com", anonymous: false };
@@ -1648,8 +1788,6 @@ describe("queued submission inbox recurring sweep", () => {
         { actor },
       );
     }
-    let now = Date.now();
-    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
     inboxHarness.failActiveRunCheckThreadId = threadId;
     inboxHarness.admit = async (body) => {
       const receiptThreadId = String(body.threadId);
@@ -1714,7 +1852,7 @@ describe("queued submission inbox recurring sweep", () => {
       ).toEqual(["independent-thread"]);
       await expect(
         getQueuedSubmissionReceipt(threadId, "retry-head"),
-      ).resolves.toMatchObject({ state: "queued", retryCount: 1 });
+      ).resolves.toMatchObject({ state: "queued", retryCount: 0 });
       await expect(
         getQueuedSubmissionReceipt(threadId, "later-same-thread"),
       ).resolves.toMatchObject({ state: "queued" });
@@ -1727,7 +1865,6 @@ describe("queued submission inbox recurring sweep", () => {
         "retry-head",
       );
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        now += 10_001;
         inboxHarness.failActiveRunCheckThreadId = threadId;
         const retryResponse = await h3App.fetch(
           new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
@@ -1737,18 +1874,34 @@ describe("queued submission inbox recurring sweep", () => {
         );
         expect(retryResponse.status).toBe(500);
         headReceipt = await getQueuedSubmissionReceipt(threadId, "retry-head");
-        if (headReceipt?.state === "blocked") break;
+        expect(headReceipt).toMatchObject({ state: "queued", retryCount: 0 });
       }
 
-      expect(headReceipt).toMatchObject({ state: "blocked", retryCount: 5 });
+      expect(headReceipt).toMatchObject({ state: "queued", retryCount: 0 });
       expect(
         inboxHarness.admissions.map((body) => body.agentKitMessageId),
-      ).toEqual(["independent-thread", "later-same-thread"]);
+      ).toEqual(["independent-thread"]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, "later-same-thread"),
+      ).resolves.toMatchObject({ state: "queued" });
+
+      const recoveredResponse = await h3App.fetch(
+        new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+          method: "GET",
+          headers: { authorization: "Bearer sweep-test-secret" },
+        }),
+      );
+      expect(recoveredResponse.status).toBe(200);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, "retry-head"),
+      ).resolves.toMatchObject({ state: "submitted" });
       await expect(
         getQueuedSubmissionReceipt(threadId, "later-same-thread"),
       ).resolves.toMatchObject({ state: "submitted" });
+      expect(
+        inboxHarness.admissions.map((body) => body.agentKitMessageId),
+      ).toEqual(["independent-thread", "retry-head", "later-same-thread"]);
     } finally {
-      clock.mockRestore();
       consoleError.mockRestore();
     }
   }, 20_000);
