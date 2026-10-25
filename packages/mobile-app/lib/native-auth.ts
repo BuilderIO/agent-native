@@ -23,6 +23,7 @@ export const NATIVE_AUTH_BASE_URL =
   dispatchApp?.url ?? "https://dispatch.agent-native.com";
 export const NATIVE_SESSION_BOOTSTRAP_KEY =
   "agent-native:native-session-bootstrap-v1";
+export const NATIVE_SESSION_CHECK_TIMEOUT_MS = 5_000;
 
 type NativeAuthResponse = {
   error?: unknown;
@@ -72,55 +73,68 @@ export async function inspectNativeSession(
   token: string,
   baseUrl: string,
 ): Promise<NativeSessionCheck> {
-  let response: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    NATIVE_SESSION_CHECK_TIMEOUT_MS,
+  );
   try {
-    response = await fetch(
+    const response = await fetch(
       `${cleanBaseUrl(baseUrl)}/_agent-native/auth/session`,
       {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
         },
+        signal: controller.signal,
       },
     );
+    if (response.status === 401 || response.status === 403) {
+      return { reason: "unauthorized", status: "invalid" };
+    }
+    if (!response.ok) {
+      return {
+        reason: "server",
+        status: "unavailable",
+        statusCode: response.status,
+      };
+    }
+
+    let payload: NativeAuthResponse | null = null;
+    try {
+      payload = (await response.json()) as NativeAuthResponse;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        console.warn("[mobile auth] session validation request failed", {
+          reason: "timeout while reading response",
+        });
+        return { reason: "network", status: "unavailable" };
+      }
+      console.warn("[mobile auth] session response was not valid JSON", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return { reason: "invalid-response", status: "unavailable" };
+    }
+    const email =
+      typeof payload?.email === "string" ? payload.email.trim() : "";
+    if (!email) return { reason: "invalid-response", status: "unavailable" };
+
+    const orgId =
+      typeof payload?.orgId === "string" && payload.orgId.trim()
+        ? payload.orgId.trim()
+        : undefined;
+    return {
+      session: { email, token, ...(orgId ? { orgId } : {}) },
+      status: "valid",
+    };
   } catch (error) {
     console.warn("[mobile auth] session validation request failed", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
     return { reason: "network", status: "unavailable" };
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  if (response.status === 401 || response.status === 403) {
-    return { reason: "unauthorized", status: "invalid" };
-  }
-  if (!response.ok) {
-    return {
-      reason: "server",
-      status: "unavailable",
-      statusCode: response.status,
-    };
-  }
-
-  let payload: NativeAuthResponse | null = null;
-  try {
-    payload = (await response.json()) as NativeAuthResponse;
-  } catch (error) {
-    console.warn("[mobile auth] session response was not valid JSON", {
-      reason: error instanceof Error ? error.message : "unknown error",
-    });
-    return { reason: "invalid-response", status: "unavailable" };
-  }
-  const email = typeof payload?.email === "string" ? payload.email.trim() : "";
-  if (!email) return { reason: "invalid-response", status: "unavailable" };
-
-  const orgId =
-    typeof payload?.orgId === "string" && payload.orgId.trim()
-      ? payload.orgId.trim()
-      : undefined;
-  return {
-    session: { email, token, ...(orgId ? { orgId } : {}) },
-    status: "valid",
-  };
 }
 
 /**

@@ -13,6 +13,8 @@ export {
 } from "./templates.js";
 export type { TemplateMeta } from "./templates.js";
 
+export type ScreenKind = "native" | "dom" | "remote";
+
 export interface AppDefinition {
   id: string;
   name: string;
