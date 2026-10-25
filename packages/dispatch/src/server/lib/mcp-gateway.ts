@@ -619,7 +619,7 @@ function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
     !gatewayPath.startsWith(`${configuredBasePath}/`)
       ? `${configuredBasePath}${gatewayPath}`
       : gatewayPath;
-  gateway.pathname = `${basePath}/mcp` || "/mcp";
+  gateway.pathname = `${basePath}/mcp`;
   gateway.search = "";
   gateway.hash = "";
   return gateway.toString().replace(/\/$/, "");
