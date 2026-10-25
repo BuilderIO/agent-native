@@ -5738,7 +5738,7 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
   return sentences.some(
     (sentence) =>
       new RegExp(
-        `\\b(?:except|excluding|exclude|other than|apart from|not including|but\\s+not)\\b[^.!?;\\n]{0,120}\\b${population}\\b`,
+        `\\b(?:except|excluding|exclude|other than|apart from|aside from|not including|but\\s+not)\\b[^.!?;\\n]{0,120}\\b${population}\\b`,
         "i",
       ).test(sentence) ||
       new RegExp(`\\bonly\\b[^.!?;\\n]{0,100}\\b${population}\\b`, "i").test(
@@ -18217,6 +18217,11 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Assigned reports are off limits.",
         "assigned reports are off limits",
         "scope.userRequest",
+      ],
+      [
+        "You can do any followups and emojis you like, aside from reports assigned to another person.",
+        "aside from assigned reports",
+        "scope.userRequest must explicitly authorize work on exact root",
       ],
       [
         "Assigned reports are not to be handled.",
