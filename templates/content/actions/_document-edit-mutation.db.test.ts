@@ -395,7 +395,7 @@ describe("revisioned document edit mutation", () => {
   });
 
   it.each(["slow", "rejected", "throwing"] as const)(
-    "keeps save settlement and ordering independent of %s telemetry",
+    "counts within the save and settles it the same with %s telemetry",
     async (failure) => {
       const order: string[] = [];
       let releaseTelemetry: (() => void) | undefined;
@@ -417,9 +417,8 @@ describe("revisioned document edit mutation", () => {
       };
       const first = await mutateDocumentBody(input);
       order.push("save_settled");
-      expect(order).toEqual(["save_settled"]);
-      await deliverTelemetry();
-      expect(order).toEqual(["save_settled", "telemetry"]);
+      // oracle-change: the count now runs before the save returns.
+      expect(order).toEqual(["telemetry", "save_settled"]);
       const replay = await mutateDocumentBody(input);
       expect(first.receipt).toMatchObject({
         outcome: "applied",
@@ -458,8 +457,6 @@ describe("revisioned document edit mutation", () => {
         ctx,
       }),
     ).rejects.toBe(saveError);
-    expect(countOutcome).not.toHaveBeenCalled();
-    await deliverTelemetry();
     expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
       "content_save_outcome_counts",
       {
