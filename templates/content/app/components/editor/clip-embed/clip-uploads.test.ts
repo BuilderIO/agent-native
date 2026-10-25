@@ -562,7 +562,7 @@ describe("an upload whose block leaves the page", () => {
     stop();
   });
 
-  it("gives up nothing when the editor closes, or for another page's upload", async () => {
+  it("gives up nothing when the editor closes with the block in place, or for another page's upload", async () => {
     vi.useFakeTimers();
     const sent = stubSlowChunks();
     const onGivenUp = vi.fn();
@@ -580,7 +580,6 @@ describe("an upload whose block leaves the page", () => {
     );
     void start();
 
-    closing.change([]);
     stopClosing();
     otherPage.change([]);
     await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
@@ -588,6 +587,93 @@ describe("an upload whose block leaves the page", () => {
     expect(sent.filter(isCancel)).toEqual([]);
     expect(onGivenUp).not.toHaveBeenCalled();
     stopOther();
+  });
+
+  it("still gives the upload up, and says so, when the editor closes in the moment after its block went", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const editor = fakeEditor([BLOCK_ID]);
+    const onGivenUp = vi.fn();
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+    const upload = start();
+
+    editor.change([]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS / 2);
+    stop();
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS / 2);
+    await upload;
+
+    expect(sent.filter(isCancel).map(({ url }) => url.toString())).toEqual([
+      ticket.cancelUrl,
+    ]);
+    expect(onGivenUp).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1" }),
+      { outcome: "cancelled" },
+    );
+    expect(lastWritten()).toBeNull();
+  });
+
+  it("keeps sending when the page opens again in that moment with the block back", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const closing = fakeEditor([BLOCK_ID]);
+    const onGivenUp = vi.fn();
+    const stopClosing = watchClipUploadBlocks(
+      closing as never,
+      "doc_1",
+      onGivenUp,
+    );
+    void start();
+
+    closing.change([]);
+    stopClosing();
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS / 2);
+    const reopened = fakeEditor([BLOCK_ID]);
+    const stop = watchClipUploadBlocks(reopened as never, "doc_1", onGivenUp);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
+
+    expect(sent.filter(isCancel)).toEqual([]);
+    expect(onGivenUp).not.toHaveBeenCalled();
+    expect(lastWritten()).toMatchObject({ uploads: [{ phase: "uploading" }] });
+    stop();
+  });
+
+  it("starts the moment when the page opens without the block, then gives the upload up", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const upload = start();
+    const onGivenUp = vi.fn();
+    const editor = fakeEditor([]);
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS - 1);
+    expect(sent.filter(isCancel)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await upload;
+
+    expect(sent.filter(isCancel)).toHaveLength(1);
+    expect(onGivenUp).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1" }),
+      { outcome: "cancelled" },
+    );
+    stop();
+  });
+
+  it("keeps sending when the block comes back with no update, as an outside merge would put it", async () => {
+    vi.useFakeTimers();
+    const sent = stubSlowChunks();
+    const editor = fakeEditor([BLOCK_ID]);
+    const onGivenUp = vi.fn();
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+    void start();
+
+    editor.change([]);
+    editor.blockIds = [BLOCK_ID];
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
+
+    expect(sent.filter(isCancel)).toEqual([]);
+    expect(onGivenUp).not.toHaveBeenCalled();
+    stop();
   });
 
   it("cancels once, however often the upload is given up", async () => {

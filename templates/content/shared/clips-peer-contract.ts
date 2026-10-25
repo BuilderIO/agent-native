@@ -153,7 +153,26 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   storageRequired: "storage_required",
   tooLarge: "upload_too_large",
   tooMany: "too_many_uploads",
+  /**
+   * A start repeated for one picked file whose upload Clips already has
+   * whole, with `recordingId`.
+   */
+  alreadyFinished: "upload_already_finished",
+  /**
+   * A start repeated for one picked file while the first start is still
+   * making its Clip. Repeat it in a few seconds; Clips answers
+   * `upload_key_used` once that start has gone about ten minutes without one.
+   */
+  uploadStarting: "upload_starting",
+  /** A start repeated for one picked file whose upload can't continue. */
+  keyUsed: "upload_key_used",
 } as const;
+
+/**
+ * The `uploadKey` Content makes once per picked file and sends with every
+ * start of it: Clips answers a repeat with that upload, never a second Clip.
+ */
+export const CONTENT_CLIP_UPLOAD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 
 /**
  * Why Content could not read an editor's Clips storage or start an upload.
@@ -204,6 +223,10 @@ export interface ClipUploadTicket {
 
 export type CreateClipUploadResult =
   | ({ status: "started" } & ClipUploadTicket)
+  /** An earlier start of the same file made this Clip, and Clips has it all. */
+  | { status: "already_finished"; recordingId: string }
+  /** An earlier start of the same file is still making its Clip. */
+  | { status: "starting" }
   | { status: "storage_required"; storage: ContentClipStorage }
   | { status: "too_large"; maxBytes: number };
 

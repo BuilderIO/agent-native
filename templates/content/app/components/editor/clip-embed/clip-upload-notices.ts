@@ -27,6 +27,15 @@ export async function announceClipCancel(
     toast.error(t("clipEmbed.uploadCancelUnconfirmed"));
     return;
   }
+  await announceClipAlreadySaved({ recordingId, t });
+}
+
+/** Says Clips has the whole file and kept the Clip, linking to it there. */
+export async function announceClipAlreadySaved(input: {
+  recordingId: string;
+  t: Translate;
+}): Promise<void> {
+  const { recordingId, t } = input;
   let appUrl: string | null = null;
   try {
     ({ appUrl } = await callAction<{ appUrl: string | null }>(

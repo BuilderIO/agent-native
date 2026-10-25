@@ -5,6 +5,7 @@ import { requestClipsUpload } from "../server/lib/clips-peer.js";
 import {
   CLIP_UPLOAD_ERRORS,
   CONTENT_CLIP_UPLOAD_FILE_NAME_CHARS,
+  CONTENT_CLIP_UPLOAD_KEY,
   CONTENT_CLIP_UPLOAD_MIME_TYPES,
   CONTENT_CLIP_UPLOAD_REFUSED,
   type CreateClipUploadResult,
@@ -32,6 +33,15 @@ const startedSchema = z.object({
 const storageRequiredSchema = z.object({
   code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.storageRequired),
   storage: clipStorageSchema,
+});
+
+const alreadyFinishedSchema = z.object({
+  code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished),
+  recordingId: z.string().min(1),
+});
+
+const startingSchema = z.object({
+  code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.uploadStarting),
 });
 
 const tooLargeSchema = z.object({
@@ -63,6 +73,14 @@ function readAnswer(status: number, body: unknown): CreateClipUploadResult {
     if (refused.success) {
       return { status: "storage_required", storage: refused.data.storage };
     }
+    const finished = alreadyFinishedSchema.safeParse(body);
+    if (finished.success) {
+      return {
+        status: "already_finished",
+        recordingId: finished.data.recordingId,
+      };
+    }
+    if (startingSchema.safeParse(body).success) return { status: "starting" };
   }
   if (status === 413) {
     const refused = tooLargeSchema.safeParse(body);
@@ -76,7 +94,7 @@ function readAnswer(status: number, body: unknown): CreateClipUploadResult {
 
 export default defineAction({
   description:
-    "Start uploading a video into this page as a Clip. Checks the caller can edit the page, then asks Clips for a private Clip bound to the page and a ticketed URL the browser posts the file to; the file never passes through Content. When Clips has nowhere to save it, answers with the storage state instead.",
+    "Start uploading a video into this page as a Clip. Checks the caller can edit the page, then asks Clips for a private Clip bound to the page and a ticketed URL the browser posts the file to; the file never passes through Content. When Clips has nowhere to save it, answers with the storage state instead. A start repeated with the same uploadKey reaches the upload the first one made.",
   schema: clipEmbedArgsSchema.pick({ documentId: true }).extend({
     fileName: z
       .string()
@@ -90,12 +108,16 @@ export default defineAction({
       .string()
       .regex(/^[A-Za-z0-9_-]{1,128}$/)
       .describe("The id the page's Clip block will have"),
+    uploadKey: z
+      .string()
+      .regex(CONTENT_CLIP_UPLOAD_KEY)
+      .describe("Made once per picked file and sent with every start of it"),
   }),
   agentTool: false,
   // Its ticket uploads into the caller's Clips.
   persistInBrowser: false,
   run: async (
-    { documentId, fileName, sizeBytes, mimeType, blockId },
+    { documentId, fileName, sizeBytes, mimeType, blockId, uploadKey },
     ctx,
   ): Promise<CreateClipUploadResult> => {
     const uploader = await authorizeClipUploader(documentId);
@@ -103,7 +125,7 @@ export default defineAction({
       uploader,
       documentId,
       clientIp: uploaderIp(ctx),
-      start: { fileName, sizeBytes, mimeType, blockId },
+      start: { fileName, sizeBytes, mimeType, blockId, uploadKey },
     });
     if (!answer.ok) failClip(answer.code);
     return readAnswer(answer.status, answer.body);

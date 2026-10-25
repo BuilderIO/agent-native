@@ -84,7 +84,8 @@ Uploading is UI-only: no agent tool uploads a video.
   out of `clipUploads`, whatever its phase.
 - Keep a Clip block in place while its file sends: once the block has been
   gone for those few seconds, the uploading tab cancels the upload in Clips
-  and says so, and the person picks the file again. It does the same when the
+  and says so, even when the page closed in that time, and the person picks
+  the file again. It does the same when the
   editor loses edit access before the block is in place. If Clips already had
   the whole file, the Clip stays, and the tab says it was saved, with Open in
   Clips.

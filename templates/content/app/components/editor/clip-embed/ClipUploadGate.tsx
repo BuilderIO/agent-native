@@ -30,6 +30,9 @@ import { clipsStorageSetupUrls, useClipsLinks } from "./use-clips-links";
 
 const UPLOAD_STATUS_RESOURCE = "clip-upload-status";
 
+/** How long to wait before each repeat of a start Clips is still making. */
+const STARTING_RETRY_MS = [2_000, 5_000, 10_000];
+
 const UPLOAD_ERROR_MESSAGES: Record<ClipUploadErrorCode, string> = {
   clip_embed_disabled: "clipEmbed.disabled",
   document_not_found: "clipEmbed.notFound",
@@ -56,6 +59,14 @@ function storageErrorKey(error: unknown): string {
     : uploadErrorKey(error);
 }
 
+/** 24 characters of `[A-Za-z0-9_-]`, as `CONTENT_CLIP_UPLOAD_KEY` takes. */
+function newUploadKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
 function canUpload(storage: ContentClipStorage | undefined): boolean {
   return storage?.state === "ready" || storage?.state === "free";
 }
@@ -79,13 +90,21 @@ export function useClipUploadStorage(
 
 export interface ClipUploadStarted {
   file: File;
-  ticket: ClipUploadTicket;
+  recordingId: string;
+  /** Null when an earlier start of this file already gave Clips all of it. */
+  ticket: ClipUploadTicket | null;
   /** The id the page's Clip block must have: Clips bound the Clip to it. */
   blockId: string;
 }
 
-export interface HeldClipFile {
+/** A file the editor picked, with what every start of it sends. */
+interface PickedClipFile {
   file: File;
+  uploadKey: string;
+  blockId: string;
+}
+
+export interface HeldClipFile extends PickedClipFile {
   storage: ContentClipStorage;
 }
 
@@ -105,9 +124,9 @@ export function useClipFileUpload(input: {
   const [held, setHeld] = useState<HeldClipFile | null>(null);
   // The held file as of now, not as of a render: Remove during a check or a
   // start must keep that file from uploading, or from coming back.
-  const heldRef = useRef<File | null>(null);
+  const heldRef = useRef<PickedClipFile | null>(null);
   const hold = useCallback((next: HeldClipFile | null) => {
-    heldRef.current = next?.file ?? null;
+    heldRef.current = next;
     setHeld(next);
   }, []);
   const [busy, setBusy] = useState(false);
@@ -118,8 +137,9 @@ export function useClipFileUpload(input: {
       resources: [UPLOAD_STATUS_RESOURCE],
     });
 
-  const start = useCallback(
-    async (file: File) => {
+  const startPick = useCallback(
+    async (pick: PickedClipFile) => {
+      const { file, uploadKey, blockId } = pick;
       if (!documentId || busyRef.current) return;
       if (!isContentClipUploadMimeType(file.type)) {
         toast.error(t("clipEmbed.uploadType"));
@@ -128,24 +148,41 @@ export function useClipFileUpload(input: {
       busyRef.current = true;
       setBusy(true);
       const heldBefore = heldRef.current;
-      const blockId = createContentBlockId(CLIP_EMBED_BLOCK_TYPE);
       try {
-        const result = await startUpload({
+        const request = {
           documentId,
           fileName: file.name,
           sizeBytes: file.size,
           mimeType: file.type,
           blockId,
-        });
+          uploadKey,
+        };
+        let result = await startUpload(request);
+        for (const wait of STARTING_RETRY_MS) {
+          if (result.status !== "starting") break;
+          await new Promise((resolve) => setTimeout(resolve, wait));
+          if (heldRef.current !== heldBefore) return;
+          result = await startUpload(request);
+        }
         if (heldRef.current !== heldBefore) {
           if (result.status === "started") void cancelClipUpload(result);
           return;
         }
-        if (result.status === "started") {
+        if (
+          result.status === "started" ||
+          result.status === "already_finished"
+        ) {
           hold(null);
-          onStartedRef.current({ file, ticket: result, blockId });
+          onStartedRef.current({
+            file,
+            recordingId: result.recordingId,
+            ticket: result.status === "started" ? result : null,
+            blockId,
+          });
         } else if (result.status === "storage_required") {
-          hold({ file, storage: result.storage });
+          hold({ ...pick, storage: result.storage });
+        } else if (result.status === "starting") {
+          toast.error(t("clipEmbed.uploadFailed"));
         } else {
           hold(null);
           toast.error(
@@ -164,9 +201,19 @@ export function useClipFileUpload(input: {
     [documentId, hold, startUpload, t],
   );
 
+  const start = useCallback(
+    (file: File) =>
+      startPick({
+        file,
+        uploadKey: newUploadKey(),
+        blockId: createContentBlockId(CLIP_EMBED_BLOCK_TYPE),
+      }),
+    [startPick],
+  );
+
   const checkAgain = useCallback(async () => {
-    const file = heldRef.current;
-    if (!documentId || !file || busyRef.current) return;
+    const pick = heldRef.current;
+    if (!documentId || !pick || busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     let storage: ContentClipStorage | null = null;
@@ -184,10 +231,10 @@ export function useClipFileUpload(input: {
       busyRef.current = false;
       setBusy(false);
     }
-    if (!storage || heldRef.current !== file) return;
-    if (canUpload(storage)) await start(file);
-    else hold({ file, storage });
-  }, [documentId, hold, start, t]);
+    if (!storage || heldRef.current !== pick) return;
+    if (canUpload(storage)) await startPick(pick);
+    else hold({ ...pick, storage });
+  }, [documentId, hold, startPick, t]);
 
   const heldFile = held?.file ?? null;
 

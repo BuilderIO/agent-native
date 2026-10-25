@@ -40,6 +40,18 @@ const sending = new Map<
   { ticket: ClipUploadTicket; stop: AbortController }
 >();
 
+/**
+ * Uploads whose block was missing from their page when last checked, with
+ * the timer that gives each up. They live here, not with an editor, so
+ * closing the page in that moment still gives the upload up.
+ */
+const goneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function stopGoneTimer(recordingId: string) {
+  clearTimeout(goneTimers.get(recordingId));
+  goneTimers.delete(recordingId);
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -83,8 +95,12 @@ function warnBeforeLeaving(event: BeforeUnloadEvent) {
 
 function set(upload: ClipUpload | null, recordingId: string) {
   const before = uploads.get(recordingId);
-  if (upload) uploads.set(recordingId, upload);
-  else uploads.delete(recordingId);
+  if (upload) {
+    uploads.set(recordingId, upload);
+  } else {
+    uploads.delete(recordingId);
+    stopGoneTimer(recordingId);
+  }
 
   const sending = [...uploads.values()].some(
     (each) => each.phase === "uploading",
@@ -335,6 +351,9 @@ export const CLIP_UPLOAD_BLOCK_GONE_MS = 5_000;
 
 type ClipUploadEditor = Pick<Editor, "on" | "off" | "state" | "isDestroyed">;
 
+/** The editors open on each page in this tab. */
+const pageEditors = new Map<string, Set<ClipUploadEditor>>();
+
 function registryBlockIds(editor: ClipUploadEditor): Set<string> {
   const ids = new Set<string>();
   editor.state.doc.descendants((node) => {
@@ -345,31 +364,44 @@ function registryBlockIds(editor: ClipUploadEditor): Set<string> {
   return ids;
 }
 
+function onPage(documentId: string, blockId: string): boolean {
+  for (const editor of pageEditors.get(documentId) ?? []) {
+    if (!editor.isDestroyed && registryBlockIds(editor).has(blockId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function stillGone(
+  recordingId: string,
+  onGivenUp: (upload: ClipUpload, cancelled: ClipCancelResult) => void,
+) {
+  goneTimers.delete(recordingId);
+  const upload = uploads.get(recordingId);
+  // A merge from outside the editor puts a block back without an update.
+  if (!upload || onPage(upload.documentId, upload.blockId)) return;
+  const cancelling = giveUpClipUpload(recordingId);
+  if (cancelling) {
+    void cancelling.then((cancelled) => onGivenUp(upload, cancelled));
+  } else {
+    clearClipUpload(recordingId);
+  }
+}
+
 /**
  * Forgets each of this page's uploads once its block has been gone from the
  * page for a moment, long enough for a cut and paste or an undo to bring it
  * back. One this tab is still sending is given up too, and `onGivenUp` gets
- * what its cancel did. The editor closing gives up nothing: the file keeps
- * sending while the tab is open.
+ * what its cancel did. That moment runs on after the editor closes; an
+ * upload whose block is on the page then keeps sending while the tab is open.
+ * Checks the page at once, so start it once the page's content is in.
  */
 export function watchClipUploadBlocks(
   editor: ClipUploadEditor,
   documentId: string,
   onGivenUp: (upload: ClipUpload, cancelled: ClipCancelResult) => void,
 ): () => void {
-  const goneTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  function stillGone(recordingId: string, blockId: string) {
-    goneTimers.delete(recordingId);
-    if (editor.isDestroyed || registryBlockIds(editor).has(blockId)) return;
-    const upload = uploads.get(recordingId);
-    if (!upload) return;
-    const cancelling = giveUpClipUpload(recordingId);
-    if (cancelling) {
-      void cancelling.then((cancelled) => onGivenUp(upload, cancelled));
-    } else {
-      clearClipUpload(recordingId);
-    }
-  }
   function check() {
     const mine = [...uploads.values()].filter(
       (upload) => upload.documentId === documentId,
@@ -378,24 +410,27 @@ export function watchClipUploadBlocks(
     const present = registryBlockIds(editor);
     for (const { recordingId, blockId } of mine) {
       if (present.has(blockId)) {
-        clearTimeout(goneTimers.get(recordingId));
-        goneTimers.delete(recordingId);
+        stopGoneTimer(recordingId);
       } else if (!goneTimers.has(recordingId)) {
         goneTimers.set(
           recordingId,
           setTimeout(
-            () => stillGone(recordingId, blockId),
+            () => stillGone(recordingId, onGivenUp),
             CLIP_UPLOAD_BLOCK_GONE_MS,
           ),
         );
       }
     }
   }
+  const editors = pageEditors.get(documentId) ?? new Set<ClipUploadEditor>();
+  editors.add(editor);
+  pageEditors.set(documentId, editors);
+  check();
   editor.on("update", check);
   return () => {
     editor.off("update", check);
-    for (const timer of goneTimers.values()) clearTimeout(timer);
-    goneTimers.clear();
+    editors.delete(editor);
+    if (editors.size === 0) pageEditors.delete(documentId);
   };
 }
 

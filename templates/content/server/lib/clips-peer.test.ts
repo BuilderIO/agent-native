@@ -425,6 +425,7 @@ describe("requestClipsUpload", () => {
     sizeBytes: 1_000_000,
     mimeType: "video/mp4",
     blockId: "block_1",
+    uploadKey: "picked-file-0001",
   };
   const ask = (withStart = false) =>
     requestClipsUpload({

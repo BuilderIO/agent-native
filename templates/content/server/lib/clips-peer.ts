@@ -348,6 +348,7 @@ export interface ClipUploadStart {
   sizeBytes: number;
   mimeType: string;
   blockId: string;
+  uploadKey: string;
 }
 
 /**

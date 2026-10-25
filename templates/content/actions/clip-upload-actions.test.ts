@@ -52,6 +52,7 @@ const start = {
   sizeBytes: 5_000_000,
   mimeType: "video/mp4" as const,
   blockId: "block_1",
+  uploadKey: "picked-file-0001",
 };
 const ticket = {
   recordingId: "rec_1",
@@ -247,6 +248,7 @@ describe("create-clip-upload", () => {
         sizeBytes: 5_000_000,
         mimeType: "video/mp4",
         blockId: "block_1",
+        uploadKey: "picked-file-0001",
       },
     });
   });
@@ -340,6 +342,33 @@ describe("create-clip-upload", () => {
     });
   });
 
+  it("answers with the Clip an earlier start of the same file finished", async () => {
+    mocks.requestClipsUpload.mockResolvedValue({
+      ok: true,
+      status: 409,
+      body: {
+        code: "upload_already_finished",
+        recordingId: "rec_1",
+        status: "processing",
+      },
+    });
+    await expect(createClipUpload.run(start)).resolves.toEqual({
+      status: "already_finished",
+      recordingId: "rec_1",
+    });
+  });
+
+  it("answers that an earlier start of the same file is still making its Clip", async () => {
+    mocks.requestClipsUpload.mockResolvedValue({
+      ok: true,
+      status: 409,
+      body: { code: "upload_starting", error: "Try again" },
+    });
+    await expect(createClipUpload.run(start)).resolves.toEqual({
+      status: "starting",
+    });
+  });
+
   it("answers with the largest file Clips takes", async () => {
     mocks.requestClipsUpload.mockResolvedValue({
       ok: true,
@@ -358,6 +387,9 @@ describe("create-clip-upload", () => {
     ).rejects.toThrow();
     await expect(
       createClipUpload.run({ ...start, blockId: "a b" }),
+    ).rejects.toThrow();
+    await expect(
+      createClipUpload.run({ ...start, uploadKey: "short" }),
     ).rejects.toThrow();
     expect(mocks.requestClipsUpload).not.toHaveBeenCalled();
   });

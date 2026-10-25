@@ -223,6 +223,13 @@ function clickRemove() {
   act(() => button!.click());
 }
 
+/** What each start of an upload sent. */
+function starts(): Array<Record<string, unknown>> {
+  return state.callAction.mock.calls
+    .filter(([name]) => name === "create-clip-upload")
+    .map(([, variables]) => variables);
+}
+
 /** An answer the test gives when it chooses. */
 function later() {
   let answer: (value: unknown) => void = () => {};
@@ -311,6 +318,7 @@ describe("the Upload tab while Clips in pages is on", () => {
       sizeBytes: 5,
       mimeType: "video/mp4",
       blockId: expect.stringMatching(/^clip-embed-[A-Za-z0-9]+$/),
+      uploadKey: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
     });
     const { blockId } = state.callAction.mock.calls[0][1];
     expect(inserted).toEqual([
@@ -548,6 +556,132 @@ describe("the Upload tab while Clips in pages is on", () => {
       documentId: "doc_1",
       blockId: expect.stringMatching(/^clip-embed-/),
     });
+  });
+
+  it("sends one upload key and block for a picked file, however many times it starts", async () => {
+    state.callAction
+      .mockResolvedValueOnce({
+        status: "storage_required",
+        storage: { state: "none", reason: "disabled" },
+      })
+      .mockResolvedValueOnce({
+        storage: { state: "ready", provider: "builder" },
+      })
+      .mockResolvedValueOnce(ticket)
+      .mockResolvedValueOnce(ticket);
+    render();
+    await pick(video());
+    await clickCheckAgain();
+    await pick(video("another.mp4"));
+
+    const starts = state.callAction.mock.calls
+      .filter(([name]) => name === "create-clip-upload")
+      .map(([, variables]) => variables);
+    expect(starts).toHaveLength(3);
+    expect(starts[1]).toMatchObject({
+      uploadKey: starts[0].uploadKey,
+      blockId: starts[0].blockId,
+    });
+    expect(starts[2].uploadKey).not.toBe(starts[0].uploadKey);
+    expect(starts[2].blockId).not.toBe(starts[0].blockId);
+  });
+
+  it("asks again, with the same key, while Clips is still making the first start's Clip", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockResolvedValueOnce({
+          status: "storage_required",
+          storage: { state: "none", reason: "disabled" },
+        })
+        .mockResolvedValueOnce({
+          storage: { state: "ready", provider: "builder" },
+        })
+        .mockResolvedValueOnce({ status: "starting" })
+        .mockResolvedValueOnce({ status: "starting" })
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await clickCheckAgain();
+      expect(starts()).toHaveLength(2);
+
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(starts()).toHaveLength(3);
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+
+      expect(starts()).toHaveLength(4);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+      expect(new Set(starts().map((each) => each.blockId)).size).toBe(1);
+      expect(state.beginClipUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ ticket, blockId: starts()[0].blockId }),
+      );
+      expect(state.toast.error).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the video didn't upload when Clips is still making the first start's Clip after every retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction.mockResolvedValue({ status: "starting" });
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(4);
+      expect(state.toast.error).toHaveBeenCalledWith("clipEmbed.uploadFailed");
+      expect(state.beginClipUpload).not.toHaveBeenCalled();
+      expect(inserted).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("places the Clip, uploading nothing, when Clips already has the whole file from this pick", async () => {
+    state.callAction.mockResolvedValue({
+      status: "already_finished",
+      recordingId: "rec_1",
+    });
+    render();
+    await pick(video());
+
+    const { blockId } = state.callAction.mock.calls[0][1];
+    expect(inserted).toEqual([
+      {
+        range: { from: 4, to: 5 },
+        content: expect.objectContaining({
+          attrs: expect.objectContaining({
+            blockId,
+            __raw: expect.stringContaining('recordingId="rec_1"'),
+          }),
+        }),
+      },
+    ]);
+    expect(state.beginClipUpload).not.toHaveBeenCalled();
+    expect(state.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("says the video is already a Clip, cancelling nothing, when that Clip's block can't go in", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    swapSucceeds = false;
+    state.callAction.mockImplementation(async (name: string) =>
+      name === "get-clips-links"
+        ? { appUrl: "https://clips.example.test" }
+        : { status: "already_finished", recordingId: "rec_1" },
+    );
+    render();
+    await pick(video());
+
+    await vi.waitFor(() =>
+      expect(state.toast.info).toHaveBeenCalledWith(
+        "clipEmbed.uploadAlreadySaved",
+        expect.anything(),
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(state.toast.error).not.toHaveBeenCalled();
   });
 
   it("doesn't check while the tab is hidden", async () => {

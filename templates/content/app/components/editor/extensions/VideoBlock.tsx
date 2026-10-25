@@ -30,7 +30,10 @@ import {
 import { toast } from "sonner";
 
 import { clipEmbedBlockContent } from "@/components/editor/clip-embed/clip-embed-content";
-import { announceClipCancel } from "@/components/editor/clip-embed/clip-upload-notices";
+import {
+  announceClipAlreadySaved,
+  announceClipCancel,
+} from "@/components/editor/clip-embed/clip-upload-notices";
 import {
   beginClipUpload,
   cancelClipUpload,
@@ -201,14 +204,20 @@ export function VideoBlock({
   const uploadsGoToClips = clipsEnabled && Boolean(options.documentId);
   const clipUpload = useClipFileUpload({
     documentId: options.documentId,
-    onStarted: ({ file, ticket, blockId }) => {
-      if (replaceWithClip(ticket.recordingId, "upload", blockId)) {
-        void beginClipUpload({
-          file,
-          ticket,
-          documentId: options.documentId!,
-          blockId,
-        });
+    onStarted: ({ file, recordingId, ticket, blockId }) => {
+      if (replaceWithClip(recordingId, "upload", blockId)) {
+        if (ticket) {
+          void beginClipUpload({
+            file,
+            ticket,
+            documentId: options.documentId!,
+            blockId,
+          });
+        }
+        return;
+      }
+      if (!ticket) {
+        void announceClipAlreadySaved({ recordingId, t });
         return;
       }
       // Clips has reserved the upload by now; nothing in the page can use it.

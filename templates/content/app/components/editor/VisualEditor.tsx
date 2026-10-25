@@ -4031,8 +4031,9 @@ export function VisualEditor({
     };
   }, [editor]);
 
+  // It checks the page's blocks at once, so not before the page is in.
   useEffect(() => {
-    if (!editor || !documentId) return;
+    if (!editor || !documentId || !collabSynced) return;
     return watchClipUploadBlocks(editor, documentId, (upload, cancelled) =>
       announceClipCancel(cancelled, {
         recordingId: upload.recordingId,
@@ -4040,7 +4041,7 @@ export function VisualEditor({
         t: tRef.current,
       }),
     );
-  }, [documentId, editor]);
+  }, [collabSynced, documentId, editor]);
 
   useEffect(() => {
     if (!editor) {
