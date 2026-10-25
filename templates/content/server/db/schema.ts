@@ -1145,6 +1145,10 @@ export const contentWebhooks = table(
   },
   (webhook) => [
     index("content_webhooks_scope_idx").on(webhook.scopeType, webhook.scopeId),
+    index("content_webhooks_creator_idx").on(
+      webhook.createdBy,
+      webhook.createdAt,
+    ),
   ],
 );
 

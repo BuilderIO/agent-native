@@ -19,7 +19,18 @@ import {
   ForbiddenError,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { contentWebhookHeaders } from "../server/lib/content-webhook-signature.js";
@@ -68,10 +79,10 @@ const DELIVERY_TIMEOUT_MS = 10_000;
 const LEASE_MS = 60_000;
 const CLAIM_BATCH = 20;
 /**
- * At most this many of one webhook's deliveries in a batch. Webhooks send at
- * the same time, so a slow receiver holds up only itself. A batch sends one
- * webhook's deliveries in sequence order, but a retried delivery can arrive
- * after later ones; receivers order by `sequence`, as the skill says.
+ * At most this many of one webhook's deliveries per claim, so one busy webhook
+ * can't fill a batch. A webhook's deliveries go one at a time, in sequence
+ * order, but a retried delivery can arrive after later ones; receivers order
+ * by `sequence`, as the skill says.
  */
 const PER_WEBHOOK_BATCH = 3;
 /** Rows per insert: 11 bound values each, far below Postgres's 65,535. */
@@ -537,12 +548,15 @@ export function contentWebhookBody(delivery: DeliveryRow): string {
 
 /**
  * The oldest due deliveries, at most PER_WEBHOOK_BATCH of any one webhook's,
- * grouped by webhook in sequence order.
+ * grouped by webhook in sequence order. Skips the webhooks in `busy`, and any
+ * webhook with a delivery in flight from another drain, so each receiver gets
+ * one request at a time however many drains run.
  */
 async function dueDeliveriesByWebhook(
   db: Db,
   limit: number,
-): Promise<string[][]> {
+  busy: string[],
+): Promise<Array<[webhookId: string, ids: string[]]>> {
   const deliveries = schema.contentWebhookDeliveries;
   const now = new Date().toISOString();
   const due = db
@@ -564,6 +578,13 @@ async function dueDeliveriesByWebhook(
           isNull(deliveries.leaseExpiresAt),
           lt(deliveries.leaseExpiresAt, now),
         ),
+        busy.length ? notInArray(deliveries.webhookId, busy) : undefined,
+        sql`NOT EXISTS (
+          SELECT 1 FROM content_webhook_deliveries AS in_flight
+          WHERE in_flight.webhook_id = ${deliveries.webhookId}
+            AND in_flight.status = 'pending'
+            AND in_flight.lease_expires_at >= ${now}
+        )`,
       ),
     )
     .as("due");
@@ -580,7 +601,7 @@ async function dueDeliveriesByWebhook(
       row.id,
     ]);
   }
-  return [...byWebhook.values()];
+  return [...byWebhook.entries()];
 }
 
 /** Leases one due delivery right before sending it; null if another drain has it. */
@@ -745,7 +766,9 @@ export async function drainContentWebhookDeliveries(
     for (const id of ids) {
       if (expired()) break;
       const claim = await claimDelivery(db, id);
-      if (!claim) continue;
+      // Another drain took it, so it's sending this webhook now; leave the
+      // rest to it rather than sending alongside.
+      if (!claim) break;
       claimedAny = true;
       const { delivery, leaseToken } = claim;
       const result = await deliverOne(db, delivery, transport).catch(
@@ -765,13 +788,23 @@ export async function drainContentWebhookDeliveries(
     }
     return claimedAny;
   };
+  // One worker per webhook. When a worker finishes, the loop looks for more
+  // due deliveries, so a slow receiver holds up only its own events.
+  const workers = new Map<string, Promise<boolean>>();
   while (!expired()) {
-    const groups = await dueDeliveriesByWebhook(db, CLAIM_BATCH);
-    if (!groups.length) break;
-    // One webhook's batch goes in sequence order; different webhooks at once.
-    const claimed = await Promise.all(groups.map(sendInOrder));
-    if (!claimed.some(Boolean)) break;
+    const groups = await dueDeliveriesByWebhook(db, CLAIM_BATCH, [
+      ...workers.keys(),
+    ]);
+    for (const [webhookId, ids] of groups) {
+      workers.set(
+        webhookId,
+        sendInOrder(ids).finally(() => workers.delete(webhookId)),
+      );
+    }
+    if (!workers.size) break;
+    await Promise.race(workers.values());
   }
+  await Promise.all(workers.values());
   return counts;
 }
 

@@ -656,7 +656,7 @@ describe("content webhooks", () => {
     }
   });
 
-  it("W2-3: a slow receiver doesn't hold up other webhooks", async () => {
+  it("W2-3: a slow receiver doesn't hold up another webhook's events", async () => {
     const ids = await fixture(2);
     const [slowRow, fastRow] = ids.rows;
     const watch = (documentId: string) =>
@@ -681,21 +681,24 @@ describe("content webhooks", () => {
         }),
       );
     }
-    await asOwner(() =>
-      setProperty.run({
-        documentId: fastRow.documentId,
-        databaseId: ids.databaseId,
-        propertyId: ids.properties.turn,
-        value: "agent",
-      }),
-    );
+    // More than one claim's worth, so the fast webhook needs a second one.
+    for (const value of ["agent", "alice", "agent", "alice"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: fastRow.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
     await settled(slow.id, 3);
-    await settled(fast.id, 1);
+    await settled(fast.id, 4);
     await makeDue(slow.id);
     await makeDue(fast.id);
 
-    // The slow receiver answers only once the other webhook has been
-    // served, or gives up after two seconds.
+    // The slow receiver answers only once all the other webhook's events
+    // have been sent, or gives up after two seconds.
     let markFastSent!: () => void;
     const fastSent = new Promise<void>((resolve) => {
       markFastSent = resolve;
@@ -706,7 +709,9 @@ describe("content webhooks", () => {
         const { webhookId } = JSON.parse(request.body);
         if (webhookId === fast.id) {
           order.push("fast");
-          markFastSent();
+          if (order.filter((entry) => entry === "fast").length === 4) {
+            markFastSent();
+          }
         } else if (webhookId === slow.id) {
           const served = await Promise.race([
             fastSent.then(() => true),
@@ -719,7 +724,73 @@ describe("content webhooks", () => {
         return { ok: true, status: 200 };
       },
     });
-    expect(order).toEqual(["fast", "slow", "slow", "slow"]);
+    expect(order).toEqual([
+      "fast",
+      "fast",
+      "fast",
+      "fast",
+      "slow",
+      "slow",
+      "slow",
+    ]);
+  });
+
+  it("W2-3: drains running at once send one webhook's events one at a time", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    receiver.status = 500;
+    for (const value of ["agent", "alice", "agent", "alice"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
+    await settled(webhook.id, 4);
+    await makeDue(webhook.id);
+
+    // The first request waits until a second drain has run.
+    let inFlight = 0;
+    let mostInFlight = 0;
+    let calls = 0;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const transport: import("./_content-webhooks.js").ContentWebhookTransport =
+      async () => {
+        calls++;
+        inFlight++;
+        mostInFlight = Math.max(mostInFlight, inFlight);
+        if (calls === 1) {
+          markStarted();
+          await released;
+        }
+        inFlight--;
+        return { ok: true, status: 200 };
+      };
+    const first = hooks.drainContentWebhookDeliveries({ transport });
+    await started;
+    const second = await hooks.drainContentWebhookDeliveries({ transport });
+    release();
+    expect(second.delivered).toBe(0);
+    expect((await first).delivered).toBe(4);
+    expect(mostInFlight).toBe(1);
+    expect(calls).toBe(4);
   });
 
   it("W2-1: marks a long value or comment as cut short", async () => {

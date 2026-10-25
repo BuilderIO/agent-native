@@ -1545,6 +1545,8 @@ export const runContentMigrations = runMigrations(
         );
         CREATE INDEX IF NOT EXISTS content_webhooks_scope_idx
           ON content_webhooks (scope_type, scope_id);
+        CREATE INDEX IF NOT EXISTS content_webhooks_creator_idx
+          ON content_webhooks (created_by, created_at);
         CREATE TABLE IF NOT EXISTS content_webhook_deliveries (
           id TEXT PRIMARY KEY,
           sequence BIGSERIAL NOT NULL,
