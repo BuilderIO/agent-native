@@ -128,6 +128,7 @@ import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
+import { resolveHostedModelExperiment } from "../observability/hosted-model-experiment.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
@@ -14421,9 +14422,34 @@ export function createProductionAgentHandler(
       // observability tables are unavailable during startup or migration.
     }
 
+    // Unlike the DB experiment above, this runs even when the client pinned the
+    // default model: chat clients always send the default, so keying off the
+    // resolved default is what lets the arm reach real traffic.
+    const hostedModelExperiment =
+      modelSelectionSource === "experiment"
+        ? null
+        : resolveHostedModelExperiment({
+            userEmail: ownerEmail,
+            engineName: engine.name,
+            defaultModel: engine.defaultModel,
+            model: effectiveModel,
+            effort: requestEffort,
+          });
+    if (hostedModelExperiment) {
+      effectiveModel = normalizeModelForEngine(
+        engine,
+        hostedModelExperiment.model,
+      );
+      modelSelectionSource = "experiment";
+      experimentAssignments = [
+        ...experimentAssignments,
+        hostedModelExperiment.assignment,
+      ];
+    }
+
     const reasoningEffort = resolveAgentRequestReasoningEffort({
       model: effectiveModel,
-      requestEffort,
+      requestEffort: hostedModelExperiment?.effort ?? requestEffort,
       configuredEffort: options.reasoningEffort,
     });
     const modelSupportsVision = isAgentModelVisionCapable(
