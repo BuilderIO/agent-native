@@ -99,6 +99,8 @@ const PURGE_BATCH = 1_000;
 const PURGE_MAX_BATCHES = 20;
 /** Webhooks of deleted pages and collections removed per sweep. */
 const ORPHAN_BATCH = 100;
+/** How often an event whose page is in Trash checks whether it's back. */
+const TRASH_RECHECK_MS = 15 * 60_000;
 const MAX_VALUE_CHARS = 16_000;
 const MAX_COMMENT_CHARS = 2_000;
 const AGENT_CALLERS = new Set(["tool", "mcp", "webmcp", "a2a"]);
@@ -490,7 +492,14 @@ export interface ContentWebhookRequest {
 
 export type ContentWebhookTransportResult =
   | { ok: true; status: number }
-  | { ok: false; status?: number; error: string; permanent?: boolean };
+  | {
+      ok: false;
+      status?: number;
+      error: string;
+      permanent?: boolean;
+      /** Not sent yet and not an attempt: check again later. */
+      deferred?: boolean;
+    };
 
 export type ContentWebhookTransport = (
   request: ContentWebhookRequest,
@@ -654,6 +663,26 @@ async function settleDelivery(
 ) {
   const deliveries = schema.contentWebhookDeliveries;
   const now = new Date();
+  const mine = and(
+    eq(deliveries.id, delivery.id),
+    eq(deliveries.leaseToken, leaseToken),
+  );
+  if (!result.ok && result.deferred) {
+    // The claim counted an attempt; a wait isn't one, so it can last as long
+    // as the page stays in Trash.
+    await db
+      .update(deliveries)
+      .set({
+        leaseToken: null,
+        leaseExpiresAt: null,
+        attempts: sql`${deliveries.attempts} - 1`,
+        lastError: result.error,
+        nextAttemptAt: new Date(now.getTime() + TRASH_RECHECK_MS).toISOString(),
+        updatedAt: now.toISOString(),
+      })
+      .where(mine);
+    return;
+  }
   const exhausted = delivery.attempts >= CONTENT_WEBHOOK_MAX_ATTEMPTS;
   const status = result.ok
     ? "delivered"
@@ -679,12 +708,40 @@ async function settleDelivery(
       deliveredAt: result.ok ? now.toISOString() : null,
       updatedAt: now.toISOString(),
     })
+    .where(mine);
+}
+
+/**
+ * Whether the page or collection a webhook watches, or the row page an event
+ * came from, is in Trash. Deleting it for good removes the webhook and its
+ * events instead: see removeOrphanedContentWebhooks.
+ */
+async function inTrash(
+  db: Db,
+  webhook: WebhookRow,
+  delivery: DeliveryRow,
+): Promise<boolean> {
+  // guard:allow-unscoped — the sender runs with no signed-in user; it reads only whether the watched collection or page, or the event's row page, is in Trash.
+  if (webhook.scopeType === "database") {
+    const [database] = await db
+      .select({ deletedAt: schema.contentDatabases.deletedAt })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, webhook.scopeId))
+      .limit(1);
+    if (database?.deletedAt) return true;
+  }
+  const pages = await db
+    .select({ trashedAt: schema.documents.trashedAt })
+    .from(schema.documents)
     .where(
-      and(
-        eq(deliveries.id, delivery.id),
-        eq(deliveries.leaseToken, leaseToken),
-      ),
+      inArray(schema.documents.id, [
+        ...new Set([
+          delivery.documentId,
+          ...(webhook.scopeType === "document" ? [webhook.scopeId] : []),
+        ]),
+      ]),
     );
+  return pages.some((page) => page.trashedAt);
 }
 
 /**
@@ -738,6 +795,16 @@ async function deliverOne(
       .delete(schema.contentWebhookDeliveries)
       .where(eq(schema.contentWebhookDeliveries.webhookId, delivery.webhookId));
     return { ok: false, error: "The webhook was removed.", permanent: true };
+  }
+  // Trash can be undone, so an event whose page is there waits rather than
+  // failing the access checks below, and goes out if the page comes back.
+  if (await inTrash(db, webhook, delivery)) {
+    return {
+      ok: false,
+      error:
+        "Waiting: the page or collection is in Trash. This event goes out if it's restored.",
+      deferred: true,
+    };
   }
   // Checked for every send, not once per drain, so a revoked creator's
   // events stop at the next send.
@@ -801,8 +868,8 @@ export async function drainContentWebhookDeliveries(
       await settleDelivery(db, delivery, leaseToken, result);
       if (result.ok) counts.delivered++;
       else if (
-        result.permanent ||
-        delivery.attempts >= CONTENT_WEBHOOK_MAX_ATTEMPTS
+        !result.deferred &&
+        (result.permanent || delivery.attempts >= CONTENT_WEBHOOK_MAX_ATTEMPTS)
       )
         counts.failed++;
       else counts.retrying++;

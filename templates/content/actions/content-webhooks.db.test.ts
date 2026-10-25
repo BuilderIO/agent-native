@@ -84,6 +84,8 @@ let updateComment: typeof import("./update-comment.js").default;
 let createWebhook: typeof import("./create-content-webhook.js").default;
 let listWebhooks: typeof import("./list-content-webhooks.js").default;
 let deleteWebhook: typeof import("./delete-content-webhook.js").default;
+let trashDatabase: typeof import("./delete-content-database.js").default;
+let restoreDatabase: typeof import("./restore-content-database.js").default;
 let deleteDocumentRecursive: typeof import("./delete-document.js").deleteDocumentRecursive;
 
 const asOwner = <T>(run: () => Promise<T>) =>
@@ -111,6 +113,8 @@ beforeAll(async () => {
   createWebhook = (await import("./create-content-webhook.js")).default;
   listWebhooks = (await import("./list-content-webhooks.js")).default;
   deleteWebhook = (await import("./delete-content-webhook.js")).default;
+  trashDatabase = (await import("./delete-content-database.js")).default;
+  restoreDatabase = (await import("./restore-content-database.js")).default;
   deleteDocumentRecursive = (await import("./delete-document.js"))
     .deleteDocumentRecursive;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -667,6 +671,59 @@ describe("content webhooks", () => {
     expect(
       (await deliveries(webhook.id)).map((delivery) => delivery.id),
     ).toEqual([sent[4].id]);
+  });
+
+  it("W2-3: events wait while their collection is in Trash and go out once it's restored", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+      }),
+    );
+    receiver.status = 500;
+    await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value: "agent",
+      }),
+    );
+    const [queued] = await settled(webhook.id, 1);
+    await asOwner(() => trashDatabase.run({ databaseId: ids.databaseId }));
+    receiver.status = 200;
+    receiver.requests.length = 0;
+
+    // In Trash, the event waits without using up an attempt.
+    for (let check = 0; check < hooks.CONTENT_WEBHOOK_MAX_ATTEMPTS; check++) {
+      await makeDue(webhook.id);
+      expect(await hooks.drainContentWebhookDeliveries()).toEqual({
+        delivered: 0,
+        failed: 0,
+        retrying: 1,
+      });
+    }
+    const [waiting] = await deliveries(webhook.id);
+    expect(waiting).toMatchObject({
+      status: "pending",
+      attempts: queued.attempts,
+      lastError: expect.stringContaining("Trash"),
+    });
+    expect(Date.parse(waiting.nextAttemptAt)).toBeGreaterThan(Date.now());
+    expect(receiver.requests).toHaveLength(0);
+
+    await asOwner(() => restoreDatabase.run({ databaseId: ids.databaseId }));
+    await makeDue(webhook.id);
+    expect(await hooks.drainContentWebhookDeliveries()).toMatchObject({
+      delivered: 1,
+    });
+    expect(eventsFor(webhook.id)).toHaveLength(1);
+    expect((await deliveries(webhook.id))[0]).toMatchObject({
+      status: "delivered",
+    });
   });
 
   it("W2-3: stops sending in the same run once the creator loses access", async () => {
