@@ -139,6 +139,10 @@ async function acceptOnLegacyWriter<T>(
     throw new Error(
       "Suggestion decisions require an atomic database transaction",
     );
+  // `apply` reads presence inside the transaction, once the live copy is
+  // held. A process's first read can set up the presence table, which PGlite
+  // can't do inside a transaction, so one read happens here first.
+  await loadAwarenessRows(context.resourceId);
   const result = await withPreparedYDocMutation(
     context.resourceId,
     acceptedSuggestionRequestSource(context.ctx?.requestSource),
