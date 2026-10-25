@@ -154,28 +154,31 @@ function instantFromZoneWall(wall: number, timeZone: string): number {
   return beforeInstant;
 }
 
-function shiftedZoneWallInstant(
-  master: number,
-  next: number,
-  instance: number,
-  timeZone: string,
-): number {
-  const wall = (instant: number) => instant + zoneOffsetMs(instant, timeZone);
-  return instantFromZoneWall(
-    wall(master) + (wall(next) - wall(instance)),
-    timeZone,
-  );
+function zoneWallMs(instant: number, timeZone: string): number {
+  return instant + zoneOffsetMs(instant, timeZone);
 }
 
+function shiftedZoneWallInstant(
+  master: number,
+  deltaMs: number,
+  timeZone: string,
+): number {
+  return instantFromZoneWall(zoneWallMs(master, timeZone) + deltaMs, timeZone);
+}
+
+// `timeZone` is the master's zone. `nextTimeZone` is the zone the new value's
+// offset-less wall time was typed in; it defaults to the master's zone.
 export function shiftSeriesDateValue(
   nextValue: string | undefined,
   instanceValue: string | undefined,
   masterValue: string | undefined,
   timeZone?: string,
+  nextTimeZone?: string,
 ): string | undefined {
   if (!nextValue || !instanceValue || !masterValue) return nextValue;
   const zone = knownTimeZone(timeZone);
-  const next = parseGoogleDateValue(nextValue, zone);
+  const nextZone = knownTimeZone(nextTimeZone ?? timeZone);
+  const next = parseGoogleDateValue(nextValue, nextZone);
   const instance = parseGoogleDateValue(instanceValue, zone);
   const master = parseGoogleDateValue(masterValue, zone);
   if (
@@ -192,16 +195,17 @@ export function shiftSeriesDateValue(
     );
     return shifted.toISOString().split("T")[0];
   }
+  // The delta is the wall-clock gap the user edited, read in the new value's
+  // zone; it is then applied to the master's wall clock in the master's zone.
   // Without a zone the delta is absolute time, which moves wall-clock time by
   // an hour across a DST change. Shifting wall-clock time needs the zone.
+  const deltaMs = nextZone
+    ? zoneWallMs(next.getTime(), nextZone) -
+      zoneWallMs(instance.getTime(), nextZone)
+    : next.getTime() - instance.getTime();
   const shiftedMs = zone
-    ? shiftedZoneWallInstant(
-        master.getTime(),
-        next.getTime(),
-        instance.getTime(),
-        zone,
-      )
-    : master.getTime() + (next.getTime() - instance.getTime());
+    ? shiftedZoneWallInstant(master.getTime(), deltaMs, zone)
+    : master.getTime() + deltaMs;
   return new Date(shiftedMs).toISOString().replace(/\.000Z$/, "Z");
 }
 

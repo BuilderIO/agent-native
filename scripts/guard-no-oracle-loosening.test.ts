@@ -249,6 +249,42 @@ describe("disabled-test and expect-anything in test files", () => {
     ]);
   });
 
+  it("flags expect.anything() read off a test runner namespace import only", () => {
+    const source = [
+      `import * as v from "${VITEST}";`,
+      "expect(value).toEqual(v.expect.anything());",
+      "expect(value).toEqual({ id: v.expect.anything() });",
+      "expect(send).toHaveBeenCalledWith(v.expect.anything(), id);",
+      'const doc = "v.expect.anything()";',
+      'import * as h from "./helpers";',
+      "expect(value).toEqual(h.expect.anything());",
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:2: expect-anything`,
+    ]);
+  });
+
+  it("parses .mts and .cts test files as TypeScript, so a type assertion does not swallow the next call", () => {
+    // Read as JS, `<number>value` opens a JSX element and `it.skip` is lost.
+    const source = [
+      "const cast = <number>value;",
+      'it.skip("a", () => {});',
+    ].join("\n");
+    for (const rel of [
+      "apps/web/actions/send.test.mts",
+      "apps/web/actions/send.spec.cts",
+      "apps/web/tests/login.e2e.mts",
+      "apps/web/tests/login.e2e.cts",
+    ]) {
+      assert.deepEqual(
+        flagged({ [rel]: { source, added: [2] } }),
+        [`${rel}:2: disabled-test`],
+        rel,
+      );
+    }
+  });
+
   it("only reports lines this branch added", () => {
     const source = 'it.skip("old", () => {});\nit("new", () => {});';
     assert.deepEqual(flagged({ [SPEC]: { source, added: [2] } }), []);
@@ -262,6 +298,11 @@ describe("disabled-test and expect-anything in test files", () => {
     assert.equal(isTestFile("a/b.test.mjs"), true);
     assert.equal(isTestFile("a/b.spec.jsx"), true);
     assert.equal(isTestFile("a/b.e2e.cjs"), true);
+    assert.equal(isTestFile("a/b.test.mts"), true);
+    assert.equal(isTestFile("a/b.spec.cts"), true);
+    assert.equal(isTestFile("a/b.e2e.mts"), true);
+    assert.equal(isTestFile("a/b.e2e.cts"), true);
+    assert.equal(isTestFile("a/b.mts"), false);
     assert.equal(isTestFile("a/b.ts"), false);
     assert.equal(isTestFile("a/b.mjs"), false);
     assert.equal(isTestFile("a/e2elsewhere/b.ts"), false);

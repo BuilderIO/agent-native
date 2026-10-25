@@ -115,4 +115,29 @@ describe("series date alignment", () => {
 
     expect(aligned.recurrence).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=TH"]);
   });
+
+  // The edit's offset-less start is wall time in the zone it was typed in
+  // (Berlin), not in the master's zone (New York). 07:00Z is 09:00 in Berlin.
+  it("reads an offset-less edit start in its own zone when the master is in another zone", () => {
+    expect(
+      shiftSeriesDateValue(
+        "2026-05-04T09:00:00",
+        "2026-05-04T10:00:00-04:00",
+        "2026-05-01T10:00:00-04:00",
+        "America/New_York",
+        "Europe/Berlin",
+      ),
+    ).toBe("2026-05-01T07:00:00Z");
+  });
+
+  it("reads an offset-less edit start in the series zone when the edit names no zone", () => {
+    expect(
+      shiftSeriesDateValue(
+        "2026-05-04T09:00:00",
+        "2026-05-04T10:00:00-04:00",
+        "2026-05-01T10:00:00-04:00",
+        "America/New_York",
+      ),
+    ).toBe("2026-05-01T13:00:00Z");
+  });
 });

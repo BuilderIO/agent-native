@@ -67,7 +67,7 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 const MIN_REASON_LENGTH = 10;
 const PRAGMA_MARKER = "oracle-change:";
 const TEST_FILE =
-  /(?:\.(?:spec|test)\.(?:tsx?|jsx?|mjs|cjs)|\.e2e\.(?:tsx?|jsx?|mjs|cjs))$|(?:^|\/)e2e\//;
+  /(?:\.(?:spec|test)\.(?:tsx?|jsx?|mjs|cjs|mts|cts)|\.e2e\.(?:tsx?|jsx?|mjs|cjs|mts|cts))$|(?:^|\/)e2e\//;
 const CONFIG_FILE =
   /(?:^|\/)(?:vitest\.config\.[^/]+|vitest\.[^/]+\.config\.[^/]+|playwright\.config\.[^/]+)$/;
 const PACKAGE_JSON = /(?:^|\/)package\.json$/;
@@ -383,6 +383,19 @@ function isLiteralZero(node: ts.Node): boolean {
   return ts.isNumericLiteral(node) && node.text === "0";
 }
 
+// `expect`, or `expect` read off a test runner namespace: `v.expect` after
+// `import * as v from "vitest"`.
+function isExpectReceiver(node: ts.Expression, scope: ImportScope): boolean {
+  if (ts.isIdentifier(node)) return scope.expectRoots.has(node.text);
+  const member = memberOf(node);
+  return (
+    member !== null &&
+    member.name === "expect" &&
+    ts.isIdentifier(member.object) &&
+    scope.namespaces.has(member.object.text)
+  );
+}
+
 // `toHaveBeenCalledWith(expect.anything(), id)` still pins `id`; only a matcher
 // whose whole expected value is `expect.anything()` checks nothing.
 function isWholeExpectedValue(call: ts.CallExpression): boolean {
@@ -444,8 +457,7 @@ export function findDisabledTests(
           });
         } else if (
           name === "anything" &&
-          ts.isIdentifier(inner) &&
-          scope.expectRoots.has(inner.text) &&
+          isExpectReceiver(inner, scope) &&
           isWholeExpectedValue(node)
         ) {
           at(site, {
