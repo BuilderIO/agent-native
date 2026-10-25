@@ -112,7 +112,30 @@ export default {
     sigmaOwnedBy: "स्वामी",
     sigmaMigratingTooltip: "{{name}} द्वारा माइग्रेट किया जा रहा है",
     sigmaMigrate: "माइग्रेट करें",
-    sigmaMigrateComingSoon: "जल्द आ रहा है",
+    sigmaMigrating: "माइग्रेट हो रहा है…",
+    sigmaMigrateSucceeded: "{{name}} माइग्रेट हो गया",
+    sigmaSharedOnlyWithYou: "फ़िलहाल सिर्फ़ आपके साथ शेयर किया गया है।",
+    sigmaPanelsNeedReview: "समीक्षा के लिए पैनल: {{count}}।",
+    sigmaOpenDashboard: "खोलें",
+    sigmaLastImportFailed: "पिछला इंपोर्ट विफल रहा",
+    sigmaReviewWithAgent: "एजेंट से समीक्षा करें",
+    sigmaReviewContext: "Sigma माइग्रेशन",
+    sigmaReviewPrompt:
+      "Sigma वर्कबुक {{name}} Analytics में माइग्रेट नहीं हुई: {{error}} पता करें कि इसे क्या रोक रहा है और इसे कैसे ठीक करें।",
+    sigmaErrorExportUnsupported: "Sigma अभी इस वर्कबुक को एक्सपोर्ट नहीं कर सकता।",
+    sigmaErrorNoImportable:
+      "इस वर्कबुक में इंपोर्ट करने के लिए कोई BigQuery पैनल नहीं है।",
+    sigmaErrorNoRunnable: "इस वर्कबुक का कोई भी पैनल BigQuery पर नहीं चला।",
+    sigmaErrorBigQueryRequired: "पहले डेटा सोर्स में BigQuery कनेक्ट करें।",
+    sigmaErrorBigQueryDenied:
+      "Analytics का BigQuery कनेक्शन क्वेरी नहीं चला सकता। डेटा सोर्स में उसकी अनुमतियाँ जाँचें।",
+    sigmaErrorBigQueryUnavailable:
+      "BigQuery इस वर्कबुक की जाँच नहीं कर सका। फिर से कोशिश करें।",
+    sigmaErrorOriginalMigrator:
+      "सिर्फ़ वही व्यक्ति इसे दोबारा इंपोर्ट कर सकता है जिसने इस वर्कबुक को माइग्रेट किया था।",
+    sigmaErrorInProgress: "कोई पहले से इस वर्कबुक को माइग्रेट कर रहा है।",
+    sigmaErrorAlreadyMigrated: "यह वर्कबुक पहले ही माइग्रेट हो चुकी है।",
+    sigmaErrorGeneric: "माइग्रेशन विफल रहा। फिर से कोशिश करें।",
     sigmaArchived: "संग्रहीत",
     sigmaMoreWorkbooksFailed: "और वर्कबुक लोड नहीं हो सकीं",
     sigmaLoadingMore: "वर्कबुक लोड हो रही हैं…",

@@ -29,12 +29,12 @@ const inspectSchema = z.object({
 export type SigmaElementReviewReason =
   | "unsupported_element"
   | "unsupported_source"
-  | "source_unavailable"
-  | "source_mapping_required"
-  | "query_unavailable"
-  | "unsafe_sql"
-  | "visualization_review";
+  | "source_unavailable";
 
+/**
+ * `importable` marks a panel not tied to a non-BigQuery connection; migrate
+ * proves its SQL with a dry run.
+ */
 export interface SigmaElementReview {
   id: string;
   name: string;
@@ -59,14 +59,21 @@ function reviewElement(
     };
   }
 
-  const connection = inspection.sourceConnections.find(
-    (source) => source.connectionId === element.source?.connectionId,
-  );
-  if (!connection || connection.targetProviderCandidate !== "bigquery") {
+  // Panels built on a data model, join, or union carry no connection id.
+  // Sigma still compiles their SQL, so the dry run decides whether they run.
+  // Neither path checks the source project: SQL naming a table without its
+  // project resolves against Analytics' project, assumed to be Sigma's too.
+  const connectionId = element.source?.connectionId;
+  const connection = connectionId
+    ? inspection.sourceConnections.find(
+        (source) => source.connectionId === connectionId,
+      )
+    : undefined;
+  if (connectionId && connection?.targetProviderCandidate !== "bigquery") {
     const sourceUnavailable = inspection.diagnostics.some(
       (diagnostic) =>
         diagnostic.code === "sigma_source_connection_unavailable" &&
-        diagnostic.connectionId === element.source?.connectionId,
+        diagnostic.connectionId === connectionId,
     );
     return {
       id: element.id,
@@ -78,15 +85,12 @@ function reviewElement(
     };
   }
 
-  // Sigma reports the provider type, but the current connection API does not
-  // establish that this Analytics credential points at the same project.
   return {
     id: element.id,
     name: element.title,
     type: element.chartType,
-    importable: false,
+    importable: true,
     visualizationPreserved: false,
-    reason: "source_mapping_required",
   };
 }
 
@@ -116,7 +120,7 @@ export function requireSigmaSourceInspection(
 
 export default defineAction({
   description:
-    "Preview a Sigma workbook without returning SQL or workbook payloads. Sigma imports remain preview-only because the current connection API does not expose a BigQuery project mapping Analytics can verify.",
+    "Preview a Sigma workbook without returning SQL or workbook payloads. `importable` marks panels not tied to a non-BigQuery connection; migrate-sigma-workbook dry-runs each one's SQL on Analytics' BigQuery and flags the ones that do not run.",
   schema: inspectSchema,
   http: { method: "GET" },
   readOnly: true,
@@ -144,13 +148,6 @@ export default defineAction({
       (element) => element.importable,
     ).length;
     const unsupportedCount = elements.length - importableCount;
-    const reviewRequiredCount = elements.filter(
-      (element) =>
-        !element.importable || element.reason === "visualization_review",
-    ).length;
-    const sourceMappingRequiredCount = elements.filter(
-      (element) => element.reason === "source_mapping_required",
-    ).length;
     return {
       workbook: {
         id: inspection.workbook.workbookId,
@@ -161,8 +158,6 @@ export default defineAction({
       connectionLabel: selection.selected.label,
       importableCount,
       unsupportedCount,
-      reviewRequiredCount,
-      sourceMappingRequiredCount,
       elements,
       betaRepresentationWarning: true,
     };

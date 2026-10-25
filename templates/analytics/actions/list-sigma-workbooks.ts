@@ -97,8 +97,12 @@ export default defineAction({
     const migrationBySourceId = new Map(
       migrations.map((migration) => [migration.sourceId, migration]),
     );
+    // A failed re-import leaves its migrator's earlier dashboard in place.
+    const keepsDashboard = (migration: (typeof migrations)[number]): boolean =>
+      migration.status === "migrated" ||
+      (migration.status === "failed" && migration.targetDashboardId !== null);
     const dashboardIds = migrations.flatMap((migration) =>
-      migration.status === "migrated" && migration.targetDashboardId
+      keepsDashboard(migration) && migration.targetDashboardId
         ? [migration.targetDashboardId]
         : [],
     );
@@ -128,7 +132,7 @@ export default defineAction({
 
     const ownerEmailOf = (sourceId: string): string | null => {
       const migration = migrationBySourceId.get(sourceId);
-      if (migration?.status === "migrated") {
+      if (migration && keepsDashboard(migration)) {
         const owner = migration.targetDashboardId
           ? ownerById.get(migration.targetDashboardId)
           : undefined;
@@ -156,7 +160,7 @@ export default defineAction({
       const status: ExternalDashboardMigrationStatus =
         migration?.status ?? "not_started";
       const targetDashboardId =
-        migration?.status === "migrated"
+        migration && keepsDashboard(migration)
           ? (migration.targetDashboardId ?? undefined)
           : undefined;
       const owner = targetDashboardId
@@ -172,7 +176,7 @@ export default defineAction({
       );
       const dashboardId = owner ? owner.id : undefined;
       const migratedOwnerEmail =
-        migration?.status === "migrated"
+        migration && keepsDashboard(migration)
           ? ownerEmailOf(workbook.workbookId)
           : null;
       const migratingByEmail =

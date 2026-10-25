@@ -28,6 +28,11 @@ import {
   requireSigmaMigrationContext,
   sigmaMigrationSetupLink,
 } from "../server/lib/bi-migration/sigma-migration.js";
+import {
+  proveSigmaPanelSql,
+  type SigmaSqlProof,
+  type SigmaSqlProofFailure,
+} from "../server/lib/bi-migration/sigma-sql-proof.js";
 import { abandonSigmaImport } from "../server/lib/bi-migration/unfinished-import.js";
 import {
   createDashboardFolder,
@@ -35,14 +40,17 @@ import {
   assignDashboardToFolder,
 } from "../server/lib/dashboard-folders-store.js";
 import {
+  verifyDashboardPanels,
+  type DashboardVerification,
+} from "../server/lib/dashboard-panel-verification.js";
+import {
   getDashboard,
   upsertDashboard,
 } from "../server/lib/dashboards-store.js";
-import { assertReadOnlySql } from "../server/lib/read-only-sql.js";
+import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   requireSigmaSourceInspection,
   summarizeSigmaElementReview,
-  type SigmaElementReview,
 } from "./inspect-sigma-workbook.js";
 
 const migrateSchema = z.object({
@@ -76,6 +84,20 @@ const migrateSchema = z.object({
     ),
 });
 
+// The function is killed at 75 s with no error, which would leave the claim
+// held for ten minutes. Dry runs stop launching at the deadline, and
+// verification gets what is left after a margin for the writes.
+const MIGRATION_DEADLINE_MS = 55_000;
+const MIGRATION_WRITE_MARGIN_MS = 10_000;
+const MIGRATION_VERIFICATION_BUDGET_MS = 12_000;
+const MIN_VERIFICATION_BUDGET_MS = 1_000;
+// New dry runs stop early enough that one still in flight, which can take up
+// to its own timeout, ends before the write margin.
+const PROOF_DEADLINE_MS =
+  MIGRATION_DEADLINE_MS -
+  MIGRATION_WRITE_MARGIN_MS -
+  DASHBOARD_SQL_VALIDATION_TIMEOUT_MS;
+
 function dashboardIdFor(args: {
   orgId: string;
   userEmail: string;
@@ -106,149 +128,148 @@ export function sigmaDashboardName(workbookName: string, workbookId: string) {
   return `Sigma: ${safeText(workbookName, 150)} · ${sourceKey.slice(0, 20)}`;
 }
 
+const REVIEW_MESSAGES: Record<SigmaSqlProofFailure | "unsupported", string> = {
+  unsupported:
+    "Review this Sigma element in the source workbook before using it.",
+  query_unavailable:
+    "Sigma did not return one SQL query for this element. Review it in the source workbook.",
+  sql_too_large:
+    "This element's SQL is too large to import. Review it in the source workbook.",
+  unsafe_sql:
+    "This element's SQL is not a single read-only query, so it was not imported.",
+  bigquery_dry_run_failed:
+    "BigQuery rejected this element's SQL with Analytics' BigQuery access.",
+  bigquery_dry_run_unavailable:
+    "BigQuery could not check this element's SQL during the import, so it was not imported.",
+  too_expensive:
+    "This element's SQL would scan more than 50 GiB on every view, so it was not imported.",
+  cost_unknown:
+    "BigQuery did not report how much data this element's SQL scans, so it was not imported.",
+};
+
 function makeReviewCallout(
   element: SigmaPortableElement,
   index: number,
-  tab?: string,
+  reason: SigmaSqlProofFailure | "unsupported",
 ): SqlPanel {
   return {
     id: panelId(index, element.id),
     title: safeText(element.title || "Sigma element", 200),
-    sql: "SELECT 'warning' AS severity, 'Review this Sigma element in the source workbook before using it.' AS message",
+    sql: `SELECT 'warning' AS severity, '${REVIEW_MESSAGES[reason].replace(/'/g, "''")}' AS message`,
     source: "bigquery",
     chartType: "callout",
     width: 6,
-    ...(tab ? { tab } : {}),
+    ...(element.tab ? { tab: safeText(element.tab, 120) } : {}),
   };
 }
 
-function panelTab(element: SigmaPortableElement): string | undefined {
-  return element.kind === "panel" ? element.tab : element.tab;
+function diagnosticFor(
+  element: SigmaPortableElement,
+  status: ExternalDashboardElementDiagnostic["status"],
+  reason: ExternalDashboardElementDiagnostic["reason"],
+): ExternalDashboardElementDiagnostic {
+  return {
+    id: element.id,
+    name: safeText(element.title, 200) || element.id,
+    status,
+    reason,
+  };
 }
 
-function uniqueQueriesByElementId(
-  inspection: SigmaWorkbookInspection,
-): Map<string, string | null> {
-  const queries = new Map<string, string | null>();
-  for (const query of inspection.sqlQueries) {
-    if (!query.elementId) continue;
-    queries.set(
-      query.elementId,
-      queries.has(query.elementId) ? null : (query.sql ?? null),
-    );
+function unsupportedReason(
+  element: SigmaPortableElement,
+): ExternalDashboardElementDiagnostic["reason"] {
+  if (element.kind !== "unsupported") return "manual_review_required";
+  const sigmaKind = element.sigmaKind.toLowerCase();
+  if (sigmaKind.includes("filter")) return "unsupported_filter";
+  if (sigmaKind.includes("calculation") || sigmaKind.includes("formula")) {
+    return "unsupported_calculation";
   }
-  return queries;
+  return "unsupported_visualization";
 }
 
-function migrationDiagnostics(
-  inspection: SigmaWorkbookInspection,
-  review: ReturnType<typeof summarizeSigmaElementReview>,
-): ExternalDashboardElementDiagnostic[] {
-  const reasonsById = new Map(review.map((element) => [element.id, element]));
+function migrationDiagnostics(args: {
+  inspection: SigmaWorkbookInspection;
+  proofs: Map<string, SigmaSqlProof>;
+  verification: DashboardVerification;
+  panelIdsByElementId: Map<string, string>;
+}): ExternalDashboardElementDiagnostic[] {
+  const verificationByPanelId = new Map(
+    args.verification.panels.map((panel) => [panel.panelId, panel]),
+  );
   const diagnostics: ExternalDashboardElementDiagnostic[] = [];
-  for (const element of inspection.elements) {
-    const result = reasonsById.get(element.id);
-    if (element.kind === "unsupported") {
-      const sigmaKind = element.sigmaKind.toLowerCase();
-      const reason: ExternalDashboardElementDiagnostic["reason"] =
-        sigmaKind.includes("filter")
-          ? "unsupported_filter"
-          : sigmaKind.includes("calculation") || sigmaKind.includes("formula")
-            ? "unsupported_calculation"
-            : "unsupported_visualization";
-      diagnostics.push({
-        id: element.id,
-        name: safeText(element.title, 200) || element.id,
-        status: "red",
-        reason,
-      });
+  for (const element of args.inspection.elements) {
+    const proof = args.proofs.get(element.id);
+    if (!proof) {
+      diagnostics.push(
+        diagnosticFor(element, "red", unsupportedReason(element)),
+      );
       continue;
     }
-    if (!result?.importable) {
-      diagnostics.push({
-        id: element.id,
-        name: safeText(element.title, 200) || element.id,
-        status: "red",
-        reason:
-          result?.reason === "query_unavailable" ||
-          result?.reason === "unsafe_sql"
-            ? "query_unavailable"
-            : "manual_review_required",
-      });
+    if (!proof.ok) {
+      diagnostics.push(diagnosticFor(element, "red", proof.reason));
       continue;
     }
-    if (!result.reason) continue;
-    diagnostics.push({
-      id: element.id,
-      name: safeText(element.title, 200) || element.id,
-      status: "yellow",
-      reason: "manual_review_required",
-    });
+    const panel = verificationByPanelId.get(
+      args.panelIdsByElementId.get(element.id) ?? "",
+    );
+    if (panel?.status === "query-error") {
+      diagnostics.push(diagnosticFor(element, "red", "query_failed"));
+    } else if (panel?.status === "empty") {
+      diagnostics.push(diagnosticFor(element, "yellow", "no_rows"));
+    } else if (
+      panel?.status === "missing-columns" ||
+      panel?.status === "render-error"
+    ) {
+      diagnostics.push(
+        diagnosticFor(element, "yellow", "manual_review_required"),
+      );
+    } else if (panel?.status !== "ok") {
+      // Not run within the budget or never reported: the panel is imported
+      // but nothing has shown it renders.
+      diagnostics.push(diagnosticFor(element, "yellow", "not_verified"));
+    }
   }
   return diagnostics;
 }
 
 function compileSigmaDashboard(args: {
   inspection: SigmaWorkbookInspection;
-  review: ReturnType<typeof summarizeSigmaElementReview>;
+  proofs: Map<string, SigmaSqlProof>;
   installedAt: string;
 }): {
   config: SqlDashboardConfig;
   importedCount: number;
   unsupportedCount: number;
+  panelIdsByElementId: Map<string, string>;
 } {
-  const reviewById = new Map(
-    args.review.map((element) => [element.id, element]),
-  );
-  const queriesByElementId = uniqueQueriesByElementId(args.inspection);
   const panels: SqlPanel[] = [];
+  const panelIdsByElementId = new Map<string, string>();
   let importedCount = 0;
   let unsupportedCount = 0;
 
   for (const [index, element] of args.inspection.elements.entries()) {
-    const review = reviewById.get(element.id);
-    if (element.kind !== "panel" || !review?.importable) {
+    const proof = args.proofs.get(element.id);
+    if (!proof?.ok) {
       unsupportedCount += 1;
-      panels.push(makeReviewCallout(element, index, panelTab(element)));
-      continue;
-    }
-
-    const sql = queriesByElementId.get(element.id);
-    if (!sql) {
-      unsupportedCount += 1;
-      panels.push(makeReviewCallout(element, index, panelTab(element)));
-      continue;
-    }
-    try {
-      assertReadOnlySql(sql, "bigquery");
-    } catch {
-      unsupportedCount += 1;
-      panels.push(makeReviewCallout(element, index, panelTab(element)));
+      panels.push(
+        makeReviewCallout(element, index, proof?.reason ?? "unsupported"),
+      );
       continue;
     }
 
     importedCount += 1;
+    const id = panelId(index, element.id);
+    panelIdsByElementId.set(element.id, id);
     panels.push({
-      id: panelId(index, element.id),
+      id,
       title: safeText(element.title || "Sigma table", 200),
-      sql,
+      sql: proof.sql,
       source: "bigquery",
       chartType: "table",
       width: 3,
       ...(element.tab ? { tab: safeText(element.tab, 120) } : {}),
     });
-  }
-
-  if (panels.length === 0) {
-    panels.push({
-      id: "sigma-empty",
-      title: "Sigma import review",
-      sql: "SELECT 'warning' AS severity, 'This Sigma workbook contains no elements that can be imported.' AS message",
-      source: "bigquery",
-      chartType: "callout",
-      width: 6,
-    });
-    unsupportedCount = 1;
   }
 
   const sourceVersion =
@@ -275,6 +296,7 @@ function compileSigmaDashboard(args: {
     },
     importedCount,
     unsupportedCount,
+    panelIdsByElementId,
   };
 }
 
@@ -301,32 +323,66 @@ function dashboardUrl(dashboardId: string): string {
   });
 }
 
-function requireImportableSigmaReview(
+/**
+ * Prove every candidate panel's SQL before anything is claimed or written.
+ * Panels that fail become review callouts; a workbook with none that run is
+ * refused.
+ */
+async function proveSigmaWorkbook(
   inspection: SigmaWorkbookInspection,
-): SigmaElementReview[] {
-  const review = summarizeSigmaElementReview({ inspection });
-  if (review.some((element) => element.reason === "source_mapping_required")) {
-    fail(
-      "Sigma does not expose a BigQuery project mapping Analytics can verify, so this workbook's SQL cannot be imported yet.",
-      {
-        errorCode: "sigma_source_mapping_required",
-        statusCode: 409,
-        details: { setupUrl: sigmaMigrationSetupLink("bigquery") },
-      },
-    );
-  }
-  if (!review.some((element) => element.importable)) {
-    fail("This Sigma workbook has no elements that can be imported.", {
+  deadline: number,
+): Promise<Map<string, SigmaSqlProof>> {
+  const candidates = summarizeSigmaElementReview({ inspection }).filter(
+    (element) => element.importable,
+  );
+  if (candidates.length === 0) {
+    fail("This Sigma workbook has no panels to import.", {
       errorCode: "sigma_no_importable_elements",
       statusCode: 422,
     });
   }
-  return review;
+  const proofs = await proveSigmaPanelSql(
+    inspection,
+    candidates.map((element) => element.id),
+    { deadline },
+  );
+  if (![...proofs.values()].some((proof) => proof.ok)) {
+    // A panel BigQuery could not check might still run, so the import is
+    // retryable. Deadline skips don't count: a retry would skip them again.
+    if (
+      [...proofs.values()].some(
+        (proof) =>
+          !proof.ok &&
+          proof.reason === "bigquery_dry_run_unavailable" &&
+          !proof.skipped,
+      )
+    ) {
+      fail("BigQuery could not check this workbook's SQL. Try again.", {
+        errorCode: "bigquery_dry_run_unavailable",
+        statusCode: 503,
+      });
+    }
+    fail("None of this workbook's panels can be imported.", {
+      errorCode: "sigma_no_runnable_panels",
+      statusCode: 422,
+      details: {
+        elements: candidates.slice(0, 20).map((element) => {
+          const proof = proofs.get(element.id);
+          return {
+            id: element.id,
+            name: safeText(element.name, 200),
+            reason: proof && !proof.ok ? proof.reason : "query_unavailable",
+          };
+        }),
+      },
+    });
+  }
+  return proofs;
 }
 
 export default defineAction({
   description:
-    "Reserved for Sigma workbook imports after Analytics can verify the Sigma BigQuery source-project mapping. The current Sigma API does not expose that mapping, so this action remains fail-closed and is not available to the agent; use list-sigma-workbooks and inspect-sigma-workbook for the read-only preview.",
+    "Import a Sigma workbook as a private Analytics dashboard. Each panel's compiled Sigma SQL, including panels built on data models and joins, is dry-run on Analytics' BigQuery; panels that run are imported as tables and the rest become review callouts. Called from the Import from Sigma dialog only; not available to the agent. Use list-sigma-workbooks and inspect-sigma-workbook to read workbooks.",
   schema: migrateSchema,
   http: { method: "POST" },
   agentTool: false,
@@ -346,6 +402,8 @@ export default defineAction({
     };
   },
   run: async (args) => {
+    const startedAt = Date.now();
+    const deadline = startedAt + MIGRATION_DEADLINE_MS;
     const context = await requireSigmaMigrationContext();
     const selection = await resolveSigmaConnectionSelection(args.connectionId);
     if (!selection.selected) {
@@ -362,20 +420,12 @@ export default defineAction({
       });
     }
 
-    const preliminaryInspection = await inspectSigmaWorkbook({
-      connectionId: selection.selected.id,
-      workbookId: args.workbookId,
-      includeSqlQueries: false,
-    });
-    requireSigmaSourceInspection(preliminaryInspection);
-    requireImportableSigmaReview(preliminaryInspection);
     const inspection = await inspectSigmaWorkbook({
       connectionId: selection.selected.id,
       workbookId: args.workbookId,
       includeSqlQueries: true,
     });
     requireSigmaSourceInspection(inspection);
-    const review = requireImportableSigmaReview(inspection);
 
     if (args.recoverMissingDashboard) {
       if (args.remigrate) {
@@ -413,11 +463,24 @@ export default defineAction({
       }
     }
 
+    const proofs = await proveSigmaWorkbook(
+      inspection,
+      startedAt + PROOF_DEADLINE_MS,
+    );
+    // Claiming without time to write could leave the row migrating until the
+    // claim goes stale.
+    if (deadline - Date.now() < MIGRATION_WRITE_MARGIN_MS) {
+      fail("BigQuery took too long checking this workbook. Try again.", {
+        errorCode: "bigquery_dry_run_unavailable",
+        statusCode: 503,
+      });
+    }
+
     await createExternalDashboard({
       provider: "sigma",
       sourceId: args.workbookId,
-      sourceName: preliminaryInspection.workbook.name,
-      sourceUpdatedAt: preliminaryInspection.workbook.updatedAt,
+      sourceName: inspection.workbook.name,
+      sourceUpdatedAt: inspection.workbook.updatedAt,
     });
     const claim = await claimExternalDashboard({
       provider: "sigma",
@@ -463,11 +526,49 @@ export default defineAction({
     });
     try {
       const installedAt = new Date().toISOString();
-      const compiled = compileSigmaDashboard({
+      const draft = compileSigmaDashboard({
         inspection,
-        review,
+        proofs,
         installedAt,
       });
+      // Report only: a panel that dry-runs but fails or returns nothing is
+      // still imported and flagged.
+      const verification = await verifyDashboardPanels(
+        draft.config as unknown as Record<string, unknown>,
+        [...draft.panelIdsByElementId.values()],
+        {
+          budgetMs: Math.max(
+            MIN_VERIFICATION_BUDGET_MS,
+            Math.min(
+              MIGRATION_VERIFICATION_BUDGET_MS,
+              deadline - Date.now() - MIGRATION_WRITE_MARGIN_MS,
+            ),
+          ),
+          dryRun: false,
+        },
+      );
+      // BigQuery stopped the test run at the byte cap, so the panel would
+      // scan past it on every view.
+      const overCap = new Set(
+        verification.panels
+          .filter((panel) => panel.note === "too_expensive")
+          .map((panel) => panel.panelId),
+      );
+      for (const [elementId, id] of draft.panelIdsByElementId) {
+        if (overCap.has(id)) {
+          proofs.set(elementId, { ok: false, reason: "too_expensive" });
+        }
+      }
+      const compiled =
+        overCap.size > 0
+          ? compileSigmaDashboard({ inspection, proofs, installedAt })
+          : draft;
+      if (compiled.importedCount === 0) {
+        fail("None of this workbook's panels can be imported.", {
+          errorCode: "sigma_no_runnable_panels",
+          statusCode: 422,
+        });
+      }
       const existing = await getDashboard(id, {
         email: context.email,
         orgId: context.orgId,
@@ -527,7 +628,12 @@ export default defineAction({
         );
       }
 
-      const diagnostics = migrationDiagnostics(inspection, review);
+      const diagnostics = migrationDiagnostics({
+        inspection,
+        proofs,
+        verification,
+        panelIdsByElementId: compiled.panelIdsByElementId,
+      });
       const storedDiagnostics = boundExternalDashboardDiagnostics(diagnostics);
       await completeExternalDashboard({
         provider: "sigma",
@@ -540,7 +646,7 @@ export default defineAction({
         changed: true,
         verified: true,
         subject: `dashboard:${id}`,
-        summary: `Imported ${compiled.importedCount} Sigma elements; ${compiled.unsupportedCount} need manual review.`,
+        summary: `Imported ${compiled.importedCount} Sigma elements; ${diagnostics.length} need review.`,
         checks: [
           {
             id: "sigma-dashboard-readable",
@@ -556,7 +662,6 @@ export default defineAction({
         dashboardUrl: dashboardUrl(id),
         importedCount: compiled.importedCount,
         unsupportedCount: compiled.unsupportedCount,
-        reviewRequiredCount: diagnostics.length,
         flaggedCount: diagnostics.length,
         _receipt,
       };

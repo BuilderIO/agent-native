@@ -119,7 +119,33 @@ export default {
     sigmaOwnedBy: "所有者",
     sigmaMigratingTooltip: "{{name}} さんが移行中",
     sigmaMigrate: "移行",
-    sigmaMigrateComingSoon: "近日公開",
+    sigmaMigrating: "移行中…",
+    sigmaMigrateSucceeded: "{{name}} を移行しました",
+    sigmaSharedOnlyWithYou: "現在はあなただけに共有されています。",
+    sigmaPanelsNeedReview: "確認が必要なパネル: {{count}}。",
+    sigmaOpenDashboard: "開く",
+    sigmaLastImportFailed: "前回のインポートに失敗しました",
+    sigmaReviewWithAgent: "エージェントで確認",
+    sigmaReviewContext: "Sigma の移行",
+    sigmaReviewPrompt:
+      "Sigma のワークブック {{name}} を Analytics に移行できませんでした: {{error}} 原因と修正方法を調べてください。",
+    sigmaErrorExportUnsupported:
+      "Sigma はこのワークブックをまだエクスポートできません。",
+    sigmaErrorNoImportable:
+      "このワークブックにはインポートできる BigQuery パネルがありません。",
+    sigmaErrorNoRunnable:
+      "このワークブックのパネルはどれも BigQuery で実行できませんでした。",
+    sigmaErrorBigQueryRequired:
+      "先にデータソースで BigQuery を接続してください。",
+    sigmaErrorBigQueryDenied:
+      "Analytics の BigQuery 接続はクエリを実行できません。データソースで権限を確認してください。",
+    sigmaErrorBigQueryUnavailable:
+      "BigQuery でこのワークブックを確認できませんでした。もう一度お試しください。",
+    sigmaErrorOriginalMigrator:
+      "このワークブックを再インポートできるのは、移行した本人だけです。",
+    sigmaErrorInProgress: "このワークブックはすでに移行中です。",
+    sigmaErrorAlreadyMigrated: "このワークブックはすでに移行済みです。",
+    sigmaErrorGeneric: "移行に失敗しました。もう一度お試しください。",
     sigmaArchived: "アーカイブ済み",
     sigmaMoreWorkbooksFailed: "追加のワークブックを読み込めませんでした",
     sigmaLoadingMore: "ワークブックを読み込み中…",

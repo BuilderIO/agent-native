@@ -1,6 +1,7 @@
 import {
   BigQueryDryRunPreparationError,
   dryRunQuerySchema,
+  MISSING_QUERY_RESOURCE,
 } from "./bigquery.js";
 import { describeError } from "./dashboard-panel-runner.js";
 import type { ResolvedDashboardPanelQuery } from "./dashboard-panel-verification.js";
@@ -95,8 +96,6 @@ function isAbort(error: unknown, signal?: AbortSignal): boolean {
 }
 
 /** BigQuery's 404 for a table or dataset the query names that doesn't exist. */
-const MISSING_QUERY_RESOURCE = /\bNot found: (Table|Dataset)\b/i;
-
 /** Dry-run BigQuery SQL. Free: BigQuery reads and bills nothing. */
 export async function estimateBigQuerySql(
   sql: string,

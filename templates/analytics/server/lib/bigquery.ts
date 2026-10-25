@@ -1140,6 +1140,8 @@ export interface DryRunQueryResult {
   timedOut?: true;
   /** HTTP status of a failed dry-run request; 400 means BigQuery rejected the SQL. */
   status?: number;
+  /** BigQuery's error reason for a failed dry-run request. */
+  reason?: BigQueryBackendReason;
   /** Absent when BigQuery's dry-run response carried no schema. */
   schema?: { name: string; type: string }[];
   /** Absent when BigQuery's dry-run response carried no byte estimate. */
@@ -1181,6 +1183,51 @@ async function readDryRunStatistics(
       : {}),
     ...(Number.isFinite(bytes) ? { totalBytesProcessed: bytes } : {}),
   };
+}
+
+/** A 404 naming a table or dataset the query reads. */
+export const MISSING_QUERY_RESOURCE = /\bNot found: (Table|Dataset)\b/i;
+
+/** A 403 that holds for every query: the credential cannot run jobs. */
+const DENIED_QUERY_JOBS =
+  /\bAccess Denied: Project\b|\bbigquery\.jobs\.create\b/i;
+
+const SQL_REJECTION_REASONS: ReadonlySet<BigQueryBackendReason> = new Set([
+  "invalid_query",
+  "not_found",
+]);
+
+export type DryRunFailureKind =
+  | "rejected_sql"
+  | "credential_denied"
+  | "unavailable";
+
+/**
+ * What a failed dry run says. `rejected_sql`: BigQuery rejected the SQL
+ * itself (invalid, or something it reads is missing or unreadable).
+ * `credential_denied`: the credential cannot run query jobs in the project,
+ * which holds for every query, not this one. `unavailable`: timeouts, quota, rate
+ * limits, outages, and unknown errors say nothing about the query, so
+ * callers treat them as retryable.
+ */
+export function classifyDryRunFailure(
+  result: DryRunQueryResult,
+): DryRunFailureKind {
+  if (result.error === null || result.timedOut === true) return "unavailable";
+  if (result.reason === "access_denied") {
+    return DENIED_QUERY_JOBS.test(result.error)
+      ? "credential_denied"
+      : "rejected_sql";
+  }
+  if (result.reason !== undefined && result.reason !== "other") {
+    return SQL_REJECTION_REASONS.has(result.reason)
+      ? "rejected_sql"
+      : "unavailable";
+  }
+  return result.status === 400 ||
+    (result.status === 404 && MISSING_QUERY_RESOURCE.test(result.error))
+    ? "rejected_sql"
+    : "unavailable";
 }
 
 export async function dryRunQuery(
@@ -1266,7 +1313,13 @@ export async function dryRunQuerySchema(
         error?: { message?: string };
       };
       const msg = parsed.error?.message?.trim();
-      if (msg) return { error: msg, status: res.status };
+      if (msg) {
+        return {
+          error: msg,
+          status: res.status,
+          reason: bigQueryReasonFromResponse(text),
+        };
+      }
       // coercion-ok: malformed BigQuery error bodies use the status fallback below.
     } catch {
       // Fall through
@@ -1274,6 +1327,7 @@ export async function dryRunQuerySchema(
     return {
       error: `BigQuery validation failed (${res.status})`,
       status: res.status,
+      reason: bigQueryReasonFromResponse(text),
     };
   } catch (error) {
     if (timedOut) return { error: timeoutMessage, timedOut: true };

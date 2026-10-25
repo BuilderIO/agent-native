@@ -16,7 +16,13 @@ export type ReportPanelData =
       schema: Array<{ name: string; type: string }>;
       truncated?: boolean;
     }
-  | { status: "query-failed"; message: string; timedOut?: true }
+  | {
+      status: "query-failed";
+      message: string;
+      timedOut?: true;
+      /** BigQuery stopped the query at `maxBytesBilled`. */
+      overByteCap?: true;
+    }
   | { status: "missing-credential"; message: string }
   | { status: "not-emailable"; message: string };
 
@@ -87,7 +93,8 @@ export function buildPanelQuery(
  * Runs a built panel query through the same source resolver the browser's
  * query-dashboard-panel action uses, so reports and write verification see
  * what the page sees. `timedOut` marks a deadline or abort, which is a
- * retryable state, never a property of the panel.
+ * retryable state, never a property of the panel. `maxBytesBilled` caps a
+ * warehouse query; sources without billed bytes ignore it.
  */
 export async function runResolvedPanel(args: {
   source: DashboardPanelSource;
@@ -96,8 +103,17 @@ export async function runResolvedPanel(args: {
   timeoutMs: number;
   signal?: AbortSignal;
   forceRefresh?: boolean;
+  maxBytesBilled?: number;
 }): Promise<ReportPanelData> {
-  const { source, query, ctx, timeoutMs, signal, forceRefresh } = args;
+  const {
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    signal,
+    forceRefresh,
+    maxBytesBilled,
+  } = args;
   const startedAt = Date.now();
   try {
     const result = await withTimeout(
@@ -108,6 +124,7 @@ export async function runResolvedPanel(args: {
           timeoutMs,
           ...(forceRefresh ? { forceRefresh: true } : {}),
           ...(signal ? { signal } : {}),
+          ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
         },
         ctx,
       ),
@@ -163,6 +180,11 @@ export async function runResolvedPanel(args: {
       status: "query-failed",
       message: describeError(error),
       ...(timedOut ? { timedOut: true as const } : {}),
+      // Matched by name: suites that mock ./bigquery drop the class.
+      ...(error instanceof Error &&
+      error.name === "BigQueryMaximumBytesBilledError"
+        ? { overByteCap: true as const }
+        : {}),
     };
   }
 }

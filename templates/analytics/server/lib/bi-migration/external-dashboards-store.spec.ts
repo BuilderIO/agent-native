@@ -399,6 +399,67 @@ describe("external dashboard migration store", () => {
     ).resolves.toMatchObject({ status: "migrated" });
   });
 
+  it("holds a claim only for its token and renews it against stale takeover", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_hold",
+    });
+    const claim = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_hold",
+    });
+    if (!claim.claimed) throw new Error("expected migration claim");
+    const target = { provider: "sigma" as const, sourceId: "workbook_hold" };
+
+    const staleAt = new Date(
+      Date.now() - store.EXTERNAL_DASHBOARD_CLAIM_STALE_AFTER_MS - 1000,
+    ).toISOString();
+    await client.query(
+      `UPDATE bi_migration_external_dashboards
+       SET migration_claimed_at = $1
+       WHERE org_id = $2 AND provider = $3 AND source_id = $4`,
+      [staleAt, "org-1", "sigma", "workbook_hold"],
+    );
+    await expect(
+      store.holdExternalDashboardClaim({
+        ...target,
+        claimToken: "00000000-0000-4000-8000-000000000000",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      store.holdExternalDashboardClaim({
+        ...target,
+        claimToken: claim.claimToken,
+      }),
+    ).resolves.toBe(true);
+
+    // The renewal makes the claim fresh again, so nobody can take it over.
+    state.userEmail = "bob@example.com";
+    await expect(store.claimExternalDashboard(target)).resolves.toMatchObject({
+      claimed: false,
+      reason: "in_progress",
+    });
+    await expect(
+      store.holdExternalDashboardClaim({
+        ...target,
+        claimToken: claim.claimToken,
+      }),
+    ).resolves.toBe(false);
+
+    state.userEmail = "alice@example.com";
+    await store.failExternalDashboard({
+      ...target,
+      claimToken: claim.claimToken,
+      failureCode: "dashboard_write_failed",
+    });
+    await expect(
+      store.holdExternalDashboardClaim({
+        ...target,
+        claimToken: claim.claimToken,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("keeps a failed re-import with its migrator", async () => {
     await store.createExternalDashboard({
       provider: "sigma",
@@ -438,7 +499,15 @@ describe("external dashboard migration store", () => {
         provider: "sigma",
         sourceIds: ["workbook_5"],
       }),
-    ).resolves.toMatchObject([{ status: "failed", canStartImport: false }]);
+    ).resolves.toMatchObject([
+      {
+        status: "failed",
+        canStartImport: false,
+        // The teammate sees whose dashboard it still is.
+        targetDashboardId: "native-dashboard-5",
+        migratedByEmail: "alice@example.com",
+      },
+    ]);
     await expect(
       store.claimExternalDashboard({
         provider: "sigma",

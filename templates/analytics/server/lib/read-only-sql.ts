@@ -4,17 +4,10 @@ function rejectSourceSql(message: string): never {
   return fail(message, { errorCode: "invalid_source_sql", statusCode: 400 });
 }
 
+// `replace` followed by `(` is the string function or BigQuery's
+// `SELECT * REPLACE (...)`; `REPLACE INTO` is still rejected.
 const MUTATING_WORD_RE =
-  /(^|[^\p{ID_Continue}$])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^\p{ID_Continue}$]|$)/iu;
-
-function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
-  const prefix = sql.slice(0, quoteIndex).match(/([bBrR]{1,2})$/)?.[1];
-  if (!prefix || !["r", "br", "rb"].includes(prefix.toLowerCase())) {
-    return false;
-  }
-  const beforePrefix = sql[quoteIndex - prefix.length - 1];
-  return !beforePrefix || !/[A-Za-z0-9_]/.test(beforePrefix);
-}
+  /(^|[^\p{ID_Continue}$])(insert|update|delete|replace(?!\s*\()|create|alter|drop|truncate|merge)(?=[^\p{ID_Continue}$]|$)/iu;
 
 function sanitizeSqlForInspection(
   sql: string,
@@ -24,7 +17,6 @@ function sanitizeSqlForInspection(
   let state: "code" | "single" | "double" | "backtick" | "line" | "block" =
     "code";
   let quoteLength = 1;
-  let rawString = false;
   for (let i = 0; i < sql.length; i += 1) {
     const ch = sql[i];
     const next = sql[i + 1];
@@ -45,9 +37,14 @@ function sanitizeSqlForInspection(
     }
     if (state === "single" || state === "double" || state === "backtick") {
       const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
-      if (dialect === "bigquery" && ch === "\\" && !rawString) {
-        // BigQuery escape forms are rejected so they cannot hide statement boundaries.
-        rejectSourceSql("Source SQL string escapes are not supported.");
+      if (dialect === "bigquery" && ch === "\\") {
+        // BigQuery's lexer pairs a backslash with the next character in every
+        // string, raw ones included (raw strings only skip the unescaping),
+        // so an escaped quote never ends the string. A trailing backslash
+        // leaves it unterminated.
+        out += next === undefined ? " " : "  ";
+        i += 1;
+        continue;
       }
       if (quoteLength === 3) {
         if (ch === quote && sql[i + 1] === quote && sql[i + 2] === quote) {
@@ -55,7 +52,6 @@ function sanitizeSqlForInspection(
           i += 2;
           state = "code";
           quoteLength = 1;
-          rawString = false;
         } else {
           out += " ";
         }
@@ -67,10 +63,14 @@ function sanitizeSqlForInspection(
       } else if (ch === quote) {
         out += " ";
         state = "code";
-        rawString = false;
       } else {
         out += " ";
       }
+      continue;
+    }
+    if (dialect === "bigquery" && ch === "#") {
+      out += " ";
+      state = "line";
       continue;
     }
     if (ch === "-" && next === "-") {
@@ -91,10 +91,6 @@ function sanitizeSqlForInspection(
         ch !== "`" &&
         next === ch &&
         sql[i + 2] === ch;
-      rawString =
-        dialect === "bigquery" &&
-        ch !== "`" &&
-        hasBigQueryRawStringPrefix(sql, i);
       state = ch === "'" ? "single" : ch === '"' ? "double" : "backtick";
       quoteLength = tripleQuoted ? 3 : 1;
       if (tripleQuoted) {
