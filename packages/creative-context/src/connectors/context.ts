@@ -59,7 +59,8 @@ export function createWorkspaceConnectionResolver(appId: string) {
           provider,
         })
       ).filter((connection) => connection.status === "connected");
-      if (candidates.length === 1) return candidates[0].id;
+      const [onlyCandidate] = candidates;
+      if (candidates.length === 1 && onlyCandidate) return onlyCandidate.id;
       if (candidates.length === 0) {
         throw new Error(
           `No connected ${provider} workspace connection is granted to ${normalizedAppId}.`,

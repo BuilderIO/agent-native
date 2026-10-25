@@ -686,7 +686,7 @@
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.cli.json && tsc -p tsconfig.type-tests.json",
     "test": "vitest --run --dir src",
     "test:motion-text-package": "vitest --run scripts/motion-text-package.spec.ts",
     "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && sed -e 's/utm_source=github/utm_source=npm/g' -e 's/utm_content=readme/utm_content=core-readme/g' ../../README.md > ./README.md",

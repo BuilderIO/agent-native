@@ -625,7 +625,7 @@ describe("listWorkspaceApps", () => {
       );
 
       expect(apps.find((app) => app.id === "customer-ticket-triage")?.url).toBe(
-        "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+        "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
       );
     },
   );
@@ -656,7 +656,7 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.find((app) => app.id === "customer-ticket-triage")?.url).toBe(
-      "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+      "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
     );
   });
 
@@ -769,7 +769,7 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.find((app) => app.id === "todo")?.url).toBe(
-      "https://workspace-preview.vercel.app/todo",
+      "https://workspace-preview.vercel.app/apps/todo",
     );
   });
 
@@ -821,7 +821,7 @@ describe("listWorkspaceApps", () => {
       }),
     );
     expect(apps.map((app) => app.id)).toEqual(["atlas"]);
-    expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
+    expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/apps/atlas");
   });
 
   it("signs the hosted registry request as the member with the deployment secret", async () => {
@@ -1340,7 +1340,7 @@ describe("listWorkspaceApps", () => {
       "https://beta.agent-workspace.builder.io/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
     );
     expect(apps[0]?.url).toBe(
-      "https://beta.agent-workspace.builder.io/private-app",
+      "https://beta.agent-workspace.builder.io/apps/private-app",
     );
   });
 

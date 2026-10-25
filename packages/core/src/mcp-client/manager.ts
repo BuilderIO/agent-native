@@ -174,9 +174,21 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
   const typeB = b.type ?? "stdio";
   if (typeA !== typeB) return false;
   if (typeA === "http" && b.type === "http" && a.type === "http") {
+    const errorIdentity = (error?: Error): string | undefined => {
+      if (!error) return undefined;
+      const metadata = error as Error & { code?: unknown; reason?: unknown };
+      return JSON.stringify([
+        error.name,
+        error.message,
+        metadata.code,
+        metadata.reason,
+      ]);
+    };
     return (
       a.url === b.url &&
       JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {}) &&
+      errorIdentity(a.configurationError) ===
+        errorIdentity(b.configurationError) &&
       a.firstParty === b.firstParty &&
       a.firstPartyAppId === b.firstPartyAppId &&
       a.firstPartyOrgId === b.firstPartyOrgId
@@ -441,6 +453,7 @@ export class McpClientManager {
 
     let transport: any;
     if (cfg.type === "http") {
+      if (cfg.configurationError) throw cfg.configurationError;
       if (!sdk.StreamableHTTPClientTransport) {
         throw new Error("HTTP transport not available");
       }

@@ -709,13 +709,14 @@ export async function chooseLocalCodebase(): Promise<LocalCodebasePickerResult> 
   try {
     const handle = await picker({ mode: "read" });
     const existing = await readPersistedSelectedCodebase();
-    const sameExisting = existing
-      ? await isSameDirectory(existing.handle, handle)
-      : false;
+    const id =
+      existing && (await isSameDirectory(existing.handle, handle))
+        ? existing.id
+        : newCodebaseId(handle.name);
     return {
       ok: true,
       handle,
-      id: sameExisting ? existing.id : newCodebaseId(handle.name),
+      id,
       name: handle.name,
     };
   } catch (err) {
