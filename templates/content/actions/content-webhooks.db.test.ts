@@ -1062,6 +1062,8 @@ describe("content webhooks", () => {
       asOwner(() => deleteWebhook.run({ id: created.webhook.id })),
     ).resolves.toEqual({ ok: true, id: created.webhook.id });
     expect(await readAppSecret(secretRef)).toBeNull();
+    // Its delivered event goes too, with the value it carried.
+    expect(await deliveries(created.webhook.id)).toEqual([]);
     expect(
       (
         await asOwner(() => listWebhooks.run({ databaseId: ids.databaseId }))
@@ -1069,7 +1071,7 @@ describe("content webhooks", () => {
     ).toEqual([busy.id]);
   });
 
-  it("W2-4: permanently deleting a collection removes its webhooks, secrets and waiting deliveries", async () => {
+  it("W2-4: permanently deleting a collection removes its webhooks, secrets and deliveries", async () => {
     const ids = await fixture();
     const kept = await fixture();
     const register = (
@@ -1092,8 +1094,7 @@ describe("content webhooks", () => {
         scopeId: OWNER,
       });
 
-    // A failed send leaves the event waiting for its retry.
-    receiver.status = 500;
+    // One event goes out, and a failed send leaves the next one waiting.
     await asOwner(() =>
       setProperty.run({
         documentId: ids.rows[0].documentId,
@@ -1102,8 +1103,21 @@ describe("content webhooks", () => {
         value: "agent",
       }),
     );
-    const [waiting] = await settled(collection.webhook.id, 1);
-    expect(waiting.status).toBe("pending");
+    await settled(collection.webhook.id, 1);
+    receiver.status = 500;
+    await asOwner(() =>
+      setProperty.run({
+        documentId: ids.rows[0].documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value: "alice",
+      }),
+    );
+    const sent = await settled(collection.webhook.id, 2);
+    expect(sent.map((delivery) => delivery.status)).toEqual([
+      "delivered",
+      "pending",
+    ]);
 
     await deleteDocumentRecursive(getDb(), ids.databaseDocumentId, OWNER);
     // Gone from the actions at once: they check the page the webhook watches.
@@ -1129,6 +1143,7 @@ describe("content webhooks", () => {
     expect(await secretOf(page.webhook.id)).toBeNull();
     expect((await secretOf(survivor.webhook.id))?.value).toBe(survivor.secret);
     expect(await deliveries(collection.webhook.id)).toEqual([]);
+    expect(await deliveries(page.webhook.id)).toEqual([]);
     expect(await hooks.removeOrphanedContentWebhooks()).toBe(0);
   });
 

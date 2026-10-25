@@ -1,7 +1,7 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { deleteAppSecret } from "@agent-native/core/secrets";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -12,7 +12,7 @@ import {
 
 export default defineAction({
   description:
-    "Remove a webhook by ID. Content stops sending its events at once, drops deliveries still waiting to be retried, and deletes its signing secret. Requires admin access to the collection or page it watches.",
+    "Remove a webhook by ID. Content stops sending its events at once, deletes its events, sent or waiting, and deletes its signing secret. Requires admin access to the collection or page it watches.",
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,
@@ -41,14 +41,11 @@ export default defineAction({
     // retry finds no secret and removes the row.
     await deleteAppSecret(contentWebhookSecretRef(webhook));
     await db.transaction(async (tx) => {
+      // Sent ones too: they hold page values and comment text, and nothing
+      // can list them once the webhook is gone.
       await tx
         .delete(schema.contentWebhookDeliveries)
-        .where(
-          and(
-            eq(schema.contentWebhookDeliveries.webhookId, webhook.id),
-            eq(schema.contentWebhookDeliveries.status, "pending"),
-          ),
-        );
+        .where(eq(schema.contentWebhookDeliveries.webhookId, webhook.id));
       await tx
         .delete(schema.contentWebhooks)
         .where(eq(schema.contentWebhooks.id, webhook.id));

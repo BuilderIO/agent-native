@@ -496,7 +496,11 @@ export type ContentWebhookTransport = (
   request: ContentWebhookRequest,
 ) => Promise<ContentWebhookTransportResult>;
 
-/** Public HTTPS only, no redirects, 10 s to answer. */
+/**
+ * Public HTTPS only, no redirects, 10 s to answer. The connect-time address
+ * check is required, not best effort: without it a name could resolve to a
+ * public address for the check and a private one for the connection.
+ */
 export const fetchContentWebhook: ContentWebhookTransport = async (request) => {
   if (isBlockedExtensionUrl(request.url)) {
     return {
@@ -518,7 +522,7 @@ export const fetchContentWebhook: ContentWebhookTransport = async (request) => {
         body: request.body,
         signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
       },
-      { httpsOnly: true, followRedirects: false },
+      { httpsOnly: true, followRedirects: false, requireDispatcher: true },
     );
     await response.body?.cancel().catch(() => {});
     return response.ok
@@ -863,7 +867,7 @@ export async function purgeSettledContentWebhookDeliveries(
 
 /**
  * Removes the webhooks of pages and collections that were permanently
- * deleted, with their signing secrets and the deliveries still waiting.
+ * deleted, with their signing secrets and their deliveries.
  * Listing and removing a webhook check the page it watches, so once that page
  * is gone nobody can reach it. Several paths delete pages and collections for
  * good, emptying the trash among them, so the sweep cleans up after all of
@@ -908,12 +912,7 @@ export async function removeOrphanedContentWebhooks(
     await db.transaction(async (tx) => {
       await tx
         .delete(schema.contentWebhookDeliveries)
-        .where(
-          and(
-            eq(schema.contentWebhookDeliveries.webhookId, webhook.id),
-            eq(schema.contentWebhookDeliveries.status, "pending"),
-          ),
-        );
+        .where(eq(schema.contentWebhookDeliveries.webhookId, webhook.id));
       await tx.delete(webhooks).where(eq(webhooks.id, webhook.id));
     });
   }
