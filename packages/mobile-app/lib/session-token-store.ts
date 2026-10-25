@@ -6,6 +6,7 @@ export const SESSION_TOKEN_KEY = "agent-native:session-token";
 const NATIVE_TOKEN_MUTATION_TIMEOUT_MS = 5_000;
 const nativeTokenMutationTails = new Map<string, Promise<void>>();
 const nativeTokenMutationVersions = new Map<string, number>();
+const nativeTokenMutationFailures = new Map<string, Error>();
 
 function nativeTokenMutationVersion(logicalKey: string): number {
   return nativeTokenMutationVersions.get(logicalKey) ?? 0;
@@ -18,11 +19,40 @@ function advanceNativeTokenMutationVersion(logicalKey: string): void {
   );
 }
 
+async function waitForNativeTokenTurn(
+  logicalKey: string,
+  pending: Promise<void>,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              nativeTokenMutationFailures.get(logicalKey) ??
+                new Error(
+                  `Timed out waiting for session token storage after ${NATIVE_TOKEN_MUTATION_TIMEOUT_MS}ms`,
+                ),
+            ),
+          NATIVE_TOKEN_MUTATION_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function waitForNativeTokenMutations(logicalKey: string): Promise<void> {
   while (true) {
+    const failure = nativeTokenMutationFailures.get(logicalKey);
+    if (failure) throw failure;
+
     const pending = nativeTokenMutationTails.get(logicalKey);
     if (!pending) return;
-    await pending;
+    await waitForNativeTokenTurn(logicalKey, pending);
   }
 }
 
@@ -30,6 +60,9 @@ async function withNativeTokenMutationLock<T>(
   logicalKey: string,
   operation: () => Promise<T>,
 ): Promise<T> {
+  const existingFailure = nativeTokenMutationFailures.get(logicalKey);
+  if (existingFailure) throw existingFailure;
+
   const previous =
     nativeTokenMutationTails.get(logicalKey) ?? Promise.resolve();
   let release!: () => void;
@@ -39,28 +72,74 @@ async function withNativeTokenMutationLock<T>(
   const tail = previous.then(() => turn);
   nativeTokenMutationTails.set(logicalKey, tail);
 
-  await previous;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const operationPromise = operation();
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeout = setTimeout(
-        () =>
-          reject(
-            new Error(
-              `Session token storage operation timed out after ${NATIVE_TOKEN_MUTATION_TIMEOUT_MS}ms`,
-            ),
-          ),
-        NATIVE_TOKEN_MUTATION_TIMEOUT_MS,
-      );
-    });
-    return await Promise.race([operationPromise, timeoutPromise]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
+  let lockAcquired = false;
+  let released = false;
+  const releaseLock = () => {
+    if (released) return;
+    released = true;
     release();
+    if (!lockAcquired) {
+      if (nativeTokenMutationTails.get(logicalKey) === tail) {
+        void tail.then(() => {
+          if (nativeTokenMutationTails.get(logicalKey) === tail) {
+            nativeTokenMutationTails.delete(logicalKey);
+          }
+        });
+      }
+      return;
+    }
     if (nativeTokenMutationTails.get(logicalKey) === tail) {
       nativeTokenMutationTails.delete(logicalKey);
     }
+  };
+
+  let keepLockUntilOperationSettles = false;
+  let operationTimeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await waitForNativeTokenTurn(logicalKey, previous);
+    const failure = nativeTokenMutationFailures.get(logicalKey);
+    if (failure) throw failure;
+    lockAcquired = true;
+
+    const operationPromise = operation();
+    const outcome = await Promise.race([
+      operationPromise.then(
+        (value) => ({ type: "success" as const, value }),
+        (error: unknown) => ({ type: "failure" as const, error }),
+      ),
+      new Promise<{ type: "timeout" }>((resolve) => {
+        operationTimeout = setTimeout(
+          () => resolve({ type: "timeout" }),
+          NATIVE_TOKEN_MUTATION_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (operationTimeout !== undefined) clearTimeout(operationTimeout);
+
+    if (outcome.type === "timeout") {
+      const error = new Error(
+        `Session token storage operation timed out after ${NATIVE_TOKEN_MUTATION_TIMEOUT_MS}ms`,
+      );
+      // Native storage cannot cancel an in-flight mutation, so keep this key locked until it settles to prevent a late write from overwriting a retry.
+      nativeTokenMutationFailures.set(logicalKey, error);
+      keepLockUntilOperationSettles = true;
+      const releaseAfterOperationSettles = () => {
+        if (nativeTokenMutationFailures.get(logicalKey) === error) {
+          nativeTokenMutationFailures.delete(logicalKey);
+        }
+        releaseLock();
+      };
+      void operationPromise.then(
+        releaseAfterOperationSettles,
+        releaseAfterOperationSettles,
+      );
+      throw error;
+    }
+    if (outcome.type === "failure") throw outcome.error;
+    return outcome.value;
+  } finally {
+    if (operationTimeout !== undefined) clearTimeout(operationTimeout);
+    if (!keepLockUntilOperationSettles) releaseLock();
   }
 }
 

@@ -106,18 +106,25 @@ describe("secure mobile session token storage", () => {
     void pendingRead;
   });
 
-  it("releases the mutation lock after a SecureStore write stops responding", async () => {
+  it("fails fast while a timed-out SecureStore write remains unsettled", async () => {
     vi.useFakeTimers();
     try {
       const logicalKey = "agent-native:session-token:unresolved-secure-write";
       let markSecureWriteStarted!: () => void;
+      let releaseSecureWrite!: () => void;
       const secureWriteStarted = new Promise<void>(
         (resolve) => (markSecureWriteStarted = resolve),
       );
-      vi.mocked(SecureStore.setItemAsync).mockImplementationOnce(() => {
-        markSecureWriteStarted();
-        return new Promise<void>(() => {});
-      });
+      vi.mocked(SecureStore.setItemAsync).mockImplementationOnce(
+        (key, value) =>
+          new Promise<void>((resolve) => {
+            markSecureWriteStarted();
+            releaseSecureWrite = () => {
+              secureStorage.set(key, value);
+              resolve();
+            };
+          }),
+      );
 
       const stalledSave = saveSessionToken("stalled-token", logicalKey).then(
         () => null,
@@ -129,6 +136,16 @@ describe("secure mobile session token storage", () => {
       const error = await stalledSave;
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toMatch(/timed out/);
+      await expect(
+        saveSessionToken("overlapping-token", logicalKey),
+      ).rejects.toThrow(/timed out/);
+      await expect(getSessionToken(logicalKey)).rejects.toThrow(/timed out/);
+      await expect(clearSessionToken(logicalKey)).rejects.toThrow(/timed out/);
+      expect([...secureStorage.values()]).toEqual([]);
+
+      vi.useRealTimers();
+      releaseSecureWrite();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       await expect(
         saveSessionToken("new-token", logicalKey),
       ).resolves.toBeUndefined();
