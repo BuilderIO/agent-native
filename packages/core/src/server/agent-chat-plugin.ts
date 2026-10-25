@@ -9347,7 +9347,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
-                await retryClaimedReceipt();
+                // Run completion triggers another drain; a retry timestamp
+                // here would hide this receipt from that follow-up.
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
