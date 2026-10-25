@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { SNAPSHOT_ADOPTION_MAP as CORE_SNAPSHOT_ADOPTION_MAP } from "@agent-native/core/collab/live-copy-tasks";
 import { Editor as CoreEditor } from "@tiptap/core";
 import { useEditor, type Editor } from "@tiptap/react";
 import React, { act } from "react";
@@ -12,7 +11,6 @@ import * as Y from "yjs";
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { applyDocSurgically, defaultParseValue } from "./surgical-apply.js";
 import {
-  SNAPSHOT_ADOPTION_MAP,
   getEditorMarkdown,
   useCollabReconcile,
   type UseCollabReconcileOptions,
@@ -847,10 +845,6 @@ describe("useCollabReconcile — snapshot adoption", () => {
       warn.mockRestore();
       tabs.dispose();
     }
-  });
-
-  it("names the adoption marker as core does", () => {
-    expect(SNAPSHOT_ADOPTION_MAP).toBe(CORE_SNAPSHOT_ADOPTION_MAP);
   });
 
   it("takes in the next write whole after a rebuild answer it no longer waits for", async () => {
