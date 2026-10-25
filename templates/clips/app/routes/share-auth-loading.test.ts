@@ -102,6 +102,7 @@ describe("authenticated recording route loading", () => {
     expect(processingView).not.toContain("ShareCopyRow");
   });
 
+  // oracle-change: Missing share links no longer retry; share.$shareId.test.tsx verifies the rendered unavailable state instead of the removed source assertions.
   it("keeps expired share loader data impersonal for CDN caching", () => {
     const route = readRoute("share.$shareId.tsx");
 
