@@ -23738,7 +23738,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     }
   });
 
-  it("keeps a claimed worker fresh across stale windows until handoff", async () => {
+  it("keeps a claimed worker fresh until handoff beyond the stale window", async () => {
     vi.useFakeTimers();
     try {
       const d = deps();
@@ -23756,10 +23756,13 @@ describe("claimBackgroundWorkerRunEarly", () => {
       const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
 
       await vi.advanceTimersByTimeAsync(
-        runStore.BACKGROUND_PROCESSING_RUN_STALE_MS * 3,
+        runStore.BACKGROUND_PROCESSING_RUN_STALE_MS,
       );
+      const previousDeadlineHeartbeatCount =
+        d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
       expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
-        heartbeatCount,
+        previousDeadlineHeartbeatCount,
       );
 
       result.stopSetupHeartbeat();
