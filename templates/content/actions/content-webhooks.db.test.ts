@@ -2298,6 +2298,73 @@ describe("property generations", () => {
     );
   });
 
+  it("the Source column scans again for a row that moves after its scan", async () => {
+    const ids = await fixture(2);
+    const { ensureDatabaseSourceProperty } =
+      await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = [0, 1].map((index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: `Sheet ${index}`,
+      sourceTable: `Sheet ${index}`,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    const links = schema.contentDatabaseSourceRows;
+    const link = (row: number, source: number) => ({
+      id: `${ids.rows[row].itemId}-link`,
+      ownerEmail: OWNER,
+      sourceId: sources[source].id,
+      databaseItemId: ids.rows[row].itemId,
+      documentId: ids.rows[row].documentId,
+      sourceRowId: `row-${row}`,
+      sourceQualifiedId: `row-${row}`,
+      sourceDisplayKey: `row-${row}`,
+    });
+    await getDb().insert(links).values(link(0, 0));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    const [sourceColumn] = await getDb()
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(await storedValue(ids.rows[0].documentId, sourceColumn.id)).toBe(
+      sources[0].id,
+    );
+
+    // The second row joins the second source, so the next fill's scan finds
+    // it. The first row, which that scan finds correct, moves to the second
+    // source before the lock. The scan after the locked pass catches it.
+    await getDb().insert(links).values(link(1, 1));
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceId: sources[1].id })
+        .where(eq(links.documentId, ids.rows[0].documentId));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    for (const row of ids.rows)
+      expect(await storedValue(row.documentId, sourceColumn.id)).toBe(
+        sources[1].id,
+      );
+  });
+
   it("the source writers read bindings and sources again under the lock", async () => {
     const ids = await fixture(2);
     const {
