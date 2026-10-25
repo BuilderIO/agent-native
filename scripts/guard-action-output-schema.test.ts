@@ -164,6 +164,17 @@ describe("action outputSchema guard", () => {
     assert.deepEqual(flagged(source), ["7: missing-output-schema"]);
   });
 
+  it("recognizes long chains of Zod schema methods", () => {
+    const source = [
+      'import { z } from "zod";',
+      "defineAction({",
+      "  outputSchema: z.object({}).extend({}).partial().nullable().optional().describe('x'),",
+      "  run,",
+      "});",
+    ].join("\n");
+    assert.deepEqual(flagged(source), []);
+  });
+
   it("flags strategy values hidden by an options spread", () => {
     const source = [
       'const shared = { outputErrorStrategy: "fallback" };',

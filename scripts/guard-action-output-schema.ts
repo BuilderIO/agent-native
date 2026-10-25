@@ -53,6 +53,7 @@ const IN_SCOPE = /^(?:templates|community-templates|apps|packages)\//;
 const SKIPPED =
   /(\.spec\.|\.test\.|\.test-d\.|\/__tests__\/|\/e2e\/|\/dist\/|\/node_modules\/|\.d\.ts$)/;
 const SOURCE_FILE = /\.[cm]?tsx?$/;
+const MAX_SCHEMA_ALIAS_DEPTH = 100;
 
 export interface OutputSchemaFinding {
   file: string;
@@ -225,9 +226,8 @@ function isKnownZodSchema(
   value: ts.Expression,
   sourceFile: ts.SourceFile,
   namespaces: ReadonlySet<string>,
-  depth = 0,
+  resolvingIdentifiers = new Set<string>(),
 ): boolean {
-  if (depth >= 5) return false;
   if (
     ts.isParenthesizedExpression(value) ||
     ts.isAsExpression(value) ||
@@ -238,26 +238,39 @@ function isKnownZodSchema(
       value.expression,
       sourceFile,
       namespaces,
-      depth + 1,
+      resolvingIdentifiers,
     );
   }
   if (ts.isIdentifier(value)) {
+    if (
+      resolvingIdentifiers.size >= MAX_SCHEMA_ALIAS_DEPTH ||
+      resolvingIdentifiers.has(value.text)
+    ) {
+      return false;
+    }
     const declarations = declarationsNamed(sourceFile, value.text);
     const [declaration] = declarations;
-    return (
-      declarations.length === 1 &&
-      declaration !== undefined &&
-      ts.isVariableDeclaration(declaration) &&
-      declaration.initializer !== undefined &&
-      ts.isVariableDeclarationList(declaration.parent) &&
-      (declaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
-      isKnownZodSchema(
+    if (
+      declarations.length !== 1 ||
+      declaration === undefined ||
+      !ts.isVariableDeclaration(declaration) ||
+      declaration.initializer === undefined ||
+      !ts.isVariableDeclarationList(declaration.parent) ||
+      (declaration.parent.flags & ts.NodeFlags.Const) === 0
+    ) {
+      return false;
+    }
+    resolvingIdentifiers.add(value.text);
+    try {
+      return isKnownZodSchema(
         declaration.initializer,
         sourceFile,
         namespaces,
-        depth + 1,
-      )
-    );
+        resolvingIdentifiers,
+      );
+    } finally {
+      resolvingIdentifiers.delete(value.text);
+    }
   }
   if (
     !ts.isCallExpression(value) ||
@@ -280,7 +293,7 @@ function isKnownZodSchema(
   }
   return (
     ZOD_SCHEMA_METHODS.has(name.text) &&
-    isKnownZodSchema(receiver, sourceFile, namespaces, depth + 1)
+    isKnownZodSchema(receiver, sourceFile, namespaces, resolvingIdentifiers)
   );
 }
 
