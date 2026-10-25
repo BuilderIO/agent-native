@@ -1158,7 +1158,6 @@ test("Motion inspector states match the editable timeline", async ({
     "motion-controls-auto-key-new-track-midpoint",
   );
   await autoKeyframe.uncheck();
-
   await selectByText(page, "Second fixture paragraph for selection tests.", {
     screenId: fileId,
     clearPreviousSelection: true,
@@ -1196,6 +1195,305 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(selectedInspectorStyle).toHaveCount(1);
   await expect(selectedInspectorStyle).toContainText("Text");
   await captureReferenceState(page, "motion-controls-cross-layer-selection");
+});
+
+test("spring precision and easing-segment double-click preserve Motion state", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  let regressionDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion Easing Regressions",
+      projectType: "prototype",
+    });
+    regressionDesignId =
+      created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!regressionDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const createdFile = await postAction(request, "create-file", {
+      designId: regressionDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    const regressionFileId = createdFile.id;
+    if (!regressionFileId) {
+      throw new Error("create-file did not return a file id");
+    }
+    await postAction(request, "index-components", {
+      designId: regressionDesignId,
+    });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, regressionDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: regressionFileId,
+      clearPreviousSelection: true,
+    });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    await expect(dock).toBeVisible();
+
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const nativeStyleInspector = page.locator(
+      '[data-design-inspector-section][aria-label="Animations"]',
+    );
+    const addPositionSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Position", exact: true }).click();
+    const addedPosition = await addPositionSave;
+    expect(addedPosition.ok(), await addedPosition.text()).toBe(true);
+    expect(await addedPosition.json()).toMatchObject({ persisted: true });
+
+    await page.getByRole("tab", { name: "List", exact: true }).click();
+    const positionStyleButton = nativeStyleInspector.getByRole("button", {
+      name: "Position",
+      exact: true,
+    });
+    await expect(positionStyleButton).toBeVisible();
+    await positionStyleButton.click();
+    const positionSettings = page.locator(
+      '[data-motion-native-style-settings="Position"][data-state="open"]',
+    );
+    await expect(positionSettings).toBeVisible();
+    const easingPicker = positionSettings.getByRole("button", {
+      name: "Ease out",
+      exact: true,
+    });
+    await easingPicker.click();
+    const easingPresets = page.getByRole("tabpanel", { name: "Presets" });
+    const customSpring = easingPresets.getByRole("button", {
+      name: "Custom spring",
+      exact: true,
+    });
+    await expect(customSpring).toBeVisible();
+    const selectSpringSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await customSpring.click();
+    const selectedSpring = await selectSpringSave;
+    expect(selectedSpring.ok(), await selectedSpring.text()).toBe(true);
+    expect(await selectedSpring.json()).toMatchObject({ persisted: true });
+
+    const curveEditorToggle = positionSettings.getByRole("button", {
+      name: "Show easing curve editor",
+      exact: true,
+    });
+    await expect(curveEditorToggle).toBeVisible();
+    await curveEditorToggle.click();
+    await expect(curveEditorToggle).toHaveAttribute("aria-expanded", "true");
+    const springTab = positionSettings.getByRole("tab", {
+      name: "Spring",
+      exact: true,
+    });
+    await expect(springTab).toBeVisible();
+    await springTab.click();
+    await expect(springTab).toHaveAttribute("aria-selected", "true");
+    const bounceInput = positionSettings.getByRole("textbox", {
+      name: "Bounce",
+      exact: true,
+    });
+    await expect(bounceInput).toHaveValue("0.25");
+    await bounceInput.fill("0.125");
+    await expect(bounceInput).toHaveValue("0.125");
+
+    const bounceSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await springTab.focus();
+    const savedBounce = await bounceSave;
+    expect(savedBounce.ok(), await savedBounce.text()).toBe(true);
+    expect(await savedBounce.json()).toMatchObject({ persisted: true });
+    await expect(positionSettings).toBeVisible();
+
+    const springTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const positionSpringStyle =
+      springTimeline.timelines?.[0]?.nativeStyles?.find(
+        (style: { styleKey: string; targetNodeId: string }) =>
+          style.styleKey === "Position" &&
+          style.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+    expect(positionSpringStyle).toMatchObject({
+      props: { easing: "spring(0.125)" },
+    });
+    await captureReferenceState(page, "motion-controls-custom-spring-0.125");
+
+    let motionEditRequestCount = 0;
+    const countMotionEditRequests = (request: {
+      method(): string;
+      url(): string;
+    }) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/_agent-native/actions/apply-motion-edit")
+      ) {
+        motionEditRequestCount += 1;
+      }
+    };
+    page.on("request", countMotionEditRequests);
+    try {
+      await bounceInput.focus();
+      await springTab.focus();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      const timelineAfterUntouchedBounceBlur = await getAction(
+        request,
+        "get-motion-timeline",
+        { designId: regressionDesignId, sourceRef: regressionFileId },
+      );
+      const positionAfterUntouchedBlur =
+        timelineAfterUntouchedBounceBlur.timelines?.[0]?.nativeStyles?.find(
+          (style: { styleKey: string; targetNodeId: string }) =>
+            style.styleKey === "Position" &&
+            style.targetNodeId === "e2e-motion-reference-rectangle",
+        );
+      expect(motionEditRequestCount).toBe(0);
+      expect(positionAfterUntouchedBlur).toMatchObject({
+        props: { easing: "spring(0.125)" },
+      });
+    } finally {
+      page.off("request", countMotionEditRequests);
+    }
+
+    const restoreEasingPicker = positionSettings.getByRole("button", {
+      name: "Custom spring",
+      exact: true,
+    });
+    await restoreEasingPicker.click();
+    const restoreEaseOut = easingPresets.getByRole("button", {
+      name: "Ease out",
+      exact: true,
+    });
+    await expect(restoreEaseOut).toBeVisible();
+    const restoreEaseOutSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await restoreEaseOut.click();
+    const restoredEaseOut = await restoreEaseOutSave;
+    expect(restoredEaseOut.ok(), await restoredEaseOut.text()).toBe(true);
+    expect(await restoredEaseOut.json()).toMatchObject({ persisted: true });
+    const restoredTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const restoredPositionStyle =
+      restoredTimeline.timelines?.[0]?.nativeStyles?.find(
+        (style: { styleKey: string; targetNodeId: string }) =>
+          style.styleKey === "Position" &&
+          style.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+    expect(restoredPositionStyle).toMatchObject({
+      props: { easing: "cubic-bezier(0, 0, 0.58, 1)" },
+    });
+
+    await page.keyboard.press("Escape");
+    await expect(positionSettings).toHaveCount(0);
+    await selectByText(page, "Reference Rectangle Two", {
+      screenId: regressionFileId,
+      clearPreviousSelection: true,
+    });
+    const currentTime = dock.getByRole("textbox", { name: "Current time" });
+    await currentTime.fill("1000");
+    await currentTime.press("Tab");
+    const autoKeyframe = dock.getByRole("checkbox", {
+      name: "Toggle auto-keyframing",
+    });
+    await expect(autoKeyframe).not.toBeChecked();
+    await autoKeyframe.check();
+
+    const appearance = page
+      .getByRole("heading", { name: "Appearance", exact: true })
+      .locator("xpath=ancestor::section");
+    const opacity = appearance.locator('input[aria-label="Opacity" i]');
+    await expect(opacity).toBeVisible();
+    const opacitySave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await opacity.fill("70");
+    await opacity.press("Enter");
+    const savedOpacity = await opacitySave;
+    expect(savedOpacity.ok(), await savedOpacity.text()).toBe(true);
+    expect(await savedOpacity.json()).toMatchObject({ persisted: true });
+
+    const opacityTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const opacityTrack = opacityTimeline.timelines?.[0]?.tracks?.find(
+      (track: { property: string; targetNodeId: string }) =>
+        track.property === "opacity" &&
+        track.targetNodeId === "e2e-motion-reference-rectangle-2",
+    );
+    expect(
+      opacityTrack?.keyframes?.map((keyframe: { t: number }) => keyframe.t),
+    ).toEqual([0, 0.5]);
+    const opacityTrackLabel = dock.locator(
+      '[data-motion-property-row="opacity"][data-motion-target-node-id="e2e-motion-reference-rectangle-2"]',
+    );
+    await expect(opacityTrackLabel).toBeVisible();
+    const timelineTrackRow = dock.locator(
+      `[data-motion-track-row][data-motion-track-id="${opacityTrack.id}"]`,
+    );
+    await expect(timelineTrackRow).toBeVisible();
+    const easingSegment = timelineTrackRow.locator(
+      "[data-motion-easing-segment]",
+    );
+    await expect(easingSegment).toHaveCount(1);
+    await expect(easingSegment).toBeVisible();
+    await easingSegment.dblclick();
+    const timelineAfterDoubleClick = await getAction(
+      request,
+      "get-motion-timeline",
+      { designId: regressionDesignId, sourceRef: regressionFileId },
+    );
+    const trackAfterDoubleClick =
+      timelineAfterDoubleClick.timelines?.[0]?.tracks?.find(
+        (track: { property: string; targetNodeId: string }) =>
+          track.property === "opacity" &&
+          track.targetNodeId === "e2e-motion-reference-rectangle-2",
+      );
+    expect(
+      trackAfterDoubleClick?.keyframes?.map(
+        (keyframe: { t: number }) => keyframe.t,
+      ),
+    ).toEqual([0, 0.5]);
+  } finally {
+    if (regressionDesignId) {
+      await postAction(request, "delete-design", { id: regressionDesignId });
+    }
+  }
 });
 
 test("Motion gallery searches visible names, not hidden categories or tempo", async ({

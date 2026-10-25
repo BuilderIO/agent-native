@@ -2789,11 +2789,13 @@ export function MotionSpringEditor({
   const spring = parseSpringToken(value);
   const springGeometry = spring ? createSpringCurveGeometry(spring) : null;
   const [bounceDraft, setBounceDraft] = useState(() =>
-    spring ? formatEasingNumber(spring.bounce) : "",
+    spring ? springBounceDraft(value, spring.bounce) : "",
   );
+  const [bounceDraftEdited, setBounceDraftEdited] = useState(false);
 
   useEffect(() => {
-    setBounceDraft(spring ? formatEasingNumber(spring.bounce) : "");
+    setBounceDraft(spring ? springBounceDraft(value, spring.bounce) : "");
+    setBounceDraftEdited(false);
   }, [spring?.bounce, value]);
 
   return (
@@ -2824,8 +2826,12 @@ export function MotionSpringEditor({
             label={t("designEditor.motion.bounce")}
             value={bounceDraft}
             disabled={disabled}
-            onChange={setBounceDraft}
+            onChange={(draft) => {
+              setBounceDraft(draft);
+              setBounceDraftEdited(true);
+            }}
             onBlur={(draft) => {
+              if (!bounceDraftEdited) return;
               const trimmed = draft.trim();
               const bounce = Number(trimmed);
               if (
@@ -2834,9 +2840,12 @@ export function MotionSpringEditor({
                 ) ||
                 !Number.isFinite(bounce)
               ) {
-                setBounceDraft(formatEasingNumber(spring.bounce));
+                setBounceDraft(springBounceDraft(value, spring.bounce));
+                setBounceDraftEdited(false);
                 return;
               }
+              setBounceDraftEdited(false);
+              if (bounce === spring.bounce) return;
               onChange(springToken({ bounce, settle: spring.settle }));
             }}
           />
@@ -3407,4 +3416,11 @@ function clampUnit(value: number): number {
 
 function formatEasingNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
+}
+
+function springBounceDraft(value: string, bounce: number): string {
+  const match = /^spring\(\s*([+-]?[\d.]+)\s*(?:,\s*[+-]?[\d.]+\s*)?\)$/i.exec(
+    value.trim(),
+  );
+  return match?.[1] ?? String(bounce);
 }

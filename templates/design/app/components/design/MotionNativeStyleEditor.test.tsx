@@ -2342,6 +2342,32 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
+  it("does not rewrite an untouched spring Bounce value when focus leaves it", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.125)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      label.textContent?.includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    onChange.mockClear();
+    await act(async () => bounceInput.focus());
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(bounceInput.value).toBe("0.125");
+  });
+
   it("preserves an intermediate decimal in Bounce until blur, then commits it", async () => {
     const styleWithSpring = {
       ...positionStyle,

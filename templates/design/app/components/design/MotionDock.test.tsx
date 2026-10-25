@@ -2164,6 +2164,29 @@ describe("MotionDock keyframe selection and deletion", () => {
     );
   });
 
+  it("does not insert a keyframe when double-clicking an easing segment", async () => {
+    const onTracksChange = vi.fn();
+    await renderInteractive({ tracks: sampleTracks, onTracksChange });
+    const row = container.querySelector<HTMLElement>(
+      "[data-motion-track-row]",
+    )!;
+    setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
+    const segment = container.querySelector<HTMLButtonElement>(
+      "[data-motion-easing-segment]",
+    )!;
+
+    await act(async () => {
+      segment.dispatchEvent(
+        new MouseEvent("dblclick", {
+          bubbles: true,
+          clientX: 1350,
+        }),
+      );
+    });
+
+    expect(onTracksChange).not.toHaveBeenCalled();
+  });
+
   it("double-clicks a keyframe to move the playhead to its timeline time", async () => {
     const onPlayheadChange = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onPlayheadChange });
