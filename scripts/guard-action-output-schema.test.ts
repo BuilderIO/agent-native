@@ -32,6 +32,7 @@ describe("action outputSchema guard", () => {
 
   it("accepts an outputSchema or the pragma", () => {
     const source = [
+      'import { z } from "zod";',
       "export const a = defineAction({",
       "  schema,",
       "  outputSchema: z.object({ ok: z.boolean() }),",
@@ -52,6 +53,7 @@ describe("action outputSchema guard", () => {
     ].join("\n");
     assert.deepEqual(flagged(source), [
       "1: missing-output-schema",
+      "1: uninspectable-strategy-spread",
       "2: missing-output-schema",
       "3: missing-output-schema",
       "4: missing-output-schema",
@@ -63,7 +65,7 @@ describe("action outputSchema guard", () => {
       'import { defineAction as makeAction } from "@agent-native/core";',
       'import { resultSchema } from "./schemas";',
       "const outputSchema = undefined;",
-      "const declared = z.object({ ok: z.boolean() });",
+      "const declared = {};",
       "export const a = makeAction({ schema, run: async () => 1 });",
       "export const b = defineAction({ outputSchema, run });",
       "export const c = defineAction({ outputSchema: resultSchema, run });",
@@ -81,7 +83,7 @@ describe("action outputSchema guard", () => {
     const source = [
       'const FALLBACK = "fallback" as const;',
       'const WARN = "warn";',
-      "const outputSchema = z.object({});",
+      "const outputSchema = {};",
       "export default defineAction({",
       "  outputSchema,",
       "  outputErrorStrategy: FALLBACK,",
@@ -115,6 +117,55 @@ describe("action outputSchema guard", () => {
       "});",
     ].join("\n");
     assert.deepEqual(flagged(source, new Set([3])), ["3: fallback-strategy"]);
+  });
+
+  it("fails closed on dynamic output schema expressions", () => {
+    const source = [
+      "const schema = {};",
+      "const buildSchema = () => undefined;",
+      "defineAction({ outputSchema: enabled ? schema : undefined, run });",
+      "defineAction({ outputSchema: buildSchema(), run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source), [
+      "3: missing-output-schema",
+      "4: missing-output-schema",
+    ]);
+  });
+
+  it("recognizes local aliases of defineAction", () => {
+    const source = [
+      "const makeAction = defineAction;",
+      "const makeSecondAction = makeAction;",
+      "makeSecondAction({ schema, run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source), ["3: missing-output-schema"]);
+  });
+
+  it("does not treat a shadowed Zod namespace as a schema factory", () => {
+    const source = [
+      'import { z } from "zod";',
+      "function register(z: { object: () => undefined }) {",
+      "  defineAction({ outputSchema: z.object(), run });",
+      "}",
+    ].join("\n");
+    assert.deepEqual(flagged(source), ["3: missing-output-schema"]);
+  });
+
+  it("flags strategy values hidden by an options spread", () => {
+    const source = [
+      'const shared = { outputErrorStrategy: "fallback" };',
+      "defineAction({ outputSchema: {}, ...shared, run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source), ["2: uninspectable-strategy-spread"]);
+  });
+
+  it("checks a const strategy when its initializer changes", () => {
+    const source = [
+      'const STRATEGY = "fallback" as const;',
+      "const outputSchema = {};",
+      "defineAction({ outputSchema, outputErrorStrategy: STRATEGY, run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source, new Set([1])), ["3: fallback-strategy"]);
   });
 
   it("scopes to shipped app and package source", () => {

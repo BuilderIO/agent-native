@@ -20,11 +20,13 @@
  * spread, a variable passed as the options, `outputSchema: undefined`, and an
  * identifier (shorthand included) that does not resolve, within the file, to
  * an import or a declaration with a value. Calls through a namespace
- * (`core.defineAction`) or an aliased import are recognized as actions. An
- * added `outputErrorStrategy` must be a string literal or a `const` that
- * resolves to one, and never `"fallback"`. An action whose result genuinely has no stable shape (a raw
- * provider passthrough), or whose schema comes from a spread the guard cannot
- * see through, says so on the `defineAction(` line or the line above it:
+ * (`core.defineAction`), an aliased import, or a local identifier alias are
+ * recognized. An added `outputErrorStrategy` must be a string literal or a
+ * `const` that resolves to one, and never `"fallback"`; added strategy
+ * initializers and options spreads are checked too. An action whose result
+ * genuinely has no stable shape (a raw provider passthrough), or whose schema
+ * comes from a spread the guard cannot see through, says so on the
+ * `defineAction(` line or the line above it:
  *
  *   // guard:allow-no-output-schema — <why the result has no fixed shape>
  *
@@ -58,7 +60,8 @@ export interface OutputSchemaFinding {
   problem:
     | "missing-output-schema"
     | "fallback-strategy"
-    | "non-literal-strategy";
+    | "non-literal-strategy"
+    | "uninspectable-strategy-spread";
 }
 
 /** Local names bound to `defineAction`, aliased imports included. */
@@ -74,6 +77,27 @@ function defineActionNames(sourceFile: ts.SourceFile): Set<string> {
         names.add(element.name.text);
       }
     }
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        ((ts.isIdentifier(node.initializer) &&
+          names.has(node.initializer.text)) ||
+          (ts.isPropertyAccessExpression(node.initializer) &&
+            node.initializer.name.text === "defineAction")) &&
+        !names.has(node.name.text)
+      ) {
+        names.add(node.name.text);
+        changed = true;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
   }
   return names;
 }
@@ -105,23 +129,224 @@ const isUndefinedValue = (value: ts.Expression) =>
   (ts.isIdentifier(value) && value.text === "undefined") ||
   ts.isVoidExpression(value);
 
+const ZOD_FACTORIES = new Set([
+  "any",
+  "array",
+  "bigint",
+  "boolean",
+  "coerce",
+  "date",
+  "discriminatedUnion",
+  "enum",
+  "function",
+  "instanceof",
+  "intersection",
+  "lazy",
+  "literal",
+  "nativeEnum",
+  "never",
+  "null",
+  "number",
+  "object",
+  "ostring",
+  "onumber",
+  "oboolean",
+  "promise",
+  "record",
+  "set",
+  "string",
+  "symbol",
+  "tuple",
+  "undefined",
+  "union",
+  "unknown",
+  "void",
+]);
+
+const ZOD_SCHEMA_METHODS = new Set([
+  "and",
+  "array",
+  "brand",
+  "catch",
+  "default",
+  "describe",
+  "element",
+  "extend",
+  "extract",
+  "keyof",
+  "merge",
+  "meta",
+  "nonnullable",
+  "nullable",
+  "optional",
+  "or",
+  "partial",
+  "passthrough",
+  "pipe",
+  "readonly",
+  "refine",
+  "required",
+  "safeExtend",
+  "strict",
+  "strip",
+  "superRefine",
+  "transform",
+  "unwrap",
+]);
+
+function zodNamespaces(sourceFile: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      !/^zod(?:\/|$)/.test(statement.moduleSpecifier.text)
+    ) {
+      continue;
+    }
+    const clause = statement.importClause;
+    if (!clause) continue;
+    if (clause.name) names.add(clause.name.text);
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      names.add(bindings.name.text);
+    } else if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if ((element.propertyName ?? element.name).text === "z") {
+          names.add(element.name.text);
+        }
+      }
+    }
+  }
+  return names;
+}
+
+function isKnownZodSchema(
+  value: ts.Expression,
+  sourceFile: ts.SourceFile,
+  namespaces: ReadonlySet<string>,
+): boolean {
+  if (
+    ts.isParenthesizedExpression(value) ||
+    ts.isAsExpression(value) ||
+    ts.isSatisfiesExpression(value) ||
+    ts.isNonNullExpression(value)
+  ) {
+    return isKnownZodSchema(value.expression, sourceFile, namespaces);
+  }
+  if (
+    !ts.isCallExpression(value) ||
+    !ts.isPropertyAccessExpression(value.expression)
+  ) {
+    return false;
+  }
+  const { expression: receiver, name } = value.expression;
+  if (ts.isIdentifier(receiver) && namespaces.has(receiver.text)) {
+    const declarations = declarationsNamed(sourceFile, receiver.text);
+    const [declaration] = declarations;
+    return (
+      declarations.length === 1 &&
+      declaration !== undefined &&
+      (ts.isImportSpecifier(declaration) ||
+        ts.isImportClause(declaration) ||
+        ts.isNamespaceImport(declaration)) &&
+      ZOD_FACTORIES.has(name.text)
+    );
+  }
+  return (
+    ZOD_SCHEMA_METHODS.has(name.text) &&
+    isKnownZodSchema(receiver, sourceFile, namespaces)
+  );
+}
+
 /** Whether an expression provably holds a value, not `undefined`. */
 function hasValue(
   value: ts.Expression,
   sourceFile: ts.SourceFile,
+  schemas: ReadonlySet<string>,
   depth = 0,
 ): boolean {
   if (isUndefinedValue(value)) return false;
-  if (!ts.isIdentifier(value)) return true;
+  if (
+    ts.isParenthesizedExpression(value) ||
+    ts.isAsExpression(value) ||
+    ts.isSatisfiesExpression(value) ||
+    ts.isNonNullExpression(value)
+  ) {
+    return hasValue(value.expression, sourceFile, schemas, depth);
+  }
+  if (depth >= 5) return false;
+  if (isKnownZodSchema(value, sourceFile, schemas)) return true;
+  if (ts.isConditionalExpression(value)) {
+    return (
+      hasValue(value.whenTrue, sourceFile, schemas, depth + 1) &&
+      hasValue(value.whenFalse, sourceFile, schemas, depth + 1)
+    );
+  }
+  if (
+    ts.isBinaryExpression(value) &&
+    value.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+  ) {
+    return (
+      hasValue(value.left, sourceFile, schemas, depth + 1) ||
+      hasValue(value.right, sourceFile, schemas, depth + 1)
+    );
+  }
+  if (
+    ts.isObjectLiteralExpression(value) ||
+    ts.isArrayLiteralExpression(value) ||
+    ts.isFunctionExpression(value) ||
+    ts.isArrowFunction(value) ||
+    ts.isClassExpression(value) ||
+    ts.isNewExpression(value) ||
+    ts.isStringLiteralLike(value) ||
+    ts.isNumericLiteral(value) ||
+    ts.isBigIntLiteral(value) ||
+    value.kind === ts.SyntaxKind.TrueKeyword ||
+    value.kind === ts.SyntaxKind.FalseKeyword ||
+    value.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+  if (!ts.isIdentifier(value)) return false;
   const declarations = declarationsNamed(sourceFile, value.text);
   return (
-    depth < 5 &&
     declarations.length > 0 &&
     declarations.every((declaration) =>
       ts.isVariableDeclaration(declaration)
         ? declaration.initializer !== undefined &&
-          hasValue(declaration.initializer, sourceFile, depth + 1)
+          hasValue(declaration.initializer, sourceFile, schemas, depth + 1)
         : !ts.isParameter(declaration),
+    )
+  );
+}
+
+function addedConstInitializer(
+  value: ts.Expression,
+  sourceFile: ts.SourceFile,
+  lineOf: (node: ts.Node) => number,
+  addedLines: ReadonlySet<number>,
+  depth = 0,
+): boolean {
+  if (!ts.isIdentifier(value) || depth >= 5) return false;
+  const declarations = declarationsNamed(sourceFile, value.text);
+  if (declarations.length !== 1) return false;
+  const declaration = declarations[0];
+  if (
+    !ts.isVariableDeclaration(declaration) ||
+    !declaration.initializer ||
+    !(ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const)
+  ) {
+    return false;
+  }
+  return (
+    addedLines.has(lineOf(declaration.initializer)) ||
+    addedConstInitializer(
+      declaration.initializer,
+      sourceFile,
+      lineOf,
+      addedLines,
+      depth + 1,
     )
   );
 }
@@ -159,11 +384,12 @@ function optionValue(
 function declaresOutputSchema(
   options: ts.ObjectLiteralExpression,
   sourceFile: ts.SourceFile,
+  schemas: ReadonlySet<string>,
 ): boolean {
   return options.properties.some((property) => {
     if (propertyName(property) !== "outputSchema") return false;
     const value = optionValue(property);
-    return value !== null && hasValue(value, sourceFile);
+    return value !== null && hasValue(value, sourceFile, schemas);
   });
 }
 
@@ -206,6 +432,7 @@ export function findOutputSchemaProblems(
     1;
   const findings: OutputSchemaFinding[] = [];
   const names = defineActionNames(sourceFile);
+  const schemas = zodNamespaces(sourceFile);
   const isDefineActionCallee = (callee: ts.Expression) =>
     ts.isIdentifier(callee)
       ? names.has(callee.text)
@@ -223,17 +450,29 @@ export function findOutputSchemaProblems(
         PRAGMA.test(lines[line - 2] ?? "");
       if (
         addedLines.has(line) &&
-        !(literal && declaresOutputSchema(literal, sourceFile)) &&
+        !(literal && declaresOutputSchema(literal, sourceFile, schemas)) &&
         !opted
       ) {
         findings.push({ file, line, problem: "missing-output-schema" });
       }
       for (const property of literal?.properties ?? []) {
+        if (
+          ts.isSpreadAssignment(property) &&
+          (addedLines.has(line) || addedLines.has(lineOf(property)))
+        ) {
+          findings.push({
+            file,
+            line: lineOf(property),
+            problem: "uninspectable-strategy-spread",
+          });
+          continue;
+        }
         const value = optionValue(property);
         if (
           propertyName(property) !== "outputErrorStrategy" ||
           !value ||
-          !addedLines.has(lineOf(property))
+          (!addedLines.has(lineOf(property)) &&
+            !addedConstInitializer(value, sourceFile, lineOf, addedLines))
         ) {
           continue;
         }
@@ -294,6 +533,8 @@ function main() {
           "fallback-strategy": 'outputErrorStrategy: "fallback" is deprecated',
           "non-literal-strategy":
             "outputErrorStrategy must be a string literal the guard can read",
+          "uninspectable-strategy-spread":
+            "options spread may hide outputErrorStrategy; use explicit options",
         }[finding.problem]
       }`,
     );
