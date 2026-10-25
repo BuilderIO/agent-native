@@ -8,16 +8,17 @@ import {
   isActionContractError,
   isActionOutputContractError,
   runActionWithExecutionOutcome,
-  type ActionDefinition,
   type ActionExecutionOutcome,
+  type ActionOutputErrorStrategy,
   type ActionRunContext,
 } from "./action.js";
 
 type JsonObject = Record<string, unknown>;
 type JsonKind = "string" | "number" | "boolean" | "null" | "array" | "object";
 
+/** An `undefined` entry means no override for that pointer. */
 export type ArbitraryOverrides = Readonly<
-  Record<string, fc.Arbitrary<unknown>>
+  Record<string, fc.Arbitrary<unknown> | undefined>
 >;
 
 export interface ArbitraryFromJsonSchemaOptions {
@@ -98,7 +99,8 @@ function arbitraryAt(
   path: string,
   overrides: ArbitraryOverrides,
 ): fc.Arbitrary<unknown> {
-  if (Object.hasOwn(overrides, path)) return overrides[path];
+  const override = overrides[path];
+  if (override !== undefined) return override;
   if (!isJsonObject(schema)) {
     throw new UnsupportedSchemaError(path, "it is not a JSON Schema object");
   }
@@ -456,10 +458,18 @@ export interface CheckActionPropertiesOptions {
   overrides?: ArbitraryOverrides;
 }
 
-/** An action defined with `defineAction`. Its zod `schema` is kept on the entry at runtime. */
-export type CheckableAction = ActionDefinition<any, any> & {
+/**
+ * The parts of an action this check reads. An action defined with
+ * `defineAction` fits: its `run` takes its own input type, which `never`
+ * accepts, and its zod `schema` is kept on the entry at runtime.
+ */
+export interface CheckableAction {
+  readonly run: (args: never, ctx?: ActionRunContext) => unknown;
+  readonly tool: { readonly description: string };
   readonly schema?: StandardSchemaV1;
-};
+  readonly outputSchema?: StandardSchemaV1;
+  readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+}
 
 /**
  * Check an action against inputs generated from its zod schema. Valid inputs
@@ -490,18 +500,18 @@ export async function checkActionProperties(
   }
   const jsonSchema = inputJsonSchema(schema);
   const inputs = arbitraryFromJsonSchema(jsonSchema, {
-    overrides: options.overrides,
+    overrides: options.overrides ?? {},
   });
   // Nested cases replace one item of an array, so they draw from inputs whose
   // arrays are never empty.
   const populated = arbitraryFromJsonSchema(withPopulatedArrays(jsonSchema), {
-    overrides: options.overrides,
+    overrides: options.overrides ?? {},
   });
   // The report carries the thrown error only when asked: without it the
   // reason for a failure sits in `cause`, and the message names no reason.
   const params = {
     numRuns: options.runs ?? 50,
-    seed: options.seed,
+    ...(options.seed === undefined ? {} : { seed: options.seed }),
     includeErrorInReport: true,
   };
   const outputSchema = action.outputSchema;

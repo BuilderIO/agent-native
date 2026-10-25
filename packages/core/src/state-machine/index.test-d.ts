@@ -1,6 +1,6 @@
-// Compile-time proofs for the state machine types. Spec files are excluded
-// from tsc, so these run through the normal `tsc --noEmit` typecheck. Each
-// expect-error directive below fails the check if its line stops being an error.
+// Compile-time proofs for the state machine types, checked by
+// tsconfig.type-tests.json. Each expect-error directive below fails the check
+// if its line stops being an error.
 import { defineMachine } from "./index.js";
 
 declare const text: string;

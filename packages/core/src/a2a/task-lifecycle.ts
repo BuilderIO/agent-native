@@ -107,7 +107,11 @@ function targetOf<S extends string, E extends string>(
   machine: Machine<S, E>,
   event: E,
 ): S {
-  return machine.transition(machine.fromStates(event)[0], event);
+  const from = machine.fromStates(event).at(0);
+  if (from === undefined) {
+    throw new Error(`Event "${event}" has no source states`);
+  }
+  return machine.transition(from, event);
 }
 
 /** `'a', 'b'` for an event's source states, in the order the SQL lists them. */

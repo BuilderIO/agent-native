@@ -184,7 +184,10 @@ describe("effectiveEditZones", () => {
       master.end.timeZone,
       zones.endTimeZone,
     );
-    expect(Date.parse(end!) - Date.parse(start!)).toBe(60 * 60 * 1000);
+    if (start === undefined || end === undefined) {
+      throw new Error("shiftSeriesDateValue dropped an endpoint");
+    }
+    expect(Date.parse(end) - Date.parse(start)).toBe(60 * 60 * 1000);
   });
 
   it("applies a lone end zone to both endpoints", () => {

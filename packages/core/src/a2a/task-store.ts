@@ -1022,13 +1022,14 @@ export async function cancelA2ATask(
       return { status: "not_cancelable", state: current.status.state };
     }
     await revokeTaskExecutionLease(tx, leaseThreadId, id);
+    const { message } = current.status;
     return {
       status: "canceled",
       task: {
         ...current,
         status: {
           state: "canceled",
-          message: current.status.message,
+          ...(message === undefined ? {} : { message }),
           timestamp,
         },
       },

@@ -344,7 +344,7 @@ function googleEventEndValue(event: any): string | undefined {
 export function effectiveEditZones(
   event: { startTimeZone?: string; endTimeZone?: string },
   master: { start?: { timeZone?: string }; end?: { timeZone?: string } },
-): { startTimeZone?: string; endTimeZone?: string } {
+): { startTimeZone: string | undefined; endTimeZone: string | undefined } {
   return {
     startTimeZone:
       event.startTimeZone ?? event.endTimeZone ?? master.start?.timeZone,
@@ -368,7 +368,9 @@ function alignSeriesUpdateToMaster(
       master.start?.timeZone,
       zones.startTimeZone,
     );
-    aligned.startTimeZone = zones.startTimeZone;
+    if (zones.startTimeZone !== undefined) {
+      aligned.startTimeZone = zones.startTimeZone;
+    }
   }
   if (event.end !== undefined) {
     aligned.end = shiftSeriesDateValue(
@@ -378,7 +380,9 @@ function alignSeriesUpdateToMaster(
       master.end?.timeZone,
       zones.endTimeZone,
     );
-    aligned.endTimeZone = zones.endTimeZone;
+    if (zones.endTimeZone !== undefined) {
+      aligned.endTimeZone = zones.endTimeZone;
+    }
   }
   return aligned;
 }

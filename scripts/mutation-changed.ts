@@ -146,6 +146,13 @@ export function survivingMutants(report: MutationReport): string[] {
 const VITEST_CONFIG = "vitest.mutation.generated.mts";
 const TEST_FILE = /\.(spec|test)\.tsx?$/;
 
+/** The file part of a `file:start-end` spec. */
+function specFile(spec: string): string {
+  const colon = spec.lastIndexOf(":");
+  if (colon === -1) throw new Error(`mutation spec has no line range: ${spec}`);
+  return spec.slice(0, colon);
+}
+
 /**
  * The specs named after each mutated file, relative to Core: for
  * `src/a2a/task-store.ts`, `task-store.spec.ts` and `task-store.db.spec.ts`
@@ -159,7 +166,7 @@ export function namedSpecs(
 ): { include: string[]; missing: string[] } {
   const include = new Set<string>();
   const missing: string[] = [];
-  const files = [...new Set(specs.map((spec) => spec.split(":")[0]!))].sort();
+  const files = [...new Set(specs.map(specFile))].sort();
   for (const file of files) {
     const directory = path.posix.dirname(file);
     const base = path.posix.basename(file).replace(/\.tsx?$/, "");

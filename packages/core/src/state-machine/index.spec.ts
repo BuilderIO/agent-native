@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { defineMachine, StateMachineError } from "./index.js";
 
 // The definitions below are deliberately malformed, so the type-level checks
-// in index.typecheck.ts do not apply to them.
+// in index.test-d.ts do not apply to them.
 const build = defineMachine as unknown as (def: unknown) => unknown;
 
 const valid = {

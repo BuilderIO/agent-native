@@ -638,6 +638,31 @@ function getHandler(config: A2AConfig): A2AHandler {
   return config.handler ?? defaultHandler;
 }
 
+function isMessageStream(result: unknown): result is AsyncGenerator<Message> {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    Symbol.asyncIterator in result
+  );
+}
+
+type TaskUpdate = Parameters<typeof updateTask>[1];
+
+/**
+ * updateTask leaves an absent field unchanged, so an unset message or empty
+ * artifact list is omitted rather than passed as undefined.
+ */
+function completedTaskUpdate(
+  message: Message | undefined,
+  artifacts: Artifact[],
+): TaskUpdate {
+  return {
+    state: "completed",
+    ...(message === undefined ? {} : { message }),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+  };
+}
+
 function jsonRpcError(
   id: string | number | null,
   code: number,
@@ -817,13 +842,9 @@ async function runHandlerAndPersist(
     signal?.throwIfAborted();
     const result = getHandler(config)(message, context);
 
-    if (
-      result &&
-      typeof result === "object" &&
-      Symbol.asyncIterator in result
-    ) {
+    if (isMessageStream(result)) {
       let lastMessage: Message | undefined;
-      for await (const msg of result as AsyncGenerator<Message>) {
+      for await (const msg of result) {
         signal?.throwIfAborted();
         lastMessage = msg;
       }
@@ -1099,13 +1120,9 @@ async function handleSend(
       try {
         const result = getHandler(config)(message, ctx.context);
 
-        if (
-          result &&
-          typeof result === "object" &&
-          Symbol.asyncIterator in result
-        ) {
+        if (isMessageStream(result)) {
           let lastMessage: Message | undefined;
-          for await (const msg of result as AsyncGenerator<Message>) {
+          for await (const msg of result) {
             lastMessage = msg;
           }
           if (
@@ -1118,11 +1135,10 @@ async function handleSend(
             return { ...jsonRpcResult(0, updated), _id: 0 };
           }
           await ctx.persistFileArtifacts();
-          const updated = await updateTask(task.id, {
-            state: "completed",
-            message: lastMessage,
-            artifacts: ctx.artifacts.length > 0 ? ctx.artifacts : undefined,
-          });
+          const updated = await updateTask(
+            task.id,
+            completedTaskUpdate(lastMessage, ctx.artifacts),
+          );
           return { ...jsonRpcResult(0, updated), _id: 0 };
         }
 
@@ -1145,7 +1161,7 @@ async function handleSend(
           artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
-      } catch (err: any) {
+      } catch (err: unknown) {
         const failureMessage = taskFailureMessage(err, "Handler failed");
         await updateTask(task.id, {
           state: "failed",
@@ -1253,12 +1269,8 @@ async function handleStream(
       try {
         const result = getHandler(config)(message, context);
 
-        if (
-          result &&
-          typeof result === "object" &&
-          Symbol.asyncIterator in result
-        ) {
-          for await (const msg of result as AsyncGenerator<Message>) {
+        if (isMessageStream(result)) {
+          for await (const msg of result) {
             const intermediate = await updateTask(task.id, {
               state: "working",
               message: msg,
@@ -1268,17 +1280,16 @@ async function handleStream(
             );
           }
         } else {
-          const handlerResult = await (result as Promise<A2AHandlerResult>);
+          const handlerResult = await result;
           const allArtifacts = [
             ...artifacts,
             ...(handlerResult.artifacts ?? []),
           ];
           await persistFileArtifacts();
-          const updated = await updateTask(task.id, {
-            state: "completed",
-            message: handlerResult.message,
-            artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-          });
+          const updated = await updateTask(
+            task.id,
+            completedTaskUpdate(handlerResult.message, allArtifacts),
+          );
           res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
           res.end();
           return;
@@ -1286,12 +1297,12 @@ async function handleStream(
 
         const allArtifacts = [...artifacts];
         await persistFileArtifacts();
-        const final = await updateTask(task.id, {
-          state: "completed",
-          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-        });
+        const final = await updateTask(
+          task.id,
+          completedTaskUpdate(undefined, allArtifacts),
+        );
         res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
-      } catch (err: any) {
+      } catch (err: unknown) {
         const failureMessage = taskFailureMessage(err, "Handler failed");
         await updateTask(task.id, { state: "failed", message: failureMessage });
         res.write(

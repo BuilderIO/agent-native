@@ -39,6 +39,14 @@ test("mutates only added Core source lines, as packages/core-relative ranges", (
   ]);
 });
 
+test("leaves type-level proofs (.test-d.ts) out of mutation scope", () => {
+  const added = new Map([
+    [absolute("packages/core/src/state-machine/index.ts"), new Set([1])],
+    [absolute("packages/core/src/state-machine/index.test-d.ts"), new Set([1])],
+  ]);
+  assert.deepEqual(mutateSpecs(added), ["src/state-machine/index.ts:1-1"]);
+});
+
 test("names only dot-form specs after a mutated file", () => {
   const listing = [
     "session.spec.ts",

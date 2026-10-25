@@ -128,7 +128,9 @@ function compactDate(ms: number): string {
 }
 
 function weekdayOf(wall: number): Code {
-  return CODES[new Date(wall).getUTCDay()];
+  const code = CODES.at(new Date(wall).getUTCDay());
+  if (code === undefined) throw new Error("getUTCDay outside 0-6");
+  return code;
 }
 
 function bydayOf(rule: string): string[] {
@@ -336,10 +338,13 @@ function alignedRule(
   eventZone: Zone | undefined = series.zone,
 ): string {
   const aligned = alignSeriesRecurrenceToStart(
-    { start: start.value, startTimeZone: eventZone },
+    {
+      start: start.value,
+      ...(eventZone ? { startTimeZone: eventZone } : {}),
+    },
     {
       startValue: series.master.value,
-      startTimeZone: series.zone,
+      ...(series.zone ? { startTimeZone: series.zone } : {}),
       recurrence: [series.rule],
     },
   );
@@ -656,7 +661,8 @@ describe("app-produced RRULE strings", () => {
   it("builds custom weekly rules that parse back to the drafted interval, days, and end", () => {
     fc.assert(
       fc.property(customDraftArb, (draft) => {
-        const [rule] = buildCustomRecurrenceRules(draft);
+        const rule = buildCustomRecurrenceRules(draft).at(0);
+        if (rule === undefined) throw new Error("no custom recurrence rule");
         const parsed = RRule.fromString(rule).options;
         expect(parsed.freq).toBe(RRule.WEEKLY);
         expect(parsed.interval).toBe(draft.interval);
