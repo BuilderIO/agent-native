@@ -2812,12 +2812,15 @@ function replyExplicitlyRefusesHandoff(text: string): boolean {
   );
   const hedgedAbilityRefusal =
     /\b(?:i|we)(?:'m|\s+am)?\s+not sure\b.{0,80}\b(?:i|we)\s+(?:can|could|will|would)\b|\b(?:i|we)\s+(?:don't|do not)\s+think\b.{0,80}\b(?:i|we)\s+(?:can|could|will|would)\b/i;
+  const sameReplyRetraction =
+    /\b(?:actually|wait|sorry)\b[^.!?;\n]{0,60}\b(?:i|we)(?:'m|\s+am)?\s+(?:going to\s+)?pass\b|\b(?:actually|wait|sorry)\b[^.!?;\n]{0,60}\b(?:i|we)\s+(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not)(?=\s*[.!?;\n]|$)/i;
   return (
     new RegExp(
       `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:(?:be\\s+)?able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
     ).test(normalized) ||
     abilityRefusal.test(normalized) ||
     hedgedAbilityRefusal.test(normalized) ||
+    sameReplyRetraction.test(normalized) ||
     /\b(?:i|we)\s+(?:need to|have to)\s+back out\b|\b(?:i|we)\s+(?:no longer|don't|do not)\s+have\s+(?:the\s+)?(?:time|capacity|bandwidth)\b|\b(?:not sure|unsure|uncertain)\s+(?:if|whether)\s+(?:i|we)\s+(?:can|will)\b|\b(?:i|we)\s+(?:may|might)\s+not be able to\b/i.test(
       normalized,
     )
@@ -5487,18 +5490,27 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
 
 function hasExplicitNoReplyRestriction(statement: string): boolean {
   return (
-    /(?:^|[.!?;,:]\s*|\b(?:but|however|though|except|with)\s+)(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+    /(?:^|[.!?;,:]\s*|\b(?:but|however|though|except|with)\s+)(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
       statement,
     ) ||
-    /\b(?:skip|avoid|hold\s+off\s+on|omit|leave\s+out)\s+(?:(?:the|any)\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)\b/i.test(
+    /\b(?:skip|avoid|hold\s+off\s+on|omit|leave\s+out)\s+(?:(?:the|any)\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i.test(
       statement,
     ) ||
-    /\b(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)\s+(?:are\s+)?(?:off limits|not allowed|not permitted|forbidden|prohibited|disallowed)\b/i.test(
+    /\b(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\s+(?:are\s+)?(?:off limits|not allowed|not permitted|forbidden|prohibited|disallowed)\b/i.test(
       statement,
     ) ||
-    /\b(?:do not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:reply|respond|post|send|leave|write)\b[^.!?;\n]{0,80}\b(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)\b/i.test(
+    /\b(?:do not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:reply|respond|post|send|leave|write)\b[^.!?;\n]{0,80}\b(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i.test(
+      statement,
+    ) ||
+    /\bno\s+need\s+to\s+(?:do\s+)?(?:(?:the|a|any)\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i.test(
       statement,
     )
+  );
+}
+
+function hasExplicitNoWriteRestriction(statement: string): boolean {
+  return /\b(?:no|without)\s+(?:any\s+)?(?:writing|writes?)\b|\blook\s+only\b/i.test(
+    statement,
   );
 }
 
@@ -5506,6 +5518,7 @@ function hasExplicitPartialWriteRestriction(statement: string): boolean {
   return (
     hasExplicitNoReactionRestriction(statement) ||
     hasExplicitNoReplyRestriction(statement) ||
+    hasExplicitNoWriteRestriction(statement) ||
     /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b|\b(?:you\s+)?(?:(?:may|can|should|must)\s+)?only\s+(?:(?:add|post|send|leave|use)\s+)?(?:emojis?|reactions?|marks?)\b|\bnothing\s+but\s+(?:read|inspect)(?:ing)?\b/i.test(
       statement,
     )
@@ -5514,15 +5527,19 @@ function hasExplicitPartialWriteRestriction(statement: string): boolean {
 
 function hasExplicitAuthorizationRevocation(text: string): boolean {
   return (
-    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:(?:reply(?:ing)?|respond(?:ing)?|work(?:ing)?|post(?:ing)?|send(?:ing)?|react(?:ing)?|claim(?:ing)?|handle|handling|follow(?:ing)?\s+up|write|writing|edit|editing|change|changing|update|updating|touch|touching|review|reviewing|inspect|inspecting)\b|(?:the|this|that)\s+(?:work|follow[ -]?up|migration|root|thread|task|review|changes?)\b))|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
+    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:(?:reply(?:ing)?|respond(?:ing)?|work(?:ing)?|post(?:ing)?|send(?:ing)?|react(?:ing)?|claim(?:ing)?|handle|handling|follow(?:ing)?\s+up|write|writing|edit|editing|change|changing|update|updating|touch|touching|review|reviewing|inspect|inspecting)\b|(?:the|this|that)\s+(?:work|follow[ -]?up|migration|root|thread|task|review|changes?)\b))|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send|touch(?:\s+(?:it|that|this))?))\b/i.test(
       text,
     ) ||
-    /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
+    /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send|touch(?:\s+(?:it|that|this))?)\b/i.test(
       text,
     ) ||
-    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel|rescind)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+    /\b(?:i|we)\s+(?:(?:have|had)\s+)?(?:hereby\s+)?(?:revoke|revoked|withdraw|withdrawn|withdrew|cancel|canceled|cancelled|rescind|rescinded)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
       text,
     ) ||
+    /\b(?:ignore|forget)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)(?:['’]ve|\s+have)?\s+changed my mind\b/i.test(text) ||
     /\b(?:i|we)(?:['’]m|['’]re|\s+am|\s+are)\s+(?:(?:hereby)\s+)?(?:revoke|revoked|revoking|withdraw|withdrawn|withdrew|withdrawing|cancel|canceled|cancelled|canceling|cancelling|rescind|rescinded|rescinding)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
       text,
     ) ||
@@ -11947,6 +11964,20 @@ if (args[0] === "--self-test" && args.length === 1) {
       );
     }
   }
+  for (const [text, action] of [
+    ["I'll take it. Actually, I'm going to pass.", "take it"],
+    ["I'll handle it. Actually, I can't.", "handle it"],
+  ] as const) {
+    const handoff: Handoff = { scope: "self-test", owner: "Alex", action };
+    if (
+      !replyExplicitlyRefusesHandoff(text) ||
+      replyExplicitlyAcceptsRecordedHandoff(text, handoff)
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test accepted a handoff after a same-reply retraction (${text}).`,
+      );
+    }
+  }
   for (const text of [
     "I won't be able to take it.",
     "I'm not able to take this.",
@@ -17990,6 +18021,16 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(explicitlyExcludedRoot),
       "scope.userRequest explicitly excludes an authorized root",
     );
+    const anaphoricRootExclusion = structuredClone(authorizedMagRoot);
+    anaphoricRootExclusion.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, don't touch it.";
+    anaphoricRootExclusion.scope.narrowingJudgment!.instruction =
+      anaphoricRootExclusion.scope.userRequest;
+    expectFocusedFailure(
+      "an anaphoric no-touch retraction blocks an exact-root grant",
+      () => validateTestInventory(anaphoricRootExclusion),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
 
     const readOnlyAuthorization = structuredClone(authorizedMagRoot);
     readOnlyAuthorization.scope.userRequest =
@@ -18032,6 +18073,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Replies are off limits.",
       "Nothing but read.",
       "Do not leave status replies.",
+      "No writing except reactions.",
+      "Look only, no writes.",
+      "Don't touch it.",
+      "No need to do the status reply.",
       "Leave out emojis.",
       "You may only add reactions.",
     ]) {
@@ -18183,10 +18228,15 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Actually, I take back that approval.",
       "Actually, I revoke your permission.",
       "Actually, I'm revoking my approval.",
+      "Actually, I revoked this authorization.",
+      "Actually, I have withdrawn my approval.",
+      "Actually, ignore my previous authorization.",
+      "Actually, forget that approval.",
+      "Actually, I changed my mind, don't do that.",
       "Actually, I no longer authorize this.",
     ]) {
       const withdrawnAuthorization = structuredClone(authorizedMagRoot);
-      withdrawnAuthorization.scope.userRequest = `I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. ${revocation}`;
+      withdrawnAuthorization.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. ${revocation}`;
       withdrawnAuthorization.scope.narrowingJudgment!.instruction =
         withdrawnAuthorization.scope.userRequest;
       expectFocusedFailure(
@@ -25129,7 +25179,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 14 handoff phrase cases; 35 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 16 handoff phrase cases; 45 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
