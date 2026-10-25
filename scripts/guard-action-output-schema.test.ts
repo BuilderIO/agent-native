@@ -58,6 +58,44 @@ describe("action outputSchema guard", () => {
     ]);
   });
 
+  it("resolves aliased imports and identifier values", () => {
+    const source = [
+      'import { defineAction as makeAction } from "@agent-native/core";',
+      'import { resultSchema } from "./schemas";',
+      "const outputSchema = undefined;",
+      "const declared = z.object({ ok: z.boolean() });",
+      "export const a = makeAction({ schema, run: async () => 1 });",
+      "export const b = defineAction({ outputSchema, run });",
+      "export const c = defineAction({ outputSchema: resultSchema, run });",
+      "export const d = defineAction({ outputSchema: declared, run });",
+      "export const e = (s) => defineAction({ outputSchema: s, run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source), [
+      "5: missing-output-schema",
+      "6: missing-output-schema",
+      "9: missing-output-schema",
+    ]);
+  });
+
+  it("reads strategies through consts and rejects ones it cannot read", () => {
+    const source = [
+      'const FALLBACK = "fallback" as const;',
+      'const WARN = "warn";',
+      "const outputSchema = z.object({});",
+      "export default defineAction({",
+      "  outputSchema,",
+      "  outputErrorStrategy: FALLBACK,",
+      "  run,",
+      "});",
+      "defineAction({ outputSchema, outputErrorStrategy: WARN, run });",
+      "defineAction({ outputSchema, outputErrorStrategy: pick(), run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source, new Set([6, 9, 10])), [
+      "6: fallback-strategy",
+      "10: non-literal-strategy",
+    ]);
+  });
+
   it("ignores an existing action whose body this branch edited", () => {
     const source = [
       "export default defineAction({",

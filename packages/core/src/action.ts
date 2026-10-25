@@ -927,7 +927,11 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
  */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
 
-/** What an action with `outputSchema` returns under `TStrategy`. */
+/**
+ * What an action with `outputSchema` returns under `TStrategy`. `"warn"` can
+ * pass `run`'s unvalidated value through; `"fallback"` returns
+ * `outputFallback` as given, `undefined` when it is unset.
+ */
 export type ActionOutputResult<
   TOutputSchema extends StandardSchemaV1,
   TStrategy extends ActionOutputErrorStrategy,
@@ -935,7 +939,8 @@ export type ActionOutputResult<
   ? StandardSchemaV1.InferOutput<TOutputSchema>
   :
       | StandardSchemaV1.InferOutput<TOutputSchema>
-      | StandardSchemaV1.InferInput<TOutputSchema>;
+      | StandardSchemaV1.InferInput<TOutputSchema>
+      | (TStrategy extends "fallback" ? undefined : never);
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;

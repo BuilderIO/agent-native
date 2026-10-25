@@ -87,3 +87,14 @@ const withParams = defineAction({
 assertType<Equal<Awaited<ReturnType<typeof withParams.run>>, { id: string }>>(
   true,
 );
+
+const fellBack = defineAction({
+  description: "Deprecated fallback with no fallback value.",
+  schema: z.object({}),
+  outputSchema: z.object({ id: z.string() }),
+  outputErrorStrategy: "fallback",
+  run: async () => ({ id: "x" }),
+});
+assertType<
+  Equal<Awaited<ReturnType<typeof fellBack.run>>, { id: string } | undefined>
+>(true);

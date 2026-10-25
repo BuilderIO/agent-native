@@ -12,12 +12,15 @@
  * out in its own tsconfig, so the backlog does not block CI. This guard is the
  * ratchet on those opt-outs:
  *
- * - a tsconfig this branch changes may not turn one of the four flags, or
- *   `strict`, from on to off, or add an explicit `false` for one: the
- *   opt-out list only shrinks. Each changed tsconfig is parsed at the
- *   merge-base and at HEAD and compared value by value, so a removed `true`
- *   or a `false` split across lines is caught too. Deleting a `true` a
- *   project inherits anyway also fails: say so by leaving it in place;
+ * - a tsconfig this branch changes may not turn one of the four flags,
+ *   `strict`, or any flag `strict` implies from on to off, or add an
+ *   explicit `false` for one: the opt-out list only shrinks. Each changed
+ *   tsconfig is parsed at the merge-base and at HEAD and compared value by
+ *   value, so a removed `true` or a `false` split across lines is caught too.
+ *   Deleting a `true` a project inherits anyway also fails: say so by leaving
+ *   it in place. A changed `extends` is judged by the effective config at
+ *   HEAD: every watched option must be on unless the file already opted out
+ *   of it explicitly at the merge-base;
  * - in a project that still opts out, every flag-caused error on a line this
  *   branch added fails. The guard runs `tsc` with and without the opted-out
  *   flags and reports only errors the flags add, so a missing generated file
@@ -72,7 +75,23 @@ const EXTRA_PROJECTS = [
     owns: /^packages\/core\/src\/(?:cli\/|testing\.ts$)/,
   },
 ];
-const WATCHED_OPTIONS = [...RATCHETED_FLAGS, "strict"] as const;
+/** The flags `strict` turns on; each can be switched off on its own. */
+const STRICT_FAMILY = [
+  "noImplicitAny",
+  "strictNullChecks",
+  "strictFunctionTypes",
+  "strictBindCallApply",
+  "strictPropertyInitialization",
+  "strictBuiltinIteratorReturn",
+  "noImplicitThis",
+  "useUnknownInCatchVariables",
+  "alwaysStrict",
+] as const;
+const WATCHED_OPTIONS = [
+  ...RATCHETED_FLAGS,
+  "strict",
+  ...STRICT_FAMILY,
+] as const;
 const TS_SOURCE = /\.[cm]?tsx?$/;
 
 export interface Diagnostic {
@@ -110,18 +129,56 @@ export function flagCausedDiagnostics(
   return withFlags.filter((d) => !before.has(diagnosticKey(d)));
 }
 
-function compilerOptionsOf(
+function parseTsconfig(
   file: string,
   text: string,
-): Record<string, unknown> {
+): { compilerOptions?: unknown; extends?: unknown } {
   const { config, error } = ts.parseConfigFileTextToJson(file, text);
   if (error || !config || typeof config !== "object") {
     throw new CouldNotRun(`could not parse ${file}`);
   }
-  const options = (config as { compilerOptions?: unknown }).compilerOptions;
+  return config as { compilerOptions?: unknown; extends?: unknown };
+}
+
+function compilerOptionsOf(
+  file: string,
+  text: string,
+): Record<string, unknown> {
+  const options = parseTsconfig(file, text).compilerOptions;
   return options && typeof options === "object"
     ? (options as Record<string, unknown>)
     : {};
+}
+
+/**
+ * For a tsconfig whose `extends` changed: the watched options its effective
+ * config (`tsc --showConfig` at HEAD) leaves off, other than ones the file
+ * itself already set to `false` at the merge-base. A sub-flag of `strict`
+ * reads as `strict` unless set on its own.
+ */
+export function findExtendsWeakening(
+  file: string,
+  base: string,
+  head: string,
+  readEffective: () => Record<string, unknown>,
+): string[] {
+  const extendsOf = (text: string) =>
+    JSON.stringify(parseTsconfig(file, text).extends ?? null);
+  if (extendsOf(base) === extendsOf(head)) return [];
+  const effective = readEffective();
+  const before = compilerOptionsOf(file, base);
+  const after = compilerOptionsOf(file, head);
+  const isOn = (option: string) =>
+    (effective[option] ??
+      ((STRICT_FAMILY as readonly string[]).includes(option)
+        ? effective.strict
+        : undefined)) === true;
+  return WATCHED_OPTIONS.filter(
+    (option) =>
+      !isOn(option) &&
+      !(before[option] === false && after[option] === false) &&
+      (option !== "exactOptionalPropertyTypes" || isOn("strictNullChecks")),
+  ).map((option) => `extends ${extendsOf(head)} leaves ${option} off`);
 }
 
 /**
@@ -287,11 +344,15 @@ function findWeakenedTsconfigs(mergeBase: string): string[] {
     const base = existsAt(mergeBase, rel)
       ? git(["show", `${mergeBase}:${rel}`])
       : null;
-    return findWeakenedOptions(
-      rel,
-      base,
-      readFileSync(path.join(rootDir, rel), "utf8"),
-    ).map((change) => `${rel} weakens ${change}`);
+    const head = readFileSync(path.join(rootDir, rel), "utf8");
+    return [
+      ...findWeakenedOptions(rel, base, head),
+      ...(base === null
+        ? []
+        : findExtendsWeakening(rel, base, head, () =>
+            effectiveOptions(path.join(rootDir, rel)),
+          )),
+    ].map((change) => `${rel} weakens ${change}`);
   });
 }
 

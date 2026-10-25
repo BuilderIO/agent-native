@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  findExtendsWeakening,
   findWeakenedOptions,
   flagCausedDiagnostics,
   parseTscOutput,
@@ -83,6 +84,48 @@ describe("compiler strictness guard", () => {
         '{ "compilerOptions": { "strict": false } }',
       ),
       ["strict: null -> false"],
+    );
+  });
+
+  it("catches a strict sub-flag switched off under strict", () => {
+    assert.deepEqual(
+      findWeakenedOptions(
+        "tsconfig.json",
+        '{ "compilerOptions": { "strict": true } }',
+        '{ "compilerOptions": { "strict": true, "strictNullChecks": false } }',
+      ),
+      ["strictNullChecks: null -> false"],
+    );
+  });
+
+  it("judges a changed extends by the effective config", () => {
+    const base =
+      '{ "extends": "./strict.json", "compilerOptions": { "noUncheckedIndexedAccess": false } }';
+    const head =
+      '{ "extends": "./loose.json", "compilerOptions": { "noUncheckedIndexedAccess": false } }';
+    const allOn = {
+      strict: true,
+      exactOptionalPropertyTypes: true,
+      noImplicitOverride: true,
+      noFallthroughCasesInSwitch: true,
+      noUncheckedIndexedAccess: false,
+    };
+    assert.deepEqual(
+      findExtendsWeakening("tsconfig.json", base, head, () => allOn),
+      [],
+    );
+    assert.deepEqual(
+      findExtendsWeakening("tsconfig.json", base, head, () => ({
+        ...allOn,
+        strictNullChecks: false,
+      })),
+      ['extends "./loose.json" leaves strictNullChecks off'],
+    );
+    assert.deepEqual(
+      findExtendsWeakening("tsconfig.json", base, base, () => {
+        throw new Error("an unchanged extends needs no effective config");
+      }),
+      [],
     );
   });
 });
