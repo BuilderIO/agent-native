@@ -121,3 +121,16 @@ export function hostedModelExperimentVariant(
     (assignment) => assignment.experimentId === HOSTED_MODEL_EXPERIMENT_ID,
   )?.variantId;
 }
+
+/**
+ * The singular experiment tags predate the hosted test. They keep naming only
+ * the other experiment on a turn, so the hosted arm never changes them.
+ */
+export function singleNonHostedAssignment(
+  assignments: readonly HostedModelExperimentAssignment[] | undefined,
+): HostedModelExperimentAssignment | undefined {
+  const others = assignments?.filter(
+    (assignment) => assignment.experimentId !== HOSTED_MODEL_EXPERIMENT_ID,
+  );
+  return others?.length === 1 ? others[0] : undefined;
+}

@@ -272,7 +272,8 @@ hosted domains with no DB row: users on the default Builder model at default
 effort are split by a stable hash of their email. Each run carries the arm in
 `experiment_ids` / `experiment_variants`, and in `hosted_model_experiment_variant`
 regardless of other experiments on the turn. The singular `experiment_id` /
-`experiment_variant` tags only cover a turn with exactly one assignment. The DB
+`experiment_variant` tags keep naming only the other experiment, as they did
+before the hosted test. The DB
 path above skips requests that pin a model; this one does not, because chat
 clients always send the default model, so it keys off the resolved default.
 Other model or effort choices are left alone. The kill switch is the declared

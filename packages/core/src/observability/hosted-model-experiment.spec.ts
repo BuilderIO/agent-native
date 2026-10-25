@@ -8,6 +8,7 @@ import {
   hostedModelExperimentVariant,
   isHostedModelExperimentEnabled,
   resolveHostedModelExperiment,
+  singleNonHostedAssignment,
 } from "./hosted-model-experiment.js";
 
 const base = {
@@ -105,6 +106,17 @@ describe("hosted model experiment", () => {
     expect(
       resolveHostedModelExperiment({ ...base, userEmail: undefined }),
     ).toBeNull();
+  });
+
+  it("keeps the singular tags naming only the other experiment", () => {
+    const other = { experimentId: "other-exp", variantId: "a" };
+    const hosted = {
+      experimentId: HOSTED_MODEL_EXPERIMENT_ID,
+      variantId: HOSTED_MODEL_EXPERIMENT_TREATMENT.id,
+    };
+    expect(singleNonHostedAssignment([other, hosted])).toEqual(other);
+    expect(singleNonHostedAssignment([hosted])).toBeUndefined();
+    expect(singleNonHostedAssignment([other])).toEqual(other);
   });
 
   it("finds the hosted variant even when other experiments share the turn", () => {
