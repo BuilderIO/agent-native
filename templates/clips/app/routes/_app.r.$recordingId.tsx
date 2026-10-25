@@ -1205,10 +1205,9 @@ export default function RecordingPage() {
       enableComments: recording?.enableComments ?? false,
       viewerIsOwner: role === "owner",
     });
-  const canComment =
-    Boolean(recording?.enableComments) &&
-    role != null &&
-    recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
+  // Reactions have their own setting; turning comments off must not gate them.
+  const canReact = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
+  const canComment = Boolean(recording?.enableComments) && canReact;
   // Where the panel lands when the requested tab does not apply. Transcript is
   // the video default; a screenshot has no transcript tab at all, so it falls
   // back to the conversation, or to settings when comments are off. A viewer
@@ -2775,7 +2774,7 @@ export default function RecordingPage() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!canComment}
+                disabled={!canReact}
                 className="gap-1.5 px-2 text-xs"
               >
                 <IconMoodSmile className="size-4" />

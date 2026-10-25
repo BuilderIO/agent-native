@@ -4,6 +4,7 @@ const context = vi.hoisted(() => ({
   navigation: { view: "library", recordingId: "rec-test" },
   recording: null as Record<string, unknown> | null,
   email: "viewer@example.com",
+  role: null as "owner" | "editor" | null,
   childReads: vi.fn(),
 }));
 
@@ -18,6 +19,7 @@ const TABLES = vi.hoisted(() => ({
     updatedAt: "recordings.updatedAt",
   },
   meetings: { recordingId: "meetings.recordingId" },
+  recordingBugReports: { recordingId: "bugReports.recordingId" },
   folders: {
     ownerEmail: "folders.ownerEmail",
     spaceId: "folders.spaceId",
@@ -48,15 +50,23 @@ const makeRealDb = vi.hoisted(() => () => ({
         }
         context.childReads(table);
         const rows =
-          table === "recordingComments"
+          table === TABLES.recordingBugReports
             ? [
                 {
-                  id: "comment-test",
-                  content: "Fake discussion",
-                  authorEmail: "author@example.com",
+                  projectId: "fake-project",
+                  title: "Fake report",
+                  severity: "low",
                 },
               ]
-            : [];
+            : table === "recordingComments"
+              ? [
+                  {
+                    id: "comment-test",
+                    content: "Fake discussion",
+                    authorEmail: "author@example.com",
+                  },
+                ]
+              : [];
         return {
           where: () =>
             Object.assign(Promise.resolve(rows), {
@@ -143,7 +153,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ kind: "access-filter" }),
-  resolveAccess: async () => null,
+  resolveAccess: async () => (context.role ? { role: context.role } : null),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -172,6 +182,7 @@ vi.mock("../server/db/index.js", () => ({
     recordingComments: "recordingComments",
     recordingTranscripts: { recordingId: "transcripts.recordingId" },
     recordingBrowserDiagnostics: { recordingId: "diagnostics.recordingId" },
+    recordingBugReports: TABLES.recordingBugReports,
   },
 }));
 
@@ -211,6 +222,7 @@ describe("view-screen library view on a cold start", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     context.recording = null;
+    context.role = null;
     context.navigation.view = "library";
   });
 
@@ -259,6 +271,7 @@ describe("view-screen recording access", () => {
     vi.clearAllMocks();
     context.navigation.view = "recording";
     context.email = "viewer@example.com";
+    context.role = null;
     recording = {
       id: "rec-test",
       title: "Fake recording",
@@ -298,6 +311,61 @@ describe("view-screen recording access", () => {
           "recordingComments",
         );
       }
+    },
+  );
+
+  it.each([
+    { trashedAt: "2026-01-01T00:00:00Z" },
+    { expiresAt: "2020-01-01T00:00:00Z" },
+  ])(
+    "withholds completed bug-report context after access ends: %j",
+    async (settings) => {
+      context.navigation.view = "bug-report-done";
+      context.role = "editor";
+      Object.assign(recording, settings);
+
+      const screen = JSON.parse(await action.run({}));
+
+      expect(screen.recording).toBeUndefined();
+      expect(screen.bugReport).toBeUndefined();
+      expect(context.childReads).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      email: "owner@example.com",
+      role: "owner" as const,
+      trashedAt: "2026-01-01T00:00:00Z",
+      expiresAt: null,
+    },
+    {
+      email: "owner@example.com",
+      role: "owner" as const,
+      trashedAt: null,
+      expiresAt: "2020-01-01T00:00:00Z",
+    },
+    {
+      email: "viewer@example.com",
+      role: "editor" as const,
+      trashedAt: null,
+      expiresAt: null,
+    },
+  ])(
+    "keeps authorized completed bug-report context: %j",
+    async ({ email, role, ...settings }) => {
+      context.navigation.view = "bug-report-done";
+      context.email = email;
+      context.role = role;
+      Object.assign(recording, settings);
+
+      const screen = JSON.parse(await action.run({}));
+
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.bugReport).toMatchObject({
+        title: "Fake report",
+        projectId: "fake-project",
+      });
     },
   );
 
