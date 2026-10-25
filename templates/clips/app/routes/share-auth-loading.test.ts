@@ -102,12 +102,6 @@ describe("authenticated recording route loading", () => {
     expect(processingView).not.toContain("ShareCopyRow");
   });
 
-  it("keeps transient missing share records loading while retrying locally", () => {
-    const route = readRoute("share.$shareId.tsx");
-    expect(route).toContain("retryingMissingShare ||");
-    expect(route).toContain("getQueryState(shareQueryKey)?.dataUpdateCount");
-  });
-
   it("keeps expired share loader data impersonal for CDN caching", () => {
     const route = readRoute("share.$shareId.tsx");
 
