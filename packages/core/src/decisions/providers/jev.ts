@@ -88,7 +88,10 @@ export async function requestJev(options: {
       return await requestJevThroughBuilder(
         options.builderAuth,
         options.request,
-        { signal: options.signal, timeoutMs: remainingBudget(deadlineAt) },
+        {
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          timeoutMs: remainingBudget(deadlineAt),
+        },
       );
     } catch (error) {
       if (options.signal?.aborted) {
@@ -143,7 +146,10 @@ async function requestJevDirectWithBudget(
   }
   if (timeoutMs <= 0) throw new JevProviderRequestError("timeout");
   try {
-    return await requestJevDirect(apiKey, request, { signal, timeoutMs });
+    return await requestJevDirect(apiKey, request, {
+      ...(signal === undefined ? {} : { signal }),
+      timeoutMs,
+    });
   } catch (error) {
     if (signal?.aborted) {
       throw new JevProviderRequestError("aborted", signal.reason);

@@ -173,13 +173,34 @@ export function scoreClassification({
         `predicted[${index}] is not present in labels: ${prediction}`,
       );
     }
-    counts[row][column] += 1;
+    const countRow = counts.at(row);
+    if (countRow === undefined) {
+      throw new RangeError("Classification confusion matrix row is missing");
+    }
+    const count = countRow.at(column);
+    if (count === undefined) {
+      throw new RangeError("Classification confusion matrix cell is missing");
+    }
+    countRow[column] = count + 1;
   }
 
   const perLabel = labels.map((label, index): ClassificationLabelMetrics => {
-    const truePositives = counts[index][index];
-    const support = counts[index].reduce((sum, count) => sum + count, 0);
-    const predictedCount = counts.reduce((sum, row) => sum + row[index], 0);
+    const countRow = counts.at(index);
+    if (countRow === undefined) {
+      throw new RangeError("Classification confusion matrix row is missing");
+    }
+    const truePositives = countRow.at(index);
+    if (truePositives === undefined) {
+      throw new RangeError("Classification confusion matrix cell is missing");
+    }
+    const support = countRow.reduce((sum, count) => sum + count, 0);
+    const predictedCount = counts.reduce((sum, row) => {
+      const count = row.at(index);
+      if (count === undefined) {
+        throw new RangeError("Classification confusion matrix cell is missing");
+      }
+      return sum + count;
+    }, 0);
     const falsePositives = predictedCount - truePositives;
     const falseNegatives = support - truePositives;
     const precision = predictedCount === 0 ? 0 : truePositives / predictedCount;
@@ -293,12 +314,14 @@ export function thresholdSweep({
   let largestThresholdMeetingTargetRecall: number | null = null;
 
   for (const { threshold, index } of sortedThresholds) {
-    while (
-      exampleIndex < sortedExamples.length &&
-      sortedExamples[exampleIndex].probability >= threshold
-    ) {
+    while (exampleIndex < sortedExamples.length) {
+      const example = sortedExamples.at(exampleIndex);
+      if (example === undefined) {
+        throw new RangeError("Sorted classification example is missing");
+      }
+      if (example.probability < threshold) break;
       predictedPositive += 1;
-      if (sortedExamples[exampleIndex].positive) truePositives += 1;
+      if (example.positive) truePositives += 1;
       exampleIndex += 1;
     }
 
@@ -353,16 +376,36 @@ export function expectedCalibrationError({
   const confidenceSums = Array.from({ length: bins }, () => 0);
   const positiveCounts = Array.from({ length: bins }, () => 0);
   for (let index = 0; index < probabilities.length; index += 1) {
-    const bin = Math.min(bins - 1, Math.floor(probabilities[index] * bins));
-    counts[bin] += 1;
-    confidenceSums[bin] += probabilities[index];
-    if (gold[index]) positiveCounts[bin] += 1;
+    const probability = probabilities.at(index);
+    const positive = gold.at(index);
+    if (probability === undefined || positive === undefined) {
+      throw new RangeError(`Calibration input[${index}] is missing`);
+    }
+    const bin = Math.min(bins - 1, Math.floor(probability * bins));
+    const count = counts.at(bin);
+    const confidenceSum = confidenceSums.at(bin);
+    const positiveCount = positiveCounts.at(bin);
+    if (
+      count === undefined ||
+      confidenceSum === undefined ||
+      positiveCount === undefined
+    ) {
+      throw new RangeError("Calibration bin is missing");
+    }
+    counts[bin] = count + 1;
+    confidenceSums[bin] = confidenceSum + probability;
+    if (positive) positiveCounts[bin] = positiveCount + 1;
   }
 
   return counts.reduce((error, count, bin) => {
     if (count === 0) return error;
-    const averageConfidence = confidenceSums[bin] / count;
-    const observedFrequency = positiveCounts[bin] / count;
+    const confidenceSum = confidenceSums.at(bin);
+    const positiveCount = positiveCounts.at(bin);
+    if (confidenceSum === undefined || positiveCount === undefined) {
+      throw new RangeError("Calibration bin is missing");
+    }
+    const averageConfidence = confidenceSum / count;
+    const observedFrequency = positiveCount / count;
     return (
       error +
       (count / gold.length) * Math.abs(observedFrequency - averageConfidence)

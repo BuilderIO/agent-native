@@ -221,13 +221,12 @@ function validateOptions(options: DecideOptions | undefined): boolean {
     return false;
   }
   if (options.providers) {
+    const providers: readonly unknown[] = options.providers;
     if (
-      options.providers.length < 1 ||
-      options.providers.length > 2 ||
-      new Set(options.providers).size !== options.providers.length ||
-      options.providers.some(
-        (provider) => provider !== "openai" && provider !== "jev",
-      )
+      providers.length < 1 ||
+      providers.length > 2 ||
+      new Set(providers).size !== providers.length ||
+      providers.some((provider) => provider !== "openai" && provider !== "jev")
     ) {
       return false;
     }
@@ -353,7 +352,9 @@ export async function decide(input: {
         try {
           if (
             await isJevEnabled(jevCredentials, {
-              signal: input.options?.signal,
+              ...(input.options?.signal === undefined
+                ? {}
+                : { signal: input.options.signal }),
               timeoutMs: entitlementTimeoutMs,
             })
           ) {
@@ -415,16 +416,28 @@ export async function decide(input: {
               input: input.input,
               questions: input.questions,
               apiKey,
-              signal: input.options?.signal,
+              ...(input.options?.signal === undefined
+                ? {}
+                : { signal: input.options.signal }),
               timeoutMs: providerTimeoutMs,
             })
           : await requestJev({
-              apiKey: jevCredentials?.apiKey,
-              personalApiKey: jevCredentials?.personalApiKey,
-              directApiKey: jevCredentials?.directApiKey,
-              builderAuth: jevCredentials?.builderAuth,
+              ...(jevCredentials?.apiKey === undefined
+                ? {}
+                : { apiKey: jevCredentials.apiKey }),
+              ...(jevCredentials?.personalApiKey === undefined
+                ? {}
+                : { personalApiKey: jevCredentials.personalApiKey }),
+              ...(jevCredentials?.directApiKey === undefined
+                ? {}
+                : { directApiKey: jevCredentials.directApiKey }),
+              ...(jevCredentials?.builderAuth === undefined
+                ? {}
+                : { builderAuth: jevCredentials.builderAuth }),
               request: toJevRequest(input.input, input.questions),
-              signal: input.options?.signal,
+              ...(input.options?.signal === undefined
+                ? {}
+                : { signal: input.options.signal }),
               timeoutMs: providerTimeoutMs,
             });
       const parsed = parseDecisionAnswers(provider, input.questions, response);
@@ -493,13 +506,15 @@ export async function getDecisionsStatus(
   const throwIfAborted = (): void => signal?.throwIfAborted();
 
   throwIfAborted();
-  let openAiLookupFailed = false;
+  const openAiLookupState: { failed: boolean } = { failed: false };
   const credentialTimeoutMs = Math.max(0, deadlineAt - Date.now());
   const [openAiLookup, jevLookup] = await Promise.all([
     waitForLookup(
       getOwnerApiKeyForEngine("ai-sdk:openai", ownerEmail, {
         allowDeploymentFallback: false,
-        onLookupFailure: () => (openAiLookupFailed = true),
+        onLookupFailure: () => {
+          openAiLookupState.failed = true;
+        },
       }),
       signal,
       credentialTimeoutMs,
@@ -516,7 +531,7 @@ export async function getDecisionsStatus(
   const openAiStatus =
     openAiLookup.status === "timeout"
       ? "unknown"
-      : openAiLookupFailed
+      : openAiLookupState.failed
         ? "unknown"
         : openAiLookup.value.credentialProvenance?.scope === "deployment"
           ? "not_configured"
@@ -541,7 +556,10 @@ export async function getDecisionsStatus(
     }
     try {
       const entitlementLookup = await waitForLookup(
-        isJevEnabled(jev, { signal, timeoutMs: entitlementTimeoutMs }),
+        isJevEnabled(jev, {
+          ...(signal === undefined ? {} : { signal }),
+          timeoutMs: entitlementTimeoutMs,
+        }),
         signal,
         entitlementTimeoutMs,
       );

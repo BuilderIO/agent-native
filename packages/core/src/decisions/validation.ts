@@ -175,7 +175,7 @@ function cloneJsonValue(
     if (!Number.isFinite(value)) {
       throw new TypeError("JSON input contains a non-finite number.");
     }
-    consumePayloadBytes(budget, JSON.stringify(value)!.length);
+    consumePayloadBytes(budget, String(value).length);
     return value;
   }
   if (typeof value !== "object") {
@@ -284,8 +284,10 @@ function serializeJsonValue(
   budget: PayloadBudget,
 ): JsonSerializationResult {
   try {
-    const json = JSON.stringify(cloneJsonValue(value, new WeakSet(), budget));
-    if (json === undefined) {
+    const json: unknown = JSON.stringify(
+      cloneJsonValue(value, new WeakSet(), budget),
+    );
+    if (typeof json !== "string") {
       return {
         status: "not_serializable",
         cause: new TypeError("JSON input has no serialized representation."),

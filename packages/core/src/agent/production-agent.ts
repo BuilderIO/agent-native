@@ -890,23 +890,23 @@ async function getOwnerJevApiKeyCredential(
       lookupFailed: false,
     };
   }
-  let lookupFailed = false;
+  const lookupState: { failed: boolean } = { failed: false };
   const ownerCredential = await getOwnerApiKeyDetailed("jev", ownerEmail, {
     onLookupFailure: () => {
-      lookupFailed = true;
+      lookupState.failed = true;
     },
   });
   if (ownerCredential) {
     const source = ownerCredential.credentialProvenance.scope;
-    if (!lookupFailed) {
+    if (!lookupState.failed) {
       writeOptionalKeyCache(cacheKey, `${source}:${ownerCredential.apiKey}`);
     }
     return {
       credential: { apiKey: ownerCredential.apiKey, source },
-      lookupFailed,
+      lookupFailed: lookupState.failed,
     };
   }
-  if (lookupFailed) return { credential: null, lookupFailed: true };
+  if (lookupState.failed) return { credential: null, lookupFailed: true };
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -918,7 +918,7 @@ async function getOwnerJevApiKeyCredential(
       value: deployKey,
     }))
   ) {
-    if (!lookupFailed) {
+    if (!lookupState.failed) {
       writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
     }
     return {
@@ -927,7 +927,7 @@ async function getOwnerJevApiKeyCredential(
     };
   }
 
-  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  if (!lookupState.failed) writeOptionalKeyCache(cacheKey, undefined);
   return { credential: null, lookupFailed: false };
 }
 
@@ -1004,10 +1004,10 @@ export async function getOwnerApiKeyForEngine(
     onLookupFailure?: () => void;
   },
 ): Promise<ResolvedOwnerApiKey> {
-  let lookupFailed = false;
+  const lookupState: { failed: boolean } = { failed: false };
   const reportLookupFailure = (): void => {
-    if (lookupFailed) return;
-    lookupFailed = true;
+    if (lookupState.failed) return;
+    lookupState.failed = true;
     options?.onLookupFailure?.();
   };
   try {
@@ -1024,7 +1024,7 @@ export async function getOwnerApiKeyForEngine(
       };
     }
     if (
-      lookupFailed ||
+      lookupState.failed ||
       options?.allowDeploymentFallback === false ||
       !envVar ||
       !canUseDeployCredentialFallbackForRequest(envVar)

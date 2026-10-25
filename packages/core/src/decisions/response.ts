@@ -85,6 +85,7 @@ function answerForQuestion(
   if (hasConfidence && answerConfidence === undefined) {
     throw new DecisionResponseError("invalid_response");
   }
+  const confidence = hasConfidence ? answerConfidence : undefined;
 
   if (question.type === "choice") {
     const choice = value.choice;
@@ -106,7 +107,7 @@ function answerForQuestion(
       name: question.name,
       choice,
       ...(probabilities ? { probabilities } : {}),
-      ...(hasConfidence ? { confidence: answerConfidence! } : {}),
+      ...(confidence !== undefined ? { confidence } : {}),
     };
   }
 
@@ -137,7 +138,7 @@ function answerForQuestion(
     score,
     levels,
     ...(probabilities ? { probabilities } : {}),
-    ...(hasConfidence ? { confidence: answerConfidence! } : {}),
+    ...(confidence !== undefined ? { confidence } : {}),
   };
 }
 
