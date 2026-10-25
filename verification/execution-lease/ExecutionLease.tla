@@ -38,7 +38,8 @@ Policies  == {"never", "retry-safe", "read-only"}
 Gens      == 0..Cardinality(Runs)  \* 0 = NULL; each run claims at most once
 StepStatus == {"prepared", "dispatched", "unknown", "completed"}
 \* Worker program counter for the one step (PA:9360-10380, BAR:1173-1238).
-WPC == {"idle", "begin", "dispatch", "finish", "late", "done"}
+WPC == {"idle", "begin", "dispatch", "dispatch-started", "invoke",
+        "finish", "late", "done"}
 
 NoLease == [exists |-> FALSE, owner |-> NoRun, gen |-> 0, live |-> FALSE]
 NoStep  == [exists |-> FALSE, status |-> "none", run |-> NoRun, gen |-> 0,
@@ -178,7 +179,9 @@ BeginStep(r) ==
                       /\ policy[r] \in {"read-only", "retry-safe"}
          execute ==
            /\ step' = Adopt(r)
-           /\ wpc' = [wpc EXCEPT ![r] = "dispatch"]
+           /\ wpc' = [wpc EXCEPT ![r] = IF Mutation = "c"
+                                           THEN "dispatch-started"
+                                           ELSE "dispatch"]
            /\ effectPending' = IF Mutation = "c"
                                  THEN [effectPending EXCEPT ![r] = TRUE]
                                  ELSE effectPending
@@ -200,23 +203,69 @@ BeginStep(r) ==
 \* UPDATE ... SET status='dispatched' WHERE run_id=? AND generation=? AND
 \* status='prepared' (RS:822-825). Awaited before the action runs: PA:9909-9911
 \* then runPreparedActionCall PA:9947; BAR:1227 then sendMessageToTarget
-\* BAR:1228. A rowsAffected != 1 throws (RS:835-837), so no effect; here that
-\* is the action never being enabled for this worker.
+\* BAR:1228. A rowsAffected != 1 throws (RS:835-837), so this worker cannot
+\* reach the pre-invocation or effect transitions.
 \* Mutation a drops the fence and keeps the run_id/generation clause; f drops
 \* the clause and keeps the fence. sufficiency/*.cfg check what each guard
 \* alone still guarantees (NOTES.md).
 MarkDispatched(r) ==
-  /\ wpc[r] = "dispatch"
+  /\ wpc[r] \in {"dispatch", "dispatch-started"}
   /\ Mutation = "a" \/ FenceOK(r)
   /\ step.exists /\ step.status = "prepared"
   /\ Mutation = "f" \/ StepMine(r)
   /\ step' = [step EXCEPT !.status = "dispatched"]
-  /\ effectPending' = IF Mutation = "c" THEN effectPending
-                      ELSE [effectPending EXCEPT ![r] = TRUE]
-  /\ wpc' = [wpc EXCEPT ![r] = "finish"]
+  /\ effectPending' = effectPending
+  /\ wpc' = [wpc EXCEPT ![r] = IF wpc[r] = "dispatch-started"
+                                  THEN "finish"
+                                  ELSE "invoke"]
   /\ UNCHANGED <<policy, rstatus, wg, lease, effects, liveSteal>>
   /\ RetireDead
   /\ JournalWrite(r)
+
+\* The second abort/timeout check has passed and actionInvoked is set just
+\* before runPreparedActionCall (PA:10266-10322). No database guard follows.
+InvokeHandler(r) ==
+  /\ wpc[r] = "invoke"
+  /\ rstatus[r] = "running"
+  /\ ~effectPending[r]
+  /\ StepMine(r) /\ step.status = "dispatched"
+  /\ wpc' = [wpc EXCEPT ![r] = "finish"]
+  /\ effectPending' = [effectPending EXCEPT ![r] = TRUE]
+  /\ UNCHANGED <<policy, rstatus, wg, lease, step, checked, effects,
+                 staleWrite, liveSteal>>
+  /\ RetireDead
+
+\* Cancellation can win after the durable dispatch marker but before the
+\* handler starts. The direct write uses the old live fence. If that fence
+\* went stale, the helper ignores only that exact ALS fence, locks the current
+\* lease and running owner, then reassigns the still-old step row to them.
+\* It never resets after InvokeHandler: that action may still be a zombie.
+ResetBeforeInvocation(r) ==
+  /\ wpc[r] = "invoke"
+  /\ ~effectPending[r]
+  /\ step.exists /\ step.status = "dispatched" /\ StepMine(r)
+  /\ \/ /\ Current(r)
+        /\ FenceOK(r)
+        /\ step' = [step EXCEPT !.status = "prepared"]
+        /\ wpc' = [wpc EXCEPT ![r] = "done"]
+        /\ effectPending' = [effectPending EXCEPT ![r] = FALSE]
+        /\ UNCHANGED <<policy, rstatus, wg, lease, effects, liveSteal>>
+        /\ UseFence(r)
+        /\ JournalWrite(r)
+        /\ RetireDead
+     \/ \E q \in Runs :
+          /\ q # r
+          /\ ~Current(r)
+          /\ Current(q)
+          /\ rstatus[q] = "running"
+          /\ step' = [step EXCEPT !.status = "prepared",
+                                    !.run = q, !.gen = wg[q]]
+          /\ wpc' = [wpc EXCEPT ![r] = "done"]
+          /\ effectPending' = [effectPending EXCEPT ![r] = FALSE]
+          /\ staleWrite' = staleWrite \/ (step' # step /\ ~Current(q))
+          /\ UNCHANGED <<policy, rstatus, wg, lease, checked, effects,
+                         liveSteal>>
+          /\ RetireDead
 
 \* W7 the external effect: runPreparedActionCall PA:9947 (inside invokeAction,
 \* PA:9896-9961) or adapter.sendMessageToTarget BAR:1228. No DB guard. It may
@@ -233,7 +282,8 @@ Effect(r) ==
 \* WHERE run_id, generation AND status='dispatched' (RS:852-855).
 \* Callers PA:10351, BAR:1229.
 CompleteStep(r) ==
-  /\ wpc[r] = "finish"
+  /\ wpc[r] \in {"finish", "invoke"}
+  /\ (wpc[r] = "finish" \/ step.policy = "read-only")
   /\ FenceOK(r)
   /\ StepMine(r) /\ step.status = "dispatched"
   /\ step' = [step EXCEPT !.status = "completed"]
@@ -450,6 +500,8 @@ Next ==
   \/ \E r \in Runs : FenceCheck(r)
   \/ \E r \in Runs : BeginStep(r)
   \/ \E r \in Runs : MarkDispatched(r)
+  \/ \E r \in Runs : InvokeHandler(r)
+  \/ \E r \in Runs : ResetBeforeInvocation(r)
   \/ \E r \in Runs : Effect(r)
   \/ \E r \in Runs : CompleteStep(r)
   \/ \E r \in Runs : MarkUnknown(r)

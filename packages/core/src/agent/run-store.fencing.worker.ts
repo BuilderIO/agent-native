@@ -128,7 +128,7 @@ async function main(): Promise<void> {
         writeSync(1, JSON.stringify({ status: "unexpected-write" }));
         return;
       }
-      if (mode === "queue-submit") {
+      if (mode === "queue-submit" || mode === "queue-submit-ack-barrier") {
         await withMigrationRuntime(() => ensureChatThreadTables());
         const input = JSON.parse(extra ?? "null") as {
           message: QueuedMessage;
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
           queuedMessageId: input.message.id,
         });
         let submissionFailure: string | undefined;
-        let pauseBeforeWrite = true;
+        let pauseBeforeWrite = mode === "queue-submit";
         const updated = await updateThreadData(
           threadId,
           "{}",
@@ -192,6 +192,15 @@ async function main(): Promise<void> {
             },
           },
         );
+        if (mode === "queue-submit-ack-barrier") {
+          if (submissionFailure || !updated) {
+            throw new Error(
+              `Queued submission did not commit before ack barrier: ${submissionFailure ?? "thread update rejected"}`,
+            );
+          }
+          writeSync(1, `${JSON.stringify({ ready: true, committed: true })}\n`);
+          await waitForContinue();
+        }
         writeSync(
           1,
           JSON.stringify({
