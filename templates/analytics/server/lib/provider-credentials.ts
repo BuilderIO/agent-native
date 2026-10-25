@@ -219,15 +219,6 @@ function normalizeCoreCredentialResult(
   result: WorkspaceConnectionCredentialResolution,
   fallback: { provider: string; key: string; ctx: CredentialContext },
 ): AnalyticsProviderCredential | null {
-  if (result.status === "error") {
-    fail(
-      `The ${fallback.provider} workspace credential lookup failed. Retry the request.`,
-      {
-        errorCode: "workspace_connection_credential_lookup_failed",
-        statusCode: 503,
-      },
-    );
-  }
   if (!result.available || !result.value) return null;
   const scope =
     result.provenance?.secretScope === "user" ||
@@ -310,6 +301,7 @@ async function resolveViaCoreHelper({
   connectionId?: string | null;
 }): Promise<AnalyticsProviderCredential | null> {
   const normalizedConnectionId = connectionId?.trim() || undefined;
+  let lookupFailed = false;
   for (const key of keys) {
     const result = await resolveWorkspaceConnectionCredentialForApp({
       appId: ANALYTICS_APP_ID,
@@ -322,12 +314,26 @@ async function resolveViaCoreHelper({
         ? { credentialScope: "org" as const }
         : {}),
     });
+    if (result.status === "error") {
+      lookupFailed = true;
+      continue;
+    }
     const credential = normalizeCoreCredentialResult(result, {
       provider,
       key,
       ctx,
     });
     if (credential) return credential;
+  }
+
+  if (lookupFailed) {
+    fail(
+      `The ${provider} workspace credential lookup failed. Retry the request.`,
+      {
+        errorCode: "workspace_connection_credential_lookup_failed",
+        statusCode: 503,
+      },
+    );
   }
 
   return null;

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   coreResult: null as unknown,
+  coreResultsByKey: new Map<string, unknown>(),
   localCredentials: new Map<string, string>(),
   coreResolverCalls: [] as Array<Record<string, unknown>>,
   workspaceConnectionResult: null as unknown,
@@ -37,6 +38,7 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   resolveWorkspaceConnectionCredentialForApp: vi.fn(async (args) => {
     mocks.coreResolverCalls.push(args);
     return (
+      mocks.coreResultsByKey.get(args.key) ??
       mocks.coreResult ?? {
         available: false,
         status: "not_available",
@@ -84,6 +86,7 @@ import {
 describe("analytics provider credentials", () => {
   beforeEach(() => {
     mocks.coreResult = null;
+    mocks.coreResultsByKey.clear();
     mocks.localCredentials.clear();
     mocks.coreResolverCalls = [];
     mocks.workspaceConnectionResult = null;
@@ -844,7 +847,48 @@ describe("analytics provider credentials", () => {
       errorCode: "workspace_connection_credential_lookup_failed",
       statusCode: 503,
     });
-    expect(mocks.coreResolverCalls).toHaveLength(1);
+    expect(mocks.coreResolverCalls).toHaveLength(2);
+  });
+
+  it("tries the alternate HubSpot key after a workspace lookup error", async () => {
+    mocks.coreResultsByKey.set("HUBSPOT_PRIVATE_APP_TOKEN", {
+      available: false,
+      status: "error",
+      reason: "Credential store temporarily unavailable",
+      provider: "hubspot",
+      key: "HUBSPOT_PRIVATE_APP_TOKEN",
+      provenance: null,
+      checked: [],
+    });
+    mocks.coreResultsByKey.set("HUBSPOT_ACCESS_TOKEN", {
+      available: true,
+      status: "resolved",
+      value: "workspace-token",
+      provider: "hubspot",
+      key: "HUBSPOT_ACCESS_TOKEN",
+      provenance: {
+        resolvedKey: "HUBSPOT_ACCESS_TOKEN",
+        connectionId: "hubspot-connection",
+        connectionLabel: "HubSpot",
+        secretScope: "org",
+      },
+    });
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "hubspot",
+        keys: HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "workspace-token",
+      key: "HUBSPOT_ACCESS_TOKEN",
+      source: "workspace_connection",
+    });
+    expect(mocks.coreResolverCalls.map(({ key }) => key)).toEqual([
+      "HUBSPOT_PRIVATE_APP_TOKEN",
+      "HUBSPOT_ACCESS_TOKEN",
+    ]);
   });
 
   it("prefers a granted HubSpot OAuth bearer token over legacy credentials", async () => {
