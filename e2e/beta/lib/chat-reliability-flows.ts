@@ -5,7 +5,7 @@ import {
   describeState,
   exactReplyPrompt,
   isIdle,
-  isTurnPost,
+  isQueuedMessageAppendPost,
   lineToken,
   LONG_ANSWER_LINES,
   longAnswerPrompt,
@@ -114,9 +114,11 @@ export async function secondMessageWhileRunning(
   );
   await s.captureThreadId(first);
 
-  const turnPostsBefore = s.traffic.entries.filter(isTurnPost).length;
+  const queuedPostsBefore = s.traffic.entries.filter(
+    isQueuedMessageAppendPost,
+  ).length;
   await s.send(exactReplyPrompt(second), second, { expectTurnPost: false });
-  await s.assertQueuedTurnPostReceipt(turnPostsBefore);
+  await s.assertQueuedSubmissionReceipt(queuedPostsBefore);
   const afterSecond = await s.readState();
   if (
     afterSecond.ok &&

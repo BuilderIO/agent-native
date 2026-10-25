@@ -11,6 +11,8 @@ import {
   inspectActiveRun,
   inspectPersistedThread,
   isIdle,
+  isQueuedMessageAppendPost,
+  isTurnPost,
   lineToken,
   longAnswerPrompt,
   LONG_ANSWER_LINES,
@@ -1119,5 +1121,24 @@ test("the thread id comes from the turn POST before any other request", () => {
       }),
     ]),
     "from-poll",
+  );
+});
+
+test("queued append mutations are distinct from turn POSTs", () => {
+  const entry: TrafficEntry = {
+    atMs: 0,
+    method: "POST",
+    path: "/_agent-native/agent-chat/threads/thread-1/queued",
+    query: "",
+    status: 200,
+    threadId: "thread-1",
+    messageId: "message-1",
+    queueMutationType: "append",
+  };
+  assert.equal(isQueuedMessageAppendPost(entry), true);
+  assert.equal(isTurnPost(entry), false);
+  assert.equal(
+    isQueuedMessageAppendPost({ ...entry, queueMutationType: "claim" }),
+    false,
   );
 });

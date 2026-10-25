@@ -26,6 +26,7 @@ import {
   inspectActiveRun,
   inspectPersistedThread,
   isIdle,
+  isQueuedMessageAppendPost,
   isTurnPost,
   parseJson,
   RELIABILITY_TAG,
@@ -323,6 +324,27 @@ export class TrafficRecorder {
           entry.messageId = requestBody.agentKitMessageId;
         }
       }
+      if (entry.method === "POST" && url.pathname.endsWith("/queued")) {
+        const body = parseJson(request.postData() ?? "");
+        const requestBody =
+          body.ok && body.value && typeof body.value === "object"
+            ? (body.value as {
+                mutation?: {
+                  type?: unknown;
+                  message?: { id?: unknown; threadId?: unknown };
+                };
+              })
+            : undefined;
+        if (typeof requestBody?.mutation?.type === "string") {
+          entry.queueMutationType = requestBody.mutation.type;
+        }
+        if (typeof requestBody?.mutation?.message?.id === "string") {
+          entry.messageId = requestBody.mutation.message.id;
+        }
+        if (typeof requestBody?.mutation?.message?.threadId === "string") {
+          entry.threadId = requestBody.mutation.message.threadId;
+        }
+      }
       this.entries.push(entry);
       this.byRequest.set(request, entry);
     });
@@ -330,7 +352,10 @@ export class TrafficRecorder {
       const entry = this.byRequest.get(response.request());
       if (!entry) return;
       entry.status = response.status();
-      if (response.status() === 202) {
+      if (
+        response.status() === 202 ||
+        (response.status() === 200 && isQueuedMessageAppendPost(entry))
+      ) {
         void response
           .json()
           .then((value: unknown) => {
@@ -341,6 +366,7 @@ export class TrafficRecorder {
             const body = value as {
               state?: unknown;
               message?: { id?: unknown; threadId?: unknown };
+              queuedMessages?: { id?: unknown }[];
             };
             if (typeof body.state === "string") {
               entry.queuedState = body.state;
@@ -350,6 +376,16 @@ export class TrafficRecorder {
             }
             if (typeof body.message?.threadId === "string") {
               entry.queuedThreadId = body.message.threadId;
+            }
+            if (
+              isQueuedMessageAppendPost(entry) &&
+              Array.isArray(body.queuedMessages) &&
+              typeof body.message?.id === "string" &&
+              body.queuedMessages.some(
+                (message) => message?.id === body.message?.id,
+              )
+            ) {
+              entry.queuedState = "queued";
             }
           })
           .catch(() => {
@@ -845,31 +881,35 @@ export class ChatReliabilitySession {
     this.note(`sent prompt containing ${token}`);
   }
 
-  /** The busy-run POST was admitted and its durable queued receipt was returned. */
-  async assertQueuedTurnPostReceipt(afterCount: number): Promise<void> {
+  /** The queued message POST returned the durable queue state it appended. */
+  async assertQueuedSubmissionReceipt(afterCount: number): Promise<void> {
     await this.pollUntil(
-      "the busy turn POST to return its durable queued receipt",
+      "the queued message POST to return its durable receipt",
       30_000,
       async () => {
-        const posts = this.traffic.entries.filter(isTurnPost).slice(afterCount);
+        const posts = this.traffic.entries
+          .filter(isQueuedMessageAppendPost)
+          .slice(afterCount);
         const post = posts[0];
-        if (!post) return "no turn POST was observed";
-        if (post.status === null) return "the turn POST has no response yet";
-        if (post.status !== 202) {
-          return `the turn POST returned HTTP ${post.status}`;
+        if (!post) return "no queued message POST was observed";
+        if (post.status === null) {
+          return "the queued message POST has no response yet";
+        }
+        if (post.status !== 200) {
+          return `the queued message POST returned HTTP ${post.status}`;
         }
         if (post.responseError) return post.responseError;
         if (!post.queuedMessageId || post.queuedState !== "queued") {
-          return "the 202 response did not contain a queued message receipt";
+          return "the response did not contain the appended queued message";
         }
         if (!post.messageId || !post.threadId) {
-          return "the turn POST did not identify its message and thread";
+          return "the queued message POST did not identify its message and thread";
         }
         if (post.queuedMessageId !== post.messageId) {
-          return "the queued receipt ID did not match the submitted message ID";
+          return "the queued message ID did not match the submitted message ID";
         }
         if (post.queuedThreadId !== post.threadId) {
-          return "the queued receipt thread did not match the submitted thread";
+          return "the queued message thread did not match the submitted thread";
         }
         return null;
       },

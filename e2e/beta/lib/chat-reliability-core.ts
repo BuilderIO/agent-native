@@ -421,9 +421,10 @@ export interface TrafficEntry {
   query: string;
   status: number | null;
   failure?: string;
-  /** From the request body of a turn POST. */
+  /** From the request body that submitted this message. */
   threadId?: string;
   messageId?: string;
+  queueMutationType?: string;
   queuedState?: string;
   queuedMessageId?: string;
   queuedThreadId?: string;
@@ -455,6 +456,14 @@ export function isTurnPost(entry: TrafficEntry): boolean {
   return (
     entry.method === "POST" &&
     entry.path.replace(/\/+$/, "").endsWith(TURN_PATH)
+  );
+}
+
+export function isQueuedMessageAppendPost(entry: TrafficEntry): boolean {
+  return (
+    entry.method === "POST" &&
+    entry.queueMutationType === "append" &&
+    /^\/_agent-native\/agent-chat\/threads\/[^/]+\/queued\/?$/.test(entry.path)
   );
 }
 
