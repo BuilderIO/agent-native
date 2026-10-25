@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
+vi.mock("../server/auth.js", () => ({ getSession: mockGetSession }));
+
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getRouterParam: (event: any, name: string) => event._params?.[name],
@@ -125,6 +128,11 @@ describe("awareness scope retention", () => {
 });
 
 describe("postAwareness handler", () => {
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue(null);
+  });
+
   afterEach(() => {
     mockReadBody.mockReset();
     getDocAwareness("post-doc").clear();
@@ -135,6 +143,19 @@ describe("postAwareness handler", () => {
     const res = await postAwareness(ev);
     expect(ev._status).toBe(400);
     expect(res).toEqual({ error: "docId required" });
+  });
+
+  it("propagates session failures before reading or changing awareness", async () => {
+    const unavailable = new Error("fake session lookup unavailable");
+    mockGetSession.mockRejectedValueOnce(unavailable);
+    const map = getDocAwareness("post-doc");
+
+    await expect(postAwareness(event({ docId: "post-doc" }))).rejects.toBe(
+      unavailable,
+    );
+
+    expect(mockReadBody).not.toHaveBeenCalled();
+    expect(map.size).toBe(0);
   });
 
   it("returns 400 when clientId or state is missing", async () => {

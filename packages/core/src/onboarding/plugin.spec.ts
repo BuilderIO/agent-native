@@ -225,7 +225,7 @@ describe("onboarding plugin routes", () => {
     const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "credential store unavailable" });
+    expect(result.body).toEqual({ error: "Internal server error" });
   });
 
   it("propagates completion failures so callers can retry", async () => {
@@ -245,7 +245,7 @@ describe("onboarding plugin routes", () => {
     const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "storage status unavailable" });
+    expect(result.body).toEqual({ error: "Internal server error" });
   });
 
   it("propagates manual override lookup failures so callers can retry", async () => {
@@ -273,9 +273,9 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(steps.status).toBe(500);
-    expect(steps.body).toEqual({ error: "app state unavailable" });
+    expect(steps.body).toEqual({ error: "Internal server error" });
     expect(dismissed.status).toBe(500);
-    expect(dismissed.body).toEqual({ error: "app state unavailable" });
+    expect(dismissed.body).toEqual({ error: "Internal server error" });
   });
 
   it("does not turn completion failures into incomplete dismissed status", async () => {
@@ -298,7 +298,7 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: "storage status unavailable" });
+    expect(result.body).toEqual({ error: "Internal server error" });
   });
 
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
@@ -347,8 +347,7 @@ describe("onboarding plugin routes", () => {
 
     expect(result.status).toBe(500);
     expect(result.body).toEqual({
-      error:
-        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+      error: "Internal server error",
     });
   });
 
@@ -398,9 +397,9 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(dismissed.status).toBe(500);
-    expect(dismissed.body).toEqual({ error: "connection timed out" });
+    expect(dismissed.body).toEqual({ error: "Internal server error" });
     expect(summary.status).toBe(500);
-    expect(summary.body).toEqual({ error: "connection timed out" });
+    expect(summary.body).toEqual({ error: "Internal server error" });
   });
 
   it("still fails the summary when the credential store is unavailable", async () => {
@@ -416,8 +415,7 @@ describe("onboarding plugin routes", () => {
 
     expect(result.status).toBe(500);
     expect(result.body).toEqual({
-      error:
-        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+      error: "Internal server error",
     });
   });
 
@@ -878,7 +876,7 @@ describe("onboarding plugin routes", () => {
     );
 
     expect(result.status).toBe(500);
-    expect(result.body).toEqual({ error: failure.message });
+    expect(result.body).toEqual({ error: "Internal server error" });
 
     expect(trackMock).toHaveBeenCalledWith(
       "onboarding_role_save_failed",
