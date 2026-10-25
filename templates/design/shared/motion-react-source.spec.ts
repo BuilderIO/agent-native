@@ -2615,7 +2615,7 @@ function Card(style = { animationName: "fade" }) {
     });
   });
 
-  it("rejects React metadata-only writes without an existing style library anchor", () => {
+  it("rejects React metadata-only writes without a default-exported JSX component", () => {
     expect(() =>
       applyMotionReactSourceEdit({
         currentSource: source,
@@ -2627,7 +2627,7 @@ function Card(style = { animationName: "fade" }) {
           animationStyles,
         },
       }),
-    ).toThrow(/requires an existing managed Motion style element/);
+    ).toThrow(/require one default-exported component with a single JSX root/);
   });
 
   it("does not allow an empty-target write that only clears tracks and Text", () => {

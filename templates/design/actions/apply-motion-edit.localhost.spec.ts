@@ -549,6 +549,54 @@ describe("apply-motion-edit localhost React source", () => {
     });
   });
 
+  it("writes first animation style and easing metadata to React source without targets", async () => {
+    const metadataSource = `export default function Home() {
+  return (
+    <main>
+      <h1>Hello</h1>
+    </main>
+  );
+}
+`;
+    const metadataSourceHash = createHash("sha256")
+      .update(metadataSource)
+      .digest("hex");
+    const easingVariables = [
+      {
+        id: "ease-out",
+        name: "Ease out",
+        value: "spring(0.3, 0.8)",
+        collection: "Motion",
+      },
+    ];
+    mocks.readLocal.mockResolvedValue({
+      content: metadataSource,
+      versionHash: metadataSourceHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: metadataSourceHash,
+        timelineVersionHash: metadataSourceHash,
+        renderedNodeIds: [],
+      },
+      tracks: [],
+      animationStyles: [animationStyle],
+      easingVariables,
+    });
+
+    expect(result).toMatchObject({ persisted: true, sourcePatched: true });
+    expect(
+      readMotionReactSource(mocks.writeLocal.mock.calls[0]![0].content),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { animationStyles: [animationStyle], easingVariables },
+    });
+  });
+
   it("persists pathLength for an enabled native Path style in React source", async () => {
     const pathSource = `function Home() {
   return (

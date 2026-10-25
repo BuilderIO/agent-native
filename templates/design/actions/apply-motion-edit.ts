@@ -1514,16 +1514,18 @@ export default defineAction({
             modulePath: localSourceLocation.filePath,
             moduleVersionHash: localSourceInput.moduleVersionHash,
           });
-          // The pre-edit probe cannot see audio metadata supplied by this write.
-          const incomingAudioAuthorizesMetadataOnlyWrite =
-            sourceAudioClips !== undefined &&
+          // The pre-edit probe cannot see metadata supplied by this write.
+          const incomingMetadataAuthorizesMetadataOnlyWrite =
+            (sourceAudioClips !== undefined ||
+              easingVariables.length > 0 ||
+              animationStyles.length > 0) &&
             targetNodeIds.length === 0 &&
             writeCapability.status === "unsupported" &&
             writeCapability.code === "missing-node" &&
             writeCapability.targetNodeIds.length === 0;
           if (
             writeCapability.status === "unsupported" &&
-            !incomingAudioAuthorizesMetadataOnlyWrite
+            !incomingMetadataAuthorizesMetadataOnlyWrite
           ) {
             throw new MotionReactSourceError(
               writeCapability.code,

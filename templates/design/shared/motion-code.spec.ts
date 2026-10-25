@@ -95,6 +95,33 @@ describe("Motion source document CSS codec", () => {
     expect(edited.tracks[0]?.keyframes[1]?.ease).toBe("ease-in");
   });
 
+  it("preserves inherited spring easing when reconciling compiled CSS", () => {
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      defaultEase: "spring(0.25)",
+      tracks: [
+        {
+          ...timeline.tracks[0]!,
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const stored = motionCodeDocumentFromTimeline(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+
+    expect(reconciled.tracks[0]?.keyframes[0]).not.toHaveProperty("ease");
+    expect(reconciled.defaultEase).toBe("spring(0.25)");
+    expect(
+      compileMotionCode({ ...springTimeline, tracks: reconciled.tracks }).css,
+    ).toBe(compiled.css);
+  });
+
   it("reconciles spring easing at compiler-quantized keyframe offsets", () => {
     const roundedOffset = 1000 / 3601;
     const nearbyOffset = roundedOffset + 0.000001;

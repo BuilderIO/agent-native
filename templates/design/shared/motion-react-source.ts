@@ -343,12 +343,6 @@ export function applyMotionReactSourceEdit(
   } else {
     let root: TypeScript.JsxElement | TypeScript.JsxFragment;
     if (metadataOnlyWrite) {
-      if (args.audioClips === undefined) {
-        throw new MotionReactSourceError(
-          "unsupported-motion-document",
-          "A React style-library-only write requires an existing managed Motion style element.",
-        );
-      }
       root = findDefaultExportComponentRoot(sourceFile);
     } else {
       root = targets[0].componentRoot;
@@ -4941,7 +4935,7 @@ function findDefaultExportComponentRoot(
   if (defaultStatements.length !== 1) {
     throw new MotionReactSourceError(
       "unsupported-root",
-      "Audio-only React Motion source requires one default-exported component with a single JSX root.",
+      "React Motion metadata writes require one default-exported component with a single JSX root.",
     );
   }
 
@@ -4949,7 +4943,7 @@ function findDefaultExportComponentRoot(
   if (!defaultStatement) {
     throw new MotionReactSourceError(
       "unsupported-root",
-      "Audio-only React Motion source requires one default-exported component with a single JSX root.",
+      "React Motion metadata writes require one default-exported component with a single JSX root.",
     );
   }
   let owner:
@@ -4993,7 +4987,7 @@ function findDefaultExportComponentRoot(
   if (!owner?.body) {
     throw new MotionReactSourceError(
       "unsupported-root",
-      "Audio-only React Motion source requires a default-exported function component.",
+      "React Motion metadata writes require a default-exported function component.",
     );
   }
 
@@ -5009,7 +5003,7 @@ function findDefaultExportComponentRoot(
     if (returns.length !== 1 || !singleReturn?.expression) {
       throw new MotionReactSourceError(
         "unsupported-root",
-        "Audio-only React Motion source requires one unconditional JSX return.",
+        "React Motion metadata writes require one unconditional JSX return.",
       );
     }
   }
@@ -5019,7 +5013,7 @@ function findDefaultExportComponentRoot(
   if (!returnedExpression) {
     throw new MotionReactSourceError(
       "unsupported-root",
-      "Audio-only React Motion source requires a JSX return value.",
+      "React Motion metadata writes require a JSX return value.",
     );
   }
   let jsxNode: TypeScript.Node | null = null;
@@ -5035,7 +5029,7 @@ function findDefaultExportComponentRoot(
   if (!jsxNode) {
     throw new MotionReactSourceError(
       "unsupported-root",
-      "Audio-only React Motion source requires a JSX element or fragment root.",
+      "React Motion metadata writes require a JSX element or fragment root.",
     );
   }
   const root = findComponentRoot(sourceFile, jsxNode);
