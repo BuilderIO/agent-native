@@ -98,9 +98,10 @@ export default defineAction({
       ),
     propertyIds: z
       .array(z.string())
+      .min(1)
       .optional()
       .describe(
-        "Send property.changed only for these property IDs; omit to send every property",
+        "Send property.changed only for these property IDs; omit to send every property. An empty list is refused.",
       ),
     description: z
       .string()

@@ -50,6 +50,7 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "owner@example.com";
 const STRANGER = "stranger@example.com";
+const COLLABORATOR = "collaborator@example.com";
 const RECEIVER_URL = "https://hooks.example.com/content";
 
 type Schema = typeof import("../server/db/schema.js");
@@ -581,6 +582,184 @@ describe("content webhooks", () => {
     expect(second.lastError).toMatch(/no longer manages/);
   });
 
+  it("W2-1: a collection webhook sends nothing from a row its creator can't open", async () => {
+    const ids = await fixture(2);
+    const [open, closed] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed", "comment.created"],
+      }),
+    );
+    // The webhook now belongs to an admin of the collection who can open
+    // only the first row's page.
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentShares)
+      .values([
+        {
+          id: `${webhook.id}-collection`,
+          resourceId: ids.databaseDocumentId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "admin",
+          createdBy: OWNER,
+          createdAt: now,
+        },
+        {
+          id: `${webhook.id}-row`,
+          resourceId: open.documentId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "viewer",
+          createdBy: OWNER,
+          createdAt: now,
+        },
+      ]);
+    await getDb()
+      .update(schema.contentWebhooks)
+      .set({ createdBy: COLLABORATOR })
+      .where(eq(schema.contentWebhooks.id, webhook.id));
+
+    for (const row of [open, closed]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value: "agent",
+        }),
+      );
+      await asOwner(() =>
+        addComment.run({ documentId: row.documentId, content: "Private note" }),
+      );
+    }
+    const sent = await settled(webhook.id, 4);
+    expect(
+      eventsFor(webhook.id).map((request) => [
+        request.event.type,
+        request.event.documentId,
+      ]),
+    ).toEqual([
+      ["property.changed", open.documentId],
+      ["comment.created", open.documentId],
+    ]);
+    const refused = sent.filter(
+      (delivery: { documentId: string }) =>
+        delivery.documentId === closed.documentId,
+    );
+    expect(refused).toHaveLength(2);
+    for (const delivery of refused) {
+      expect(delivery).toMatchObject({ status: "failed", attempts: 1 });
+      expect(delivery.lastError).toMatch(/can't open this row's page/);
+    }
+  });
+
+  it("W2-3: a slow receiver doesn't hold up other webhooks", async () => {
+    const ids = await fixture(2);
+    const [slowRow, fastRow] = ids.rows;
+    const watch = (documentId: string) =>
+      asOwner(() =>
+        createWebhook.run({
+          url: RECEIVER_URL,
+          documentId,
+          events: ["property.changed"],
+        }),
+      );
+    const { webhook: slow } = await watch(slowRow.documentId);
+    const { webhook: fast } = await watch(fastRow.documentId);
+    receiver.status = 500;
+    // The slow webhook's events are older, so they come first in line.
+    for (const value of ["agent", "alice", "agent"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: slowRow.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
+    await asOwner(() =>
+      setProperty.run({
+        documentId: fastRow.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value: "agent",
+      }),
+    );
+    await settled(slow.id, 3);
+    await settled(fast.id, 1);
+    await makeDue(slow.id);
+    await makeDue(fast.id);
+
+    // The slow receiver answers only once the other webhook has been
+    // served, or gives up after two seconds.
+    let markFastSent!: () => void;
+    const fastSent = new Promise<void>((resolve) => {
+      markFastSent = resolve;
+    });
+    const order: string[] = [];
+    await hooks.drainContentWebhookDeliveries({
+      transport: async (request) => {
+        const { webhookId } = JSON.parse(request.body);
+        if (webhookId === fast.id) {
+          order.push("fast");
+          markFastSent();
+        } else if (webhookId === slow.id) {
+          const served = await Promise.race([
+            fastSent.then(() => true),
+            new Promise<boolean>((resolve) =>
+              setTimeout(() => resolve(false), 2_000),
+            ),
+          ]);
+          order.push(served ? "slow" : "slow, before fast");
+        }
+        return { ok: true, status: 200 };
+      },
+    });
+    expect(order).toEqual(["fast", "slow", "slow", "slow"]);
+  });
+
+  it("W2-1: marks a long value or comment as cut short", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed", "comment.created"],
+      }),
+    );
+    await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.notes,
+        value: "n".repeat(16_001),
+      }),
+    );
+    await asOwner(() =>
+      addComment.run({ documentId: row.documentId, content: "short" }),
+    );
+    await asOwner(() =>
+      addComment.run({
+        documentId: row.documentId,
+        content: "c".repeat(2_001),
+      }),
+    );
+    await settled(webhook.id, 3);
+    const [value, short, long] = eventsFor(webhook.id).map(
+      (request) => request.event.data,
+    );
+    expect(value.newValue).toHaveLength(16_000);
+    expect(value.truncated).toBe(true);
+    expect(short).toMatchObject({ content: "short", truncated: false });
+    expect(long.content).toHaveLength(2_000);
+    expect(long.truncated).toBe(true);
+  });
+
   it("W2-4: registers, lists and removes a webhook, and keeps others out", async () => {
     const ids = await fixture();
     const created = await asOwner(() =>
@@ -718,6 +897,12 @@ describe("content webhooks", () => {
         }),
       ),
     ).rejects.toMatchObject({ errorCode: "WEBHOOK_SCOPE_REQUIRED" });
+    // An empty filter would watch nothing; omitting it watches everything.
+    await expect(
+      asOwner(() =>
+        createWebhook.run({ ...base, url: RECEIVER_URL, propertyIds: [] }),
+      ),
+    ).rejects.toThrow();
     const stored = await getDb()
       .select()
       .from(schema.contentWebhooks)

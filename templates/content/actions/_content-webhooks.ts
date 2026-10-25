@@ -14,7 +14,11 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -63,6 +67,13 @@ export const CONTENT_WEBHOOK_MAX_ATTEMPTS =
 const DELIVERY_TIMEOUT_MS = 10_000;
 const LEASE_MS = 60_000;
 const CLAIM_BATCH = 20;
+/**
+ * At most this many of one webhook's deliveries in a batch. Webhooks send at
+ * the same time, each in order, so a slow receiver holds up only itself.
+ */
+const PER_WEBHOOK_BATCH = 3;
+/** Rows per insert: 11 bound values each, far below Postgres's 65,535. */
+const INSERT_CHUNK = 500;
 const DELIVERED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const FAILED_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const MAX_VALUE_CHARS = 16_000;
@@ -208,30 +219,36 @@ async function insertDeliveries(
   now: string,
 ) {
   if (!rows.length) return 0;
-  await db.insert(schema.contentWebhookDeliveries).values(
-    rows.map((row) => ({
-      id: `evt_${randomUUID().replace(/-/g, "")}`,
-      webhookId: row.webhookId,
-      eventType: row.eventType,
-      documentId: row.documentId,
-      databaseId: row.databaseId,
-      payloadJson: JSON.stringify(row.payload),
-      status: "pending",
-      attempts: 0,
-      nextAttemptAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })),
-  );
+  const values = rows.map((row) => ({
+    id: `evt_${randomUUID().replace(/-/g, "")}`,
+    webhookId: row.webhookId,
+    eventType: row.eventType,
+    documentId: row.documentId,
+    databaseId: row.databaseId,
+    payloadJson: JSON.stringify(row.payload),
+    status: "pending",
+    attempts: 0,
+    nextAttemptAt: now,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  // A 250-row patch fans out to rows × changed properties × webhooks.
+  for (let start = 0; start < values.length; start += INSERT_CHUNK) {
+    await db
+      .insert(schema.contentWebhookDeliveries)
+      .values(values.slice(start, start + INSERT_CHUNK));
+  }
   const scope = deliveryScope.getStore();
   if (scope) scope.enqueued = true;
   return rows.length;
 }
 
+function overLimit(value: DocumentPropertyValue): boolean {
+  return typeof value === "string" && value.length > MAX_VALUE_CHARS;
+}
+
 function boundedValue(value: DocumentPropertyValue): DocumentPropertyValue {
-  return typeof value === "string" && value.length > MAX_VALUE_CHARS
-    ? value.slice(0, MAX_VALUE_CHARS)
-    : value;
+  return overLimit(value) ? (value as string).slice(0, MAX_VALUE_CHARS) : value;
 }
 
 /** The option names a select, status, or multi-select value stands for. */
@@ -317,12 +334,10 @@ export async function enqueuePropertyChangeWebhooks(
               !propertyIds || propertyIds.includes(change.definition.id),
           )
           .map((change) => {
-            const oldValue = boundedValue(
-              parsePropertyValue(change.oldValueJson),
-            );
-            const newValue = boundedValue(
-              parsePropertyValue(change.newValueJson),
-            );
+            const fullOldValue = parsePropertyValue(change.oldValueJson);
+            const fullNewValue = parsePropertyValue(change.newValueJson);
+            const oldValue = boundedValue(fullOldValue);
+            const newValue = boundedValue(fullNewValue);
             return {
               webhookId: webhook.id,
               eventType: "property.changed" as const,
@@ -342,6 +357,8 @@ export async function enqueuePropertyChangeWebhooks(
                   newValue,
                   oldLabel: optionLabel(change.definition, oldValue),
                   newLabel: optionLabel(change.definition, newValue),
+                  // True when a long text value was cut; read the page for all of it.
+                  truncated: overLimit(fullOldValue) || overLimit(fullNewValue),
                 },
               },
             };
@@ -433,6 +450,7 @@ export async function enqueueCommentWebhooks(
             parentId: args.comment.parentId,
             authorEmail: args.comment.authorEmail,
             content: args.comment.content.slice(0, MAX_COMMENT_CHARS),
+            truncated: args.comment.content.length > MAX_COMMENT_CHARS,
             resolved: args.comment.resolved,
           },
         },
@@ -515,11 +533,26 @@ export function contentWebhookBody(delivery: DeliveryRow): string {
   });
 }
 
-async function dueDeliveryIds(db: Db, limit: number): Promise<string[]> {
+/**
+ * The oldest due deliveries, at most PER_WEBHOOK_BATCH of any one webhook's,
+ * grouped by webhook in sequence order.
+ */
+async function dueDeliveriesByWebhook(
+  db: Db,
+  limit: number,
+): Promise<string[][]> {
   const deliveries = schema.contentWebhookDeliveries;
   const now = new Date().toISOString();
-  const rows = await db
-    .select({ id: deliveries.id })
+  const due = db
+    .select({
+      id: deliveries.id,
+      webhookId: deliveries.webhookId,
+      sequence: deliveries.sequence,
+      place:
+        sql<number>`row_number() over (partition by ${deliveries.webhookId} order by ${deliveries.sequence})`.as(
+          "place",
+        ),
+    })
     .from(deliveries)
     .where(
       and(
@@ -531,9 +564,21 @@ async function dueDeliveryIds(db: Db, limit: number): Promise<string[]> {
         ),
       ),
     )
-    .orderBy(asc(deliveries.sequence))
+    .as("due");
+  const rows = await db
+    .select({ id: due.id, webhookId: due.webhookId })
+    .from(due)
+    .where(lte(due.place, PER_WEBHOOK_BATCH))
+    .orderBy(asc(due.sequence))
     .limit(limit);
-  return rows.map((row) => row.id);
+  const byWebhook = new Map<string, string[]>();
+  for (const row of rows) {
+    byWebhook.set(row.webhookId, [
+      ...(byWebhook.get(row.webhookId) ?? []),
+      row.id,
+    ]);
+  }
+  return [...byWebhook.values()];
 }
 
 /** Leases one due delivery right before sending it; null if another drain has it. */
@@ -605,14 +650,36 @@ async function settleDelivery(
     );
 }
 
-/** Events go out only while the person who added the webhook still manages what it watches. */
-async function creatorStillManages(webhook: WebhookRow): Promise<boolean> {
+/**
+ * Why the webhook's creator may not receive this event, or null when they may.
+ * Events go out only while the creator still manages what the webhook watches,
+ * and a collection's events only for rows whose page the creator can open: an
+ * admin of a collection can list a row they can't open, and that row's values
+ * and comments stay with the people who can, as they do in the app.
+ */
+async function creatorRefusal(
+  webhook: WebhookRow,
+  delivery: DeliveryRow,
+): Promise<string | null> {
   return runWithRequestContext(
     {
       userEmail: webhook.createdBy,
       ...(webhook.orgId ? { orgId: webhook.orgId } : {}),
     },
-    async () => Boolean(await contentWebhookScopeForRow(webhook)),
+    async () => {
+      if (!(await contentWebhookScopeForRow(webhook))) {
+        return "The person who added this webhook no longer manages the page or collection it watches.";
+      }
+      if (
+        webhook.scopeType === "database" &&
+        !(await resolveAccess("document", delivery.documentId, undefined, {
+          skipResourceBody: true,
+        }))
+      ) {
+        return "Not sent: the person who added this webhook can't open this row's page.";
+      }
+      return null;
+    },
   );
 }
 
@@ -631,14 +698,8 @@ async function deliverOne(
   }
   // Checked for every send, not once per drain, so a revoked creator's
   // events stop at the next send.
-  if (!(await creatorStillManages(webhook))) {
-    return {
-      ok: false,
-      error:
-        "The person who added this webhook no longer manages the page or collection it watches.",
-      permanent: true,
-    };
-  }
+  const refusal = await creatorRefusal(webhook, delivery);
+  if (refusal) return { ok: false, error: refusal, permanent: true };
   const secret = await readAppSecret(contentWebhookSecretRef(webhook));
   if (!secret?.value) {
     return {
@@ -677,9 +738,7 @@ export async function drainContentWebhookDeliveries(
   const deadlineAt = options.deadlineAt ?? Date.now() + 60_000;
   const counts = { delivered: 0, failed: 0, retrying: 0 };
   const expired = () => Date.now() >= deadlineAt || options.signal?.aborted;
-  while (!expired()) {
-    const ids = await dueDeliveryIds(db, CLAIM_BATCH);
-    if (!ids.length) break;
+  const sendInOrder = async (ids: string[]) => {
     let claimedAny = false;
     for (const id of ids) {
       if (expired()) break;
@@ -702,7 +761,14 @@ export async function drainContentWebhookDeliveries(
         counts.failed++;
       else counts.retrying++;
     }
-    if (!claimedAny) break;
+    return claimedAny;
+  };
+  while (!expired()) {
+    const groups = await dueDeliveriesByWebhook(db, CLAIM_BATCH);
+    if (!groups.length) break;
+    // Each webhook's deliveries go in order; different webhooks at once.
+    const claimed = await Promise.all(groups.map(sendInOrder));
+    if (!claimed.some(Boolean)) break;
   }
   return counts;
 }
