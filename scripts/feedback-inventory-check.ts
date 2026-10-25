@@ -2798,13 +2798,15 @@ function replyDirectlyRequestsHandoff(text: string, handoff: Handoff): boolean {
   );
 }
 
+const explicitHandoffActions =
+  "take|handle|do|own|accept|review|investigate|fix|check|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|get (?:that|this|it) fixed";
+
 function replyExplicitlyRefusesHandoff(text: string): boolean {
   const normalized = text
     .normalize("NFKC")
     .replace(/[’‘]/g, "'")
     .toLowerCase();
-  const refusedAction =
-    "(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|commit|promise)";
+  const refusedAction = `(?:${explicitHandoffActions}|commit|promise)`;
   return (
     new RegExp(
       `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
@@ -2834,9 +2836,10 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
   ) {
     return false;
   }
-  return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|check|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|get (?:that|this|it) fixed)\b|(?:i|we)(?:'m|\s+am)\s+(?:also\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|checking|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|check|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
-    normalized,
-  );
+  return new RegExp(
+    `\\b(?:(?:i|we)(?:'ll|\\s+will|\\s+can)\\s+(?:${explicitHandoffActions})\\b|(?:i|we)(?:'m|\\s+am)\\s+(?:also\\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|checking|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\\b|happy to (?:take|handle|do|check|test|fix|review|investigate)\\b|will do\\b|i(?:'m| am) on it\\b)`,
+    "i",
+  ).test(normalized);
 }
 
 function replyExplicitlyAcceptsRecordedHandoff(
@@ -5477,7 +5480,10 @@ function hasExplicitAuthorizationRevocation(text: string): boolean {
     /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
       text,
     ) ||
-    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:(?:that|this|my|our|the)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel|rescind)\s+(?:(?:that|this|my|our|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:no longer|do not|don't|will not|won't)\s+(?:authorize|approve|permit|allow)\b/i.test(
       text,
     )
   );
@@ -5505,6 +5511,11 @@ function hasExplicitWorkflowWriteAuthorization(
     /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
   const partialWriteQualifier =
     /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b/i;
+  const hasWriteRestriction = sentences.some(
+    (sentence) =>
+      hasExplicitNoReactionRestriction(sentence) ||
+      partialWriteQualifier.test(sentence),
+  );
   const boundedGrantIndex = sentences.findIndex(
     (sentence) =>
       grant.test(sentence) &&
@@ -5518,13 +5529,9 @@ function hasExplicitWorkflowWriteAuthorization(
       !partialWriteQualifier.test(sentence),
   );
   const boundedFollowupAndReaction =
-    boundedGrantIndex >= 0 &&
-    !sentences.some(
-      (sentence) =>
-        hasExplicitNoReactionRestriction(sentence) ||
-        partialWriteQualifier.test(sentence),
-    );
+    boundedGrantIndex >= 0 && !hasWriteRestriction;
   const exactRootWriteActions =
+    !hasWriteRestriction &&
     roots.length > 0 &&
     roots.every(
       (root) =>
@@ -11810,6 +11817,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I might test this later today",
     "I may expand it to be all apps",
     "I won't supersede #7524",
+    "I'll get that fixed. Actually, I can't get that fixed this week.",
     "I'll check the framework, but only if we should add support for that",
   ]) {
     if (replyExplicitlyAcceptsHandoff(text)) {
@@ -17870,6 +17878,16 @@ if (args[0] === "--self-test" && args.length === 1) {
         () => validateTestInventory(earlierRestriction),
         "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
       );
+
+      const restrictedExactRootGrant = structuredClone(authorizedMagRoot);
+      restrictedExactRootGrant.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. ${restriction} I authorize you to work on Slack root C_TEST 10.000000, including the root claim, same-thread status reply, and reactions.`;
+      restrictedExactRootGrant.scope.narrowingJudgment!.instruction =
+        restrictedExactRootGrant.scope.userRequest;
+      expectFocusedFailure(
+        `a preceding ${restriction.toLowerCase()} restriction blocks exact-root write authorization`,
+        () => validateTestInventory(restrictedExactRootGrant),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      );
     }
 
     const unrelatedFollowupCannotExtendReadOnlyAuthorization =
@@ -17982,6 +18000,9 @@ if (args[0] === "--self-test" && args.length === 1) {
     for (const revocation of [
       "Actually, I withdraw this authorization.",
       "Actually, I cancel my authorization.",
+      "Actually, I withdraw my earlier authorization.",
+      "Actually, I revoke the previous approval.",
+      "Actually, I no longer authorize this.",
     ]) {
       const withdrawnAuthorization = structuredClone(authorizedMagRoot);
       withdrawnAuthorization.scope.userRequest = `I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. ${revocation}`;
