@@ -10,6 +10,8 @@ export default defineAction({
   readOnly: true,
   run: async (_args, ctx) => {
     if (!ctx?.userEmail) fail("Not authenticated.", { statusCode: 401 });
-    return getDecisionsStatus(ctx.userEmail);
+    return getDecisionsStatus(ctx.userEmail, {
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
   },
 });

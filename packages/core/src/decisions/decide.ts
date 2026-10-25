@@ -162,8 +162,14 @@ function waitForLookup<T>(
   signal: AbortSignal | undefined,
   timeoutMs: number,
 ): Promise<LookupResult<T>> {
-  if (signal?.aborted) return Promise.resolve({ status: "aborted" });
-  if (timeoutMs <= 0) return Promise.resolve({ status: "timeout" });
+  if (signal?.aborted) {
+    void lookup.catch(() => {});
+    return Promise.resolve({ status: "aborted" });
+  }
+  if (timeoutMs <= 0) {
+    void lookup.catch(() => {});
+    return Promise.resolve({ status: "timeout" });
+  }
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -194,6 +200,11 @@ function waitForLookup<T>(
       },
     );
   });
+}
+
+function throwIfLookupAborted(signal: AbortSignal | undefined): never {
+  if (signal?.aborted) signal.throwIfAborted();
+  throw new DOMException("Decision status lookup was aborted.", "AbortError");
 }
 
 function validateOptions(options: DecideOptions | undefined): boolean {
@@ -462,46 +473,102 @@ export async function decide(input: {
 
 export async function getDecisionsStatus(
   ownerEmail: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<DecisionsStatus> {
-  const providerOrder = [...getAppConfig().decisions.providerOrder];
-  let openAiLookupFailed = false;
-  const openAi = await getOwnerApiKeyForEngine("ai-sdk:openai", ownerEmail, {
-    allowDeploymentFallback: false,
-    onLookupFailure: () => (openAiLookupFailed = true),
+  const configured = getAppConfig().decisions;
+  const providerOrder = [...configured.providerOrder];
+  const deadlineAt = Date.now() + configured.timeoutMs;
+  const signal = options.signal;
+  const status = (
+    openAiStatus: DecisionsStatus["providers"][number]["status"],
+    jevStatus: DecisionsStatus["providers"][number]["status"],
+  ): DecisionsStatus => ({
+    providerOrder,
+    capabilities: DECISION_PROVIDER_CAPABILITIES,
+    providers: [
+      { provider: "openai", status: openAiStatus },
+      { provider: "jev", status: jevStatus },
+    ],
   });
-  const jev = await getJevContextCredentials(ownerEmail);
+  const throwIfAborted = (): void => signal?.throwIfAborted();
+
+  throwIfAborted();
+  let openAiLookupFailed = false;
+  const openAiLookup = await waitForLookup(
+    getOwnerApiKeyForEngine("ai-sdk:openai", ownerEmail, {
+      allowDeploymentFallback: false,
+      onLookupFailure: () => (openAiLookupFailed = true),
+    }),
+    signal,
+    Math.max(0, deadlineAt - Date.now()),
+  );
+  if (openAiLookup.status === "aborted") throwIfLookupAborted(signal);
+  if (openAiLookup.status === "timeout") {
+    throwIfAborted();
+    return status("unknown", "unknown");
+  }
+  const openAi = openAiLookup.value;
+  const openAiStatus = openAiLookupFailed
+    ? "unknown"
+    : openAi.credentialProvenance?.scope === "deployment"
+      ? "not_configured"
+      : openAi.apiKey
+        ? "ready"
+        : "not_configured";
+
+  throwIfAborted();
+  const jevTimeoutMs = Math.max(0, deadlineAt - Date.now());
+  if (jevTimeoutMs <= 0) {
+    throwIfAborted();
+    return status(openAiStatus, "unknown");
+  }
+  const jevLookup = await waitForLookup(
+    getJevContextCredentials(ownerEmail),
+    signal,
+    jevTimeoutMs,
+  );
+  if (jevLookup.status === "aborted") throwIfLookupAborted(signal);
+  if (jevLookup.status === "timeout") {
+    throwIfAborted();
+    return status(openAiStatus, "unknown");
+  }
+  const jev = jevLookup.value;
 
   let jevStatus: DecisionsStatus["providers"][number]["status"] =
     "not_configured";
   if (jev.directApiKey || jev.personalApiKey) {
     jevStatus = "ready";
   } else if (jev.builderAuth) {
+    const entitlementTimeoutMs = Math.max(0, deadlineAt - Date.now());
+    if (entitlementTimeoutMs <= 0) {
+      throwIfAborted();
+      return status(openAiStatus, "unknown");
+    }
     try {
-      jevStatus = (await isJevEnabled(jev)) ? "ready" : "not_configured";
+      const entitlementLookup = await waitForLookup(
+        isJevEnabled(jev, { signal, timeoutMs: entitlementTimeoutMs }),
+        signal,
+        entitlementTimeoutMs,
+      );
+      if (entitlementLookup.status === "aborted") {
+        throwIfLookupAborted(signal);
+      }
+      jevStatus =
+        entitlementLookup.status === "timeout"
+          ? "unknown"
+          : entitlementLookup.value
+            ? "ready"
+            : "not_configured";
     } catch {
+      throwIfAborted();
       jevStatus = "unknown";
     }
   } else if (jev.apiKeyLookupFailed || jev.builderAuthLookupFailed) {
     jevStatus = "unknown";
   }
 
-  return {
-    providerOrder,
-    capabilities: DECISION_PROVIDER_CAPABILITIES,
-    providers: [
-      {
-        provider: "openai",
-        status: openAiLookupFailed
-          ? "unknown"
-          : openAi.credentialProvenance?.scope === "deployment"
-            ? "not_configured"
-            : openAi.apiKey
-              ? "ready"
-              : "not_configured",
-      },
-      { provider: "jev", status: jevStatus },
-    ],
-  };
+  throwIfAborted();
+  return status(openAiStatus, jevStatus);
 }
 
 export function __resetDecisionCacheForTests(): void {

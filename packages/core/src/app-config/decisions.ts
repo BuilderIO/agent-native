@@ -15,6 +15,6 @@ export const decisionsConfig = z.object({
     }),
   timeoutMs: z.number().int().min(1_000).max(60_000).default(10_000).meta({
     env: "DECISIONS_TIMEOUT_MS",
-    doc: "Maximum time for a decision, including credential resolution and provider requests, in milliseconds.",
+    doc: "Maximum time for a decision or provider status check, including credential lookups and provider requests, in milliseconds.",
   }),
 });

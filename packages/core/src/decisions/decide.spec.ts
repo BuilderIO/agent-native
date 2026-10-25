@@ -122,9 +122,12 @@ describe("decide", () => {
       expect.objectContaining({
         input: "I was charged twice.",
         apiKey: "openai-test-key",
-        timeoutMs: 10_000,
+        timeoutMs: expect.any(Number),
       }),
     );
+    const timeoutMs = mocks.requestOpenAiDecision.mock.calls[0]?.[0].timeoutMs;
+    expect(timeoutMs).toBeGreaterThan(0);
+    expect(timeoutMs).toBeLessThanOrEqual(10_000);
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
@@ -350,6 +353,80 @@ describe("decide", () => {
       { provider: "openai", status: "ready" },
       { provider: "jev", status: "not_configured" },
     ]);
+  });
+
+  it("propagates cancellation during a status credential lookup", async () => {
+    let beginLookup!: () => void;
+    let resolveLookup!: (value: { apiKey: string }) => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      beginLookup = resolve;
+    });
+    const lookup = new Promise<{ apiKey: string }>((resolve) => {
+      resolveLookup = resolve;
+    });
+    mocks.getOwnerApiKeyForEngine.mockImplementation(async () => {
+      beginLookup();
+      return lookup;
+    });
+    const controller = new AbortController();
+
+    const pending = getDecisionsStatus(ownerEmail, {
+      signal: controller.signal,
+    });
+    await lookupStarted;
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    resolveLookup({ apiKey: "openai-test-key" });
+    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+  });
+
+  it("returns unknown when the OpenAI status credential lookup times out", async () => {
+    vi.useFakeTimers();
+    mocks.getOwnerApiKeyForEngine.mockReturnValue(new Promise(() => {}));
+
+    const pending = getDecisionsStatus(ownerEmail);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(pending).resolves.toMatchObject({
+      providers: [
+        { provider: "openai", status: "unknown" },
+        { provider: "jev", status: "unknown" },
+      ],
+    });
+    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+  });
+
+  it("bounds status credential and entitlement checks to the configured timeout", async () => {
+    vi.useFakeTimers();
+    mocks.getOwnerApiKeyForEngine.mockImplementation(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      return { apiKey: "openai-test-key" };
+    });
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+    });
+    mocks.isJevEnabled.mockReturnValue(new Promise(() => {}));
+
+    const pending = getDecisionsStatus(ownerEmail);
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    await expect(pending).resolves.toMatchObject({
+      providers: [
+        { provider: "openai", status: "ready" },
+        { provider: "jev", status: "unknown" },
+      ],
+    });
+    expect(mocks.isJevEnabled).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeoutMs: 6_000 }),
+    );
   });
 
   it("continues past a provider with no key and does not call it", async () => {

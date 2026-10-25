@@ -116,6 +116,6 @@ const urgency = triage.answers["urgency"];
 不同提供者與模型支援的問題類型可能不同。decide() 會考量能力，因此不要假設每個提供者都支援所有問題類型。只有在驗證後，才能宣稱某個提供者、模型與問題類型組合受到支援。成功結果會指出作答的提供者與模型。
 
 每個工作區都能個別設定提供者順序。預設會依序嘗試 Builder Jev、個人 Jev 金鑰，然後是 OpenAI。若未設定任何提供者，`decide()` 會傳回 `not_configured`。工作區設定中的 `decisions.providerOrder` 控制提供者順序。`decisions.timeoutMs` 設定單次決策的總時間預算，包含憑證查找與提供者執行。所有提供者嘗試共用此預算。對應的環境變數別名為 `DECISIONS_PROVIDER_ORDER`（逗號分隔）和 `DECISIONS_TIMEOUT_MS`。依提供者設定的門檻或快取鍵必須同時包含提供者與模型，避免將某個模型的校準或結果套用到另一個模型。
-提供者能力會依路由而異。Builder Jev Proxy 已驗證支援 `predicate` 和 `choice`。Jev `score` 尚未驗證，並由能力旗標保持停用；遇到 score 問題時，`decide()` 會略過 Jev 並繼續嘗試下一個已設定的提供者。`getDecisionsStatus()` 會回傳能力驗證狀態以及各項能力是否啟用。OpenAI Decisions API 支援使用 2–10 個有序層級的 score 問題；文件格式的 fixtures 涵蓋了請求和回應對應。
+提供者能力會依路由而異。Builder Jev Proxy 已驗證支援 `predicate` 和 `choice`。Jev `score` 尚未驗證，並由能力旗標保持停用；遇到 score 問題時，`decide()` 會略過 Jev 並繼續嘗試下一個已設定的提供者。`getDecisionsStatus()` 會回傳能力驗證狀態以及各項能力是否啟用。狀態查詢會遵循取消訊號，並使用設定的 `decisions.timeoutMs` 預算檢查提供者就緒狀態；期限結束時仍在檢查的提供者會回傳為 `unknown`。OpenAI Decisions API 支援使用 2–10 個有序層級的 score 問題；文件格式的 fixtures 涵蓋了請求和回應對應。
 
 decide() 會回傳由呼叫端解讀的分類或分數。若要進一步變更應用程式資料，請使用另一個經授權的 action。
