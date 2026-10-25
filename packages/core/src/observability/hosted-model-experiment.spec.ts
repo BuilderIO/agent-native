@@ -46,6 +46,12 @@ describe("hosted model experiment", () => {
     ).toBe(false);
   });
 
+  it("treats an unparseable host as not first-party instead of throwing", () => {
+    expect(isHostedModelExperimentEnabled({ URL: "https://[not a host" })).toBe(
+      false,
+    );
+  });
+
   it("buckets case-insensitively and splits roughly evenly", () => {
     expect(hostedModelExperimentBucket("Person@Example.com")).toBe(
       hostedModelExperimentBucket(" person@example.com "),
@@ -61,12 +67,13 @@ describe("hosted model experiment", () => {
   });
 
   it("gives treatment Haiku 5.5 at medium and control the untouched default", () => {
-    const treatmentUser = userInArm(true);
-    const controlUser = userInArm(false);
-
     expect(
-      resolveHostedModelExperiment({ ...base, userEmail: treatmentUser }),
+      resolveHostedModelExperiment({
+        ...base,
+        userEmail: userInArm(true),
+      }),
     ).toEqual({
+      treatment: true,
       model: HOSTED_MODEL_EXPERIMENT_TREATMENT.model,
       effort: "medium",
       assignment: {
@@ -75,8 +82,12 @@ describe("hosted model experiment", () => {
       },
     });
     expect(
-      resolveHostedModelExperiment({ ...base, userEmail: controlUser }),
+      resolveHostedModelExperiment({
+        ...base,
+        userEmail: userInArm(false),
+      }),
     ).toEqual({
+      treatment: false,
       model: "gpt-6-luna",
       assignment: {
         experimentId: HOSTED_MODEL_EXPERIMENT_ID,

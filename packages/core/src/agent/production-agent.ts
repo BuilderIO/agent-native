@@ -14424,27 +14424,30 @@ export function createProductionAgentHandler(
 
     // Unlike the DB experiment above, this runs even when the client pinned the
     // default model: chat clients always send the default, so keying off the
-    // resolved default is what lets the arm reach real traffic.
+    // resolved default is what lets the arm reach real traffic. It stays out of
+    // a turn that already has a DB assignment, so the singular experiment trace
+    // tags always name exactly one experiment.
     const hostedModelExperiment =
-      modelSelectionSource === "experiment"
-        ? null
-        : resolveHostedModelExperiment({
+      experimentAssignments.length === 0
+        ? resolveHostedModelExperiment({
             userEmail: ownerEmail,
             engineName: engine.name,
             defaultModel: engine.defaultModel,
             model: effectiveModel,
-            effort: requestEffort,
-          });
+            effort: isReasoningEffort(requestEffort)
+              ? requestEffort
+              : options.reasoningEffort,
+          })
+        : null;
     if (hostedModelExperiment) {
-      effectiveModel = normalizeModelForEngine(
-        engine,
-        hostedModelExperiment.model,
-      );
-      modelSelectionSource = "experiment";
-      experimentAssignments = [
-        ...experimentAssignments,
-        hostedModelExperiment.assignment,
-      ];
+      experimentAssignments = [hostedModelExperiment.assignment];
+      if (hostedModelExperiment.treatment) {
+        effectiveModel = normalizeModelForEngine(
+          engine,
+          hostedModelExperiment.model,
+        );
+        modelSelectionSource = "experiment";
+      }
     }
 
     const reasoningEffort = resolveAgentRequestReasoningEffort({

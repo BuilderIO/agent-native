@@ -31,6 +31,8 @@ export interface HostedModelExperimentAssignment {
 }
 
 export interface HostedModelExperimentResolution {
+  /** True only for the Haiku arm; control keeps the request's model and effort. */
+  treatment: boolean;
   model: string;
   /** Undefined for the control arm: the request's own effort stands. */
   effort?: ReasoningEffort;
@@ -46,14 +48,13 @@ const DISABLED_VALUES = new Set(["0", "false", "off", "no"]);
 function hostnameFromUrl(value: string | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
-  try {
-    const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
-      ? new URL(trimmed)
-      : new URL(`https://${trimmed}`);
-    return url.hostname.toLowerCase();
-  } catch {
-    return null;
-  }
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  // An unparseable host names no first-party domain, so it cannot enable the test.
+  return URL.canParse(candidate)
+    ? new URL(candidate).hostname.toLowerCase()
+    : null;
 }
 
 /**
@@ -124,6 +125,7 @@ export function resolveHostedModelExperiment(args: {
 
   if (hostedModelExperimentBucket(userEmail) >= TREATMENT_PERCENT) {
     return {
+      treatment: false,
       model: args.model,
       assignment: {
         experimentId: HOSTED_MODEL_EXPERIMENT_ID,
@@ -132,6 +134,7 @@ export function resolveHostedModelExperiment(args: {
     };
   }
   return {
+    treatment: true,
     model: HOSTED_MODEL_EXPERIMENT_TREATMENT.model,
     effort: HOSTED_MODEL_EXPERIMENT_TREATMENT.effort,
     assignment: {
