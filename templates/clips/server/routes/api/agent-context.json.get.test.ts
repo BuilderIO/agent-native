@@ -144,10 +144,10 @@ describe("/api/agent-context route", () => {
       mockGetDb.mockReturnValue({
         select: (fields: { count?: unknown }) => {
           const rows = "count" in fields ? [{ count: 1 }] : [savedComment];
-          const query: any = {
-            from: () => query,
-            where: () => query,
-            orderBy: () => query,
+          const query = {
+            from: (): unknown => query,
+            where: (): unknown => query,
+            orderBy: (): unknown => query,
             limit: async () => rows,
             then: (resolve: (rows: unknown[]) => unknown) =>
               Promise.resolve(rows).then(resolve),
@@ -155,7 +155,7 @@ describe("/api/agent-context route", () => {
           return query;
         },
       });
-      await handler({} as any);
+      await handler({} as unknown as Parameters<typeof handler>[0]);
       expect(mockBuildPublicAgentContext).toHaveBeenCalledWith(
         expect.objectContaining({
           comments: viewerIsOwner ? [savedComment] : [],

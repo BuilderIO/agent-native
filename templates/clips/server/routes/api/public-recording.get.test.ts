@@ -315,7 +315,9 @@ describe("/api/public-recording route", () => {
           [],
         ]),
       );
-      const result = await handler({ setCookies: [] } as any);
+      const result = await handler({ setCookies: [] } as unknown as Parameters<
+        typeof handler
+      >[0]);
       expect(result).toMatchObject({
         comments: role === "owner" ? [{ content: "Fake saved comment" }] : [],
       });
