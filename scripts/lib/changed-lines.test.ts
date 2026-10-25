@@ -203,3 +203,57 @@ describe("parseUnifiedDiff", () => {
     });
   });
 });
+
+describe("git-quoted paths", () => {
+  it("parses a non-ASCII path that git leaves unquoted under core.quotePath=false", () => {
+    const diff = [
+      "diff --git a/café.spec.ts b/café.spec.ts",
+      "--- a/café.spec.ts",
+      "+++ b/café.spec.ts",
+      "@@ -0,0 +1 @@",
+      "+it('x', () => {});",
+    ].join("\n");
+
+    expect(
+      parseUnifiedDiff(diff, CWD)?.get(path.resolve(CWD, "café.spec.ts")),
+    ).toEqual(new Set([1]));
+    expect(
+      parseRemovedLines(diff, CWD)?.get(path.resolve(CWD, "café.spec.ts")),
+    ).toMatchObject({
+      path: "café.spec.ts",
+    });
+  });
+
+  it("fails closed on a quoted header in both parsers", () => {
+    const diff = [
+      'diff --git "a/q\\"x.spec.ts" "b/q\\"x.spec.ts"',
+      '--- "a/q\\"x.spec.ts"',
+      '+++ "b/q\\"x.spec.ts"',
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    ].join("\n");
+
+    expect(parseUnifiedDiff(diff, CWD)).toBeNull();
+    expect(parseRemovedLines(diff, CWD)).toBeNull();
+  });
+
+  it("fails closed on a deleted file whose quoted name appears only on the --- line", () => {
+    const diff = [
+      'diff --git "a/tab\\tx.ts" "b/tab\\tx.ts"',
+      "deleted file mode 100644",
+      '--- "a/tab\\tx.ts"',
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-const o = 1;",
+    ].join("\n");
+
+    expect(parseUnifiedDiff(diff, CWD)).toBeNull();
+    expect(parseRemovedLines(diff, CWD)).toBeNull();
+  });
+
+  it("fails closed on a quoted binary file, whose extension cannot be read", () => {
+    const diff = 'Binary files "a/q\\"x.ts" and "b/q\\"x.ts" differ';
+    expect(parseUnifiedDiff(diff, CWD)).toBeNull();
+  });
+});

@@ -5,6 +5,11 @@ const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
 
 export const GUARD_EXIT_COULD_NOT_RUN = 2;
 
+// Git quotes a path that holds a quote, backslash or control character, so it
+// names no file we can key on. The parsers turn this into null, which the
+// callers already treat as could-not-run.
+class QuotedDiffPathError extends Error {}
+
 export function execGuardCommand(command, args, options = {}) {
   try {
     return execFileSync(command, args, options);
@@ -55,7 +60,14 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;
 
-  const args = ["diff", "--unified=0", "--no-color", "--diff-filter=ACMR"];
+  const args = [
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    "--unified=0",
+    "--no-color",
+    "--diff-filter=ACMR",
+  ];
   if (!includeWorkingTree) args.push(mergeBase, "HEAD");
   else args.push(mergeBase);
 
@@ -75,7 +87,13 @@ export function removedLines(cwd, { includeWorkingTree = true } = {}) {
   const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;
 
-  const args = ["diff", "--unified=0", "--no-color"];
+  const args = [
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    "--unified=0",
+    "--no-color",
+  ];
   if (!includeWorkingTree) args.push(mergeBase, "HEAD");
   else args.push(mergeBase);
 
@@ -85,6 +103,10 @@ export function removedLines(cwd, { includeWorkingTree = true } = {}) {
 }
 
 export function parseRemovedLines(diff, cwd, pathApi = path) {
+  return nullOnQuotedPath(() => scanRemovedLines(diff, cwd, pathApi));
+}
+
+function scanRemovedLines(diff, cwd, pathApi) {
   if (parseUnifiedDiff(diff, cwd, pathApi) === null) return null;
   const result = new Map();
   let entry = null;
@@ -135,7 +157,27 @@ export function parseRemovedLines(diff, cwd, pathApi = path) {
 }
 
 function stripDiffPrefix(value) {
-  return value.trim().replace(/^[ab]\//, "");
+  return headerPath(value).replace(/^[ab]\//, "");
+}
+
+/**
+ * The path in a `---` or `+++` header, untouched. A quoted one throws so the
+ * caller refuses the whole diff: keying on the quoted text would match no file
+ * and the guard would pass over it without reading it.
+ */
+function headerPath(value) {
+  const name = value.trim();
+  if (name.startsWith('"')) throw new QuotedDiffPathError(name);
+  return name;
+}
+
+function nullOnQuotedPath(scan) {
+  try {
+    return scan();
+  } catch (error) {
+    if (error instanceof QuotedDiffPathError) return null;
+    throw error;
+  }
 }
 
 /**
@@ -151,7 +193,8 @@ export function requireAddedLines(cwd, guardName, options) {
   console.error(
     `${guardName}: could not determine which lines this branch added ` +
       "(no GUARD_DIFF_BASE/GITHUB_BASE_REF, no origin/main or main ref, " +
-      "git diff failed, or git reported a source file as binary), so the " +
+      "git diff failed, git reported a source file as binary, or git quoted " +
+      "a changed path name), so the " +
       "check did not run.\n" +
       "  Fix with:  git fetch origin main   (or set GUARD_DIFF_BASE=<ref>)\n" +
       "  If a source file diffs as binary, it contains a NUL or other binary\n" +
@@ -164,6 +207,10 @@ const SOURCE_EXTENSIONS =
   /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
 
 export function parseUnifiedDiff(diff, cwd, pathApi = path) {
+  return nullOnQuotedPath(() => scanUnifiedDiff(diff, cwd, pathApi));
+}
+
+function scanUnifiedDiff(diff, cwd, pathApi) {
   const result = new Map();
   let file = null;
   let line = 0;
@@ -202,14 +249,22 @@ export function parseUnifiedDiff(diff, cwd, pathApi = path) {
     const binary = /^Binary files (?:a\/)?(.+?) and (?:b\/)?(.+?) differ$/.exec(
       raw,
     );
+    // A quoted name keeps its quotes, so its extension cannot be read here.
+    if (binary && binary[1].startsWith('"')) {
+      throw new QuotedDiffPathError(raw);
+    }
     if (
       binary &&
       (SOURCE_EXTENSIONS.test(binary[1]) || SOURCE_EXTENSIONS.test(binary[2]))
     ) {
       return null;
     }
+    if (raw.startsWith("--- ")) {
+      headerPath(raw.slice(4));
+      continue;
+    }
     if (raw.startsWith("+++ ")) {
-      const target = raw.slice(4).trim();
+      const target = headerPath(raw.slice(4));
       const path = target.replace(/^b\//, "");
       // Keys are native absolute paths so a guard can look one up with a
       // path.join/path.resolve result; a "/"-joined key never matches on Windows.

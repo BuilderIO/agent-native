@@ -12,7 +12,10 @@
  *                       when chained after a call such as it.each(rows).skip(
  *   expect-anything     test files: expect.anything()
  *   runner-loosened     vitest.config.* / vitest.*.config.* / playwright.config.*:
- *                       retry / retries set to anything but 0, passWithNoTests
+ *                       retry / retries set to anything but 0, passWithNoTests.
+ *                       Test files: retry / retries in a test API's options
+ *                       object, test.describe.configure({ retries }), and
+ *                       .retries(N) with N other than 0
  *   script-loosened     package.json scripts: --passWithNoTests, vitest -u / --update
  *   assertions-removed  test files: fewer expect( / expect.soft|poll|element( / assert( /
  *                       assert.x( calls than before, counted in the AST of the
@@ -74,6 +77,13 @@ const DISABLING_PROPERTIES = new Set([
   "runIf",
 ]);
 const DISABLING_IDENTIFIERS = new Set(["xit", "xdescribe", "xtest"]);
+const RETRY_PROPERTIES = new Set(["retry", "retries"]);
+const TEST_MODULES = new Set([
+  "vitest",
+  "@playwright/test",
+  "node:test",
+  "bun:test",
+]);
 // package.json has no comments, so its pragma is matched on the line.
 const JSON_PRAGMA = /(?:\/\/|\/\*|^\s*\*)\s*oracle-change:(.*)$/;
 // Run on the part of one line that lies inside a comment.
@@ -254,18 +264,62 @@ function isIdentifierNamed(node: ts.Expression, name: string): boolean {
 
 const TEST_ROOTS = new Set(["it", "test", "describe", "suite", "bench"]);
 
+interface TestApiScope {
+  /** The globals plus any local name a test runner import gives a test API. */
+  roots: ReadonlySet<string>;
+  /** Namespace imports of a test runner: `v` in `import * as v from "vitest"`. */
+  namespaces: ReadonlySet<string>;
+}
+
+// Collected per file: `import { it as spec } from "vitest"` makes `spec` a root,
+// and `import * as v from "vitest"` makes `v.it` one. A name from any other
+// module does not become a root, however it is spelled.
+function testApiScope(sourceFile: ts.SourceFile): TestApiScope {
+  const roots = new Set(TEST_ROOTS);
+  const namespaces = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      !TEST_MODULES.has(statement.moduleSpecifier.text)
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined) continue;
+    if (ts.isNamespaceImport(bindings)) {
+      namespaces.add(bindings.name.text);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      const imported = (element.propertyName ?? element.name).text;
+      if (TEST_ROOTS.has(imported)) roots.add(element.name.text);
+    }
+  }
+  return { roots, namespaces };
+}
+
 // `stream.skip(2)` or `query.only(...)` are ordinary calls; only a chain that
 // starts at a test API (`it.skip`, `test.describe.only`, `it.each(rows).skip`)
 // disables a test. Calls are walked like property accesses to reach the root.
-function isTestApi(node: ts.Expression): boolean {
-  let current: ts.Expression = node;
-  while (
-    ts.isPropertyAccessExpression(current) ||
-    ts.isCallExpression(current)
-  ) {
-    current = current.expression;
+function isTestApi(node: ts.Expression, scope: TestApiScope): boolean {
+  const names: string[] = [];
+  let base: ts.Expression = node;
+  while (ts.isPropertyAccessExpression(base) || ts.isCallExpression(base)) {
+    if (ts.isPropertyAccessExpression(base)) names.unshift(base.name.text);
+    base = base.expression;
   }
-  return ts.isIdentifier(current) && TEST_ROOTS.has(current.text);
+  if (!ts.isIdentifier(base)) return false;
+  if (scope.roots.has(base.text)) return true;
+  return (
+    scope.namespaces.has(base.text) &&
+    names.length > 0 &&
+    TEST_ROOTS.has(names[0])
+  );
+}
+
+function isLiteralZero(node: ts.Node): boolean {
+  return ts.isNumericLiteral(node) && node.text === "0";
 }
 
 // `toHaveBeenCalledWith(expect.anything(), id)` still pins `id`; only a matcher
@@ -290,7 +344,7 @@ function disabledMessage(what: string): string {
 
 interface DisabledSite {
   line: number;
-  rule: "disabled-test" | "expect-anything";
+  rule: "disabled-test" | "expect-anything" | "runner-loosened";
   message: string;
 }
 
@@ -305,6 +359,7 @@ export function findDisabledTests(
     true,
     scriptKind(file),
   );
+  const scope = testApiScope(sourceFile);
   const sites: DisabledSite[] = [];
   const at = (node: ts.Node, site: Omit<DisabledSite, "line">) => {
     sites.push({ line: lineOf(sourceFile, node), ...site });
@@ -321,7 +376,7 @@ export function findDisabledTests(
       } else if (ts.isPropertyAccessExpression(callee)) {
         const name = callee.name.text;
         const inner = callee.expression;
-        if (DISABLING_PROPERTIES.has(name) && isTestApi(inner)) {
+        if (DISABLING_PROPERTIES.has(name) && isTestApi(inner, scope)) {
           at(callee.name, {
             rule: "disabled-test",
             message: disabledMessage(`.${name}(`),
@@ -340,12 +395,61 @@ export function findDisabledTests(
           name === "each" &&
           ts.isPropertyAccessExpression(inner) &&
           DISABLING_PROPERTIES.has(inner.name.text) &&
-          isTestApi(inner.expression)
+          isTestApi(inner.expression, scope)
         ) {
           at(inner.name, {
             rule: "disabled-test",
             message: disabledMessage(`.${inner.name.text}.each(`),
           });
+        }
+      }
+
+      // `.retries(N)` is mocha's `this.retries(N)`; any receiver counts.
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === "retries"
+      ) {
+        const [count] = node.arguments;
+        if (count !== undefined && !isLiteralZero(count)) {
+          at(callee.name, {
+            rule: "runner-loosened",
+            message: `retries(${count.getText(sourceFile)}) re-runs a failing test until one attempt passes`,
+          });
+        }
+      } else if (isTestApi(callee, scope)) {
+        // Covers `it(..., { retry })`, `it.each(rows)(..., { retries })` and
+        // `test.describe.configure({ retries })`: an options object passed to
+        // a test API, in any argument position.
+        for (const arg of node.arguments) {
+          if (!ts.isObjectLiteralExpression(arg)) continue;
+          for (const prop of arg.properties) {
+            if (
+              !ts.isPropertyAssignment(prop) &&
+              !ts.isShorthandPropertyAssignment(prop)
+            ) {
+              continue;
+            }
+            const key = prop.name;
+            if (
+              !(ts.isIdentifier(key) || ts.isStringLiteral(key)) ||
+              !RETRY_PROPERTIES.has(key.text)
+            ) {
+              continue;
+            }
+            if (
+              ts.isPropertyAssignment(prop) &&
+              isLiteralZero(prop.initializer)
+            ) {
+              continue;
+            }
+            const value = ts.isPropertyAssignment(prop)
+              ? prop.initializer.getText(sourceFile)
+              : key.text;
+            at(key, {
+              rule: "runner-loosened",
+              message: `${key.text} set to ${value}; a failing test is re-run until one attempt passes`,
+            });
+          }
         }
       }
     }

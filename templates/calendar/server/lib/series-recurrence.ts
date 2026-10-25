@@ -15,12 +15,34 @@ function isDateOnlyValue(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function parseGoogleDateValue(value: string): Date {
+// An unrecognised provider zone behaves like no zone, matching googleDateWeekdayCode.
+function knownTimeZone(timeZone: string | undefined): string | undefined {
+  if (!timeZone) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return timeZone;
+  } catch {
+    // coercion-ok: Intl's RangeError is the only test for a valid zone, and "unknown" deliberately means "no zone" here
+    return undefined;
+  }
+}
+
+function hasUtcOffset(value: string): boolean {
+  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+}
+
+// Offset-less date-times are wall time in the series zone. Without a zone they
+// are read as UTC wall time, so the result never depends on the server's zone.
+function parseGoogleDateValue(value: string, timeZone?: string): Date {
   if (isDateOnlyValue(value)) {
     const [year, month, day] = value.split("-").map(Number);
     return new Date(Date.UTC(year, month - 1, day));
   }
-  return new Date(value);
+  if (hasUtcOffset(value)) return new Date(value);
+  const wall = Date.parse(`${value}Z`);
+  if (Number.isNaN(wall)) return new Date(wall);
+  const zone = knownTimeZone(timeZone);
+  return new Date(zone ? instantFromZoneWall(wall, zone) : wall);
 }
 
 function googleDateWeekdayCode(
@@ -28,7 +50,7 @@ function googleDateWeekdayCode(
   timeZone?: string,
 ): (typeof DAY_CODES)[number] | undefined {
   if (!value) return undefined;
-  const date = parseGoogleDateValue(value);
+  const date = parseGoogleDateValue(value, timeZone);
   if (Number.isNaN(date.getTime())) return undefined;
 
   if (isDateOnlyValue(value)) {
@@ -152,9 +174,10 @@ export function shiftSeriesDateValue(
   timeZone?: string,
 ): string | undefined {
   if (!nextValue || !instanceValue || !masterValue) return nextValue;
-  const next = parseGoogleDateValue(nextValue);
-  const instance = parseGoogleDateValue(instanceValue);
-  const master = parseGoogleDateValue(masterValue);
+  const zone = knownTimeZone(timeZone);
+  const next = parseGoogleDateValue(nextValue, zone);
+  const instance = parseGoogleDateValue(instanceValue, zone);
+  const master = parseGoogleDateValue(masterValue, zone);
   if (
     Number.isNaN(next.getTime()) ||
     Number.isNaN(instance.getTime()) ||
@@ -171,12 +194,12 @@ export function shiftSeriesDateValue(
   }
   // Without a zone the delta is absolute time, which moves wall-clock time by
   // an hour across a DST change. Shifting wall-clock time needs the zone.
-  const shiftedMs = timeZone
+  const shiftedMs = zone
     ? shiftedZoneWallInstant(
         master.getTime(),
         next.getTime(),
         instance.getTime(),
-        timeZone,
+        zone,
       )
     : master.getTime() + (next.getTime() - instance.getTime());
   return new Date(shiftedMs).toISOString().replace(/\.000Z$/, "Z");

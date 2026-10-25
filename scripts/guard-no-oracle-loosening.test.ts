@@ -276,6 +276,119 @@ describe("runner-loosened in vitest and playwright configs", () => {
   });
 });
 
+describe("runner-loosened in test files", () => {
+  it("flags retry or retries above zero in a test API options object", () => {
+    const source = [
+      'it("a", { retry: 2 }, () => {});',
+      'test("b", { retries: 3 }, () => {});',
+      'it.each(rows)("c", { retry: 1 }, () => {});',
+      'it("d", { retry: 0 }, () => {});',
+      'it("e", { timeout: 5 }, () => {});',
+      'describe("f", { retries: 2 }, () => {});',
+      'it("g", { retry: process.env.CI ? 2 : 0 }, () => {});',
+      "const options = { retries: 3 };",
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:1: runner-loosened`,
+      `${SPEC}:2: runner-loosened`,
+      `${SPEC}:3: runner-loosened`,
+      `${SPEC}:6: runner-loosened`,
+      `${SPEC}:7: runner-loosened`,
+    ]);
+  });
+
+  it("flags a shorthand retries whose value is a variable", () => {
+    const source = [
+      "const retries = 3;",
+      'it("a", { retries }, () => {});',
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:2: runner-loosened`,
+    ]);
+  });
+
+  it("flags test.describe.configure retries unless zero, and this.retries(N)", () => {
+    const source = [
+      "test.describe.configure({ retries: 2 });",
+      "test.describe.configure({ retries: 0 });",
+      'it("a", function () { this.retries(3); });',
+      'it("b", function () { this.retries(0); });',
+      "ctx.retries(attempts);",
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:1: runner-loosened`,
+      `${SPEC}:3: runner-loosened`,
+      `${SPEC}:5: runner-loosened`,
+    ]);
+  });
+
+  it("accepts a retry above zero with an oracle-change reason", () => {
+    const source = [
+      "// oracle-change: the stub drops one request on the first call",
+      'it("a", { retry: 1 }, () => {});',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: allLines(source) } }),
+      [],
+    );
+  });
+});
+
+describe("test API roots from imports", () => {
+  it("treats aliased test APIs from a test runner import as roots", () => {
+    const source = [
+      'import { it as spec, test as t } from "vitest";',
+      'spec.skip("a", () => {});',
+      't.only("b", () => {});',
+      'import { test as bt } from "bun:test";',
+      'bt.todo("c");',
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:2: disabled-test`,
+      `${SPEC}:3: disabled-test`,
+      `${SPEC}:5: disabled-test`,
+    ]);
+  });
+
+  it("treats members of a namespace import from a test runner as test APIs", () => {
+    const source = [
+      'import * as v from "vitest";',
+      'v.it.skip("a", () => {});',
+      'import * as p from "@playwright/test";',
+      "p.test.describe.configure({ retries: 2 });",
+      'p.describe.only("b", () => {});',
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:2: disabled-test`,
+      `${SPEC}:4: runner-loosened`,
+      `${SPEC}:5: disabled-test`,
+    ]);
+  });
+
+  it("does not treat names from other modules as test roots", () => {
+    const source = [
+      'import { it as spec } from "./helpers";',
+      'import * as v from "./stream";',
+      'import { skip as only } from "vitest";',
+      "spec.skip(1);",
+      "v.it.skip(2);",
+      "only.skip(3);",
+      'import { it as more } from "vitest";',
+      "more.skip(4);",
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:8: disabled-test`,
+    ]);
+  });
+});
+
 describe("script-loosened in package.json", () => {
   it("flags --passWithNoTests and vitest -u / --update in scripts", () => {
     const source = [
