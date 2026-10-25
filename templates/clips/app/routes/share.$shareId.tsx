@@ -140,7 +140,10 @@ import { parseRedactions } from "@/lib/video-redactions";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
-import { isRecordingExpired } from "../../server/lib/recording-page-access";
+import {
+  isRecordingExpired,
+  isRecordingTrashedForViewer,
+} from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -313,7 +316,13 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       }).ok
     : false;
 
-  if (isRecordingExpired(rec.expiresAt)) {
+  if (
+    isRecordingExpired(rec.expiresAt) ||
+    isRecordingTrashedForViewer({
+      trashedAt: rec.trashedAt,
+      viewerIsOwner: false,
+    })
+  ) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
@@ -367,10 +376,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
-    rec.visibility === "public" &&
-    !rec.password &&
-    !rec.archivedAt &&
-    !rec.trashedAt;
+    rec.visibility === "public" && !rec.password && !rec.archivedAt;
   return shareLoaderData(
     {
       recording,
