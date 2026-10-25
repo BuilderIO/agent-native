@@ -51,9 +51,9 @@ Helper invariants, checked in the same runs:
   the run and generation, however expired. Writes in that callback pass this
   check when they go through `withFencedExecutionWrite`, such as the
   chat-thread projection (`updateThreadData`) and background-worker run
-  diagnostics (`recordRunDiagnostic`); none of the callback's writes is a
-  step-journal write or an action effect, so `Current` stays the fence for
-  every modelled action. Writes that bypass the helper are not fence-checked
+  diagnostics (`recordRunDiagnostic`); none of the framework's own writes in
+  the callback is a step-journal write or an action effect, so `Current` stays
+  the fence for every modelled action. Writes that bypass the helper are not fence-checked
   and are outside the model, such as completing the tracked progress run
   (`completeProgressRun`) and whatever app-supplied completion hooks do. A claim
   replaces owner and generation under the same row lock, so the stopped run's
