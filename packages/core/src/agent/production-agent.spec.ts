@@ -81,6 +81,7 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
@@ -23679,16 +23680,16 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("claims the first background chunk before expensive setup can race foreground fallback", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-bg",
-        threadId: "thread-bg",
-        markerTurnId: "turn-bg",
-        continuationCount: 0,
-        runsInBackgroundFunction: true,
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-bg",
+      threadId: "thread-bg",
+      markerTurnId: "turn-bg",
+      continuationCount: 0,
+      runsInBackgroundFunction: true,
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
@@ -23730,7 +23731,70 @@ describe("claimBackgroundWorkerRunEarly", () => {
       expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
 
       releaseAbort(false);
-      await expect(pending).resolves.toEqual({ claimed: true });
+      const result = await pending;
+      expect(result).toMatchObject({ claimed: true });
+      if (result.claimed) result.stopSetupHeartbeat();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a claimed worker fresh through one stale window until handoff", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-handoff",
+        threadId: "thread-setup-handoff",
+        markerTurnId: "turn-setup-handoff",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS - 1);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        heartbeatCount,
+      );
+
+      result.stopSetupHeartbeat();
+      const handedOffHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(
+        handedOffHeartbeatCount,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops claimed setup heartbeats at the bounded setup deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-deadline",
+        threadId: "thread-setup-deadline",
+        markerTurnId: "turn-setup-deadline",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      const deadlineHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(
+        deadlineHeartbeatCount,
+      );
+      result.stopSetupHeartbeat();
     } finally {
       vi.useRealTimers();
     }
@@ -23762,7 +23826,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
 
       releaseAbort(false);
-      await expect(pending).resolves.toEqual({ claimed: true });
+      const result = await pending;
+      expect(result).toMatchObject({ claimed: true });
+      if (result.claimed) result.stopSetupHeartbeat();
     } finally {
       vi.useRealTimers();
     }
@@ -23771,18 +23837,18 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("records background runtime marker diagnostics on worker entry", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-bg-marker",
-        threadId: "thread-bg-marker",
-        markerTurnId: "turn-bg-marker",
-        continuationCount: 0,
-        runsInBackgroundFunction: true,
-        backgroundRuntimeDetail:
-          "markerExpected=true runtimeDetected=false globalMarker=false",
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-bg-marker",
+      threadId: "thread-bg-marker",
+      markerTurnId: "turn-bg-marker",
+      continuationCount: 0,
+      runsInBackgroundFunction: true,
+      backgroundRuntimeDetail:
+        "markerExpected=true runtimeDetected=false globalMarker=false",
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
       1,
@@ -23795,16 +23861,16 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("inserts a chained background continuation row before claiming it", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-next",
-        threadId: "thread-next",
-        markerTurnId: "turn-next",
-        continuationCount: 2,
-        runsInBackgroundFunction: true,
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-next",
+      threadId: "thread-next",
+      markerTurnId: "turn-next",
+      continuationCount: 2,
+      runsInBackgroundFunction: true,
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.insertRun).toHaveBeenCalledWith(
       "run-next",

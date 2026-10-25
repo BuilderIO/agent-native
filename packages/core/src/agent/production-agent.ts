@@ -416,6 +416,7 @@ import {
   recordRunDiagnostic,
   countRunsForTurn,
   RUN_DIAG_STAGE,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
@@ -523,6 +524,8 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
+export const BACKGROUND_SETUP_HEARTBEAT_MAX_MS =
+  BACKGROUND_PROCESSING_RUN_STALE_MS;
 const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
@@ -11714,7 +11717,10 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     isTurnAborted?: typeof isTurnAborted;
     markRunAborted?: typeof markRunAborted;
   };
-}): Promise<{ claimed: true } | { claimed: false; skipped: string }> {
+}): Promise<
+  | { claimed: true; stopSetupHeartbeat: () => void }
+  | { claimed: false; skipped: string }
+> {
   const record = opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic;
   const insert = opts.deps?.insertRun ?? insertRun;
   const claim = opts.deps?.claimBackgroundRun ?? claimBackgroundRun;
@@ -11734,11 +11740,13 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   let preclaimHeartbeatInFlight = false;
   let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let setupHeartbeatDeadline: ReturnType<typeof setTimeout> | undefined;
   const preclaimHeartbeatStartedAt = Date.now();
   const heartbeatWhileUnclaimed = () => {
     if (
+      !setupHeartbeatDeadline &&
       Date.now() - preclaimHeartbeatStartedAt >=
-      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+        BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
     ) {
       stopPreclaimHeartbeat();
       return;
@@ -11756,6 +11764,22 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       clearInterval(preclaimHeartbeatTimer);
       preclaimHeartbeatTimer = undefined;
     }
+    if (setupHeartbeatDeadline !== undefined) {
+      clearTimeout(setupHeartbeatDeadline);
+      setupHeartbeatDeadline = undefined;
+    }
+  };
+  const keepSetupAlive = () => {
+    if (preclaimHeartbeatTimer === undefined) {
+      preclaimHeartbeatTimer = setInterval(
+        heartbeatWhileUnclaimed,
+        BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+      );
+    }
+    setupHeartbeatDeadline = setTimeout(
+      stopPreclaimHeartbeat,
+      BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
+    );
   };
 
   preclaimHeartbeatTimer = setInterval(
@@ -11763,6 +11787,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   );
   heartbeatWhileUnclaimed();
+  let startupHeartbeatHandedOff = false;
   try {
     await record(
       opts.runId,
@@ -11793,21 +11818,23 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }
 
     const won = await claim(opts.runId);
-    stopPreclaimHeartbeat();
     if (!won) {
+      stopPreclaimHeartbeat();
       await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
       return { claimed: false, skipped: "already-claimed" };
     }
 
+    keepSetupAlive();
     await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
     await heartbeat(opts.runId).catch(() => {});
     if (await turnAborted(threadId, turnId)) {
       await abortRun(opts.runId, "user").catch(() => {});
       return { claimed: false, skipped: "turn-aborted" };
     }
-    return { claimed: true };
+    startupHeartbeatHandedOff = true;
+    return { claimed: true, stopSetupHeartbeat: stopPreclaimHeartbeat };
   } finally {
-    stopPreclaimHeartbeat();
+    if (!startupHeartbeatHandedOff) stopPreclaimHeartbeat();
   }
 }
 
@@ -13236,6 +13263,7 @@ export function createProductionAgentHandler(
     const priorNoProgressCount = priorContinuationState.noProgressCount;
     const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
+    let stopBackgroundSetupHeartbeat: (() => void) | undefined;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
         runId: bgRunId,
@@ -13253,6 +13281,18 @@ export function createProductionAgentHandler(
         return { ok: true, skipped: earlyClaim.skipped };
       }
       backgroundRunClaimedEarly = true;
+      const response = event.node?.res;
+      const stopOnResponseEnd = () => {
+        earlyClaim.stopSetupHeartbeat();
+        response?.removeListener("finish", stopOnResponseEnd);
+        response?.removeListener("close", stopOnResponseEnd);
+        if (stopBackgroundSetupHeartbeat === stopOnResponseEnd) {
+          stopBackgroundSetupHeartbeat = undefined;
+        }
+      };
+      stopBackgroundSetupHeartbeat = stopOnResponseEnd;
+      response?.once("finish", stopOnResponseEnd);
+      response?.once("close", stopOnResponseEnd);
     }
     let dispatchToBackground =
       !isBackgroundWorker &&
@@ -16845,10 +16885,15 @@ export function createProductionAgentHandler(
         attemptCount: backgroundContinuationCount,
       },
     );
+    void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());
 
     if (isBackgroundWorker) {
-      await startedRun.finalized;
-      return { ok: true, runId };
+      try {
+        await startedRun.finalized;
+        return { ok: true, runId };
+      } finally {
+        stopBackgroundSetupHeartbeat?.();
+      }
     }
 
     const stream = subscribeToRun(runId, 0);
