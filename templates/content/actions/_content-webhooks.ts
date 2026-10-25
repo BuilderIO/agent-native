@@ -7,7 +7,11 @@ import {
   isBlockedExtensionUrl,
   ssrfSafeFetch,
 } from "@agent-native/core/extensions/url-safety";
-import { readAppSecret, type SecretRef } from "@agent-native/core/secrets";
+import {
+  deleteAppSecret,
+  readAppSecret,
+  type SecretRef,
+} from "@agent-native/core/secrets";
 import { platformWaitUntil } from "@agent-native/core/server";
 import {
   getRequestRunContext,
@@ -27,6 +31,7 @@ import {
   isNull,
   lt,
   lte,
+  notExists,
   notInArray,
   or,
   sql,
@@ -92,6 +97,8 @@ const FAILED_RETENTION_MS = 30 * 24 * 60 * 60_000;
 /** Rows per purge statement, and statements per sweep; the next sweep goes on. */
 const PURGE_BATCH = 1_000;
 const PURGE_MAX_BATCHES = 20;
+/** Webhooks of deleted pages and collections removed per sweep. */
+const ORPHAN_BATCH = 100;
 const MAX_VALUE_CHARS = 16_000;
 const MAX_COMMENT_CHARS = 2_000;
 const AGENT_CALLERS = new Set(["tool", "mcp", "webmcp", "a2a"]);
@@ -852,6 +859,65 @@ export async function purgeSettledContentWebhookDeliveries(
       .returning({ id: deliveries.id });
     if (purged.length < batchSize) break;
   }
+}
+
+/**
+ * Removes the webhooks of pages and collections that were permanently
+ * deleted, with their signing secrets and the deliveries still waiting.
+ * Listing and removing a webhook check the page it watches, so once that page
+ * is gone nobody can reach it. Several paths delete pages and collections for
+ * good, emptying the trash among them, so the sweep cleans up after all of
+ * them rather than each path doing it.
+ */
+export async function removeOrphanedContentWebhooks(
+  options: { batchSize?: number } = {},
+): Promise<number> {
+  // guard:allow-unscoped — a system sweep with no signed-in user; it reads only whether a webhook's page or collection still exists, and removes the webhooks of those that are gone.
+  const db = getDb();
+  const webhooks = schema.contentWebhooks;
+  const orphaned = await db
+    .select()
+    .from(webhooks)
+    .where(
+      or(
+        and(
+          eq(webhooks.scopeType, "document"),
+          notExists(
+            db
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, webhooks.scopeId)),
+          ),
+        ),
+        and(
+          eq(webhooks.scopeType, "database"),
+          notExists(
+            db
+              .select({ id: schema.contentDatabases.id })
+              .from(schema.contentDatabases)
+              .where(eq(schema.contentDatabases.id, webhooks.scopeId)),
+          ),
+        ),
+      ),
+    )
+    .limit(options.batchSize ?? ORPHAN_BATCH);
+  for (const webhook of orphaned) {
+    // The secret first, as delete-content-webhook does: if this stops
+    // halfway, the next sweep finds the webhook again and finishes.
+    await deleteAppSecret(contentWebhookSecretRef(webhook));
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.contentWebhookDeliveries)
+        .where(
+          and(
+            eq(schema.contentWebhookDeliveries.webhookId, webhook.id),
+            eq(schema.contentWebhookDeliveries.status, "pending"),
+          ),
+        );
+      await tx.delete(webhooks).where(eq(webhooks.id, webhook.id));
+    });
+  }
+  return orphaned.length;
 }
 
 export interface ContentWebhookScope {

@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
-import { isBlockedExtensionUrl } from "@agent-native/core/extensions/url-safety";
+import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
 import { deleteAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -78,7 +78,7 @@ export default defineAction({
       .string()
       .url()
       .describe(
-        "Public HTTPS URL that receives the events; private, internal, and Tailnet addresses are refused",
+        "Public HTTPS URL that receives the events; a host that is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused",
       ),
     databaseId: z
       .string()
@@ -114,7 +114,12 @@ export default defineAction({
     // guard:allow-bare-error — invariant: actions run for a signed-in caller
     if (!userEmail) throw new Error("no authenticated user");
     const url = new URL(args.url);
-    if (url.protocol !== "https:" || isBlockedExtensionUrl(args.url)) {
+    // The same check as each send: a name that resolves to a private or
+    // Tailnet (100.64.0.0/10) address is refused, not just a literal one.
+    if (
+      url.protocol !== "https:" ||
+      (await isBlockedExtensionUrlWithDns(args.url))
+    ) {
       throw new ActionContractError(
         "Webhook URLs must be public HTTPS addresses.",
         { errorCode: "WEBHOOK_URL_NOT_ALLOWED", statusCode: 400 },

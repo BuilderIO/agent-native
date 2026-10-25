@@ -33,20 +33,31 @@ const receiver = vi.hoisted(() => ({
 }));
 
 // The real guard refuses every address a test could listen on, so the
-// receiver is faked one layer below it: URL checks still run for real.
-vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/extensions/url-safety")
-  >()),
-  ssrfSafeFetch: vi.fn(async (url: string, init: RequestInit) => {
-    receiver.requests.push({
-      url,
-      headers: { ...(init.headers as Record<string, string>) },
-      body: init.body as string,
-    });
-    return new Response(null, { status: receiver.status });
-  }),
-}));
+// receiver is faked one layer below it: URL checks still run for real, except
+// that names resolve without a network. TAILNET_HOST resolves to a Tailnet
+// (100.64.0.0/10) address and every other name to a public one.
+vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/extensions/url-safety")
+    >();
+  return {
+    ...actual,
+    isBlockedExtensionUrlWithDns: vi.fn(
+      async (url: string) =>
+        actual.isBlockedExtensionUrl(url) ||
+        new URL(url).hostname === "receiver.tail1234.ts.net",
+    ),
+    ssrfSafeFetch: vi.fn(async (url: string, init: RequestInit) => {
+      receiver.requests.push({
+        url,
+        headers: { ...(init.headers as Record<string, string>) },
+        body: init.body as string,
+      });
+      return new Response(null, { status: receiver.status });
+    }),
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -73,6 +84,7 @@ let updateComment: typeof import("./update-comment.js").default;
 let createWebhook: typeof import("./create-content-webhook.js").default;
 let listWebhooks: typeof import("./list-content-webhooks.js").default;
 let deleteWebhook: typeof import("./delete-content-webhook.js").default;
+let deleteDocumentRecursive: typeof import("./delete-document.js").deleteDocumentRecursive;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run) as Promise<T>;
@@ -99,6 +111,8 @@ beforeAll(async () => {
   createWebhook = (await import("./create-content-webhook.js")).default;
   listWebhooks = (await import("./list-content-webhooks.js")).default;
   deleteWebhook = (await import("./delete-content-webhook.js")).default;
+  deleteDocumentRecursive = (await import("./delete-document.js"))
+    .deleteDocumentRecursive;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
@@ -1055,6 +1069,69 @@ describe("content webhooks", () => {
     ).toEqual([busy.id]);
   });
 
+  it("W2-4: permanently deleting a collection removes its webhooks, secrets and waiting deliveries", async () => {
+    const ids = await fixture();
+    const kept = await fixture();
+    const register = (
+      target: { databaseId: string } | { documentId: string },
+    ) =>
+      asOwner(() =>
+        createWebhook.run({
+          url: RECEIVER_URL,
+          ...target,
+          events: ["property.changed"],
+        }),
+      );
+    const collection = await register({ databaseId: ids.databaseId });
+    const page = await register({ documentId: ids.rows[0].documentId });
+    const survivor = await register({ databaseId: kept.databaseId });
+    const secretOf = (webhookId: string) =>
+      readAppSecret({
+        key: `content-webhook:${webhookId}`,
+        scope: "user",
+        scopeId: OWNER,
+      });
+
+    // A failed send leaves the event waiting for its retry.
+    receiver.status = 500;
+    await asOwner(() =>
+      setProperty.run({
+        documentId: ids.rows[0].documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value: "agent",
+      }),
+    );
+    const [waiting] = await settled(collection.webhook.id, 1);
+    expect(waiting.status).toBe("pending");
+
+    await deleteDocumentRecursive(getDb(), ids.databaseDocumentId, OWNER);
+    // Gone from the actions at once: they check the page the webhook watches.
+    await expect(
+      asOwner(() => deleteWebhook.run({ id: collection.webhook.id })),
+    ).rejects.toMatchObject({ errorCode: "WEBHOOK_NOT_FOUND" });
+
+    expect(await hooks.removeOrphanedContentWebhooks()).toBe(2);
+    const remaining = await getDb()
+      .select({ id: schema.contentWebhooks.id })
+      .from(schema.contentWebhooks)
+      .where(
+        inArray(schema.contentWebhooks.id, [
+          collection.webhook.id,
+          page.webhook.id,
+          survivor.webhook.id,
+        ]),
+      );
+    expect(remaining.map((row: { id: string }) => row.id)).toEqual([
+      survivor.webhook.id,
+    ]);
+    expect(await secretOf(collection.webhook.id)).toBeNull();
+    expect(await secretOf(page.webhook.id)).toBeNull();
+    expect((await secretOf(survivor.webhook.id))?.value).toBe(survivor.secret);
+    expect(await deliveries(collection.webhook.id)).toEqual([]);
+    expect(await hooks.removeOrphanedContentWebhooks()).toBe(0);
+  });
+
   it("W2-4: refuses URLs it can't safely call and properties outside the scope", async () => {
     const ids = await fixture();
     const other = await fixture();
@@ -1067,6 +1144,8 @@ describe("content webhooks", () => {
       "https://127.0.0.1/content",
       "https://10.0.0.8/content",
       "https://localhost/content",
+      // A name, not an address, that resolves into the Tailnet.
+      "https://receiver.tail1234.ts.net/content",
     ]) {
       await expect(
         asOwner(() => createWebhook.run({ ...base, url })),

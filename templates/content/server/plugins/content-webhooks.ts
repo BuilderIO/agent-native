@@ -11,6 +11,7 @@ import type {
 import {
   drainContentWebhookDeliveries,
   purgeSettledContentWebhookDeliveries,
+  removeOrphanedContentWebhooks,
 } from "../../actions/_content-webhooks.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
@@ -24,13 +25,15 @@ let sweepStartTimer: ReturnType<typeof setTimeout> | undefined;
 async function runContentWebhookSweep(context: RecurringSweepContext) {
   await drainContentWebhookDeliveries(context);
   await purgeSettledContentWebhookDeliveries();
+  await removeOrphanedContentWebhooks();
 }
 
 /**
  * Retries webhook deliveries that failed or were never sent, about once a
  * minute: on the platform's scheduled sweep when deployed, and on a timer in
  * a long-running server. Most deliveries go out right after their change
- * commits; this sweep is the guarantee, not the fast path.
+ * commits; this sweep is the guarantee, not the fast path. It also clears
+ * out old deliveries and the webhooks of permanently deleted pages.
  */
 export default function registerContentWebhookDelivery(nitroApp?: any) {
   unregisterRecurringSweepHandler ??= registerRecurringSweepHandler(
