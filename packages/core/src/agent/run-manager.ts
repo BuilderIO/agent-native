@@ -1006,6 +1006,13 @@ export function startRun(
     )
       throw error;
   });
+  const waitForRunInsert = async (): Promise<void> => {
+    try {
+      await insertRunPromise;
+    } catch (error) {
+      if (!servicePrincipalStartRefused) throw error;
+    }
+  };
 
   let executionLeaseClaimFailed = false;
   const executionFencePromise: Promise<ExecutionFence | undefined> =
@@ -1851,11 +1858,8 @@ export function startRun(
     eventData: string,
     eventAt: number,
   ): Promise<void> => {
-    const terminal = isTerminalRunEvent(runEvent.event);
-    const requireInserted =
-      runEvent.event.type === "tool_start" ||
-      (terminal && !servicePrincipalStartRefused);
-    if (requireInserted) await insertRunPromise;
+    await waitForRunInsert();
+    const requireInserted = !servicePrincipalStartRefused;
     const write = () =>
       insertRunEvent(runId, runEvent.seq, eventData, {
         eventAt,
@@ -1965,9 +1969,13 @@ export function startRun(
             publications: [],
             write: () => {
               if (openEventBatch === batch) openEventBatch = null;
-              return retryOnce(() =>
-                withWorkerFence(() => insertRunEvents(runId, batch.events)),
-              );
+              return (async () => {
+                await waitForRunInsert();
+                if (servicePrincipalStartRefused) return;
+                await retryOnce(() =>
+                  withWorkerFence(() => insertRunEvents(runId, batch.events)),
+                );
+              })();
             },
           },
         };
