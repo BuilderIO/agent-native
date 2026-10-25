@@ -57,6 +57,7 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 
 import { getDb } from "../../db/index.js";
+import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
 import { isWorkspaceSsoAppUrl } from "../../shared/workspace-sso.js";
 import { getDispatchDefaultOwnerEmail } from "./admin-config.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
@@ -733,27 +734,48 @@ function isLocalWorkspaceGateway(url: URL): boolean {
   );
 }
 
-function workspaceAppLink(
-  appPath: string,
-  explicitUrl?: unknown,
-): string | null {
+function workspaceAppPagePath(appId: string, urlValue?: string): string {
+  const route = workspaceAppRoute(appId);
+  if (!urlValue) return route;
+  const parsed = new URL(urlValue, "https://agent-native.invalid");
+  return `${route}${parsed.search}${parsed.hash}`;
+}
+
+function workspaceAppLink(appId: string, explicitUrl?: unknown): string {
   const urlValue = typeof explicitUrl === "string" ? explicitUrl.trim() : "";
+  const routePath = workspaceAppPagePath(appId, urlValue || undefined);
   if (!urlValue) {
-    return workspaceGatewayAppUrl(appPath) ?? workspaceAppUrl(appPath);
+    return (
+      workspaceGatewayAppUrl(routePath) ??
+      workspaceAppUrl(routePath) ??
+      routePath
+    );
   }
   if (urlValue.startsWith("/")) {
     return (
-      workspaceGatewayAppUrl(urlValue) ?? workspaceAppUrl(urlValue) ?? urlValue
+      workspaceGatewayAppUrl(routePath) ??
+      workspaceAppUrl(routePath) ??
+      routePath
     );
   }
   const resolved = projectEnvironmentUrl(new URL(urlValue).toString());
   const gateway = workspaceGatewayBaseUrl();
   if (gateway && new URL(resolved).origin === gateway.origin) {
-    return addBasePath(resolved, gateway.pathname.replace(/\/+$/, ""));
+    return (
+      workspaceGatewayAppUrl(routePath) ??
+      workspaceAppUrl(routePath) ??
+      routePath
+    );
   }
   const runtimeBase = resolveAppRuntimeUrl();
   if (runtimeBase && new URL(resolved).origin === new URL(runtimeBase).origin) {
-    return addBasePath(resolved, getConfiguredAppBasePath());
+    const runtimeUrl = new URL(
+      addBasePath(
+        projectEnvironmentUrl(runtimeBase),
+        getConfiguredAppBasePath(),
+      ),
+    );
+    return appendWorkspaceAppPath(runtimeUrl, routePath);
   }
   return resolved;
 }
@@ -940,7 +962,7 @@ function parseWorkspaceAppsManifest(
       const metadata = workspaceAppMetadataFromRecord(entry);
       let url: string | null;
       try {
-        url = workspaceAppLink(pathValue, entry.url);
+        url = workspaceAppLink(id, entry.url);
       } catch (error) {
         if (error instanceof WorkspaceGatewayConfigurationError) throw error;
         onInvalidAppUrl?.();
@@ -2292,7 +2314,7 @@ async function readWorkspaceAppsFromFilesystem(
       homePath: normalizeWorkspaceAppHomePath(
         configuredHomePath ?? inferredHomePath,
       ),
-      url: workspaceAppUrl(`/${entry.name}`),
+      url: workspaceAppUrl(workspaceAppRoute(entry.name)),
       isDispatch: entry.name === "dispatch",
       audience:
         workspaceAppAudienceFromPackageJson(pkg) ??
@@ -2765,7 +2787,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       description: "",
       path: `/${appId}`,
       homePath: "/home",
-      url: workspaceAppUrl(`/${appId}`),
+      url: workspaceAppUrl(workspaceAppRoute(appId)),
       isDispatch: false,
       audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
       publicPaths: [],
@@ -3126,8 +3148,8 @@ function buildWorkspaceAppPrompt(input: {
       `Dispatch workspace resources selected for this app:\n${resourceList}`,
       `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
       "",
-      `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
-      `Important routing rule: from outside the app, link to /${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${appId}/${appId}/review.`,
+      `Use the workspace app layout: create it under apps/${appId}; Dispatch mounts it at /apps/${appId}. Keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
+      `Important routing rule: from outside the app, link to /apps/${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/apps/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
       `Home route contract: Dispatch opens the registered app.homePath. If the main screen is app/routes/_index.tsx and there is no app/routes/home.tsx or app/routes/_app.home.tsx, set app.homePath to "/" in server/plugins/config.ts. If the app uses a /home route, keep the default "/home". Never leave the registry pointing at /home when that route does not exist.`,
       "Existing first-party apps are neighbors, not implementation details for this app. If the user prompt mentions Mail, Calendar, Analytics, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at https://mail.agent-native.com, https://calendar.agent-native.com, and https://analytics.agent-native.com.",
       `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
@@ -3608,7 +3630,7 @@ export async function startWorkspaceAppCreation(input: {
     projectId: builderProjectId,
     branchName: result.branchName,
     url: result.url,
-    workspaceUrl: workspaceAppUrl(`/${built.appId}`),
+    workspaceUrl: workspaceAppUrl(workspaceAppRoute(built.appId)),
     status: result.status,
     message:
       `Builder started a branch for /${built.appId}. Use the Builder branch URL to track creation now. ` +
