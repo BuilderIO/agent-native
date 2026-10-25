@@ -160,7 +160,7 @@ export interface AgentKitErrorBoundaryProps {
 
 interface AgentKitErrorBoundaryState {
   error?: Error;
-  resetKey?: string | number;
+  resetKey?: string | number | undefined;
 }
 
 /** Isolates custom renderers so one extension cannot take down the chat. */
@@ -168,7 +168,7 @@ export class AgentKitErrorBoundary extends Component<
   AgentKitErrorBoundaryProps,
   AgentKitErrorBoundaryState
 > {
-  public state: AgentKitErrorBoundaryState = {
+  public override state: AgentKitErrorBoundaryState = {
     resetKey: this.props.resetKey,
   };
 
@@ -187,7 +187,7 @@ export class AgentKitErrorBoundary extends Component<
       : null;
   }
 
-  public componentDidCatch(error: Error, info: ErrorInfo): void {
+  public override componentDidCatch(error: Error, info: ErrorInfo): void {
     try {
       this.props.onError?.(error, info);
     } catch (observerError) {
@@ -199,7 +199,7 @@ export class AgentKitErrorBoundary extends Component<
     }
   }
 
-  public render(): ReactNode {
+  public override render(): ReactNode {
     if (!this.state.error) return this.props.children;
     return typeof this.props.fallback === "function"
       ? this.props.fallback(this.state.error)

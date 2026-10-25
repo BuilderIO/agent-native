@@ -394,6 +394,9 @@ export interface ContentDatabaseSort {
 
 export const CONTENT_DATABASE_FILTER_OPERATORS = [
   "contains",
+  "does_not_contain",
+  "starts_with",
+  "ends_with",
   "equals",
   "does_not_equal",
   "greater_than",
@@ -402,7 +405,10 @@ export const CONTENT_DATABASE_FILTER_OPERATORS = [
   "less_than_or_equal",
   "before",
   "after",
+  "on_or_before",
+  "on_or_after",
   "between",
+  "is_within",
   "is_checked",
   "is_unchecked",
   "is_empty",

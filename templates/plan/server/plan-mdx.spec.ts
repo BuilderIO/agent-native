@@ -253,11 +253,11 @@ describe("plan MDX source adapter", () => {
     expect(parsed.title).toBe(source.title);
     expect(parsed.blocks.map((block) => block.id)).toContain("summary");
     expect(parsed.canvas?.frames).toHaveLength(2);
-    expect(parsed.canvas?.frames[0]?.wireframe?.screen[0]?.id).toBe(
+    expect(parsed.canvas?.frames[0]?.wireframe?.screen?.[0]?.id).toBe(
       "overview-screen",
     );
     expect(
-      parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0]
+      parsed.canvas?.frames[0]?.wireframe?.screen?.[0]?.children?.[0]
         ?.children?.[1]?.children?.[2]?.text,
     ).toBe("Continue");
     expect(parsed.canvas?.viewport?.zoom).toBe(0.81);
@@ -316,7 +316,7 @@ describe("plan MDX source adapter", () => {
       expect(summary.data.markdown).toContain("Only this text changed.");
     }
     const main =
-      parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0]
+      parsed.canvas?.frames[0]?.wireframe?.screen?.[0]?.children?.[0]
         ?.children?.[1];
     expect(main?.children?.[2]?.text).toBe("Review order");
     expect(parsed.canvas?.annotations?.[0]?.y).toBe(650);
@@ -382,7 +382,7 @@ version: 2
 
     const parsed = await parsePlanMdxFolder(patched);
     const frameButton =
-      parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0];
+      parsed.canvas?.frames[0]?.wireframe?.screen?.[0]?.children?.[0];
     expect(frameButton?.text).toBe("New label");
   });
 
@@ -408,8 +408,8 @@ version: 2
     expect(wireframe?.type).toBe("wireframe");
     if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
 
-    const generatedScreenId = wireframe.data.screen[0]?.id;
-    const generatedButtonId = wireframe.data.screen[0]?.children?.[0]?.id;
+    const generatedScreenId = wireframe.data.screen?.[0]?.id;
+    const generatedButtonId = wireframe.data.screen?.[0]?.children?.[0]?.id;
     expect(generatedScreenId).toBe(
       "node-screen-plan-block-0-inline-wireframe-screen-0",
     );
@@ -465,9 +465,9 @@ version: 2
     );
     expect(wireframe?.type).toBe("wireframe");
     if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
-    const documentButtonId = wireframe.data.screen[0]?.children?.[0]?.id;
+    const documentButtonId = wireframe.data.screen?.[0]?.children?.[0]?.id;
     const canvasButtonId =
-      parsed.canvas?.frames[0]?.wireframe?.screen[0]?.children?.[0]?.id;
+      parsed.canvas?.frames[0]?.wireframe?.screen?.[0]?.children?.[0]?.id;
 
     expect(documentButtonId).toBe(
       "node-btn-plan-block-0-doc-wireframe-screen-0-0",
@@ -533,8 +533,8 @@ version: 2
     if (first?.type !== "wireframe" || second?.type !== "wireframe")
       throw new Error("Expected wireframes");
 
-    const firstButtonId = first.data.screen[0]?.children?.[0]?.id;
-    const secondButtonId = second.data.screen[0]?.children?.[0]?.id;
+    const firstButtonId = first.data.screen?.[0]?.children?.[0]?.id;
+    const secondButtonId = second.data.screen?.[0]?.children?.[0]?.id;
     expect(firstButtonId).toBe("node-btn-plan-block-0-foo-bar-screen-0-0");
     expect(secondButtonId).toBe("node-btn-plan-block-1-foo-bar-screen-0-0");
     expect(firstButtonId).not.toBe(secondButtonId);
@@ -566,7 +566,7 @@ version: 2
       "Updated confirmation",
     );
     expect(
-      parsed.canvas?.frames[1]?.wireframe?.screen[0]?.children?.[1]?.id,
+      parsed.canvas?.frames[1]?.wireframe?.screen?.[0]?.children?.[1]?.id,
     ).toBe("confirm-submit");
   });
 
@@ -604,7 +604,7 @@ version: 2
     );
     expect(wireframe?.type).toBe("wireframe");
     if (wireframe?.type === "wireframe") {
-      expect(wireframe.data.screen[0]?.children?.[0]?.text).toBe("New label");
+      expect(wireframe.data.screen?.[0]?.children?.[0]?.text).toBe("New label");
     }
   });
 

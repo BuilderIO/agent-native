@@ -173,6 +173,22 @@ export function claudeMcpConfig(
   return Object.keys(mcpServers).length > 0 ? { mcpServers } : null;
 }
 
+export function codeAgentMcpConfigurationErrors(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv = process.env,
+): Array<{ serverId: string; message: string }> {
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
+  return Object.entries(servers).flatMap(([serverId, server]) =>
+    server.type === "http" && server.configurationError
+      ? [{ serverId, message: server.configurationError.message }]
+      : [],
+  );
+}
+
 function codeAgentHttpMcpServers(
   config: McpConfig | null,
   environment: NodeJS.ProcessEnv,
@@ -186,7 +202,8 @@ function codeAgentHttpMcpServers(
   // its credential headers) silently replace another. Reject that instead.
   const idsByKey = new Map<string, string>();
   return Object.entries(servers).flatMap(([serverId, server]) => {
-    if (server.type !== "http" || !server.url) return [];
+    if (server.type !== "http" || !server.url || server.configurationError)
+      return [];
     const key = codexConfigKey(serverId);
     const existing = idsByKey.get(key);
     if (existing !== undefined) {

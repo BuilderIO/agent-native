@@ -1611,6 +1611,212 @@ describe("HTML Motion source adapter", () => {
     );
   });
 
+  it.each([
+    ":nth-child(1)",
+    ":nth-child(2n + 1)",
+    ":nth-last-child(1)",
+    ":nth-last-child(2)",
+    ":first-of-type",
+    ":nth-of-type(1)",
+    ":nth-last-of-type(1)",
+    ":nth-child(-n + 3 of p)",
+    ":only-of-type",
+  ])(
+    "allows a structural !important rule that does not match: %s",
+    (pseudo) => {
+      const source = `<!doctype html><html><head><style>.card > h1${pseudo} { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><p>Details</p><h1>Outro</h1></main></body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+      expect(readMotionHtmlSource(apply(source).source)).toMatchObject({
+        status: "valid",
+      });
+    },
+  );
+
+  it.each([
+    ":nth-child(2)",
+    ":nth-child(2n)",
+    ":nth-last-child(3)",
+    ":nth-of-type(2)",
+    ":nth-of-type(2n)",
+    ":nth-child(2 of h1)",
+    ":nth-child(2n of h1)",
+  ])("rejects a structural !important rule that matches: %s", (pseudo) => {
+    const source = `<!doctype html><html><head><style>.card > h1${pseudo} { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><p>Details</p><h1>Outro</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects nth-child rules filtered by the target node ID", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1 of [data-agent-native-node-id="hero-title"]) { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><p>Details</p><h1>Outro</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects positional selectors when a sibling can mutate at runtime", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 onclick="this.remove()">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["Vue v-if", 'v-if="active"'],
+    ["Vue v-for", 'v-for="item in items"'],
+  ])(
+    "rejects positional selectors when %s can change sibling positions",
+    (_label, directive) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><i ${directive}></i><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it("rejects positional selectors when a sibling can replace itself through outerHTML", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 :outerHTML="replacement">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining(":outerhtml may inject a stylesheet"),
+    });
+  });
+
+  it.each([
+    ["a matching remote destination", ".card", "unsupported"],
+    ["an unresolved remote destination", "getPortal()", "unsupported"],
+    ["a different static destination", "#portal", "supported"],
+  ])(
+    "accounts for remote Alpine teleports with %s",
+    (_label, destination, status) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-last-child(3) { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><h1>Outro</h1></main><aside id="portal"></aside><div x-data><template x-teleport="${destination}"><p></p></template></div>${ALPINE_CDN}</body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject(
+        status === "supported"
+          ? { status: "supported", targetNodeIds: ["hero-title"] }
+          : { status: "unsupported", code: "unsupported-target" },
+      );
+    },
+  );
+
+  it.each([
+    ["Alpine initialization", 'x-init="$el.remove()"'],
+    ["Alpine effect", 'x-effect="$el.remove()"'],
+    ["Alpine x-data expression", 'x-data="createScope()"'],
+    ["Vue v-scope expression", 'v-scope="createScope()"'],
+    [
+      "Alpine x-data init method",
+      "x-data=\"{ init() { document.querySelector('.card > h1')?.remove() } }\"",
+    ],
+  ])(
+    "rejects positional selectors when %s can remove a sibling",
+    (_label, directive) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 ${directive}>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
+    ["Alpine", 'x-data="{ open: true }"'],
+    ["Vue", 'v-scope="{ open: true }"'],
+  ])(
+    "allows positional selectors when a sibling has static %s scope",
+    (_label, scope) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 ${scope}>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    },
+  );
+
+  it("allows positional selectors when a sibling only changes its class", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 x-bind:class="active ? 'active' : ''">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects filtered positional selectors with unsupported pseudo semantics", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1 of :lang(en)) { opacity: 0 !important; }</style></head><body><main class="card"><h1 lang="fr">Intro</h1><h1 lang="en" id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects relational :has() selectors in filtered positional selectors", () => {
+    const source = `<!doctype html><html><head><style>.card > section:nth-child(1 of :has(> p)) { opacity: 0 !important; }</style></head><body><main class="card"><section>Intro</section><section id="hero-title" data-agent-native-node-id="hero-title"><p>Hello</p></section></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects unknown pseudos nested in :not() selectors", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:not(:lang(fr)) { opacity: 0 !important; }</style></head><body><main class="card"><h1 lang="en" id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it.each(["is", "where"])(
     "fails closed for relational selectors inside :%s()",
     (pseudo) => {
@@ -1806,6 +2012,58 @@ describe("HTML Motion source adapter", () => {
     expect(() => apply(source)).toThrow(MotionHtmlSourceError);
   });
 
+  it("rejects v-text that can make a Motion target match :empty", () => {
+    const source = `<!doctype html><html><head><style>#hero-title:empty { opacity: 0 !important; }</style></head><body><h1 id="hero-title" data-agent-native-node-id="hero-title" v-scope="{ label: '' }" v-text="label">Hello</h1></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["the target", "#hero-title", "unsupported"],
+    ["an unresolved target", "getTarget()", "unsupported"],
+    ["a different static target", "#portal", "supported"],
+  ])(
+    "accounts for remote teleports and :empty when they target %s",
+    (_label, destination, status) => {
+      const source = `<!doctype html><html><head><style>#hero-title:not(:empty) { opacity: 0 !important; }</style></head><body><h1 id="hero-title" data-agent-native-node-id="hero-title"></h1><aside id="portal"></aside><div x-data><template x-teleport="${destination}"><i></i></template></div>${ALPINE_CDN}</body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject(
+        status === "supported"
+          ? { status: "supported", targetNodeIds: ["hero-title"] }
+          : { status: "unsupported", code: "unsupported-target" },
+      );
+    },
+  );
+
+  it("rejects :empty when a child runtime handler can remove the last child", () => {
+    const source = html
+      .replace(
+        "<head>",
+        "<head><style>#hero-title:empty { opacity: 0 !important; }</style>",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title"><span onclick="this.remove()">Hello</span></h1>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it("allows a structural sibling that cannot change the target's :empty state", () => {
     const source = `<!doctype html><html><head><style>#hero-title:not(:empty) { opacity: 0 !important; }</style></head><body x-data="{ active: false }"><h1 id="hero-title" data-agent-native-node-id="hero-title"></h1><template x-if="active"><i></i></template>${ALPINE_CDN}</body></html>`;
 
@@ -1842,6 +2100,54 @@ describe("HTML Motion source adapter", () => {
         status,
         ...(status === "unsupported" ? { code: "unsupported-target" } : {}),
       });
+    },
+  );
+
+  it("rejects :has() when a descendant handler can add a matching class", () => {
+    const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><button onclick="document.getElementById('candidate').classList.add('foo')"></button><i id="candidate"></i></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects :has() when runtime markup can add a matching descendant", () => {
+    const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><div x-html="content"></div></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("x-html may inject a stylesheet"),
+    });
+  });
+
+  it.each([
+    ["the subject", "#hero-title", "unsupported"],
+    ["a descendant", "#portal", "unsupported"],
+    ["outside the subject", "#elsewhere", "supported"],
+  ])(
+    "accounts for remote teleports into a :has() subject or %s",
+    (_label, destination, status) => {
+      const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><div id="portal"></div></main><aside id="elsewhere"></aside><div x-data><template x-teleport="${destination}"><i class="foo"></i></template></div>${ALPINE_CDN}</body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject(
+        status === "supported"
+          ? { status: "supported", targetNodeIds: ["hero-title"] }
+          : { status: "unsupported", code: "unsupported-target" },
+      );
     },
   );
 

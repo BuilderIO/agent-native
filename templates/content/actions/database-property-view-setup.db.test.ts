@@ -6,6 +6,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
+
 const path = join(
   tmpdir(),
   `content-property-view-setup-${process.pid}-${Date.now()}.pglite`,
@@ -16,6 +18,7 @@ let schema: typeof import("../server/db/schema.js");
 let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
 let updateView: typeof import("./update-content-database-view.js").default;
+let updatePersonalView: typeof import("./update-content-database-personal-view.js").default;
 let readDatabase: typeof import("./get-content-database.js").default;
 let listSpaces: typeof import("./list-content-spaces.js").default;
 let spaceId: string;
@@ -33,6 +36,9 @@ beforeAll(async () => {
   configureProperty = (await import("./configure-document-property.js"))
     .default;
   updateView = (await import("./update-content-database-view.js")).default;
+  updatePersonalView = (
+    await import("./update-content-database-personal-view.js")
+  ).default;
   readDatabase = (await import("./get-content-database.js")).default;
   listSpaces = (await import("./list-content-spaces.js")).default;
   await asOwner(() =>
@@ -487,6 +493,280 @@ describe("ordinary property and table-view setup", () => {
       ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
       expect(await revisions()).toEqual(before);
     }
+  });
+
+  it("saves relative date filters as tokens and rejects a range it does not know", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Relative dates",
+        idempotencyKey: "relative-date-database",
+      }),
+    );
+    const target = {
+      spaceId,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const revisions = async () => {
+      const current = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      if (
+        !("mutationContract" in current) ||
+        !current.mutationContract ||
+        !("configurationRevision" in current)
+      ) {
+        throw new Error("Expected setup revisions");
+      }
+      return {
+        expectedSchemaRevision: current.mutationContract.schemaRevision,
+        expectedConfigurationRevision: current.configurationRevision,
+      };
+    };
+    const due = await asOwner(async () =>
+      configureProperty.run({
+        operation: "create",
+        target,
+        expectedSchemaRevision: (await revisions()).expectedSchemaRevision,
+        idempotencyKey: "create-relative-due",
+        definition: { name: "Due", type: "date" },
+      }),
+    );
+    const filters = [
+      {
+        key: "name",
+        label: "Name",
+        operator: "starts_with" as const,
+        value: "Launch",
+      },
+      {
+        key: due.value.id,
+        label: "Due",
+        operator: "on_or_before" as const,
+        value: "today",
+      },
+      {
+        key: due.value.id,
+        label: "Due",
+        operator: "is_within" as const,
+        value: "next_7_days",
+      },
+      // A range still being filled in saves.
+      {
+        key: due.value.id,
+        label: "Due",
+        operator: "between" as const,
+        value: JSON.stringify(["2026-10-01", ""]),
+      },
+    ];
+
+    const saved = await asOwner(async () =>
+      updateView.run({
+        operation: "update",
+        target,
+        ...(await revisions()),
+        idempotencyKey: "save-relative-date-filters",
+        viewId: "default",
+        patch: { filters },
+      }),
+    );
+    expect(saved.value.filters).toEqual(filters);
+
+    for (const [index, filter] of [
+      { ...filters[2]!, value: "next_fortnight" },
+      { ...filters[1]!, key: "name", label: "Name" },
+      { ...filters[1]!, value: "2026-02-30" },
+      { ...filters[3]!, value: JSON.stringify(["2026-10-01", "soon"]) },
+    ].entries()) {
+      const before = await revisions();
+      await expect(
+        asOwner(() =>
+          updateView.run({
+            operation: "update",
+            target,
+            ...before,
+            idempotencyKey: `invalid-relative-date-filter-${index}`,
+            viewId: "default",
+            patch: { filters: [filter] },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+      expect(await revisions()).toEqual(before);
+    }
+
+    // Personal overrides of the same View get the same date checks.
+    const savePersonal = (filter: (typeof filters)[number]) =>
+      asOwner(() =>
+        updatePersonalView.run(
+          {
+            databaseId: created.database.id,
+            overrides: {
+              version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+              views: [
+                {
+                  id: "default",
+                  sorts: [],
+                  filters: [filter],
+                  filterMode: "and",
+                },
+              ],
+            },
+          },
+          { userEmail: owner },
+        ),
+      );
+    await expect(savePersonal(filters[2]!)).resolves.toMatchObject({
+      overrides: { views: [{ filters: [filters[2]] }] },
+    });
+    for (const filter of [
+      { ...filters[2]!, value: "soon" },
+      { ...filters[1]!, value: "2026-02-30" },
+    ]) {
+      await expect(savePersonal(filter)).rejects.toMatchObject({
+        errorCode: "invalid_filter",
+      });
+    }
+
+    // Every save path checks only the filters it adds or changes, so a date
+    // saved before these checks doesn't block other edits.
+    const stale = { ...filters[1]!, value: "soon" };
+    const unreadable = { ...filters[1]!, value: "2026-02-30" };
+    const withDefaultFilters = async (nextFilters: typeof filters) => {
+      const { database } = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      return {
+        ...database.viewConfig,
+        views: database.viewConfig.views.map((view) =>
+          view.id === "default" ? { ...view, filters: nextFilters } : view,
+        ),
+      };
+    };
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify(await withDefaultFilters([stale])),
+      })
+      .where(eq(schema.contentDatabases.id, created.database.id));
+
+    await expect(
+      asOwner(async () =>
+        updateView.run({
+          operation: "update",
+          target,
+          ...(await revisions()),
+          idempotencyKey: "keep-stale-date-update",
+          viewId: "default",
+          patch: { filters: [stale, filters[0]!] },
+        }),
+      ),
+    ).resolves.toMatchObject({ value: { filters: [stale, filters[0]] } });
+
+    const replaceConfig = (idempotencyKey: string, viewConfig: unknown) =>
+      asOwner(async () =>
+        updateView.run({
+          operation: "replace",
+          target,
+          ...(await revisions()),
+          idempotencyKey,
+          viewConfig,
+        } as never),
+      );
+    const replace = async (
+      idempotencyKey: string,
+      nextFilters: typeof filters,
+    ) => replaceConfig(idempotencyKey, await withDefaultFilters(nextFilters));
+    await expect(
+      replace("keep-stale-date-replace", [stale]),
+    ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
+    await expect(
+      replace("add-unreadable-date-replace", [stale, unreadable]),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+
+    // Files views still save through the legacy { databaseId, viewConfig } form.
+    const legacySave = async (nextFilters: typeof filters) => {
+      const viewConfig = await withDefaultFilters(nextFilters);
+      return asOwner(() =>
+        updateView.run({
+          databaseId: created.database.id,
+          viewConfig,
+        } as never),
+      );
+    };
+    await expect(legacySave([stale, filters[0]!])).resolves.toBeDefined();
+    await expect(legacySave([stale, unreadable])).rejects.toMatchObject({
+      errorCode: "invalid_filter",
+    });
+
+    // Each view is compared with its own saved filters. A new view, as
+    // "Duplicate view" makes, may copy any saved view's.
+    const withCopy = async (copyFilters: typeof filters) => {
+      const config = await withDefaultFilters([stale, filters[0]!]);
+      const source = config.views.find((view) => view.id === "default")!;
+      return {
+        ...config,
+        views: [
+          ...config.views.filter((view) => view.id !== "copy"),
+          { ...source, id: "copy", name: "Copy", filters: copyFilters },
+        ],
+      };
+    };
+    await expect(
+      replaceConfig("duplicate-stale-view", await withCopy([stale])),
+    ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
+    await expect(
+      replaceConfig("copy-without-stale", await withCopy([filters[0]!])),
+    ).resolves.toMatchObject({ receipt: { outcome: "updated" } });
+    await expect(
+      replaceConfig("copy-stale-into-view", await withCopy([stale])),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    await expect(
+      asOwner(async () =>
+        updateView.run({
+          operation: "create",
+          target,
+          ...(await revisions()),
+          idempotencyKey: "create-view-copying-stale-date",
+          view: {
+            name: "Created copy",
+            type: "table",
+            config: { filters: [stale] },
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({ receipt: { outcome: "created" } });
+
+    await expect(savePersonal(stale)).resolves.toMatchObject({
+      overrides: { views: [{ filters: [stale] }] },
+    });
+    await expect(
+      asOwner(() =>
+        updatePersonalView.run(
+          {
+            databaseId: created.database.id,
+            overrides: {
+              version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+              views: [
+                {
+                  id: "copy",
+                  sorts: [],
+                  filters: [stale],
+                  filterMode: "and",
+                },
+              ],
+            },
+          },
+          { userEmail: owner },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_filter" });
+    const { database: final } = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id }),
+    );
+    expect(
+      final.viewConfig.views.find((view) => view.id === "default")?.filters,
+    ).toEqual([stale, filters[0]]);
   });
 
   it("sets a list view's row layout from a preset and slot patches", async () => {

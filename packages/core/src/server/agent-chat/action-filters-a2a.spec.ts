@@ -43,6 +43,7 @@ vi.mock("../../audit/store.js", () => ({
 }));
 vi.mock("../../agent/run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../agent/run-store.js")>()),
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   getCurrentTurnEventsForThread: async (threadId: string) => {
     runStoreReads.journal(threadId);
     return taskEvents.get(threadId) ?? [];

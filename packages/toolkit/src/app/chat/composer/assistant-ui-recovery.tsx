@@ -64,7 +64,7 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
   AssistantUiStaleIndexErrorBoundaryProps,
   AssistantUiStaleIndexErrorBoundaryState
 > {
-  state: AssistantUiStaleIndexErrorBoundaryState = {
+  override state: AssistantUiStaleIndexErrorBoundaryState = {
     error: null,
     retryToken: 0,
     recovery: null,
@@ -89,7 +89,7 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
     };
   }
 
-  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+  override componentDidCatch(error: unknown, info: React.ErrorInfo) {
     const recoverable = assistantUiRecoverableRenderErrorKind(error);
     if (!recoverable) return;
     const signature = this.recoverySignature(recoverable, error);
@@ -131,7 +131,7 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
     }, 0);
   }
 
-  componentDidUpdate(
+  override componentDidUpdate(
     prevProps: AssistantUiStaleIndexErrorBoundaryProps,
     prevState: AssistantUiStaleIndexErrorBoundaryState,
   ) {
@@ -160,13 +160,13 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
     }
   }
 
-  componentWillUnmount() {
+  override componentWillUnmount() {
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
     }
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       if (!isAssistantUiRecoverableRenderError(this.state.error)) {
         throw this.state.error;

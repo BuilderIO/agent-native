@@ -88,9 +88,9 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "Qué ocurre cuando el resultado no coincide.",
         },
         {
@@ -98,7 +98,14 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
           type: "TReturn",
           optional: true,
           description:
-            'Se devuelve en lugar de un resultado inválido cuando outputErrorStrategy es "fallback".',
+            'Obsoleto. Se devuelve en lugar de un resultado inválido cuando outputErrorStrategy es "fallback".',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "El conjunto cerrado de códigos de error de la acción, de defineActionErrors. Consulta Declarar códigos de error más abajo.",
         },
         {
           name: "mcpOutputSchema",
@@ -240,24 +247,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+El tipo de retorno de la acción procede de `outputSchema`, y `run` debe devolver un valor que el esquema acepte, de modo que un resultado que se desvía del esquema es un error de compilación antes que un error en tiempo de ejecución.
+
 `outputErrorStrategy` controla qué ocurre ante una discrepancia:
 
-| Estrategia   | Comportamiento ante una discrepancia                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **Predeterminado.** Hace `console.warn` de los problemas y devuelve el resultado **original** sin cambios. No rompe nada. |
-| `"strict"`   | Lanza un error claro, para que un bug en la acción sea fácil de notar.                                                    |
-| `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado inválido.                                         |
+| Estrategia   | Comportamiento ante una discrepancia                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **Predeterminado.** Lanza `ActionOutputContractError`, para que un bug en la acción falle de forma ruidosa.                |
+| `"warn"`     | Hace `console.warn` de los problemas y devuelve el resultado **original** sin cambios. Úsalo mientras corriges un esquema. |
+| `"fallback"` | **Obsoleto.** Devuelve `outputFallback` en lugar del resultado inválido, que quien llama no puede distinguir de uno real.  |
 
 Cuando `run()` tiene éxito, el framework devuelve el valor validado, así que cualquier valor por defecto o coerción de `outputSchema` surte efecto, igual que ocurre con la entrada. Cuando no pasas un `outputSchema`, el valor de retorno queda sin cambios.
 
 La comprobación estricta se ejecuta después de `run()`, así que el error (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa de lo que ya ha ocurrido: `effect` es `"committed"` en cuanto una escritura ha entrado en su handler, en la propia llamada o en una acción que esta llamó (incluso desde una acción de solo lectura), y quien llama no debe reintentarla; en otro caso es `"none"`. El mensaje solo enumera rutas de campos declarados y códigos de incidencia, nunca los valores devueltos.
+
+### Declarar códigos de error {#error-codes}
+
+`defineActionErrors` declara el conjunto cerrado de `errorCode` con los que falla una acción. Sus funciones `fail` y `noWrite` solo aceptan esos códigos, así que un código mal escrito no compila, y al pasarlo como `errors` publica los códigos como `errorCodes` en la definición.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### Anunciar el contrato por MCP {#mcp-output-schema}
 

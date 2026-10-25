@@ -437,18 +437,60 @@ test("Motion inspector states match the editable timeline", async ({
   const positionStyleTriggerRect = await nativeStyleInspector
     .getByRole("button", { name: "Position", exact: true })
     .boundingBox();
-  const rightPanelLeft = await page
-    .locator('[data-design-chrome-region="right-panel"]')
-    .evaluate((element) => element.getBoundingClientRect().x);
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  const rightPanelBounds = await rightPanel.boundingBox();
+  const rightPanelScroller = rightPanel.locator(".design-inspector-scroll");
+  const inspectorScrollGutter = await rightPanelScroller.evaluate((element) => {
+    const scroller = element as HTMLElement;
+    const style = window.getComputedStyle(scroller);
+    const borders =
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
+      (Number.parseFloat(style.borderRightWidth) || 0);
+    return scroller.offsetWidth - scroller.clientWidth - borders;
+  });
   expect(positionEditorRect).not.toBeNull();
   expect(positionStyleTriggerRect).not.toBeNull();
+  expect(rightPanelBounds).not.toBeNull();
   expect(positionEditorRect!.y - positionStyleTriggerRect!.y).toBeCloseTo(
     -4,
     0,
   );
   expect(
-    positionEditorRect!.x + positionEditorRect!.width - (rightPanelLeft - 1),
+    positionEditorRect!.x + positionEditorRect!.width - rightPanelBounds!.x,
+    JSON.stringify({
+      positionEditorRect,
+      rightPanelBounds,
+      positionStyleTriggerRect,
+    }),
   ).toBeCloseTo(0, 0);
+  const positionStyleRow = nativeStyleInspector
+    .getByRole("button", { name: "Position", exact: true })
+    .locator("xpath=..");
+  const positionStyleRowRect = await positionStyleRow.boundingBox();
+  const positionStyleRowGap = await positionStyleRow.evaluate((element) =>
+    Number.parseFloat(window.getComputedStyle(element).columnGap),
+  );
+  const visibilityButtonRect = await positionStyleRow
+    .locator("button")
+    .nth(1)
+    .boundingBox();
+  expect(positionStyleRowRect).not.toBeNull();
+  expect(visibilityButtonRect).not.toBeNull();
+  expect(positionStyleTriggerRect!.x - rightPanelBounds!.x).toBe(16);
+  expect(
+    Math.abs(
+      positionStyleRowRect!.width -
+        (rightPanelBounds!.width - inspectorScrollGutter),
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(positionStyleTriggerRect!.width + inspectorScrollGutter).toBeCloseTo(
+    148,
+    0,
+  );
+  expect(
+    visibilityButtonRect!.x -
+      (positionStyleTriggerRect!.x + positionStyleTriggerRect!.width),
+  ).toBeCloseTo(positionStyleRowGap, 0);
   expect(positionEditorRect!.height).toBeCloseTo(270, 0);
   await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
     "Slide in",

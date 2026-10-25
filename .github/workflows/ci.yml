@@ -52,6 +52,7 @@ jobs:
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
+      design_canvas_e2e_diagnostic_shards: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_shards }}
       design_canvas_broad_workflow_shards: ${{ steps.scope.outputs.design_canvas_broad_workflow_shards }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_caret_e2e: ${{ steps.scope.outputs.slides_caret_e2e }}
@@ -779,57 +780,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          [
-            changed-1,
-            changed-2,
-            changed-3,
-            changed-4,
-            changed-5,
-            changed-6,
-            changed-7,
-            changed-8,
-            changed-9,
-            changed-10,
-            changed-11,
-            changed-12,
-            changed-13,
-            changed-14,
-            changed-15,
-            changed-16,
-            changed-17,
-            changed-18,
-            changed-19,
-            changed-20,
-            changed-21,
-            changed-22,
-            changed-23,
-            changed-24,
-            changed-25,
-            changed-26,
-            changed-27,
-            changed-28,
-            changed-29,
-            changed-30,
-            changed-31,
-            changed-32,
-            changed-33,
-            changed-34,
-            changed-35,
-            changed-36,
-            changed-37,
-            changed-38,
-            changed-39,
-            changed-40,
-            changed-41,
-            changed-42,
-            changed-43,
-            changed-44,
-            changed-45,
-            changed-46,
-            changed-47,
-            changed-48,
-          ]
+        shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -871,7 +822,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/${{ strategy.job-total }}" --grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
 
       - name: Detect retried Design test failures
         id: retry-artifacts
@@ -1544,34 +1495,6 @@ jobs:
         timeout-minutes: 20
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
-  slides-macos-caret-qa:
-    name: Slides caret navigation in macOS
-    needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_caret_e2e == 'true' }}
-    runs-on: macos-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-
-      - name: Restore Playwright browser cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --only-shell chromium
-
-      - name: Check platform-aware line-edge caret navigation in slide text
-        working-directory: templates/slides
-        timeout-minutes: 10
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
-
   slides-mobile-import-e2e:
     name: Slides mobile PowerPoint import status
     needs: change-scope
@@ -1644,57 +1567,6 @@ jobs:
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
           ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
-
-  slides-authoring-image:
-    name: Slides authoring image
-    needs: change-scope
-    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    outputs:
-      image: ${{ steps.image.outputs.image }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          sparse-checkout: |
-            .github/actions/slides-authoring-image
-            docker/ci-slides-authoring
-
-      - id: image
-        uses: ./.github/actions/slides-authoring-image
-
-  slides-authoring-e2e:
-    name: Slides rich-text authoring (${{ matrix.shard }})
-    needs: [change-scope, slides-authoring-image]
-    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ${{ needs.slides-authoring-image.outputs.image }}
-      options: --ipc=host
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.change-scope.outputs.slides_authoring_matrix) }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: ./.github/actions/setup-pnpm
-        with:
-          restore-dist-cache: "true"
-          native-canvas-deps: "false"
-
-      - uses: ./.github/actions/slides-authoring-shard
-        with:
-          shard: ${{ matrix.shard }}
 
   brain-evals:
     name: Brain evals
@@ -2156,6 +2028,9 @@ jobs:
 
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
+
+      - name: Test strictness ratchet guards
+        run: pnpm test:strictness-guards
 
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert

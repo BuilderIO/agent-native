@@ -62,13 +62,13 @@ class WidgetEditorErrorBoundary extends Component<
   { action: string; children: ReactNode; stage: string },
   { errorName: string | null }
 > {
-  state = { errorName: null };
+  override state = { errorName: null };
 
   static getDerivedStateFromError(error: unknown) {
     return { errorName: exceptionName(error) };
   }
 
-  render() {
+  override render() {
     return this.state.errorName ? (
       <WidgetLoadDiagnostic
         active
