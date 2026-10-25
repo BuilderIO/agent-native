@@ -2022,6 +2022,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "Dateispeicher-Einstellungen konnten nicht geladen werden.",
   "settings.storage.retry": "Erneut versuchen",
+  "settings.storage.unreadable":
+    "Einige gespeicherte Speichereinstellungen konnten nicht geprüft werden. Versuche es erneut oder ersetze unlesbare Pflichtwerte vor dem Speichern.",
+  "settings.storage.unreadableField":
+    "Der gespeicherte Wert kann nicht gelesen werden. Gib ihn erneut ein.",
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
   "settings.audit.action": "Aktion",
@@ -2469,6 +2473,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}}-Zugangsdaten entfernen?",
   "settingsShell.channels.retry": "Erneut versuchen",
+  "settingsShell.channels.setup.unreadable":
+    "Ein gespeicherter Zugangswert ist nicht lesbar. Gib einen Ersatzwert ein.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Einige gespeicherte Kanalzugangsdaten können nicht gelesen werden. Ersetze sie, bevor du diesen Kanal aktivierst.",
   "settingsShell.channels.setup.addToEnvironment":
     "In der Deployment-Umgebung hinzufügen",
   "settingsShell.channels.setup.body":
@@ -2494,6 +2502,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Nicht eingerichtet",
   "settingsShell.channels.state.off": "Aus",
   "settingsShell.channels.state.on": "An",
+  "settingsShell.channels.state.unavailable": "Nicht verfügbar",
   "settingsShell.channels.status": "Status",
   "settingsShell.channels.toggleFailed":
     "{{platform}} konnte nicht aktualisiert werden.",

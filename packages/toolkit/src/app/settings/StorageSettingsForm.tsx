@@ -267,6 +267,10 @@ function LoadedStorageSettingsForm({
   const missingRequired =
     !trimmed("endpoint") ||
     !trimmed("bucket") ||
+    (!trimmed("accessKeyId") &&
+      status.unreadableFields.includes("accessKeyId")) ||
+    (!trimmed("secretAccessKey") &&
+      status.unreadableFields.includes("secretAccessKey")) ||
     (!trimmed("accessKeyId") && !status.saved.accessKeyId) ||
     (!trimmed("secretAccessKey") && !status.saved.secretAccessKey) ||
     (status.publicUrlRequired && !trimmed("publicBaseUrl"));
@@ -295,9 +299,14 @@ function LoadedStorageSettingsForm({
       operation: "save",
       endpoint: values.endpoint.trim(),
       bucket: values.bucket.trim(),
-      region: values.region.trim(),
-      publicBaseUrl: values.publicBaseUrl.trim(),
     };
+    if (values.region.trim() || !status.unreadableFields.includes("region"))
+      input.region = values.region.trim();
+    if (
+      values.publicBaseUrl.trim() ||
+      !status.unreadableFields.includes("publicBaseUrl")
+    )
+      input.publicBaseUrl = values.publicBaseUrl.trim();
     if (values.accessKeyId.trim())
       input.accessKeyId = values.accessKeyId.trim();
     if (values.secretAccessKey.trim()) {
@@ -369,7 +378,9 @@ function LoadedStorageSettingsForm({
 
   const fieldId = (field: FileStorageField) => `${idPrefix}-${field}`;
   const savedPlaceholder = (field: FileStorageField) =>
-    status.saved[field] ? t("agentChat.settings.storage.saved") : undefined;
+    status.saved[field] && !status.unreadableFields.includes(field)
+      ? t("agentChat.settings.storage.saved")
+      : undefined;
   const providerLabel = (entry: (typeof PROVIDERS)[number]) =>
     entry.name ?? t("agentChat.settings.storage.providerOther");
 
@@ -383,7 +394,11 @@ function LoadedStorageSettingsForm({
     } = {},
   ) => {
     const fieldError = fieldErrors[field];
-    const note = fieldError ?? options.hint;
+    const note =
+      fieldError ??
+      (status.unreadableFields.includes(field)
+        ? t("agentChat.settings.storage.unreadableField")
+        : options.hint);
     const noteId = `${fieldId(field)}-note`;
     return (
       <div className="grid content-start gap-2">
@@ -478,6 +493,14 @@ function LoadedStorageSettingsForm({
             : t("agentChat.settings.storage.optional"),
         })}
       </div>
+      {status.configurationUnavailable ? (
+        <Alert>
+          <IconAlertCircle aria-hidden />
+          <AlertDescription>
+            {t("agentChat.settings.storage.unreadable")}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {error ? (
         <Alert variant="destructive">
           <IconAlertCircle aria-hidden />

@@ -1921,6 +1921,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "ファイルストレージの設定を読み込めませんでした。",
   "settings.storage.retry": "再試行",
+  "settings.storage.unreadable":
+    "保存されたストレージ設定の一部を確認できませんでした。再試行するか、保存する前に読み取れない必須値を置き換えてください。",
+  "settings.storage.unreadableField":
+    "保存された値を読み取れませんでした。もう一度入力してください。",
   "settings.storage.adminOnly":
     "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
   "settings.audit.action": "アクション",
@@ -2350,6 +2354,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} の認証情報を削除しますか？",
   "settingsShell.channels.retry": "再試行",
+  "settingsShell.channels.setup.unreadable":
+    "保存された認証情報を読み取れません。新しい値を入力してください。",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "保存されたチャネル認証情報の一部を読み取れません。チャネルを有効にする前に置き換えてください。",
   "settingsShell.channels.setup.addToEnvironment":
     "デプロイ環境に追加してください",
   "settingsShell.channels.setup.body":
@@ -2372,6 +2380,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "未設定",
   "settingsShell.channels.state.off": "オフ",
   "settingsShell.channels.state.on": "オン",
+  "settingsShell.channels.state.unavailable": "利用不可",
   "settingsShell.channels.status": "ステータス",
   "settingsShell.channels.toggleFailed":
     "{{platform}} を更新できませんでした。",

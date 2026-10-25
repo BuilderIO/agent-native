@@ -2056,6 +2056,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "Impossible de charger les paramètres de stockage des fichiers.",
   "settings.storage.retry": "Réessayer",
+  "settings.storage.unreadable":
+    "Certains paramètres de stockage enregistrés n’ont pas pu être vérifiés. Réessayez ou remplacez les valeurs obligatoires illisibles avant d’enregistrer.",
+  "settings.storage.unreadableField":
+    "Cette valeur enregistrée est illisible. Saisissez-la à nouveau.",
   "settings.storage.adminOnly":
     "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier le stockage des fichiers.",
   "settings.audit.action": "Action",
@@ -2513,6 +2517,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "Supprimer les identifiants {{platform}} ?",
   "settingsShell.channels.retry": "Réessayer",
+  "settingsShell.channels.setup.unreadable":
+    "Un identifiant enregistré est illisible. Saisissez une valeur de remplacement.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Certains identifiants de canal enregistrés sont illisibles. Remplacez-les avant d’activer ce canal.",
   "settingsShell.channels.setup.addToEnvironment":
     "Ajoutez-la à l'environnement de déploiement",
   "settingsShell.channels.setup.body":
@@ -2538,6 +2546,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Non configuré",
   "settingsShell.channels.state.off": "Désactivé",
   "settingsShell.channels.state.on": "Activé",
+  "settingsShell.channels.state.unavailable": "Indisponible",
   "settingsShell.channels.status": "Statut",
   "settingsShell.channels.toggleFailed":
     "Impossible de mettre à jour {{platform}}.",

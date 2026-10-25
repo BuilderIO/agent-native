@@ -1888,6 +1888,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "스토리지 자격 증명을 지울 수 없습니다.",
   "settings.storage.loadFailed": "파일 스토리지 설정을 불러올 수 없습니다.",
   "settings.storage.retry": "다시 시도",
+  "settings.storage.unreadable":
+    "저장된 스토리지 설정 일부를 확인할 수 없습니다. 다시 시도하거나 저장하기 전에 읽을 수 없는 필수 값을 교체하세요.",
+  "settings.storage.unreadableField":
+    "저장된 값을 읽을 수 없습니다. 다시 입력하세요.",
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
@@ -2309,6 +2313,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} 자격 증명을 제거할까요?",
   "settingsShell.channels.retry": "다시 시도",
+  "settingsShell.channels.setup.unreadable":
+    "저장된 자격 증명을 읽을 수 없습니다. 대체 값을 입력하세요.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "저장된 채널 자격 증명 일부를 읽을 수 없습니다. 이 채널을 사용 설정하기 전에 교체하세요.",
   "settingsShell.channels.setup.addToEnvironment": "배포 환경에 추가하세요",
   "settingsShell.channels.setup.body":
     "이 값들을 이 배포에 추가한 다음 켜세요.",
@@ -2330,6 +2338,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "설정 안 됨",
   "settingsShell.channels.state.off": "꺼짐",
   "settingsShell.channels.state.on": "켜짐",
+  "settingsShell.channels.state.unavailable": "사용할 수 없음",
   "settingsShell.channels.status": "상태",
   "settingsShell.channels.toggleFailed":
     "{{platform}}을(를) 업데이트하지 못했습니다.",

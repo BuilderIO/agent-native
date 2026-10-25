@@ -421,28 +421,29 @@ async function readAppSecretUncached(
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
+  let decrypted: ReturnType<typeof decryptAppSecretValue>;
   try {
     const encrypted = rows[0].encrypted_value as string;
-    const decrypted = decryptAppSecretValue(
+    decrypted = decryptAppSecretValue(
       encrypted,
       rows[0].shared_encrypted_value as string | null,
     );
-    if (decrypted.needsSharedCiphertext) {
-      await populateSharedAppSecret(
-        rows[0].id,
-        decrypted.value,
-        decrypted.sharedCiphertextToReplace ?? null,
-      );
-    }
-    return {
-      value: decrypted.value,
-      last4: last4(decrypted.value),
-      updatedAt: Number(rows[0].updated_at ?? 0),
-    };
   } catch {
     warnUndecryptableSecret(ref);
     throw new AppSecretDecryptionError();
   }
+  if (decrypted.needsSharedCiphertext) {
+    await populateSharedAppSecret(
+      rows[0].id,
+      decrypted.value,
+      decrypted.sharedCiphertextToReplace ?? null,
+    );
+  }
+  return {
+    value: decrypted.value,
+    last4: last4(decrypted.value),
+    updatedAt: Number(rows[0].updated_at ?? 0),
+  };
 }
 
 export async function readAppSecrets(args: {
@@ -479,25 +480,13 @@ export async function readAppSecrets(args: {
   for (const row of rows) {
     const key = String(row.key ?? "");
     if (!key) continue;
+    let decrypted: ReturnType<typeof decryptAppSecretValue>;
     try {
       const encrypted = row.encrypted_value as string;
-      const decrypted = decryptAppSecretValue(
+      decrypted = decryptAppSecretValue(
         encrypted,
         row.shared_encrypted_value as string | null,
       );
-      if (decrypted.needsSharedCiphertext) {
-        await populateSharedAppSecret(
-          row.id,
-          decrypted.value,
-          decrypted.sharedCiphertextToReplace ?? null,
-        );
-      }
-      const result = {
-        value: decrypted.value,
-        last4: last4(decrypted.value),
-        updatedAt: Number(row.updated_at ?? 0),
-      };
-      results.set(key, result);
     } catch {
       warnUndecryptableSecret({
         key,
@@ -506,6 +495,18 @@ export async function readAppSecrets(args: {
       });
       throw new AppSecretDecryptionError();
     }
+    if (decrypted.needsSharedCiphertext) {
+      await populateSharedAppSecret(
+        row.id,
+        decrypted.value,
+        decrypted.sharedCiphertextToReplace ?? null,
+      );
+    }
+    results.set(key, {
+      value: decrypted.value,
+      last4: last4(decrypted.value),
+      updatedAt: Number(row.updated_at ?? 0),
+    });
   }
   for (const key of keys) {
     cache?.set(

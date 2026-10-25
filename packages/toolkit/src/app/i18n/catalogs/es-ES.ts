@@ -2042,6 +2042,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "No se pudo cargar la configuración del almacenamiento de archivos.",
   "settings.storage.retry": "Reintentar",
+  "settings.storage.unreadable":
+    "No se pudieron comprobar algunos ajustes de almacenamiento guardados. Vuelve a intentarlo o sustituye los valores obligatorios ilegibles antes de guardar.",
+  "settings.storage.unreadableField":
+    "No se puede leer este valor guardado. Introdúcelo de nuevo.",
   "settings.storage.adminOnly":
     "Solo los propietarios y administradores de la organización pueden cambiar el almacenamiento de archivos.",
   "settings.audit.action": "Acción",
@@ -2495,6 +2499,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "¿Quitar las credenciales de {{platform}}?",
   "settingsShell.channels.retry": "Reintentar",
+  "settingsShell.channels.setup.unreadable":
+    "No se puede leer una credencial guardada. Introduce un valor de reemplazo.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "No se pueden leer algunas credenciales guardadas del canal. Sustitúyelas antes de activar este canal.",
   "settingsShell.channels.setup.addToEnvironment":
     "Añádela al entorno de despliegue",
   "settingsShell.channels.setup.body":
@@ -2519,6 +2527,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Sin configurar",
   "settingsShell.channels.state.off": "Desactivado",
   "settingsShell.channels.state.on": "Activado",
+  "settingsShell.channels.state.unavailable": "No disponible",
   "settingsShell.channels.status": "Estado",
   "settingsShell.channels.toggleFailed": "No se pudo actualizar {{platform}}.",
   "settingsShell.channels.turnOnAria": "Activar {{platform}}",

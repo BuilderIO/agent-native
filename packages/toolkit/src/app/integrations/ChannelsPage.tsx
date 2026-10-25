@@ -94,6 +94,7 @@ const STATE_KEYS: Record<ChannelState, string> = {
   on: `${K}.state.on`,
   off: `${K}.state.off`,
   "not-set-up": `${K}.state.notSetUp`,
+  unavailable: `${K}.state.unavailable`,
 };
 
 const ABOUT_KEYS: Record<BuiltInChannelId, string> = {
@@ -450,6 +451,18 @@ function CredentialValue({
       </div>
     );
   }
+  if (credential.source === "unreadable") {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {t(`${K}.setup.unreadable`)}
+        </p>
+        <Button type="button" variant="secondary" size="xs" onClick={onReplace}>
+          {t(`${K}.setup.replace`)}
+        </Button>
+      </div>
+    );
+  }
   return (
     <p className="text-xs text-muted-foreground">
       {credential.source === "environment"
@@ -485,7 +498,9 @@ function ChannelSetupDialog({
   const isEditing = (item: ChannelCredentialStatus) =>
     item.saveable &&
     (item.source === null ||
-      (item.source === "saved" && replacing.has(item.key)));
+      ((item.source === "saved" || item.source === "unreadable") &&
+        replacing.has(item.key)) ||
+      item.source === "unreadable");
   const filled = credentials
     .filter(isEditing)
     .map((item) => [item.key, values[item.key]?.trim() ?? ""] as const)
@@ -493,16 +508,24 @@ function ChannelSetupDialog({
   const stillMissing = hasMissingRequiredCredentials(
     credentials,
     (key) =>
-      credentials.some((item) => item.key === key && item.source !== null) ||
-      filled.some(([filledKey]) => filledKey === key),
+      credentials.some(
+        (item) =>
+          item.key === key &&
+          item.source !== null &&
+          item.source !== "unreadable",
+      ) || filled.some(([filledKey]) => filledKey === key),
   );
   const canSaveHere = credentials.some(
     (item) =>
-      item.saveable && (item.source === null || item.source === "saved"),
+      item.saveable &&
+      (item.source === null ||
+        item.source === "saved" ||
+        item.source === "unreadable"),
   );
   const readOnly = !canSaveHere && state !== "off";
   const nothingToDo =
-    filled.length === 0 && (state === "on" || state === "not-set-up");
+    filled.length === 0 &&
+    (status.enabled || state === "not-set-up" || state === "unavailable");
 
   const reset = () => {
     setValues({});
@@ -521,7 +544,7 @@ function ChannelSetupDialog({
         });
         next = saved.channel;
       }
-      if (state === "on") return "done";
+      if (status.enabled) return "done";
       if (!next.configured) return "missing";
       await manage.mutateAsync({ operation: "enable", platform: channel.id });
       return "done";
@@ -564,6 +587,14 @@ function ChannelSetupDialog({
           </DialogTitle>
           <DialogDescription>{t(`${K}.setup.body`)}</DialogDescription>
         </DialogHeader>
+        {status.configurationUnavailable ? (
+          <Alert>
+            <IconAlertCircle aria-hidden="true" />
+            <AlertDescription>
+              {t(`${K}.setup.configurationUnavailable`)}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <form
           id={formId}
           className="flex flex-col gap-4"
@@ -662,7 +693,7 @@ function ChannelSetupDialog({
                 {save.isPending ? <Spinner aria-hidden="true" /> : null}
                 {save.isPending
                   ? t(`${K}.setup.saving`)
-                  : state === "on"
+                  : status.enabled
                     ? t(`${K}.setup.save`)
                     : t(`${K}.setup.saveAndTurnOn`)}
               </Button>
@@ -956,7 +987,10 @@ function ChannelDetail({
                       canManage && setUp ? (
                         <Switch
                           checked={status.enabled}
-                          disabled={toggle.isPending}
+                          disabled={
+                            toggle.isPending ||
+                            (status.configurationUnavailable && !status.enabled)
+                          }
                           aria-label={t(`${K}.turnOnAria`, {
                             platform: channel.name,
                           })}

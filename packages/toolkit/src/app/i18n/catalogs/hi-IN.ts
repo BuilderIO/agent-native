@@ -1891,6 +1891,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "स्टोरेज क्रेडेंशियल साफ़ नहीं हो सके।",
   "settings.storage.loadFailed": "फ़ाइल स्टोरेज सेटिंग लोड नहीं हो सकीं।",
   "settings.storage.retry": "फिर से कोशिश करें",
+  "settings.storage.unreadable":
+    "सेव की गई कुछ स्टोरेज सेटिंग की जाँच नहीं हो सकी। फिर कोशिश करें या सेव करने से पहले न पढ़े जा सकने वाले ज़रूरी मान बदलें।",
+  "settings.storage.unreadableField":
+    "यह सेव किया गया मान पढ़ा नहीं जा सका। इसे फिर से दर्ज करें।",
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
   "settings.audit.action": "कार्रवाई",
@@ -2308,6 +2312,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} क्रेडेंशियल हटाएं?",
   "settingsShell.channels.retry": "फिर से कोशिश करें",
+  "settingsShell.channels.setup.unreadable":
+    "सेव की गई क्रेडेंशियल पढ़ी नहीं जा सकी। उसकी जगह नया मान डालें।",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "चैनल की सेव की गई कुछ क्रेडेंशियल नहीं पढ़ी जा सकीं। इस चैनल को चालू करने से पहले उन्हें बदलें।",
   "settingsShell.channels.setup.addToEnvironment":
     "इसे डिप्लॉयमेंट एनवायरनमेंट में जोड़ें",
   "settingsShell.channels.setup.body": "इन्हें इस डिप्लॉयमेंट में जोड़ें, फिर इसे चालू करें।",
@@ -2328,6 +2336,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "सेट अप नहीं है",
   "settingsShell.channels.state.off": "बंद",
   "settingsShell.channels.state.on": "चालू",
+  "settingsShell.channels.state.unavailable": "उपलब्ध नहीं",
   "settingsShell.channels.status": "स्थिति",
   "settingsShell.channels.toggleFailed": "{{platform}} अपडेट नहीं हो सका।",
   "settingsShell.channels.turnOnAria": "{{platform}} चालू करें",

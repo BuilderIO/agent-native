@@ -13,18 +13,23 @@
 
 import { fail, type ActionRunContext } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   resolveSecretManagedBy,
   SECRET_MANAGERS,
 } from "../secrets/managed-keys.js";
 import {
   deleteAppSecret,
+  readAppSecret,
   readAppSecrets,
   writeAppSecret,
 } from "../secrets/storage.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { EnvKeyConfig } from "../server/create-server.js";
-import { resolveSecretDetailed } from "../server/credential-provider.js";
+import {
+  CredentialStoreUnavailableError,
+  resolveSecretDetailed,
+} from "../server/credential-provider.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { getIntegrationConfig } from "./config-store.js";
 import {
@@ -36,14 +41,18 @@ import type { PlatformAdapter } from "./types.js";
 export const CHANNEL_MANAGE_DENIED =
   "Only organization owners and admins can set up channels.";
 
-export type ChannelState = "on" | "off" | "not-set-up";
+export type ChannelState = "on" | "off" | "not-set-up" | "unavailable";
 
 /**
  * `saved`: saved from Channels for this workspace. `environment`: the
  * deployment's environment. `elsewhere`: another saved key answers, such as
  * a personal key or an organization vault key.
  */
-export type ChannelCredentialSource = "saved" | "environment" | "elsewhere";
+export type ChannelCredentialSource =
+  | "saved"
+  | "environment"
+  | "elsewhere"
+  | "unreadable";
 
 export interface ChannelCredentialStatus {
   key: string;
@@ -65,6 +74,8 @@ export interface MessagingChannelStatus {
   state: ChannelState;
   enabled: boolean;
   configured: boolean;
+  /** True when stored credentials prevented the adapter from checking setup. */
+  configurationUnavailable?: boolean;
   /** Null when the app's public URL isn't known for this call. */
   webhookUrl: string | null;
   details?: Record<string, unknown>;
@@ -160,28 +171,55 @@ async function readCredentialStatuses(
   keys: readonly EnvKeyConfig[],
   access: ChannelAccess,
 ): Promise<ChannelCredentialStatus[]> {
-  const saved = access.canManage
-    ? await readAppSecrets({
+  let saved = new Map<string, { value: string }>();
+  const unreadable = new Set<string>();
+  if (access.canManage) {
+    try {
+      saved = await readAppSecrets({
         keys: keys.map((item) => item.key),
         scope: "workspace",
         scopeId: access.scopeId,
-      })
-    : new Map<string, { value: string }>();
+      });
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      for (const item of keys) {
+        try {
+          const value = await readAppSecret({
+            key: item.key,
+            scope: "workspace",
+            scopeId: access.scopeId,
+          });
+          if (value) saved.set(item.key, value);
+        } catch (readError) {
+          if (!(readError instanceof AppSecretDecryptionError)) throw readError;
+          unreadable.add(item.key);
+        }
+      }
+    }
+  }
   const statuses: ChannelCredentialStatus[] = [];
   for (const item of keys) {
     let source: ChannelCredentialSource | null = null;
+    let workspaceUnreadable = false;
     if (access.canManage) {
-      if (saved.get(item.key)?.value) {
+      if (unreadable.has(item.key)) {
+        source = "unreadable";
+        workspaceUnreadable = true;
+      } else if (saved.get(item.key)?.value) {
         source = "saved";
       } else {
         const resolved = await resolveSecretDetailed(item.key);
         if (resolved.lookupFailed) {
-          fail("Couldn't read the saved channel credentials. Try again.", {
-            statusCode: 503,
-            errorCode: "credential_store_unavailable",
-          });
+          if (resolved.cause instanceof AppSecretDecryptionError) {
+            source = "unreadable";
+          } else {
+            fail("Couldn't read the saved channel credentials. Try again.", {
+              statusCode: 503,
+              errorCode: "credential_store_unavailable",
+            });
+          }
         }
-        if (resolved.value) {
+        if (!source && resolved.value) {
           source = resolved.source === "env" ? "environment" : "elsewhere";
         }
       }
@@ -193,7 +231,9 @@ async function readCredentialStatuses(
       ...(item.helpText ? { helpText: item.helpText } : {}),
       saveable: item.deploymentOnly !== true,
       source,
-      removable: source === "saved" && isChannelsManaged(item.key),
+      removable:
+        (source === "saved" || workspaceUnreadable) &&
+        isChannelsManaged(item.key),
     });
   }
   return statuses;
@@ -205,23 +245,57 @@ async function readChannelStatus(
   access: ChannelAccess,
   baseUrl: string | null,
 ): Promise<MessagingChannelStatus> {
-  const status = await adapter.getStatus(baseUrl ?? undefined);
+  const credentialKeys = adapter.getRequiredEnvKeys();
+  const credentials = await readCredentialStatuses(credentialKeys, access);
+  const unreadableCredentials = credentials.filter(
+    (item) => item.source === "unreadable",
+  );
+  let status: Awaited<ReturnType<PlatformAdapter["getStatus"]>>;
+  let configurationUnavailable = unreadableCredentials.length > 0;
+  if (configurationUnavailable) {
+    status = {
+      platform: adapter.platform,
+      label: adapter.label,
+      enabled: false,
+      configured: false,
+      error: `Couldn't read saved credentials: ${unreadableCredentials.map((item) => item.key).join(", ")}. Replace or remove them before enabling this channel.`,
+    };
+  } else {
+    try {
+      status = await adapter.getStatus(baseUrl ?? undefined);
+    } catch (error) {
+      if (!(error instanceof CredentialStoreUnavailableError)) throw error;
+      configurationUnavailable = true;
+      status = {
+        platform: adapter.platform,
+        label: adapter.label,
+        enabled: false,
+        configured: false,
+        error:
+          "Couldn't read saved channel credentials. Try again, or replace or remove the unreadable credential.",
+      };
+    }
+  }
   const config = await getIntegrationConfig(adapter.platform);
   const enabled = !!config?.configData?.enabled;
   const configured = !!status.configured;
   return {
     platform: adapter.platform,
     label: status.label || adapter.label,
-    state: !configured ? "not-set-up" : enabled ? "on" : "off",
+    state: configurationUnavailable
+      ? "unavailable"
+      : !configured
+        ? "not-set-up"
+        : enabled
+          ? "on"
+          : "off",
     enabled,
     configured,
+    ...(configurationUnavailable ? { configurationUnavailable: true } : {}),
     webhookUrl: baseUrl ? mounted.webhookUrl(baseUrl, adapter.platform) : null,
     ...(status.details ? { details: status.details } : {}),
     ...(status.error ? { error: status.error } : {}),
-    credentials: await readCredentialStatuses(
-      adapter.getRequiredEnvKeys(),
-      access,
-    ),
+    credentials,
   };
 }
 
@@ -255,6 +329,12 @@ export async function setMessagingChannelEnabled(
   const baseUrl = channelBaseUrl(ctx);
   if (enabled) {
     const current = await readChannelStatus(mounted, adapter, access, baseUrl);
+    if (current.configurationUnavailable) {
+      fail(current.error ?? "Couldn't confirm the channel's credentials.", {
+        statusCode: 503,
+        errorCode: "credential_store_unavailable",
+      });
+    }
     if (!current.configured) {
       const missing = current.credentials
         .filter((item) => item.required && !item.source)
@@ -348,9 +428,11 @@ export async function saveMessagingChannelCredentials(
   return {
     savedKeys,
     channel,
-    message: channel.configured
-      ? `Saved ${savedKeys.join(", ")}. ${channel.label} is ${channel.state === "on" ? "on" : "set up and off; call enable to turn it on"}.`
-      : `Saved ${savedKeys.join(", ")}. ${channel.label} still needs its required credentials.`,
+    message: channel.configurationUnavailable
+      ? `Saved ${savedKeys.join(", ")}. ${channel.label} still has credentials that cannot be read; replace or remove them before enabling the channel.`
+      : channel.configured
+        ? `Saved ${savedKeys.join(", ")}. ${channel.label} is ${channel.state === "on" ? "on" : "set up and off; call enable to turn it on"}.`
+        : `Saved ${savedKeys.join(", ")}. ${channel.label} still needs its required credentials.`,
   };
 }
 

@@ -118,7 +118,13 @@ function channel(
     label: platform,
     configured,
     enabled,
-    state: !configured ? "not-set-up" : enabled ? "on" : "off",
+    state: patch.configurationUnavailable
+      ? "unavailable"
+      : !configured
+        ? "not-set-up"
+        : enabled
+          ? "on"
+          : "off",
     webhookUrl: `https://clips.example.com/_agent-native/integrations/${platform}/webhook`,
     credentials: (REQUIRED_KEYS[platform] ?? []).map((key) => ({
       key,
@@ -584,6 +590,37 @@ describe("ChannelsPage", () => {
         operation: "save-credentials",
         platform: "slack",
         values: { SLACK_SIGNING_SECRET: "fake-new-secret" },
+      },
+    ]);
+  });
+
+  it("replaces an unreadable credential on an enabled channel without enabling it again", async () => {
+    actions.list.mockResolvedValue(
+      listed({
+        slack: {
+          configured: false,
+          enabled: true,
+          configurationUnavailable: true,
+          sources: { SLACK_SIGNING_SECRET: "unreadable" },
+        },
+      }),
+    );
+    await render("slack");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#mention button")?.click(),
+    );
+    await flush();
+    expect(document.body.textContent).toContain(
+      "Some saved channel credentials could not be read.",
+    );
+    await type("channel-slack-SLACK_SIGNING_SECRET", "replacement-secret");
+    await act(async () => buttonNamed("Save")?.click());
+    await flush();
+    expect(actions.manage.mock.calls.map(([args]) => args)).toEqual([
+      {
+        operation: "save-credentials",
+        platform: "slack",
+        values: { SLACK_SIGNING_SECRET: "replacement-secret" },
       },
     ]);
   });

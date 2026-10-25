@@ -2044,6 +2044,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "تعذّر مسح بيانات اعتماد التخزين.",
   "settings.storage.loadFailed": "تعذّر تحميل إعدادات تخزين الملفات.",
   "settings.storage.retry": "إعادة المحاولة",
+  "settings.storage.unreadable":
+    "تعذّر التحقق من بعض إعدادات التخزين المحفوظة. أعد المحاولة أو استبدل القيم المطلوبة التي تعذّرت قراءتها قبل الحفظ.",
+  "settings.storage.unreadableField":
+    "تعذّرت قراءة القيمة المحفوظة. أدخلها مرة أخرى.",
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
   "settings.audit.action": "الإجراء",
@@ -2493,6 +2497,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "هل تريد إزالة بيانات اعتماد {{platform}}؟",
   "settingsShell.channels.retry": "إعادة المحاولة",
+  "settingsShell.channels.setup.unreadable":
+    "تعذّرت قراءة بيانات اعتماد محفوظة. أدخل قيمة بديلة.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "تعذّرت قراءة بعض بيانات اعتماد القناة المحفوظة. استبدلها قبل تفعيل هذه القناة.",
   "settingsShell.channels.setup.addToEnvironment": "أضفه إلى بيئة النشر",
   "settingsShell.channels.setup.body": "أضف هذه القيم إلى هذا النشر، ثم شغّله.",
   "settingsShell.channels.setup.close": "إغلاق",
@@ -2513,6 +2521,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "غير مُعدّ",
   "settingsShell.channels.state.off": "متوقف",
   "settingsShell.channels.state.on": "مُشغّل",
+  "settingsShell.channels.state.unavailable": "غير متاح",
   "settingsShell.channels.status": "الحالة",
   "settingsShell.channels.toggleFailed": "تعذّر تحديث {{platform}}.",
   "settingsShell.channels.turnOnAria": "تشغيل {{platform}}",

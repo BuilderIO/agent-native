@@ -1922,6 +1922,10 @@ const messages = {
   "settings.storage.clearFailed": "Could not clear storage credentials.",
   "settings.storage.loadFailed": "Could not load file storage settings.",
   "settings.storage.retry": "Retry",
+  "settings.storage.unreadable":
+    "Some saved storage settings could not be checked. Retry, or replace unreadable required values before saving.",
+  "settings.storage.unreadableField":
+    "This saved value could not be read. Enter it again.",
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
   "settings.audit.action": "Action",
@@ -2349,6 +2353,10 @@ const messages = {
   "settingsShell.channels.removeCredentials.title":
     "Remove {{platform}} credentials?",
   "settingsShell.channels.retry": "Retry",
+  "settingsShell.channels.setup.unreadable":
+    "A saved credential could not be read. Enter a replacement value.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Some saved channel credentials could not be read. Replace them before enabling this channel.",
   "settingsShell.channels.setup.addToEnvironment":
     "Add this to the deployment environment",
   "settingsShell.channels.setup.body":
@@ -2372,6 +2380,7 @@ const messages = {
   "settingsShell.channels.state.notSetUp": "Not set up",
   "settingsShell.channels.state.off": "Off",
   "settingsShell.channels.state.on": "On",
+  "settingsShell.channels.state.unavailable": "Unavailable",
   "settingsShell.channels.status": "Status",
   "settingsShell.channels.toggleFailed": "Couldn't update {{platform}}.",
   "settingsShell.channels.turnOnAria": "Turn on {{platform}}",

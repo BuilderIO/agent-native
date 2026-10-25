@@ -1789,6 +1789,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "無法清除儲存憑證。",
   "settings.storage.loadFailed": "無法載入檔案儲存空間設定。",
   "settings.storage.retry": "重試",
+  "settings.storage.unreadable":
+    "部分已儲存的儲存空間設定無法檢查。請重試，或在儲存前取代無法讀取的必填值。",
+  "settings.storage.unreadableField": "無法讀取此已儲存的值。請重新輸入。",
   "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
   "settings.audit.action": "操作",
   "settings.audit.agentVia": "透過 {{protocol}} 的代理",
@@ -2181,6 +2184,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "要移除 {{platform}} 憑證嗎？",
   "settingsShell.channels.retry": "重試",
+  "settingsShell.channels.setup.unreadable":
+    "無法讀取已儲存的憑證。請輸入替代值。",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "部分已儲存的頻道憑證無法讀取。請在啟用此頻道前取代它們。",
   "settingsShell.channels.setup.addToEnvironment": "請新增到部署環境中",
   "settingsShell.channels.setup.body": "將這些值加入此部署，然後開啟。",
   "settingsShell.channels.setup.close": "關閉",
@@ -2200,6 +2207,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "尚未設定",
   "settingsShell.channels.state.off": "已關閉",
   "settingsShell.channels.state.on": "已開啟",
+  "settingsShell.channels.state.unavailable": "無法使用",
   "settingsShell.channels.status": "狀態",
   "settingsShell.channels.toggleFailed": "無法更新 {{platform}}。",
   "settingsShell.channels.turnOnAria": "開啟 {{platform}}",

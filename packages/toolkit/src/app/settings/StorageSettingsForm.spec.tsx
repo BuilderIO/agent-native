@@ -42,6 +42,8 @@ import { StorageSettingsForm } from "./StorageSettingsForm.js";
 const savedStatus: FileStorageStatus = {
   canManage: true,
   configured: true,
+  configurationUnavailable: false,
+  unreadableFields: [],
   provider: "cloudflare-r2",
   endpoint: "https://abc.r2.cloudflarestorage.com",
   bucket: "uploads-example",
@@ -57,6 +59,7 @@ const savedStatus: FileStorageStatus = {
   },
   publicUrlRequired: true,
   activeProvider: { id: "s3", name: "S3-compatible object storage" },
+  activeProviderUnavailable: false,
   builderUploadConfigured: false,
 };
 
@@ -227,6 +230,34 @@ describe("StorageSettingsForm", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("requires unreadable credentials to be replaced and preserves unreadable optional values", () => {
+    queryState.data = {
+      ...savedStatus,
+      configured: false,
+      configurationUnavailable: true,
+      unreadableFields: ["accessKeyId", "region", "publicBaseUrl"],
+      publicUrlRequired: false,
+      saved: { ...savedStatus.saved, accessKeyId: true },
+    };
+    render();
+    expect(container.textContent).toContain(
+      "Some saved storage settings could not be checked.",
+    );
+    expect(buttonByText("Save").disabled).toBe(true);
+    typeInto(inputByLabel("Public URL"), "");
+    typeInto(inputByLabel("Region"), "");
+    typeInto(inputByLabel("Access key ID"), "replacement-key");
+    expect(buttonByText("Save").disabled).toBe(false);
+    act(() => buttonByText("Save").click());
+    const [input] = mutateMock.mock.calls[0]!;
+    expect(input).toMatchObject({
+      operation: "save",
+      accessKeyId: "replacement-key",
+    });
+    expect(input).not.toHaveProperty("region");
+    expect(input).not.toHaveProperty("publicBaseUrl");
   });
 
   it("keeps saved keys by leaving them out of the save", () => {
