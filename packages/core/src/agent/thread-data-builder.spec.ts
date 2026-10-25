@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
@@ -7150,25 +7151,53 @@ describe("live-client twins", () => {
   const sourceOf = (relativePath: string): string =>
     readFileSync(new URL(relativePath, import.meta.url), "utf8");
 
-  // Compared without whitespace or trailing commas: `pnpm mutation:changed`
-  // reprints an instrumented file in a different layout than its twin.
+  // Compared token by token, without a trailing comma before a closer:
+  // `pnpm mutation:changed` reprints an instrumented file in a different
+  // layout than its twin, but literal text has to match exactly.
   const functionBody = (source: string, name: string): string => {
     const start = source.indexOf(`function ${name}(`);
     expect(start, `${name} not found`).toBeGreaterThan(-1);
-    const open = source.indexOf("{", start);
+    const scanner = ts.createScanner(
+      ts.ScriptTarget.Latest,
+      true,
+      ts.LanguageVariant.Standard,
+      source.slice(source.indexOf("{", start)),
+    );
+    const tokens: string[] = [];
     let depth = 0;
-    for (let i = open; i < source.length; i++) {
-      if (source[i] === "{") depth++;
-      else if (source[i] === "}" && --depth === 0) {
-        return source
-          .slice(open + 1, i)
-          .replace(/\/\/[^\n]*/g, "")
-          .replace(/\s+/g, "")
-          .replace(/,([)\]}])/g, "$1");
+    for (
+      let kind = scanner.scan();
+      kind !== ts.SyntaxKind.EndOfFileToken;
+      kind = scanner.scan()
+    ) {
+      if (kind === ts.SyntaxKind.OpenBraceToken) depth++;
+      else if (kind === ts.SyntaxKind.CloseBraceToken && --depth === 0) {
+        return tokens
+          .slice(1)
+          .filter((token, index, all) => {
+            const next = all[index + 1];
+            return !(
+              token === "," &&
+              next !== undefined &&
+              ")]}".includes(next)
+            );
+          })
+          .join(" ");
       }
+      tokens.push(scanner.getTokenText());
     }
     throw new Error(`unterminated body for ${name}`);
   };
+
+  it("tells apart twins whose string literals differ only in whitespace", () => {
+    const layout = `function f() {\n  return [\n    "draft message",\n  ];\n}`;
+    expect(functionBody(layout, "f")).toBe(
+      functionBody(`function f() { return ["draft message"]; }`, "f"),
+    );
+    expect(functionBody(layout, "f")).not.toBe(
+      functionBody(`function f() { return ["draftmessage"]; }`, "f"),
+    );
+  });
 
   it("keeps clearAssistantDraftContent identical to the live client copy", () => {
     expect(
