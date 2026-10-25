@@ -8218,36 +8218,55 @@ export async function ensureDatabaseSourceProperty(args: {
       .select({ documentId: schema.contentDatabaseItems.documentId })
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
+    // One read and a few chunked upserts rather than a round trip per row,
+    // so a large collection holds the lock briefly.
+    const existingByDocumentId = new Map<
+      string,
+      { id: string; valueJson: string; createdAt: string; ownerEmail: string }
+    >();
+    for (const value of await tx
+      .select({
+        id: schema.documentPropertyValues.id,
+        documentId: schema.documentPropertyValues.documentId,
+        valueJson: schema.documentPropertyValues.valueJson,
+        createdAt: schema.documentPropertyValues.createdAt,
+        ownerEmail: schema.documentPropertyValues.ownerEmail,
+      })
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, propertyId))) {
+      if (!existingByDocumentId.has(value.documentId))
+        existingByDocumentId.set(value.documentId, value);
+    }
+    const upserts: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
     for (const item of items) {
       const optionId =
         ownerSourceIdByDocumentId.get(item.documentId) ??
         SOURCE_LOCAL_OPTION_ID;
       const valueJson = serializePropertyValue(optionId);
-      const [existingValue] = await tx
-        .select({ id: schema.documentPropertyValues.id })
-        .from(schema.documentPropertyValues)
-        .where(
-          and(
-            eq(schema.documentPropertyValues.documentId, item.documentId),
-            eq(schema.documentPropertyValues.propertyId, propertyId),
-          ),
-        );
-      if (existingValue) {
-        await tx
-          .update(schema.documentPropertyValues)
-          .set({ valueJson, updatedAt: args.now })
-          .where(eq(schema.documentPropertyValues.id, existingValue.id));
-      } else {
-        await tx.insert(schema.documentPropertyValues).values({
-          id: crypto.randomUUID(),
-          ownerEmail: args.database.ownerEmail,
-          documentId: item.documentId,
-          propertyId,
-          valueJson,
-          createdAt: args.now,
-          updatedAt: args.now,
+      const existing = existingByDocumentId.get(item.documentId);
+      if (existing?.valueJson === valueJson) continue;
+      upserts.push({
+        id: existing?.id ?? crypto.randomUUID(),
+        ownerEmail: existing?.ownerEmail ?? args.database.ownerEmail,
+        documentId: item.documentId,
+        propertyId,
+        valueJson,
+        createdAt: existing?.createdAt ?? args.now,
+        updatedAt: args.now,
+      });
+    }
+    for (const chunk of chunks(upserts, bulkChunkSizeForColumnCount(7))) {
+      if (chunk.length === 0) continue;
+      await tx
+        .insert(schema.documentPropertyValues)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: schema.documentPropertyValues.id,
+          set: {
+            valueJson: sql`excluded.value_json`,
+            updatedAt: sql`excluded.updated_at`,
+          },
         });
-      }
     }
   });
 }

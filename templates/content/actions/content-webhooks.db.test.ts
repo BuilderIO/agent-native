@@ -1996,4 +1996,92 @@ describe("property generations", () => {
       await setSequence(toAgent.generation + 1000);
     }
   });
+
+  it("the Source column fill writes only rows whose source changed", async () => {
+    const ids = await fixture(3);
+    const { ensureDatabaseSourceProperty } =
+      await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = ["Sheet A", "Sheet B"].map((name, index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: name,
+      sourceTable: name,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    const linkRow = (row: number, source: number) =>
+      getDb()
+        .insert(schema.contentDatabaseSourceRows)
+        .values({
+          id: `${ids.rows[row].itemId}-link`,
+          ownerEmail: OWNER,
+          sourceId: sources[source].id,
+          databaseItemId: ids.rows[row].itemId,
+          documentId: ids.rows[row].documentId,
+          sourceRowId: `row-${row}`,
+          sourceQualifiedId: `row-${row}`,
+          sourceDisplayKey: `row-${row}`,
+        });
+    const sourceColumn = async () => {
+      const [definition] = await getDb()
+        .select({ id: schema.documentPropertyDefinitions.id })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+            eq(schema.documentPropertyDefinitions.name, "Source"),
+          ),
+        );
+      const values = await getDb()
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, definition.id));
+      return ids.rows.map((row) => {
+        const value = values.find(
+          (candidate: { documentId: string }) =>
+            candidate.documentId === row.documentId,
+        )!;
+        return {
+          source: JSON.parse(value.valueJson),
+          generation: value.generation,
+          updatedAt: value.updatedAt,
+        };
+      });
+    };
+
+    await linkRow(0, 0);
+    await ensureDatabaseSourceProperty({
+      database,
+      now: "2026-10-24T10:00:00.000Z",
+    });
+    const first = await sourceColumn();
+    expect(first.map((cell) => cell.source)).toEqual([
+      sources[0].id,
+      "local",
+      "local",
+    ]);
+
+    await linkRow(1, 1);
+    await ensureDatabaseSourceProperty({
+      database,
+      now: "2026-10-24T11:00:00.000Z",
+    });
+    const second = await sourceColumn();
+    expect(second.map((cell) => cell.source)).toEqual([
+      sources[0].id,
+      sources[1].id,
+      "local",
+    ]);
+    // Only the row that moved was written: the others keep their generation
+    // and their write time.
+    expect(second[1].generation).toBeGreaterThan(first[1].generation);
+    expect(second[1].updatedAt).toBe("2026-10-24T11:00:00.000Z");
+    for (const row of [0, 2]) expect(second[row]).toEqual(first[row]);
+  });
 });
