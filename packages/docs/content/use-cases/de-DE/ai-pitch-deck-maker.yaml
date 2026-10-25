@@ -105,4 +105,4 @@ faqs:
     - q: Kann mein Mitgründer das Pitch Deck mit mir bearbeiten?
       a: Sie, Ihr Mitgründer und der Agent können dasselbe Deck gleichzeitig bearbeiten. Sie können eine Folie oder einen Teil davon kommentieren. Slides speichert vor jeder größeren Änderung eine Version, sodass Sie jederzeit eine frühere Version wiederherstellen können.
     - q: Wie viele Folien sollte ein Pitch Deck haben?
-      a: "Rund zehn Folien sind eine gute Länge für einen ersten Pitch ([was in ein Pitch Deck gehört](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), und Slides schlägt „Build a 10-slide pitch from this doc“ vor. Nennen Sie dem Agenten eine andere Länge, wenn Sie möchten, und er plant die Gliederung passend dazu."
+      a: "Rund zehn Folien sind eine gute Länge für einen ersten Pitch ([was in ein Pitch Deck gehört](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), und Slides schlägt „Erstelle aus diesem Dokument ein Pitch-Deck mit 10 Folien“ vor. Nennen Sie dem Agenten eine andere Länge, wenn Sie möchten, und er plant die Gliederung passend dazu."

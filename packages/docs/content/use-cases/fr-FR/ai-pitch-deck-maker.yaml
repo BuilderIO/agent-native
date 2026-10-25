@@ -105,4 +105,4 @@ faqs:
     - q: Mon cofondateur peut-il modifier le pitch deck avec moi ?
       a: Vous, votre cofondateur et l'agent pouvez modifier le même deck en même temps. Vous pouvez commenter une slide ou une partie de celle-ci. Slides enregistre une version avant chaque modification importante, pour que vous puissiez restaurer une version antérieure à tout moment.
     - q: Combien de slides doit contenir un pitch deck ?
-      a: "Une dizaine de slides est une bonne longueur pour un premier pitch ([ce que doit contenir un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), et Slides suggère « Build a 10-slide pitch from this doc ». Indiquez une autre longueur à l'agent si vous le souhaitez, et il adapte le plan."
+      a: "Une dizaine de slides est une bonne longueur pour un premier pitch ([ce que doit contenir un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), et Slides suggère « Créer un pitch de 10 diapositives à partir de ce doc ». Indiquez une autre longueur à l'agent si vous le souhaitez, et il adapte le plan."

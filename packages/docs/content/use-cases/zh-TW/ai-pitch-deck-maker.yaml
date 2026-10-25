@@ -105,4 +105,4 @@ faqs:
     - q: "我的共同創辦人可以和我一起編輯募資簡報嗎？"
       a: "你、你的共同創辦人和 agent 可以同時編輯同一份簡報。你可以針對某一頁或其中某個部分留言。每次有實質變更前，Slides 都會先儲存一個版本，所以你隨時都能還原先前的版本。"
     - q: "一份募資簡報應該有幾頁？"
-      a: "第一次提案大約十頁是不錯的長度（[募資簡報該放哪些內容](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)），Slides 也會建議「根據這份文件做一份 10 頁的募資簡報」。如果你想要不同的長度，告訴 agent 即可，它會依此規劃大綱。"
+      a: "第一次提案大約十頁是不錯的長度（[募資簡報該放哪些內容](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)），Slides 也會建議「根據這份檔案製作 10 頁面推介幻燈片」。如果你想要不同的長度，告訴 agent 即可，它會依此規劃大綱。"

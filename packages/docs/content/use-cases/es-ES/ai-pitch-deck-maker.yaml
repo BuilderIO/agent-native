@@ -105,4 +105,4 @@ faqs:
     - q: ¿Puede mi cofundador editar el pitch deck conmigo?
       a: Tú, tu cofundador y el agente podéis editar el mismo deck a la vez. Puedes comentar una diapositiva o una parte concreta de ella. Slides guarda una versión antes de cada cambio importante, así que puedes restaurar una versión anterior en cualquier momento.
     - q: ¿Cuántas diapositivas debe tener un pitch deck?
-      a: "Unas diez es una buena extensión para un primer pitch ([qué incluir en un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), y Slides sugiere \"Crea un pitch de 10 diapositivas a partir de este documento\". Si quieres otra extensión, díselo al agente y planificará el esquema para ajustarse a ella."
+      a: "Unas diez es una buena extensión para un primer pitch ([qué incluir en un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), y Slides sugiere \"Crea un pitch de 10 diapositivas desde este doc\". Si quieres otra extensión, díselo al agente y planificará el esquema para ajustarse a ella."

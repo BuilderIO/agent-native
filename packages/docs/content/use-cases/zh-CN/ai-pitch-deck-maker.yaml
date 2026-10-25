@@ -105,4 +105,4 @@ faqs:
     - q: 联合创始人能和我一起编辑路演 PPT 吗？
       a: 你、你的联合创始人和 agent 可以同时编辑同一份 PPT。你可以对整页或页面中的某一部分发表评论。每次重要修改前 Slides 都会保存一个版本，你随时可以恢复到之前的版本。
     - q: 一份路演 PPT 应该有多少页？
-      a: 首次路演大约十页比较合适（[路演 PPT 应该包含什么](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)），Slides 也会推荐“用这份文档做一份 10 页的路演 PPT”。如果你想要其他页数，告诉 agent 即可，它会按页数规划大纲。
+      a: 首次路演大约十页比较合适（[路演 PPT 应该包含什么](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)），Slides 也会推荐“根据这份文档制作 10 页推介幻灯片”。如果你想要其他页数，告诉 agent 即可，它会按页数规划大纲。
