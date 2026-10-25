@@ -77,6 +77,8 @@ const github = vi.hoisted(() => {
     connected: true as boolean | null,
     /** The workspace each branch and file read ran in. */
     readOrgIds: [] as Array<string | undefined>,
+    /** The workspace each upload ran in. */
+    uploadOrgIds: [] as Array<string | undefined>,
   };
   let commitCount = 0;
   return {
@@ -109,6 +111,7 @@ const github = vi.hoisted(() => {
       state.hangHead = false;
       state.connected = true;
       state.readOrgIds = [];
+      state.uploadOrgIds = [];
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -316,34 +319,39 @@ vi.mock("./_github-source.js", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/file-upload", () => ({
-  getActiveFileUploadProviderForRequest: async () =>
-    github.state.noStorage ? null : { id: "test" },
-  uploadFile: async (input: { filename: string }) => {
-    if (github.state.noStorage) return null;
-    github.state.uploadAttempts.push(input.filename);
-    if (github.state.emptyUploads > 0) {
-      github.state.emptyUploads -= 1;
-      return null;
-    }
-    if (github.state.storageDown) {
-      github.state.uploadFailures += 1;
-      throw new Error("S3 PutObject failed (503): Service Unavailable");
-    }
-    if (input.filename === github.state.rejectFilename) {
-      github.state.uploadFailures += 1;
-      throw new Error("S3 PutObject failed (400): EntityTooLarge");
-    }
-    github.state.uploads += 1;
-    const after = github.state.afterUpload;
-    github.state.afterUpload = null;
-    after?.();
-    return {
-      url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
-      provider: "test",
-    };
-  },
-}));
+vi.mock("@agent-native/core/file-upload", async () => {
+  const { getRequestOrgId } =
+    await import("@agent-native/core/server/request-context");
+  return {
+    getActiveFileUploadProviderForRequest: async () =>
+      github.state.noStorage ? null : { id: "test" },
+    uploadFile: async (input: { filename: string }) => {
+      if (github.state.noStorage) return null;
+      github.state.uploadAttempts.push(input.filename);
+      github.state.uploadOrgIds.push(getRequestOrgId());
+      if (github.state.emptyUploads > 0) {
+        github.state.emptyUploads -= 1;
+        return null;
+      }
+      if (github.state.storageDown) {
+        github.state.uploadFailures += 1;
+        throw new Error("S3 PutObject failed (503): Service Unavailable");
+      }
+      if (input.filename === github.state.rejectFilename) {
+        github.state.uploadFailures += 1;
+        throw new Error("S3 PutObject failed (400): EntityTooLarge");
+      }
+      github.state.uploads += 1;
+      const after = github.state.afterUpload;
+      github.state.afterUpload = null;
+      after?.();
+      return {
+        url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
+        provider: "test",
+      };
+    },
+  };
+});
 
 // The change events background syncs and stale reads send to open pages.
 const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
@@ -1554,14 +1562,17 @@ describe("GitHub folder source", () => {
     ]);
   });
 
-  it("reads GitHub from the workspace it was linked from when the collection has none", async () => {
+  it("reads GitHub from the workspace it was linked from when the collection has none, and stores images in the collection's own", async () => {
     github.commit({ "docs/1.md": "# One\n" });
     const database = await newCollection();
     expect(database.orgId ?? null).toBeNull();
     await runWithRequestContext({ userEmail: owner, orgId: "org-linker" }, () =>
       linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
     );
-    github.commit({ "docs/1.md": "# One, edited\n" });
+    github.commit({
+      "docs/1.md": "# One, edited\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
     github.state.readOrgIds = [];
 
     // A background sync runs with no request of its own.
@@ -1572,6 +1583,7 @@ describe("GitHub folder source", () => {
     expect(synced).toMatchObject({ state: "synced", updated: 1 });
     expect(github.state.readOrgIds.length).toBeGreaterThan(0);
     expect(new Set(github.state.readOrgIds)).toEqual(new Set(["org-linker"]));
+    expect(github.state.uploadOrgIds).toEqual([undefined]);
     expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
       "One, edited",
     ]);
