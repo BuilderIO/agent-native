@@ -35,8 +35,13 @@ import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
   assertPropertyGenerations,
   propertyChangeIdOf,
+  propertyChangeIdsFor,
+  propertyGenerationsFor,
   readPropertyGenerations,
+  readPropertyTombstones,
   readWrittenPropertyChangeIds,
+  storedPropertyGenerations,
+  type StoredPropertyChangeIds,
 } from "./_property-generations.js";
 import {
   getDatabaseById,
@@ -630,17 +635,34 @@ export default defineAction({
     });
     if (webhookEvents) scheduleContentWebhookDelivery();
 
+    // `generation` and `changeId` are this write's. The page is read after
+    // commit, so it carries its own maps from the same read; a write that
+    // landed in between shows there.
+    const tombstones = await readPropertyTombstones(db, [documentId]);
+    const changeIds: StoredPropertyChangeIds = new Map();
+    const properties =
+      (
+        await listPropertiesForDatabaseDocuments(database.id, [document], {
+          includeBlocksFieldIdentity: true,
+          changeIds,
+        })
+      ).get(documentId) ?? [];
     return {
       documentId,
       databaseId: database.id,
       generation,
       changeId,
-      properties:
-        (
-          await listPropertiesForDatabaseDocuments(database.id, [document], {
-            includeBlocksFieldIdentity: true,
-          })
-        ).get(documentId) ?? [],
+      properties,
+      propertyGenerations: propertyGenerationsFor(
+        documentId,
+        properties,
+        storedPropertyGenerations(changeIds, tombstones),
+      ),
+      propertyChangeIds: propertyChangeIdsFor(
+        documentId,
+        properties,
+        changeIds,
+      ),
     };
   },
 });

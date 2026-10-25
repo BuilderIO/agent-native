@@ -1553,6 +1553,81 @@ describe("property generations", () => {
     ).toBe(written.generation);
   });
 
+  it("row receipts and set-document-property list a cleared property's generation", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const configured = await asOwner(() =>
+      configureProperty.run({
+        documentId: ids.databaseDocumentId,
+        databaseId: ids.databaseId,
+        name: "Owner",
+        type: "text",
+      }),
+    );
+    const owner = configured.properties.find(
+      (candidate) => candidate.definition.name === "Owner",
+    )!.definition.id;
+    await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Ada",
+      }),
+    );
+    // Cleared outright, as a type change does, so only a tombstone is left.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, row.documentId),
+          eq(schema.documentPropertyValues.propertyId, owner),
+        ),
+      );
+    const cleared = await readItem(ids.databaseId, row.itemId);
+    const tombstone = cleared.propertyGenerations![owner];
+    expect(tombstone).toBeGreaterThan(0);
+
+    const discovered = await contract(ids.databaseId);
+    const updated = await asOwner(() =>
+      updateRow.run({
+        ...envelope(discovered, "cleared-receipt"),
+        itemId: row.itemId,
+        documentId: row.documentId,
+        expectedRowRevision: cleared.rowRevision!,
+        propertyValues: { [ids.properties.notes]: "done" },
+      }),
+    );
+    const afterUpdate = await readItem(ids.databaseId, row.itemId);
+    expect(updated.receipt.readback.propertyGenerations).toEqual(
+      afterUpdate.propertyGenerations,
+    );
+    expect(updated.receipt.readback.propertyChangeIds).toEqual(
+      afterUpdate.propertyChangeIds,
+    );
+    expect(updated.receipt.readback.propertyGenerations![owner]).toBe(
+      tombstone,
+    );
+    expect(updated.receipt.readback.propertyChangeIds![owner]).toBeNull();
+
+    const written = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.notes,
+        value: "later",
+      }),
+    );
+    expect(written.propertyGenerations![owner]).toBe(tombstone);
+    expect(written.propertyChangeIds![owner]).toBeNull();
+    expect(written.propertyChangeIds![ids.properties.notes]).toBe(
+      written.changeId,
+    );
+    expect(written.propertyGenerations).toEqual(
+      (await readItem(ids.databaseId, row.itemId)).propertyGenerations,
+    );
+  });
+
   it("update-database-item and patch-database-items refuse a stale generation the row revision misses", async () => {
     const ids = await fixture(2);
     const [first, second] = ids.rows;
@@ -1850,8 +1925,9 @@ describe("property generations", () => {
       );
     const toAgent = await setTurn(ids, "agent");
     try {
-      // A deletion on the same page takes a larger number than a write that
-      // took its number first and commits after it.
+      // Stands in for a write that takes its number, then commits after a
+      // deletion on the same page takes a larger one: the sequence moves
+      // ahead for the deletion and back for the write.
       await setSequence(toAgent.generation + 10);
       await getDb()
         .delete(schema.documentPropertyValues)

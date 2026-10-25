@@ -61,8 +61,11 @@ import {
 } from "./_position-utils.js";
 import {
   assertPropertyGenerations,
+  propertyChangeIdsFor,
   propertyGenerationConflictError,
   propertyGenerationConflicts,
+  propertyGenerationsFor,
+  readPropertyTombstones,
   recordPropertyChangeIds,
   type PropertyGenerations,
 } from "./_property-generations.js";
@@ -174,7 +177,18 @@ export interface RowSnapshot {
    * value's generation is its change ID; see _property-generations.ts.
    */
   changeIds: Map<string, number>;
+  /** The generations of this row's cleared values. */
+  tombstones: Map<string, number>;
   revision: string;
+}
+
+/** A property's generation in a snapshot: its value's change ID, else its tombstone's. */
+function snapshotGeneration(snapshot: RowSnapshot, propertyId: string) {
+  return (
+    snapshot.changeIds.get(propertyId) ??
+    snapshot.tombstones.get(propertyId) ??
+    0
+  );
 }
 
 export type DatabaseRowMutationOperation = "create" | "update" | "upsert";
@@ -845,6 +859,15 @@ export async function rowSnapshots(
         ),
       )
   ).filter((row) => requested.get(row.item.id) === row.item.documentId);
+  // Before the values: see readPropertyTombstones.
+  const tombstones =
+    revisionPropertyIds.size === 0 || found.length === 0
+      ? new Map<string, Map<string, number>>()
+      : await readPropertyTombstones(
+          db,
+          found.map((row) => row.item.documentId),
+          { propertyIds: [...revisionPropertyIds] },
+        );
   const values =
     revisionPropertyIds.size === 0 || found.length === 0
       ? []
@@ -888,10 +911,22 @@ export async function rowSnapshots(
       ...row,
       values: valueMap,
       changeIds: changeIds.get(row.item.documentId) ?? new Map(),
+      tombstones: tombstones.get(row.item.documentId) ?? new Map(),
       revision,
     });
   }
   return snapshots;
+}
+
+/** The collection's properties in the shape the generation helpers read. */
+function snapshotProperties(context: MutationContext) {
+  return context.definitions.map((definition) => ({
+    definition: {
+      id: definition.id,
+      type: definition.type as DocumentPropertyType,
+      systemRole: definition.systemRole,
+    },
+  }));
 }
 
 export function revisionPropertyIds(context: MutationContext) {
@@ -1053,8 +1088,17 @@ function resultForReceipt(
           parsePropertyValue(valueJson),
         ]),
       ),
-      propertyGenerations: Object.fromEntries(snapshot.changeIds),
-      propertyChangeIds: Object.fromEntries(snapshot.changeIds),
+      // Every stored-value property, cleared ones included, as reads list them.
+      propertyGenerations: propertyGenerationsFor(
+        snapshot.document.id,
+        snapshotProperties(context),
+        { of: (_, propertyId) => snapshotGeneration(snapshot, propertyId) },
+      ),
+      propertyChangeIds: propertyChangeIdsFor(
+        snapshot.document.id,
+        snapshotProperties(context),
+        new Map([[snapshot.document.id, snapshot.changeIds]]),
+      ),
     },
   };
   return { receipt };
@@ -2510,7 +2554,7 @@ async function patchRowsInsideTransaction(
             .sort()
             .map((propertyId) => [
               propertyId,
-              snapshot.changeIds.get(propertyId) ?? 0,
+              snapshotGeneration(snapshot, propertyId),
             ]),
         ),
         propertyChangeIds: Object.fromEntries(

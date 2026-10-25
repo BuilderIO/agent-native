@@ -1595,7 +1595,7 @@ export const runContentMigrations = runMigrations(
               NEW.generation := OLD.generation;
             END IF;
             RETURN NEW;
-          END';
+          END;';
         DROP TRIGGER IF EXISTS content_property_value_generation
           ON document_property_values;
         CREATE TRIGGER content_property_value_generation
@@ -1629,7 +1629,7 @@ export const runContentMigrations = runMigrations(
             ON CONFLICT (document_id, property_id)
               DO UPDATE SET generation = EXCLUDED.generation;
             RETURN NULL;
-          END';
+          END;';
         DROP TRIGGER IF EXISTS content_property_value_tombstone
           ON document_property_values;
         CREATE TRIGGER content_property_value_tombstone
