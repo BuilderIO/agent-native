@@ -1,3 +1,6 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
@@ -147,6 +150,140 @@ test("renders the start jump for step-start easing in the Motion inspector", asy
   await expect(
     easingInspector.locator("[data-easing-curve] path[data-curve-path]"),
   ).toHaveAttribute("d", "M 0 100 V 0 H 100");
+});
+
+test("preserves spring bounce decimals until blur commits them", async ({
+  page,
+  request,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 1000,
+    playbackMode: "once",
+    defaultEase: "linear",
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "ease-in" },
+          { t: 1, value: "10px 0px" },
+        ],
+      },
+    ],
+  });
+
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await gotoEditor(page, designId);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  const easingSegment = dock
+    .locator("[data-motion-track-row]")
+    .first()
+    .getByRole("button", { name: /Segment easing:/ })
+    .first();
+  await easingSegment.click();
+
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Easing"]') });
+  const springSave = page.waitForResponse(
+    (response) => {
+      if (
+        !response.url().includes("/_agent-native/actions/apply-motion-edit") ||
+        response.request().method() !== "POST"
+      ) {
+        return false;
+      }
+      try {
+        const input = response.request().postDataJSON() as {
+          tracks?: Array<{ keyframes?: Array<{ ease?: unknown }> }>;
+        };
+        return Boolean(
+          input.tracks?.some((track) =>
+            track.keyframes?.some(
+              (keyframe) =>
+                typeof keyframe.ease === "string" &&
+                keyframe.ease.startsWith("spring("),
+            ),
+          ),
+        );
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 20_000 },
+  );
+  await easingInspector.getByRole("tab", { name: "Spring" }).click();
+  const savedSpring = await springSave;
+  expect(savedSpring.ok(), await savedSpring.text()).toBe(true);
+
+  const bounceInput = easingInspector.getByLabel("Bounce");
+  await expect(bounceInput).toHaveValue("0.25");
+  const motionWrites: string[] = [];
+  const countMotionWrites = (request: {
+    method(): string;
+    url(): string;
+    postData(): string | null;
+  }) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/_agent-native/actions/apply-motion-edit")
+    ) {
+      motionWrites.push(request.postData() ?? "");
+    }
+  };
+  page.on("request", countMotionWrites);
+
+  await bounceInput.fill("0.");
+  await expect(bounceInput).toHaveValue("0.");
+  expect(motionWrites).toHaveLength(0);
+  await bounceInput.fill("0.45");
+  await expect(bounceInput).toHaveValue("0.45");
+  expect(motionWrites).toHaveLength(0);
+
+  const bounceSave = page.waitForResponse(
+    (response) => {
+      if (
+        !response.url().includes("/_agent-native/actions/apply-motion-edit") ||
+        response.request().method() !== "POST"
+      ) {
+        return false;
+      }
+      try {
+        const input = response.request().postDataJSON() as {
+          tracks?: Array<{ keyframes?: Array<{ ease?: unknown }> }>;
+        };
+        return Boolean(
+          input.tracks?.some((track) =>
+            track.keyframes?.some(
+              (keyframe) => keyframe.ease === "spring(0.45)",
+            ),
+          ),
+        );
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 20_000 },
+  );
+  await bounceInput.blur();
+  const savedBounce = await bounceSave;
+  page.off("request", countMotionWrites);
+  expect(savedBounce.ok(), await savedBounce.text()).toBe(true);
+  expect(motionWrites).toHaveLength(1);
+  await expect(bounceInput).toHaveValue("0.45");
+  const screenshotPath = path.resolve(
+    import.meta.dirname,
+    "../../../.tmp/drive-codex/design-motion-spring-bounce-decimal.png",
+  );
+  await mkdir(path.dirname(screenshotPath), { recursive: true });
+  await page.screenshot({ path: screenshotPath });
 });
 
 test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({

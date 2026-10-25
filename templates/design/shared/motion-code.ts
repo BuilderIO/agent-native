@@ -1081,9 +1081,22 @@ function reconcileStoredTrackEasing(
   return {
     ...parsedTrack,
     keyframes: parsedTrack.keyframes.map((parsedKeyframe) => {
-      const storedKeyframe = storedTrack.keyframes.find(
-        (keyframe) => keyframe.t === parsedKeyframe.t,
+      const matchingOffsets = storedTrack.keyframes.filter(
+        (keyframe) =>
+          compiledMotionKeyframeOffset(keyframe.t) === parsedKeyframe.t,
       );
+      const matchingValues =
+        matchingOffsets.length === 1
+          ? matchingOffsets
+          : matchingOffsets.filter((keyframe) =>
+              motionTrackValuesMatch(
+                storedTrack.property,
+                keyframe.value,
+                parsedKeyframe.value,
+              ),
+            );
+      const storedKeyframe =
+        matchingValues.length === 1 ? matchingValues[0] : undefined;
       if (!storedKeyframe) return parsedKeyframe;
 
       const storedEase = storedKeyframe.ease ?? defaultEase;
@@ -1098,6 +1111,17 @@ function reconcileStoredTrackEasing(
         : { ...parsedKeyframe, ease: storedKeyframe.ease };
     }),
   };
+}
+
+function compiledMotionKeyframeOffset(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+
+  // Keep in sync with motion-compiler's formatPercent hundredth-percent rounding.
+  const percent = Math.round(t * 10_000) / 100;
+  if (percent >= 100) return 0.9999;
+  if (percent <= 0) return 0.0001;
+  return percent / 100;
 }
 
 function motionTrackValuesMatch(

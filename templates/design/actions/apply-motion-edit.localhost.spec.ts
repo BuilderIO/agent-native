@@ -492,6 +492,63 @@ describe("apply-motion-edit localhost React source", () => {
     });
   });
 
+  it("writes the first audio clip to a React source without Motion metadata", async () => {
+    const audioSource = `export default function Home() {
+  return (
+    <main>
+      <h1>Hello</h1>
+    </main>
+  );
+}
+`;
+    const audioSourceHash = createHash("sha256")
+      .update(audioSource)
+      .digest("hex");
+    const audioClips = [
+      {
+        id: "voiceover-track",
+        name: "voiceover.mp3",
+        sourceUrl: "/_agent-native/file-upload/audio/voiceover.mp3",
+        timelineStartMs: 0,
+        sourceTrimStartMs: 250,
+        durationMs: 900,
+        volume: 0.8,
+        muted: false,
+      },
+    ];
+    mocks.readLocal.mockResolvedValue({
+      content: audioSource,
+      versionHash: audioSourceHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: audioSourceHash,
+        timelineVersionHash: audioSourceHash,
+        renderedNodeIds: [],
+      },
+      tracks: [],
+      audioClips,
+    });
+
+    expect(result).toMatchObject({
+      trackCount: 0,
+      audioClipCount: 1,
+      audioClips,
+      persisted: true,
+      sourcePatched: true,
+    });
+    expect(
+      readMotionReactSource(mocks.writeLocal.mock.calls[0]![0].content),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { tracks: [], audioClips, durationMs: 900 },
+    });
+  });
+
   it("persists pathLength for an enabled native Path style in React source", async () => {
     const pathSource = `function Home() {
   return (

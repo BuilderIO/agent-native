@@ -2074,7 +2074,9 @@ describe("MotionNativeStyleEditor", () => {
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
+    await act(async () => bounceInput.focus());
     await setInputValue(bounceInput, "0.42");
+    await act(async () => bounceInput.blur());
     await clickButtonWithText(
       "designEditor.motion.animationStyles.easingVariable.create",
     );
@@ -2340,7 +2342,7 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
-  it("shows the selected spring curve with one Bounce control and preserves settle", async () => {
+  it("preserves an intermediate decimal in Bounce until blur, then commits it", async () => {
     const styleWithSpring = {
       ...positionStyle,
       props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
@@ -2393,13 +2395,17 @@ describe("MotionNativeStyleEditor", () => {
       ),
     ).toBe(false);
 
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
+    onChange.mockClear();
+    await act(async () => bounceInput?.focus());
+    expect(onChange).not.toHaveBeenCalled();
+    await setInputValue(bounceInput!, "0.");
+    expect(bounceInput?.value).toBe("0.");
+    expect(onChange).not.toHaveBeenCalled();
+    await setInputValue(bounceInput!, "0.45");
+    expect(bounceInput?.value).toBe("0.45");
+    expect(onChange).not.toHaveBeenCalled();
     await act(async () => {
-      valueSetter?.call(bounceInput, "0.45");
-      bounceInput?.dispatchEvent(new Event("input", { bubbles: true }));
+      bounceInput?.blur();
     });
     expect(onChange).toHaveBeenLastCalledWith(
       {

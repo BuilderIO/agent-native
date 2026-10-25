@@ -95,6 +95,50 @@ describe("Motion source document CSS codec", () => {
     expect(edited.tracks[0]?.keyframes[1]?.ease).toBe("ease-in");
   });
 
+  it("reconciles spring easing at compiler-quantized keyframe offsets", () => {
+    const roundedOffset = 1000 / 3601;
+    const nearbyOffset = roundedOffset + 0.000001;
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [
+        {
+          ...timeline.tracks[0]!,
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: roundedOffset, value: "0.5", ease: "spring(0.25)" },
+            { t: nearbyOffset, value: "0.75", ease: "spring(0.69)" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(
+      compiled.css,
+      motionCodeDocumentFromTimeline(springTimeline),
+    );
+
+    expect(compiled.css.match(/27\.77% \{/g)).toHaveLength(2);
+    expect(reconciled.tracks[0]?.keyframes[1]?.ease).toBe("spring(0.25)");
+    expect(reconciled.tracks[0]?.keyframes[2]?.ease).toBe("spring(0.69)");
+
+    const editedCss = compiled.css.replace(
+      `animation-timing-function: ${springToCssLinear({ bounce: 0.25, settle: 1 })};`,
+      `animation-timing-function: ${springToCssLinear({ bounce: 0.69, settle: 1 })};`,
+    );
+    const edited = reconcileMotionCodeDocument(
+      editedCss,
+      motionCodeDocumentFromTimeline(springTimeline),
+    );
+
+    expect(edited.tracks[0]?.keyframes[1]?.ease).toBe(
+      springToCssLinear({ bounce: 0.69, settle: 1 }),
+    );
+    expect(edited.tracks[0]?.keyframes[2]?.ease).toBe("spring(0.69)");
+  });
+
   it("keeps an authored track and a native style on the same node and property apart through a round trip", () => {
     const position = {
       ...createMotionNativeStyleInstance({

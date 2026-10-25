@@ -2788,6 +2788,13 @@ export function MotionSpringEditor({
 }) {
   const spring = parseSpringToken(value);
   const springGeometry = spring ? createSpringCurveGeometry(spring) : null;
+  const [bounceDraft, setBounceDraft] = useState(() =>
+    spring ? formatEasingNumber(spring.bounce) : "",
+  );
+
+  useEffect(() => {
+    setBounceDraft(spring ? formatEasingNumber(spring.bounce) : "");
+  }, [spring?.bounce, value]);
 
   return (
     <div className="space-y-2">
@@ -2815,13 +2822,23 @@ export function MotionSpringEditor({
           </svg>
           <CurveNumberField
             label={t("designEditor.motion.bounce")}
-            value={spring.bounce}
-            min={0}
-            max={1}
+            value={bounceDraft}
             disabled={disabled}
-            onChange={(bounce) =>
-              onChange(springToken({ bounce, settle: spring.settle }))
-            }
+            onChange={setBounceDraft}
+            onBlur={(draft) => {
+              const trimmed = draft.trim();
+              const bounce = Number(trimmed);
+              if (
+                !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(
+                  trimmed,
+                ) ||
+                !Number.isFinite(bounce)
+              ) {
+                setBounceDraft(formatEasingNumber(spring.bounce));
+                return;
+              }
+              onChange(springToken({ bounce, settle: spring.settle }));
+            }}
           />
         </>
       ) : null}
@@ -2853,33 +2870,27 @@ function createSpringCurveGeometry(spring: {
 function CurveNumberField({
   label,
   value,
-  min,
-  max,
   disabled,
   onChange,
+  onBlur,
 }: {
   label: string;
-  value: number;
-  min: number;
-  max: number;
+  value: string;
   disabled: boolean;
-  onChange: (value: number) => void;
+  onChange: (value: string) => void;
+  onBlur: (value: string) => void;
 }) {
   return (
     <label className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
       <span className="shrink-0">{label}</span>
       <Input
-        type="number"
-        min={min}
-        max={max}
-        step={0.01}
-        value={formatEasingNumber(value)}
+        type="text"
+        inputMode="decimal"
+        value={value}
         disabled={disabled}
         className={CONTROL_CLASS}
-        onChange={(event) => {
-          const next = Number(event.currentTarget.value);
-          if (Number.isFinite(next)) onChange(next);
-        }}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onBlur={(event) => onBlur(event.currentTarget.value)}
       />
     </label>
   );

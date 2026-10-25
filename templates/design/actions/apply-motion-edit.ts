@@ -1499,21 +1499,32 @@ export default defineAction({
             audioClips: sourceAudioClips,
           });
         } else {
+          const targetNodeIds = [
+            ...new Set([
+              ...typedTracks.map((track) => track.targetNodeId),
+              ...nativeStyles.map((style) => style.targetNodeId),
+              ...(runtimeTextDocument?.animations.map(
+                (animation) => animation.targetNodeId,
+              ) ?? []),
+            ]),
+          ];
           const writeCapability = inspectMotionReactSourceWriteCapability({
             source: currentContent,
-            targetNodeIds: [
-              ...new Set([
-                ...typedTracks.map((track) => track.targetNodeId),
-                ...nativeStyles.map((style) => style.targetNodeId),
-                ...(runtimeTextDocument?.animations.map(
-                  (animation) => animation.targetNodeId,
-                ) ?? []),
-              ]),
-            ],
+            targetNodeIds,
             modulePath: localSourceLocation.filePath,
             moduleVersionHash: localSourceInput.moduleVersionHash,
           });
-          if (writeCapability.status === "unsupported") {
+          // The pre-edit probe cannot see audio metadata supplied by this write.
+          const incomingAudioAuthorizesMetadataOnlyWrite =
+            sourceAudioClips !== undefined &&
+            targetNodeIds.length === 0 &&
+            writeCapability.status === "unsupported" &&
+            writeCapability.code === "missing-node" &&
+            writeCapability.targetNodeIds.length === 0;
+          if (
+            writeCapability.status === "unsupported" &&
+            !incomingAudioAuthorizesMetadataOnlyWrite
+          ) {
             throw new MotionReactSourceError(
               writeCapability.code,
               writeCapability.reason,
