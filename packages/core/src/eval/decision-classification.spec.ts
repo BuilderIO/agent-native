@@ -103,7 +103,7 @@ describe("scoreClassification", () => {
 });
 
 describe("thresholdSweep", () => {
-  it("includes probabilities tied at the threshold and finds the smallest target threshold", () => {
+  it("includes probabilities tied at the threshold and finds the largest target threshold", () => {
     const result = thresholdSweep({
       gold: [true, true, false, false],
       probabilities: [0.9, 0.5, 0.5, 0.1],
@@ -137,7 +137,7 @@ describe("thresholdSweep", () => {
         recall: 1,
       },
     ]);
-    expect(result.smallestThresholdMeetingTargetRecall).toBe(0.1);
+    expect(result.largestThresholdMeetingTargetRecall).toBe(0.5);
   });
 
   it("generates thresholds from the score values and validates probability inputs", () => {
@@ -155,6 +155,32 @@ describe("thresholdSweep", () => {
     expect(() => thresholdSweep({ gold: [true], probabilities: [] })).toThrow(
       /equal lengths/,
     );
+  });
+
+  it("rejects sparse gold and probability arrays before computing metrics", () => {
+    const sparseGold = new Array<boolean>(2);
+    sparseGold[0] = true;
+    const sparseProbabilities = new Array<number>(2);
+    sparseProbabilities[0] = 0.9;
+
+    expect(() =>
+      thresholdSweep({ gold: sparseGold, probabilities: [0.9, 0.1] }),
+    ).toThrow(/gold\[1\]/);
+    expect(() =>
+      thresholdSweep({
+        gold: [true, false],
+        probabilities: sparseProbabilities,
+      }),
+    ).toThrow(/probabilities\[1\]/);
+    expect(() =>
+      expectedCalibrationError({ gold: sparseGold, probabilities: [0.9, 0.1] }),
+    ).toThrow(/gold\[1\]/);
+    expect(() =>
+      expectedCalibrationError({
+        gold: [true, false],
+        probabilities: sparseProbabilities,
+      }),
+    ).toThrow(/probabilities\[1\]/);
   });
 
   it("does not rescan probabilities for every generated threshold", () => {

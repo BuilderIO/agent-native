@@ -51,7 +51,7 @@ export interface ThresholdPoint {
 export interface ThresholdSweepResult {
   points: ThresholdPoint[];
   /** Null when targetRecall is omitted or no threshold has defined sufficient recall. */
-  smallestThresholdMeetingTargetRecall: number | null;
+  largestThresholdMeetingTargetRecall: number | null;
 }
 
 export interface ThresholdSweepInput {
@@ -84,11 +84,16 @@ function assertProbability(value: number, name: string, index: number): void {
 }
 
 function assertBinaryGold(gold: readonly boolean[]): void {
-  if (
-    !Array.isArray(gold) ||
-    gold.some((value) => typeof value !== "boolean")
-  ) {
+  if (!Array.isArray(gold)) {
     throw new TypeError("gold must be an array of boolean labels");
+  }
+  for (let index = 0; index < gold.length; index += 1) {
+    if (
+      !Object.prototype.hasOwnProperty.call(gold, index) ||
+      typeof gold[index] !== "boolean"
+    ) {
+      throw new TypeError(`gold[${index}] must be a boolean`);
+    }
   }
 }
 
@@ -221,12 +226,16 @@ function validateProbabilityArray(probabilities: readonly number[]): void {
   if (!Array.isArray(probabilities)) {
     throw new TypeError("probabilities must be an array of numbers");
   }
-  probabilities.forEach((probability, index) => {
-    if (typeof probability !== "number") {
+  for (let index = 0; index < probabilities.length; index += 1) {
+    const probability = probabilities[index];
+    if (
+      !Object.prototype.hasOwnProperty.call(probabilities, index) ||
+      typeof probability !== "number"
+    ) {
       throw new TypeError(`probabilities[${index}] must be a number`);
     }
     assertProbability(probability, "probabilities", index);
-  });
+  }
 }
 
 /**
@@ -280,7 +289,7 @@ export function thresholdSweep({
   let exampleIndex = 0;
   let truePositives = 0;
   let predictedPositive = 0;
-  let smallestThresholdMeetingTargetRecall: number | null = null;
+  let largestThresholdMeetingTargetRecall: number | null = null;
 
   for (const { threshold, index } of sortedThresholds) {
     while (
@@ -306,16 +315,16 @@ export function thresholdSweep({
       targetRecall !== undefined &&
       recall !== null &&
       recall >= targetRecall &&
-      (smallestThresholdMeetingTargetRecall === null ||
-        threshold < smallestThresholdMeetingTargetRecall)
+      (largestThresholdMeetingTargetRecall === null ||
+        threshold > largestThresholdMeetingTargetRecall)
     ) {
-      smallestThresholdMeetingTargetRecall = threshold;
+      largestThresholdMeetingTargetRecall = threshold;
     }
   }
 
   return {
     points,
-    smallestThresholdMeetingTargetRecall,
+    largestThresholdMeetingTargetRecall,
   };
 }
 
