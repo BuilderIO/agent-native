@@ -12,8 +12,12 @@
  *
  *   try {
  *     const delivery: unknown = countOutcome("<thing>_counts", dimensions);
- *     void Promise.resolve(delivery).catch(() => {});
- *   } catch {}
+ *     void Promise.resolve(delivery).catch(() => {
+ *       // coercion-ok: delivery cannot change the response.
+ *     });
+ *   } catch {
+ *     // coercion-ok: delivery cannot change the response.
+ *   }
  *
  * The guard scans every server source file (actions and server directories)
  * for a timer callback that calls a tracking or count function. A timer that
@@ -181,8 +185,12 @@ function main() {
       "it from changing the response:\n\n" +
       "  try {\n" +
       '    const delivery: unknown = countOutcome("<thing>_counts", dimensions);\n' +
-      "    void Promise.resolve(delivery).catch(() => {});\n" +
-      "  } catch {}\n",
+      "    void Promise.resolve(delivery).catch(() => {\n" +
+      "      // coercion-ok: delivery cannot change the response.\n" +
+      "    });\n" +
+      "  } catch {\n" +
+      "    // coercion-ok: delivery cannot change the response.\n" +
+      "  }\n",
   );
   for (const finding of findings) {
     console.error(`  ${finding.file}:${finding.line} — ${finding.snippet}`);
