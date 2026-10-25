@@ -33,6 +33,18 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   }),
 }));
 
+const grantCheckDelaysMs = vi.hoisted(() => [] as number[]);
+
+vi.mock("../org/service-principal-guard.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../org/service-principal-guard.js")
+  >()),
+  enforceServicePrincipalActionGrant: async () => {
+    const delayMs = grantCheckDelaysMs.shift() ?? 0;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  },
+}));
+
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: async () => true,
   ensureIndexExists: async () => true,
@@ -104,6 +116,8 @@ async function runCreateDecks(opts: {
   messages: EngineMessage[];
   internalContinuation?: boolean;
   retrySafe?: boolean;
+  parallelSafe?: boolean;
+  ownerEmail?: string;
   run: (args: { title: string }) => Promise<string>;
 }): Promise<AgentChatEvent[]> {
   await insertRun(opts.runId, opts.threadId, opts.turnId);
@@ -150,12 +164,14 @@ async function runCreateDecks(opts: {
           },
           readOnly: false,
           retrySafe: opts.retrySafe ?? true,
+          ...(opts.parallelSafe ? { parallelSafe: true } : {}),
           run: opts.run,
         },
       },
       threadId: opts.threadId,
       turnId: opts.turnId,
       ...(opts.internalContinuation ? { internalContinuation: true } : {}),
+      ...(opts.ownerEmail ? { ownerEmail: opts.ownerEmail } : {}),
       send: (event) => events.push(event),
       signal: new AbortController().signal,
     }),
@@ -717,6 +733,74 @@ describe("durable execution step identity", () => {
         errorCode: "write_tool_outcome_unknown",
       }),
     );
+  });
+
+  it("pairs repeated finished slot-only steps in call order when parallel checks finish out of order", async () => {
+    const threadId = "thread-resume-parallel-finished-slot-only-steps";
+    const turnId = "turn-resume-parallel-finished-slot-only-steps";
+    const priorRunId = "run-before-release-parallel";
+    let saves = 0;
+    const run = vi.fn(
+      async ({ title }: { title: string }) => `Saved ${title} as #${++saves}`,
+    );
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: priorRunId,
+      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      messages: [request],
+      run,
+    });
+    const priorResults: string[] = [];
+    const slotOnlyStepIds: string[] = [];
+    for (const slot of [1, 2]) {
+      const priorDone = priorEvents.find(
+        (event) =>
+          event.type === "tool_done" &&
+          event.id === `${priorRunId}-call-${slot}`,
+      );
+      if (priorDone?.type !== "tool_done") {
+        throw new Error("The prior run did not finish");
+      }
+      priorResults.push(priorDone.result);
+      slotOnlyStepIds.push(
+        await recordUnderSlotOnlyId({
+          threadId,
+          priorRunId,
+          priorEvents,
+          slot,
+          withResult: true,
+        }),
+      );
+    }
+    // The first call's grant check settles after the second's.
+    grantCheckDelaysMs.push(30, 0);
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-parallel",
+      titles: ["Q3 plan", "Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      parallelSafe: true,
+      ownerEmail: "svc-deck-bot@service.org-parallel",
+      run,
+    });
+    grantCheckDelaysMs.length = 0;
+
+    expect(run).toHaveBeenCalledTimes(3);
+    for (const [index, executionStepId] of slotOnlyStepIds.entries()) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          id: `run-after-release-parallel-call-${index}`,
+          executionStepId,
+          result: expect.stringContaining(priorResults[index]!),
+        }),
+      );
+    }
   });
 
   it("holds a moved write whose slot-only step from before this release may have run", async () => {

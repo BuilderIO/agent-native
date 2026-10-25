@@ -982,6 +982,26 @@ export function findUnresolvedJournalStepForCall(
   return match;
 }
 
+/** Whether any interrupted or unseen finished entry could name this call's step. */
+export function hasJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): boolean {
+  return [journal.interrupted, unseenFinished].some(
+    (entries) =>
+      journalStepEntriesForCall(
+        entries,
+        toolName,
+        argumentsHash,
+        input,
+        undefined,
+      ).length > 0,
+  );
+}
+
 function journalStepEntriesForCall(
   entries: readonly ToolCallJournalEntry[],
   toolName: string,

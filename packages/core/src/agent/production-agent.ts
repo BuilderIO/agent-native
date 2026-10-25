@@ -440,10 +440,10 @@ import { toolCallInputSignature } from "./tool-call-input-signature.js";
 import {
   ambiguousLegacyCallEffectKey,
   findAmbiguousLegacyJournalEntryForCall,
-  findInterruptedJournalEntryForCall,
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
   journalEntriesRepresentedInHistory,
@@ -10909,10 +10909,13 @@ export async function runAgentLoop(opts: {
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
         return null;
       }
+      // Journal steps are claimed in call order, which a batch's concurrent
+      // awaits would not keep.
       if (
         toolCallJournal &&
-        findInterruptedJournalEntryForCall(
+        hasJournalStepForCall(
           toolCallJournal,
+          unseenFinishedJournalSteps,
           toolCall.name,
           prepared?.status === "prepared" && prepared.intent.valid
             ? prepared.intent.argumentsHash
