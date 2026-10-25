@@ -86,9 +86,124 @@ type JsonSerializationResult =
   | { status: "serialized"; json: string }
   | { status: "not_serializable"; cause: unknown };
 
+type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+function cloneJsonValue(value: unknown, ancestors: WeakSet<object>): JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("JSON input contains a non-finite number.");
+    }
+    return value;
+  }
+  if (typeof value !== "object") {
+    throw new TypeError("JSON input contains a non-JSON value.");
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError("JSON input contains a cycle.");
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) {
+        throw new TypeError(
+          "JSON input contains an array with a custom prototype.",
+        );
+      }
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      const length = lengthDescriptor?.value;
+      if (
+        !lengthDescriptor ||
+        lengthDescriptor.enumerable ||
+        !Number.isInteger(length) ||
+        length < 0
+      ) {
+        throw new TypeError("JSON input contains an invalid array.");
+      }
+
+      const indices = new Set<number>();
+      for (const key of Reflect.ownKeys(value)) {
+        if (typeof key !== "string") {
+          throw new TypeError("JSON input contains a symbol property.");
+        }
+        if (key === "length") continue;
+        const index = Number(key);
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= length ||
+          String(index) !== key
+        ) {
+          throw new TypeError("JSON input contains an extra array property.");
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor?.enumerable || !("value" in descriptor)) {
+          throw new TypeError("JSON input contains a non-data array property.");
+        }
+        indices.add(index);
+      }
+      if (indices.size !== length) {
+        throw new TypeError("JSON input contains a sparse array.");
+      }
+
+      const output: JsonValue[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (!descriptor || !("value" in descriptor)) {
+          throw new TypeError("JSON input contains a sparse array.");
+        }
+        output.push(cloneJsonValue(descriptor.value, ancestors));
+      }
+      return output;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError(
+        "JSON input contains an object with a custom prototype.",
+      );
+    }
+    const output: { [key: string]: JsonValue } = Object.create(null);
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") {
+        throw new TypeError("JSON input contains a symbol property.");
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor?.enumerable || !("value" in descriptor)) {
+        throw new TypeError("JSON input contains a non-data object property.");
+      }
+      Object.defineProperty(output, key, {
+        configurable: true,
+        enumerable: true,
+        value: cloneJsonValue(descriptor.value, ancestors),
+        writable: true,
+      });
+    }
+    return output;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
 function serializeJsonValue(value: unknown): JsonSerializationResult {
   try {
-    const json = JSON.stringify(value);
+    const json = JSON.stringify(cloneJsonValue(value, new WeakSet()));
     if (json === undefined) {
       return {
         status: "not_serializable",

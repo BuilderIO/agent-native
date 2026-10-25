@@ -13,6 +13,7 @@ import {
 import {
   isJevEnabled,
   requestJev,
+  JevProviderRequestError,
   type JevQuestion,
   type JevRequest,
 } from "./providers/jev.js";
@@ -181,6 +182,7 @@ function validateOptions(options: DecideOptions | undefined): boolean {
 
 function fromProviderError(error: unknown): DecisionFailureReason {
   if (error instanceof DecisionProviderRequestError) return error.reason;
+  if (error instanceof JevProviderRequestError) return error.reason;
   if (error instanceof DecisionResponseError) return error.reason;
   return "provider_error";
 }
@@ -244,15 +246,22 @@ export async function decide(input: {
     let jevCredentials:
       | Awaited<ReturnType<typeof getJevContextCredentials>>
       | undefined;
+    let jevDeadlineAt: number | undefined;
     let lookupFailed = false;
 
     if (provider === "openai") {
       const resolved = await getOwnerApiKeyForEngine(
         "ai-sdk:openai",
         input.ownerEmail,
-        { onLookupFailure: () => (lookupFailed = true) },
+        {
+          allowDeploymentFallback: false,
+          onLookupFailure: () => (lookupFailed = true),
+        },
       );
-      apiKey = resolved.apiKey;
+      apiKey =
+        resolved.credentialProvenance?.scope === "deployment"
+          ? undefined
+          : resolved.apiKey;
     } else {
       jevCredentials = await getJevContextCredentials(input.ownerEmail);
       apiKey = jevCredentials.directApiKey ?? jevCredentials.personalApiKey;
@@ -261,24 +270,44 @@ export async function decide(input: {
         jevCredentials.builderAuthLookupFailed,
       );
       if (!apiKey && jevCredentials.builderAuth) {
+        jevDeadlineAt = Date.now() + timeoutMs;
         try {
-          if (await isJevEnabled(jevCredentials)) {
+          if (
+            await isJevEnabled(jevCredentials, {
+              signal: input.options?.signal,
+              timeoutMs: Math.max(0, jevDeadlineAt - Date.now()),
+            })
+          ) {
             apiKey = "builder-auth";
           }
-        } catch {
+        } catch (error) {
+          if (input.options?.signal?.aborted) {
+            return { status: "failed", reason: "aborted", provider };
+          }
+          if (
+            error instanceof JevProviderRequestError &&
+            (error.reason === "timeout" || error.reason === "aborted")
+          ) {
+            return { status: "failed", reason: error.reason, provider };
+          }
           lookupFailed = true;
         }
       }
     }
 
+    if (input.options?.signal?.aborted) {
+      return { status: "failed", reason: "aborted", provider };
+    }
+
+    if (lookupFailed) {
+      return {
+        status: "failed",
+        reason: "credentials_unavailable",
+        provider,
+      };
+    }
+
     if (!apiKey) {
-      if (lookupFailed) {
-        return {
-          status: "failed",
-          reason: "credentials_unavailable",
-          provider,
-        };
-      }
       missingProviders.push(provider);
       continue;
     }
@@ -292,6 +321,13 @@ export async function decide(input: {
       input.input,
       input.questions,
     );
+    const providerTimeoutMs =
+      provider === "jev" && jevDeadlineAt !== undefined
+        ? Math.max(0, jevDeadlineAt - Date.now())
+        : timeoutMs;
+    if (providerTimeoutMs <= 0) {
+      return { status: "failed", reason: "timeout", provider };
+    }
     const cached = readDecisionCache(key);
     if (cached) return { ...cached, cached: true };
 
@@ -312,7 +348,7 @@ export async function decide(input: {
               builderAuth: jevCredentials?.builderAuth,
               request: toJevRequest(input.input, input.questions),
               signal: input.options?.signal,
-              timeoutMs,
+              timeoutMs: providerTimeoutMs,
             });
       const parsed = parseDecisionAnswers(provider, input.questions, response);
       const result: SuccessfulDecision = {
@@ -364,6 +400,7 @@ export async function getDecisionsStatus(
   const providerOrder = [...getAppConfig().decisions.providerOrder];
   let openAiLookupFailed = false;
   const openAi = await getOwnerApiKeyForEngine("ai-sdk:openai", ownerEmail, {
+    allowDeploymentFallback: false,
     onLookupFailure: () => (openAiLookupFailed = true),
   });
   const jev = await getJevContextCredentials(ownerEmail);
@@ -388,11 +425,13 @@ export async function getDecisionsStatus(
     providers: [
       {
         provider: "openai",
-        status: openAi.apiKey
-          ? "ready"
-          : openAiLookupFailed
-            ? "unknown"
-            : "not_configured",
+        status: openAiLookupFailed
+          ? "unknown"
+          : openAi.credentialProvenance?.scope === "deployment"
+            ? "not_configured"
+            : openAi.apiKey
+              ? "ready"
+              : "not_configured",
       },
       { provider: "jev", status: jevStatus },
     ],

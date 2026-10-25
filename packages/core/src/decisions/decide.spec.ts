@@ -4,6 +4,11 @@ const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
   getOwnerApiKeyForEngine: vi.fn(),
   isJevEnabled: vi.fn(),
+  JevProviderRequestError: class JevProviderRequestError extends Error {
+    constructor(readonly reason: string) {
+      super(reason);
+    }
+  },
   requestJev: vi.fn(),
   requestOpenAiDecision: vi.fn(),
 }));
@@ -21,6 +26,7 @@ vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: () => "org-example",
 }));
 vi.mock("./providers/jev.js", () => ({
+  JevProviderRequestError: mocks.JevProviderRequestError,
   isJevEnabled: mocks.isJevEnabled,
   requestJev: mocks.requestJev,
 }));
@@ -81,6 +87,7 @@ describe("decide", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     __resetDecisionCacheForTests();
   });
@@ -371,6 +378,204 @@ describe("decide", () => {
       provider: "openai",
     });
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
+  });
+
+  it("does not use a deployment key after an owner credential lookup fails", async () => {
+    mocks.getOwnerApiKeyForEngine.mockImplementation(
+      async (_engine, _email, options) => {
+        options?.onLookupFailure?.();
+        return {
+          apiKey: "deployment-key",
+          credentialProvenance: { scope: "deployment" },
+        };
+      },
+    );
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [choiceQuestion],
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      reason: "credentials_unavailable",
+      provider: "openai",
+    });
+    expect(mocks.getOwnerApiKeyForEngine).toHaveBeenCalledWith(
+      "ai-sdk:openai",
+      ownerEmail,
+      expect.objectContaining({ allowDeploymentFallback: false }),
+    );
+    expect(mocks.requestOpenAiDecision).not.toHaveBeenCalled();
+  });
+
+  it("returns aborted when cancellation arrives during credential lookup before a cache hit", async () => {
+    const request = {
+      ownerEmail,
+      input: "I was charged twice.",
+      questions: [choiceQuestion],
+      options: { cacheKey: "ticket-cancelled-during-lookup" },
+    };
+    await decide(request);
+
+    let beginLookup!: () => void;
+    let resolveLookup!: (value: { apiKey: string }) => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      beginLookup = resolve;
+    });
+    const lookup = new Promise<{ apiKey: string }>((resolve) => {
+      resolveLookup = resolve;
+    });
+    mocks.getOwnerApiKeyForEngine.mockImplementation(async () => {
+      beginLookup();
+      return lookup;
+    });
+
+    const controller = new AbortController();
+    const pending = decide({
+      ...request,
+      options: { ...request.options, signal: controller.signal },
+    });
+    await lookupStarted;
+    controller.abort();
+    resolveLookup({ apiKey: "openai-test-key" });
+
+    await expect(pending).resolves.toEqual({
+      status: "failed",
+      reason: "aborted",
+      provider: "openai",
+    });
+    expect(mocks.requestOpenAiDecision).toHaveBeenCalledOnce();
+  });
+
+  it("preserves typed Jev timeout errors", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+    });
+    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.requestJev.mockRejectedValue(
+      new mocks.JevProviderRequestError("timeout"),
+    );
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [
+        {
+          type: "predicate",
+          name: "urgent",
+          instructions: "Is this urgent?",
+        },
+      ],
+      options: { providers: ["jev"] },
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      reason: "timeout",
+      provider: "jev",
+    });
+  });
+
+  it("shares the signal and remaining timeout with Jev entitlement and request", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+    });
+    mocks.isJevEnabled.mockImplementation(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+      return true;
+    });
+    mocks.requestJev.mockResolvedValue({
+      answers: { urgent: { type: "noul", noul: 0.95 } },
+    });
+    const controller = new AbortController();
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [
+        {
+          type: "predicate",
+          name: "urgent",
+          instructions: "Is this urgent?",
+        },
+      ],
+      options: { providers: ["jev"], signal: controller.signal },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "jev" });
+    expect(mocks.isJevEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ builderAuth: expect.anything() }),
+      { signal: controller.signal, timeoutMs: 10_000 },
+    );
+    expect(mocks.requestJev).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal, timeoutMs: 9_600 }),
+    );
+  });
+
+  it("returns aborted when cancellation arrives during the Jev entitlement check", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+    });
+    let beginEntitlementCheck!: () => void;
+    const entitlementStarted = new Promise<void>((resolve) => {
+      beginEntitlementCheck = resolve;
+    });
+    mocks.isJevEnabled.mockImplementation(
+      async (_credentials, options) =>
+        new Promise((_resolve, reject) => {
+          beginEntitlementCheck();
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(new mocks.JevProviderRequestError("aborted")),
+            { once: true },
+          );
+        }),
+    );
+    const controller = new AbortController();
+    const pending = decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [
+        {
+          type: "predicate",
+          name: "urgent",
+          instructions: "Is this urgent?",
+        },
+      ],
+      options: { providers: ["jev"], signal: controller.signal },
+    });
+
+    await entitlementStarted;
+    controller.abort();
+
+    await expect(pending).resolves.toEqual({
+      status: "failed",
+      reason: "aborted",
+      provider: "jev",
+    });
+    expect(mocks.requestJev).not.toHaveBeenCalled();
   });
 
   it("does not switch providers after a configured provider fails", async () => {

@@ -8,6 +8,22 @@ import { loadOptionalPeer } from "../../shared/optional-peer.js";
 
 export const JEV_TIMEOUT_MS = 750;
 
+export type JevProviderRequestFailure =
+  | "aborted"
+  | "timeout"
+  | "provider_error"
+  | "invalid_response";
+
+export class JevProviderRequestError extends Error {
+  constructor(
+    readonly reason: JevProviderRequestFailure,
+    cause?: unknown,
+  ) {
+    super(`Jev request failed: ${reason}.`, { cause });
+    this.name = "JevProviderRequestError";
+  }
+}
+
 type JevChoiceAnswer = {
   choice?: unknown;
   probabilities?: unknown;
@@ -57,7 +73,14 @@ export async function requestJev(options: {
   signal?: AbortSignal;
   timeoutMs?: number;
 }): Promise<JevResponse> {
-  options.signal?.throwIfAborted();
+  if (options.signal?.aborted) {
+    throw new JevProviderRequestError("aborted", options.signal.reason);
+  }
+  const timeoutMs = options.timeoutMs ?? JEV_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new JevProviderRequestError("timeout");
+  }
+  const deadlineAt = Date.now() + Math.min(60_000, timeoutMs);
   const directApiKey =
     options.directApiKey?.trim() || options.personalApiKey?.trim();
   if (options.builderAuth) {
@@ -65,24 +88,76 @@ export async function requestJev(options: {
       return await requestJevThroughBuilder(
         options.builderAuth,
         options.request,
-        { signal: options.signal, timeoutMs: options.timeoutMs },
+        { signal: options.signal, timeoutMs: remainingBudget(deadlineAt) },
       );
     } catch (error) {
-      options.signal?.throwIfAborted();
-      if (!directApiKey) throw error;
+      if (options.signal?.aborted) {
+        throw new JevProviderRequestError("aborted", options.signal.reason);
+      }
+      if (error instanceof JevProviderRequestError) throw error;
+      const remainingMs = remainingBudget(deadlineAt);
+      if (remainingMs <= 0) {
+        throw new JevProviderRequestError("timeout", error);
+      }
+      if (!directApiKey) {
+        throw new JevProviderRequestError("provider_error", error);
+      }
       console.warn(
         "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
         error instanceof Error ? error.message : "unknown error",
       );
-      return requestJevDirect(directApiKey, options.request, options);
+      return requestJevDirectWithBudget(
+        directApiKey,
+        options.request,
+        options.signal,
+        deadlineAt,
+      );
     }
   }
 
   if (!directApiKey) {
-    throw new Error("Builder Jev proxy is unavailable.");
+    throw new JevProviderRequestError("provider_error");
   }
 
-  return requestJevDirect(directApiKey, options.request, options);
+  return requestJevDirectWithBudget(
+    directApiKey,
+    options.request,
+    options.signal,
+    deadlineAt,
+  );
+}
+
+function remainingBudget(deadlineAt: number): number {
+  return Math.max(0, deadlineAt - Date.now());
+}
+
+async function requestJevDirectWithBudget(
+  apiKey: string,
+  request: JevRequest,
+  signal: AbortSignal | undefined,
+  deadlineAt: number,
+): Promise<JevResponse> {
+  const timeoutMs = remainingBudget(deadlineAt);
+  if (signal?.aborted) {
+    throw new JevProviderRequestError("aborted", signal.reason);
+  }
+  if (timeoutMs <= 0) throw new JevProviderRequestError("timeout");
+  try {
+    return await requestJevDirect(apiKey, request, { signal, timeoutMs });
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new JevProviderRequestError("aborted", signal.reason);
+    }
+    if (remainingBudget(deadlineAt) <= 0 || isAbortError(error)) {
+      throw new JevProviderRequestError("timeout", error);
+    }
+    if (error instanceof JevProviderRequestError) throw error;
+    throw new JevProviderRequestError("provider_error", error);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 export async function requestJevDirect(
@@ -129,13 +204,20 @@ export async function requestJevThroughBuilder(
   request: Record<string, unknown>,
   options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<JevResponse> {
+  if (options.signal?.aborted) {
+    throw new JevProviderRequestError("aborted", options.signal.reason);
+  }
+  const timeoutMs = options.timeoutMs ?? JEV_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new JevProviderRequestError("timeout");
+  }
   const controller = new AbortController();
   const signal = options.signal
     ? AbortSignal.any([options.signal, controller.signal])
     : controller.signal;
   const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? JEV_TIMEOUT_MS,
+    () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+    Math.min(60_000, timeoutMs),
   );
   try {
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -170,6 +252,14 @@ export async function requestJevThroughBuilder(
       return result;
     }
     throw new Error("Builder Jev proxy request failed.");
+  } catch (error) {
+    if (options.signal?.aborted) {
+      throw new JevProviderRequestError("aborted", options.signal.reason);
+    }
+    if (controller.signal.aborted) {
+      throw new JevProviderRequestError("timeout", error);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -194,10 +284,17 @@ export async function isBuilderJevEnabled(
   auth: BuilderGatewayAuth,
   options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<boolean> {
+  if (options.signal?.aborted) {
+    throw new JevProviderRequestError("aborted", options.signal.reason);
+  }
+  const timeoutMs = options.timeoutMs ?? 3_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new JevProviderRequestError("timeout");
+  }
   const controller = new AbortController();
   const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? 3_000,
+    () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+    Math.min(60_000, timeoutMs),
   );
   try {
     const response = await fetch(
@@ -229,6 +326,14 @@ export async function isBuilderJevEnabled(
       throw new Error("Builder Jev status returned an invalid response.");
     }
     return result.enabled;
+  } catch (error) {
+    if (options.signal?.aborted) {
+      throw new JevProviderRequestError("aborted", options.signal.reason);
+    }
+    if (controller.signal.aborted) {
+      throw new JevProviderRequestError("timeout", error);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -236,10 +341,14 @@ export async function isBuilderJevEnabled(
 
 export async function isJevEnabled(
   credentials: JevContextCredentials,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<boolean> {
+  if (options.signal?.aborted) {
+    throw new JevProviderRequestError("aborted", options.signal.reason);
+  }
   if (credentials.personalApiKey || credentials.directApiKey) return true;
   if (credentials.builderAuth) {
-    const enabled = await isBuilderJevEnabled(credentials.builderAuth);
+    const enabled = await isBuilderJevEnabled(credentials.builderAuth, options);
     if (enabled || !credentials.apiKeyLookupFailed) return enabled;
   }
   if (credentials.apiKeyLookupFailed || credentials.builderAuthLookupFailed) {

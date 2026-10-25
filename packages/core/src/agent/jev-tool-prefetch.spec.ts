@@ -299,6 +299,30 @@ describe("preloadJevTools", () => {
       expect(systemOne).not.toHaveBeenCalled();
     });
 
+    it("ranks with a scoped direct key when there is no personal key or Builder auth", async () => {
+      systemOne.mockResolvedValueOnce({
+        answers: {
+          best_context: {
+            choice: "analytics-1",
+            probabilities: { "analytics-1": 0.9, __no_match__: 0.1 },
+          },
+        },
+      });
+
+      await expect(
+        rankJevCandidatesWithStatus({
+          ...options,
+          apiKey: undefined,
+          personalApiKey: undefined,
+          directApiKey: "org-jev-test-key",
+          builderAuth: null,
+        }),
+      ).resolves.toEqual({ status: "selected", ids: ["analytics-1"] });
+      expect(typeSafeClient).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "org-jev-test-key" }),
+      );
+    });
+
     it("is failed when the request throws", async () => {
       systemOne.mockRejectedValueOnce(new Error("HTTP 500"));
 
@@ -418,7 +442,7 @@ describe("preloadJevTools", () => {
     ).toHaveProperty("__no_match__");
   });
 
-  it("prefetches only candidates more likely than no match", async () => {
+  it("prefetches only candidates more likely than no match with a scoped key", async () => {
     systemOne.mockResolvedValue({
       answers: {
         best_tool: {
@@ -434,7 +458,7 @@ describe("preloadJevTools", () => {
     const initialTools = [tool("tool-search", "Find tools")];
 
     const result = await preloadJevTools({
-      personalApiKey: "jev-test-key",
+      directApiKey: "org-jev-test-key",
       request: "Find a customer record",
       registry: {
         "search-customers": action("Search customer records"),
@@ -452,6 +476,9 @@ describe("preloadJevTools", () => {
       "search-customers",
       "tool-search",
     ]);
+    expect(typeSafeClient).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "org-jev-test-key" }),
+    );
   });
 
   it("lets Jev consider relevant tools beyond the bounded alphabetical menu", async () => {
@@ -968,7 +995,11 @@ describe("preloadJevTools", () => {
         { model: "jev-latest", state: {}, questions: { q_0: {} } },
         { signal: controller.signal, timeoutMs: 12_000 },
       ),
-    ).rejects.toBe("cancelled");
+    ).rejects.toMatchObject({
+      name: "JevProviderRequestError",
+      reason: "aborted",
+      cause: "cancelled",
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

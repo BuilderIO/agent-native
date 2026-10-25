@@ -366,6 +366,24 @@ describe("getOwnerApiKey", () => {
     });
   });
 
+  it("exposes an org Jev key as a scoped direct credential", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecret.mockImplementation(async ({ scope }: { scope: string }) =>
+      scope === "org"
+        ? { value: "org-jev-key", last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "org-jev-key",
+      personalApiKey: undefined,
+      directApiKey: "org-jev-key",
+      builderAuth: null,
+    });
+  });
+
   it("keeps agent requests usable when Builder credentials cannot be resolved", async () => {
     mockResolveBuilderGatewayAuth.mockRejectedValueOnce(
       new Error("OAuth token store unavailable"),

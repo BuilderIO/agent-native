@@ -1001,16 +1001,23 @@ const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
 export async function getOwnerApiKeyForEngine(
   engineName: string,
   ownerEmail: string | null | undefined,
-  options?: { onLookupFailure?: () => void },
+  options?: {
+    allowDeploymentFallback?: boolean;
+    onLookupFailure?: () => void;
+  },
 ): Promise<ResolvedOwnerApiKey> {
+  let lookupFailed = false;
+  const reportLookupFailure = (): void => {
+    if (lookupFailed) return;
+    lookupFailed = true;
+    options?.onLookupFailure?.();
+  };
   try {
     const provider = engineToProvider(engineName);
     const envVar = PROVIDER_TO_ENV[provider];
-    const ownerKey = await getOwnerApiKeyDetailed(
-      provider,
-      ownerEmail,
-      options,
-    );
+    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail, {
+      onLookupFailure: reportLookupFailure,
+    });
     if (ownerKey) {
       return {
         apiKey: ownerKey.apiKey,
@@ -1018,7 +1025,12 @@ export async function getOwnerApiKeyForEngine(
         credentialProvenance: ownerKey.credentialProvenance,
       };
     }
-    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+    if (
+      lookupFailed ||
+      options?.allowDeploymentFallback === false ||
+      !envVar ||
+      !canUseDeployCredentialFallbackForRequest(envVar)
+    ) {
       return NO_OWNER_API_KEY;
     }
     const envKey = readDeployCredentialEnv(envVar);
@@ -1034,7 +1046,7 @@ export async function getOwnerApiKeyForEngine(
     }
     return NO_OWNER_API_KEY;
   } catch {
-    options?.onLookupFailure?.();
+    reportLookupFailure();
     return NO_OWNER_API_KEY;
   }
 }
@@ -15099,6 +15111,7 @@ export function createProductionAgentHandler(
         deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
@@ -15115,6 +15128,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,

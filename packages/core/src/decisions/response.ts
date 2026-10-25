@@ -32,13 +32,17 @@ function parseProbabilities<Value extends string | number>(
   if (value === undefined) return undefined;
   const entries: DecisionProbability<Value>[] = [];
   if (Array.isArray(value)) {
+    const seenValues = new Set<Value>();
     for (const entry of value) {
       if (!isRecord(entry) || !allowedValues.includes(entry.value as Value)) {
         return undefined;
       }
+      const entryValue = entry.value as Value;
+      if (seenValues.has(entryValue)) return undefined;
       const p = probability(entry.probability);
       if (p === undefined) return undefined;
-      entries.push({ value: entry.value as Value, probability: p });
+      seenValues.add(entryValue);
+      entries.push({ value: entryValue, probability: p });
     }
   } else if (isRecord(value)) {
     for (const [key, rawProbability] of Object.entries(value)) {
@@ -77,6 +81,10 @@ function answerForQuestion(
     throw new DecisionResponseError("invalid_response");
   }
   const answerConfidence = probability(value.confidence);
+  const hasConfidence = Object.hasOwn(value, "confidence");
+  if (hasConfidence && answerConfidence === undefined) {
+    throw new DecisionResponseError("invalid_response");
+  }
 
   if (question.type === "choice") {
     const choice = value.choice;
@@ -98,9 +106,7 @@ function answerForQuestion(
       name: question.name,
       choice,
       ...(probabilities ? { probabilities } : {}),
-      ...(answerConfidence !== undefined
-        ? { confidence: answerConfidence }
-        : {}),
+      ...(hasConfidence ? { confidence: answerConfidence! } : {}),
     };
   }
 
@@ -131,7 +137,7 @@ function answerForQuestion(
     score,
     levels,
     ...(probabilities ? { probabilities } : {}),
-    ...(answerConfidence !== undefined ? { confidence: answerConfidence } : {}),
+    ...(hasConfidence ? { confidence: answerConfidence! } : {}),
   };
 }
 

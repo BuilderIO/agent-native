@@ -40,6 +40,7 @@ export interface JevRankCandidatesOptions {
   request: string;
   apiKey?: string;
   personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
@@ -204,11 +205,12 @@ export async function rankJevCandidatesWithStatus(
   options: JevRankCandidatesOptions,
 ): Promise<JevCandidateRanking> {
   const request = options.request.trim();
-  const apiKey = options.personalApiKey?.trim();
+  const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
   const builderAuth = options.builderAuth;
   if (
     !request ||
-    (!apiKey && !builderAuth) ||
+    (!personalApiKey && !directApiKey && !builderAuth) ||
     options.candidates.length === 0
   ) {
     return { status: "unavailable", ids: [] };
@@ -259,8 +261,9 @@ export async function rankJevCandidatesWithStatus(
     };
 
     const response = await requestJev({
-      apiKey,
-      personalApiKey: options.personalApiKey,
+      apiKey: options.apiKey,
+      personalApiKey,
+      directApiKey,
       builderAuth,
       request: jevRequest,
       signal: options.signal,
@@ -370,6 +373,7 @@ export interface JevToolPrefetchOptions {
   deadlineAt?: number;
   apiKey?: string;
   personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   registry: Record<string, ActionEntry>;
   initialTools: EngineTool[];
@@ -383,9 +387,10 @@ export async function preloadJevTools(
 ): Promise<EngineTool[]> {
   if (options.skip) return options.initialTools;
   const request = options.request.trim();
-  const apiKey = options.personalApiKey?.trim();
+  const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
   const builderAuth = options.builderAuth;
-  if (!request || (!apiKey && !builderAuth)) {
+  if (!request || (!personalApiKey && !directApiKey && !builderAuth)) {
     return options.initialTools;
   }
 
@@ -429,8 +434,9 @@ export async function preloadJevTools(
   const selectedNames = await Promise.race([
     rankJevCandidates({
       request,
-      apiKey,
-      personalApiKey: options.personalApiKey,
+      apiKey: options.apiKey,
+      personalApiKey,
+      directApiKey,
       candidates,
       candidateStateKey: "candidate_tools",
       answerKey: "best_tool",

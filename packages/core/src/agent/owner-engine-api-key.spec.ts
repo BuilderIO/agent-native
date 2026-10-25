@@ -61,6 +61,7 @@ vi.mock(
 
 import {
   getOwnerApiKey,
+  getOwnerApiKeyForEngine,
   resolveOwnerEngineApiKey,
 } from "./production-agent.js";
 
@@ -107,6 +108,33 @@ describe("getOwnerApiKey scope order", () => {
       "org-1",
       "owner@example.com",
     );
+  });
+
+  it("does not replace an unreadable owner-key lookup with a deployment key", async () => {
+    readAppSecretMock.mockRejectedValue(new Error("secret store unavailable"));
+    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
+    const onLookupFailure = vi.fn();
+
+    await expect(
+      getOwnerApiKeyForEngine("ai-sdk:openai", "owner@example.com", {
+        onLookupFailure,
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+
+    expect(onLookupFailure).toHaveBeenCalledOnce();
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+
+  it("can disable deployment-key fallback for a confirmed missing owner key", async () => {
+    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
+
+    await expect(
+      getOwnerApiKeyForEngine("ai-sdk:openai", "owner@example.com", {
+        allowDeploymentFallback: false,
+      }),
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
   });
 });
 
