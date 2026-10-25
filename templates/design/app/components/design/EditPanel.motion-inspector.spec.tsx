@@ -132,6 +132,48 @@ function SegmentEasingHarness({
   );
 }
 
+function SwitchingSegmentEasingHarness({
+  onEasingChange,
+}: {
+  onEasingChange: (ease: MotionEase) => void;
+}) {
+  const [segmentIndex, setSegmentIndex] = useState(0);
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <button
+          type="button"
+          aria-label="select-next-segment"
+          onClick={() => setSegmentIndex(1)}
+        >
+          Next segment
+        </button>
+        <EditPanel
+          selectedElement={null}
+          viewMode="single"
+          mode="edit"
+          motionInspector
+          motionEasingSegment={{
+            trackId: `motion-track-${segmentIndex}`,
+            targetNodeId: `motion-node-${segmentIndex}`,
+            property: "opacity",
+            label: "Box",
+            isTextAnimation: false,
+            fromT: 0,
+            toT: 1,
+            ease: (segmentIndex === 0
+              ? "spring(0.75)"
+              : "linear") as MotionEase,
+          }}
+          onMotionEasingSegmentChange={onEasingChange}
+          onStyleChange={vi.fn()}
+        />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
 describe("EditPanel Motion inspector context", () => {
   it("returns from segment easing to the Motion inspector without editing the ease", async () => {
     const onMotionEasingSegmentBack = vi.fn();
@@ -285,6 +327,38 @@ describe("EditPanel Motion inspector context", () => {
       );
     });
     expect(onEasingChange).toHaveBeenLastCalledWith("cubic-bezier(0, 1, 1, 1)");
+  });
+
+  it("resets remembered spring values when the selected segment changes", async () => {
+    const onEasingChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <SwitchingSegmentEasingHarness onEasingChange={onEasingChange} />,
+      ),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="select-next-segment"]',
+        )!
+        .click();
+    });
+    const springTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.springTab");
+
+    await act(async () => {
+      springTab?.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+
+    expect(onEasingChange).toHaveBeenLastCalledWith("spring(0.25)");
   });
 
   it("switches to the Motion inspector with no tab and reuses the property keyframe controls", async () => {

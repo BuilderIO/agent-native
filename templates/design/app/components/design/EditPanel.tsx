@@ -2918,6 +2918,7 @@ export const EditPanel = memo(function EditPanel({
                       >
                         <div className="pb-2 pt-[7px] pl-[7px] pr-[10px]">
                           <MotionEasingEditor
+                            key={`${motionEasingSegment.trackId}:${motionEasingSegment.fromT}:${motionEasingSegment.toT}`}
                             ease={motionEasingSegment.ease}
                             easingVariables={motionEasingVariables}
                             onEasingVariablesChange={

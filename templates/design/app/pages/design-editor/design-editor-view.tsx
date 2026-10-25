@@ -61,10 +61,7 @@ import {
   removeMotionNativeStyleAndReconcileSelection,
   type MotionNativeStyleIdentity,
 } from "@/components/design/motion-native-style-identity";
-import type {
-  MotionDockEasingSegment,
-  MotionDockTrack,
-} from "@/components/design/MotionDock";
+import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";

@@ -254,6 +254,14 @@ export function useEditorLiveEditsAndPresence({
       selectedEasingSegment: null,
     });
   const motionEasingSelectionClearRef = useRef<(() => void) | null>(null);
+  const canvasSelectionTargetNodeId =
+    selectedElement?.sourceLayerIdentity?.nodeId ??
+    selectedElement?.sourceId ??
+    selectedElement?.id ??
+    null;
+  const previousCanvasSelectionTargetNodeIdRef = useRef(
+    canvasSelectionTargetNodeId,
+  );
   const registerMotionEasingSelectionClear = useCallback(
     (clear: (() => void) | null) => {
       motionEasingSelectionClearRef.current = clear;
@@ -262,7 +270,34 @@ export function useEditorLiveEditsAndPresence({
   );
   const handleMotionEasingSegmentBack = useCallback(() => {
     motionEasingSelectionClearRef.current?.();
+    setMotionDockLiveState((current) =>
+      current.selectedEasingSegment
+        ? { ...current, selectedEasingSegment: null }
+        : current,
+    );
   }, []);
+  useEffect(() => {
+    if (
+      previousCanvasSelectionTargetNodeIdRef.current ===
+      canvasSelectionTargetNodeId
+    ) {
+      return;
+    }
+    previousCanvasSelectionTargetNodeIdRef.current =
+      canvasSelectionTargetNodeId;
+    const selectedEasingTargetNodeId =
+      motionDockLiveState.selectedEasingSegment?.targetNodeId;
+    if (
+      selectedEasingTargetNodeId &&
+      selectedEasingTargetNodeId !== canvasSelectionTargetNodeId
+    ) {
+      handleMotionEasingSegmentBack();
+    }
+  }, [
+    canvasSelectionTargetNodeId,
+    handleMotionEasingSegmentBack,
+    motionDockLiveState.selectedEasingSegment?.targetNodeId,
+  ]);
   const handleMotionDockLiveStateChange = useCallback(
     (next: MotionDockLiveState) => {
       setMotionDockLiveState((current) =>

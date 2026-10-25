@@ -3639,6 +3639,10 @@ function MotionTrackSettingsButton({
           className="border-t border-border pt-2"
         >
           <MotionEasingEditor
+            key={JSON.stringify([
+              trackKey(track),
+              track.keyframes[0]?.t ?? null,
+            ])}
             ease={firstEase}
             easingVariables={easingVariables}
             onEasingVariablesChange={onEasingVariablesChange}

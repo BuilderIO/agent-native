@@ -1588,6 +1588,53 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   );
 });
 
+test("canvas selection exits the Motion easing inspector", async ({
+  page,
+  request,
+}) => {
+  await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 1000,
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "linear" },
+          { t: 1, value: "20px 0px", ease: "linear" },
+        ],
+      },
+    ],
+  });
+
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await gotoEditor(page, designId);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  const timelineTrack = dock.locator("[data-motion-track-row]").first();
+  const easingSegment = timelineTrack
+    .getByRole("button", { name: /Segment easing:/ })
+    .first();
+  await expect(easingSegment).toBeVisible();
+  await easingSegment.click();
+
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Easing"]') });
+  await expect(easingInspector).toBeVisible();
+
+  await selectByText(page, "Beta Button", { screenId: fileId });
+
+  await expect(easingInspector).toHaveCount(0);
+  await expect(
+    page.locator('[data-design-inspector-section] h3[aria-label="Animations"]'),
+  ).toBeVisible();
+});
+
 test("Motion path edits persist for a single Position track", async ({
   page,
   request,
