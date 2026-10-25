@@ -475,6 +475,7 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
+  // oracle-change: the Agent/Plan picker is gone, so a stored exec mode no longer sets the request mode.
   it("ignores an exec mode stored by the retired Agent/Plan picker", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
     window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");

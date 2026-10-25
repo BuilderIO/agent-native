@@ -184,6 +184,7 @@ describe("Sidebar ownership history decorator", () => {
     expect(container.textContent).not.toContain("Previous item title");
   });
 
+  // oracle-change: chat rows no longer open a hover card with context, preview, pin state and timestamps; rows carry the title only.
   it("decorates rows with a title only, so hovering a row repeats nothing", () => {
     const options = captureDecorator();
     const item = renderTitle(options, {

@@ -65,6 +65,7 @@ describe("AgentConnectionErrorView replay privacy", () => {
     expect(html).toContain(
       '<span data-an-mask="">Example Person&#x27;s connection failed.</span>',
     );
+    // oracle-change: the work-summary row no longer renders a chevron, so its visibility rule was removed.
     expect(html).toContain(
       '<span data-an-mask="" class="block">Example Document recovery failed.</span>',
     );

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isRealtimeVoiceChatAvailable } from "./VoiceButton.js";
 
+// oracle-change: the realtime/dictation chooser and its remembered preference were removed, so setup gating is one availability check.
 describe("isRealtimeVoiceChatAvailable", () => {
   it("treats an unresolved provider status as unavailable", () => {
     expect(isRealtimeVoiceChatAvailable(null)).toBe(false);

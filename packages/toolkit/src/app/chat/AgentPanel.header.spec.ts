@@ -1144,8 +1144,15 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("if (open && !showWhenOpen) return null");
     expect(source).toContain("aria-pressed={open}");
     expect(source).toContain('data-state={open ? "open" : "closed"}');
+    expect(source).toContain(
+      "{icon ?? <IconLayoutSidebarRight size={16} aria-hidden />}",
+    );
     expect(source).not.toContain("IconLayoutSidebarRightExpand");
     expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
+    // oracle-change: overflow menu items are text-only now, so the share item has no icon; chat and terminal tabs render from one ternary.
+    expect(panelSource).toMatch(
+      /\{mode === "chat"\s*\?\s*mainTabs\.map[\s\S]*?:\s*cliTabs\.map/,
+    );
     expect(source).toContain("showCollapseButton={showCollapseButton}");
   });
 

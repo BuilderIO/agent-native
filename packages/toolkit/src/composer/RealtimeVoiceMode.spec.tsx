@@ -123,6 +123,7 @@ const slot = <T extends HTMLElement = HTMLElement>(name: string) =>
 const renderControls = (voice: RealtimeVoiceModeApi) =>
   render(<RealtimeVoiceComposerControls voice={voice} copy={copy} />);
 
+// oracle-change: the voice entry chooser, remembered input mode and floating dock were removed; voice chat runs from inline composer controls.
 describe("RealtimeVoiceComposerControls", () => {
   it("shows who is speaking with live bars and a status", () => {
     renderControls(voiceSession({ state: "listening" }));
