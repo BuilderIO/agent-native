@@ -9992,10 +9992,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            await finalizeClaimedAgentChatProcessRunFailure(
-              prepared.runId,
-              err,
-            );
+            try {
+              await finalizeClaimedAgentChatProcessRunFailure(
+                prepared.runId,
+                err,
+              );
+            } catch (finalizationError) {
+              console.error(
+                "[agent-chat] _process-run failure finalization failed:",
+                finalizationError,
+              );
+              captureError(finalizationError, {
+                route: AGENT_CHAT_PROCESS_RUN_PATH,
+                method: getMethod(event),
+                userAgent: getHeader(event, "user-agent"),
+                tags: {
+                  source: "agent-chat-bg-worker",
+                  phase: "process-run-finalization",
+                },
+                extra: {
+                  runId: prepared.runId,
+                },
+              });
+            }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           } finally {

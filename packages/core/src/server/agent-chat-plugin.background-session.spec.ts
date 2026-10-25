@@ -101,6 +101,7 @@ vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   requireAgentChatAiSetup: harness.requireAgentChatAiSetup,
 }));
 
+import { AGENT_CHAT_BACKGROUND_RUN_FIELD } from "../agent/durable-background.js";
 import {
   registerAgentEngine,
   unregisterAgentEngine,
@@ -120,8 +121,15 @@ import { resetAgentEngineReadinessForTests } from "../client/agent-engine-readin
 import { startBackgroundAgentSession } from "../client/background-agent-session.js";
 import * as fileUploadRegistry from "../file-upload/registry.js";
 import { PDF_BASE64 } from "../file-upload/test-image-fixtures.js";
+import { signInternalToken } from "../integrations/internal-token.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
+import * as processRunFailure from "./agent-chat/process-run-failure.js";
+import * as agentRunContext from "./agent-run-context.js";
 import { seedAgentRunOwnerContext } from "./agent-run-context.js";
+import {
+  registerErrorCaptureProvider,
+  type CaptureErrorContext,
+} from "./capture-error.js";
 
 const OWNER = "owner@example.com";
 const ORIGIN = "http://localhost:3000";
@@ -319,6 +327,73 @@ afterAll(async () => {
 });
 
 describe("background agent sessions through the agent-chat plugin", () => {
+  it("keeps the process-run error response when finalization also fails", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const runId = "process-run-finalization-failure";
+    const workerError = new Error("worker setup failed");
+    const finalizationError = new Error("claim read failed");
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const seedOwner = vi
+      .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
+      .mockRejectedValue(workerError);
+    const finalizeFailure = vi
+      .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
+      .mockRejectedValue(finalizationError);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const reports: Array<{
+      error: unknown;
+      context: CaptureErrorContext;
+    }> = [];
+    const unregisterCapture = registerErrorCaptureProvider(
+      "agent-chat-process-run-finalization-spec",
+      (error, context) => {
+        reports.push({ error, context });
+      },
+    );
+
+    try {
+      const response = await fetch("/_agent-native/agent-chat/_process-run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${signInternalToken(runId)}`,
+        },
+        body: JSON.stringify({
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "process-run failed" });
+      expect(seedOwner).toHaveBeenCalledOnce();
+      expect(finalizeFailure).toHaveBeenCalledWith(runId, workerError);
+      expect(reports).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            error: finalizationError,
+            context: expect.objectContaining({
+              route: "/_agent-native/agent-chat/_process-run",
+              tags: expect.objectContaining({
+                source: "agent-chat-bg-worker",
+                phase: "process-run-finalization",
+              }),
+              extra: expect.objectContaining({ runId }),
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      unregisterCapture();
+      consoleError.mockRestore();
+      seedOwner.mockRestore();
+      finalizeFailure.mockRestore();
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("does not pass loopback as an org ChatGPT readiness exception", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
