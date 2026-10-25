@@ -485,7 +485,7 @@ async function runReview(
         if (fixture.group?.length) {
           await expect(
             page.getByRole("button", {
-              name: "Accept remaining",
+              name: "Accept all",
               exact: true,
             }),
           ).toBeVisible({ timeout: 60_000 });
@@ -624,11 +624,11 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
     });
   }
 
-  for (const button of ["Accept remaining", "Reject remaining"] as const) {
+  for (const button of ["Accept all", "Reject all"] as const) {
     test(`${button} keeps the page editable and saves a sentence typed right after`, async ({
       browser,
     }) => {
-      const decision = button === "Accept remaining" ? "accepted" : "rejected";
+      const decision = button === "Accept all" ? "accepted" : "rejected";
       const group = [1, 2, 3, 4, 5, 6];
       await runReview(
         `group ${decision}`,
@@ -786,7 +786,7 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
     );
   });
 
-  test("typing in a group member's paragraph during Accept remaining keeps both", async ({
+  test("typing in a group member's paragraph during Accept all keeps both", async ({
     browser,
   }) => {
     const group = [1, 2, 3, 4, 5, 6];
@@ -804,13 +804,13 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
             await route.continue();
           },
         );
-        const [clicked] = await click(page, [{ button: "Accept remaining" }]);
+        const [clicked] = await click(page, [{ button: "Accept all" }]);
         await page.waitForTimeout(100);
         await typeAtParagraphEnd(page, "number 3.", TYPED);
 
         const accepted = (view: View) =>
           group.every((n) => shows(view, n, "accepted"));
-        await expectShownAtOnce(page, clicked, accepted, "Accept remaining");
+        await expectShownAtOnce(page, clicked, accepted, "Accept all");
         await expectEditableThroughout(page, clicked);
         const result = (view: View) => accepted(view) && typedInto(3)(view);
         await r.expectSaved({
@@ -1091,7 +1091,7 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
     });
   });
 
-  test("a dropped connection on Accept remaining returns the group to pending and keeps what was typed", async ({
+  test("a dropped connection on Accept all returns the group to pending and keeps what was typed", async ({
     browser,
   }) => {
     const group = [1, 2, 3, 4, 5, 6];
@@ -1108,7 +1108,7 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
             await route.abort("failed");
           },
         );
-        const [clicked] = await click(page, [{ button: "Accept remaining" }]);
+        const [clicked] = await click(page, [{ button: "Accept all" }]);
         await page.waitForTimeout(100);
         await typeAtParagraphEnd(page, "number 8.", TYPED);
 
