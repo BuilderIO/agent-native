@@ -676,11 +676,10 @@ export default defineAction({
       }
       case "bug-report-done": {
         if (nav.recordingId) {
-          const [recording, bugReportSummary] = await Promise.all([
-            fetchRecording(nav.recordingId),
-            fetchBugReportSummary(nav.recordingId),
-          ]);
-          if (recording) screen.recording = recording;
+          const recording = await fetchRecording(nav.recordingId);
+          if (!recording) break;
+          const bugReportSummary = await fetchBugReportSummary(nav.recordingId);
+          screen.recording = recording;
           if (bugReportSummary) screen.bugReport = bugReportSummary;
         }
         break;

@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   afterEach,
+  assert,
   beforeEach,
   describe,
   expect,
@@ -1312,10 +1313,10 @@ describe("CommentsPanel reply composer", () => {
       renderPanel("author@example.com");
       if (operation === "reply") {
         const reply = Array.from(container.querySelectorAll("button")).find(
-          (button) => button.textContent?.trim() === "commentsPanel.reply",
+          (button) => button.textContent.trim() === "commentsPanel.reply",
         );
-        expect(reply).toBeDefined();
-        act(() => reply!.click());
+        assert.isDefined(reply);
+        act(() => reply.click());
       } else {
         await openMenu(
           container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
@@ -1323,11 +1324,11 @@ describe("CommentsPanel reply composer", () => {
         const edit = Array.from(
           document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
         ).find(
-          (item) => item.textContent?.trim() === "commentsPanel.editComment",
+          (item) => item.textContent.trim() === "commentsPanel.editComment",
         );
-        expect(edit).toBeDefined();
+        assert.isDefined(edit);
         await act(async () => {
-          edit!.click();
+          edit.click();
           await Promise.resolve();
         });
       }
