@@ -645,12 +645,14 @@ async function readManagedReactForSource(args: {
   const capabilityTargetNodeIds = [
     ...new Set([...args.targetNodeIds, ...nativeStyleTargetNodeIds]),
   ];
-  const canEditMetadataWithoutTarget =
+  const canEditWithoutTarget =
     read.status === "valid" &&
-    ((read.document?.animationStyles?.length ?? 0) > 0 ||
+    ((read.document?.tracks?.length ?? 0) > 0 ||
+      (read.document?.animationStyles?.length ?? 0) > 0 ||
+      (read.document?.easingVariables?.length ?? 0) > 0 ||
       read.document?.audioClips !== undefined);
   const shouldCheckWriteCapability =
-    capabilityTargetNodeIds.length > 0 || canEditMetadataWithoutTarget;
+    capabilityTargetNodeIds.length > 0 || canEditWithoutTarget;
   const writeCapability = shouldCheckWriteCapability
     ? args.previewModuleVersionHash &&
       args.previewModuleVersionHash !== live.versionHash

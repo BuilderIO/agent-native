@@ -3478,6 +3478,26 @@ function Card() {
     ).toMatchObject({ status: "unsupported", code: "missing-node" });
   });
 
+  it("allows React source capability when an existing CSS track can be cleared", () => {
+    const modulePath = "src/components/Card.tsx";
+    const moduleVersionHash = "a".repeat(64);
+    const authored = apply(source).source;
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: [],
+        modulePath,
+        moduleVersionHash,
+      }),
+    ).toEqual({
+      status: "supported",
+      modulePath,
+      moduleVersionHash,
+      targetNodeIds: [],
+    });
+  });
+
   it("allows metadata-only React capability when easing variables remain", () => {
     const modulePath = "src/components/Card.tsx";
     const moduleVersionHash = "a".repeat(64);

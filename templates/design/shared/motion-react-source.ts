@@ -657,12 +657,13 @@ export function inspectMotionReactSourceWriteCapability(args: {
       );
     }
     if (targetNodeIds.length === 0) {
-      const canEditMetadata =
+      const canEditWithoutTarget =
         read.status === "valid" &&
-        ((read.document?.animationStyles?.length ?? 0) > 0 ||
+        ((read.document?.tracks?.length ?? 0) > 0 ||
+          (read.document?.animationStyles?.length ?? 0) > 0 ||
           (read.document?.easingVariables?.length ?? 0) > 0 ||
           read.document?.audioClips !== undefined);
-      if (!canEditMetadata) {
+      if (!canEditWithoutTarget) {
         throw new MotionReactSourceError(
           "missing-node",
           "React Motion source capability requires a target, saved style library, or source-backed audio clip.",
