@@ -6,6 +6,7 @@
  * route helpers below serve the URL-screen chip in Design, which does show one.
  */
 
+import { routePathWithoutBridgeKey } from "@/lib/route-path";
 import { prettyScreenName } from "@/lib/screen-names";
 
 export interface InteractRouteScreen {
@@ -53,7 +54,7 @@ export function resolveScreenRoute(
   const url = screen.url ?? screen.previewUrl;
   // A markup screen reports its own location too, and that is `srcdoc`, not a
   // route, so only a screen serving a URL has a live path worth showing.
-  if (url && liveRoutePath) return liveRoutePath;
+  if (url && liveRoutePath) return routePathWithoutBridgeKey(liveRoutePath);
   if (url) {
     const fromUrl = routeFromUrl(url);
     if (fromUrl) return fromUrl;

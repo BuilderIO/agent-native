@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isSameOriginRoutePath,
   resolveSameOriginRoutePath,
-  routePathWithoutSearchParam,
+  routePathWithoutBridgeKey,
 } from "./route-path";
 
 const ORIGIN = "https://preview.example";
@@ -47,28 +47,28 @@ describe("same-origin route paths", () => {
   });
 });
 
-describe("routePathWithoutSearchParam", () => {
-  it("drops only the named parameter and keeps the rest of the route", () => {
+describe("routePathWithoutBridgeKey", () => {
+  it("drops only the bridge key and keeps the rest of the route", () => {
+    expect(routePathWithoutBridgeKey("/?agentNativeBridgeKey=1%3A2")).toBe("/");
     expect(
-      routePathWithoutSearchParam(
-        "/?agentNativeBridgeKey=1%3A2",
-        "agentNativeBridgeKey",
-      ),
-    ).toBe("/");
-    expect(
-      routePathWithoutSearchParam(
+      routePathWithoutBridgeKey(
         "/pricing?tab=a&agentNativeBridgeKey=1%3A2#plans",
-        "agentNativeBridgeKey",
       ),
     ).toBe("/pricing?tab=a#plans");
   });
 
-  it("returns a route without the parameter unchanged", () => {
+  it("keeps the remaining query bytes exactly as the frame reported them", () => {
     expect(
-      routePathWithoutSearchParam("/pricing?tab=a", "agentNativeBridgeKey"),
-    ).toBe("/pricing?tab=a");
-    expect(routePathWithoutSearchParam("srcdoc", "agentNativeBridgeKey")).toBe(
-      "srcdoc",
+      routePathWithoutBridgeKey(
+        "/sign?q=a%20b&agentNativeBridgeKey=1%3A2&sig=x+y%2F",
+      ),
+    ).toBe("/sign?q=a%20b&sig=x+y%2F");
+  });
+
+  it("returns a route without the key unchanged, including a ? inside the hash", () => {
+    expect(routePathWithoutBridgeKey("/pricing?tab=a")).toBe("/pricing?tab=a");
+    expect(routePathWithoutBridgeKey("/docs#agentNativeBridgeKey=1?x")).toBe(
+      "/docs#agentNativeBridgeKey=1?x",
     );
   });
 });

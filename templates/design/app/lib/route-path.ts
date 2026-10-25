@@ -27,16 +27,27 @@ export function isSameOriginRoutePath(value: unknown): value is string {
   );
 }
 
-/** `routePath` without the query parameter `name`; anything unparseable is returned as given. */
-export function routePathWithoutSearchParam(
-  routePath: string,
-  name: string,
-): string {
-  const route = resolveSameOriginRoutePath(
-    "https://design-route.invalid",
-    routePath,
+/** The query parameter the design bridge adds to a live frame's own URL. */
+export const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
+
+/**
+ * A live route as the editor shows and opens it, without the frame's bridge
+ * key. Only that query pair is removed and the rest keeps its raw encoding, so
+ * a byte-sensitive query (a signed URL) survives. Route matching compares the
+ * raw route, so this is for display and Open in browser only.
+ */
+export function routePathWithoutBridgeKey(routePath: string): string {
+  const hashStart = routePath.indexOf("#");
+  const beforeHash =
+    hashStart === -1 ? routePath : routePath.slice(0, hashStart);
+  const hash = hashStart === -1 ? "" : routePath.slice(hashStart);
+  const queryStart = beforeHash.indexOf("?");
+  if (queryStart === -1) return routePath;
+  const pairs = beforeHash.slice(queryStart + 1).split("&");
+  const kept = pairs.filter(
+    (pair) => pair.split("=", 1)[0] !== FRAME_BRIDGE_KEY_PARAM,
   );
-  if (!route?.searchParams.has(name)) return routePath;
-  route.searchParams.delete(name);
-  return `${route.pathname}${route.search}${route.hash}`;
+  if (kept.length === pairs.length) return routePath;
+  const query = kept.length > 0 ? `?${kept.join("&")}` : "";
+  return `${beforeHash.slice(0, queryStart)}${query}${hash}`;
 }

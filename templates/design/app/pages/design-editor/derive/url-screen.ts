@@ -1,5 +1,7 @@
 import type { DesignSourceType } from "@shared/source-mode";
 
+import { routePathWithoutBridgeKey } from "@/lib/route-path";
+
 import { previewUrlAtLiveRoute } from "../design-editor-shared";
 import { resolveScreenRoute, resolveScreenTitle } from "../interact-routes";
 import { resolveOverviewScreenSourceType } from "../pending-edits";
@@ -21,7 +23,11 @@ export interface UrlScreen {
  * address the frame loads: the screen's URL moved to its live route.
  */
 function resolveOpenUrl(url: string, liveRoutePath?: string): string | null {
-  const href = previewUrlAtLiveRoute(url, liveRoutePath) ?? url;
+  const href =
+    previewUrlAtLiveRoute(
+      url,
+      liveRoutePath && routePathWithoutBridgeKey(liveRoutePath),
+    ) ?? url;
   try {
     const target = new URL(href);
     return target.protocol === "http:" || target.protocol === "https:"

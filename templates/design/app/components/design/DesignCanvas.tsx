@@ -89,6 +89,7 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import {
+  FRAME_BRIDGE_KEY_PARAM,
   isSameOriginRoutePath,
   resolveSameOriginRoutePath,
 } from "@/lib/route-path";
@@ -1059,7 +1060,6 @@ function isCurrentLiveEditReadyMessage(
 
 // A re-resolved live-edit URL and the live page's route both add the frame's
 // bridge key to a URL the iframe was pinned to without it: same document.
-const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
 
 function liveEditDocumentIdentityUrl(liveEditUrl: string): string {
   if (!URL.canParse(liveEditUrl)) return liveEditUrl;

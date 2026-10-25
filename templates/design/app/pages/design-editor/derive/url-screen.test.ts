@@ -70,6 +70,20 @@ describe("resolveUrlScreen", () => {
     expect(result?.openUrl).toBe("http://localhost:3000/docs/start");
   });
 
+  it("leaves the frame's bridge key out of the route and the page it opens", () => {
+    const result = resolveUrlScreen({
+      screen: screen({
+        sourceType: "localhost",
+        url: "http://localhost:3000/",
+      }),
+      fallbackSourceType: "inline",
+      liveRoutePath: "/docs?tab=a&agentNativeBridgeKey=1%3A2",
+    });
+
+    expect(result?.route).toBe("/docs?tab=a");
+    expect(result?.openUrl).toBe("http://localhost:3000/docs?tab=a");
+  });
+
   it("reads a URL screen from the design's source type and from its content", () => {
     const result = resolveUrlScreen({
       screen: screen({ content: " https://example.com/home " }),
