@@ -1139,6 +1139,18 @@ function adoptedBodyOf(doc: Y.Doc): string | null {
   return typeof body === "string" ? body : null;
 }
 
+/** Whether `whole` already holds every insert and deletion in `part`. */
+function holdsAll(whole: Y.Doc, part: Y.Doc): boolean {
+  const merged = new Y.Doc();
+  try {
+    Y.applyUpdate(merged, Y.encodeStateAsUpdate(whole));
+    Y.applyUpdate(merged, Y.encodeStateAsUpdate(part));
+    return Y.equalSnapshots(Y.snapshot(merged), Y.snapshot(whole));
+  } finally {
+    merged.destroy();
+  }
+}
+
 /**
  * Takes a saved-body snapshot into the live doc at most once per revision.
  * Every open editor proposes the same change, and without one arbiter each
@@ -1146,7 +1158,9 @@ function adoptedBodyOf(doc: Y.Doc): string | null {
  *
  * `adoptionUpdate` is the proposing editor's whole doc with the snapshot
  * taken in. A proposal built before the server took in another revision is
- * refused with `rebase`: its inserts would land beside that revision's.
+ * refused with `rebase`: its inserts would land beside that revision's. So is
+ * one built on a doc missing live edits the server holds, which would put an
+ * edit in a second time, or delete one the proposal never saw.
  *
  * `body` is the saved body at `revision`. The doc keeps it next to the
  * revision, so an editor that never saw that revision can still plan the next
@@ -1169,7 +1183,6 @@ export async function adoptSnapshotOnce(
 }> {
   if (!revision) throw new Error("A snapshot revision is required");
   const proposal = new Y.Doc();
-  let baseRevision: string | null;
   try {
     Y.applyUpdate(proposal, adoptionUpdate);
     if (proposal.store.pendingStructs || proposal.store.pendingDs) {
@@ -1177,10 +1190,35 @@ export async function adoptSnapshotOnce(
         "Snapshot adoption update must hold the proposing editor's whole doc",
       );
     }
-    baseRevision = adoptedRevisionOf(proposal);
+    return await adoptProposal(
+      docId,
+      proposal,
+      adoptionUpdate,
+      revision,
+      options,
+    );
   } finally {
     proposal.destroy();
   }
+}
+
+async function adoptProposal(
+  docId: string,
+  proposal: Y.Doc,
+  adoptionUpdate: Uint8Array,
+  revision: string,
+  options: {
+    isCurrent?: () => Promise<boolean> | boolean;
+    body?: string;
+    requestSource?: string;
+  },
+): Promise<{
+  status: SnapshotAdoptionStatus;
+  state: Uint8Array;
+  adoptedRevision: string | null;
+  adoptedBody: string | null;
+}> {
+  const baseRevision = adoptedRevisionOf(proposal);
   return withDocWriteLock(
     docId,
     async () => {
@@ -1197,7 +1235,12 @@ export async function adoptSnapshotOnce(
             adoptedBody: adoptedBodyOf(committed),
           });
           if (adoptedRevision === revision) return answer("already-adopted");
-          if (adoptedRevision !== baseRevision) return answer("rebase");
+          if (
+            adoptedRevision !== baseRevision ||
+            !holdsAll(proposal, committed)
+          ) {
+            return answer("rebase");
+          }
           // The saved body can move on once this check passes; the newer
           // revision is then proposed against this one, which is in the doc.
           if (options.isCurrent && !(await options.isCurrent())) {

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { SNAPSHOT_ADOPTION_MAP as CORE_SNAPSHOT_ADOPTION_MAP } from "@agent-native/core/collab/live-copy-tasks";
 import { Editor as CoreEditor } from "@tiptap/core";
 import { useEditor, type Editor } from "@tiptap/react";
 import React, { act } from "react";
@@ -11,6 +12,7 @@ import * as Y from "yjs";
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { applyDocSurgically, defaultParseValue } from "./surgical-apply.js";
 import {
+  SNAPSHOT_ADOPTION_MAP,
   getEditorMarkdown,
   useCollabReconcile,
   type UseCollabReconcileOptions,
@@ -154,6 +156,15 @@ function makeTabs(
           (proposal.getMap("agentNativeSnapshotAdoption").get("revision") as
             | string
             | undefined) ?? null;
+        // Whether the proposal was built on everything the server holds.
+        const merged = new Y.Doc();
+        Y.applyUpdate(merged, request.update);
+        Y.applyUpdate(merged, Y.encodeStateAsUpdate(server));
+        const current = Y.equalSnapshots(
+          Y.snapshot(merged),
+          Y.snapshot(proposal),
+        );
+        merged.destroy();
         proposal.destroy();
         const answer = (status: AdoptionResult["status"]) =>
           resolve({
@@ -163,7 +174,7 @@ function makeTabs(
             state: Y.encodeStateAsUpdate(server),
           });
         if (adopted === request.revision) return answer("already-adopted");
-        if (adopted !== base) return answer("rebase");
+        if (adopted !== base || !current) return answer("rebase");
         if (request.revision !== savedAtCheck) return answer("stale");
         server.transact(() => {
           Y.applyUpdate(server, request.update);
@@ -190,6 +201,7 @@ function makeTabs(
   const editors: Array<Editor | null> = docs.map(() => null);
   const reconciled: Array<{ status: string; baseRevision: string }> = [];
   let extraOptions: Partial<UseCollabReconcileOptions> = {};
+  const tabOptions = new Map<number, Partial<UseCollabReconcileOptions>>();
   function Tab({
     index,
     value,
@@ -247,9 +259,25 @@ function makeTabs(
       overlapPolicy: "prefer-live",
       editable: true,
       ...extraOptions,
+      ...tabOptions.get(index),
     });
     return React.createElement("div");
   }
+  const renderEach = (
+    props: Array<{ value: string; revision: string; updatedAt: string }>,
+  ) =>
+    act(() => {
+      props.forEach((tab) => bodies.set(tab.revision, tab.value));
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          ...docs.map((_, index) =>
+            React.createElement(Tab, { ...props[index]!, index, key: index }),
+          ),
+        ),
+      );
+    });
   const render = (props: {
     value: string;
     revision: string;
@@ -272,7 +300,32 @@ function makeTabs(
     render,
     push,
     settleAdoptions,
+    renderEach,
     settleOneAdoption: () => pendingAdoptions.shift()?.(),
+    settleLastAdoption: () => pendingAdoptions.pop()?.(),
+    setTabOptions: (
+      index: number,
+      next: Partial<UseCollabReconcileOptions>,
+    ) => {
+      tabOptions.set(index, next);
+    },
+    deleteFirstParagraph: (index: number) =>
+      act(() => {
+        const editor = editors[index]!;
+        editor.commands.deleteRange({
+          from: 0,
+          to: editor.state.doc.child(0).nodeSize,
+        });
+      }),
+    /** Sends a tab's updates to the server without the server relaying them. */
+    pushUnrelayed: (index: number) => {
+      relayPaused = true;
+      try {
+        push(index);
+      } finally {
+        relayPaused = false;
+      }
+    },
     adoptionCalls,
     reconciled,
     setOptions: (next: Partial<UseCollabReconcileOptions>) => {
@@ -601,9 +654,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
     }
   });
 
-  it("gives up, warning, when other editors' adoptions keep landing first", async () => {
+  it("backs off, then takes the write in, while other editors' adoptions keep landing first", async () => {
     vi.useFakeTimers();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const tabs = makeTabs(1, { visible: true, adoption: "server" });
     try {
       tabs.render(FIRST);
@@ -619,13 +671,186 @@ describe("useCollabReconcile — snapshot adoption", () => {
         tabs.settleAdoptions();
         await act(async () => vi.advanceTimersByTimeAsync(100));
       }
-      // The first proposal and five rebuilds.
-      expect(tabs.adoptionCalls).toHaveLength(6);
-      expect(warn).toHaveBeenCalled();
+      // The first proposal, three rebuilds at once, then one backed off.
+      expect(tabs.adoptionCalls.length).toBeLessThanOrEqual(5);
+      for (let step = 0; step < 4; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(30_000));
+        tabs.settleAdoptions();
+      }
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.markdown()).toEqual([OUTSIDE]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("plans on an adoption that reached the doc through sync", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const third = {
+      value: `Alpha paragraph.\n\nOutside paragraph.\n\nLater paragraph.\n\nBravo paragraph.`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      // Revision 2 is taken in elsewhere; this tab only catches up to it
+      // while it handles revision 3.
+      tabs.adoptElsewhere(OUTSIDE, SECOND.revision);
+      tabs.saveRevision(third.revision);
+      tabs.render(third);
+      for (let step = 0; step < 4; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        tabs.settleAdoptions();
+      }
+      expect(tabs.markdown()).toEqual([third.value]);
+      expect(tabs.reconciled).toEqual([]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it.each([
+    ["before the proposal", true],
+    ["while the proposal is out", false],
+  ])(
+    "keeps typing made %s in a paragraph the snapshot removes",
+    async (_case, typedFirst) => {
+      vi.useFakeTimers();
+      const tabs = makeTabs(1, { visible: true, adoption: "server" });
+      const second = { ...SECOND, value: "Bravo paragraph." };
+      try {
+        tabs.render(FIRST);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        if (typedFirst) tabs.type(0, "Unsaved ");
+        tabs.saveRevision(second.revision);
+        tabs.render(second);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        // Typed first, the typing wins over the removal outright.
+        expect(tabs.adoptionCalls).toHaveLength(typedFirst ? 0 : 1);
+        if (!typedFirst) tabs.type(0, "Unsaved ");
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        tabs.push(0);
+        expect(tabs.markdown()).toEqual([
+          "Unsaved Alpha paragraph.\n\nBravo paragraph.",
+        ]);
+        expect(tabs.serverMarkdown()).toBe(
+          "Unsaved Alpha paragraph.\n\nBravo paragraph.",
+        );
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("rebuilds on another editor's adoption of the revision this tab saved itself", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs(2, { visible: true, adoption: "server" });
+    const ownSave = {
+      value: "Bravo paragraph.",
+      revision: "revision-2",
+      updatedAt: SECOND.updatedAt,
+    };
+    const outside = {
+      value: "Bravo paragraph.\n\nOutside paragraph.",
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      // Tab 1 deletes a paragraph and saves it as revision 2; tab 2 never
+      // hears of the deletion and proposes revision 2 itself.
+      tabs.deleteFirstParagraph(0);
+      tabs.pushUnrelayed(0);
+      tabs.setTabOptions(0, {
+        acknowledgedLocalSnapshot: { ...ownSave, sequence: 1 },
+      });
+      tabs.setTabOptions(1, {
+        requestCollabSync: async () => ({ status: "failed" as const }),
+      });
+      tabs.saveRevision(ownSave.revision);
+      tabs.render(ownSave);
+      await act(async () => vi.advanceTimersByTimeAsync(12_000));
+      expect(tabs.adoptionCalls).toEqual([
+        { index: 1, revision: "revision-2" },
+      ]);
+      // Revision 3 is proposed by tab 1 with its own save as the base, and
+      // tab 2's revision 2 lands first.
+      tabs.saveRevision(outside.revision);
+      tabs.renderEach([outside, ownSave]);
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      for (let step = 0; step < 4; step += 1) {
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+      }
+      expect(tabs.markdown()[0]).toBe(outside.value);
+      expect(tabs.serverMarkdown()).toBe(outside.value);
     } finally {
       warn.mockRestore();
       tabs.dispose();
     }
+  });
+
+  it("does not put typing in twice when a tab that missed it proposes the write that kept it", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs(2, { visible: true, adoption: "server" });
+    const ownSave = {
+      value: `Saved ${BASELINE}`,
+      revision: "revision-2",
+      updatedAt: SECOND.updatedAt,
+    };
+    const outside = {
+      value: `Saved ${OUTSIDE}`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      // The typing reaches the server before its save; only the relay to
+      // tab 2 is late, and tab 2 cannot catch up.
+      tabs.type(0, "Saved ");
+      tabs.pushUnrelayed(0);
+      expect(tabs.markdown()).toEqual([ownSave.value, BASELINE]);
+      tabs.setTabOptions(0, {
+        acknowledgedLocalSnapshot: { ...ownSave, sequence: 1 },
+      });
+      tabs.setTabOptions(1, {
+        requestCollabSync: async () => ({ status: "failed" as const }),
+      });
+      tabs.renderEach([ownSave, FIRST]);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.saveRevision(outside.revision);
+      tabs.render(outside);
+      await act(async () => vi.advanceTimersByTimeAsync(12_000));
+      expect(tabs.adoptionCalls).toEqual([
+        { index: 0, revision: "revision-3" },
+        { index: 1, revision: "revision-3" },
+      ]);
+      // The lagging tab's proposal reaches the server first.
+      tabs.settleLastAdoption();
+      for (let step = 0; step < 4; step += 1) {
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+      }
+      tabs.push(0);
+      tabs.push(1);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.markdown()).toEqual([outside.value, outside.value]);
+      expect(tabs.serverMarkdown()).toBe(outside.value);
+    } finally {
+      warn.mockRestore();
+      tabs.dispose();
+    }
+  });
+
+  it("names the adoption marker as core does", () => {
+    expect(SNAPSHOT_ADOPTION_MAP).toBe(CORE_SNAPSHOT_ADOPTION_MAP);
   });
 
   it("takes in the next write whole after a rebuild answer it no longer waits for", async () => {

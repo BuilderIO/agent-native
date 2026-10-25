@@ -301,3 +301,73 @@ it("sends a proposal built before another revision was taken in back to rebase",
     await pglite.close();
   }
 });
+
+it("sends back a proposal built before live typing the server holds", async () => {
+  const docId = "adopt:typing-after-proposal";
+  const { pglite, emit } = await setUp(docId);
+  const manager = await import("./ydoc-manager.js");
+  const deleting = new Y.Doc();
+  const typing = new Y.Doc();
+  try {
+    // The proposal replaces the paragraph that typing then reaches.
+    Y.applyUpdate(deleting, BASE);
+    deleting.getXmlFragment("default").delete(0, 1);
+    deleting.getXmlFragment("default").insert(0, [paragraph("Bravo")]);
+    Y.applyUpdate(typing, BASE);
+    const alpha = typing.getXmlFragment("default").get(0) as Y.XmlElement;
+    (alpha.get(0) as Y.XmlText).insert(0, "Unsaved ");
+    await manager.applyUpdate(docId, Y.encodeStateAsUpdate(typing));
+    emit.mockClear();
+
+    const answer = await manager.adoptSnapshotOnce(
+      docId,
+      Y.encodeStateAsUpdate(deleting),
+      "revision-2",
+      { body: "Bravo" },
+    );
+    expect(answer.status).toBe("rebase");
+    expect(xmlBody(answer.state)).toBe("<paragraph>Unsaved Alpha</paragraph>");
+    expect(emit).not.toHaveBeenCalled();
+  } finally {
+    deleting.destroy();
+    typing.destroy();
+    manager.releaseDoc(docId);
+    await pglite.close();
+  }
+});
+
+it("does not put a live edit in twice when a proposal lacks it", async () => {
+  const docId = "adopt:missing-live-edit";
+  const { pglite } = await setUp(docId);
+  const manager = await import("./ydoc-manager.js");
+  const typing = new Y.Doc();
+  const lagging = new Y.Doc();
+  try {
+    Y.applyUpdate(typing, BASE);
+    const typed = typing.getXmlFragment("default").get(0) as Y.XmlElement;
+    (typed.get(0) as Y.XmlText).insert(0, "Saved ");
+    await manager.applyUpdate(docId, Y.encodeStateAsUpdate(typing));
+    // A tab that never got the typing builds the saved body with its own
+    // copy of it.
+    Y.applyUpdate(lagging, BASE);
+    const own = lagging.getXmlFragment("default").get(0) as Y.XmlElement;
+    (own.get(0) as Y.XmlText).insert(0, "Saved ");
+    lagging.getXmlFragment("default").insert(1, [paragraph("Outside")]);
+
+    const answer = await manager.adoptSnapshotOnce(
+      docId,
+      Y.encodeStateAsUpdate(lagging),
+      "revision-3",
+      { body: "Saved Alpha\n\nOutside" },
+    );
+    expect(answer.status).toBe("rebase");
+    expect(xmlBody(await manager.getState(docId))).toBe(
+      "<paragraph>Saved Alpha</paragraph>",
+    );
+  } finally {
+    typing.destroy();
+    lagging.destroy();
+    manager.releaseDoc(docId);
+    await pglite.close();
+  }
+});

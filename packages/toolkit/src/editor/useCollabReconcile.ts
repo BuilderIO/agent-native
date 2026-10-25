@@ -8,7 +8,12 @@ import type { Awareness } from "y-protocols/awareness";
 import {
   Doc as YDoc,
   applyUpdate,
+  decodeStateVector,
   encodeStateAsUpdate,
+  encodeStateVector,
+  equalSnapshots,
+  snapshot,
+  type Transaction as YTransaction,
   type XmlFragment,
 } from "yjs";
 
@@ -69,9 +74,44 @@ const CATCH_UP_RETRY_MS = 2000;
 const ADOPTION_RETRY_MS = 1000;
 const ADOPTION_RETRY_MAX_MS = 30_000;
 const ADOPTION_WARN_AFTER_FAILURES = 3;
-// Each rebase follows another editor's adoption, so a run of them means the
-// doc keeps moving under this one, or the server answers wrongly.
-const ADOPTION_REBASES_MAX = 5;
+// Each rebase follows a change another editor made first. Past a few in a
+// row, the doc is busy, so rebuilds back off like failures.
+const ADOPTION_REBASES_BEFORE_BACKOFF = 3;
+// The Y.Map in which the server records the saved revision the live doc last
+// took in, and its body; SNAPSHOT_ADOPTION_MAP in @agent-native/core/collab.
+export const SNAPSHOT_ADOPTION_MAP = "agentNativeSnapshotAdoption";
+
+function adoptedMarkerOf(doc: YDoc): {
+  revision: string | null;
+  body: string | null;
+} {
+  const marker = doc.getMap(SNAPSHOT_ADOPTION_MAP);
+  const revision = marker.get("revision");
+  const body = marker.get("body");
+  return {
+    revision: typeof revision === "string" ? revision : null,
+    body: typeof body === "string" ? body : null,
+  };
+}
+
+function ownClock(doc: YDoc): number {
+  return decodeStateVector(encodeStateVector(doc)).get(doc.clientID) ?? 0;
+}
+
+/** Whether the doc `whole` encodes already holds every change in `part`. */
+function stateHoldsAll(whole: Uint8Array, part: Uint8Array): boolean {
+  const before = new YDoc();
+  const merged = new YDoc();
+  try {
+    applyUpdate(before, whole);
+    applyUpdate(merged, whole);
+    applyUpdate(merged, part);
+    return equalSnapshots(snapshot(merged), snapshot(before));
+  } finally {
+    before.destroy();
+    merged.destroy();
+  }
+}
 // The provider sends the server every update but its own; the adopted state
 // came from the server, so it is not sent back.
 const SNAPSHOT_ADOPTION_ORIGIN = "remote";
@@ -118,7 +158,8 @@ export interface UseCollabReconcileOptions {
    * open editor proposes the same snapshot, and without this each one's
    * inserts survive the merge, so the text appears once per editor.
    * `already-adopted` means another editor's proposal won; `rebase` means the
-   * doc took in `adoptedRevision` after this proposal was built; `stale` means
+   * doc took in `adoptedRevision`, or live edits, that the proposal was not
+   * built on, and `state` is the doc to build it on again; `stale` means
    * a newer body was saved. `adoptedBody` is the saved body at
    * `adoptedRevision`, which the next proposal is planned against. A
    * rejection retries with backoff, except a 4xx other than 404, 408 or 429, which
@@ -596,6 +637,9 @@ export function useCollabReconcile({
     revision: "",
     count: 0,
   });
+  // The adoption marker this editor last read from its doc. One that changes
+  // under it came from another editor, and the doc holds that saved body.
+  const seenAdoptionRef = useRef<string | null | undefined>(undefined);
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -645,6 +689,35 @@ export function useCollabReconcile({
     const peerWait = peerReconcileWaitRef.current!;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    // Another editor's adoption that reached this doc through sync makes its
+    // body the base; measured against an older one, that body would look like
+    // typing here, and the next snapshot's changes to it would be dropped.
+    const takeInReceivedAdoption = () => {
+      if (!ydoc || !requestSnapshotAdoption) return;
+      const marker = adoptedMarkerOf(ydoc);
+      const seen = seenAdoptionRef.current;
+      seenAdoptionRef.current = marker.revision;
+      if (seen === undefined || seen === marker.revision) return;
+      if (marker.revision === null || marker.body === null) return;
+      const base = authoritativeBaseRef.current;
+      if (base?.revision === marker.revision) return;
+      const order = base
+        ? compareContentRevisions?.(marker.revision, base.revision)
+        : null;
+      // A save this editor made since then is the newer base.
+      if (order !== undefined && order !== null && order < 0) return;
+      authoritativeBaseRef.current = {
+        value: marker.body,
+        revision: marker.revision,
+      };
+      reportedConflictRevisionRef.current = null;
+      const callbacks = reconcileCallbacksRef.current;
+      const markdown = callbacks.getMarkdown(editor);
+      if (markdown === callbacks.normalizeValue(marker.body)) {
+        lastAppliedValueRef.current = marker.body;
+        lastAppliedSerializedRef.current = markdown;
+      }
+    };
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       const callbacks = reconcileCallbacksRef.current;
@@ -816,6 +889,7 @@ export function useCollabReconcile({
         retry = setTimeout(() => apply(deferred), 100);
         return;
       }
+      takeInReceivedAdoption();
       if (
         collabBackedSnapshot ||
         (collab && pendingCollabSnapshot?.ydoc === ydoc)
@@ -990,6 +1064,11 @@ export function useCollabReconcile({
 
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
+        if (adoptionInFlightRef.current) {
+          retry = setTimeout(() => apply(deferred), 100);
+          return;
+        }
+        takeInReceivedAdoption();
         const scheduledCallbacks = reconcileCallbacksRef.current;
         peerWait.deadline = null;
         const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
@@ -1047,12 +1126,56 @@ export function useCollabReconcile({
           } finally {
             scratch.destroy();
           }
+          const builtFrom = editor.state.doc;
+          const builtClock = ownClock(ydoc);
+          const proposedMarker = adoptedMarkerOf(ydoc).revision;
           const proposedBase = authoritativeBaseRef.current;
+          // This editor's own edits from here on: the doc as last typed, and
+          // the items it deleted itself. The server's doc can reach it
+          // through the provider before its answer does.
+          let typed = builtFrom;
+          const deletedHere: Array<[number, number]> = [];
+          const watchTyping = (transaction: YTransaction) => {
+            if (!transaction.local) return;
+            typed = editor.state.doc;
+            for (const item of transaction.deleteSet.clients.get(
+              ydoc.clientID,
+            ) ?? []) {
+              deletedHere.push([item.clock, item.clock + item.len]);
+            }
+          };
+          ydoc.on("afterTransaction", watchTyping);
           adoptionInFlightRef.current = true;
           let failures = 0;
           const release = () => {
+            ydoc.off("afterTransaction", watchTyping);
             adoptionInFlightRef.current = false;
           };
+          // Whether something other than this editor deleted text it typed
+          // since the proposal was built.
+          const typingLost = () => {
+            const typedTo = ownClock(ydoc);
+            for (const item of snapshot(ydoc).ds.clients.get(ydoc.clientID) ??
+              []) {
+              const end = Math.min(item.clock + item.len, typedTo);
+              for (
+                let clock = Math.max(item.clock, builtClock);
+                clock < end;
+                clock += 1
+              ) {
+                if (
+                  !deletedHere.some(([from, to]) => clock >= from && clock < to)
+                )
+                  return true;
+              }
+            }
+            return false;
+          };
+          const backoff = (attempt: number) =>
+            Math.min(
+              ADOPTION_RETRY_MS * 2 ** (attempt - 1),
+              ADOPTION_RETRY_MAX_MS,
+            );
           // Only the server's answer may put the snapshot into the doc. A
           // proposal applied here as well would sit beside the one the server
           // took, and an answer lost after the server took it would too. So
@@ -1089,13 +1212,26 @@ export function useCollabReconcile({
               );
             }
             // Not `retry`: cleanup must not drop the in-flight mark with it.
-            setTimeout(
-              propose,
-              Math.min(
-                ADOPTION_RETRY_MS * 2 ** (failures - 1),
-                ADOPTION_RETRY_MAX_MS,
-              ),
-            );
+            setTimeout(propose, backoff(failures));
+          };
+          // Typing made while the proposal was out, in a block it removes, is
+          // deleted with that block when the server's doc lands. It goes back
+          // in as this editor's own edit, kept as typing made before the
+          // proposal would have been.
+          const restoreTyping = () => {
+            const plan = planDocReconcile(typed, builtFrom, editor.state.doc, {
+              overlapPolicy,
+            });
+            // "noop": every change the server made overlaps typing, which wins.
+            const restored =
+              plan.status === "applied"
+                ? plan.mergedDoc
+                : plan.status === "noop"
+                  ? typed
+                  : null;
+            if (restored) {
+              applyDocSurgically(editor, restored, { programmatic: false });
+            }
           };
           const propose = () => {
             if (cancelled || editor.isDestroyed) {
@@ -1118,23 +1254,28 @@ export function useCollabReconcile({
                 }
                 isSettingContentRef.current = false;
                 release();
-                // The doc now holds the revision the server took in last: this
-                // one, or for `rebase` another editor's. `stale` leaves it
-                // where this proposal found it.
-                const adopted =
+                const taken =
                   result.status === "adopted" ||
-                  result.status === "already-adopted"
-                    ? { value, revision: contentRevision }
-                    : result.status === "rebase" &&
-                        typeof result.adoptedRevision === "string" &&
-                        typeof result.adoptedBody === "string" &&
-                        result.adoptedRevision !== contentRevision &&
-                        result.adoptedRevision !== proposedBase?.revision
-                      ? {
-                          value: result.adoptedBody,
-                          revision: result.adoptedRevision,
-                        }
-                      : null;
+                  result.status === "already-adopted";
+                // For `rebase`, a marker past the one this proposal held is
+                // another editor's adoption, whose body is the new base. With
+                // the marker unchanged, the server held live edits the
+                // proposal lacked, and the base stands.
+                const markerMoved =
+                  result.status === "rebase" &&
+                  result.adoptedRevision !== proposedMarker;
+                const adopted = taken
+                  ? { value, revision: contentRevision }
+                  : markerMoved &&
+                      typeof result.adoptedRevision === "string" &&
+                      typeof result.adoptedBody === "string"
+                    ? {
+                        value: result.adoptedBody,
+                        revision: result.adoptedRevision,
+                      }
+                    : null;
+                if (adopted) seenAdoptionRef.current = adopted.revision;
+                if (taken && typingLost()) restoreTyping();
                 if (cancelled) {
                   // The newer snapshot that cancelled this one is planned
                   // against the revision the doc holds.
@@ -1150,32 +1291,43 @@ export function useCollabReconcile({
                 // snapshot, measured against the base this one would replace.
                 if (result.status === "stale") return;
                 if (result.status === "rebase") {
+                  if (
+                    (markerMoved && !adopted) ||
+                    stateHoldsAll(update, result.state)
+                  ) {
+                    console.warn(
+                      "The server sent a saved snapshot back to rebuild on a doc it did not send",
+                      result.adoptedRevision,
+                    );
+                    return;
+                  }
                   const rebases = adoptionRebasesRef.current;
                   if (rebases.revision !== contentRevision) {
                     rebases.revision = contentRevision;
                     rebases.count = 0;
                   }
                   rebases.count += 1;
-                  if (!adopted || rebases.count > ADOPTION_REBASES_MAX) {
-                    console.warn(
-                      "The server sent a saved snapshot back to rebuild without a revision to rebuild it on",
-                      result.adoptedRevision,
-                    );
-                    return;
+                  if (adopted) {
+                    authoritativeBaseRef.current = adopted;
+                    reportedConflictRevisionRef.current = null;
+                    const callbacks = reconcileCallbacksRef.current;
+                    const markdown = callbacks.getMarkdown(editor);
+                    // A doc that is exactly that revision holds no typing
+                    // this snapshot could overwrite.
+                    if (markdown === callbacks.normalizeValue(adopted.value)) {
+                      lastAppliedValueRef.current = adopted.value;
+                      lastAppliedSerializedRef.current = markdown;
+                    }
                   }
-                  // Another editor's proposal took in a different revision
-                  // first. Plan this snapshot again against that revision.
-                  authoritativeBaseRef.current = adopted;
-                  reportedConflictRevisionRef.current = null;
-                  const callbacks = reconcileCallbacksRef.current;
-                  const markdown = callbacks.getMarkdown(editor);
-                  // A doc that is exactly that revision holds no typing this
-                  // snapshot could overwrite.
-                  if (markdown === callbacks.normalizeValue(adopted.value)) {
-                    lastAppliedValueRef.current = adopted.value;
-                    lastAppliedSerializedRef.current = markdown;
-                  }
-                  retry = setTimeout(() => apply(deferred), 0);
+                  // Plan this snapshot again on the doc the server sent.
+                  retry = setTimeout(
+                    () => apply(deferred),
+                    rebases.count <= ADOPTION_REBASES_BEFORE_BACKOFF
+                      ? 0
+                      : backoff(
+                          rebases.count - ADOPTION_REBASES_BEFORE_BACKOFF,
+                        ),
+                  );
                   return;
                 }
                 settle();
