@@ -52,6 +52,7 @@ const {
   reconcileExpiredAgentHarnessApprovalResolution,
   renewAgentHarnessSessionApprovalResolutionClaim,
   renewAgentHarnessSessionFollowUpClaim,
+  releaseAgentHarnessSessionApprovalResolutionBeforeDispatch,
   saveAgentHarnessSession,
   startAgentHarnessSessionApprovalDispatch,
   startAgentHarnessSessionExpiryCleanup,
@@ -1086,6 +1087,86 @@ describe("agent harness session store", () => {
     }
   });
 
+  it("releases an expired pre-dispatch claim without consuming the approval", async () => {
+    const id = "session-approval-dispatch-not-started";
+    const approvalId = "approval-dispatch-not-started";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-approval-dispatch-not-started",
+      runId: "run-approval-dispatch-not-started",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const reserved = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET approval_resolution_claim_expires_at = 0 WHERE id = ?",
+      )
+      .run(id);
+
+    const start = vi.fn();
+    await expect(
+      startAgentHarnessSessionApprovalDispatch(
+        id,
+        "idle",
+        reserved!.generation,
+        approvalId,
+        start,
+      ),
+    ).resolves.toBeNull();
+    expect(start).not.toHaveBeenCalled();
+
+    const released =
+      await releaseAgentHarnessSessionApprovalResolutionBeforeDispatch({
+        sessionId: id,
+        approvalId,
+        expectedStatus: "idle",
+        expectedGeneration: reserved!.generation,
+        expectedFollowUpClaimId: null,
+      });
+    expect(released).toMatchObject({
+      approvalResolutionId: null,
+      pendingApproval: { type: "approval-request", id: approvalId },
+      resolvedApprovalIds: [],
+    });
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toEqual([]);
+
+    const retry = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      released!.generation,
+      null,
+    );
+    expect(retry).toMatchObject({
+      approvalResolutionId: approvalId,
+      pendingApproval: { type: "approval-request", id: approvalId },
+    });
+    await expect(
+      releaseAgentHarnessSessionApprovalResolutionBeforeDispatch({
+        sessionId: id,
+        approvalId,
+        expectedStatus: "idle",
+        expectedGeneration: reserved!.generation,
+        expectedFollowUpClaimId: null,
+      }),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      approvalResolutionId: approvalId,
+      generation: retry!.generation,
+    });
+  });
+
   it("keeps follow-up claims fenced until expiry cleanup releases its reservation", async () => {
     const id = "session-expiry-cleanup-reservation";
     const cleanupId = "cleanup-expiry-reservation";
@@ -1580,6 +1661,88 @@ describe("agent harness session store", () => {
       ),
     ).toBe(true);
     expect(claimed).not.toBeNull();
+  });
+
+  it("does not add an unknown approval error when recovery finds a persisted error", async () => {
+    const id = "session-expired-follow-up-approval-error";
+    const followUpId = "follow-up-expired-approval-error";
+    const approvalId = "approval-expired-follow-up-error";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expired-follow-up-approval-error",
+      runId: "run-expired-follow-up-approval-error",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const followUp = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      followUpId,
+    );
+    const dispatchedFollowUp = await markAgentHarnessSessionFollowUpDispatched(
+      id,
+      followUp!.generation,
+      followUpId,
+    );
+    const pending = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      followUpId,
+      { pendingApproval: { type: "approval-request", id: approvalId } },
+    );
+    const approval = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "running",
+      pending!.generation,
+      followUpId,
+    );
+    const dispatch = await startAgentHarnessSessionApprovalDispatch(
+      id,
+      "running",
+      approval!.generation,
+      approvalId,
+      () => "started",
+    );
+    expect(dispatch?.started).toBe("started");
+    await persistAgentHarnessApprovalEvent(id, approvalId, {
+      type: "error",
+      error: "provider returned an error",
+      errorCode: "provider_error",
+    });
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET follow_up_claim_expires_at = 0, approval_resolution_claim_expires_at = 0 WHERE id = ?",
+      )
+      .run(id);
+
+    const recovered = await reconcileExpiredAgentHarnessFollowUp(
+      id,
+      followUpId,
+      dispatch!.session.generation,
+      Date.now(),
+    );
+
+    expect(recovered).toMatchObject({
+      status: "idle",
+      approvalResolutionId: null,
+      resolvedApprovalIds: [approvalId],
+    });
+    const approvalEvents = (await listAgentHarnessSessionEvents(id)).filter(
+      (entry) => entry.operationId === `approval:${approvalId}`,
+    );
+    expect(approvalEvents).toHaveLength(1);
+    expect(approvalEvents[0]?.event).toMatchObject({
+      type: "error",
+      error: "provider returned an error",
+      errorCode: "provider_error",
+    });
+    expect(approvalEvents[0]?.event).not.toMatchObject({
+      errorCode: "harness_approval_outcome_unknown",
+    });
+    expect(dispatchedFollowUp).not.toBeNull();
   });
 
   it("lets an approval owner persist a chained request without finalizing early", async () => {

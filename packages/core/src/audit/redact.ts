@@ -21,9 +21,11 @@ const MAX_KEYS = 100;
 const MAX_ARRAY = 100;
 const MAX_JSON = 8000;
 const MARKER_SLACK = 32;
+const GOOGLE_API_KEY = /AIzaSy[A-Za-z0-9_-]{20,}/g;
 
 function looksCredential(value: string): boolean {
   if (/^bearer\s+\S/i.test(value)) return true;
+  if (/^AIzaSy[A-Za-z0-9_-]{20,}$/i.test(value)) return true;
   if (/^(sk|pk|rk|ghp|gho|xox[baprs]|AKIA|AIza|ya29)[-_]/i.test(value)) {
     return true;
   }
@@ -66,7 +68,9 @@ function redactString(
 }
 
 function redactEmbeddedSecrets(value: string): string {
-  const bearer = value.replace(/\b(bearer\s+)([^\s"',}]+)/gi, `$1${REDACTED}`);
+  const bearer = value
+    .replace(/\b(bearer\s+)([^\s"',}]+)/gi, `$1${REDACTED}`)
+    .replace(GOOGLE_API_KEY, REDACTED);
   const credentialField = new RegExp(
     `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
     "gi",

@@ -1257,6 +1257,40 @@ export async function failAgentHarnessSessionApprovalResolution(input: {
   });
 }
 
+export async function releaseAgentHarnessSessionApprovalResolutionBeforeDispatch(input: {
+  sessionId: string;
+  approvalId: string;
+  expectedStatus: AgentHarnessSessionStatus;
+  expectedGeneration: number;
+  expectedFollowUpClaimId: string | null;
+  eventAt?: number;
+}): Promise<StoredAgentHarnessSession | null> {
+  await ensureAgentHarnessSessionTables();
+  const followUpPredicate = input.expectedFollowUpClaimId
+    ? "AND follow_up_claim_id = ?"
+    : "AND follow_up_claim_id IS NULL";
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE agent_harness_sessions
+          SET approval_resolution_id = NULL,
+              approval_resolution_claim_expires_at = NULL,
+              generation = generation + 1,
+              updated_at = ?
+          WHERE id = ? AND status = ? AND approval_resolution_id = ?
+            AND generation = ? AND expiry_cleanup_id IS NULL
+            ${followUpPredicate}
+          RETURNING *`,
+    args: [
+      input.eventAt ?? Date.now(),
+      input.sessionId,
+      input.expectedStatus,
+      input.approvalId,
+      input.expectedGeneration,
+      ...(input.expectedFollowUpClaimId ? [input.expectedFollowUpClaimId] : []),
+    ],
+  });
+  return rowToHarnessSession(rows[0]);
+}
+
 export async function listExpiredAgentHarnessApprovalResolutions(
   limit = 50,
 ): Promise<StoredAgentHarnessSession[]> {
@@ -1468,20 +1502,23 @@ export async function reconcileExpiredAgentHarnessFollowUp(
     let pendingApproval = current.pendingApproval;
     let resolvedApprovalIds = current.resolvedApprovalIds ?? [];
     if (approvalId) {
-      const approvalCompleted = await tx.execute({
-        sql: `SELECT 1 FROM agent_harness_session_events
-              WHERE session_id = ? AND operation_id = ? AND event_data = ?
-              LIMIT 1`,
-        args: [
-          sessionId,
-          approvalOperationId(approvalId),
-          JSON.stringify({ type: "done" }),
-        ],
-      });
-      if (approvalCompleted.rows.length === 0) {
+      const approvalOperation = approvalOperationId(approvalId);
+      const approvalCompleted = await hasAgentHarnessSessionEventType(
+        tx,
+        sessionId,
+        approvalOperation,
+        "done",
+      );
+      const approvalHasError = await hasAgentHarnessSessionEventType(
+        tx,
+        sessionId,
+        approvalOperation,
+        "error",
+      );
+      if (!approvalCompleted && !approvalHasError) {
         await appendAgentHarnessSessionEventInTransaction(tx, {
           sessionId,
-          operationId: approvalOperationId(approvalId),
+          operationId: approvalOperation,
           eventAt: now,
           event: {
             type: "error",

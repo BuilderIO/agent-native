@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateIfFollowUpClaim: vi.fn(),
   failFollowUp: vi.fn(),
   failApprovalResolution: vi.fn(),
+  releaseApprovalBeforeDispatch: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
   claimApprovalResolution: vi.fn(),
@@ -54,6 +55,8 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
   failAgentHarnessSessionFollowUp: mocks.failFollowUp,
   failAgentHarnessSessionApprovalResolution: mocks.failApprovalResolution,
+  releaseAgentHarnessSessionApprovalResolutionBeforeDispatch:
+    mocks.releaseApprovalBeforeDispatch,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
   claimAgentHarnessSessionApprovalResolution: mocks.claimApprovalResolution,
@@ -177,6 +180,34 @@ describe("agent harness lifecycle", () => {
             ),
             approvalId,
           ],
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
+      },
+    );
+    mocks.releaseApprovalBeforeDispatch.mockImplementation(
+      async ({
+        sessionId,
+        approvalId,
+        expectedStatus,
+        expectedGeneration,
+        expectedFollowUpClaimId,
+      }) => {
+        if (
+          stored.id !== sessionId ||
+          stored.status !== expectedStatus ||
+          stored.generation !== expectedGeneration ||
+          stored.approvalResolutionId !== approvalId ||
+          (stored.followUpClaimId ?? null) !== expectedFollowUpClaimId ||
+          stored.expiryCleanupId != null
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          approvalResolutionId: null,
+          approvalResolutionClaimExpiresAt: null,
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
@@ -507,6 +538,40 @@ describe("agent harness lifecycle", () => {
     expect(stored.resolvedApprovalIds).toContain("approval-1");
   });
 
+  it("keeps an approval retryable when dispatch admission does not start the provider", async () => {
+    const approvalId = "approval-dispatch-not-started";
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+    mocks.startApprovalDispatch.mockResolvedValueOnce(null);
+
+    const failed = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(failed).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+    expect(stored).toMatchObject({
+      pendingApproval: { id: approvalId },
+      approvalResolutionId: null,
+      resolvedApprovalIds: [],
+    });
+
+    const retry = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(retry.ok).toBe(true);
+    expect(session.approve).toHaveBeenCalledOnce();
+    expect(stored.pendingApproval).toBeNull();
+    expect(stored.resolvedApprovalIds).toContain(approvalId);
+  });
+
   it("renews an approval claim while its provider call is still running", async () => {
     vi.useFakeTimers();
     const session = fakeSession();
@@ -593,6 +658,29 @@ describe("agent harness lifecycle", () => {
       "approval-racing-write",
     ]);
     expect(stored.resumeState).toEqual({ token: "concurrent" });
+  });
+
+  it("returns a typed unavailable result when approval finalization loses its claim", async () => {
+    const approvalId = "approval-finalization-conflict";
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+    mocks.finalizeApprovalResolution.mockResolvedValue(null);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.approve).toHaveBeenCalledOnce();
+    expect(mocks.finalizeApprovalResolution).toHaveBeenCalledOnce();
+    expect(stored).toMatchObject({
+      pendingApproval: { id: approvalId },
+      approvalResolutionId: approvalId,
+      resolvedApprovalIds: [],
+    });
   });
 
   it("preserves a newer approval while recording the resolved approval", async () => {

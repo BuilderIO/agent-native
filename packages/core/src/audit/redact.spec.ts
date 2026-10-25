@@ -30,16 +30,24 @@ describe("redactArgsToJson", () => {
   });
 
   it("preserves UUIDs and paths when generic opaque values are disabled", () => {
+    const googleApiKey = ["AI", "za", "Sy"].join("") + "x".repeat(33);
     const values = {
       id: "123e4567-e89b-12d3-a456-426614174000",
       path: "/workspace/project/packages/core/src/agent/harness/store.ts",
+      text: `request failed with ${googleApiKey}`,
     };
 
     expect(
       JSON.parse(
-        redactArgsToJson(values, { redactGenericOpaqueStrings: false })!,
+        redactArgsToJson(values, {
+          redactEmbeddedSecrets: true,
+          redactGenericOpaqueStrings: false,
+        })!,
       ),
-    ).toEqual(values);
+    ).toEqual({
+      ...values,
+      text: "request failed with [redacted]",
+    });
   });
 
   it("redacts webhook URLs under a generic field, regardless of key", () => {
