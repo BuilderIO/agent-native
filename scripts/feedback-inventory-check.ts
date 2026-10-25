@@ -2809,7 +2809,7 @@ function replyExplicitlyRefusesHandoff(text: string): boolean {
   const refusedAction = `(?:${explicitHandoffActions}|commit|promise)`;
   return (
     new RegExp(
-      `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
+      `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:(?:be\\s+)?able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
     ).test(normalized) ||
     /\b(?:i|we)\s+(?:need to|have to)\s+back out\b|\b(?:i|we)\s+(?:no longer|don't|do not)\s+have\s+(?:the\s+)?(?:time|capacity|bandwidth)\b|\b(?:not sure|unsure|uncertain)\s+(?:if|whether)\s+(?:i|we)\s+(?:can|will)\b|\b(?:i|we)\s+(?:may|might)\s+not be able to\b/i.test(
       normalized,
@@ -5463,10 +5463,28 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
     /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
       statement,
     ) ||
+    /\b(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|not\s+authorized|not\s+approved|forbidden|prohibited|disallowed)\b/i.test(
+      statement,
+    ) ||
     /\b(?:but|however|though|except|only)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
       statement,
     ) ||
     /\b(?:do\s+not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:add|post|send|leave|use|react|mark)\b[^.!?;\n]{0,80}\b(?:emojis?|reactions?|marks?)\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitPartialWriteRestriction(statement: string): boolean {
+  return (
+    hasExplicitNoReactionRestriction(statement) ||
+    /(?:^|[.!?;,:]\s*)(?:(?:but|however|though|except|with)\s+)?(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+      statement,
+    ) ||
+    /\b(?:replies?|responses?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|forbidden|prohibited|disallowed)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b|\b(?:you\s+)?(?:(?:may|can|should|must)\s+)?only\s+(?:(?:add|post|send|leave|use)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
       statement,
     )
   );
@@ -5509,12 +5527,8 @@ function hasExplicitWorkflowWriteAuthorization(
 
   const grant =
     /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
-  const partialWriteQualifier =
-    /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b/i;
   const hasWriteRestriction = sentences.some(
-    (sentence) =>
-      hasExplicitNoReactionRestriction(sentence) ||
-      partialWriteQualifier.test(sentence),
+    hasExplicitPartialWriteRestriction,
   );
   const boundedGrantIndex = sentences.findIndex(
     (sentence) =>
@@ -5526,7 +5540,7 @@ function hasExplicitWorkflowWriteAuthorization(
       /\b(?:claim|take over)\b/i.test(sentence) &&
       /\b(?:status|follow[ -]?up)\b/i.test(sentence) &&
       /\b(?:reply|respond|post|send)\b/i.test(sentence) &&
-      !partialWriteQualifier.test(sentence),
+      !hasExplicitPartialWriteRestriction(sentence),
   );
   const boundedFollowupAndReaction =
     boundedGrantIndex >= 0 && !hasWriteRestriction;
@@ -5708,7 +5722,7 @@ function userRequestAuthorizesExactRoot(
     }
     if (
       authorizationLimit.test(statement) ||
-      hasExplicitNoReactionRestriction(statement)
+      hasExplicitPartialWriteRestriction(statement)
     ) {
       return false;
     }
@@ -5717,7 +5731,7 @@ function userRequestAuthorizesExactRoot(
       .some(
         (followingStatement) =>
           directlyAttachedQualifier.test(followingStatement) ||
-          hasExplicitNoReactionRestriction(followingStatement) ||
+          hasExplicitPartialWriteRestriction(followingStatement) ||
           hasExplicitAuthorizationRevocation(followingStatement) ||
           (authorizationLimit.test(followingStatement) &&
             workAuthorizationLanguage.test(followingStatement)),
@@ -7135,6 +7149,11 @@ function parseFormattedSlackThreadResponse(
     } else if (
       /^There are no more messages in this thread\.?$/i.test(pagination)
     ) {
+      if (/(?:^|\n\n)--- Reply \d+ of \d+ ---\n/.test(afterParent)) {
+        throw new Error(
+          `${path}: formatted reply blocks are missing the thread replies header`,
+        );
+      }
       parentSection = afterParent;
     } else {
       throw new Error(
@@ -11138,6 +11157,36 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to parse connector pagination for a zero-reply thread",
     );
   }
+  let replyMarkersWithoutHeaderRejected = false;
+  try {
+    parseRawThreadResponse(
+      {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages:
+                "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.602000\nRoot report\n\n--- Reply 1 of 1 ---\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.602000\nReply text",
+              pagination_info: "There are no more messages in this thread.",
+            }),
+          },
+        ],
+      },
+      "self-test reply markers without a header",
+      "8.602000",
+    );
+  } catch (error) {
+    replyMarkersWithoutHeaderRejected =
+      error instanceof Error &&
+      error.message.includes(
+        "formatted reply blocks are missing the thread replies header",
+      );
+  }
+  if (!replyMarkersWithoutHeaderRejected) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to reject reply blocks without a thread replies header",
+    );
+  }
   try {
     parseRawThreadResponse(
       {
@@ -11823,6 +11872,19 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (replyExplicitlyAcceptsHandoff(text)) {
       throw new Error(
         `Feedback inventory checker self-test failed: a tentative handoff was accepted (${text}).`,
+      );
+    }
+  }
+  for (const text of [
+    "I won't be able to take it.",
+    "I'm not able to take this.",
+  ]) {
+    if (
+      !replyExplicitlyRefusesHandoff(text) ||
+      replyExplicitlyAcceptsHandoff(text)
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test failed: ability-based handoff refusal was not recognized (${text}).`,
       );
     }
   }
@@ -17868,7 +17930,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       boundedAuthorization.scope.userRequest;
     validateTestInventory(boundedAuthorization);
 
-    for (const restriction of ["This is read-only.", "No reactions."]) {
+    for (const restriction of [
+      "This is read-only.",
+      "No reactions.",
+      "No replies.",
+      "No status replies.",
+      "Reactions are not allowed.",
+      "You may only add reactions.",
+    ]) {
       const earlierRestriction = structuredClone(authorizedMagRoot);
       earlierRestriction.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. ${restriction} You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.`;
       earlierRestriction.scope.narrowingJudgment!.instruction =
@@ -17925,6 +17994,17 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectFocusedFailure(
       "no-reaction restriction blocks exact-root write authorization",
       () => validateTestInventory(noReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const inlineNoReplyAuthorization = structuredClone(authorizedMagRoot);
+    inlineNoReplyAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but no replies.";
+    inlineNoReplyAuthorization.scope.narrowingJudgment!.instruction =
+      inlineNoReplyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "inline no-reply qualifier blocks exact-root write authorization",
+      () => validateTestInventory(inlineNoReplyAuthorization),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
@@ -24948,7 +25028,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 70} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 9 handoff phrase cases; 21 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
