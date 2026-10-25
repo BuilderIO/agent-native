@@ -1399,6 +1399,40 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("surfaces malformed gateway config for filesystem-discovered apps", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      stubNoPendingContext();
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      const appDir = path.join(workspaceRoot, "apps", "healthy");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({ name: "healthy", displayName: "Healthy" }),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({ name: "WorkspaceGatewayConfigurationError" });
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips an invalid absolute app URL without discarding healthy manifest apps", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "dispatch-workspace-"),
@@ -1510,6 +1544,48 @@ describe("listWorkspaceApps", () => {
       expect(apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
       expect(mocks.readConfiguredWorkspaceAppHomePath).toHaveBeenCalledTimes(4);
     } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("continues workspace root discovery past malformed ancestor package metadata", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwd = path.join(workspaceRoot, "worker");
+    fs.mkdirSync(cwd);
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      stubNoPendingContext();
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      fs.writeFileSync(path.join(cwd, "package.json"), "{");
+      const appDir = path.join(workspaceRoot, "apps", "healthy");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({ name: "healthy", displayName: "Healthy" }),
+      );
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toContain("healthy");
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[dispatch] Could not read workspace package metadata in ${cwd}; continuing parent search`,
+        expect.any(Error),
+      );
+    } finally {
+      warnSpy.mockRestore();
       cwdSpy.mockRestore();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }

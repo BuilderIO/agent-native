@@ -312,7 +312,15 @@ function readJson(file: string): any {
 function findWorkspaceRoot(startDir = process.cwd()): string | null {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 20; i++) {
-    const pkg = readJson(path.join(dir, "package.json"));
+    let pkg: any;
+    try {
+      pkg = readJson(path.join(dir, "package.json"));
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not read workspace package metadata in ${dir}; continuing parent search`,
+        error,
+      );
+    }
     if (typeof pkg?.["agent-native"]?.workspaceCore === "string") {
       return dir;
     }
@@ -634,6 +642,9 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
+  const gateway = workspaceGatewayBaseUrl();
+  if (gateway) return appendWorkspaceAppPath(gateway, appPath);
+
   const base = resolveAppRuntimeUrl();
   if (!base) return null;
   try {
