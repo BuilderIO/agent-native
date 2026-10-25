@@ -510,14 +510,18 @@ export function reconcileMotionCodeDocument(
   }
 
   const timelineDuration = parseTimelineSpanMs(css);
+  const storedEasingVariables = stored.easingVariables ?? [];
   const easingVariables = [...cssEasingVariables.entries()].map(
     ([id, value]) => {
-      const metadata = stored.easingVariables?.find(
+      const metadata = storedEasingVariables.find(
         (variable) => variable.id === id,
       );
+      const compiledValue = metadata
+        ? compiledMotionEase(metadata.value, storedEasingVariables)
+        : null;
       return {
         ...(metadata ?? { id, name: id }),
-        value,
+        value: metadata && value === compiledValue ? metadata.value : value,
       };
     },
   );
@@ -784,7 +788,14 @@ export function reconcileMotionCodeDocument(
     );
     if (!parsedTrack) return [];
     consumedParsedTracks.add(parsedTrack);
-    return [parsedTrack];
+    return [
+      reconcileStoredTrackEasing(
+        parsedTrack,
+        storedTrack,
+        stored.defaultEase,
+        storedEasingVariables,
+      ),
+    ];
   });
   const playbackMode = parsePlaybackMode(css);
   const document: MotionCodeDocument = {
@@ -1047,11 +1058,46 @@ function motionTracksMatch(
     }
     if (index === expected.keyframes.length - 1) return true;
     const ease = keyframe.ease ?? defaultEase;
-    const expectedEase = isMotionEaseVariableReference(ease)
-      ? ease
-      : motionEaseToCss(resolveMotionEase(ease, easingVariables));
+    const expectedEase = compiledMotionEase(ease, easingVariables);
     return (parsed.ease ?? "ease") === expectedEase;
   });
+}
+
+function compiledMotionEase(
+  ease: string,
+  easingVariables: readonly MotionEasingVariable[],
+): string {
+  return isMotionEaseVariableReference(ease)
+    ? ease
+    : motionEaseToCss(resolveMotionEase(ease, easingVariables));
+}
+
+function reconcileStoredTrackEasing(
+  parsedTrack: MotionTrack,
+  storedTrack: MotionTrack,
+  defaultEase: string,
+  easingVariables: readonly MotionEasingVariable[],
+): MotionTrack {
+  return {
+    ...parsedTrack,
+    keyframes: parsedTrack.keyframes.map((parsedKeyframe) => {
+      const storedKeyframe = storedTrack.keyframes.find(
+        (keyframe) => keyframe.t === parsedKeyframe.t,
+      );
+      if (!storedKeyframe) return parsedKeyframe;
+
+      const storedEase = storedKeyframe.ease ?? defaultEase;
+      if (
+        (parsedKeyframe.ease ?? "ease") !==
+        compiledMotionEase(storedEase, easingVariables)
+      ) {
+        return parsedKeyframe;
+      }
+      return storedKeyframe.ease === undefined
+        ? parsedKeyframe
+        : { ...parsedKeyframe, ease: storedKeyframe.ease };
+    }),
+  };
 }
 
 function motionTrackValuesMatch(

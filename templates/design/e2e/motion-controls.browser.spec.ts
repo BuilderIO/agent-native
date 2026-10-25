@@ -168,6 +168,11 @@ test.beforeAll(async ({ request }, workerInfo) => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await page
+    .context()
+    .addCookies([
+      { name: "an_consent", value: "1.p0.t0", url: baseURLForActions },
+    ]);
   restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
 });
 
@@ -186,11 +191,6 @@ test("Motion inspector states match the editable timeline", async ({
 }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1728, height: 941 });
-  await page
-    .context()
-    .addCookies([
-      { name: "an_consent", value: "1.p0.t0", url: baseURLForActions },
-    ]);
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
   const canvasZoom = page
@@ -564,7 +564,16 @@ test("Motion inspector states match the editable timeline", async ({
       easingPresetPanel.getByRole("button", { name: easing, exact: true }),
     ).toBeVisible();
   }
+  await page.setViewportSize({ width: 1152, height: 941 });
+  await expect(easingPopup).toBeVisible();
+  const narrowEasingPopupRect = await easingPopup.boundingBox();
+  expect(narrowEasingPopupRect).not.toBeNull();
+  expect(narrowEasingPopupRect!.x).toBeGreaterThanOrEqual(0);
+  expect(
+    narrowEasingPopupRect!.x + narrowEasingPopupRect!.width,
+  ).toBeLessThanOrEqual(1152);
   await captureReferenceState(page, "motion-controls-easing-menu");
+  await page.setViewportSize({ width: 1728, height: 941 });
   await easingPopup.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     dock.locator(
@@ -1889,19 +1898,53 @@ test("applying a composite recipe preserves an existing unrelated native style",
       clearPreviousSelection: true,
     });
 
+    const targetId = "e2e-motion-reference-rectangle";
     const addAnimation = page
       .getByRole("button", { name: "Add animation", exact: true })
       .first();
     const sizeApplied = page.waitForResponse(
-      (response) =>
-        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-        response.request().method() === "POST",
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            nativeStyles?: Array<{
+              styleKey?: unknown;
+              targetNodeId?: unknown;
+            }>;
+          };
+          return Boolean(
+            input.nativeStyles?.some(
+              (style) =>
+                style.styleKey === "Size" && style.targetNodeId === targetId,
+            ),
+          );
+        } catch {
+          return false;
+        }
+      },
       { timeout: 20_000 },
     );
     await addAnimation.click();
     await page.getByRole("menuitem", { name: "Size", exact: true }).click();
     const sizeResponse = await sizeApplied;
     expect(sizeResponse.ok(), await sizeResponse.text()).toBe(true);
+    const timelineBeforeRecipe = await getAction(
+      request,
+      "get-motion-timeline",
+      { designId: recipeDesignId, sourceRef: file.id },
+    );
+    expect(timelineBeforeRecipe.timelines?.[0]?.nativeStyles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ styleKey: "Size", targetNodeId: targetId }),
+      ]),
+    );
 
     const recipe = MOTION_BUILT_IN_RECIPES.find(
       (entry) => entry.id === "enter.recipe-11",
@@ -1911,9 +1954,35 @@ test("applying a composite recipe preserves an existing unrelated native style",
     const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
     await expect(recipeRow).toBeVisible();
     const recipeApplied = page.waitForResponse(
-      (response) =>
-        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-        response.request().method() === "POST",
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            tracks?: Array<{ property?: unknown; targetNodeId?: unknown }>;
+          };
+          const properties = new Set(
+            recipe.tracks.map((track) => track.property),
+          );
+          return (
+            recipe.tracks.every((track) =>
+              input.tracks?.some(
+                (candidate) =>
+                  candidate.targetNodeId === targetId &&
+                  candidate.property === track.property,
+              ),
+            ) && properties.size === recipe.tracks.length
+          );
+        } catch {
+          return false;
+        }
+      },
       { timeout: 20_000 },
     );
     await recipeRow.click();
@@ -1926,7 +1995,6 @@ test("applying a composite recipe preserves an existing unrelated native style",
       designId: recipeDesignId,
       sourceRef: file.id,
     });
-    const targetId = "e2e-motion-reference-rectangle";
     expect(timeline.timelines?.[0]?.nativeStyles).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ styleKey: "Size", targetNodeId: targetId }),

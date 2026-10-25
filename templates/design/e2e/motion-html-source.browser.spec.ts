@@ -474,6 +474,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       unsafeSource: string,
       expectedError: string,
       verifyRenderedBoundary?: () => Promise<void>,
+      readRenderedBoundary?: () => Promise<unknown>,
     ) => {
       const unsafeHash = createHash("sha256")
         .update(unsafeSource)
@@ -486,6 +487,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
           { timeout: 20_000 },
         );
         await verifyRenderedBoundary?.();
+        const renderedBoundaryBeforeWrite = await readRenderedBoundary?.();
 
         const refused = await request.post(
           `${baseURL}/_agent-native/actions/apply-motion-edit`,
@@ -521,6 +523,11 @@ test.describe.serial("HTML Motion source browser writeback", () => {
         expect(refused.ok()).toBe(false);
         expect(await refused.text()).toContain(expectedError);
         expect(fs.readFileSync(sourceFilePath, "utf8")).toBe(unsafeSource);
+        if (readRenderedBoundary) {
+          expect(await readRenderedBoundary()).toEqual(
+            renderedBoundaryBeforeWrite,
+          );
+        }
       } finally {
         fs.writeFileSync(sourceFilePath, source);
       }
@@ -565,6 +572,30 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await rejectUnsafeSource(
       filteredSelectorSource,
       "runtime HTML state can change CSS",
+    );
+
+    const alpineStyleMutationSource = source.replace(
+      `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open"`,
+      `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open" x-init="$el.style.color = 'rgb(1, 2, 3)'"`,
+    );
+    expect(alpineStyleMutationSource).not.toBe(source);
+    const readAlpineStyleMutationPreview = async () => {
+      await expect(frame.locator(`#${nodeId}`)).toBeVisible();
+      return frame.locator(`#${nodeId}`).evaluate((element) => ({
+        style: element.getAttribute("style"),
+        color: getComputedStyle(element).color,
+      }));
+    };
+    await rejectUnsafeSource(
+      alpineStyleMutationSource,
+      "inline x-init handler",
+      async () => {
+        expect(await readAlpineStyleMutationPreview()).toEqual({
+          style: "color: rgb(1, 2, 3);",
+          color: "rgb(1, 2, 3)",
+        });
+      },
+      readAlpineStyleMutationPreview,
     );
 
     const importantInlineAnimationSource = source.replace(

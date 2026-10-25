@@ -15,6 +15,7 @@ import {
 } from "./motion-native-style-identity";
 import {
   MotionEasingPicker,
+  MotionBezierCurveEditor,
   MotionNativeStyleEditor,
   type MotionEasingPickerProps,
 } from "./MotionNativeStyleEditor";
@@ -41,6 +42,126 @@ const positionStyle: MotionNativeStyleInstance = {
 };
 
 describe("MotionNativeStyleEditor", () => {
+  it.each([
+    ["ease", "M 0 100 C 25 90, 25 0, 100 0"],
+    ["ease-in", "M 0 100 C 42 100, 100 0, 100 0"],
+    ["ease-out", "M 0 100 C 0 100, 58 0, 100 0"],
+    ["ease-in-out", "M 0 100 C 42 100, 58 0, 100 0"],
+  ])(
+    "renders the CSS %s curve without rewriting its source value",
+    async (ease, path) => {
+      const onChange = vi.fn();
+      await act(async () => {
+        root.render(
+          <MotionBezierCurveEditor
+            value={ease}
+            disabled={false}
+            onChange={onChange}
+            t={(key) => key}
+          />,
+        );
+      });
+
+      const preview = container.querySelector<SVGSVGElement>(
+        "svg[data-easing-curve]",
+      );
+      expect(preview?.dataset.easingCurve).toBe(ease);
+      expect(
+        preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
+      ).toBe(path);
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["step-start", "M 0 0 H 100"],
+    ["step-end", "M 0 100 H 100 V 0"],
+    ["steps(2, end)", "M 0 100 H 50 V 50 H 100 V 0"],
+    ["steps(2, start)", "M 0 50 H 50 V 0 H 100"],
+    ["steps(2, jump-none)", "M 0 100 H 50 V 0 H 100"],
+  ])(
+    "renders the CSS %s timing function as a step graph",
+    async (ease, path) => {
+      await act(async () => {
+        root.render(
+          <MotionBezierCurveEditor
+            value={ease}
+            disabled={false}
+            onChange={vi.fn()}
+            t={(key) => key}
+          />,
+        );
+      });
+
+      const preview = container.querySelector<SVGSVGElement>(
+        "svg[data-easing-curve]",
+      );
+      expect(preview?.dataset.easingCurve).toBe(ease);
+      expect(
+        preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
+      ).toBe(path);
+    },
+  );
+
+  it("renders a piecewise CSS linear() curve without replacing the authored timing function", async () => {
+    const ease = "linear(0, 0.25 25%, 1 100%)";
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value={ease}
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    const preview = container.querySelector<SVGSVGElement>(
+      "svg[data-easing-curve]",
+    );
+    expect(preview?.dataset.easingCurve).toBe(ease);
+    expect(
+      preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
+    ).toBe("M 0 100 L 25 75 L 100 0");
+  });
+
+  it("clamps descending CSS linear() stop positions to the preceding stop", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0 80%, 1 20%)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 80 100 L 80 0");
+  });
+
+  it.each(["steps(1, jump-none)", "steps(129, end)"])(
+    "does not draw invalid or unsupported CSS step counts: %s",
+    async (ease) => {
+      await act(async () => {
+        root.render(
+          <MotionBezierCurveEditor
+            value={ease}
+            disabled={false}
+            onChange={vi.fn()}
+            t={(key) => key}
+          />,
+        );
+      });
+
+      expect(container.querySelector("svg[data-easing-curve]")).toBeNull();
+    },
+  );
+
   it("resolves source-identified styles after the list shifts", () => {
     const styles = [
       { ...positionStyle, sourceInstanceId: "first" },
@@ -333,9 +454,11 @@ describe("MotionNativeStyleEditor", () => {
     });
   }
 
-  async function openEasingPicker() {
+  async function openEasingPicker(
+    label = "designEditor.motion.animationStyles.easingPresets.easeOut",
+  ) {
     const trigger = document.body.querySelector<HTMLButtonElement>(
-      'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
+      `button[aria-label="${label}"]`,
     );
     if (!trigger) throw new Error("Missing easing picker trigger");
     await act(async () => trigger.click());
@@ -383,6 +506,47 @@ describe("MotionNativeStyleEditor", () => {
       "designEditor.motion.animationStyles.easingPresets.slow",
       "designEditor.motion.customSpring",
     ]);
+  });
+
+  it("shows miniature curves and the selected state for each curve preset", async () => {
+    await renderPicker({
+      mode: "curve",
+      value: "cubic-bezier(0.42, 0, 1, 1)",
+    });
+    await openEasingPicker(
+      "designEditor.motion.animationStyles.easingPresets.easeIn",
+    );
+
+    const previews = Array.from(
+      document.body.querySelectorAll<SVGSVGElement>(
+        "[data-motion-easing-preview]",
+      ),
+    );
+    expect(previews).toHaveLength(9);
+    expect(
+      previews.every((preview) =>
+        /^M/.test(preview.querySelector("path")?.getAttribute("d") ?? ""),
+      ),
+    ).toBe(true);
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeIn"][aria-pressed]',
+      )?.className,
+    ).toContain("bg-[var(--design-editor-selection-color)]");
+  });
+
+  it("renders spring preset curves in the spring-only picker", async () => {
+    await renderPicker({ mode: "spring", value: "spring(0.4)" });
+    await openEasingPicker("designEditor.motion.customSpring");
+
+    expect(
+      document.body.querySelectorAll("[data-motion-easing-preview]"),
+    ).toHaveLength(5);
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.customSpring"][aria-pressed]',
+      )?.className,
+    ).toContain("bg-[var(--design-editor-selection-color)]");
   });
 
   it("renders a selected style row and localized source-backed controls", async () => {
@@ -498,6 +662,94 @@ describe("MotionNativeStyleEditor", () => {
     expect(
       curveGroup?.querySelectorAll('[data-curve-handle][role="button"]'),
     ).toHaveLength(2);
+  });
+
+  it("edits custom Size axes without discarding hidden dimensions", async () => {
+    const sizeStyle = createMotionNativeStyleInstance({
+      styleKey: "Size",
+      targetNodeId: "target-1",
+    });
+    const values = {
+      type: "custom",
+      axis: "xy",
+      startWidth: 61,
+      endWidth: 117,
+      startHeight: 72,
+      endHeight: 128,
+    } as const;
+    const onChange = vi.fn();
+    await render({
+      styles: [{ ...sizeStyle, props: { ...sizeStyle.props, ...values } }],
+      onChange,
+    });
+
+    async function ensureStyleDetails() {
+      if (
+        !document.body.querySelector(
+          '[data-motion-native-style-settings="Size"]',
+        )
+      ) {
+        await openStyleDetails();
+      }
+    }
+
+    async function chooseAxis(axis: "Both" | "X" | "Y") {
+      const trigger = document.body.querySelector<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.animationStyles.axis"]',
+      );
+      if (!trigger) throw new Error("Missing Size axis selector");
+      await act(async () => trigger.click());
+      const option = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find(
+        (candidate) =>
+          candidate.textContent?.trim() ===
+          `designEditor.motion.animationStyles.axis${axis}`,
+      );
+      if (!option) throw new Error(`Missing Size axis option ${axis}`);
+      await act(async () => option.click());
+    }
+
+    function updatedStyle() {
+      const latest = onChange.mock.lastCall?.[0];
+      if (!latest) throw new Error("Size axis change was not saved");
+      return latest as MotionNativeStyleInstance;
+    }
+
+    function dimensionInput(label: string) {
+      return document.body.querySelector<HTMLInputElement>(
+        `input[aria-label="designEditor.motion.animationStyles.${label}"]`,
+      );
+    }
+
+    await ensureStyleDetails();
+    expect(dimensionInput("startWidth")?.value).toBe("61");
+    expect(dimensionInput("endWidth")?.value).toBe("117");
+    expect(dimensionInput("startHeight")?.value).toBe("72");
+    expect(dimensionInput("endHeight")?.value).toBe("128");
+
+    await chooseAxis("X");
+    const xStyle = updatedStyle();
+    expect(xStyle.props).toMatchObject({ ...values, axis: "x" });
+    await render({ styles: [xStyle], onChange });
+    await ensureStyleDetails();
+    expect(dimensionInput("startWidth")?.value).toBe("61");
+    expect(dimensionInput("endWidth")?.value).toBe("117");
+    expect(dimensionInput("startHeight")).toBeNull();
+    expect(dimensionInput("endHeight")).toBeNull();
+
+    await chooseAxis("Y");
+    const yStyle = updatedStyle();
+    expect(yStyle.props).toMatchObject({ ...values, axis: "y" });
+    await render({ styles: [yStyle], onChange });
+    await ensureStyleDetails();
+    expect(dimensionInput("startWidth")).toBeNull();
+    expect(dimensionInput("endWidth")).toBeNull();
+    expect(dimensionInput("startHeight")?.value).toBe("72");
+    expect(dimensionInput("endHeight")?.value).toBe("128");
+
+    await chooseAxis("Both");
+    expect(updatedStyle().props).toMatchObject(values);
   });
 
   it("syncs selection from either pane and keeps a closed style popover closed", async () => {

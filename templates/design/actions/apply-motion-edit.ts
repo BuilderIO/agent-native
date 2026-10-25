@@ -72,6 +72,7 @@ import {
 } from "../shared/motion-path-trim-source.js";
 import {
   applyMotionReactSourceEdit,
+  inspectMotionReactSourceWriteCapability,
   MotionReactSourceError,
   readMotionReactSource,
 } from "../shared/motion-react-source.js";
@@ -1498,6 +1499,26 @@ export default defineAction({
             audioClips: sourceAudioClips,
           });
         } else {
+          const writeCapability = inspectMotionReactSourceWriteCapability({
+            source: currentContent,
+            targetNodeIds: [
+              ...new Set([
+                ...typedTracks.map((track) => track.targetNodeId),
+                ...nativeStyles.map((style) => style.targetNodeId),
+                ...(runtimeTextDocument?.animations.map(
+                  (animation) => animation.targetNodeId,
+                ) ?? []),
+              ]),
+            ],
+            modulePath: localSourceLocation.filePath,
+            moduleVersionHash: localSourceInput.moduleVersionHash,
+          });
+          if (writeCapability.status === "unsupported") {
+            throw new MotionReactSourceError(
+              writeCapability.code,
+              writeCapability.reason,
+            );
+          }
           reactSourceEdit = applyMotionReactSourceEdit({
             currentSource: currentContent,
             expectedSource: currentContent,

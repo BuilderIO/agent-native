@@ -2,11 +2,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { MotionAudioClip } from "@shared/motion-code";
 import {
   MOTION_CURVE_PRESETS,
+  MOTION_DEFAULT_CUSTOM_BEZIER,
   MOTION_SPRING_DEFAULT_BOUNCE,
   MOTION_SPRING_PRESETS,
   motionEaseVariableId,
   parseSpringToken,
-  sampleSpring,
   springToken,
 } from "@shared/motion-easing";
 import type { MotionEasingVariable } from "@shared/motion-easing";
@@ -93,6 +93,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -107,7 +108,11 @@ import {
   type MotionNativeStyleIdentity,
 } from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
-import { MotionEasingPicker } from "./MotionNativeStyleEditor";
+import {
+  MotionBezierCurveEditor,
+  MotionEasingPicker,
+  MotionSpringEditor,
+} from "./MotionNativeStyleEditor";
 
 const EMPTY_MOTION_AUDIO_CLIPS: MotionAudioClip[] = [];
 
@@ -226,6 +231,14 @@ function trackKey(track: MotionTrack): string {
 
 function keyframeSelectionKey(track: MotionTrack, t: number): string {
   return JSON.stringify([trackKey(track), t]);
+}
+
+function easingSegmentSelectionKey(
+  id: string,
+  fromT: number,
+  toT: number,
+): string {
+  return JSON.stringify([id, fromT, toT]);
 }
 
 function motionTrackDisplayLabel(
@@ -370,6 +383,18 @@ export interface MotionDockLiveState {
   previewing: boolean;
   selectedTrackId: string | null;
   selectedKeyframeIds: string[];
+  selectedEasingSegment: MotionDockEasingSegment | null;
+}
+
+export interface MotionDockEasingSegment {
+  trackId: string;
+  targetNodeId: string;
+  property: string;
+  label: string;
+  isTextAnimation: boolean;
+  fromT: number;
+  toT: number;
+  ease: MotionEase;
 }
 
 export interface MotionDockProps {
@@ -414,6 +439,7 @@ export interface MotionDockProps {
   onPlayheadChange?: (t: number) => void;
   livePlayheadRef?: React.MutableRefObject<number | null>;
   onLiveStateChange?: (state: MotionDockLiveState) => void;
+  onRegisterEasingSelectionClear?: (clear: (() => void) | null) => void;
   selectedTarget?: { nodeId: string; label: string } | null;
   layerSidebarInset?: number;
   hiddenLayerIds?: ReadonlySet<string>;
@@ -452,6 +478,7 @@ export function MotionDock({
   onPlayheadChange,
   livePlayheadRef,
   onLiveStateChange,
+  onRegisterEasingSelectionClear,
   selectedTarget = null,
   layerSidebarInset = 0,
   hiddenLayerIds,
@@ -618,6 +645,13 @@ export function MotionDock({
   const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(() =>
     tracks.length > 0 ? trackKey(tracks[tracks.length - 1]) : null,
   );
+  const [selectedEasingSegmentKey, setSelectedEasingSegmentKey] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    onRegisterEasingSelectionClear?.(() => setSelectedEasingSegmentKey(null));
+    return () => onRegisterEasingSelectionClear?.(null);
+  }, [onRegisterEasingSelectionClear]);
   // A style added while the dock was closed is already in `nativeStyles` on
   // mount, so the added-row effect below never sees it as new.
   const [selectedNativeStyleIdentityInternal, setSelectedNativeStyleIdentity] =
@@ -747,6 +781,42 @@ export function MotionDock({
   );
   const selectedTrack =
     tracks.find((track) => trackKey(track) === selectedTrackKey) ?? null;
+  const selectedEasingSegment = useMemo(() => {
+    if (!selectedEasingSegmentKey) return null;
+    for (const track of tracks) {
+      const id = trackKey(track);
+      const ordered = track.keyframes
+        .map((keyframe) => keyframe.t)
+        .sort((a, b) => a - b);
+      for (let index = 0; index < ordered.length - 1; index += 1) {
+        const fromT = ordered[index];
+        const toT = ordered[index + 1];
+        if (
+          easingSegmentSelectionKey(id, fromT, toT) !== selectedEasingSegmentKey
+        ) {
+          continue;
+        }
+        const from = track.keyframes.find((keyframe) => keyframe.t === fromT);
+        if (!from) return null;
+        return {
+          trackId: id,
+          targetNodeId: track.targetNodeId,
+          property: track.property,
+          label: track.label,
+          isTextAnimation: track.isTextAnimation ?? false,
+          fromT,
+          toT,
+          ease: from.ease ?? defaultEase,
+        };
+      }
+    }
+    return null;
+  }, [defaultEase, selectedEasingSegmentKey, tracks]);
+  useEffect(() => {
+    if (selectedEasingSegmentKey && !selectedEasingSegment) {
+      setSelectedEasingSegmentKey(null);
+    }
+  }, [selectedEasingSegment, selectedEasingSegmentKey]);
   useEffect(() => {
     const availableKeyframes = new Set(
       tracks.flatMap((track) =>
@@ -767,20 +837,34 @@ export function MotionDock({
       previewing: playing,
       selectedTrackId: selectedTrack ? selectedTrackKey : null,
       selectedKeyframeIds: [...selectedKeyframeKeys].sort(),
+      selectedEasingSegment,
     });
   }, [
     onLiveStateChange,
     playing,
     selectedKeyframeKeys,
+    selectedEasingSegment,
     selectedTrack,
     selectedTrackKey,
   ]);
   const selectTrack = useCallback((track: MotionDockTrack) => {
     setSelectedTrackKey(trackKey(track));
     setSelectedKeyframeKeys(new Set());
+    setSelectedEasingSegmentKey(null);
   }, []);
+  const selectEasingSegment = useCallback(
+    (track: MotionDockTrack, fromT: number, toT: number) => {
+      setSelectedTrackKey(trackKey(track));
+      setSelectedKeyframeKeys(new Set());
+      setSelectedEasingSegmentKey(
+        easingSegmentSelectionKey(trackKey(track), fromT, toT),
+      );
+    },
+    [],
+  );
   const selectLayerKeyframes = useCallback(
     (layer: { nodeId: string; label: string; tracks: MotionDockTrack[] }) => {
+      setSelectedEasingSegmentKey(null);
       const firstTrack = layer.tracks[0];
       if (firstTrack) setSelectedTrackKey(trackKey(firstTrack));
       setSelectedKeyframeKeys(
@@ -799,6 +883,7 @@ export function MotionDock({
     (track: MotionDockTrack, t: number, extendSelection: boolean) => {
       const key = keyframeSelectionKey(track, t);
       setSelectedTrackKey(trackKey(track));
+      setSelectedEasingSegmentKey(null);
       setSelectedKeyframeKeys((current) => {
         if (!extendSelection) {
           return current.size === 1 && current.has(key)
@@ -1815,18 +1900,6 @@ export function MotionDock({
     [commitTracksChange, onTracksChange, tracks],
   );
 
-  const easeKeyframe = useCallback(
-    (track: MotionDockTrack, index: number, ease: MotionEase) => {
-      updateTrack(track, (tr) => ({
-        ...tr,
-        keyframes: tr.keyframes.map((kf, i) =>
-          i === index ? { ...kf, ease } : kf,
-        ),
-      }));
-    },
-    [updateTrack],
-  );
-
   const updateLayerSpan = useCallback(
     (nodeId: string, nextSpan: { startMs: number; durationMs: number }) => {
       if (readOnly || !onTracksChange) return;
@@ -2705,11 +2778,11 @@ export function MotionDock({
                     timelineDurationMs={durationMs}
                     timelineExtentMs={timelineExtentMs}
                     defaultEase={defaultEase}
-                    easingVariables={easingVariables}
-                    onEasingVariablesChange={onEasingVariablesChange}
                     selectedTrackKey={selectedTrackKey}
                     selectedKeyframeKeys={selectedKeyframeKeys}
                     onSelectTrack={selectTrack}
+                    selectedEasingSegmentKey={selectedEasingSegmentKey}
+                    onSelectEasingSegment={selectEasingSegment}
                     onSelectKeyframe={selectKeyframe}
                     onJumpToPlayhead={jumpToPlayhead}
                     onDeleteKeyframe={deleteKeyframe}
@@ -2722,7 +2795,6 @@ export function MotionDock({
                     }
                     onMoveKeyframes={moveKeyframes}
                     onMoveKeyframesEnd={moveKeyframesEnd}
-                    onEaseKeyframe={easeKeyframe}
                     onLayerSpanChange={updateLayerSpan}
                     selectedNativeStyleKey={selectedNativeStyleKey}
                     onSelectNativeStyle={handleNativeStyleSelection}
@@ -3566,7 +3638,7 @@ function MotionTrackSettingsButton({
           })}
           className="border-t border-border pt-2"
         >
-          <EasingPanel
+          <MotionEasingEditor
             ease={firstEase}
             easingVariables={easingVariables}
             onEasingVariablesChange={onEasingVariablesChange}
@@ -3592,11 +3664,15 @@ interface LayerTrackRowsProps {
   timelineDurationMs: number;
   timelineExtentMs: number;
   defaultEase: MotionEase;
-  easingVariables: MotionEasingVariable[];
-  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   selectedTrackKey: string | null;
+  selectedEasingSegmentKey: string | null;
   selectedKeyframeKeys: ReadonlySet<string>;
   onSelectTrack: (track: MotionDockTrack) => void;
+  onSelectEasingSegment: (
+    track: MotionDockTrack,
+    fromT: number,
+    toT: number,
+  ) => void;
   onSelectKeyframe: (
     track: MotionDockTrack,
     t: number,
@@ -3616,11 +3692,6 @@ interface LayerTrackRowsProps {
     snapToTargets: boolean,
   ) => void;
   onMoveKeyframesEnd: (targets: MotionKeyframeDragTarget[]) => void;
-  onEaseKeyframe: (
-    track: MotionDockTrack,
-    index: number,
-    ease: MotionEase,
-  ) => void;
   onLayerSpanChange: (
     nodeId: string,
     span: { startMs: number; durationMs: number },
@@ -3642,11 +3713,11 @@ function LayerTrackRows({
   timelineDurationMs,
   timelineExtentMs,
   defaultEase,
-  easingVariables,
-  onEasingVariablesChange,
   selectedTrackKey,
+  selectedEasingSegmentKey,
   selectedKeyframeKeys,
   onSelectTrack,
+  onSelectEasingSegment,
   onSelectKeyframe,
   onJumpToPlayhead,
   onDeleteKeyframe,
@@ -3654,7 +3725,6 @@ function LayerTrackRows({
   onBeginKeyframeDrag,
   onMoveKeyframes,
   onMoveKeyframesEnd,
-  onEaseKeyframe,
   onLayerSpanChange,
   selectedNativeStyleKey,
   onSelectNativeStyle,
@@ -3700,10 +3770,12 @@ function LayerTrackRows({
             timelineDurationMs={timelineDurationMs}
             timelineExtentMs={timelineExtentMs}
             defaultEase={defaultEase}
-            easingVariables={easingVariables}
-            onEasingVariablesChange={onEasingVariablesChange}
             selected={trackKey(track) === selectedTrackKey}
             onSelect={() => onSelectTrack(track)}
+            selectedEasingSegmentKey={selectedEasingSegmentKey}
+            onSelectEasingSegment={(fromT, toT) =>
+              onSelectEasingSegment(track, fromT, toT)
+            }
             selectedKeyframeKeys={selectedKeyframeKeys}
             onSelectKeyframe={(t, extendSelection) =>
               onSelectKeyframe(track, t, extendSelection)
@@ -3716,7 +3788,6 @@ function LayerTrackRows({
             }
             onMoveKeyframes={onMoveKeyframes}
             onMoveKeyframesEnd={onMoveKeyframesEnd}
-            onEaseKeyframe={(index, ease) => onEaseKeyframe(track, index, ease)}
           />
         ))}
 
@@ -4078,11 +4149,11 @@ interface TrackRowProps {
   timelineDurationMs: number;
   timelineExtentMs: number;
   defaultEase: MotionEase;
-  easingVariables: MotionEasingVariable[];
-  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   selected: boolean;
   selectedKeyframeKeys: ReadonlySet<string>;
+  selectedEasingSegmentKey: string | null;
   onSelect: () => void;
+  onSelectEasingSegment: (fromT: number, toT: number) => void;
   onSelectKeyframe: (t: number, extendSelection: boolean) => void;
   onJumpToPlayhead: (t: number) => void;
   onAddKeyframeAtTime: (timeMs: number) => void;
@@ -4097,7 +4168,6 @@ interface TrackRowProps {
     snapToTargets: boolean,
   ) => void;
   onMoveKeyframesEnd: (targets: MotionKeyframeDragTarget[]) => void;
-  onEaseKeyframe: (index: number, ease: MotionEase) => void;
 }
 
 function TrackRow({
@@ -4106,11 +4176,11 @@ function TrackRow({
   timelineDurationMs,
   timelineExtentMs,
   defaultEase,
-  easingVariables,
-  onEasingVariablesChange,
   selected,
   selectedKeyframeKeys,
+  selectedEasingSegmentKey,
   onSelect,
+  onSelectEasingSegment,
   onSelectKeyframe,
   onJumpToPlayhead,
   onAddKeyframeAtTime,
@@ -4118,7 +4188,6 @@ function TrackRow({
   onBeginKeyframeDrag,
   onMoveKeyframes,
   onMoveKeyframesEnd,
-  onEaseKeyframe,
 }: TrackRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const timing = getMotionTrackTiming(track, timelineDurationMs);
@@ -4240,15 +4309,16 @@ function TrackRow({
         const width = Math.max(0, fractionFor(to.t) - left);
         return (
           <EasingSegment
-            key={`segment-${kfIndex}`}
+            key={`segment-${kfIndex}-${to.t}`}
             left={left}
             width={width}
             ease={from.ease}
+            selected={
+              easingSegmentSelectionKey(trackKey(track), from.t, to.t) ===
+              selectedEasingSegmentKey
+            }
+            onSelect={() => onSelectEasingSegment(from.t, to.t)}
             defaultEase={defaultEase}
-            easingVariables={easingVariables}
-            onEasingVariablesChange={onEasingVariablesChange}
-            onEaseChange={(ease) => onEaseKeyframe(kfIndex, ease)}
-            disabled={readOnly}
           />
         );
       })}
@@ -4396,64 +4466,50 @@ interface EasingSegmentProps {
   left: number;
   width: number;
   ease: MotionEase | undefined;
+  selected: boolean;
+  onSelect: () => void;
   defaultEase: MotionEase;
-  easingVariables: MotionEasingVariable[];
-  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
-  disabled: boolean;
-  onEaseChange: (ease: MotionEase) => void;
 }
 
 function EasingSegment({
   left,
   width,
   ease,
+  selected,
+  onSelect,
   defaultEase,
-  easingVariables,
-  onEasingVariablesChange,
-  disabled,
-  onEaseChange,
 }: EasingSegmentProps) {
   const t = useT();
   const effective = ease ?? defaultEase;
   const effectiveLabel = easeLabel(effective, t);
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          className="absolute top-1/2 h-1.5 -translate-y-1/2 cursor-pointer rounded-full bg-primary/25 hover:bg-primary/50 data-[state=open]:bg-primary/60"
-          style={{
-            left: `${left * 100}%`,
-            width: `${width * 100}%`,
-            minWidth: 8,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label={t("designEditor.motion.segmentEasing", {
-            ease: effectiveLabel,
-          })}
-          title={effectiveLabel}
-        />
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="center"
-        className="w-60 p-2"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <EasingPanel
-          ease={effective}
-          easingVariables={easingVariables}
-          onEasingVariablesChange={onEasingVariablesChange}
-          disabled={disabled}
-          onChange={onEaseChange}
-        />
-      </PopoverContent>
-    </Popover>
+    <button
+      type="button"
+      data-motion-easing-segment
+      aria-pressed={selected}
+      className={cn(
+        "absolute top-1/2 h-1.5 -translate-y-1/2 cursor-pointer rounded-full bg-primary/25 hover:bg-primary/50",
+        selected && "bg-primary/70",
+      )}
+      style={{
+        left: `${left * 100}%`,
+        width: `${width * 100}%`,
+        minWidth: 8,
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+      aria-label={t("designEditor.motion.segmentEasing", {
+        ease: effectiveLabel,
+      })}
+      title={effectiveLabel}
+    />
   );
 }
 
-interface EasingPanelProps {
+export interface MotionEasingEditorProps {
   ease: MotionEase;
   easingVariables: MotionEasingVariable[];
   onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
@@ -4461,13 +4517,13 @@ interface EasingPanelProps {
   onChange: (ease: MotionEase) => void;
 }
 
-function EasingPanel({
+export function MotionEasingEditor({
   ease,
   easingVariables,
   onEasingVariablesChange,
   disabled,
   onChange,
-}: EasingPanelProps) {
+}: MotionEasingEditorProps) {
   const t = useT();
   const easeStr = String(ease);
   const variableId = motionEaseVariableId(easeStr);
@@ -4476,18 +4532,21 @@ function EasingPanel({
   );
   const curveValue = variable?.value ?? easeStr;
   const spring = parseSpringToken(curveValue);
-  const bezierMatch = /^cubic-bezier\(([^)]+)\)$/.exec(curveValue);
-  const bezierPoints: [number, number, number, number] = (() => {
-    if (bezierMatch) {
-      const parts = bezierMatch[1].split(",").map((part) => parseFloat(part));
-      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
-        return [parts[0], parts[1], parts[2], parts[3]];
-      }
-    }
-    return [0.42, 0, 0.58, 1];
-  })();
-  const bounce = spring?.bounce ?? MOTION_SPRING_DEFAULT_BOUNCE;
-  const settle = spring?.settle ?? 1;
+  const canEditValue =
+    !disabled && (!variableId || Boolean(variable && onEasingVariablesChange));
+  const previousCurve = useRef(
+    spring ? MOTION_DEFAULT_CUSTOM_BEZIER : curveValue,
+  );
+  const previousSpring = useRef(
+    spring
+      ? curveValue
+      : springToken({ bounce: MOTION_SPRING_DEFAULT_BOUNCE, settle: 1 }),
+  );
+  useEffect(() => {
+    if (spring) previousSpring.current = curveValue;
+    else previousCurve.current = curveValue;
+  }, [curveValue, spring]);
+
   const updateCurve = (value: string) => {
     if (variable && onEasingVariablesChange) {
       onEasingVariablesChange(
@@ -4502,298 +4561,71 @@ function EasingPanel({
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <Tabs
+      value={spring ? "spring" : "curve"}
+      onValueChange={(nextValue) => {
+        if (nextValue === "spring" && !spring) {
+          previousCurve.current = curveValue;
+          updateCurve(previousSpring.current);
+        } else if (nextValue === "curve" && spring) {
+          previousSpring.current = curveValue;
+          updateCurve(previousCurve.current);
+        }
+      }}
+      className="space-y-2"
+    >
       <MotionEasingPicker
         value={easeStr}
         easingVariables={easingVariables}
         onEasingVariablesChange={onEasingVariablesChange}
         disabled={disabled}
         t={t}
+        mode={spring ? "spring" : "curve"}
         onChange={(value) => onChange(value as MotionEase)}
+        side="left"
+        align="start"
+        sideOffset={8}
+        compactPopover
       />
-      {bezierMatch ? (
-        <CurveEditor
-          value={bezierPoints}
-          onChange={(points) =>
-            updateCurve(
-              `cubic-bezier(${points
-                .map((n) => Math.round(n * 100) / 100)
-                .join(", ")})`,
-            )
-          }
+      <TabsList
+        aria-label={t("designEditor.motion.animationStyles.easing")}
+        className="grid h-6 w-full grid-cols-2 p-0.5"
+      >
+        <TabsTrigger
+          value="curve"
+          disabled={!canEditValue}
+          className="h-5 px-2 text-[11px]"
+        >
+          {t("designEditor.motion.curveTab")}
+        </TabsTrigger>
+        <TabsTrigger
+          value="spring"
+          disabled={!canEditValue}
+          className="h-5 px-2 text-[11px]"
+        >
+          {t("designEditor.motion.springTab")}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="curve" className="mt-0">
+        <MotionBezierCurveEditor
+          value={curveValue}
+          disabled={!canEditValue}
+          onChange={updateCurve}
+          t={t}
         />
-      ) : null}
-      {spring ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] text-muted-foreground">
-              {t("designEditor.motion.bounce")}
-            </span>
-            <span className="text-[10px] tabular-nums">
-              {bounce.toFixed(2)}
-            </span>
-          </div>
-          <Slider
-            value={[bounce]}
-            min={0}
-            max={1}
-            step={0.01}
-            disabled={disabled || Boolean(variable && !onEasingVariablesChange)}
-            onValueChange={(values) =>
-              updateCurve(springToken({ bounce: values[0] ?? bounce, settle }))
-            }
-            aria-label={t("designEditor.motion.bounce")}
-          />
-          <SpringCurvePreview bounce={bounce} settle={settle} />
-        </div>
-      ) : null}
-    </div>
+      </TabsContent>
+      <TabsContent value="spring" className="mt-0">
+        <MotionSpringEditor
+          value={curveValue}
+          disabled={!canEditValue}
+          onChange={updateCurve}
+          t={t}
+        />
+      </TabsContent>
+    </Tabs>
   );
-}
-
-const CURVE_W = 216;
-const CURVE_H = 132;
-const CURVE_PAD = 10;
-const CURVE_Y_MIN = -0.25;
-const CURVE_Y_MAX = 1.25;
-
-interface CurveEditorProps {
-  value: [number, number, number, number];
-  onChange: (value: [number, number, number, number]) => void;
 }
 
 export function formatCurveAxisValue(n: number): string {
   return String(Math.round(n * 100) / 100);
-}
-
-interface CurveNumberFieldProps {
-  label: string;
-  value: number;
-  onChange: (n: number) => void;
-}
-
-function CurveNumberField({ label, value, onChange }: CurveNumberFieldProps) {
-  const [draft, setDraft] = useState(() => formatCurveAxisValue(value));
-  const focusedRef = useRef(false);
-
-  useEffect(() => {
-    if (!focusedRef.current) setDraft(formatCurveAxisValue(value));
-  }, [value]);
-
-  return (
-    <label className="flex flex-col items-stretch gap-0.5">
-      <span className="text-center text-[9px] text-muted-foreground">
-        {label}
-      </span>
-      <Input
-        type="number"
-        step={0.01}
-        value={draft}
-        onFocus={() => {
-          focusedRef.current = true;
-        }}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          const n = parseFloat(e.target.value);
-          if (Number.isFinite(n)) onChange(n);
-        }}
-        onBlur={() => {
-          focusedRef.current = false;
-          setDraft(formatCurveAxisValue(value));
-        }}
-        className="h-5 px-1 !text-[10px] md:!text-[10px]"
-        aria-label={label}
-      />
-    </label>
-  );
-}
-
-function CurveEditor({ value, onChange }: CurveEditorProps) {
-  const t = useT();
-  const [x1, y1, x2, y2] = value;
-  const svgRef = useRef<SVGSVGElement>(null);
-  const draggingHandle = useRef<1 | 2 | null>(null);
-
-  const xPx = (x: number) => CURVE_PAD + x * (CURVE_W - 2 * CURVE_PAD);
-  const yPx = (y: number) =>
-    CURVE_PAD +
-    ((CURVE_Y_MAX - y) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-      (CURVE_H - 2 * CURVE_PAD);
-
-  const fromEvent = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const px = ((e.clientX - rect.left) / rect.width) * CURVE_W;
-    const py = ((e.clientY - rect.top) / rect.height) * CURVE_H;
-    const x = Math.max(
-      0,
-      Math.min(1, (px - CURVE_PAD) / (CURVE_W - 2 * CURVE_PAD)),
-    );
-    const y =
-      CURVE_Y_MAX -
-      ((py - CURVE_PAD) / (CURVE_H - 2 * CURVE_PAD)) *
-        (CURVE_Y_MAX - CURVE_Y_MIN);
-    return [x, Math.max(-1, Math.min(2, y))] as const;
-  };
-
-  const handleMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (!draggingHandle.current) return;
-    const point = fromEvent(e);
-    if (!point) return;
-    onChange(
-      draggingHandle.current === 1
-        ? [point[0], point[1], x2, y2]
-        : [x1, y1, point[0], point[1]],
-    );
-  };
-
-  const numberField = (
-    label: string,
-    fieldValue: number,
-    apply: (n: number) => [number, number, number, number],
-  ) => (
-    <CurveNumberField
-      label={label}
-      value={fieldValue}
-      onChange={(n) => onChange(apply(n))}
-    />
-  );
-
-  return (
-    <div className="flex flex-col gap-1">
-      <svg
-        ref={svgRef}
-        width="100%"
-        viewBox={`0 0 ${CURVE_W} ${CURVE_H}`}
-        className="rounded border border-border bg-muted/40 touch-none"
-        onPointerMove={handleMove}
-        onPointerUp={() => (draggingHandle.current = null)}
-        onPointerCancel={() => (draggingHandle.current = null)}
-        role="application"
-        aria-label={t("designEditor.motion.bezierCurveEditor")}
-      >
-        {/* Unit box (0..1) */}
-        <rect
-          x={xPx(0)}
-          y={yPx(1)}
-          width={xPx(1) - xPx(0)}
-          height={yPx(0) - yPx(1)}
-          className="fill-transparent stroke-border"
-          strokeDasharray="3 3"
-        />
-        {/* Handle arms */}
-        <line
-          x1={xPx(0)}
-          y1={yPx(0)}
-          x2={xPx(Math.max(0, Math.min(1, x1)))}
-          y2={yPx(y1)}
-          className="stroke-primary/50"
-        />
-        <line
-          x1={xPx(1)}
-          y1={yPx(1)}
-          x2={xPx(Math.max(0, Math.min(1, x2)))}
-          y2={yPx(y2)}
-          className="stroke-primary/50"
-        />
-        {/* The curve itself */}
-        <path
-          d={`M ${xPx(0)} ${yPx(0)} C ${xPx(Math.max(0, Math.min(1, x1)))} ${yPx(y1)}, ${xPx(Math.max(0, Math.min(1, x2)))} ${yPx(y2)}, ${xPx(1)} ${yPx(1)}`}
-          className="fill-none stroke-primary"
-          strokeWidth={1.5}
-        />
-        {/* Draggable control points */}
-        <circle
-          cx={xPx(Math.max(0, Math.min(1, x1)))}
-          cy={yPx(y1)}
-          r={5}
-          className="cursor-grab fill-primary stroke-background active:cursor-grabbing"
-          onPointerDown={(e) => {
-            draggingHandle.current = 1;
-            (e.target as Element).setPointerCapture(e.pointerId);
-          }}
-        />
-        <circle
-          cx={xPx(Math.max(0, Math.min(1, x2)))}
-          cy={yPx(y2)}
-          r={5}
-          className="cursor-grab fill-primary stroke-background active:cursor-grabbing"
-          onPointerDown={(e) => {
-            draggingHandle.current = 2;
-            (e.target as Element).setPointerCapture(e.pointerId);
-          }}
-        />
-      </svg>
-      <div className="grid grid-cols-4 gap-1">
-        {numberField("x1", x1, (n) => [
-          Math.max(0, Math.min(1, n)),
-          y1,
-          x2,
-          y2,
-        ])}
-        {numberField("y1", y1, (n) => [x1, n, x2, y2])}
-        {numberField("x2", x2, (n) => [
-          x1,
-          y1,
-          Math.max(0, Math.min(1, n)),
-          y2,
-        ])}
-        {numberField("y2", y2, (n) => [x1, y1, x2, n])}
-      </div>
-    </div>
-  );
-}
-
-function SpringCurvePreview({
-  bounce,
-  settle,
-}: {
-  bounce: number;
-  settle: number;
-}) {
-  const t = useT();
-  const points: string[] = [];
-  const samples = 72;
-  for (let i = 0; i <= samples; i++) {
-    const x = i / samples;
-    const y = sampleSpring({ bounce, settle }, x);
-    points.push(
-      `${(CURVE_PAD + x * (CURVE_W - 2 * CURVE_PAD)).toFixed(1)},${(
-        CURVE_PAD +
-        ((CURVE_Y_MAX - y) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-          (CURVE_H - 2 * CURVE_PAD)
-      ).toFixed(1)}`,
-    );
-  }
-  return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${CURVE_W} ${CURVE_H}`}
-      className="rounded border border-border bg-muted/40"
-      aria-label={t("designEditor.motion.springCurvePreview")}
-      role="img"
-    >
-      <line
-        x1={CURVE_PAD}
-        y1={
-          CURVE_PAD +
-          ((CURVE_Y_MAX - 1) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-            (CURVE_H - 2 * CURVE_PAD)
-        }
-        x2={CURVE_W - CURVE_PAD}
-        y2={
-          CURVE_PAD +
-          ((CURVE_Y_MAX - 1) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-            (CURVE_H - 2 * CURVE_PAD)
-        }
-        className="stroke-border"
-        strokeDasharray="3 3"
-      />
-      <polyline
-        points={points.join(" ")}
-        className="fill-none stroke-primary"
-        strokeWidth={1.5}
-      />
-    </svg>
-  );
 }

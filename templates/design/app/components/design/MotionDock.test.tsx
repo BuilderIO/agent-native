@@ -1242,12 +1242,31 @@ describe("MotionDock selected animation settings", () => {
     );
     expect(easingPicker).not.toBeNull();
     await act(async () => easingPicker!.click());
+    const springTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
+    ).find((tab) => tab.textContent === "Spring");
+    expect(springTab).toBeDefined();
+    await act(async () => {
+      springTab!.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+    expect(onTracksChange).toHaveBeenCalledTimes(2);
+    await renderInteractive({
+      tracks: onTracksChange.mock.lastCall?.[0],
+      durationMs: 2000,
+      onTracksChange,
+    });
     const bouncyPreset = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.trim() === "Bouncy");
     expect(bouncyPreset).toBeDefined();
     await act(async () => bouncyPreset!.click());
-    expect(onTracksChange).toHaveBeenCalledTimes(2);
+    expect(onTracksChange).toHaveBeenCalledTimes(3);
     expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes[0]?.ease).toBe(
       "spring(0.69)",
     );
@@ -1956,6 +1975,7 @@ describe("MotionDock keyframe selection and deletion", () => {
       previewing: false,
       selectedTrackId: "legacy-track-0",
       selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
 
     await act(async () => {
@@ -1970,6 +1990,7 @@ describe("MotionDock keyframe selection and deletion", () => {
       previewing: true,
       selectedTrackId: "legacy-track-0",
       selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
 
     await act(async () => {
@@ -1981,7 +2002,61 @@ describe("MotionDock keyframe selection and deletion", () => {
       previewing: false,
       selectedTrackId: "legacy-track-0",
       selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
+  });
+
+  it("publishes the selected easing segment and clears it when a keyframe is selected", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({ tracks: sampleTracks, onLiveStateChange });
+
+    const segments = container.querySelectorAll<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    await act(async () => segments[1]?.click());
+    expect(onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment).toEqual({
+      trackId: "legacy-track-0",
+      targetNodeId: "hero",
+      property: "translate",
+      label: "Hero",
+      isTextAnimation: false,
+      fromT: 0.5,
+      toT: 1,
+      ease: "linear",
+    });
+
+    await clickKeyframe(
+      container.querySelector<SVGElement>('[aria-label="Keyframe at 1000ms"]')!,
+    );
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears the easing inspector selection when the inspector navigates back", async () => {
+    const onLiveStateChange = vi.fn();
+    let clearSelection: (() => void) | null = null;
+    await renderInteractive({
+      tracks: sampleTracks,
+      onLiveStateChange,
+      onRegisterEasingSelectionClear: (clear) => {
+        clearSelection = clear;
+      },
+    });
+
+    const segments = container.querySelectorAll<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    await act(async () => segments[1]?.click());
+    expect(onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment).not.toBe(
+      null,
+    );
+
+    await act(async () => clearSelection?.());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
   });
 
   it("uses the latest playback mode in an active animation frame", async () => {

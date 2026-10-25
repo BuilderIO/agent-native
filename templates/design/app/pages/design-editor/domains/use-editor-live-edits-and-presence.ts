@@ -251,7 +251,18 @@ export function useEditorLiveEditsAndPresence({
       previewing: false,
       selectedTrackId: null,
       selectedKeyframeIds: [],
+      selectedEasingSegment: null,
     });
+  const motionEasingSelectionClearRef = useRef<(() => void) | null>(null);
+  const registerMotionEasingSelectionClear = useCallback(
+    (clear: (() => void) | null) => {
+      motionEasingSelectionClearRef.current = clear;
+    },
+    [],
+  );
+  const handleMotionEasingSegmentBack = useCallback(() => {
+    motionEasingSelectionClearRef.current?.();
+  }, []);
   const handleMotionDockLiveStateChange = useCallback(
     (next: MotionDockLiveState) => {
       setMotionDockLiveState((current) =>
@@ -261,7 +272,22 @@ export function useEditorLiveEditsAndPresence({
           next.selectedKeyframeIds.length &&
         current.selectedKeyframeIds.every(
           (key, index) => key === next.selectedKeyframeIds[index],
-        )
+        ) &&
+        current.selectedEasingSegment?.trackId ===
+          next.selectedEasingSegment?.trackId &&
+        current.selectedEasingSegment?.targetNodeId ===
+          next.selectedEasingSegment?.targetNodeId &&
+        current.selectedEasingSegment?.property ===
+          next.selectedEasingSegment?.property &&
+        current.selectedEasingSegment?.label ===
+          next.selectedEasingSegment?.label &&
+        current.selectedEasingSegment?.isTextAnimation ===
+          next.selectedEasingSegment?.isTextAnimation &&
+        current.selectedEasingSegment?.fromT ===
+          next.selectedEasingSegment?.fromT &&
+        current.selectedEasingSegment?.toT ===
+          next.selectedEasingSegment?.toT &&
+        current.selectedEasingSegment?.ease === next.selectedEasingSegment?.ease
           ? current
           : next,
       );
@@ -1581,6 +1607,8 @@ export function useEditorLiveEditsAndPresence({
     motionPlayhead,
     setMotionPlayhead,
     motionDockLiveState,
+    registerMotionEasingSelectionClear,
+    handleMotionEasingSegmentBack,
     handleMotionDockLiveStateChange,
     motionAutoKeyframeEnabled,
     setMotionAutoKeyframeEnabled,
