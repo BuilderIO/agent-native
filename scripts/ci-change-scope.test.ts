@@ -4594,6 +4594,70 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
   }
 });
 
+test("runs the execution-lease model check for its model, script, and covered code", () => {
+  for (const path of [
+    "verification/execution-lease/ExecutionLease.tla",
+    "verification/execution-lease/manifest.json",
+    "scripts/verify-execution-lease.ts",
+    "packages/core/src/agent/run-store.ts",
+    "packages/core/src/agent/production-agent.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.verify_execution_lease,
+      true,
+      path,
+    );
+  }
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/agent/run-store.test.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.verify_execution_lease,
+      false,
+      path,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks
+      .verify_execution_lease,
+    true,
+    "full run",
+  );
+});
+
+test("mutation-tests Core source only, never specs, declarations, templates, or the CLI", () => {
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/client/hooks/index.tsx",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.core_mutation, true, path);
+  }
+  for (const path of [
+    "packages/core/src/feature-flags/registry.test.ts",
+    "packages/core/src/client/hooks/index.spec.tsx",
+    "packages/core/src/types.d.ts",
+    "packages/core/src/templates/chat/actions/x.ts",
+    "packages/core/src/cli/create.ts",
+    "templates/chat/actions/x.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.core_mutation,
+      false,
+      path,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths(["packages/core/package.json"]).checks.core_mutation,
+    false,
+  );
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks.core_mutation,
+    true,
+    "full run",
+  );
+});
+
 test(
   "pre-install scope tests pass without workspace dependencies",
   { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
@@ -4614,6 +4678,8 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/lib/mutation-scope.ts",
+        "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",

@@ -418,6 +418,8 @@
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
     "./a2a": "./dist/a2a/index.js",
+    "./state-machine": "./dist/state-machine/index.js",
+    "./action-properties": "./dist/action-properties.js",
     "./mcp": "./dist/mcp/index.js",
     "./mcp/fetch": "./dist/mcp/fetch-handler.js",
     "./mcp-client": "./dist/mcp-client/index.js",
@@ -792,6 +794,7 @@
     "botframework-connector": "^4.23.3",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
+    "fast-check": "^4.10.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "mermaid": "11.15.0",
@@ -842,6 +845,7 @@
     "ai-sdk-ollama": ">=3",
     "botframework-connector": "^4.23.3",
     "drizzle-kit": ">=0.31",
+    "fast-check": "^4.10.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "node-pty": ">=1",
@@ -948,6 +952,9 @@
       "optional": true
     },
     "drizzle-kit": {
+      "optional": true
+    },
+    "fast-check": {
       "optional": true
     },
     "jszip": {
