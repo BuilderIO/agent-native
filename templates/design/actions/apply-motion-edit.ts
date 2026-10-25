@@ -1514,14 +1514,18 @@ export default defineAction({
             modulePath: localSourceLocation.filePath,
             moduleVersionHash: localSourceInput.moduleVersionHash,
           });
-          // The probe sees only persisted metadata; the source editor validates
-          // the incoming metadata and its source-anchor requirements.
+          // The pre-edit probe cannot see metadata supplied by this write.
           const incomingMetadataAuthorizesMetadataOnlyWrite =
+            (sourceAudioClips !== undefined ||
+              easingVariables.length > 0 ||
+              animationStyles.length > 0) &&
             targetNodeIds.length === 0 &&
             writeCapability.status === "unsupported" &&
             writeCapability.code === "missing-node" &&
             writeCapability.targetNodeIds.length === 0 &&
             (sourceAudioClips !== undefined ||
+              easingVariables.length > 0 ||
+              animationStyles.length > 0 ||
               (currentReactRead?.status === "valid" &&
                 (animationStylesInput !== undefined ||
                   easingVariablesInput !== undefined)));

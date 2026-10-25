@@ -95,7 +95,7 @@ describe("Motion source document CSS codec", () => {
     expect(edited.tracks[0]?.keyframes[1]?.ease).toBe("ease-in");
   });
 
-  it("keeps keyframes inheriting a spring timeline default unset after reconciliation", () => {
+  it("keeps inherited keyframes unset when reconciling a spring timeline default", () => {
     const springTimeline: MotionTimeline = {
       ...timeline,
       defaultEase: "spring(0.25)",
@@ -113,13 +113,18 @@ describe("Motion source document CSS codec", () => {
       ],
     };
     const compiled = compileMotionCode(springTimeline);
-    const reconciled = reconcileMotionCodeDocument(
-      compiled.css,
-      motionCodeDocumentFromTimeline(springTimeline),
-    );
+    const stored = motionCodeDocumentFromTimeline(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
 
-    expect(reconciled.tracks[0]?.keyframes[0]).not.toHaveProperty("ease");
-    expect(reconciled.tracks[0]?.keyframes[1]).not.toHaveProperty("ease");
+    expect(
+      reconciled.tracks[0]?.keyframes.every(
+        (keyframe) => !Object.prototype.hasOwnProperty.call(keyframe, "ease"),
+      ),
+    ).toBe(true);
+    expect(reconciled.defaultEase).toBe("spring(0.25)");
+    expect(
+      compileMotionCode({ ...springTimeline, tracks: reconciled.tracks }).css,
+    ).toBe(compiled.css);
   });
 
   it("reconciles spring easing at compiler-quantized keyframe offsets", () => {
