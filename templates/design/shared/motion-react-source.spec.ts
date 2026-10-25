@@ -3498,6 +3498,22 @@ function Card() {
     });
   });
 
+  it("clears an existing CSS track without requiring optional metadata", () => {
+    const authored = apply(source).source;
+    const cleared = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      timeline: { ...makeTimeline(), tracks: [] },
+    }).source;
+
+    expect(readMotionReactSource(cleared, "Card.tsx")).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { tracks: [] },
+    });
+  });
+
   it("allows metadata-only React capability when easing variables remain", () => {
     const modulePath = "src/components/Card.tsx";
     const moduleVersionHash = "a".repeat(64);

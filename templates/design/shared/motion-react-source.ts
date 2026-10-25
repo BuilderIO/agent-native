@@ -228,11 +228,14 @@ export function applyMotionReactSourceEdit(
         []),
     ]),
   ];
+  const originalSourceFile = parseTsx(currentSource);
+  const managedStyles = findManagedStyles(originalSourceFile);
   const metadataOnlyWrite =
     targetNodeIds.length === 0 &&
     ((timeline.animationStyles?.length ?? 0) > 0 ||
       args.easingVariables !== undefined ||
-      args.audioClips !== undefined);
+      args.audioClips !== undefined ||
+      (currentRead.status === "valid" && managedStyles.length === 1));
   if (targetNodeIds.length === 0 && !metadataOnlyWrite) {
     throw new MotionReactSourceError(
       "unsupported-motion-document",
@@ -240,8 +243,6 @@ export function applyMotionReactSourceEdit(
     );
   }
 
-  const originalSourceFile = parseTsx(currentSource);
-  const managedStyles = findManagedStyles(originalSourceFile);
   const authoredMotion = readAuthoredReactMotion(
     originalSourceFile,
     args.modulePath,

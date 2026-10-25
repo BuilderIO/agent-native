@@ -556,7 +556,7 @@ export function renderDesignEditorView({
     };
   })();
   const activeMotionEasingSegment =
-    motionDockOpen && activeFile.id ? motionEasingSegment : null;
+    motionDockOpen && activeFile?.id ? motionEasingSegment : null;
   const motionTargetForInspector = activeMotionEasingSegment
     ? {
         nodeId: activeMotionEasingSegment.targetNodeId,
