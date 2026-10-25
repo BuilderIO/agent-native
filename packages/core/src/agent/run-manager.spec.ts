@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { isDurableProgressEvent } from "../client/sse-event-processor.js";
 import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -251,6 +252,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
+import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
@@ -607,6 +609,46 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("signals setup liveness handoff after the first successful lease renewal", async () => {
+    const renewal = Promise.withResolvers<void>();
+    vi.mocked(renewTurnExecutionLease).mockReturnValueOnce(renewal.promise);
+    const run = startRun(
+      "run-liveness-handoff",
+      "thread-liveness-handoff",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+      },
+    );
+    let livenessReady = false;
+    void run.livenessReady.then((ready) => {
+      livenessReady = ready;
+    });
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(renewTurnExecutionLease).toHaveBeenCalledWith({
+      threadId: "thread-liveness-handoff",
+      turnId: "run-liveness-handoff",
+      runId: "run-liveness-handoff",
+      generation: "1",
+    });
+    expect(livenessReady).toBe(false);
+
+    renewal.resolve();
+    await expect(run.livenessReady).resolves.toBe(true);
+    expect(livenessReady).toBe(true);
+
+    abortRun(run.runId, "user");
+    await run.finalized;
+  });
+
   it("does not start a run when an execution lease returns no fence", async () => {
     vi.mocked(claimTurnExecutionLease).mockResolvedValueOnce(
       undefined as never,
@@ -623,12 +665,18 @@ describe("run manager soft timeout", () => {
         executionLease: true,
       },
     );
+    let livenessReady = false;
+    void run.livenessReady.then((ready) => {
+      livenessReady = ready;
+    });
 
     await expect(run.finalized).rejects.toThrow(
       "Execution lease was requested without an execution fence",
     );
 
     expect(runBody).not.toHaveBeenCalled();
+    await expect(run.livenessReady).resolves.toBe(false);
+    expect(livenessReady).toBe(false);
   });
 
   it("does not start a leased run when abort wins during lease acquisition", async () => {
@@ -3524,6 +3572,126 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 
+  describe("server and browser progress predicates", () => {
+    // Keyed by every event type so a new type must be classified here.
+    const samples: Record<AgentChatEvent["type"], AgentChatEvent> = {
+      text: { type: "text", text: "hi" },
+      thinking: { type: "thinking", text: "hmm" },
+      suggestions: { type: "suggestions", suggestions: [] },
+      rich_event: {
+        type: "rich_event",
+        event: { kind: "k", id: "e" } as never,
+      },
+      activity: { type: "activity", label: "Searching" },
+      tool_input_start: { type: "tool_input_start", tool: "t" },
+      tool_input_delta: { type: "tool_input_delta", tool: "t", text: "{" },
+      stream_keepalive: { type: "stream_keepalive" },
+      model_stream: { type: "model_stream", status: "end" },
+      tool_start: { type: "tool_start", tool: "t", input: {} },
+      tool_done: { type: "tool_done", tool: "t", result: "ok" },
+      approval_required: {
+        type: "approval_required",
+        tool: "t",
+        input: {},
+        approvalKey: "k",
+      },
+      connection_required: {
+        type: "connection_required",
+        requestId: "r",
+        provider: "p",
+        reason: "connect",
+      },
+      agent_call: { type: "agent_call", agent: "a", status: "start" },
+      agent_call_progress: {
+        type: "agent_call_progress",
+        agent: "a",
+        state: "working",
+        elapsedSeconds: 1,
+      },
+      agent_call_text: { type: "agent_call_text", agent: "a", text: "t" },
+      agent_call_activity: {
+        type: "agent_call_activity",
+        agent: "a",
+        snapshot: {} as never,
+      },
+      agent_task: {
+        type: "agent_task",
+        taskId: "t",
+        threadId: "th",
+        description: "d",
+        status: "running",
+      },
+      agent_task_update: {
+        type: "agent_task_update",
+        taskId: "t",
+        preview: "p",
+      },
+      agent_task_complete: {
+        type: "agent_task_complete",
+        taskId: "t",
+        summary: "s",
+      },
+      done: { type: "done" },
+      error: { type: "error", error: "e" },
+      missing_api_key: { type: "missing_api_key" },
+      loop_limit: { type: "loop_limit" },
+      tripwire: { type: "tripwire", reason: "r" },
+      auto_continue: { type: "auto_continue", reason: "run_timeout" },
+      clear: { type: "clear" },
+    };
+    const cases: Array<[string, AgentChatEvent]> = [
+      ...Object.entries(samples),
+      [
+        "anonymous zero-byte preparation activity",
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 0,
+        },
+      ],
+    ];
+
+    // Terminal events end the run, so the server writes no progress for them
+    // and the browser's cursor no longer matters.
+    const terminal = new Set([
+      "done",
+      "error",
+      "missing_api_key",
+      "loop_limit",
+      "auto_continue",
+    ]);
+    const live = cases.filter(([, event]) => !terminal.has(event.type));
+
+    it("classifies every event type", () => {
+      expect(cases.length - live.length).toBe(terminal.size);
+    });
+
+    it.each(live)("agree on %s", async (name, event) => {
+      vi.setSystemTime(10_000);
+      const runId = `run-predicate-${name}`;
+      startRun(
+        runId,
+        `thread-${runId}`,
+        async (send, signal) => {
+          send(event);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      const serverPersistsProgress =
+        vi.mocked(bumpRunProgress).mock.calls.length > 0;
+      expect(isDurableProgressEvent(event as never)).toBe(
+        serverPersistsProgress,
+      );
+      abortRun(runId);
+    });
+  });
+
   it("does not bump durable progress for clear events or lower-byte restarts", async () => {
     vi.setSystemTime(10_000);
 
@@ -3812,11 +3980,8 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(1));
-    expect(bumpRunProgress).toHaveBeenNthCalledWith(
-      1,
-      "run-progress-insert-race",
-    );
+    await Promise.resolve();
+    expect(bumpRunProgress).not.toHaveBeenCalled();
 
     resolveInsert();
     await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
@@ -4038,6 +4203,83 @@ describe("run manager soft timeout", () => {
       ),
     );
   });
+
+  it.each(["batch", "single"] as const)(
+    "waits for the initial run row before persisting early %s events",
+    async (writeMode) => {
+      vi.mocked(insertRunEvent).mockClear();
+      vi.mocked(insertRunEvents).mockClear();
+      let releaseInsert!: () => void;
+      let insertSettled = false;
+      const insertGate = new Promise<void>((resolve) => {
+        releaseInsert = () => {
+          insertSettled = true;
+          resolve();
+        };
+      });
+      vi.mocked(insertRun).mockReturnValueOnce(insertGate);
+
+      if (writeMode === "single") {
+        const insertEvent = vi.mocked(insertRunEvent).getMockImplementation()!;
+        vi.mocked(insertRunEvent).mockImplementationOnce(async (...args) => {
+          expect(insertSettled).toBe(true);
+          return insertEvent(...args);
+        });
+      } else {
+        const insertEvents = vi
+          .mocked(insertRunEvents)
+          .getMockImplementation()!;
+        vi.mocked(insertRunEvents).mockImplementationOnce(async (...args) => {
+          expect(insertSettled).toBe(true);
+          return insertEvents(...args);
+        });
+      }
+
+      const run = startRun(
+        `run-early-event-${writeMode}`,
+        `thread-early-event-${writeMode}`,
+        async (send) => {
+          await send({ type: "text", text: "early event" });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          ...(writeMode === "single"
+            ? { persistEvent: async (write) => write() }
+            : {}),
+        },
+      );
+
+      try {
+        await vi.waitFor(() => expect(insertRun).toHaveBeenCalled());
+        await Promise.resolve();
+        expect(insertRunEvent).not.toHaveBeenCalled();
+        expect(insertRunEvents).not.toHaveBeenCalled();
+
+        releaseInsert();
+        await run.finalized;
+
+        if (writeMode === "single") {
+          expect(insertRunEvent).toHaveBeenCalledWith(
+            run.runId,
+            0,
+            JSON.stringify({ type: "text", text: "early event" }),
+            { eventAt: expect.any(Number), requireInserted: true },
+          );
+        } else {
+          expect(insertRunEvents).toHaveBeenCalledWith(run.runId, [
+            {
+              seq: 0,
+              eventAt: expect.any(Number),
+              eventData: JSON.stringify({ type: "text", text: "early event" }),
+            },
+          ]);
+        }
+      } finally {
+        releaseInsert();
+      }
+    },
+  );
 
   it("persists completed thread data before the terminal run status", async () => {
     const writeOrder: string[] = [];
@@ -8817,8 +9059,58 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
       expect(markRunAborted).not.toHaveBeenCalledWith(
         "run-finalization-lease-loss",
-        "execution-lease-lost",
+        EXECUTION_LEASE_LOST_ABORT_REASON,
       );
+    });
+
+    it("does not attempt a fenced abort after the heartbeat loses the execution lease", async () => {
+      const runId = "run-heartbeat-lease-loss";
+      let releaseTool!: () => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const toolGate = new Promise<void>((resolve) => {
+        releaseTool = resolve;
+      });
+      vi.mocked(markRunAborted).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+        Object.assign(new Error("lease taken over by a successor"), {
+          code: "stale_execution_fence",
+        }),
+      );
+
+      const run = startRun(
+        runId,
+        "thread-heartbeat-lease-loss",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-heartbeat-lease-loss",
+            input: {},
+          });
+          markStarted();
+          await toolGate;
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+          executionLease: true,
+        },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(run.abort.signal.aborted).toBe(true);
+      expect(run.abortReason).toBe(EXECUTION_LEASE_LOST_ABORT_REASON);
+
+      releaseTool();
+      await run.finalized;
+      expect(markRunAborted).not.toHaveBeenCalledWith(runId, expect.anything());
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {
@@ -9024,7 +9316,7 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
     });
 
-    it("does NOT backstop a run with a model stream in flight, and re-arms when it ends", async () => {
+    it("does NOT backstop a run with a model stream in flight, then gives the completed call one grace window", async () => {
       const events: AgentChatEvent[] = [];
       let aborted = false;
       let abortReason: unknown;
@@ -9066,7 +9358,7 @@ describe("run manager soft timeout", () => {
       await vi.advanceTimersByTimeAsync(3_000);
       expect(aborted).toBe(false);
 
-      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");
       expect(events).toContainEqual(
@@ -9075,6 +9367,130 @@ describe("run manager soft timeout", () => {
           reason: "no_progress",
         }),
       );
+    });
+
+    it("does not checkpoint a long silent model call whose result is then processed", async () => {
+      let aborted = false;
+      let finishCall: (() => void) | undefined;
+
+      const run = startRun(
+        "run-no-progress-silent-call-then-tool",
+        "thread-no-progress-silent-call-then-tool",
+        async (send, signal) => {
+          send({ type: "model_stream", status: "start" });
+          await new Promise<void>((resolve) => {
+            finishCall = resolve;
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve();
+            });
+          });
+          send({ type: "model_stream", status: "end" });
+          // Result processing takes a while before the first tool event.
+          await new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+          send({ type: "tool_start", tool: "lookup", id: "call-1", input: {} });
+          send({ type: "tool_done", tool: "lookup", id: "call-1", result: "" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve());
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(aborted).toBe(false);
+      finishCall?.();
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(aborted).toBe(false);
+      expect(run.events.map((e) => e.event.type)).toContain("tool_start");
+
+      abortRun("run-no-progress-silent-call-then-tool");
+      await run.finalized;
+    });
+
+    it("grants processing grace after every completed silent model call", async () => {
+      let aborted = false;
+      const finishCalls: Array<() => void> = [];
+
+      const run = startRun(
+        "run-no-progress-two-silent-calls",
+        "thread-no-progress-two-silent-calls",
+        async (send, signal) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+          // Two back-to-back long silent calls: the second must get its own
+          // processing grace even though no progress event separated them.
+          for (let call = 0; call < 2; call++) {
+            send({ type: "model_stream", status: "start" });
+            await new Promise<void>((resolve) => finishCalls.push(resolve));
+            send({ type: "model_stream", status: "end" });
+            await new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+          }
+          send({ type: "tool_start", tool: "lookup", id: "call-1", input: {} });
+          send({ type: "tool_done", tool: "lookup", id: "call-1", result: "" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve());
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      finishCalls[0]?.();
+      await vi.advanceTimersByTimeAsync(3_100);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(aborted).toBe(false);
+      finishCalls[1]?.();
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(aborted).toBe(false);
+      expect(run.events.map((e) => e.event.type)).toContain("tool_done");
+
+      abortRun("run-no-progress-two-silent-calls");
+      await run.finalized;
+    });
+
+    it("backstops repeated completed model-stream brackets without answer progress", async () => {
+      const events: AgentChatEvent[] = [];
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-completed-model-streams",
+        "thread-no-progress-completed-model-streams",
+        async (send, signal) => {
+          const streamTimer = setInterval(() => {
+            send({ type: "model_stream", status: "start" });
+            send({ type: "model_stream", status: "end" });
+          }, 1_000);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(streamTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.advanceTimersByTimeAsync(6_000);
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(events.some((event) => event.type === "model_stream")).toBe(true);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "auto_continue",
+          reason: "no_progress",
+        }),
+      );
+      await run.finalized;
     });
 
     it("mirrors the SQL in-flight marker across the model-stream bracket", async () => {

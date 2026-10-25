@@ -19,13 +19,23 @@ The analytics app connects to multiple data sources. This skill covers general p
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
-For a question naming a dbt metric, use `tool-search` to load
-`query-dbt-semantic-metric` and pass its exact dbt name. Use dbt as the metric-
-definition and grain source; Sigma and Amplitude are examples or cross-checks.
+For a question about something an owner-defined dbt metric measures, even without its exact name (for example, a question about weekly active users), resolve the exact dbt name with `find-data` before using `query-dbt-semantic-metric`. If no dbt candidate appears, retry `find-data` once with concept words from the question (synonyms or likely definition terms). If it still has none, call `get-dbt-connection` and inspect both `readiness` and `connections[]`. Use normal source selection only when a successful result has `readiness: "not_connected"` and an empty `connections[]`. If any row is ready, keep dbt as the source even when top-level readiness is null. If rows exist but none is ready, report or resolve their readiness and do not fall back. A failed or unreadable result, `connected: false`, or null readiness is not evidence dbt is absent. When dbt is configured but no candidate exists, ask one business-definition question only when a wrong guess would change the numbers; otherwise say no owner-defined metric matched without claiming it is missing or silently sending the same question to saved SQL or a warehouse metric.
 
-If no dbt connection is available, use the source-selection path below.
-If the metric is not defined or its deployment is not ready, report that state
-and use a verified warehouse path only when it answers the same definition.
+Use `tool-search` to load `query-dbt-semantic-metric` for a matched metric and pass its exact name. Use dbt as the definition and grain source; Sigma and Amplitude are examples or cross-checks.
+
+Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, a connection-required error, or the no-candidate case above, and report its actual readiness or error, keeping unknown distinct from disconnected. Resume results that carry `queryId` and `nextPage` with their `metricName`, `queryId`, and `nextPage`, and no query scope. `pending` resumes while it stays pending, up to five resumes in one turn; then stop and report it as still running, with its `queryId`. A truncated `success` resumes while `nextPage` is present, stopping after five resumes in one turn or when a resume returns the same `nextPage` again; then report it as partial. A recoverable error that carries them (`connection_error`, `provider_error`, `empty_semantic_manifest`, `permission_denied`, or `deployment_not_ready`) gets one resume before other handling; if the resume fails again, report it as returned, and for `connection_error` also call `get-dbt-connection`. Handle the other statuses:
+
+- `success`: if `truncated` is true, resume first (above) so the answer covers the full result. If the resume fails or `nextPage` is absent, answer from the rows you have and say they are partial.
+- `pending`: resume as above. Do not resend the original `groupBy`, filters, or grain.
+- `metadata_truncated`: call again with its `metricName` and returned `nextPage`, and no query scope (no `groupBy`, `timeRange`, or `allTime`), to read the next metadata page, stopping after five resumes in one turn or when a resume returns the same `nextPage` again. This is separate from the `not_found` recheck.
+- `not_found`: search `find-data` for the exact name once, and retry the query only if it returns a different exact name. If that returns no dbt entry, follow the no-candidate rule above. If the retried query returns `not_found` again, stop and report that no owner-defined metric matched, without claiming it is missing from dbt. A `not_found` result alone does not confirm a missing definition.
+- `ambiguous_metric`: list the names `find-data` returns for it and ask which one is meant.
+- `no_metrics_available`: report as returned.
+- `permission_denied`, `provider_error`: resume once when they carry the cursors (above); otherwise report as returned. `permission_denied` concerns the workspace dbt token, not this user.
+- `deployment_not_ready`, `empty_semantic_manifest`: resume once when they carry the cursors (above); otherwise report the state. A warehouse figure is given only when the user asks for one, labeled as a warehouse calculation.
+- Any other status: report its returned message.
+
+Name each source you use; never silently fall back to saved SQL or a warehouse query.
 
 Use the metric's returned dimensions and `queryableGranularities` for a
 breakdown. Pass exact dimension names in `groupBy`; grouped MetricFlow queries

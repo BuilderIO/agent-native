@@ -8,6 +8,7 @@ import {
   DESIGN_SHORTCUT_CATEGORIES,
   DESIGN_SHORTCUTS,
 } from "@/components/design/keyboard-shortcuts";
+import { isApplePlatform } from "@/hooks/useDesignHotkeys";
 import enUS from "@/i18n/en-US";
 
 function lookup(key: string): string {
@@ -91,16 +92,28 @@ describe("KeyboardShortcutsDialog", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("lists the same 13 categories in catalog order", async () => {
+  it("lists the canvas categories in catalog order, then Code", async () => {
     await renderDialog();
     expect(categoryButtons().map((b) => b.dataset.shortcutsCategory)).toEqual([
       ...DESIGN_SHORTCUT_CATEGORIES,
+      "code",
     ]);
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>("[data-shortcut-section]"),
       ).map((s) => s.dataset.shortcutSection),
-    ).toEqual([...DESIGN_SHORTCUT_CATEGORIES]);
+    ).toEqual([...DESIGN_SHORTCUT_CATEGORIES, "code"]);
+    const buttons = categoryButtons();
+    expect(buttons[buttons.length - 1]?.textContent).toBe("Code");
+  });
+
+  it("names every command in one sentence-case form with no stray ellipsis", () => {
+    const commands = enUS.designEditor.keyboardShortcuts.commands;
+    for (const label of Object.values(commands)) {
+      expect(label).not.toMatch(/\.\.\.|\bShow\/|\/[Hh]ide\b/);
+    }
+    expect(commands.commentTool).toBe(enUS.designEditor.pinComment);
+    expect(enUS.layersPanel.searchPlaceholder).toBe("Search layers");
   });
 
   it("shows Essential as plain rows, not tutorial cards", async () => {
@@ -143,7 +156,11 @@ describe("KeyboardShortcutsDialog", () => {
     const all = Array.from(
       document.querySelectorAll<HTMLElement>("[data-shortcut-id]"),
     ).map((row) => row.dataset.shortcutId);
-    expect(all.sort()).toEqual(DESIGN_SHORTCUTS.map((item) => item.id).sort());
+    expect(all.sort()).toEqual(
+      DESIGN_SHORTCUTS.filter((item) => isApplePlatform() || !item.appleOnly)
+        .map((item) => item.id)
+        .sort(),
+    );
   });
 
   it("filters rows across categories and hides empty categories", async () => {

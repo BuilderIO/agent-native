@@ -30,7 +30,10 @@ test("inline text edit commits, undo and redo restore exact content, and reload 
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(point.x, point.y);
+  await page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toEqual(["Draft headline"]);
 
   const editable = page

@@ -792,6 +792,24 @@ export const QUERY_BUDGET_SHARD_COUNT = 2;
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
+// Slides authoring runs as these jobs, inside the prebuilt image in
+// docker/ci-slides-authoring. The `--authoring` parity suite is the longest
+// single command, so each browser runs it as three slices.
+export const SLIDES_AUTHORING_SHARDS = [
+  "chromium-1",
+  "chromium-2",
+  "chromium-3",
+  "webkit-1",
+  "webkit-2",
+  "webkit-3",
+  "corpus",
+  "fuzz",
+] as const;
+
+export function slidesAuthoringMatrix(): { include: { shard: string }[] } {
+  return { include: SLIDES_AUTHORING_SHARDS.map((shard) => ({ shard })) };
+}
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 const GLOBAL_RUNTIME_INPUTS = new Set([
@@ -875,6 +893,7 @@ export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
   designCanvasE2eDiagnosticSpecs: string[];
+  designCanvasE2eDiagnosticShards: string[];
   designCanvasE2eSpecCount: number;
   designCanvasBroadWorkflowShards: string[];
   docsOnly: boolean;
@@ -1650,6 +1669,10 @@ function isSlidesAuthoringPath(path: string): boolean {
   return (
     SLIDES_TEXT_AUTHORING_FILES.has(path) ||
     isSlidesEditFidelityHarnessPath(path) ||
+    // The image and the actions that run the shards are what the job executes.
+    path.startsWith("docker/ci-slides-authoring/") ||
+    path.startsWith(".github/actions/slides-authoring-image/") ||
+    path.startsWith(".github/actions/slides-authoring-shard/") ||
     [
       "templates/slides/agent-native.config.ts",
       "templates/slides/agent-native.json",
@@ -2138,6 +2161,33 @@ function trustedAcceptanceAppsFor(
   );
 }
 
+// The full Design suite needs 48 shards to fit the 30-minute diagnostic job
+// (about 22 tests each). Shards are sized for half that load, so a change that
+// selects a few specs does not pay for 48 runners of setup.
+const DESIGN_DIAGNOSTIC_MAX_SHARDS = 48;
+const DESIGN_DIAGNOSTIC_TESTS_PER_SHARD = 11;
+
+export function designCanvasE2eDiagnosticShardsFor(
+  specs: readonly string[],
+  repositoryRoot: string,
+): string[] {
+  if (specs.length === 0) return [];
+  const tests = specs.reduce((total, spec) => {
+    const path = join(repositoryRoot, spec);
+    // Deleted specs are dropped again at run time; they hold no tests.
+    if (!existsSync(path)) return total;
+    return (
+      total +
+      (readFileSync(path, "utf8").match(/^\s*test(?:\.\w+)?\(/gm)?.length ?? 0)
+    );
+  }, 0);
+  const count = Math.min(
+    DESIGN_DIAGNOSTIC_MAX_SHARDS,
+    Math.max(1, Math.ceil(tests / DESIGN_DIAGNOSTIC_TESTS_PER_SHARD)),
+  );
+  return Array.from({ length: count }, (_, index) => `changed-${index + 1}`);
+}
+
 function designCanvasBroadWorkflowShardsFor(
   specs: readonly string[],
   changedPaths: readonly string[],
@@ -2491,6 +2541,10 @@ export function classifyChangedPaths(
     changedPaths,
     designCanvasE2eSpecs,
     designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
+    designCanvasE2eDiagnosticShards: designCanvasE2eDiagnosticShardsFor(
+      changedDesignDiagnosticSpecs,
+      repositoryRoot,
+    ),
     designCanvasE2eSpecCount: designCanvasE2eSpecs.length,
     designCanvasBroadWorkflowShards,
     docsOnly,
@@ -2620,6 +2674,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
+      `design_canvas_e2e_diagnostic_shards=${JSON.stringify(scope.designCanvasE2eDiagnosticShards)}`,
       `design_canvas_broad_workflow_shards=${JSON.stringify(scope.designCanvasBroadWorkflowShards)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
@@ -2628,6 +2683,7 @@ function writeOutputs(scope: ChangeScope): void {
       `scaffold_workspace=${scope.scaffoldWorkspace ? "true" : "false"}`,
       `scaffold_workspace_apps=${JSON.stringify(scope.scaffoldWorkspaceApps)}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
+      `slides_authoring_matrix=${JSON.stringify(slidesAuthoringMatrix())}`,
       `trusted_acceptance_apps=${JSON.stringify(scope.trustedAcceptanceApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(

@@ -11,6 +11,9 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/release-everything.yml", "utf8"),
 ) as Workflow;
+const phaseWorkflow = parse(
+  readFileSync(".github/workflows/release-everything-phase.yml", "utf8"),
+) as Workflow;
 const autoPublishWorkflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
 ) as Workflow;
@@ -36,7 +39,11 @@ const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
-const job = (workflow.jobs as Workflow)["release-everything"] as Workflow;
+const workflowJobs = workflow.jobs as Workflow;
+const prepareJob = workflowJobs["prepare-release"] as Workflow;
+const postMergeJob = workflowJobs["post-merge-release"] as Workflow;
+const notifyFailureJob = workflowJobs["notify-failure"] as Workflow;
+const job = (phaseWorkflow.jobs as Workflow).release as Workflow;
 const steps = job.steps as Workflow[];
 const coordinator = steps.find(
   (step) => step.name === RELEASE_COORDINATOR_STEP_NAME,
@@ -50,7 +57,7 @@ describe("release everything workflow", () => {
       { cron: "0 10 * * 5", timezone: "America/Los_Angeles" },
     ]);
     assert.match(
-      String((job.env as Workflow).RELEASE_TYPE),
+      String((prepareJob.with as Workflow).release_type),
       /inputs\.releaseType \|\| 'patch'/,
     );
     assert.deepEqual(inputs.releaseType, {
@@ -66,6 +73,73 @@ describe("release everything workflow", () => {
       contents: "write",
       "pull-requests": "read",
     });
+  });
+
+  it("gives merge preparation and post-merge work independent runner budgets", () => {
+    const phaseInputs = (phaseWorkflow.on as Workflow)
+      .workflow_call as Workflow;
+    const outputs = phaseInputs.outputs as Workflow;
+    const postMergeWith = postMergeJob.with as Workflow;
+    const notifySteps = notifyFailureJob.steps as Workflow[];
+    const failureError = String((notifySteps[0].env as Workflow).RELEASE_ERROR);
+    const slackStep = notifySteps[1];
+    const slackFallbackStep = notifySteps[2];
+    const source = String((coordinator.with as Workflow).script);
+
+    assert.equal(
+      prepareJob.uses,
+      "./.github/workflows/release-everything-phase.yml",
+    );
+    assert.equal(postMergeJob.uses, prepareJob.uses);
+    assert.equal(postMergeJob.needs, "prepare-release");
+    assert.equal(prepareJob.secrets, undefined);
+    assert.equal(postMergeJob.secrets, undefined);
+    assert.match(
+      String(postMergeWith.release_sha),
+      /needs\.prepare-release\.outputs\.release_sha/,
+    );
+    assert.match(
+      String(postMergeWith.release_pr_url),
+      /needs\.prepare-release\.outputs\.release_pr_url/,
+    );
+    assert.match(
+      String((outputs.release_sha as Workflow).value),
+      /jobs\.release\.outputs\.release_sha/,
+    );
+    assert.equal(job["timeout-minutes"], 360);
+    assert.equal(coordinator["timeout-minutes"], 355);
+    assert.match(String((job.env as Workflow).RELEASE_PHASE), /inputs\.phase/);
+    assert.match(source, /const releasePhase = process\.env\.RELEASE_PHASE/);
+    assert.match(
+      source,
+      /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
+    );
+    assert.match(source, /const deadline = phaseDeadline\(210 \* 60_000\)/);
+    assert.doesNotMatch(source, /postMergeReserveMs/);
+    assert.match(source, /core\.setOutput\("release_sha", releaseSha\)/);
+    assert.match(source, /process\.env\.RELEASE_SHA/);
+    assert.match(String(notifyFailureJob.if), /always\(\)/);
+    assert.match(
+      String(notifyFailureJob.if),
+      /post-merge-release\.result == 'failure'/,
+    );
+    assert.match(failureError, /needs\.prepare-release\.outputs\.error/);
+    assert.match(failureError, /needs\.post-merge-release\.outputs\.error/);
+    assert.equal(notifySteps[0].id, "build-slack-payload");
+    assert.match(String(slackStep.if), /always\(\)/);
+    assert.match(
+      String(slackStep.if),
+      /steps\.build-slack-payload\.outcome == 'success'/,
+    );
+    assert.match(String(slackFallbackStep.if), /always\(\)/);
+    assert.match(
+      String(slackFallbackStep.if),
+      /steps\.build-slack-payload\.outcome != 'success'/,
+    );
+    assert.match(
+      String(slackFallbackStep.if),
+      /steps\.slack\.outputs\.ok != 'true'/,
+    );
   });
 
   it("reconciles ambiguous workflow dispatches without risking duplicate children", async () => {
@@ -85,6 +159,7 @@ describe("release everything workflow", () => {
       "core",
       "sleep",
       "pollIntervalMs",
+      "releasePhase",
       `${source.slice(start, end)}\nreturn dispatch;`,
     );
     const warnings: string[] = [];
@@ -128,7 +203,8 @@ describe("release everything workflow", () => {
                             "https://github.com/BuilderIO/agent-native/actions/runs/123",
                           event: "workflow_dispatch",
                           head_branch: "main",
-                          display_title: "Publish packages [release:456-1-1]",
+                          display_title:
+                            "Publish packages [release:456-1-prepare-1]",
                         },
                       ],
               },
@@ -146,6 +222,7 @@ describe("release everything workflow", () => {
       core,
       sleep,
       15_000,
+      "prepare",
     );
     const recovered = await acceptedDispatch("auto-publish.yml", "main", {
       releaseType: "patch",
@@ -156,8 +233,57 @@ describe("release everything workflow", () => {
     });
     assert.equal(postAttempts, 1);
     assert.equal(lookups, 3);
-    assert.equal(acceptedInputs?.coordinator_run_id, "456-1-1");
+    assert.equal(acceptedInputs?.coordinator_run_id, "456-1-prepare-1");
     assert.match(warnings[0] ?? "", /Recovered auto-publish\.yml/);
+
+    const staleDispatchInputs: Workflow[] = [];
+    const staleDispatchGithub = {
+      request: async (_route: string, options: Workflow) => {
+        staleDispatchInputs.push(options.inputs as Workflow);
+        throw Object.assign(new Error("GitHub dispatch response failed"), {
+          status: 500,
+        });
+      },
+      rest: {
+        actions: {
+          listWorkflowRuns: async () => ({
+            data: {
+              workflow_runs: [
+                {
+                  id: 123,
+                  html_url:
+                    "https://github.com/BuilderIO/agent-native/actions/runs/123",
+                  event: "workflow_dispatch",
+                  head_branch: "main",
+                  display_title: "Publish packages [release:456-1-prepare-1]",
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+    const postMergeDispatch = await createDispatch(
+      staleDispatchGithub,
+      { runId: 456, runAttempt: 1 },
+      "BuilderIO",
+      "agent-native",
+      "2026-03-10",
+      core,
+      sleep,
+      15_000,
+      "post-merge",
+    );
+    await assert.rejects(
+      postMergeDispatch("auto-publish.yml", "main", {
+        redispatchDownstream: "true",
+      }),
+      /No matching run appeared after 5 lookups/,
+    );
+    assert.deepEqual(
+      staleDispatchInputs.map((inputs) => inputs.coordinator_run_id),
+      ["456-1-post-merge-1"],
+    );
 
     const requestInputs: Workflow[] = [];
     let ambiguousPostAttempts = 0;
@@ -184,6 +310,7 @@ describe("release everything workflow", () => {
       core,
       sleep,
       15_000,
+      "post-merge",
     );
     await assert.rejects(
       ambiguousDispatch("deploy-docs-production.yml", "main", {
@@ -193,14 +320,18 @@ describe("release everything workflow", () => {
       (error: Error) => {
         assert.match(error.message, /GitHub is temporarily unavailable/);
         assert.match(error.message, /does not prove the dispatch was rejected/);
-        assert.match(error.message, /\[release:456-2-1\]/);
+        assert.match(error.message, /\[release:456-2-post-merge-1\]/);
+        assert.equal(
+          (error as Error & { dispatchOutcome?: string }).dispatchOutcome,
+          undefined,
+        );
         return true;
       },
     );
     assert.equal(ambiguousPostAttempts, 1);
     assert.deepEqual(
       requestInputs.map((inputs) => inputs.coordinator_run_id),
-      ["456-2-1"],
+      ["456-2-post-merge-1"],
     );
 
     let failedLookupCalls = 0;
@@ -268,7 +399,11 @@ describe("release everything workflow", () => {
     );
     await assert.rejects(
       invalidDispatch("deploy-docs-production.yml", "main", {}),
-      /Validation failed/,
+      (error: Error & { dispatchOutcome?: string }) => {
+        assert.match(error.message, /Validation failed/);
+        assert.equal(error.dispatchOutcome, "rejected");
+        return true;
+      },
     );
     assert.equal(invalidStatusLookups, 0);
   });
@@ -361,6 +496,85 @@ describe("release everything workflow", () => {
     }
   });
 
+  it("cleans a reserved desktop tag only after a confirmed dispatch rejection", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const helperStart = source.indexOf("async function dispatchAndWait(");
+    const helperEnd = source.indexOf(
+      "\n\nasync function listAutoPublishRuns",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createDispatchAndWait = new AsyncFunction(
+      "dispatch",
+      "waitForRun",
+      "cleanupReservedTags",
+      `${source.slice(helperStart, helperEnd)}\nreturn dispatchAndWait;`,
+    ) as (
+      dispatch: (
+        workflow: string,
+        ref: string,
+        inputs: Workflow,
+      ) => Promise<{ id: number; url: string }>,
+      waitForRun: () => Promise<void>,
+      cleanupReservedTags: (tags: string[]) => Promise<void>,
+    ) => Promise<
+      (
+        workflow: string,
+        ref: string,
+        inputs: Workflow,
+        label: string,
+        timeoutMs: number,
+        reservedTag?: string,
+      ) => Promise<{ run: { id: number; url: string }; error: unknown }>
+    >;
+
+    const cleanedTags: string[] = [];
+    const dispatchAndWait = await createDispatchAndWait(
+      async (workflow) => {
+        if (workflow === "rejected.yml") {
+          throw Object.assign(new Error("HTTP 404: workflow unavailable"), {
+            dispatchOutcome: "rejected",
+          });
+        }
+        throw new Error("Could not confirm workflow dispatch");
+      },
+      async () => {},
+      async (tags) => {
+        cleanedTags.push(...tags);
+      },
+    );
+
+    await assert.rejects(
+      dispatchAndWait(
+        "rejected.yml",
+        "main",
+        {},
+        "Desktop release",
+        60_000,
+        "v1.2.4",
+      ),
+      /HTTP 404: workflow unavailable/,
+    );
+    assert.deepEqual(cleanedTags, ["v1.2.4"]);
+
+    await assert.rejects(
+      dispatchAndWait(
+        "ambiguous.yml",
+        "main",
+        {},
+        "Clips release",
+        60_000,
+        "clips-v2.3.4",
+      ),
+      /Could not confirm workflow dispatch/,
+    );
+    assert.deepEqual(cleanedTags, ["v1.2.4"]);
+  });
+
   it("starts docs push reconciliation before sibling releases settle", async () => {
     const source = String((coordinator.with as Workflow).script);
     const helperStart = source.indexOf("let reconciledDocsRun = null;");
@@ -386,7 +600,7 @@ describe("release everything workflow", () => {
       "desktopVersion",
       "clipsVersion",
       "productionSites",
-      "publicationError",
+      "publicationUnavailable",
       `${source.slice(helperStart, fanoutEnd + "]);".length)}
 return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     ) as (
@@ -405,7 +619,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       desktopVersion: string,
       clipsVersion: string,
       productionSites: string[],
-      publicationError: Error | null,
+      publicationUnavailable: Error | null,
     ) => Promise<{
       downstream: PromiseSettledResult<Workflow>[];
       getReconciledDocsRun: () => Workflow | null;
@@ -524,6 +738,68 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     assert.match(source, /run\.head_branch === ref/);
   });
 
+  it("scopes release PR discovery to the stable release branch", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const helperStart = source.indexOf(
+      "async function listReleasePullRequests()",
+    );
+    const helperEnd = source.indexOf(
+      "\n\nfunction isStableReleasePullRequest",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createListReleasePullRequests = new AsyncFunction(
+      "github",
+      "owner",
+      "repo",
+      `${source.slice(helperStart, helperEnd)}\nreturn listReleasePullRequests;`,
+    ) as (
+      github: {
+        rest: {
+          pulls: {
+            list: (options: Workflow) => Promise<{ data: Workflow[] }>;
+          };
+        };
+      },
+      owner: string,
+      repo: string,
+    ) => Promise<() => Promise<Workflow[]>>;
+
+    const requests: Workflow[] = [];
+    const github = {
+      rest: {
+        pulls: {
+          list: async (options: Workflow) => {
+            requests.push(options);
+            return { data: [] };
+          },
+        },
+      },
+    };
+    const listReleasePullRequests = await createListReleasePullRequests(
+      github,
+      "BuilderIO",
+      "agent-native",
+    );
+    assert.deepEqual(await listReleasePullRequests(), []);
+    assert.deepEqual(requests, [
+      {
+        owner: "BuilderIO",
+        repo: "agent-native",
+        state: "all",
+        base: "main",
+        head: "BuilderIO:changeset-release/main",
+        sort: "updated",
+        direction: "desc",
+        per_page: 100,
+      },
+    ]);
+  });
+
   it("waits for package publication before dispatching stable downstream releases", () => {
     assert.equal(
       coordinator.uses,
@@ -538,7 +814,6 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       source,
       /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
     );
-    assert.match(source, /const postMergeReserveMs = 60 \* 60_000/);
     assert.match(
       source,
       /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
@@ -558,9 +833,13 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(source, /github\.rest\.git\.createRef/);
     assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
-    assert.match(source, /error\.status !== 422/);
+    assert.match(source, /if \(error\.status === 422\)/);
+    assert.match(source, /const tagSha = await getRemoteTagSha\(tag\)/);
     assert.match(source, /const reservedTags = new Map\(\)/);
-    assert.match(source, /async function cleanupReservedTags\(\)/);
+    assert.match(
+      source,
+      /async function cleanupReservedTags\(tags = \[\.\.\.reservedTags\.keys\(\)\]\)/,
+    );
     assert.match(source, /github\.rest\.repos\.deleteRelease/);
     assert.match(source, /github\.rest\.git\.deleteRef/);
     assert.match(source, /await cleanupReservedTags\(\)/);
@@ -577,7 +856,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(
       source,
-      /async function waitForReleaseMerge\(pr\)[\s\S]*?phaseDeadline\(210 \* 60_000\)[\s\S]*?coordinatorDeadline - postMergeReserveMs/,
+      /async function waitForReleaseMerge\(pr\)[\s\S]*?const deadline = phaseDeadline\(210 \* 60_000\)/,
     );
     assert.match(source, /readJsonAt\(\s*releaseBaseSha,/);
     assert.match(
@@ -614,6 +893,222 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
+  });
+
+  it("reconciles ambiguous stable tag reservations before cleanup", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const functionSource = (signature: string, nextSignature: string) => {
+      const start = source.indexOf(signature);
+      const end = source.indexOf(`\n\n${nextSignature}`, start);
+      assert(start >= 0 && end > start);
+      return source.slice(start, end);
+    };
+    const helpersSource = [
+      functionSource(
+        "async function getRemoteTagSha(tag)",
+        "async function getReleaseByTag(tag)",
+      ),
+      functionSource(
+        "async function getReleaseByTag(tag)",
+        "function parseStableVersion(value, label)",
+      ),
+      functionSource(
+        "async function reserveStableVersion(tagPrefix, baseVersion, sourceSha)",
+        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
+      ),
+      functionSource(
+        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
+        "async function getFirstParentSha(ref)",
+      ),
+    ].join("\n\n");
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    type TagObject = { type: string; sha: string };
+    type Helpers = {
+      reserveStableVersion: (
+        tagPrefix: string,
+        baseVersion: string,
+        sourceSha: string,
+      ) => Promise<string>;
+      cleanupReservedTags: () => Promise<void>;
+    };
+    type HarnessOptions = {
+      createRef: (
+        request: { ref: string; sha: string },
+        remoteTags: Map<string, TagObject>,
+      ) => Promise<void>;
+      versions?: string[];
+      getRefError?: Error & { status?: number };
+    };
+
+    const createHelpers = new AsyncFunction(
+      "github",
+      "owner",
+      "repo",
+      "core",
+      "reservedTags",
+      "nextStableVersion",
+      `${helpersSource}\nreturn { reserveStableVersion, cleanupReservedTags };`,
+    ) as (
+      github: unknown,
+      owner: string,
+      repo: string,
+      core: {
+        warning: (message: string) => void;
+        info: (message: string) => void;
+      },
+      reservedTags: Map<string, string>,
+      nextStableVersion: () => Promise<string>,
+    ) => Promise<Helpers>;
+
+    const makeHarness = async ({
+      createRef,
+      versions = ["1.2.4"],
+      getRefError,
+    }: HarnessOptions) => {
+      const remoteTags = new Map<string, TagObject>();
+      const reservedTags = new Map<string, string>();
+      const deletedRefs: string[] = [];
+      const warnings: string[] = [];
+      let versionIndex = 0;
+      const notFound = () =>
+        Object.assign(new Error("Not found"), { status: 404 });
+      const github = {
+        rest: {
+          git: {
+            createRef: async (request: { ref: string; sha: string }) =>
+              createRef(request, remoteTags),
+            getRef: async ({ ref }: { ref: string }) => {
+              if (getRefError) throw getRefError;
+              const object = remoteTags.get(ref);
+              if (!object) throw notFound();
+              return { data: { object } };
+            },
+            getTag: async ({ tag_sha }: { tag_sha: string }) => ({
+              data: { object: { sha: tag_sha } },
+            }),
+            deleteRef: async ({ ref }: { ref: string }) => {
+              deletedRefs.push(ref);
+              if (!remoteTags.delete(ref)) throw notFound();
+            },
+          },
+          repos: {
+            getReleaseByTag: async () => {
+              throw notFound();
+            },
+            deleteRelease: async () => {},
+          },
+        },
+      };
+      const helpers = await createHelpers(
+        github,
+        "BuilderIO",
+        "agent-native",
+        {
+          warning: (message) => warnings.push(message),
+          info: () => {},
+        },
+        reservedTags,
+        async () => versions[versionIndex++],
+      );
+      return { ...helpers, deletedRefs, remoteTags, reservedTags, warnings };
+    };
+    const sourceSha = "release-source-sha";
+    const acceptedThenFailed = Object.assign(
+      new Error("GitHub returned HTTP 502 after accepting createRef"),
+      { status: 502 },
+    );
+    const acceptedHarness = await makeHarness({
+      createRef: async ({ ref, sha }, remoteTags) => {
+        remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
+        throw acceptedThenFailed;
+      },
+    });
+    await assert.rejects(
+      acceptedHarness.reserveStableVersion("v", "1.2.3", sourceSha),
+      (error) => error === acceptedThenFailed,
+    );
+    assert.deepEqual(
+      [...acceptedHarness.reservedTags],
+      [["v1.2.4", sourceSha]],
+    );
+    await acceptedHarness.cleanupReservedTags();
+    assert.deepEqual(acceptedHarness.deletedRefs, ["tags/v1.2.4"]);
+    assert.equal(acceptedHarness.remoteTags.has("tags/v1.2.4"), false);
+
+    for (const remoteSha of [null, "another-source-sha"]) {
+      const failed = Object.assign(new Error("GitHub returned HTTP 502"), {
+        status: 502,
+      });
+      const harness = await makeHarness({
+        createRef: async ({ ref }, remoteTags) => {
+          if (remoteSha) {
+            remoteTags.set(ref.replace(/^refs\//, ""), {
+              type: "commit",
+              sha: remoteSha,
+            });
+          }
+          throw failed;
+        },
+      });
+      await assert.rejects(
+        harness.reserveStableVersion("v", "1.2.3", sourceSha),
+        (error) => error === failed,
+      );
+      assert.equal(harness.reservedTags.size, 0);
+      await harness.cleanupReservedTags();
+      assert.deepEqual(harness.deletedRefs, []);
+    }
+
+    const readbackFailure = Object.assign(
+      new Error("GitHub tag lookup failed"),
+      { status: 503 },
+    );
+    const originalFailure = Object.assign(
+      new Error("GitHub createRef timed out"),
+      { status: 502 },
+    );
+    const unreadableHarness = await makeHarness({
+      createRef: async () => {
+        throw originalFailure;
+      },
+      getRefError: readbackFailure,
+    });
+    await assert.rejects(
+      unreadableHarness.reserveStableVersion("v", "1.2.3", sourceSha),
+      (error) => error === originalFailure,
+    );
+    assert.equal(unreadableHarness.reservedTags.size, 0);
+    assert.match(unreadableHarness.warnings[0], /GitHub tag lookup failed/);
+
+    const collision = Object.assign(new Error("Reference already exists"), {
+      status: 422,
+    });
+    const collisionHarness = await makeHarness({
+      versions: ["1.2.4", "1.2.5"],
+      createRef: async ({ ref, sha }, remoteTags) => {
+        if (ref.endsWith("v1.2.4")) {
+          remoteTags.set(ref.replace(/^refs\//, ""), {
+            type: "commit",
+            sha: "another-source-sha",
+          });
+          throw collision;
+        }
+        remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
+      },
+    });
+    assert.equal(
+      await collisionHarness.reserveStableVersion("v", "1.2.3", sourceSha),
+      "1.2.5",
+    );
+    assert.deepEqual(
+      [...collisionHarness.reservedTags],
+      [["v1.2.5", sourceSha]],
+    );
+    await collisionHarness.cleanupReservedTags();
+    assert.deepEqual(collisionHarness.deletedRefs, ["tags/v1.2.5"]);
+    assert.equal(collisionHarness.remoteTags.has("tags/v1.2.4"), true);
   });
 
   it("uses the docs publisher for www instead of the app-site fleet", () => {
@@ -794,7 +1289,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     const source = String((coordinator.with as Workflow).script);
     const helperStart = source.indexOf("const docsDeploymentPaths = [");
     const helperEnd = source.indexOf(
-      "\n\nconst previousReleaseNumbers",
+      '\n\nif (process.env.RELEASE_PHASE === "prepare")',
       helperStart,
     );
     assert(helperStart >= 0 && helperEnd > helperStart);
@@ -1096,8 +1591,6 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       "owner",
       "repo",
       "phaseDeadline",
-      "coordinatorDeadline",
-      "postMergeReserveMs",
       "sleep",
       "pollIntervalMs",
       "core",
@@ -1108,8 +1601,6 @@ return waitForReleaseMerge;`,
       owner: string,
       repo: string,
       phaseDeadline: (timeoutMs: number) => number,
-      coordinatorDeadline: number,
-      postMergeReserveMs: number,
       sleep: (ms: number) => Promise<void>,
       pollIntervalMs: number,
       core: Workflow,
@@ -1136,8 +1627,6 @@ return waitForReleaseMerge;`,
         "BuilderIO",
         "agent-native",
         (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
-        350 * 60_000,
-        60 * 60_000,
         async (ms) => {
           now += ms;
         },
@@ -1147,7 +1636,7 @@ return waitForReleaseMerge;`,
       assert.equal(await waitForReleaseMerge({ number: 8062 }), "a".repeat(40));
       assert(now < 210 * 60_000);
 
-      now = 160 * 60_000;
+      now = 120 * 60_000;
       const noMergeGithub = {
         rest: {
           pulls: {
@@ -1160,8 +1649,6 @@ return waitForReleaseMerge;`,
         "BuilderIO",
         "agent-native",
         (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
-        350 * 60_000,
-        60 * 60_000,
         async (ms) => {
           now += ms;
         },
@@ -1172,7 +1659,7 @@ return waitForReleaseMerge;`,
         reserveBoundedWait({ number: 8102 }),
         /did not merge in time/,
       );
-      assert.equal(now, 290 * 60_000);
+      assert.equal(now, 330 * 60_000);
     } finally {
       Date.now = realNow;
     }
@@ -1200,7 +1687,7 @@ return waitForReleaseMerge;`,
       "const downstream = await Promise.allSettled",
     );
     const notificationFailure = source.indexOf(
-      "if (downstreamNotificationFailureUrl)",
+      "if (downstreamNotificationFailureUrl || downstreamNotificationRecoveryError)",
       downstreamSettled,
     );
     const completionLog = source.indexOf("Release everything completed");
@@ -1232,7 +1719,7 @@ return waitForReleaseMerge;`,
     assert.match(source, /downstreamNotificationFailureUrl = recovery\.url/);
     assert.match(
       source,
-      /Production releases completed, but downstream package notifications were not delivered/,
+      /Stable npm packages were published, but downstream package notifications were not delivered/,
     );
     assert.ok(stablePublishStart >= 0);
     assert.ok(failureGate > stablePublishStart);
@@ -1241,6 +1728,312 @@ return waitForReleaseMerge;`,
     assert.ok(downstreamSettled >= 0);
     assert.ok(notificationFailure > downstreamSettled);
     assert.ok(completionLog > notificationFailure);
+  });
+
+  it("continues desktop releases when notification recovery fails after npm publication", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const stablePublishStart = source.indexOf(
+      "async function waitForStablePackagePublish",
+    );
+    const stablePublishEnd = source.indexOf(
+      "\n\nconst docsDeploymentPaths",
+      stablePublishStart,
+    );
+    const publicationStart = source.indexOf(
+      "let publicationError = null;",
+      stablePublishEnd,
+    );
+    const publicationEnd = source.indexOf(
+      "\n\nconst sitesManifest",
+      publicationStart,
+    );
+    assert.ok(stablePublishStart >= 0 && stablePublishEnd > stablePublishStart);
+    assert.ok(
+      publicationStart > stablePublishEnd && publicationEnd > publicationStart,
+    );
+
+    const mergeSha = "a".repeat(40);
+    const workflowRun = {
+      id: 42,
+      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
+      event: "push",
+      head_sha: mergeSha,
+    };
+    const errors: string[] = [];
+    const runScenario = new AsyncFunction(
+      "phaseDeadline",
+      "pollIntervalMs",
+      "github",
+      "owner",
+      "repo",
+      "waitForRun",
+      "requireRecoverableStablePublishFailure",
+      "getRemoteTagSha",
+      "core",
+      "recoverDownstreamNotification",
+      "sleep",
+      "releaseSha",
+      "packageRef",
+      "coreVersionChanged",
+      "workflowRef",
+      "downstreamNotificationFailureUrl",
+      "downstreamNotificationRecoveryUrl",
+      "downstreamNotificationRecoveryError",
+      `${source.slice(stablePublishStart, stablePublishEnd)}
+${source.slice(publicationStart, publicationEnd)}
+return { publicationError, publicationStatusUnknownError, publicationUnavailable, siteWorkflowRef, downstreamNotificationFailureUrl, downstreamNotificationRecoveryUrl, downstreamNotificationRecoveryError };`,
+    ) as (...args: unknown[]) => Promise<{
+      publicationError: Error | null;
+      publicationStatusUnknownError?: Error | null;
+      publicationUnavailable?: Error | null;
+      siteWorkflowRef: string;
+      downstreamNotificationFailureUrl?: string;
+      downstreamNotificationRecoveryUrl?: string;
+      downstreamNotificationRecoveryError?: Error;
+    }>;
+    const result = await runScenario(
+      (timeoutMs: number) => Date.now() + timeoutMs,
+      15_000,
+      {
+        rest: {
+          actions: {
+            listWorkflowRuns: async () => ({
+              data: { workflow_runs: [workflowRun] },
+            }),
+          },
+        },
+      },
+      "BuilderIO",
+      "agent-native",
+      async () => ({ conclusion: "failure" }),
+      async () => {},
+      async () => mergeSha,
+      {
+        warning: () => {},
+        error: (message: string) => errors.push(message),
+      },
+      async () => {
+        throw new Error("notification API unavailable");
+      },
+      async () => {},
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      true,
+      "@agent-native/core@1.2.3",
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    assert.equal(result.publicationError, null);
+    assert.equal(result.siteWorkflowRef, "@agent-native/core@1.2.3");
+    assert.match(
+      result.downstreamNotificationRecoveryError?.message ?? "",
+      /notification API unavailable/,
+    );
+    assert.match(errors[0] ?? "", /continuing desktop and production releases/);
+
+    const unknownErrors: string[] = [];
+    const unknownResult = await runScenario(
+      (timeoutMs: number) => Date.now() + timeoutMs,
+      15_000,
+      {
+        rest: {
+          actions: {
+            listWorkflowRuns: async () => {
+              throw new Error("GitHub API read failed");
+            },
+          },
+        },
+      },
+      "BuilderIO",
+      "agent-native",
+      async () => ({ conclusion: "success" }),
+      async () => {},
+      async () => mergeSha,
+      {
+        warning: () => {},
+        error: (message: string) => unknownErrors.push(message),
+      },
+      async () => {},
+      async () => {},
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      true,
+      "@agent-native/core@1.2.3",
+      undefined,
+      undefined,
+      undefined,
+    );
+    assert.equal(unknownResult.publicationError, null);
+    assert.match(
+      unknownResult.publicationStatusUnknownError?.message ?? "",
+      /GitHub API read failed/,
+    );
+    assert.equal(
+      unknownResult.publicationUnavailable,
+      unknownResult.publicationStatusUnknownError,
+    );
+    assert.equal(unknownResult.siteWorkflowRef, "main");
+    assert.match(unknownErrors[0] ?? "", /publication status is unknown/);
+
+    const downstreamStart = source.indexOf(
+      "const downstream = await Promise.allSettled",
+    );
+    const downstreamEnd = source.indexOf("const failures =", downstreamStart);
+    assert.ok(downstreamStart >= 0 && downstreamEnd > downstreamStart);
+    const dispatches: string[] = [];
+    const releaseDownstream = new AsyncFunction(
+      "publicationUnavailable",
+      "releaseSha",
+      "workflowRef",
+      "siteWorkflowRef",
+      "desktopVersion",
+      "clipsVersion",
+      "productionSites",
+      "dispatchAndWait",
+      "dispatchDocsAndReconcile",
+      `${source.slice(downstreamStart, downstreamEnd)}
+return downstream;`,
+    ) as (...args: unknown[]) => Promise<unknown>;
+    await releaseDownstream(
+      result.publicationUnavailable,
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      result.siteWorkflowRef,
+      "1.2.3",
+      "1.2.3",
+      ["design"],
+      async (workflow: string) => {
+        dispatches.push(workflow);
+        return { run: { id: dispatches.length }, error: null };
+      },
+      async () => ({ run: { id: 4 }, error: null }),
+    );
+    assert.deepEqual(dispatches, [
+      "desktop-release.yml",
+      "clips-desktop-release.yml",
+      "deploy-production-sites-prebuilt.yml",
+    ]);
+
+    const unknownDispatches: string[] = [];
+    await releaseDownstream(
+      unknownResult.publicationUnavailable,
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      unknownResult.siteWorkflowRef,
+      "1.2.3",
+      "1.2.3",
+      ["design"],
+      async (workflow: string) => {
+        unknownDispatches.push(workflow);
+        return { run: { id: unknownDispatches.length }, error: null };
+      },
+      async () => ({ run: { id: 4 }, error: null }),
+    );
+    assert.deepEqual(unknownDispatches, [
+      "deploy-production-sites-prebuilt.yml",
+    ]);
+  });
+
+  it("does not reserve desktop release tags when npm publication is unavailable", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const reservationStart = source.indexOf("let desktopVersion;");
+    const reservationEnd = source.indexOf(
+      "// Downstream workflows own these reserved tags after dispatch.",
+      reservationStart,
+    );
+    assert.ok(reservationStart >= 0 && reservationEnd > reservationStart);
+
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const selectDesktopVersions = new AsyncFunction(
+      "publicationUnavailable",
+      "publicationError",
+      "releaseSha",
+      "readJsonAt",
+      "stableVersion",
+      "reserveStableVersion",
+      "cleanupReservedTags",
+      "core",
+      `${source.slice(reservationStart, reservationEnd)}
+return { desktopVersion, clipsVersion };`,
+    ) as (
+      publicationUnavailable: Error | null,
+      releaseSha: string,
+      readJsonAt: (sha: string, path: string) => Promise<{ version: string }>,
+      stableVersion: (version: string, label: string) => string,
+      reserveStableVersion: (
+        prefix: string,
+        version: string,
+        sha: string,
+      ) => Promise<string>,
+      cleanupReservedTags: () => Promise<void>,
+      core: { info: (message: string) => void },
+    ) => Promise<{
+      desktopVersion: string | undefined;
+      clipsVersion: string | undefined;
+    }>;
+
+    const reads: string[] = [];
+    const reservations: { prefix: string; version: string; sha: string }[] = [];
+    const dependencies = {
+      readJsonAt: async (sha: string, filePath: string) => {
+        reads.push(`${sha}:${filePath}`);
+        return { version: filePath.includes("clips") ? "2.3.4" : "1.2.3" };
+      },
+      stableVersion: (version: string) => version,
+      reserveStableVersion: async (
+        prefix: string,
+        version: string,
+        sha: string,
+      ) => {
+        reservations.push({ prefix, version, sha });
+        return version;
+      },
+      cleanupReservedTags: async () => {},
+      core: { info: () => {} },
+    };
+
+    const unavailable = await selectDesktopVersions(
+      new Error("npm publication status is unknown"),
+      null,
+      "a".repeat(40),
+      dependencies.readJsonAt,
+      dependencies.stableVersion,
+      dependencies.reserveStableVersion,
+      dependencies.cleanupReservedTags,
+      dependencies.core,
+    );
+    assert.deepEqual(unavailable, {
+      desktopVersion: undefined,
+      clipsVersion: undefined,
+    });
+    assert.deepEqual(reads, []);
+    assert.deepEqual(reservations, []);
+
+    const verified = await selectDesktopVersions(
+      null,
+      null,
+      "b".repeat(40),
+      dependencies.readJsonAt,
+      dependencies.stableVersion,
+      dependencies.reserveStableVersion,
+      dependencies.cleanupReservedTags,
+      dependencies.core,
+    );
+    assert.deepEqual(verified, {
+      desktopVersion: "1.2.3",
+      clipsVersion: "2.3.4",
+    });
+    assert.deepEqual(reservations, [
+      { prefix: "v", version: "1.2.3", sha: "b".repeat(40) },
+      { prefix: "clips-v", version: "2.3.4", sha: "b".repeat(40) },
+    ]);
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {
@@ -1516,11 +2309,19 @@ return waitForReleaseMerge;`,
     const source = String((coordinator.with as Workflow).script);
     assert.match(
       source,
-      /try \{\s*await waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\);\s*\} catch \(error\) \{\s*publicationError =/,
+      /function stablePackagePublicationError\(message, outcome\)/,
     );
     assert.match(
       source,
-      /const siteWorkflowRef = publicationError \? "main" : workflowRef/,
+      /publicationFailure\.publicationOutcome === "failed"[\s\S]*?publicationError = publicationFailure[\s\S]*?publicationStatusUnknownError = publicationFailure/,
+    );
+    assert.match(
+      source,
+      /const publicationUnavailable = publicationError \|\| publicationStatusUnknownError/,
+    );
+    assert.match(
+      source,
+      /const siteWorkflowRef = publicationUnavailable \? "main" : workflowRef/,
     );
     assert.match(
       source,
@@ -1528,11 +2329,11 @@ return waitForReleaseMerge;`,
     );
     assert.match(
       source,
-      /publicationError\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"desktop-release\.yml"/,
+      /publicationUnavailable\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"desktop-release\.yml"/,
     );
     assert.match(
       source,
-      /publicationError\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"clips-desktop-release\.yml"/,
+      /publicationUnavailable\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"clips-desktop-release\.yml"/,
     );
     assert.match(
       source,
@@ -1540,7 +2341,7 @@ return waitForReleaseMerge;`,
     );
     assert.match(
       source,
-      /const failures = publicationError \? \[publicationError\.message\] : \[\]/,
+      /if \(publicationStatusUnknownError\) \{\s*failures\.push\(\s*`Stable npm publication status is unknown/,
     );
     assert.match(
       source,

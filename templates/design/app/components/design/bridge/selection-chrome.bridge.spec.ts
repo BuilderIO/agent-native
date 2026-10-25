@@ -115,6 +115,8 @@ async function startAltMeasurement(
   });
   await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
   await select(page, "#selected");
+  // #hovered sits in an unnamed column; Cmd reaches it as Cmd+click does.
+  await page.keyboard.down("Meta");
   await page.keyboard.down("Alt");
   await page.mouse.move(520, 410, { steps: 3 });
   await page.waitForFunction(() => {
@@ -825,6 +827,8 @@ describe("editor chrome selection overlays", () => {
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
+      // The hovered layer sits in an unnamed parent; Cmd reaches it.
+      await page.keyboard.down("Meta");
       await page.keyboard.down("Alt");
       await page.mouse.move(520, 410, { steps: 3 });
 
@@ -922,6 +926,8 @@ describe("editor chrome selection overlays", () => {
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
+      // The hovered layer sits in an unnamed parent; Cmd reaches it.
+      await page.keyboard.down("Meta");
       await page.keyboard.down("Alt");
       await page.mouse.move(530, 410, { steps: 3 });
 
@@ -1471,6 +1477,8 @@ describe("editor chrome selection overlays", () => {
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
+      // The hovered layer sits in an unnamed parent; Cmd reaches it.
+      await page.keyboard.down("Meta");
       await page.keyboard.down("Alt");
       await page.mouse.move(520, 410, { steps: 3 });
       await page.waitForFunction(() => {

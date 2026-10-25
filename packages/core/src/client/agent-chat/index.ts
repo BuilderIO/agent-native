@@ -195,6 +195,8 @@ export {
 } from "../use-chat-thread-list.js";
 export {
   ChatThreadListError,
+  ChatThreadMutationError,
+  hideChatThread,
   fetchChatThreadListPage,
   notifyChatThreadsUpdated,
   useChatThreads,

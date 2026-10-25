@@ -149,7 +149,7 @@ export function useEditorModes({
   const {
     setRuntimeLayerSnapshotRequest,
     lastOverviewSelectedScreenIdsRef,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     drawMode,
     setDrawMode,
     pinMode,
@@ -920,7 +920,7 @@ export function useEditorModes({
   }, [embedded, handleToggleKeyboardShortcuts]);
 
   const handleEscapeHotkey = useCallback(() => {
-    recordSelectionHistoryAroundChange(() =>
+    applySelectionChange(() =>
       runEscapeHotkey({
         activeBreakpointWidthStateRef,
         activeTool,
@@ -971,7 +971,7 @@ export function useEditorModes({
     mode,
     overviewAnnotationSending,
     pinMode,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     selectedElement,
     selectedLayerIdsState,
     setCreatedOverviewLayerSelection,

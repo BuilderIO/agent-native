@@ -100,7 +100,7 @@ describe("plan block registry — tabs", () => {
     const source = tabsContent();
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 
@@ -141,7 +141,7 @@ describe("plan block registry — tabs", () => {
 
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 

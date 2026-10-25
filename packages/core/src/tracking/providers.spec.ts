@@ -461,6 +461,29 @@ describe("tracking providers", () => {
     expect(flushed).toBe(true);
   });
 
+  it("times out every provider's send", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("MIXPANEL_TOKEN", "mp_test");
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    vi.stubEnv("TRACKING_WEBHOOK_URL", "https://hooks.example.test/track");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("qa_event", { app: "qa" }, { userId: "u1" });
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(timeout).toHaveBeenCalledWith(10_000);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
   it("does not register Agent-Native Analytics for localhost app URLs", async () => {
     vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv("APP_URL", "http://localhost:3000");

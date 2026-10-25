@@ -15,6 +15,7 @@ this file records only invariants.
 A few entry points:
 
 - `adding-a-feature` — four-area feature checklist.
+- `decisions` — when using capability-aware classification and scoring.
 - `content-product-development` — Content's product contract and shared changes.
 - `writing-agent-instructions` — before editing instructions, skills, or tool/action descriptions.
 - `verifying-changes` — exercise the broken path before calling a fix done.
@@ -137,12 +138,15 @@ exist, and both are narrow on purpose.
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
-`no-bare-error-in-actions`, `external-result-contract`, and
-`no-source-reading-tests` check only lines this branch added, so the
+`no-bare-error-in-actions`, `external-result-contract`,
+`no-source-reading-tests`, `action-output-schema`, `strict-lint`, and
+`compiler-strictness` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
-`no-new-legacy-mcp-hints` has none: the MCP `destructiveHint` baseline only
-shrinks.
+`no-new-legacy-mcp-hints`, `no-new-escape-hatches`, and `compiler-strictness`
+have none: the MCP `destructiveHint` baseline, each file's count of `any`,
+`!`, and suppression comments, and the list of tsconfig strictness opt-outs
+only shrink.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via

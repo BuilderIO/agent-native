@@ -32,6 +32,7 @@ import {
 } from "h3";
 
 import type { ActionRunContext } from "../action.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -70,6 +71,8 @@ import {
   type McpPrincipal,
 } from "./principal.js";
 import {
+  InvalidMcpHeaderConfigurationError,
+  McpHeaderSecretUnavailableError,
   addRemoteServer,
   listRemoteServers,
   mergedConfigKey,
@@ -268,8 +271,37 @@ export async function buildMergedConfig(
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
-      servers[mergedConfigKey(scope, stored, ownerId)] =
-        await toHttpServerConfigAsync(scope, ownerId, stored);
+      const mergedKey = mergedConfigKey(scope, stored, ownerId);
+      try {
+        servers[mergedKey] = await toHttpServerConfigAsync(
+          scope,
+          ownerId,
+          stored,
+        );
+      } catch (error) {
+        if (
+          !(
+            error instanceof InvalidMcpHeaderConfigurationError ||
+            error instanceof AppSecretDecryptionError ||
+            error instanceof McpHeaderSecretUnavailableError
+          )
+        ) {
+          throw error;
+        }
+        servers[mergedKey] = {
+          type: "http",
+          url: stored.url,
+          ...(stored.firstParty ? { firstParty: true } : {}),
+          ...(stored.firstPartyAppId
+            ? { firstPartyAppId: stored.firstPartyAppId }
+            : {}),
+          ...(stored.firstParty && scope === "org"
+            ? { firstPartyOrgId: ownerId }
+            : {}),
+          description: stored.description,
+          configurationError: error,
+        };
+      }
     }
   }
   if (includeBuiltins) {
@@ -1170,7 +1202,37 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  let config: Awaited<ReturnType<typeof toHttpServerConfigAsync>>;
+  try {
+    config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  } catch (error) {
+    if (error instanceof InvalidMcpHeaderConfigurationError) {
+      setResponseStatus(event, 400);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    if (error instanceof AppSecretDecryptionError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error:
+          "A saved MCP server credential could not be read. Retry or replace it before testing.",
+        errorCode: error.errorCode,
+      };
+    }
+    if (error instanceof McpHeaderSecretUnavailableError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    throw error;
+  }
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
     setResponseStatus(event, 400);

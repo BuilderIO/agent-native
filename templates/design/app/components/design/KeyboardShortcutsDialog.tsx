@@ -6,11 +6,9 @@ import { createCoreCommands } from "@/components/design/code-workbench/commands"
 import {
   buildShortcutSections,
   type ShortcutRow,
+  type ShortcutSectionCategory,
 } from "@/components/design/keyboard-shortcut-sections";
-import {
-  type DesignShortcutCategory,
-  formatShortcutKeycaps,
-} from "@/components/design/keyboard-shortcuts";
+import { formatShortcutKeycaps } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -164,19 +162,8 @@ function ShortcutRowView({ row }: { row: ShortcutRow }) {
       <span className="min-w-0 truncate text-sm text-foreground">
         {row.label}
         {row.badge ? (
-          <span
-            className={cn(
-              "ms-2 rounded px-1 py-0.5 align-middle text-[10px] uppercase tracking-wide",
-              row.badge === "code"
-                ? "bg-primary/10 text-primary"
-                : "bg-muted text-muted-foreground",
-            )}
-          >
-            {t(
-              row.badge === "code"
-                ? "designEditor.keyboardShortcuts.codeContext"
-                : "designEditor.keyboardShortcuts.screenContext",
-            )}
+          <span className="ms-2 rounded bg-muted px-1 py-0.5 align-middle text-[10px] uppercase tracking-wide text-muted-foreground">
+            {t("designEditor.keyboardShortcuts.screenContext")}
           </span>
         ) : null}
       </span>
@@ -195,7 +182,7 @@ function KeyboardShortcutsBody({
   const t = useT();
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] =
-    useState<DesignShortcutCategory>("essential");
+    useState<ShortcutSectionCategory>("essential");
   const listRef = useRef<HTMLDivElement | null>(null);
   const spyLockedUntilRef = useRef(0);
   const codeCommands = useMemo(() => createCoreCommands(), []);
@@ -228,7 +215,7 @@ function KeyboardShortcutsBody({
     );
   };
 
-  const handleCategoryClick = (category: DesignShortcutCategory) => {
+  const handleCategoryClick = (category: ShortcutSectionCategory) => {
     const list = listRef.current;
     const top = sectionTop(category);
     setActiveCategory(category);
@@ -241,7 +228,7 @@ function KeyboardShortcutsBody({
     if (Date.now() < spyLockedUntilRef.current) return;
     const list = listRef.current;
     if (!list) return;
-    let current: DesignShortcutCategory | null = null;
+    let current: ShortcutSectionCategory | null = null;
     for (const section of sections) {
       const top = sectionTop(section.category);
       if (top !== null && top <= list.scrollTop + 8) current = section.category;
