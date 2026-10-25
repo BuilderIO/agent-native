@@ -277,15 +277,27 @@ class AcpHarnessSession implements AgentHarnessSession {
 
   async approve(approval: AgentHarnessApproval): Promise<void> {
     const pending = this.pendingPermissions.get(approval.id);
-    if (!pending) return;
+    if (!pending) {
+      throw new Error(
+        `[acp-harness] Approval ${approval.id} is not pending in this process.`,
+      );
+    }
     this.pendingPermissions.delete(approval.id);
     pending.resolve(
       buildAcpPermissionResponse(pending.options, approval.approved),
     );
   }
 
+  canResolveApproval(approval: AgentHarnessApproval): boolean {
+    return this.pendingPermissions.has(approval.id);
+  }
+
+  async checkpoint(): Promise<unknown> {
+    return { sessionId: this.acpSessionId, cwd: this.cwd };
+  }
+
   async detach(): Promise<unknown> {
-    const state = { sessionId: this.acpSessionId, cwd: this.cwd };
+    const state = await this.checkpoint();
     await this.destroy();
     return state;
   }

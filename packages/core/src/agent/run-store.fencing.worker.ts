@@ -1,5 +1,8 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
+import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 import postgres from "postgres";
 import { z } from "zod";
@@ -17,6 +20,11 @@ import { withMigrationRuntime } from "../db/migration-runtime.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
+  releaseLiveAgentHarnessSession,
+  resolveAgentHarnessApproval,
+} from "./harness/lifecycle.js";
+import { registerAgentHarness } from "./harness/registry.js";
+import {
   claimAgentHarnessSessionFollowUp,
   ensureAgentHarnessSessionTables,
   markAgentHarnessSessionFollowUpDispatched,
@@ -27,6 +35,12 @@ import {
   startAgentHarnessSessionExpiryCleanup,
   type AgentHarnessSessionStatus,
 } from "./harness/store.js";
+import type {
+  AgentHarnessAdapter,
+  AgentHarnessApproval,
+  AgentHarnessEvent,
+  AgentHarnessSession,
+} from "./harness/types.js";
 import type { ActionEntry } from "./production-agent.js";
 import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
 import {
@@ -102,6 +116,137 @@ async function announceDatabaseBackend(sql: postgres.Sql): Promise<void> {
 
 let databaseBackendPid: number | undefined;
 
+interface NativeApprovalAck {
+  type: "approval-ack";
+  sessionId: string;
+  id: string;
+  approved: boolean;
+}
+
+class SubprocessApprovalSession implements AgentHarnessSession {
+  readonly id: string;
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly ready: Promise<void>;
+  readonly closed: Promise<{
+    exitCode: number | null;
+    signal: NodeJS.Signals | null;
+  }>;
+  lastApprovalAck: NativeApprovalAck | undefined;
+  exitCode: number | null = null;
+  private resolveReady!: () => void;
+  private rejectReady!: (error: Error) => void;
+  private resolveApprovalAck: ((ack: NativeApprovalAck) => void) | undefined;
+  private rejectApprovalAck: ((error: Error) => void) | undefined;
+
+  constructor(nativeSessionId: string, storedSessionId: string) {
+    this.id = storedSessionId;
+    const fixturePath = fileURLToPath(
+      new URL("./run-store.fencing.native-harness.fixture.ts", import.meta.url),
+    );
+    this.child = spawn(
+      process.execPath,
+      ["--import", "tsx", fixturePath, nativeSessionId],
+      {
+        cwd: process.cwd(),
+        env: {},
+        stdio: "pipe",
+      },
+    );
+    const lines = createInterface({
+      input: this.child.stdout,
+      crlfDelay: Infinity,
+    });
+    this.ready = new Promise<void>((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    this.closed = new Promise((resolve) => {
+      this.child.once("close", (exitCode, signal) => {
+        this.exitCode = exitCode;
+        resolve({ exitCode, signal });
+      });
+    });
+    lines.on("line", (line) => {
+      let message: Record<string, unknown>;
+      try {
+        message = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        this.rejectReady(new Error("Native harness returned invalid JSON."));
+        return;
+      }
+      if (message.type === "ready" && message.sessionId === nativeSessionId) {
+        this.resolveReady();
+        return;
+      }
+      if (
+        message.type === "approval-ack" &&
+        typeof message.sessionId === "string" &&
+        typeof message.id === "string" &&
+        typeof message.approved === "boolean"
+      ) {
+        const ack = message as unknown as NativeApprovalAck;
+        this.lastApprovalAck = ack;
+        this.resolveApprovalAck?.(ack);
+        this.resolveApprovalAck = undefined;
+        this.rejectApprovalAck = undefined;
+      }
+    });
+    this.child.once("error", (error) => {
+      this.rejectReady(error);
+      this.rejectApprovalAck?.(error);
+    });
+    this.child.stderr.resume();
+  }
+
+  async *streamTurn(): AsyncGenerator<AgentHarnessEvent> {
+    throw new Error("The approval recovery test does not start a new turn.");
+  }
+
+  rejectStartup(error: Error): void {
+    this.rejectReady(error);
+  }
+
+  async approve(approval: AgentHarnessApproval): Promise<void> {
+    await this.ready;
+    const ack = new Promise<NativeApprovalAck>((resolve, reject) => {
+      this.resolveApprovalAck = resolve;
+      this.rejectApprovalAck = reject;
+    });
+    this.child.stdin.write(
+      `${JSON.stringify({ type: "approve", ...approval })}\n`,
+    );
+    const timer = setTimeout(
+      () => this.rejectApprovalAck?.(new Error("Native approval timed out.")),
+      10_000,
+    );
+    try {
+      const received = await ack;
+      if (
+        received.id !== approval.id ||
+        received.approved !== approval.approved
+      ) {
+        throw new Error("Native harness acknowledged a different approval.");
+      }
+    } finally {
+      clearTimeout(timer);
+      this.resolveApprovalAck = undefined;
+      this.rejectApprovalAck = undefined;
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.child.stdin.end();
+    const timer = setTimeout(() => {
+      if (this.child.exitCode === null && this.child.signalCode === null) {
+        this.child.kill("SIGKILL");
+      }
+    }, 2_000);
+    timer.unref?.();
+    await this.closed;
+    clearTimeout(timer);
+  }
+}
+
 async function main(): Promise<void> {
   const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
   if (!databaseUrl) throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required");
@@ -126,6 +271,92 @@ async function main(): Promise<void> {
           ),
         );
         writeSync(1, JSON.stringify({ status: "unexpected-write" }));
+        return;
+      }
+      if (mode === "harness-approval-rehydrate-subprocess") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const { approvalId, ownerEmail, orgId } = JSON.parse(
+          extra ?? "null",
+        ) as {
+          approvalId: string;
+          ownerEmail: string;
+          orgId: string;
+        };
+        let nativeSession: SubprocessApprovalSession | undefined;
+        const adapter: AgentHarnessAdapter = {
+          name: "subprocess-approval-test",
+          label: "Subprocess approval test",
+          description:
+            "Exercises approval recovery with a native child process.",
+          capabilities: {
+            sandbox: false,
+            resumable: true,
+            approvals: true,
+            hostTools: false,
+            fileEvents: false,
+          },
+          async createSession(options) {
+            const resumeState = options.resumeState as
+              | { sessionId?: unknown }
+              | undefined;
+            if (typeof resumeState?.sessionId !== "string") {
+              throw new Error("A persisted native session id is required.");
+            }
+            const session = new SubprocessApprovalSession(
+              resumeState.sessionId,
+              options.sessionId ?? threadId,
+            );
+            nativeSession = session;
+            const readyTimeout = setTimeout(
+              () =>
+                session.rejectStartup(
+                  new Error("Native harness did not start."),
+                ),
+              10_000,
+            );
+            try {
+              await session.ready;
+            } catch (error) {
+              await session.stop();
+              throw error;
+            } finally {
+              clearTimeout(readyTimeout);
+            }
+            return session;
+          },
+        };
+        registerAgentHarness({
+          name: adapter.name,
+          label: adapter.label,
+          description: adapter.description,
+          capabilities: adapter.capabilities,
+          create: () => adapter,
+        });
+        let result;
+        try {
+          result = await resolveAgentHarnessApproval({
+            runId,
+            approval: { id: approvalId, approved: true },
+            scope: { ownerEmail, orgId },
+          });
+        } finally {
+          if (nativeSession) {
+            releaseLiveAgentHarnessSession(threadId, nativeSession);
+            await nativeSession.stop();
+          }
+        }
+        writeSync(
+          1,
+          JSON.stringify({
+            ok: result.ok,
+            errorCode: result.errorCode,
+            error: result.error,
+            resolvedApprovalIds: result.session?.resolvedApprovalIds ?? [],
+            pendingApproval: result.session?.pendingApproval ?? null,
+            nativeApprovalAck: nativeSession?.lastApprovalAck,
+            nativeExitCode: nativeSession?.exitCode,
+          }),
+        );
         return;
       }
       if (mode === "queue-submit" || mode === "queue-submit-ack-barrier") {

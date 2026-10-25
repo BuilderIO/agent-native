@@ -202,7 +202,10 @@ export function startAgentHarnessRun(
                 harnessSession,
                 stored.resumeState,
                 undefined,
-                undefined,
+                async () =>
+                  harnessSession!.checkpoint
+                    ? harnessSession!.checkpoint!()
+                    : stored.resumeState,
                 true,
               );
               return;
@@ -457,12 +460,14 @@ async function persistHarnessCheckpoint(
     }
     const pendingApproval = checkpointPendingApproval(stored);
     try {
-      const checkpointResumeState =
-        waitedForApprovalResolution || preserveLatestResumeState
-          ? stored.resumeState
-          : resolveResumeState
-            ? await resolveResumeState()
-            : resumeState;
+      const preserveStoredResumeState =
+        waitedForApprovalResolution ||
+        (preserveLatestResumeState && !pendingApproval);
+      const checkpointResumeState = preserveStoredResumeState
+        ? stored.resumeState
+        : resolveResumeState
+          ? await resolveResumeState()
+          : resumeState;
       beforeCheckpoint?.();
       const updated = await updateAgentHarnessSessionAtGeneration(
         sessionId,

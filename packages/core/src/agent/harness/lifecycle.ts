@@ -209,16 +209,8 @@ export async function resolveAgentHarnessApproval(input: {
       );
     }
 
-    const live = ownedLiveSession(session.id, input.scope);
-    if (!live) {
-      return failure(
-        input.runId,
-        session,
-        "unavailable",
-        "The pending approval belongs to a harness process that is no longer live and cannot be reconstructed safely.",
-      );
-    }
-    if (!live.session.approve && !live.session.continueTurn) {
+    let live = ownedLiveSession(session.id, input.scope);
+    if (live && !live.session.approve && !live.session.continueTurn) {
       return failure(
         input.runId,
         session,
@@ -226,7 +218,7 @@ export async function resolveAgentHarnessApproval(input: {
         `Harness ${session.harnessName} does not expose approval continuation.`,
       );
     }
-    if (live.expiryCleanupInProgress) {
+    if (live?.expiryCleanupInProgress) {
       return failure(
         input.runId,
         session,
@@ -234,19 +226,30 @@ export async function resolveAgentHarnessApproval(input: {
         "The live harness session is being cleaned up and cannot resolve approval.",
       );
     }
+    if (
+      live?.session.canResolveApproval &&
+      !(await live.session.canResolveApproval(input.approval))
+    ) {
+      return failure(
+        input.runId,
+        session,
+        "unavailable",
+        "The harness no longer has the pending approval request in this process.",
+      );
+    }
 
-    live.approvalResolutionInProgress = true;
     const approvalAbort = new AbortController();
     let finalizing = false;
     let stopWatchingApprovalClaim: (() => void) | undefined;
     let approvalClaimAcquired = false;
     let approvalResolutionStarted: StoredAgentHarnessSession | null = null;
+    let rehydratedSession: AgentHarnessSession | undefined;
     let providerDispatchStarted = false;
     try {
       const resolutionStarted = await beginApprovalResolution(
         input.runId,
         input.approval.id,
-        live.session,
+        live?.session,
       );
       if (!resolutionStarted) {
         const latest = await getAgentHarnessSessionByRunId(input.runId);
@@ -266,6 +269,83 @@ export async function resolveAgentHarnessApproval(input: {
         () => finalizing,
       );
 
+      if (!live) {
+        const acquired = await acquireSession(resolutionStarted, input.scope);
+        if (!acquired.ok) {
+          const latest = await releaseUndispatchedApprovalResolution({
+            runId: input.runId,
+            session: resolutionStarted,
+            approvalId: input.approval.id,
+          });
+          return failure(
+            input.runId,
+            latest ?? acquired.result.session ?? session,
+            acquired.result.errorCode ?? "unavailable",
+            acquired.result.error ?? "Harness session could not be resumed.",
+          );
+        }
+        live = acquired.live;
+        if (acquired.rehydrated) {
+          rehydratedSession = acquired.live.session;
+        }
+      }
+      const activeLive = live;
+      if (!activeLive) {
+        throw new Error("Approval claim has no acquired harness session.");
+      }
+      if (!activeLive.session.approve && !activeLive.session.continueTurn) {
+        const latest = await releaseUndispatchedApprovalResolution({
+          runId: input.runId,
+          session: resolutionStarted,
+          approvalId: input.approval.id,
+          liveSession: activeLive.session,
+        });
+        if (rehydratedSession) {
+          await stopAcquiredHarnessSession(session.id, rehydratedSession);
+        }
+        return failure(
+          input.runId,
+          latest ?? session,
+          "unavailable",
+          `Harness ${session.harnessName} does not expose approval continuation.`,
+        );
+      }
+      if (activeLive.expiryCleanupInProgress) {
+        const latest = await releaseUndispatchedApprovalResolution({
+          runId: input.runId,
+          session: resolutionStarted,
+          approvalId: input.approval.id,
+          liveSession: activeLive.session,
+        });
+        return failure(
+          input.runId,
+          latest ?? session,
+          "unavailable",
+          "The live harness session is being cleaned up and cannot resolve approval.",
+        );
+      }
+      if (
+        activeLive.session.canResolveApproval &&
+        !(await activeLive.session.canResolveApproval(input.approval))
+      ) {
+        const latest = await releaseUndispatchedApprovalResolution({
+          runId: input.runId,
+          session: resolutionStarted,
+          approvalId: input.approval.id,
+          liveSession: activeLive.session,
+        });
+        if (rehydratedSession) {
+          await stopAcquiredHarnessSession(session.id, rehydratedSession);
+        }
+        return failure(
+          input.runId,
+          latest ?? session,
+          "unavailable",
+          "The harness no longer has the pending approval request in this process.",
+        );
+      }
+      activeLive.approvalResolutionInProgress = true;
+
       const dispatch = await startAgentHarnessSessionApprovalDispatch(
         session.id,
         resolutionStarted.status,
@@ -273,15 +353,16 @@ export async function resolveAgentHarnessApproval(input: {
         input.approval.id,
         () => {
           providerDispatchStarted = true;
-          if (live.session.approve) {
-            const result = live.session.approve(input.approval);
+          const liveSession = activeLive.session;
+          if (liveSession.approve) {
+            const result = liveSession.approve(input.approval);
             void result.catch(() => {});
             return {
               kind: "approve" as const,
               result,
             };
           }
-          const stream = live.session.continueTurn!({
+          const stream = liveSession.continueTurn!({
             approval: input.approval,
           });
           const iterator = stream[Symbol.asyncIterator]();
@@ -300,7 +381,7 @@ export async function resolveAgentHarnessApproval(input: {
           runId: input.runId,
           session: resolutionStarted,
           approvalId: input.approval.id,
-          liveSession: live.session,
+          liveSession: activeLive.session,
         });
         return failure(
           input.runId,
@@ -311,7 +392,7 @@ export async function resolveAgentHarnessApproval(input: {
       }
       refreshLiveAgentHarnessSessionGeneration(
         session.id,
-        live.session,
+        activeLive.session,
         dispatch.session.generation,
       );
 
@@ -333,7 +414,7 @@ export async function resolveAgentHarnessApproval(input: {
             approvalResolutionStatus: dispatch.session.status,
             firstNext: dispatch.started.firstNext,
             iterator: dispatch.started.iterator,
-            liveSession: live.session,
+            liveSession: activeLive.session,
             abortSignal: approvalAbort.signal,
             persistEvent: async (event) => {
               if (event.type === "done") return;
@@ -358,8 +439,8 @@ export async function resolveAgentHarnessApproval(input: {
           event.type === "approval-request",
       );
       const detachResumeState =
-        continued && !nextPending && live.session.detach
-          ? () => live.session.detach!()
+        continued && !nextPending && activeLive.session.detach
+          ? () => activeLive.session.detach!()
           : undefined;
       let updated: StoredAgentHarnessSession | null;
       finalizing = true;
@@ -369,7 +450,7 @@ export async function resolveAgentHarnessApproval(input: {
           approvalId: input.approval.id,
           nextPending,
           detachResumeState,
-          liveSession: live.session,
+          liveSession: activeLive.session,
         });
       } catch (error) {
         if (!isAgentHarnessSessionConflictError(error)) throw error;
@@ -403,7 +484,7 @@ export async function resolveAgentHarnessApproval(input: {
         !asPendingApproval(updated.pendingApproval) &&
         !updated.followUpClaimId
       ) {
-        releaseLiveAgentHarnessSession(session.id, live.session);
+        releaseLiveAgentHarnessSession(session.id, activeLive.session);
       }
       if (continued && events.some((event) => event.type === "done")) {
         await input.onHarnessEvent?.({ type: "done" });
@@ -431,10 +512,10 @@ export async function resolveAgentHarnessApproval(input: {
                   runId: input.runId,
                   session: approvalResolutionStarted,
                   approvalId: input.approval.id,
-                  liveSession: live.session,
+                  liveSession: live?.session,
                 })
               : null;
-          if (recovered) {
+          if (recovered && live) {
             refreshLiveAgentHarnessSessionGeneration(
               session.id,
               live.session,
@@ -451,7 +532,7 @@ export async function resolveAgentHarnessApproval(input: {
       throw error;
     } finally {
       stopWatchingApprovalClaim?.();
-      live.approvalResolutionInProgress = false;
+      if (live) live.approvalResolutionInProgress = false;
     }
   });
 }
@@ -536,7 +617,7 @@ async function persistResolvedApproval(input: {
 async function beginApprovalResolution(
   runId: string,
   approvalId: string,
-  liveSession: AgentHarnessSession,
+  liveSession?: AgentHarnessSession,
 ): Promise<StoredAgentHarnessSession | null> {
   let conflict: AgentHarnessSessionConflictError | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -561,11 +642,13 @@ async function beginApprovalResolution(
         latest.followUpClaimId ?? null,
       );
       if (!updated) return null;
-      refreshLiveAgentHarnessSessionGeneration(
-        latest.id,
-        liveSession,
-        updated.generation,
-      );
+      if (liveSession) {
+        refreshLiveAgentHarnessSessionGeneration(
+          latest.id,
+          liveSession,
+          updated.generation,
+        );
+      }
       return updated;
     } catch (error) {
       if (!isAgentHarnessSessionConflictError(error) || attempt === 2) {
@@ -582,7 +665,7 @@ async function releaseUndispatchedApprovalResolution(input: {
   runId: string;
   session: StoredAgentHarnessSession;
   approvalId: string;
-  liveSession: AgentHarnessSession;
+  liveSession?: AgentHarnessSession;
 }): Promise<StoredAgentHarnessSession | null> {
   let latest: StoredAgentHarnessSession | null = input.session;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -603,11 +686,13 @@ async function releaseUndispatchedApprovalResolution(input: {
         expectedFollowUpClaimId: latest.followUpClaimId ?? null,
       });
     if (released) {
-      refreshLiveAgentHarnessSessionGeneration(
-        latest.id,
-        input.liveSession,
-        released.generation,
-      );
+      if (input.liveSession) {
+        refreshLiveAgentHarnessSessionGeneration(
+          latest.id,
+          input.liveSession,
+          released.generation,
+        );
+      }
       return released;
     }
     latest = await getAgentHarnessSessionByRunId(input.runId);
@@ -906,6 +991,10 @@ export async function sendAgentHarnessFollowUp(input: {
                 ? persistedApproval
                 : undefined);
             let resumeState = latest.resumeState ?? session.resumeState;
+            if (pending && acquired.live.session.checkpoint) {
+              const checkpoint = await acquired.live.session.checkpoint();
+              if (checkpoint !== undefined) resumeState = checkpoint;
+            }
             if (
               !pending &&
               !latest.approvalResolutionId &&

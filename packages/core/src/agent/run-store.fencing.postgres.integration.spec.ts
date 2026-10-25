@@ -703,6 +703,66 @@ describe.skipIf(!databaseUrl)(
       });
     }, 45_000);
 
+    it("rehydrates a pending approval in a replacement process through a native subprocess", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:approval-rehydrate-session`;
+        const runId = `${prefix}:approval-rehydrate-run`;
+        const approvalId = `${prefix}:approval-rehydrate`;
+        const nativeSessionId = `${prefix}:native-session`;
+        const ownerEmail = "owner@example.com";
+        await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "subprocess-approval-test",
+            threadId: `${prefix}:thread`,
+            runId,
+            status: "idle",
+            pendingApproval: {
+              type: "approval-request",
+              id: approvalId,
+              tool: "read_file",
+              message: "Allow this read?",
+            },
+            resumeState: { sessionId: nativeSessionId },
+            ownerEmail,
+            orgId: prefix,
+          }),
+        );
+
+        const worker = await runWorker(
+          "harness-approval-rehydrate-subprocess",
+          sessionId,
+          "unused",
+          runId,
+          "unused",
+          JSON.stringify({ approvalId, ownerEmail, orgId: prefix }),
+        );
+
+        expect(worker.exitCode).toBe(0);
+        const outcome = workerJson<Record<string, unknown>>(worker);
+        expect(outcome, JSON.stringify(outcome)).toMatchObject({
+          ok: true,
+          resolvedApprovalIds: [approvalId],
+          pendingApproval: null,
+          nativeApprovalAck: {
+            type: "approval-ack",
+            sessionId: nativeSessionId,
+            id: approvalId,
+            approved: true,
+          },
+          nativeExitCode: 0,
+        });
+        const persisted = await withDbExec(executor(sql), () =>
+          getAgentHarnessSession(sessionId),
+        );
+        expect(persisted).toMatchObject({
+          status: "idle",
+          resolvedApprovalIds: [approvalId],
+        });
+        expect(persisted?.pendingApproval ?? null).toBeNull();
+      });
+    }, 45_000);
+
     it("admits a harness follow-up in only one independent worker", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const sessionId = `${prefix}:harness-session`;

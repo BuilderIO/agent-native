@@ -545,6 +545,104 @@ describe("agent harness lifecycle", () => {
     expect(stored.resolvedApprovalIds).toContain("approval-1");
   });
 
+  it("rehydrates a persisted session before dispatching a pending approval", async () => {
+    const approvalId = "approval-after-restart";
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      session: { pendingApproval: null },
+    });
+    expect(adapter.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: stored.id,
+        threadId: stored.threadId,
+        runId: stored.runId,
+        resumeState: { token: "saved-before-restart" },
+      }),
+    );
+    expect(
+      mocks.claimApprovalResolution.mock.invocationCallOrder[0],
+    ).toBeLessThan(adapter.createSession.mock.invocationCallOrder[0]!);
+    expect(session.approve).toHaveBeenCalledWith({
+      id: approvalId,
+      approved: true,
+    });
+    expect(stored.resolvedApprovalIds).toContain(approvalId);
+  });
+
+  it("releases an approval claim when a restarted session cannot be resumed", async () => {
+    const approvalId = "approval-resume-failed";
+    const adapter = fakeAdapter(fakeSession());
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    adapter.createSession.mockRejectedValueOnce(
+      new Error("provider session is unavailable"),
+    );
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: {
+        pendingApproval: { id: approvalId },
+        approvalResolutionId: null,
+      },
+    });
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a rehydrated approval pending when the provider callback was not restored", async () => {
+    const approvalId = "approval-callback-not-restored";
+    const session = fakeSession();
+    session.canResolveApproval = vi.fn(() => false);
+    const adapter = fakeAdapter(session);
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: {
+        pendingApproval: { id: approvalId },
+        approvalResolutionId: null,
+        resolvedApprovalIds: [],
+      },
+    });
+    expect(session.canResolveApproval).toHaveBeenCalledWith({
+      id: approvalId,
+      approved: true,
+    });
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+  });
+
   it("keeps an approval retryable when dispatch admission does not start the provider", async () => {
     const approvalId = "approval-dispatch-not-started";
     const session = fakeSession();
@@ -2476,9 +2574,8 @@ describe("agent harness lifecycle", () => {
     });
   });
 
-  it("reports approval unavailable when the live callback was lost", async () => {
+  it("keeps approval retryable when its live session and resume state are unavailable", async () => {
     stored.pendingApproval = approvalEvent("approval-lost");
-    stored.resumeState = { token: "saved" };
 
     const result = await resolveAgentHarnessApproval({
       runId: stored.runId!,
@@ -2488,6 +2585,12 @@ describe("agent harness lifecycle", () => {
 
     expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
     expect(mocks.resolveAdapter).not.toHaveBeenCalled();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      pendingApproval: { id: "approval-lost" },
+      approvalResolutionId: null,
+    });
   });
 
   it("fails closed on owner mismatch", async () => {
@@ -2609,6 +2712,7 @@ function fakeAdapter(session: AgentHarnessSession): AgentHarnessAdapter {
 function fakeSession(events: AgentHarnessEvent[] = []): AgentHarnessSession & {
   streamTurn: ReturnType<typeof vi.fn>;
   approve: ReturnType<typeof vi.fn>;
+  canResolveApproval?: ReturnType<typeof vi.fn>;
   detach: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
 } {

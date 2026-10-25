@@ -2203,6 +2203,97 @@ describe("queued submission inbox recurring sweep", () => {
     expect(threadData.queuedMessages[0]).not.toHaveProperty("promotionClaim");
   }, 20_000);
 
+  it("runs an ordinary queued follow-up after completion as a fresh turn", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: "Continue after this turn" },
+      },
+      { actor },
+    );
+    inboxHarness.activeRun = {
+      runId: "active-run-with-dispatched-tool",
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
+    inboxHarness.safeAbort = vi.fn(async () => true);
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: `run-${messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      expect(body.turnId).toBe(`queued-${messageId}`);
+      return `run-${messageId}`;
+    };
+
+    const sweep = await createSweepHandler();
+    const response = await sweep();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 1,
+        claimed: 0,
+        submitted: 0,
+        deferred: 1,
+        failed: 0,
+      },
+    });
+    expect(inboxHarness.safeAbort).not.toHaveBeenCalled();
+    expect(inboxHarness.admissions).toHaveLength(0);
+    await expect(
+      getQueuedSubmissionReceipt(threadId, messageId),
+    ).resolves.toMatchObject({ state: "queued" });
+
+    inboxHarness.activeRun = null;
+    const completeRun = inboxHarness.completeRun;
+    if (!completeRun) throw new Error("Run completion callback not captured");
+    await completeRun(
+      {
+        events: [],
+        runId: "active-run-with-dispatched-tool",
+        startedAt: Date.now() - 1_000,
+        status: "completed",
+        threadId,
+        turnId: "active-turn",
+      },
+      threadId,
+    );
+
+    await vi.waitFor(() => expect(inboxHarness.admissions).toHaveLength(1));
+    expect(inboxHarness.admissions[0]).toMatchObject({
+      threadId,
+      queuedMessageId: messageId,
+      turnId: `queued-${messageId}`,
+      message: "Continue after this turn",
+    });
+    expect(inboxHarness.admissions[0]).not.toHaveProperty("interruptActiveRun");
+    expect(inboxHarness.safeAbort).not.toHaveBeenCalled();
+    await expect(
+      getQueuedSubmissionReceipt(threadId, messageId),
+    ).resolves.toMatchObject({
+      state: "submitted",
+      submittedRunId: `run-${messageId}`,
+    });
+  }, 20_000);
+
   it("does not abort a queued run after its expired promotion claim is removed", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;

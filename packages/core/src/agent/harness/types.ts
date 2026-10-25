@@ -72,6 +72,10 @@ export interface AgentHarnessSession {
     input?: AgentHarnessContinueInput,
   ): AsyncIterable<AgentHarnessEvent>;
   approve?(approval: AgentHarnessApproval): Promise<void>;
+  canResolveApproval?(
+    approval: AgentHarnessApproval,
+  ): boolean | Promise<boolean>;
+  checkpoint?(): Promise<unknown>;
   detach?(): Promise<unknown>;
   stop?(): Promise<unknown>;
   destroy?(): Promise<void>;
