@@ -1,10 +1,14 @@
 /**
- * Who decides an upload's ending when its final chunk and a cancel meet. The
- * final chunk claims the upload here before Clips takes its bytes, and the
- * cancel claims it by failing the upload state; both write the upload state
- * with a compare-and-swap, so only one wins. A cancel that finds the claim
- * leaves the upload to finish and notes itself on the claim, and a final
- * chunk that then fails carries that cancel out.
+ * Where a Content page's upload stands, for every path that has to know: a
+ * repeated start, a cancel, the Content chunk route and the lease reaper.
+ * It is kept in three places, the final chunk's claim, the upload state and
+ * the recording row, and only `phaseOf` reads them together.
+ *
+ * The final chunk claims the upload before Clips takes its bytes, and writes
+ * where the upload went into the upload state before it gives the claim up.
+ * A cancel changes nothing while the claim is live. Both write the upload
+ * state with a compare-and-swap, so a cancel that read it before a claim
+ * fails its own and reads again.
  */
 import crypto from "node:crypto";
 
@@ -13,42 +17,125 @@ import {
   compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
+import { and, eq } from "drizzle-orm";
 import { createError } from "h3";
 
+import { getDb, schema } from "../db/index.js";
+import { ownerEmailMatches } from "./recordings.js";
+
 const MAX_CAS_ATTEMPTS = 8;
+
+/**
+ * How long a claim holds the upload: a little longer than the final chunk's
+ * request can run, which is Clips' function timeout (75 s in
+ * `netlify.toml`). A claim older than this was left by a request that was
+ * cut off, so the upload counts as uploading again, and the next final
+ * chunk or cancel takes it over.
+ */
+export const FINAL_CHUNK_CLAIM_TTL_MS = 2 * 60 * 1000;
+
+/**
+ * - `uploading`: Clips is still taking chunks.
+ * - `finishing`: a final chunk holds the upload.
+ * - `parked`: Clips has the whole file and waits for storage to be connected.
+ * - `finished`: Clips is making the Clip, or made it.
+ * - `ended`: cancelled or failed.
+ */
+export type UploadPhase =
+  | "uploading"
+  | "finishing"
+  | "parked"
+  | "finished"
+  | "ended";
+
+export interface UploadStanding {
+  phase: UploadPhase;
+  /** The recording's own status. */
+  status: string;
+}
 
 const uploadStateKey = (recordingId: string) =>
   `recording-upload-${recordingId}`;
 const claimKey = (recordingId: string) =>
   `recording-upload-final-chunk-${recordingId}`;
 
+/** Where the final chunk left the upload, in the upload state. */
+const OUTCOME = "finalChunkOutcome";
+
 export interface FinalChunkClaim extends Record<string, unknown> {
   claimId: string;
   claimedAt: string;
-  /** A cancel came while the final chunk held the upload. */
-  cancelRequested?: true;
 }
 
-export function readFinalChunkClaim(
-  recordingId: string,
-): Promise<Record<string, unknown> | null> {
-  return readAppState(claimKey(recordingId));
+function liveClaim(
+  claim: Record<string, unknown> | null,
+  now: number,
+): boolean {
+  if (!claim) return false;
+  const claimedAt =
+    typeof claim.claimedAt === "string" ? Date.parse(claim.claimedAt) : NaN;
+  // A claim with no readable time can't be told from an abandoned one.
+  return (
+    Number.isFinite(claimedAt) && now - claimedAt < FINAL_CHUNK_CLAIM_TTL_MS
+  );
+}
+
+function phaseOf(
+  claim: Record<string, unknown> | null,
+  uploadState: Record<string, unknown> | null,
+  row: { status: string },
+  now: number,
+): UploadPhase {
+  if (liveClaim(claim, now)) return "finishing";
+  if (
+    row.status === "failed" ||
+    uploadState?.aborted === true ||
+    uploadState?.status === "failed"
+  ) {
+    return "ended";
+  }
+  if (
+    row.status === "processing" ||
+    row.status === "ready" ||
+    uploadState?.[OUTCOME] === "finished"
+  ) {
+    return "finished";
+  }
+  return uploadState?.[OUTCOME] === "parked" ? "parked" : "uploading";
+}
+
+async function readRow(recordingId: string, ownerEmail: string) {
+  const [row] = await getDb()
+    .select({ status: schema.recordings.status })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  return row ?? null;
 }
 
 /**
- * Whether Clips has an upload's final chunk: finalization moved the
- * recording on, or a final chunk holds its claim. A cancel or a repeated
- * start leaves such an upload to finish.
+ * Where the upload stands, read in its owner's request. Null when the
+ * recording is gone. The claim is read first, the upload state next and the
+ * row last: the final chunk writes the row and its outcome before it gives
+ * the claim up, so one that finishes between two reads shows in the later.
  */
-export function hasFinalChunk(
-  status: string | null | undefined,
-  claim: Record<string, unknown> | null,
-): boolean {
-  return (
-    status === "processing" ||
-    status === "ready" ||
-    (status === "uploading" && claim !== null)
-  );
+export async function readUploadPhase(
+  recordingId: string,
+  ownerEmail: string,
+  options: { now?: number } = {},
+): Promise<UploadStanding | null> {
+  const claim = await readAppState(claimKey(recordingId));
+  const uploadState = await readAppState(uploadStateKey(recordingId));
+  const row = await readRow(recordingId, ownerEmail);
+  if (!row) return null;
+  return {
+    phase: phaseOf(claim, uploadState, row, options.now ?? Date.now()),
+    status: row.status,
+  };
 }
 
 function contention(): never {
@@ -60,26 +147,22 @@ function contention(): never {
 
 /**
  * Claims the upload for its final chunk, before Clips takes the bytes. Null
- * when a cancel claimed it first, and the chunk must be refused. A repeat of
- * the final chunk takes over a claim no cancel has reached.
+ * once the upload ended, and the chunk must be refused. A repeat of the
+ * final chunk takes over a live claim, as anyone takes over an expired one.
  */
 export async function claimFinalChunk(
   recordingId: string,
+  ownerEmail: string,
 ): Promise<FinalChunkClaim | null> {
   const claim: FinalChunkClaim = {
     claimId: crypto.randomUUID(),
     claimedAt: new Date().toISOString(),
   };
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-    const [uploadState, current] = await Promise.all([
-      readAppState(uploadStateKey(recordingId)),
-      readFinalChunkClaim(recordingId),
-    ]);
-    if (
-      uploadState?.aborted === true ||
-      uploadState?.status === "failed" ||
-      current?.cancelRequested === true
-    ) {
+    const current = await readAppState(claimKey(recordingId));
+    const uploadState = await readAppState(uploadStateKey(recordingId));
+    const row = await readRow(recordingId, ownerEmail);
+    if (!row || phaseOf(null, uploadState, row, Date.now()) === "ended") {
       return null;
     }
     // The upload state changes too, so a cancel that read it before this
@@ -101,44 +184,39 @@ export async function claimFinalChunk(
 }
 
 /**
- * Gives the claim up once its final chunk is done with, so the upload counts
- * as uploading again if the chunk failed. True when a cancel came meanwhile:
- * a caller whose chunk failed then cancels the upload.
+ * Writes where an accepted final chunk left the upload, before its claim
+ * comes off: `parked` while Clips waits for storage, `finished` once it is
+ * making the Clip or verifying the file.
  */
-export async function releaseFinalChunk(
+export async function recordFinalChunkOutcome(
   recordingId: string,
-  claim: FinalChunkClaim,
-): Promise<boolean> {
+  outcome: "parked" | "finished",
+): Promise<void> {
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-    const current = await readFinalChunkClaim(recordingId);
-    // A repeat of the final chunk took it over, and ends it.
-    if (current?.claimId !== claim.claimId) return false;
-    if (await compareAndSetAppState(claimKey(recordingId), current, null)) {
-      return current.cancelRequested === true;
+    const uploadState = await readAppState(uploadStateKey(recordingId));
+    if (
+      await compareAndSetAppState(uploadStateKey(recordingId), uploadState, {
+        ...(uploadState ?? { recordingId }),
+        [OUTCOME]: outcome,
+      })
+    ) {
+      return;
     }
   }
   return contention();
 }
 
-/**
- * For a cancel that found the upload claimed by its final chunk: notes the
- * cancel on the claim. False once the claim is gone, and the cancel can go
- * ahead.
- */
-export async function requestCancelOfClaimedUpload(
+/** Gives the claim up once its final chunk is done with. */
+export async function releaseFinalChunk(
   recordingId: string,
-): Promise<boolean> {
+  claim: FinalChunkClaim,
+): Promise<void> {
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-    const current = await readFinalChunkClaim(recordingId);
-    if (current === null) return false;
-    if (current.cancelRequested === true) return true;
-    if (
-      await compareAndSetAppState(claimKey(recordingId), current, {
-        ...current,
-        cancelRequested: true,
-      })
-    ) {
-      return true;
+    const current = await readAppState(claimKey(recordingId));
+    // A repeat of the final chunk took it over, and ends it.
+    if (current?.claimId !== claim.claimId) return;
+    if (await compareAndSetAppState(claimKey(recordingId), current, null)) {
+      return;
     }
   }
   return contention();

@@ -26,7 +26,6 @@ import {
   getRequestHeader,
   getRouterParam,
   HTTPError,
-  setResponseStatus,
   type H3Event,
 } from "h3";
 import { z } from "zod";
@@ -52,9 +51,10 @@ import {
 import { isActiveUploadBinding } from "./content-uploads.js";
 import {
   claimFinalChunk,
-  hasFinalChunk,
-  readFinalChunkClaim,
+  readUploadPhase,
+  recordFinalChunkOutcome,
   releaseFinalChunk,
+  type UploadStanding,
 } from "./final-chunk-claim.js";
 import {
   reissueRecordingUpload,
@@ -361,33 +361,20 @@ async function repeatedStart(
   ) {
     return keyUsed();
   }
-  const [recording] = await getDb()
-    .select({ status: schema.recordings.status })
-    .from(schema.recordings)
-    .where(
-      and(
-        eq(schema.recordings.id, binding.recordingId),
-        ownerEmailMatches(schema.recordings.ownerEmail, uploader.email),
-      ),
-    );
-  if (!recording) {
+  const standing = await readUploadPhase(binding.recordingId, uploader.email);
+  if (!standing) {
     // The first start bound the key and is making its recording.
     return Date.now() - Date.parse(binding.createdAt) < RESERVATION_GRACE_MS
       ? refused(409, CONTENT_CLIP_UPLOAD_REFUSED.uploadStarting)
       : keyUsed();
   }
-  if (
-    hasFinalChunk(
-      recording.status,
-      await readFinalChunkClaim(binding.recordingId),
-    )
-  ) {
+  if (standing.phase === "finishing" || standing.phase === "finished") {
     return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished, {
       recordingId: binding.recordingId,
-      status: recording.status === "ready" ? "ready" : "processing",
+      status: standing.status === "ready" ? "ready" : "processing",
     });
   }
-  if (recording.status !== "uploading") return keyUsed();
+  if (standing.phase !== "uploading") return keyUsed();
   return startAnswer(
     await reissueRecordingUpload({
       recordingId: binding.recordingId,
@@ -640,9 +627,9 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
 
 /**
  * The final chunk, claimed before Clips takes its bytes: a cancel that comes
- * after the claim leaves the upload to finish, and one that came before it
- * refuses the chunk. A chunk that fails gives the claim up, cancelling the
- * upload if a cancel came meanwhile.
+ * while the claim holds is asked to try again, and one that came before it
+ * refuses the chunk. A chunk Clips accepts records where the upload went
+ * before the claim comes off; one that fails leaves it uploading.
  */
 async function takeFinalChunk(
   event: H3Event,
@@ -658,27 +645,26 @@ async function takeFinalChunk(
       },
       run,
     );
-  const claim = await asOwner(() => claimFinalChunk(owner.recordingId));
+  const claim = await asOwner(() =>
+    claimFinalChunk(owner.recordingId, owner.ownerEmail),
+  );
   if (!claim) return json({ error: "This upload was cancelled" }, 409, cors);
-  let answer: unknown;
   try {
-    answer = await handleRecordingChunk(event, owner);
+    const answer = (await handleRecordingChunk(event, owner)) as {
+      ok?: unknown;
+      waitingForStorage?: unknown;
+    } | null;
+    if (answer?.ok === true) {
+      await asOwner(() =>
+        recordFinalChunkOutcome(
+          owner.recordingId,
+          answer.waitingForStorage === true ? "parked" : "finished",
+        ),
+      );
+    }
     return answer;
   } finally {
-    const cancelRequested = await asOwner(() =>
-      releaseFinalChunk(owner.recordingId, claim),
-    );
-    if (cancelRequested && (answer as { ok?: unknown })?.ok !== true) {
-      const chunkStatus = event.res.status;
-      await giveUp(
-        event,
-        owner.recordingId,
-        owner.ownerEmail,
-        owner.authUserId,
-        cors,
-      );
-      if (chunkStatus !== undefined) setResponseStatus(event, chunkStatus);
-    }
+    await asOwner(() => releaseFinalChunk(owner.recordingId, claim));
   }
 }
 
@@ -716,7 +702,10 @@ export async function handleContentClipCancel(
   );
 }
 
-/** Fails the upload through Clips' own abort, unless Clips has the file. */
+/**
+ * Fails the upload through Clips' own abort while it is uploading or parked.
+ * Its phase, read before and after, is the answer, never the abort's `ok`.
+ */
 async function giveUp(
   event: H3Event,
   recordingId: string,
@@ -724,26 +713,30 @@ async function giveUp(
   authUserId: string | undefined,
   cors: Record<string, string>,
 ): Promise<Response> {
-  const readRecording = async () => {
-    const [row] = await getDb()
-      .select({
-        status: schema.recordings.status,
-        organizationId: schema.recordings.organizationId,
-        uploadAttemptId: schema.recordings.uploadAttemptId,
-        uploadGenerationId: schema.recordings.uploadGenerationId,
-      })
-      .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, recordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
-    return row ?? null;
-  };
-  const recording = await readRecording();
+  const [recording] = await getDb()
+    .select({
+      organizationId: schema.recordings.organizationId,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
   if (!recording) return json({ error: "Not found" }, 404, cors);
-  const settled = cancelAnswer(recordingId, recording.status, cors);
+  const readPhase = () =>
+    runWithRequestContext(
+      {
+        userEmail: ownerEmail,
+        orgId: recording.organizationId ?? undefined,
+        authUserId,
+      },
+      () => readUploadPhase(recordingId, ownerEmail),
+    );
+  const settled = cancelAnswer(recordingId, await readPhase(), cors);
   if (settled) return settled;
 
   const result = (await handleAbortRecordingUpload(event, {
@@ -751,7 +744,7 @@ async function giveUp(
     ownerEmail,
     orgId: recording.organizationId,
     authUserId,
-    finalChunkWins: true,
+    onlyWhileUploading: true,
     body: {
       failureCode: "upload_aborted",
       reason: "The Content page gave up this upload.",
@@ -759,18 +752,7 @@ async function giveUp(
       uploadGenerationId: recording.uploadGenerationId ?? undefined,
     },
   })) as Record<string, unknown>;
-  // The abort answers ok without failing the recording when Clips got the
-  // whole file first, so the recording's status says what happened, or the
-  // abort does while finalization hasn't moved the recording yet.
-  const after = await readRecording();
-  if (!after) return json({ error: "Not found" }, 404, cors);
-  const answer = cancelAnswer(
-    recordingId,
-    result.finalChunkTaken === true && after.status === "uploading"
-      ? "processing"
-      : after.status,
-    cors,
-  );
+  const answer = cancelAnswer(recordingId, await readPhase(), cors);
   if (answer) return answer;
   if (result.ok === true) {
     return json({ error: "Clips didn't cancel this upload" }, 409, cors);
@@ -778,24 +760,37 @@ async function giveUp(
   return json(result, event.res.status ?? 409, cors);
 }
 
-/** What a cancel did, once the recording has left `uploading`. */
+/** What a cancel did, once the upload is past `uploading` and `parked`. */
 function cancelAnswer(
   recordingId: string,
-  status: string,
+  standing: UploadStanding | null,
   cors: Record<string, string>,
 ): Response | null {
-  if (status === "failed") {
+  if (!standing) return json({ error: "Not found" }, 404, cors);
+  const { phase, status } = standing;
+  if (phase === "ended") {
     const cancelled: ContentClipCancelAnswer = {
       outcome: CONTENT_CLIP_CANCEL_OUTCOME.cancelled,
       recordingId,
     };
     return json(cancelled, 200, cors);
   }
-  if (status === "processing" || status === "ready") {
+  if (phase === "finishing") {
+    const finishing: ContentClipCancelAnswer = {
+      outcome: CONTENT_CLIP_CANCEL_OUTCOME.finishing,
+      recordingId,
+    };
+    return json(
+      { error: "This upload is finishing. Try again.", ...finishing },
+      409,
+      cors,
+    );
+  }
+  if (phase === "finished") {
     const finished: ContentClipCancelAnswer = {
       outcome: CONTENT_CLIP_CANCEL_OUTCOME.alreadyFinished,
       recordingId,
-      status,
+      status: status === "ready" ? "ready" : "processing",
     };
     return json(
       { error: "This upload is already finished", ...finished },

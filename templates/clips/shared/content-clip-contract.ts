@@ -146,6 +146,10 @@ export type ContentClipStorage =
  *   released once Clips confirms the upload's cleanup.
  * - `already_finished` (409): Clips has the whole file and is making the
  *   Clip, or made it; `status` says which. Nothing changed.
+ * - `upload_finishing` (409): Clips is taking the final chunk and doesn't
+ *   know yet whether it will make the Clip. Nothing changed; cancel again
+ *   after a few seconds, and the answer is `cancelled` or
+ *   `already_finished`.
  *
  * Any other answer is a refusal with only `error`: the upload wasn't
  * cancelled, and Clips fails it once its lease runs out.
@@ -153,6 +157,7 @@ export type ContentClipStorage =
 export const CONTENT_CLIP_CANCEL_OUTCOME = {
   cancelled: "cancelled",
   alreadyFinished: "already_finished",
+  finishing: "upload_finishing",
 } as const;
 
 export type ContentClipCancelAnswer =
@@ -164,6 +169,10 @@ export type ContentClipCancelAnswer =
       outcome: typeof CONTENT_CLIP_CANCEL_OUTCOME.alreadyFinished;
       recordingId: string;
       status: "processing" | "ready";
+    }
+  | {
+      outcome: typeof CONTENT_CLIP_CANCEL_OUTCOME.finishing;
+      recordingId: string;
     };
 
 /** The `code` of an upload start Clips refused, with `storage` in the body. */

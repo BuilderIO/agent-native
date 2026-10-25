@@ -15,11 +15,7 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
-import {
-  hasFinalChunk,
-  readFinalChunkClaim,
-  requestCancelOfClaimedUpload,
-} from "../../../../lib/final-chunk-claim.js";
+import { readUploadPhase } from "../../../../lib/final-chunk-claim.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
@@ -86,13 +82,13 @@ export async function handleAbortRecordingUpload(
     /** The abort request, from a caller that reads its own body. */
     body?: Record<string, unknown>;
     /**
-     * Change nothing once Clips has the final chunk, and answer
-     * `finalChunkTaken`. A final chunk claims the upload before Clips takes
-     * its bytes, changing the upload state, so the claim below fails for an
-     * abort that read the state first. A cancel that finds the claim notes
-     * itself on it, for the final chunk to carry out if it fails.
+     * Change nothing unless the upload is `uploading` or `parked`
+     * (`readUploadPhase`), and answer the `phase` it found. A final chunk
+     * claims the upload before Clips takes its bytes, changing the upload
+     * state, so the claim below fails for an abort that read the state
+     * first, and the abort reads the phase again.
      */
-    finalChunkWins?: boolean;
+    onlyWhileUploading?: boolean;
   },
 ) {
   const recordingId =
@@ -315,14 +311,17 @@ export async function handleAbortRecordingUpload(
         chunksCleared: 0,
       };
     }
-    const finalChunkTaken = async (status: string) =>
-      override?.finalChunkWins === true &&
-      hasFinalChunk(status, await readFinalChunkClaim(recordingId)) &&
-      (status !== "uploading" ||
-        (await requestCancelOfClaimedUpload(recordingId)));
-    if (await finalChunkTaken(existing.status)) {
-      return { ok: true, recordingId, finalChunkTaken: true, chunksCleared: 0 };
-    }
+    // Read after the upload state the claim below expects, so a final
+    // chunk's claim either shows here or fails that claim.
+    const leftAlone = async () => {
+      if (override?.onlyWhileUploading !== true) return null;
+      const standing = await readUploadPhase(recordingId, ownerEmail);
+      return standing?.phase === "uploading" || standing?.phase === "parked"
+        ? null
+        : { ok: true, recordingId, phase: standing?.phase, chunksCleared: 0 };
+    };
+    const untouched = await leftAlone();
+    if (untouched) return untouched;
 
     let preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
@@ -453,14 +452,8 @@ export async function handleAbortRecordingUpload(
           chunksCleared: 0,
         };
       }
-      if (await finalChunkTaken(latest.status)) {
-        return {
-          ok: true,
-          recordingId,
-          finalChunkTaken: true,
-          chunksCleared: 0,
-        };
-      }
+      const untouchedLatest = await leftAlone();
+      if (untouchedLatest) return untouchedLatest;
 
       transitionExisting = latest;
       transitionUploadStateSnapshot =

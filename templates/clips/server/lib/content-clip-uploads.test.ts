@@ -41,8 +41,9 @@ const state = vi.hoisted(() => {
       answer: Record<string, unknown>;
       httpStatus?: number;
     },
-    // The final chunk accepted, and finalization not yet run.
-    finalChunkTaken: false,
+    // Runs once just before the next read of a final chunk's claim: the
+    // final chunk finishing between a reader's reads.
+    beforeClaimRead: null as null | (() => Promise<void>),
     // Runs once inside the next storage check: another request landing
     // between an upload start's key lookup and its binding.
     duringStorageCheck: null as null | (() => Promise<void>),
@@ -54,8 +55,9 @@ const state = vi.hoisted(() => {
     // Runs inside the chunk route while it takes a final chunk.
     duringFinalChunk: null as null | (() => Promise<void>),
     // What the chunk route makes of a final chunk: finalization finishing the
-    // recording, or the chunk failing with the recording still uploading.
-    finalChunkOutcome: null as null | "finish" | "fail",
+    // recording, parking it until storage is connected, or the chunk failing
+    // with the recording still uploading.
+    finalChunkOutcome: null as null | "finish" | "park" | "fail",
     // Clips' own abort instead of the stand-in below.
     realAbort: false,
     released: [] as string[],
@@ -66,6 +68,23 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   createGetDb: () => () => state.db,
 }));
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const real =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return {
+    ...real,
+    readAppState: async (key: string) => {
+      if (key.startsWith("recording-upload-final-chunk-")) {
+        const before = state.beforeClaimRead;
+        state.beforeClaimRead = null;
+        await before?.();
+      }
+      return real.readAppState(key);
+    },
+  };
+});
 // create-recording's own storage, analytics and upload-session work is its
 // contract, tested with it; here it makes the row as the caller it ran as.
 vi.mock("../../actions/create-recording.js", () => ({
@@ -105,6 +124,20 @@ vi.mock("../routes/api/uploads/[recordingId]/chunk.post.js", () => ({
       setResponseStatus(event, 502);
       return { ok: false, error: "Chunk upload failed (502)" };
     }
+    if (state.finalChunkOutcome === "park") {
+      await client.query(
+        "UPDATE recordings SET failure_reason = 'Connect storage to finish this upload.' WHERE id = $1",
+        [owner.recordingId],
+      );
+      const { setResponseStatus } = await import("h3");
+      setResponseStatus(event, 202);
+      return {
+        ok: true,
+        finalized: false,
+        waitingForStorage: true,
+        status: "waiting_storage",
+      };
+    }
     if (state.finalChunkOutcome === "finish") {
       await client.query(
         "UPDATE recordings SET status = 'ready' WHERE id = $1 AND status = 'uploading'",
@@ -139,14 +172,6 @@ async function fakeAbort(_event: unknown, override: any) {
   const { schema } = await import("../db/index.js");
   const { eq } = await import("drizzle-orm");
   state.aborts.push(override);
-  if (state.finalChunkTaken && override.finalChunkWins === true) {
-    return {
-      ok: true,
-      recordingId: override.recordingId,
-      finalChunkTaken: true,
-      chunksCleared: 0,
-    };
-  }
   if (state.finalizedFirst) {
     await state.db
       .update(schema.recordings)
@@ -446,7 +471,7 @@ beforeEach(async () => {
   state.chunks = [];
   state.aborts = [];
   state.finalizedFirst = null;
-  state.finalChunkTaken = false;
+  state.beforeClaimRead = null;
   state.duringStorageCheck = null;
   state.duringCreate = null;
   state.rowStorageMode = null;
@@ -1049,29 +1074,178 @@ describe("a page's final chunk and its cancel", () => {
     return postCancel(upload.cancelUrl, pairedContentOrigin()!);
   }
 
-  it("answers a cancel that lands while Clips sends the final chunk to storage that the upload already finished, and lets it finish with its free clip still counted", async () => {
+  /** What a final chunk in flight holds, without the chunk itself. */
+  async function holdClaim(
+    upload: { editor: string; recordingId: string },
+    claimedAt = new Date().toISOString(),
+  ) {
+    await asEditor(upload.editor, async () => {
+      await writeAppState(
+        `recording-upload-final-chunk-${upload.recordingId}`,
+        {
+          claimId: "claim-held",
+          claimedAt,
+        },
+      );
+      await writeAppState(`recording-upload-${upload.recordingId}`, {
+        recordingId: upload.recordingId,
+        finalChunkClaimedAt: claimedAt,
+      });
+    });
+  }
+
+  it("asks a cancel that lands while Clips takes the final chunk to try again, changes nothing, and says it finished once the chunk did", async () => {
     const upload = await started();
-    let cancelled: Awaited<ReturnType<typeof cancel>> | undefined;
+    let during: Awaited<ReturnType<typeof cancel>> | undefined;
     state.duringFinalChunk = async () => {
-      cancelled = await cancel(upload);
+      during = await cancel(upload);
     };
     state.finalChunkOutcome = "finish";
 
     const chunk = await finalChunk(upload);
 
     expect(chunk.status).toBe(200);
-    expect(cancelled).toMatchObject({
+    expect(during).toMatchObject({
+      status: 409,
+      body: { outcome: "upload_finishing", recordingId: upload.recordingId },
+    });
+    expect(await cancel(upload)).toMatchObject({
       status: 409,
       body: {
         outcome: "already_finished",
         recordingId: upload.recordingId,
-        status: "processing",
+        status: "ready",
       },
     });
     expect(await rows("recordings")).toEqual([
       expect.objectContaining({ id: upload.recordingId, status: "ready" }),
     ]);
     expect(state.released).toEqual([]);
+  });
+
+  it("cancels on a cancel's retry once a final chunk that held the upload fails, releasing its free clip", async () => {
+    const upload = await started();
+    let during: Awaited<ReturnType<typeof cancel>> | undefined;
+    state.duringFinalChunk = async () => {
+      during = await cancel(upload);
+    };
+    state.finalChunkOutcome = "fail";
+
+    const chunk = await finalChunk(upload);
+
+    expect(chunk.status).toBe(502);
+    expect(during).toMatchObject({
+      status: 409,
+      body: { outcome: "upload_finishing" },
+    });
+    // The cancel during the chunk changed nothing.
+    expect(await rows("recordings")).toEqual([
+      expect.objectContaining({ status: "uploading" }),
+    ]);
+    expect(state.released).toEqual([]);
+
+    expect(await cancel(upload)).toMatchObject({
+      status: 200,
+      body: { outcome: "cancelled", recordingId: upload.recordingId },
+    });
+    expect(await rows("recordings")).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        failure_code: "upload_aborted",
+      }),
+    ]);
+    expect(state.released).toEqual([upload.recordingId]);
+  });
+
+  it("issues no ticket to a repeat once the final chunk parked the upload until storage is connected", async () => {
+    const upload = await started();
+    state.finalChunkOutcome = "park";
+    expect((await finalChunk(upload)).status).toBe(202);
+    const ticketsBefore = await rows("settings");
+
+    const repeat = await startUpload(upload.bearer, {
+      ...START,
+      uploadKey: KEY,
+    });
+
+    expect(repeat).toMatchObject({
+      status: 409,
+      body: { code: "upload_key_used" },
+    });
+    expect(await rows("settings")).toEqual(ticketsBefore);
+  });
+
+  it("cancels an upload its final chunk parked until storage is connected, releasing its free clip", async () => {
+    const upload = await started();
+    let during: Awaited<ReturnType<typeof cancel>> | undefined;
+    state.duringFinalChunk = async () => {
+      during = await cancel(upload);
+    };
+    state.finalChunkOutcome = "park";
+    await finalChunk(upload);
+
+    expect(during).toMatchObject({
+      status: 409,
+      body: { outcome: "upload_finishing" },
+    });
+    expect(await cancel(upload)).toMatchObject({
+      status: 200,
+      body: { outcome: "cancelled", recordingId: upload.recordingId },
+    });
+    expect(await rows("recordings")).toEqual([
+      expect.objectContaining({ status: "failed" }),
+    ]);
+    expect(state.released).toEqual([upload.recordingId]);
+  });
+
+  it("never reads an upload whose final chunk finishes between a repeat's reads as uploading", async () => {
+    const upload = await started();
+    await holdClaim(upload);
+    // The final chunk finishes, records it and gives the claim up just
+    // before the repeat reads the claim.
+    state.beforeClaimRead = async () => {
+      await client.query("UPDATE recordings SET status = 'ready'");
+      await asEditor(upload.editor, () =>
+        writeAppState(`recording-upload-${upload.recordingId}`, {
+          recordingId: upload.recordingId,
+          finalChunkOutcome: "finished",
+        }),
+      );
+      await client.query("DELETE FROM application_state WHERE key = $1", [
+        `recording-upload-final-chunk-${upload.recordingId}`,
+      ]);
+    };
+    const ticketsBefore = await rows("settings");
+
+    const repeat = await startUpload(upload.bearer, {
+      ...START,
+      uploadKey: KEY,
+    });
+
+    expect(repeat).toMatchObject({
+      status: 409,
+      body: {
+        code: "upload_already_finished",
+        recordingId: upload.recordingId,
+      },
+    });
+    expect(await rows("settings")).toEqual(ticketsBefore);
+  });
+
+  it("lets a cancel and a repeat take over a claim older than a final chunk's longest run", async () => {
+    const upload = await started();
+    await holdClaim(upload, new Date(Date.now() - 10 * 60_000).toISOString());
+
+    const repeat = await startUpload(upload.bearer, {
+      ...START,
+      uploadKey: KEY,
+    });
+    expect(repeat.status).toBe(200);
+    expect(await cancel(upload)).toMatchObject({
+      status: 200,
+      body: { outcome: "cancelled" },
+    });
+    expect(state.released).toEqual([upload.recordingId]);
   });
 
   it("answers a repeat that lands while Clips takes the final chunk that the upload already finished, and issues no ticket", async () => {
@@ -1116,35 +1290,6 @@ describe("a page's final chunk and its cancel", () => {
     expect(await rows("recordings")).toEqual([
       expect.objectContaining({ status: "uploading" }),
     ]);
-  });
-
-  it("fails the upload as cancelled, releasing its free clip, when the final chunk fails after a cancel arrived", async () => {
-    const upload = await started();
-    let cancelled: Awaited<ReturnType<typeof cancel>> | undefined;
-    state.duringFinalChunk = async () => {
-      cancelled = await cancel(upload);
-    };
-    state.finalChunkOutcome = "fail";
-
-    const chunk = await finalChunk(upload);
-
-    expect(chunk.status).toBe(502);
-    expect(cancelled).toMatchObject({
-      status: 409,
-      body: { outcome: "already_finished" },
-    });
-    expect(await rows("recordings")).toEqual([
-      expect.objectContaining({
-        status: "failed",
-        failure_code: "upload_aborted",
-      }),
-    ]);
-    expect(state.released).toEqual([upload.recordingId]);
-    expect(
-      await asEditor(upload.editor, () =>
-        readAppState(`recording-upload-${upload.recordingId}`),
-      ),
-    ).toMatchObject({ status: "failed", aborted: true });
   });
 
   it("puts the upload back to uploading when its final chunk fails, so a repeat and a cancel work again", async () => {
@@ -1389,7 +1534,7 @@ describe("an upload the editor's page gives up", () => {
         ownerEmail: upload.editor,
         orgId: expect.stringMatching(/^org-/),
         authUserId: expect.stringMatching(/^user-/),
-        finalChunkWins: true,
+        onlyWhileUploading: true,
         body: expect.objectContaining({ failureCode: "upload_aborted" }),
       }),
     ]);
@@ -1453,18 +1598,24 @@ describe("an upload the editor's page gives up", () => {
     },
   );
 
-  it("says the upload already finished once Clips took its final chunk, and leaves it to finish", async () => {
+  it("asks Content to try again while a final chunk holds the upload, and changes nothing", async () => {
     const upload = await started();
-    state.finalChunkTaken = true;
+    const claimedAt = new Date().toISOString();
+    await asEditor(upload.editor, () =>
+      writeAppState(`recording-upload-final-chunk-${upload.recordingId}`, {
+        claimId: "claim-held",
+        claimedAt,
+      }),
+    );
     const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
 
     expect(result.status).toBe(409);
     expect(result.body).toEqual({
-      error: "This upload is already finished",
-      outcome: "already_finished",
+      error: "This upload is finishing. Try again.",
+      outcome: "upload_finishing",
       recordingId: upload.recordingId,
-      status: "processing",
     });
+    expect(state.aborts).toEqual([]);
     expect((await rows("recordings"))[0]).toMatchObject({
       status: "uploading",
     });

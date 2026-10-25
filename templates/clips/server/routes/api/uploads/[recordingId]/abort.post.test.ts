@@ -789,7 +789,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
-  describe("for a caller that lets an accepted final chunk win", () => {
+  describe("for Content's cancel, which changes only an upload still uploading", () => {
     const uploading = {
       id: "rec-1",
       status: "uploading",
@@ -805,11 +805,11 @@ describe("/api/uploads/:recordingId/abort route", () => {
       uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     };
-    // What a final chunk holds from before it takes the bytes until the
-    // recording moves on or the chunk fails.
+    // What a final chunk holds from before it takes the bytes until it has
+    // recorded where the upload went.
     const claim = {
       claimId: "claim-1",
-      claimedAt: "2026-10-24T00:00:00.000Z",
+      claimedAt: new Date().toISOString(),
     };
     const claimKey = "recording-upload-final-chunk-rec-1";
 
@@ -818,7 +818,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
         recordingId: "rec-1",
         ownerEmail: "owner@example.com",
         orgId: "org-1",
-        finalChunkWins: true,
+        onlyWhileUploading: true,
         body: {
           failureCode: "upload_aborted",
           reason: "The Content page gave up this upload.",
@@ -828,56 +828,74 @@ describe("/api/uploads/:recordingId/abort route", () => {
       });
     }
 
+    /** Each read takes the next value, and the last one stays. */
     function readStates(
       states: Array<Record<string, unknown>>,
-      claims: Array<Record<string, unknown> | null> = [],
+      claims: Array<Record<string, unknown> | null> = [null],
     ) {
+      const next = <T>(values: T[]) =>
+        values.length > 1 ? values.shift() : values[0];
       mockReadAppState.mockImplementation(async (key: string) =>
         key === "recording-media-verification-rec-1"
           ? null
           : key === claimKey
-            ? (claims.shift() ?? null)
-            : states.shift(),
+            ? (next(claims) ?? null)
+            : next(states),
       );
     }
 
-    it("leaves the upload to its claimed final chunk, noting the cancel for it", async () => {
+    it("changes nothing while a final chunk holds the upload", async () => {
       mockSelectRows.rows = [uploading];
-      readStates([uploadState], [claim, claim]);
+      readStates([uploadState], [claim]);
 
       await expect(contentCancel()).resolves.toEqual({
         ok: true,
         recordingId: "rec-1",
-        finalChunkTaken: true,
+        phase: "finishing",
         chunksCleared: 0,
       });
 
-      expect(mockCompareAndSetAppState).toHaveBeenCalledWith(claimKey, claim, {
-        ...claim,
-        cancelRequested: true,
-      });
+      expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
       expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
       expect(mockDb.update).not.toHaveBeenCalled();
       expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     });
 
-    it("leaves the upload to a final chunk that claims it between the cancel's read and its own claim", async () => {
+    it("changes nothing once a final chunk claims the upload between the cancel's read and its own claim", async () => {
       mockSelectRows.rows = [uploading];
       readStates(
         [uploadState, { ...uploadState, finalChunkClaimedAt: claim.claimedAt }],
-        [null, claim, claim],
+        [null, claim],
       );
       mockCompareAndSetManyAppState.mockResolvedValueOnce(false);
 
       await expect(contentCancel()).resolves.toEqual({
         ok: true,
         recordingId: "rec-1",
-        finalChunkTaken: true,
+        phase: "finishing",
         chunksCleared: 0,
       });
 
       expect(mockCompareAndSetManyAppState).toHaveBeenCalledTimes(1);
       expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("cancels an upload whose final chunk claim is older than the chunk's longest run", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(
+        [{ ...uploadState, finalChunkClaimedAt: "2026-10-24T00:00:00.000Z" }],
+        [{ claimId: "claim-1", claimedAt: "2026-10-24T00:00:00.000Z" }],
+      );
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+        chunksCleared: 2,
+      });
+
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: "failed" })]),
+      );
     });
 
     it("cancels an upload whose final chunk failed, whatever its state said meanwhile", async () => {
@@ -902,7 +920,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       await expect(contentCancel()).resolves.toEqual({
         ok: true,
         recordingId: "rec-1",
-        finalChunkTaken: true,
+        phase: "finished",
         chunksCleared: 0,
       });
 
