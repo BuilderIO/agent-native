@@ -9,9 +9,9 @@ export const CHATGPT_SUBSCRIPTION_LAB = defineLab({
 });
 
 /**
- * Lets one person's MCP connections receive MCP Apps cards (`_meta.ui`
- * resources) from tools. The ChatGPT app-directory catalog and first-party
- * callers get cards without it. Registered by `mountMCP`.
+ * Lets one person's MCP connections show MCP Apps cards (`_meta.ui`
+ * resources) on tool results. The ChatGPT app-directory catalog and
+ * first-party callers get cards without it. Registered by `mountMCP`.
  */
 export const MCP_APP_CARDS_LAB = defineLab({
   key: "mcp-app-cards",

@@ -249,7 +249,7 @@ Claude and ChatGPT can cache tool and resource metadata for an existing custom c
 
 ## Who gets cards {#who-gets-cards}
 
-A connected chat app gets MCP App cards (the `_meta.ui` tool metadata and its `ui://` resources) only when the person it is signed in as has turned on the **App cards in chat apps** lab in Settings → Labs. The lab is off by default, and each person's choice applies only to their own connections. After changing it, reconnect the app in the chat app so it reloads the tool list. With the lab off, tools return plain results with `link` deep links.
+A connected chat app gets MCP App cards (the `_meta.ui` tool metadata and its `ui://` resources) only when the person it is signed in as has turned on the **App cards in chat apps** lab in Settings → Labs. The lab is off by default, and each person's choice applies only to their own connections. After changing it, reconnect the app in the chat app so it reloads the tool list. With the lab off, tools return plain results with `link` deep links. Connections that aren't signed in as a person get plain results too: a shared `ACCESS_TOKEN` without `AGENT_NATIVE_OWNER_EMAIL`, a service principal, or a standalone stdio server.
 
 The ChatGPT app-directory catalog (`/mcp/directory`) and Agent-Native's own first-party clients, which send the `x-agent-native-mcp-inline-apps` header, get cards with or without the lab. The `AGENT_NATIVE_MCP_APPS_INLINE` and `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` environment variables are no longer read; if either is set, the server logs one warning.
 

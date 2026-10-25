@@ -266,7 +266,7 @@ Claude e ChatGPT podem armazenar em cache metadados de ferramentas e recursos pa
 
 ## Quem recebe cartões {#who-gets-cards}
 
-Um app de chat conectado recebe cartões de MCP App (os metadados de ferramenta `_meta.ui` e seus recursos `ui://`) somente quando a pessoa com quem ele está conectado ativou o lab **Cartões do app em apps de chat** em Configurações → Labs. O lab vem desativado por padrão, e a escolha de cada pessoa vale apenas para as próprias conexões. Depois de mudar, reconecte o app no app de chat para que ele recarregue a lista de ferramentas. Com o lab desativado, as ferramentas retornam resultados simples com deep links `link`.
+Um app de chat conectado recebe cartões de MCP App (os metadados de ferramenta `_meta.ui` e seus recursos `ui://`) somente quando a pessoa com quem ele está conectado ativou o lab **Cartões do app em apps de chat** em Configurações → Labs. O lab vem desativado por padrão, e a escolha de cada pessoa vale apenas para as próprias conexões. Depois de mudar, reconecte o app no app de chat para que ele recarregue a lista de ferramentas. Com o lab desativado, as ferramentas retornam resultados simples com deep links `link`. Conexões que não estão conectadas como uma pessoa também recebem resultados simples: um `ACCESS_TOKEN` compartilhado sem `AGENT_NATIVE_OWNER_EMAIL`, uma entidade de serviço ou um servidor stdio independente.
 
 O catálogo do diretório de apps do ChatGPT (`/mcp/directory`) e os clientes próprios do Agent-Native, que enviam o cabeçalho `x-agent-native-mcp-inline-apps`, recebem cartões com ou sem o lab. As variáveis de ambiente `AGENT_NATIVE_MCP_APPS_INLINE` e `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` não são mais lidas; se alguma estiver definida, o servidor registra um aviso.
 

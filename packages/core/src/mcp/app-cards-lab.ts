@@ -32,8 +32,10 @@ export function registerMcpAppCardsLab(): void {
 }
 
 /**
- * Whether this caller's own lab choice asks for MCP Apps cards. No email, an
- * unregistered lab, or an unreadable choice all mean no cards.
+ * Whether this caller's own lab choice asks for MCP Apps cards. No email
+ * (standalone stdio, a shared token with no owner) means no cards. A choice
+ * that can't be read, or a server that never registered the lab, also means
+ * no cards, and logs why.
  */
 export async function isMcpAppsInlineEnabled(
   identity: MCPCallerIdentity | undefined,
@@ -47,7 +49,11 @@ export async function isMcpAppsInlineEnabled(
       MCP_APP_CARDS_LAB,
       identity?.orgId ? { orgId: identity.orgId } : {},
     );
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[mcp] Couldn't read the "${MCP_APP_CARDS_LAB.key}" lab for this caller, so tools return plain results:`,
+      error,
+    );
     return false;
   }
 }

@@ -110,26 +110,39 @@ describe("App cards in chat apps lab", () => {
     ]);
   });
 
-  it("gives no cards without an email, a registered lab, or a readable choice", async () => {
+  it("quietly gives no cards without an email", async () => {
+    registerMcpAppCardsLab();
+    expect(await isMcpAppsInlineEnabled(undefined)).toBe(false);
+    expect(await isMcpAppsInlineEnabled(caller(undefined))).toBe(false);
+    expect(await isMcpAppsInlineEnabled(caller("  "))).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("gives no cards when the lab or the saved choice can't be read, and logs why", async () => {
     savedLabs.set("alice@example.com", { [MCP_APP_CARDS_LAB.key]: true });
     expect(await isMcpAppsInlineEnabled(caller("alice@example.com"))).toBe(
       false,
     );
 
     registerMcpAppCardsLab();
-    expect(await isMcpAppsInlineEnabled(undefined)).toBe(false);
-    expect(await isMcpAppsInlineEnabled(caller(undefined))).toBe(false);
-    expect(await isMcpAppsInlineEnabled(caller("  "))).toBe(false);
-
+    const offline = new Error("settings store offline");
     savedLabs.set("erin@example.com", { [MCP_APP_CARDS_LAB.key]: "yes" });
+    savedLabs.set("alice@example.com", offline);
+
     expect(await isMcpAppsInlineEnabled(caller("erin@example.com"))).toBe(
       false,
     );
-
-    savedLabs.set("alice@example.com", new Error("settings store offline"));
     expect(await isMcpAppsInlineEnabled(caller("alice@example.com"))).toBe(
       false,
     );
+
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(String(warn.mock.calls[0]?.[1])).toContain("Unknown lab");
+    for (const [message] of warn.mock.calls) {
+      expect(String(message)).toContain(`"${MCP_APP_CARDS_LAB.key}" lab`);
+      expect(String(message)).toContain("plain results");
+    }
+    expect(warn.mock.calls[2]?.[1]).toBe(offline);
   });
 
   it("ignores the retired env vars and warns once naming the lab", async () => {
@@ -155,7 +168,8 @@ describe("App cards in chat apps lab", () => {
   it("warns about a single retired env var too", async () => {
     process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS = "bob@example.com";
 
-    expect(await isMcpAppsInlineEnabled(caller("bob@example.com"))).toBe(false);
+    // Standalone stdio: no mountMCP, so no lab, and no signed-in caller.
+    expect(await isMcpAppsInlineEnabled(undefined)).toBe(false);
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toMatch(
