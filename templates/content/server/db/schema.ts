@@ -1191,6 +1191,12 @@ export const contentWebhookDeliveries = table(
       delivery.webhookId,
       delivery.sequence,
     ),
+    // content_webhook_deliveries_lease_idx, a partial index on pending rows'
+    // (webhook_id, lease_expires_at), is in migration 129 only.
+    index("content_webhook_deliveries_settled_idx").on(
+      delivery.status,
+      delivery.updatedAt,
+    ),
   ],
 );
 

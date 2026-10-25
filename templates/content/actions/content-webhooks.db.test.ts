@@ -2,9 +2,13 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readAppSecret } from "@agent-native/core/secrets";
+import {
+  deleteAppSecret,
+  readAppSecret,
+  writeAppSecret,
+} from "@agent-native/core/secrets";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -537,6 +541,87 @@ describe("content webhooks", () => {
     const [, blocked] = await settled(webhook.id, 2);
     expect(blocked).toMatchObject({ status: "failed", attempts: 1 });
     expect(receiver.requests).toHaveLength(0);
+  });
+
+  it("W2-3: retries while the signing secret can't be read, and sends once it's back", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const created = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    const [stored] = await getDb()
+      .select()
+      .from(schema.contentWebhooks)
+      .where(eq(schema.contentWebhooks.id, created.webhook.id));
+    const secretRef = hooks.contentWebhookSecretRef(stored);
+    // A secret that won't decrypt, after a key rotation say, reads as missing.
+    await deleteAppSecret(secretRef);
+    await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value: "agent",
+      }),
+    );
+    const [waiting] = await settled(created.webhook.id, 1);
+    expect(waiting).toMatchObject({ status: "pending", attempts: 1 });
+    expect(waiting.lastError).toMatch(/signing secret/);
+    expect(receiver.requests).toHaveLength(0);
+
+    await writeAppSecret({
+      ...secretRef,
+      value: created.secret,
+      description: "Content webhook signing secret",
+    });
+    await makeDue(created.webhook.id);
+    expect(await hooks.drainContentWebhookDeliveries()).toMatchObject({
+      delivered: 1,
+    });
+    expect(receiver.requests).toHaveLength(1);
+  });
+
+  it("purges settled deliveries in batches and keeps recent ones", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    for (const value of ["agent", "alice", "agent", "alice", "agent"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
+    const sent = await settled(webhook.id, 5);
+    // The four oldest are past the seven days a delivered event is kept.
+    await getDb()
+      .update(schema.contentWebhookDeliveries)
+      .set({
+        updatedAt: new Date(Date.now() - 8 * 24 * 60 * 60_000).toISOString(),
+      })
+      .where(
+        inArray(
+          schema.contentWebhookDeliveries.id,
+          sent.slice(0, 4).map((delivery) => delivery.id),
+        ),
+      );
+    await hooks.purgeSettledContentWebhookDeliveries({ batchSize: 3 });
+    expect(
+      (await deliveries(webhook.id)).map((delivery) => delivery.id),
+    ).toEqual([sent[4].id]);
   });
 
   it("W2-3: stops sending in the same run once the creator loses access", async () => {

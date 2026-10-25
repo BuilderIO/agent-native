@@ -89,6 +89,9 @@ const PER_WEBHOOK_BATCH = 3;
 const INSERT_CHUNK = 500;
 const DELIVERED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const FAILED_RETENTION_MS = 30 * 24 * 60 * 60_000;
+/** Rows per purge statement, and statements per sweep; the next sweep goes on. */
+const PURGE_BATCH = 1_000;
+const PURGE_MAX_BATCHES = 20;
 const MAX_VALUE_CHARS = 16_000;
 const MAX_COMMENT_CHARS = 2_000;
 const AGENT_CALLERS = new Set(["tool", "mcp", "webmcp", "a2a"]);
@@ -724,11 +727,12 @@ async function deliverOne(
   const refusal = await creatorRefusal(webhook, delivery);
   if (refusal) return { ok: false, error: refusal, permanent: true };
   const secret = await readAppSecret(contentWebhookSecretRef(webhook));
+  // A secret that can't be decrypted reads as missing, and a rotated key can
+  // come back, so this retries like any other failure.
   if (!secret?.value) {
     return {
       ok: false,
-      error: "The webhook's signing secret is missing.",
-      permanent: true,
+      error: "The webhook's signing secret couldn't be read.",
     };
   }
   const body = contentWebhookBody(delivery);
@@ -809,29 +813,45 @@ export async function drainContentWebhookDeliveries(
 }
 
 /** Drops settled deliveries once they're old enough not to matter. */
-export async function purgeSettledContentWebhookDeliveries(): Promise<void> {
+export async function purgeSettledContentWebhookDeliveries(
+  options: { batchSize?: number } = {},
+): Promise<void> {
   const deliveries = schema.contentWebhookDeliveries;
+  const batchSize = options.batchSize ?? PURGE_BATCH;
   const now = Date.now();
-  await getDb()
-    .delete(deliveries)
-    .where(
-      or(
-        and(
-          eq(deliveries.status, "delivered"),
-          lt(
-            deliveries.updatedAt,
-            new Date(now - DELIVERED_RETENTION_MS).toISOString(),
-          ),
-        ),
-        and(
-          eq(deliveries.status, "failed"),
-          lt(
-            deliveries.updatedAt,
-            new Date(now - FAILED_RETENTION_MS).toISOString(),
-          ),
-        ),
+  const db = getDb();
+  const settled = or(
+    and(
+      eq(deliveries.status, "delivered"),
+      lt(
+        deliveries.updatedAt,
+        new Date(now - DELIVERED_RETENTION_MS).toISOString(),
       ),
-    );
+    ),
+    and(
+      eq(deliveries.status, "failed"),
+      lt(
+        deliveries.updatedAt,
+        new Date(now - FAILED_RETENTION_MS).toISOString(),
+      ),
+    ),
+  );
+  for (let batch = 0; batch < PURGE_MAX_BATCHES; batch++) {
+    const purged = await db
+      .delete(deliveries)
+      .where(
+        inArray(
+          deliveries.id,
+          db
+            .select({ id: deliveries.id })
+            .from(deliveries)
+            .where(settled)
+            .limit(batchSize),
+        ),
+      )
+      .returning({ id: deliveries.id });
+    if (purged.length < batchSize) break;
+  }
 }
 
 export interface ContentWebhookScope {
