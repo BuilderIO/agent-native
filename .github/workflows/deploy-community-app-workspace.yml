@@ -151,15 +151,42 @@ jobs:
             const requestId = response.headers.get("x-nf-request-id");
             return `HTTP ${response.status}${requestId ? ` (Netlify request ${requestId})` : ""}`;
           };
+          const fetchMetadata = async (url) => {
+            for (let attempt = 0; ; attempt += 1) {
+              const response = await fetch(url, { headers });
+              if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 3) {
+                return response;
+              }
+              const retryAfter = response.headers.get("retry-after");
+              const retryAfterSeconds = Number(retryAfter);
+              const requestedDelay = retryAfter
+                ? Number.isFinite(retryAfterSeconds)
+                  ? retryAfterSeconds * 1000
+                  : Date.parse(retryAfter) - Date.now()
+                : Number.NaN;
+              const delay = Math.min(
+                30_000,
+                Math.max(
+                  0,
+                  Number.isFinite(requestedDelay)
+                    ? requestedDelay
+                    : 500 * 2 ** attempt,
+                ),
+              );
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+          };
           const readVariables = async () => {
-            const response = await fetch(`${endpoint}?${query}`, { headers });
+            const response = await fetchMetadata(`${endpoint}?${query}`);
             if (!response.ok) {
               throw new Error(`Could not read Netlify environment metadata (${responseDetails(response)}).`);
             }
             return response.json();
           };
           const readSiteVariable = async (key) => {
-            const response = await fetch(`${endpoint}/${encodeURIComponent(key)}?${query}`, { headers });
+            const response = await fetchMetadata(
+              `${endpoint}/${encodeURIComponent(key)}?${query}`,
+            );
             if (response.status === 404) return null;
             if (!response.ok) {
               throw new Error(`Could not read the Netlify ${key} environment metadata (${responseDetails(response)}).`);
