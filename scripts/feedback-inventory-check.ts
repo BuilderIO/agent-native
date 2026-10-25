@@ -2810,11 +2810,14 @@ function replyExplicitlyRefusesHandoff(text: string): boolean {
   const abilityRefusal = new RegExp(
     `\\b(?:i|we)(?:'m|'re|\\s+am|\\s+are)\\s+(?:unable to|not going to be able to)\\s+${refusedAction}\\b`,
   );
+  const hedgedAbilityRefusal =
+    /\b(?:i|we)(?:'m|\s+am)?\s+not sure\b.{0,80}\b(?:i|we)\s+(?:can|could|will|would)\b|\b(?:i|we)\s+(?:don't|do not)\s+think\b.{0,80}\b(?:i|we)\s+(?:can|could|will|would)\b/i;
   return (
     new RegExp(
       `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:(?:be\\s+)?able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
     ).test(normalized) ||
     abilityRefusal.test(normalized) ||
+    hedgedAbilityRefusal.test(normalized) ||
     /\b(?:i|we)\s+(?:need to|have to)\s+back out\b|\b(?:i|we)\s+(?:no longer|don't|do not)\s+have\s+(?:the\s+)?(?:time|capacity|bandwidth)\b|\b(?:not sure|unsure|uncertain)\s+(?:if|whether)\s+(?:i|we)\s+(?:can|will)\b|\b(?:i|we)\s+(?:may|might)\s+not be able to\b/i.test(
       normalized,
     )
@@ -5470,7 +5473,7 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
     /\b(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|not\s+authorized|not\s+approved|forbidden|prohibited|disallowed)\b/i.test(
       statement,
     ) ||
-    /\b(?:skip|omit|leave out)\s+(?:(?:adding|posting|sending|leaving|using)\s+)?(?:(?:the|any)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
+    /\b(?:skip|avoid|omit|leave out)\s+(?:(?:adding|posting|sending|leaving|using)\s+)?(?:(?:the|any)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
       statement,
     ) ||
     /\b(?:but|however|though|except|only)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
@@ -5482,16 +5485,28 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
   );
 }
 
-function hasExplicitPartialWriteRestriction(statement: string): boolean {
+function hasExplicitNoReplyRestriction(statement: string): boolean {
   return (
-    hasExplicitNoReactionRestriction(statement) ||
     /(?:^|[.!?;,:]\s*|\b(?:but|however|though|except|with)\s+)(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
       statement,
     ) ||
-    /\b(?:replies?|responses?|updates?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|forbidden|prohibited|disallowed)\b/i.test(
+    /\b(?:skip|avoid|hold\s+off\s+on|omit|leave\s+out)\s+(?:(?:the|any)\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)\b/i.test(
       statement,
     ) ||
-    /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b|\b(?:you\s+)?(?:(?:may|can|should|must)\s+)?only\s+(?:(?:add|post|send|leave|use)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
+    /\b(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)\s+(?:are\s+)?(?:off limits|not allowed|not permitted|forbidden|prohibited|disallowed)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:do not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:reply|respond|post|send|leave|write)\b[^.!?;\n]{0,80}\b(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitPartialWriteRestriction(statement: string): boolean {
+  return (
+    hasExplicitNoReactionRestriction(statement) ||
+    hasExplicitNoReplyRestriction(statement) ||
+    /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b|\b(?:you\s+)?(?:(?:may|can|should|must)\s+)?only\s+(?:(?:add|post|send|leave|use)\s+)?(?:emojis?|reactions?|marks?)\b|\bnothing\s+but\s+(?:read|inspect)(?:ing)?\b/i.test(
       statement,
     )
   );
@@ -5505,12 +5520,36 @@ function hasExplicitAuthorizationRevocation(text: string): boolean {
     /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
       text,
     ) ||
-    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel|rescind)\s+(?:(?:that|this|my|our|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel|rescind)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)(?:['’]m|['’]re|\s+am|\s+are)\s+(?:(?:hereby)\s+)?(?:revoke|revoked|revoking|withdraw|withdrawn|withdrew|withdrawing|cancel|canceled|cancelled|canceling|cancelling|rescind|rescinded|rescinding)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)(?:['’]m|['’]re|\s+am|\s+are)?\s+(?:take|taking|took)\s+back\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
       text,
     ) ||
     /\b(?:i|we)\s+(?:no longer|do not|don't|will not|won't)\s+(?:authorize|approve|permit|allow)\b/i.test(
       text,
     )
+  );
+}
+
+function userRequestExcludesExactRoot(
+  userRequest: string,
+  root: AuthorizedRoot,
+): boolean {
+  const exclusion =
+    /\b(?:do not|don't|never|cannot|can't|shouldn't|mustn't|won't)\s+(?:touch|work on|handle|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over)\b|\b(?:exclude|excluded|skip|leave out|omit|avoid)\b/i;
+  const statements =
+    withoutQuotedScopeContext(userRequest).split(/;|\n+|(?<=[.!?])\s+/);
+  return statements.some(
+    (statement) =>
+      authorizedRootPairAppears(statement, root) &&
+      !/\b(?:unless|only\s+if|provided\s+that|conditional\s+on|subject\s+to)\b/i.test(
+        statement,
+      ) &&
+      exclusion.test(statement),
   );
 }
 
@@ -5520,7 +5559,14 @@ function hasExplicitWorkflowWriteAuthorization(
 ): boolean {
   const requestText = withoutQuotedScopeContext(userRequest);
   const sentences = requestText.split(/(?:[.!?;]\s+|\n+)/);
+  const hasRootExclusion = roots.some(
+    (root) =>
+      typeof root?.channelId === "string" &&
+      typeof root?.rootTs === "string" &&
+      userRequestExcludesExactRoot(requestText, root),
+  );
   if (
+    hasRootExclusion ||
     /\b(?:unless|only\s+if|provided\s+that|conditional\s+on|subject\s+to)\b/i.test(
       requestText,
     ) ||
@@ -5586,6 +5632,20 @@ function validateAuthorizedRootsDeclaration(
     );
   }
   if (entries.length === 0) return new Set();
+  if (typeof scope.userRequest === "string") {
+    const excludedRoot = entries.find(
+      (root) =>
+        root &&
+        typeof root.channelId === "string" &&
+        typeof root.rootTs === "string" &&
+        userRequestExcludesExactRoot(scope.userRequest!, root),
+    );
+    if (excludedRoot) {
+      throw new Error(
+        "scope.userRequest explicitly excludes an authorized root",
+      );
+    }
+  }
   const hasBoundedWriteAuthorization =
     typeof scope.userRequest === "string" &&
     hasExplicitWorkflowWriteAuthorization(scope.userRequest, []);
@@ -5711,7 +5771,12 @@ function userRequestAuthorizesExactRoot(
   const workAuthorizationLanguage =
     /\b(?:work|handle|reconcile|take over|follow up|claim(?:ing)?|reply(?:ing)?|read|inspect|authorize|permission)\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
-  if (hasExplicitAuthorizationRevocation(unquotedRequest)) return false;
+  if (
+    hasExplicitAuthorizationRevocation(unquotedRequest) ||
+    userRequestExcludesExactRoot(unquotedRequest, root)
+  ) {
+    return false;
+  }
   const statements = unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/);
   let searchOffset = 0;
   return statements.some((statement, statementIndex) => {
@@ -11888,6 +11953,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I'm unable to take this.",
     "I'm not going to be able to take this.",
     "I'm unable to take this, but I'll handle the docs.",
+    "I'm not sure we can fix this, but I'll fix the bug.",
+    "I don't think I can take this, but I'll handle the docs.",
   ]) {
     if (
       !replyExplicitlyRefusesHandoff(text) ||
@@ -17913,6 +17980,17 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(authorizationForDifferentRoot),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
     );
+    const explicitlyExcludedRoot = structuredClone(authorizedMagRoot);
+    explicitlyExcludedRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but don't touch C_TEST 10.000000.";
+    explicitlyExcludedRoot.scope.narrowingJudgment!.instruction =
+      explicitlyExcludedRoot.scope.userRequest;
+    expectFocusedFailure(
+      "an exact-root exclusion blocks a preceding broad authorization",
+      () => validateTestInventory(explicitlyExcludedRoot),
+      "scope.userRequest explicitly excludes an authorized root",
+    );
+
     const readOnlyAuthorization = structuredClone(authorizedMagRoot);
     readOnlyAuthorization.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect root 10.000000.";
@@ -17948,6 +18026,12 @@ if (args[0] === "--self-test" && args.length === 1) {
       "No status updates.",
       "Reactions are not allowed.",
       "Skip reactions.",
+      "Avoid reactions.",
+      "Skip the replies.",
+      "Hold off on replies.",
+      "Replies are off limits.",
+      "Nothing but read.",
+      "Do not leave status replies.",
       "Leave out emojis.",
       "You may only add reactions.",
     ]) {
@@ -18095,6 +18179,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Actually, I cancel my authorization.",
       "Actually, I withdraw my earlier authorization.",
       "Actually, I revoke the previous approval.",
+      "Actually, I'm withdrawing my authorization.",
+      "Actually, I take back that approval.",
+      "Actually, I revoke your permission.",
+      "Actually, I'm revoking my approval.",
       "Actually, I no longer authorize this.",
     ]) {
       const withdrawnAuthorization = structuredClone(authorizedMagRoot);
@@ -25041,7 +25129,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 12 handoff phrase cases; 24 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 14 handoff phrase cases; 35 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
