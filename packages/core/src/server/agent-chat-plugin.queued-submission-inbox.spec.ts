@@ -1211,6 +1211,86 @@ describe("queued submission inbox recurring sweep", () => {
     expect(inboxHarness.admissions).toHaveLength(1);
   }, 20_000);
 
+  it("retries a thread-scoped completion drain after its claim collision", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+    inboxHarness.admissionFailure = {
+      messageId,
+      status: 409,
+      response: {
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+      },
+    };
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: `run-${messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${String(body.queuedMessageId)}`;
+    };
+    inboxHarness.afterAdmissionFailure = async () => {
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-completed-while-claim-held",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-completed-while-claim-held",
+        },
+        threadId,
+      );
+      await vi.waitFor(() => expect(inboxHarness.claimBusyCount).toBe(1));
+    };
+    await createSweepHandler();
+    const onRunComplete = inboxHarness.completeRun;
+    if (!onRunComplete) throw new Error("Run completion callback not captured");
+
+    await onRunComplete(
+      {
+        events: [],
+        runId: "run-starting-thread-scoped-drain",
+        startedAt: Date.now() - 1_000,
+        status: "completed",
+        threadId,
+        turnId: "turn-starting-thread-scoped-drain",
+      },
+      threadId,
+    );
+
+    await vi.waitFor(async () => {
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "submitted" });
+    });
+    expect(inboxHarness.admissionAttempts).toEqual([messageId, messageId]);
+    expect(inboxHarness.admissions).toHaveLength(1);
+    expect(inboxHarness.claimBusyCount).toBe(1);
+  }, 20_000);
+
   it("surfaces an active-run lookup failure when another drain holds the receipt claim", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;

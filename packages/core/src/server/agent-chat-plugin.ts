@@ -9044,6 +9044,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
+          followUpDepth?: number;
         } = {},
       ) => {
         const result = {
@@ -9066,12 +9067,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           deferredThreads.add(threadId);
         };
         const scheduleFollowUpDrain = (threadId: string) => {
-          if (drainOptions.threadId) return;
+          const followUpDepth = drainOptions.followUpDepth ?? 0;
+          if (followUpDepth >= 1) return;
           scheduleQueuedSubmissionInboxDrain({
             threadId,
             turnContinues: false,
             waitUntil: getRequestRunContext()?.waitUntil,
-            drain: drainQueuedSubmissionInbox,
+            drain: (input) =>
+              drainQueuedSubmissionInbox({
+                ...input,
+                followUpDepth: followUpDepth + 1,
+              }),
             onError: (error) => {
               console.error(
                 `[agent-chat] queued-submission release follow-up drain failed for ${threadId}:`,
