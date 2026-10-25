@@ -549,7 +549,7 @@ describe("WorkspaceAppKeepAlive", () => {
     });
 
     expect(onChildRouteChange).toHaveBeenCalledWith(
-      "/apps/design/foobar?mode=edit#canvas",
+      "/apps/design?__workspace_app_path=%2Ffoobar%3Fmode%3Dedit%23canvas",
     );
 
     await act(async () => {

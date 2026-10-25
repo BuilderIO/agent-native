@@ -88,6 +88,7 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-oracle-loosening",
   "guard:no-new-legacy-mcp-hints",
   "guard:action-output-schema",
   "guard:no-new-escape-hatches",

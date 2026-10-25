@@ -8,12 +8,7 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import { tsImport } from "tsx/esm/api";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -29,7 +24,6 @@ import { waitForEditorBoot } from "./editor-boot";
 import {
   appPath,
   enableLab,
-  expandAllLayers,
   gotoEditor,
   selectByText,
   waitForDesignPreviewReady,
@@ -47,16 +41,6 @@ let viteServer: ViteDevServer | null = null;
 let bridge: DesignConnectBridge | null = null;
 let viteChangedFiles: string[] = [];
 let restoreMotionLab: (() => Promise<void>) | null = null;
-
-async function selectReactMotionTarget(page: Page) {
-  await expandAllLayers(page);
-  const row = page
-    .getByRole("tree", { name: "Layers" })
-    .getByRole("treeitem", { name: /Motion target/ })
-    .first();
-  await row.getByRole("button", { name: "Motion target", exact: true }).click();
-  await expect(row).toHaveAttribute("aria-selected", "true");
-}
 
 function reactSource(): string {
   return `import React from "react";
@@ -136,6 +120,9 @@ async function getAction(
 
 test.describe.serial("React Motion source browser writeback", () => {
   test.beforeEach(async ({ page }) => {
+    await page
+      .context()
+      .addCookies([{ name: "an_consent", value: "1.p0.t0", url: baseURL }]);
     await page.context().grantPermissions(["local-network-access"], {
       origin: new URL(baseURL).origin,
     });
@@ -1620,7 +1607,10 @@ createRoot(document.getElementById("root")!).render(<App />);
 
     await sourcePreview.close();
     await gotoEditor(page, designId);
-    await selectReactMotionTarget(page);
+    await selectByText(page, "Motion target", {
+      screenId,
+      clearPreviousSelection: true,
+    });
     await page
       .getByRole("button", { name: "Motion dock", exact: true })
       .click();
@@ -1681,7 +1671,10 @@ createRoot(document.getElementById("root")!).render(<App />);
       "data-agent-native-motion-source-hash",
       savedHash,
     );
-    await selectReactMotionTarget(page);
+    await selectByText(page, "Motion target", {
+      screenId,
+      clearPreviousSelection: true,
+    });
     await page
       .getByRole("button", { name: "Motion dock", exact: true })
       .click();
@@ -1772,22 +1765,207 @@ createRoot(document.getElementById("root")!).render(<App />);
       .poll(() => viteChangedFiles.length)
       .toBeGreaterThan(viteChangesBeforeRemoval);
 
-    await page.reload({ waitUntil: "load" });
-    const motionFreeTarget = page.locator(
-      `[data-agent-native-node-id="${targetNodeId}"]`,
-    );
-    await expect(motionFreeTarget).toHaveText("Motion target");
-    await expect(motionFreeTarget).toHaveAttribute(
-      "data-agent-native-motion-source-hash",
-      createHash("sha256").update(removedSource).digest("hex"),
-    );
-    await expect
-      .poll(() =>
-        motionFreeTarget.evaluate((element) => element.getAnimations().length),
-      )
-      .toBe(0);
+    const motionFreePreview = await page.context().newPage();
+    try {
+      await motionFreePreview.goto(reactDevServerUrl, { waitUntil: "load" });
+      const motionFreeTarget = motionFreePreview.locator(
+        `[data-agent-native-node-id="${targetNodeId}"]`,
+      );
+      await expect(motionFreeTarget).toHaveText("Motion target");
+      await expect(motionFreeTarget).toHaveAttribute(
+        "data-agent-native-motion-source-hash",
+        createHash("sha256").update(removedSource).digest("hex"),
+      );
+      await expect
+        .poll(() =>
+          motionFreeTarget.evaluate(
+            (element) => element.getAnimations().length,
+          ),
+        )
+        .toBe(0);
+    } finally {
+      await motionFreePreview.close();
+    }
 
     fs.writeFileSync(sourceFilePath, reactSource());
+  });
+
+  test("rejects a runtime React css prop without changing source or preview", async ({
+    page,
+    request,
+  }) => {
+    if (!screenId) {
+      const opened = await postAction(request, "add-localhost-screens", {
+        connectionId,
+        designId,
+        paths: ["/"],
+      });
+      screenId = opened.screens?.[0]?.id;
+    }
+    if (!screenId) throw new Error("React Motion screen is not registered");
+
+    await postAction(request, "grant-localhost-write-consent", {
+      designId,
+      connectionId,
+    });
+
+    const existing = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    for (const timeline of existing.timelines ?? []) {
+      if (timeline.id) {
+        if (typeof timeline.sourceVersionHash !== "string") {
+          throw new Error("React Motion source version is missing.");
+        }
+        await postAction(request, "remove-motion-timeline", {
+          designId,
+          timelineId: timeline.id,
+          fileId: screenId,
+          timelineVersionHash: timeline.sourceVersionHash,
+        });
+      }
+    }
+
+    const authoredSource = `import React from "react";
+import { createRoot } from "react-dom/client";
+
+function App() {
+  const motionStyles = readMotionStyles();
+  return (
+    <main style={{ marginLeft: "80px", marginTop: "80px" }}>
+      <button
+        data-agent-native-node-id="motion-target"
+        data-preview-sentinel="preserved"
+        id="motion-target"
+        css={motionStyles}
+        style={{ color: "rebeccapurple", padding: "12px" }}
+      >
+        Motion target
+      </button>
+    </main>
+  );
+}
+
+function readMotionStyles() {
+  return { opacity: 0.25, transform: "translateX(60px)" };
+}
+
+createRoot(document.getElementById("root")!).render(<App />);
+`;
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    fs.writeFileSync(sourceFilePath, authoredSource);
+    const sourceHash = createHash("sha256")
+      .update(authoredSource)
+      .digest("hex");
+    const sourceCapability = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+      targetNodeIds: [nodeId],
+      previewModulePath: sourcePath,
+      previewModuleVersionHash: sourceHash,
+    });
+    expect(sourceCapability.sourceWriteCapability).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    const sourcePreview = await page.context().newPage();
+    try {
+      await sourcePreview.goto(reactDevServerUrl, { waitUntil: "load" });
+      const target = sourcePreview.locator("button#motion-target");
+      await expect(target).toBeVisible();
+      await expect(target).toHaveText("Motion target");
+      await expect(target).toHaveAttribute(
+        "data-agent-native-motion-source-hash",
+        sourceHash,
+      );
+      const snapshotPreview = () =>
+        target.evaluate((element) => {
+          const { x, y, width, height } = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            html: element.outerHTML,
+            text: element.textContent,
+            sourceHash: element.getAttribute(
+              "data-agent-native-motion-source-hash",
+            ),
+            color: style.color,
+            padding: style.padding,
+            opacity: style.opacity,
+            transform: style.transform,
+            bounds: { x, y, width, height },
+          };
+        });
+      const beforePreview = await snapshotPreview();
+      expect(beforePreview).toMatchObject({
+        text: "Motion target",
+        sourceHash,
+        color: "rgb(102, 51, 153)",
+        padding: "12px",
+        opacity: "1",
+        transform: "none",
+      });
+
+      const rejected = await request.post(
+        `${baseURL}/_agent-native/actions/apply-motion-edit`,
+        {
+          data: {
+            designId,
+            fileId: screenId,
+            sourceRef: screenId,
+            localSource: {
+              connectionId,
+              modulePath: sourcePath,
+              moduleVersionHash: sourceHash,
+              timelineVersionHash: sourceHash,
+              renderedNodeIds: [nodeId],
+            },
+            tracks: [
+              {
+                targetNodeId: nodeId,
+                property: "opacity",
+                durationMs: 800,
+                keyframes: [
+                  { t: 0, value: "1", ease: "linear" },
+                  { t: 1, value: "0.5", ease: "linear" },
+                ],
+              },
+            ],
+            durationMs: 800,
+            playbackMode: "once",
+            defaultEase: "linear",
+          },
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      expect(rejected.status()).toBe(422);
+      expect(await rejected.text()).toContain(
+        "motion_react_source_unsupported_authored_motion",
+      );
+
+      expect(fs.readFileSync(sourceFilePath, "utf8")).toBe(authoredSource);
+      expect(
+        createHash("sha256")
+          .update(fs.readFileSync(sourceFilePath, "utf8"))
+          .digest("hex"),
+      ).toBe(sourceHash);
+      await expect(target).toBeVisible();
+      await expect(target).toHaveText("Motion target");
+      await expect(target).toHaveAttribute(
+        "data-agent-native-motion-source-hash",
+        sourceHash,
+      );
+      expect(await snapshotPreview()).toEqual(beforePreview);
+
+      const afterRejection = await getAction(request, "get-motion-timeline", {
+        designId,
+        sourceRef: screenId,
+      });
+      expect(afterRejection.timelines ?? []).toHaveLength(0);
+    } finally {
+      await sourcePreview.close();
+      fs.writeFileSync(sourceFilePath, reactSource());
+    }
   });
 });
 

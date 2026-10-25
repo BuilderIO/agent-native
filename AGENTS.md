@@ -139,8 +139,9 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
 `no-bare-error-in-actions`, `external-result-contract`,
-`no-source-reading-tests`, `action-output-schema`, `strict-lint`, and
-`compiler-strictness` check only lines this branch added, so the
+`no-source-reading-tests`, `no-oracle-loosening`, `action-output-schema`,
+`strict-lint`, and `compiler-strictness` check only lines this branch added,
+so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
 `no-new-legacy-mcp-hints`, `no-new-escape-hatches`, and `compiler-strictness`
