@@ -572,6 +572,15 @@ function validateSourceFilesInSnapshot(
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
   const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
+  const replySnapshot = snapshot.replies.find(
+    (reply) => reply.ts === parent.ts,
+  );
+  // Public search omits the body of some bot replies; their full-thread read is the source text.
+  const botReplyTextUnavailableInSearch =
+    parent.sourceText === "" &&
+    parent.ts !== parent.threadParentTs &&
+    replySnapshot?.kind === "bot" &&
+    Boolean(snapshotText?.trim());
   if (
     JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
   ) {
@@ -582,7 +591,8 @@ function validateSourceFilesInSnapshot(
   if (
     parent.sourceText !== undefined &&
     snapshotText !== undefined &&
-    !matchesSlackMessageText(parent.sourceText, snapshotText)
+    !matchesSlackMessageText(parent.sourceText, snapshotText) &&
+    !botReplyTextUnavailableInSearch
   ) {
     throw new Error(
       `${parentName}: threadSnapshot text must match the captured source message; rescan the source after edits`,
@@ -3667,7 +3677,17 @@ function validateStatusReactionLanguage(
   unfinishedScopes: Array<{ scope: string; evidence: string }> = [],
   unfinishedScopeSummary?: string,
 ): void {
-  if (!text.includes("this was sent from a bot.")) {
+  const hasBotDisclosure =
+    text.includes("this was sent from a bot.") ||
+    text.split(/\r?\n/).some((line) =>
+      /^this was sent from a bot\.?$/i.test(
+        line
+          .trim()
+          .replace(/^[*_]+|[*_]+$/g, "")
+          .trim(),
+      ),
+    );
+  if (!hasBotDisclosure) {
     throw new Error(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
@@ -8342,9 +8362,15 @@ function validateOwnedMarkSearches(
       ) {
         throw new Error(`${label}: owned-mark cursor chain is incomplete`);
       }
-      const firstRowMismatchIndex = page.rows.findIndex(
-        (row, index) => !isDeepStrictEqual(row, rawPage.rows[index]),
-      );
+      const firstRowMismatchIndex = page.rows.findIndex((row, index) => {
+        const rawRow = rawPage.rows[index];
+        return (
+          !rawRow ||
+          row.ts !== rawRow.ts ||
+          row.root !== rawRow.root ||
+          row.text !== rawRow.text
+        );
+      });
       const firstRow =
         firstRowMismatchIndex === -1
           ? undefined
@@ -9096,6 +9122,8 @@ function validateInventory(
         usedPageLimitRecoveries.add(recoveryIndex);
         expectedCursor = null;
         activeBefore = before;
+        // Cursor tokens can restart when a capped search resumes from a new before bound.
+        seenCursors.clear();
       } else if (cursor !== expectedCursor || before !== activeBefore) {
         throw new Error(
           `${pageName}: cursor and before bound do not continue the current source slice`,
@@ -21799,6 +21827,95 @@ if (args[0] === "--self-test" && args.length === 1) {
         recoverySliceInventory,
       ),
     });
+    const repeatedCursorRestartInventory: Inventory = {
+      ...recoverySliceInventory,
+      channels: recoverySliceInventory.channels.map((channel) => {
+        const page = channel.pages[0]!;
+        const [clusteredRoot, fixedRoot] = page.parents;
+        const heldRoot = channel.pages[1]!.parents[0];
+        const boundaryBefore = slackTimestampFromMicros(
+          slackTimestamp(fixedRoot!.ts, "self-test repeated cursor boundary") -
+            1n,
+        );
+        const makePage = (
+          readAt: string,
+          cursor: string | null,
+          before: string,
+          nextCursor: string | null,
+          exhausted: boolean,
+          parent: Parent,
+        ): SearchPage => ({
+          ...page,
+          readAt,
+          cursor,
+          before,
+          nextCursor,
+          exhausted,
+          messageCount: 1,
+          sourceTimestamps: [parent.ts],
+          parents: [parent],
+        });
+        const restartedHeldRoot = {
+          ...heldRoot!,
+          ts: "9.400000",
+          threadParentTs: "9.400000",
+          rootResolution: {
+            evidence: "slack_message.thread_ts",
+            sourceThreadTs: null,
+            rootTs: "9.400000",
+          },
+          reactionReadAt: recoveryReactionReadAt,
+        };
+        return {
+          ...channel,
+          pages: [
+            makePage(
+              new Date(now - 9_000).toISOString(),
+              null,
+              channel.scanQuery.before!,
+              "reused-cursor",
+              false,
+              clusteredRoot!,
+            ),
+            makePage(
+              cappedPageReadAt,
+              "reused-cursor",
+              channel.scanQuery.before!,
+              "capped-page",
+              false,
+              fixedRoot!,
+            ),
+            makePage(
+              recoveryPageReadAt,
+              null,
+              boundaryBefore,
+              "reused-cursor",
+              false,
+              { ...heldRoot!, reactionReadAt: recoveryReactionReadAt },
+            ),
+            makePage(
+              new Date(now - 5_000).toISOString(),
+              "reused-cursor",
+              boundaryBefore,
+              null,
+              true,
+              restartedHeldRoot,
+            ),
+          ],
+        };
+      }),
+    };
+    const repeatedCursorRestartReceipt = sourceReceiptFor(
+      repeatedCursorRestartInventory,
+    );
+    validateInventory(repeatedCursorRestartInventory, {
+      requireFreshReads: true,
+      sourceReceipt: repeatedCursorRestartReceipt,
+      rawSourcePages: rawSourcePagesFor(repeatedCursorRestartReceipt),
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        repeatedCursorRestartInventory,
+      ),
+    });
 
     const recoveryFailures = [
       {
@@ -22385,7 +22502,14 @@ if (args[0] === "--self-test" && args.length === 1) {
               readAt: ownershipReadAt,
               messageCount: 1,
               sourceTimestamps: ["10.000000"],
-              rows: [{ ts: "10.000000", root: "10.000000", text: "report" }],
+              rows: [
+                {
+                  ts: "10.000000",
+                  root: "10.000000",
+                  text: "report",
+                  rawText: "report\nReactions: eyes (1)",
+                },
+              ],
             },
           ],
         ]),
@@ -23725,6 +23849,26 @@ if (args[0] === "--self-test" && args.length === 1) {
           {
             ...ownedThreadSnapshot.replies[0],
             text: "The agent-chat request timed out.",
+          },
+        ],
+      },
+    );
+    validateSourceFilesInSnapshot(
+      "public search omitted a bot reply body",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText: "",
+        files: [],
+      },
+      {
+        ...ownedThreadSnapshot,
+        replies: [
+          {
+            ...ownedThreadSnapshot.replies[0]!,
+            actorId: "U_TEST_BOT",
+            kind: "bot",
+            text: "Captured bot response.",
           },
         ],
       },
