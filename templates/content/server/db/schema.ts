@@ -1062,7 +1062,8 @@ export const documentPropertyValues = table("document_property_values", {
  * One row per page and property whose value has been deleted, holding a
  * generation from the same sequence as the values. A trigger writes it, so a
  * cleared value can't make an old generation current again; see
- * _property-generations.ts. Its primary key is (document_id, property_id).
+ * _property-generations.ts. Its primary key is (document_id, property_id);
+ * deleting a property or collection clears its tombstones by property_id.
  */
 export const documentPropertyValueTombstones = table(
   "document_property_value_tombstones",
@@ -1071,6 +1072,12 @@ export const documentPropertyValueTombstones = table(
     propertyId: text("property_id").notNull(),
     generation: bigint("generation", { mode: "number" }).notNull(),
   },
+  (tombstone) => [
+    index("document_property_value_tombstones_property_idx").on(
+      tombstone.propertyId,
+      tombstone.documentId,
+    ),
+  ],
 );
 
 export const documentBlockFieldContents = table(

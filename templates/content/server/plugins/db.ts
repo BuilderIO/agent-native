@@ -1616,6 +1616,8 @@ export const runContentMigrations = runMigrations(
           generation BIGINT NOT NULL,
           PRIMARY KEY (document_id, property_id)
         );
+        CREATE INDEX IF NOT EXISTS document_property_value_tombstones_property_idx
+          ON document_property_value_tombstones (property_id, document_id);
         CREATE OR REPLACE FUNCTION content_property_value_tombstone()
           RETURNS trigger
           LANGUAGE plpgsql
