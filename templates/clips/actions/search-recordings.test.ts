@@ -1,5 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+type QueryCondition =
+  | { kind: "and"; conditions: QueryCondition[] }
+  | { kind: "or"; conditions: QueryCondition[] }
+  | { kind: "eq"; column: string; value: unknown }
+  | { kind: "is-null"; column: string }
+  | { kind: "owner-email"; column: string; email: string }
+  | { kind: "access" }
+  | { kind: "sql"; values: unknown[] };
+
+interface MockQuery {
+  from(value: unknown): MockQuery;
+  innerJoin(): MockQuery;
+  where(condition: QueryCondition): MockQuery;
+  limit(value: number): MockQuery;
+  then(resolve: (value: unknown[]) => unknown): Promise<unknown>;
+}
+
 const whereConditions = vi.hoisted(() => [] as unknown[]);
 const selectedFields = vi.hoisted(() => [] as Record<string, unknown>[]);
 const searchRows = vi.hoisted(() => ({
@@ -29,11 +46,14 @@ const tables = vi.hoisted(() => ({
 }));
 
 const makeQuery = vi.hoisted(() => {
-  const matches = (row: Record<string, unknown>, condition: any): boolean => {
+  const matches = (
+    row: Record<string, unknown>,
+    condition: QueryCondition,
+  ): boolean => {
     if (condition.kind === "and")
-      return condition.conditions.every((part: unknown) => matches(row, part));
+      return condition.conditions.every((part) => matches(row, part));
     if (condition.kind === "or")
-      return condition.conditions.some((part: unknown) => matches(row, part));
+      return condition.conditions.some((part) => matches(row, part));
     if (condition.kind === "eq")
       return row[condition.column] === condition.value;
     if (condition.kind === "is-null") return row[condition.column] == null;
@@ -43,21 +63,18 @@ const makeQuery = vi.hoisted(() => {
         condition.email.toLowerCase()
       );
     if (condition.kind === "access") return true;
-    if (condition.kind === "sql") {
-      const column = condition.values[0];
-      const pattern = condition.values[1];
-      return (
-        typeof row[column] === "string" &&
-        String(row[column])
-          .toLowerCase()
-          .includes(String(pattern).replace(/^%|%$/g, ""))
-      );
-    }
-    throw new Error(`Unsupported query condition: ${condition.kind}`);
+    const column = String(condition.values[0]);
+    const pattern = condition.values[1];
+    return (
+      typeof row[column] === "string" &&
+      String(row[column])
+        .toLowerCase()
+        .includes(String(pattern).replace(/^%|%$/g, ""))
+    );
   };
-  const create = (fields: Record<string, unknown>): any => {
+  const create = (fields: Record<string, unknown>): MockQuery => {
     let table: unknown;
-    let filter: any;
+    let filter: QueryCondition;
     let limit = Infinity;
     const query = {
       from: (value: unknown) => {
@@ -65,7 +82,7 @@ const makeQuery = vi.hoisted(() => {
         return query;
       },
       innerJoin: () => query,
-      where: (condition: unknown) => {
+      where: (condition: QueryCondition) => {
         whereConditions.push(condition);
         filter = condition;
         return query;

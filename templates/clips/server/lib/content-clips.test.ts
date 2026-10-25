@@ -1659,22 +1659,55 @@ describe("token checks", () => {
     expect(statuses[30]).toBe(429);
   });
 
-  it("counts only reads of a Clip it opened, so made-up ids can't fill the limiter", async () => {
+  async function spendWrites(bearer: string) {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      expect((await addComment(bearer, attempt)).status).toBe(200);
+    }
+  }
+
+  function addComment(bearer: string, attempt: number) {
+    return writeComment("rec-upload", bearer, {
+      operation: "add",
+      content: `Comment ${attempt}`,
+      videoTimestampMs: attempt,
+    });
+  }
+
+  it("counts only requests for a Clip that opened, so made-up ids can't push a reader's bucket out", async () => {
     __resetContentClipRateLimitsForTests({ buckets: 2 });
+    const write = await token({ scope: SCOPES.comment });
+    await spendWrites(write);
     for (const recordingId of ["made-up-1", "made-up-2", "made-up-3"]) {
       expect(
         (await playback(recordingId, await token({ recordingId }))).status,
       ).toBe(404);
     }
-    expect((await playback("rec-upload", await token())).status).toBe(200);
+    expect((await addComment(write, 30)).status).toBe(429);
+  });
+
+  it("drops the oldest bucket when the map is full, refusing no new reader", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 2 });
+    const write = await token({ scope: SCOPES.comment });
+    await spendWrites(write);
     expect(
       (await listComments("rec-upload", await token({ sub: OTHER_READER })))
         .status,
     ).toBe(200);
-    // Real readers still fill it.
     expect(
       (await playback("rec-upload", await publicReaderToken())).status,
-    ).toBe(429);
+    ).toBe(200);
+    // The spent bucket was the oldest, so the reader starts a fresh window.
+    expect((await addComment(write, 30)).status).toBe(200);
+  });
+
+  it("still refuses a reader at their limit while the map has room", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 3 });
+    const write = await token({ scope: SCOPES.comment });
+    await spendWrites(write);
+    expect(
+      (await playback("rec-upload", await token({ sub: OTHER_READER }))).status,
+    ).toBe(200);
+    expect((await addComment(write, 30)).status).toBe(429);
   });
 
   it("refuses a made-up id once its misses are spent, and nothing else", async () => {
