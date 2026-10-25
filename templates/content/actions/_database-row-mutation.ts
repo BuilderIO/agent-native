@@ -65,8 +65,10 @@ import {
   propertyGenerationConflictError,
   propertyGenerationConflicts,
   propertyGenerationsFor,
+  propertyNotGuardableError,
   readPropertyTombstones,
   recordPropertyChangeIds,
+  unguardablePropertyIds,
   type PropertyGenerations,
 } from "./_property-generations.js";
 import { nanoid } from "./_property-utils.js";
@@ -1379,6 +1381,17 @@ async function updateInsideTransaction(
   },
 ) {
   const actor = requireDocumentRequestActor();
+  const unguardable = unguardablePropertyIds(
+    args.expectedPropertyGenerations,
+    context.definitions,
+  );
+  if (unguardable.length) {
+    throw propertyNotGuardableError({
+      itemId: args.itemId,
+      documentId: args.documentId,
+      propertyIds: unguardable,
+    });
+  }
   // The membership before the page, as a save takes them.
   await tx
     .update(schema.contentDatabaseItems)
@@ -2324,6 +2337,17 @@ async function patchRowsInsideTransaction(
   patches: Map<string, string>[],
 ): Promise<ContentDatabaseRowPatchReceipt[]> {
   const actor = requireDocumentRequestActor();
+  const unguardable = rows.flatMap((row, index) => {
+    const propertyIds = unguardablePropertyIds(
+      row.expectedPropertyGenerations,
+      context.definitions,
+    );
+    return propertyIds.length
+      ? [{ index, itemId: row.itemId, documentId: row.documentId, propertyIds }]
+      : [];
+  });
+  if (unguardable.length)
+    throw propertyNotGuardableError({ rows: unguardable });
   const itemIds = rows.map((row) => row.itemId);
   const documentIds = rows.map((row) => row.documentId);
   // Memberships, then pages, each by id, as saves take them. The snapshot

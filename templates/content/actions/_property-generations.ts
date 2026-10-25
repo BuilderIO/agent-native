@@ -196,25 +196,65 @@ export async function readPropertyGenerations(
   );
 }
 
-type ReadProperty = {
-  definition: {
-    id: string;
-    type: DocumentPropertyType;
-    systemRole?: string | null;
-  };
+type PropertyDefinition = {
+  id: string;
+  type: DocumentPropertyType;
+  systemRole?: string | null;
 };
+
+type ReadProperty = { definition: PropertyDefinition };
 
 /**
  * Blocks fields, computed fields and the Files view's system fields, whose
  * values are projected from the page rather than stored, take no guarded
  * writes and have no value row, so they're left out.
  */
+function isStoredValueProperty(definition: PropertyDefinition) {
+  return (
+    !definition.systemRole &&
+    !isBlocksPropertyType(definition.type) &&
+    !isComputedPropertyType(definition.type)
+  );
+}
+
 function storedValueProperties(properties: ReadProperty[]) {
-  return properties.filter(
-    ({ definition }) =>
-      !definition.systemRole &&
-      !isBlocksPropertyType(definition.type) &&
-      !isComputedPropertyType(definition.type),
+  return properties.filter(({ definition }) =>
+    isStoredValueProperty(definition),
+  );
+}
+
+/**
+ * The properties in a guard that have no generation to compare: ones the
+ * collection doesn't have, and the projected fields reads leave out. Each
+ * would read 0 forever, so a guard of 0 would pass without checking anything
+ * and any other number would conflict on every retry.
+ */
+export function unguardablePropertyIds(
+  expected: PropertyGenerations | undefined,
+  definitions: Array<{ id: string; type: string; systemRole?: string | null }>,
+): string[] {
+  if (!expected) return [];
+  const guardable = new Set(
+    definitions
+      .filter((definition) =>
+        isStoredValueProperty({
+          ...definition,
+          type: definition.type as DocumentPropertyType,
+        }),
+      )
+      .map((definition) => definition.id),
+  );
+  return Object.keys(expected).filter(
+    (propertyId) => !guardable.has(propertyId),
+  );
+}
+
+export function propertyNotGuardableError(
+  details: Record<string, unknown>,
+): ActionContractError {
+  return new ActionContractError(
+    "expectedPropertyGenerations names a property with no generation to compare: one this collection doesn't have, or a Blocks, computed or Files field. Nothing was written. Guard only properties listed in the item's propertyGenerations.",
+    { errorCode: "PROPERTY_NOT_GUARDABLE", details, statusCode: 400 },
   );
 }
 
@@ -346,5 +386,5 @@ export const expectedPropertyGenerationsSchema = z
   .record(z.string(), z.number().int().nonnegative())
   .optional()
   .describe(
-    "Write only if each named property's generation still equals this one, from the item's propertyGenerations in get-content-database. A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Use it to act on a value only while it is still the one you read.",
+    "Write only if each named property's generation still equals this one, from the item's propertyGenerations in get-content-database. A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Use it to act on a value only while it is still the one you read. Name only properties that propertyGenerations lists; any other fails with PROPERTY_NOT_GUARDABLE.",
   );

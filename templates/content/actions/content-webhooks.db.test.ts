@@ -1784,6 +1784,94 @@ describe("property generations", () => {
     }
   });
 
+  it("update-database-item and patch-database-items refuse a guard on a property with no generation", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const addProperty = async (name: string, type: "blocks" | "created_time") =>
+      (
+        await asOwner(() =>
+          configureProperty.run({
+            documentId: ids.databaseDocumentId,
+            databaseId: ids.databaseId,
+            name,
+            type,
+          }),
+        )
+      ).properties.find((candidate) => candidate.definition.name === name)!
+        .definition.id;
+    const blocks = await addProperty("Brief", "blocks");
+    const createdTime = await addProperty("Created", "created_time");
+    const read = await readItem(ids.databaseId, row.itemId);
+    expect(read.propertyGenerations).not.toHaveProperty(blocks);
+    expect(read.propertyGenerations).not.toHaveProperty(createdTime);
+    const discovered = await contract(ids.databaseId);
+
+    // Each would read 0 forever, so a guard of 0 used to pass unchecked.
+    for (const propertyId of ["no-such-property", blocks, createdTime]) {
+      const generations = {
+        [ids.properties.turn]: read.propertyGenerations![ids.properties.turn],
+        [propertyId]: 0,
+      };
+      await expect(
+        asOwner(() =>
+          updateRow.run({
+            ...envelope(discovered, `unguardable-update-${propertyId}`),
+            itemId: row.itemId,
+            documentId: row.documentId,
+            expectedRowRevision: read.rowRevision!,
+            expectedPropertyGenerations: generations,
+            propertyValues: { [ids.properties.notes]: "done" },
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "PROPERTY_NOT_GUARDABLE",
+        details: {
+          itemId: row.itemId,
+          documentId: row.documentId,
+          propertyIds: [propertyId],
+        },
+      });
+      await expect(
+        asOwner(() =>
+          patchRows.run({
+            ...envelope(discovered, `unguardable-patch-${propertyId}`),
+            rows: [
+              {
+                itemId: row.itemId,
+                documentId: row.documentId,
+                expectedRowRevision: read.rowRevision!,
+                expectedPropertyGenerations: generations,
+                propertyEntries: [
+                  {
+                    propertyId: ids.properties.rank,
+                    propertyType: "number" as const,
+                    value: 20,
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "PROPERTY_NOT_GUARDABLE",
+        details: {
+          rows: [
+            {
+              index: 0,
+              itemId: row.itemId,
+              documentId: row.documentId,
+              propertyIds: [propertyId],
+            },
+          ],
+        },
+      });
+    }
+    expect(await storedValue(row.documentId, ids.properties.notes)).toBe(
+      "first",
+    );
+    expect(await storedValue(row.documentId, ids.properties.rank)).toBe(0);
+  });
+
   it("a change ID moves only when its own value does, and reads, writes and events agree", async () => {
     const ids = await fixture();
     const [row] = ids.rows;
