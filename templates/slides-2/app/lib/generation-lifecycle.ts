@@ -26,19 +26,27 @@ function waitForRefreshRetry(signal?: AbortSignal): Promise<boolean> {
 }
 
 export async function refreshDeckForGenerationOutcome<TDeck>(
-  refreshOpenDeck: (deckId: string) => Promise<TDeck | null>,
+  refreshOpenDeck: (
+    deckId: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<TDeck | null>,
   deckId: string,
   now: () => number = Date.now,
   signal?: AbortSignal,
 ): Promise<GenerationDeckRefreshResult<TDeck>> {
   const endedAt = now();
+  if (signal?.aborted) return { status: "cancelled", endedAt };
   try {
-    let refreshedDeck = await refreshOpenDeck(deckId);
+    let refreshedDeck = signal
+      ? await refreshOpenDeck(deckId, { signal })
+      : await refreshOpenDeck(deckId);
     if (signal?.aborted) return { status: "cancelled", endedAt };
     if (refreshedDeck === null) {
       const retry = await waitForRefreshRetry(signal);
       if (!retry) return { status: "cancelled", endedAt };
-      refreshedDeck = await refreshOpenDeck(deckId);
+      refreshedDeck = signal
+        ? await refreshOpenDeck(deckId, { signal })
+        : await refreshOpenDeck(deckId);
       if (signal?.aborted) return { status: "cancelled", endedAt };
     }
     return refreshedDeck

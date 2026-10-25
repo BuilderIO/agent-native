@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { deleteAppSecret } from "../secrets/storage.js";
 import type { EnvKeyConfig } from "../server/create-server.js";
 
 const store = vi.hoisted(() => new Map<string, string>());
@@ -92,8 +93,15 @@ vi.mock("../secrets/storage.js", () => ({
     },
   ),
   deleteAppSecret: vi.fn(
-    async (ref: { key: string; scope: string; scopeId: string }) => {
+    async (
+      ref: { key: string; scope: string; scopeId: string },
+      expectedVersion?: string,
+    ) => {
       const storageKey = `${ref.scope}:${ref.scopeId}:${ref.key}`;
+      const currentVersion = String(versions.get(storageKey) ?? 1);
+      if (expectedVersion !== undefined && expectedVersion !== currentVersion) {
+        return false;
+      }
       versions.delete(storageKey);
       return store.delete(storageKey);
     },
@@ -662,6 +670,29 @@ describe("channel settings", () => {
       errorCode: "channel_removal_confirmation_stale",
     });
     expect(store.get(storageKey)).toBe("fake-rotated-token");
+  });
+
+  it("does not delete a credential that rotates after version validation", async () => {
+    const storageKey = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
+    store.set(storageKey, "fake-original-token");
+    versions.set(storageKey, 1);
+    const confirmed = await confirmedRemovals("telegram", [
+      "TELEGRAM_BOT_TOKEN",
+    ]);
+    vi.mocked(deleteAppSecret).mockImplementationOnce(async (ref) => {
+      const refKey = `${ref.scope}:${ref.scopeId}:${ref.key}`;
+      store.set(refKey, "fake-raced-rotation");
+      versions.set(refKey, 2);
+      return false;
+    });
+
+    await expect(
+      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "channel_removal_confirmation_stale",
+    });
+    expect(store.get(storageKey)).toBe("fake-raced-rotation");
   });
 
   it("rejects a stale removal confirmation when the unreadable scope changes", async () => {

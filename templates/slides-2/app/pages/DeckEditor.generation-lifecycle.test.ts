@@ -67,10 +67,12 @@ describe("generation deck refresh", () => {
     const deck = { id: "deck-1" } as unknown as Deck;
     let finishRefresh!: (value: Deck) => void;
     const refreshOpenDeck = vi.fn(
-      () =>
-        new Promise<Deck>((resolve) => {
+      (_deckId: string, options?: { signal?: AbortSignal }) => {
+        expect(options?.signal).toBe(controller.signal);
+        return new Promise<Deck>((resolve) => {
           finishRefresh = resolve;
-        }),
+        });
+      },
     );
     const controller = new AbortController();
 

@@ -826,17 +826,12 @@ describe("secrets storage CRUD (real pglite)", () => {
 
   it("does not delete a secret that changed after removal was confirmed", async () => {
     await mod.writeAppSecret({ ...userRef, value: "original-value" });
-    const original = await mod.readAppSecretMeta(userRef);
-    expect(original).not.toBeNull();
+    const originalVersion = await mod.readAppSecretVersion(userRef);
+    expect(originalVersion).not.toBeNull();
 
     await mod.writeAppSecret({ ...userRef, value: "replacement-value" });
-    await pglite
-      .prepare(
-        `UPDATE app_secrets SET updated_at = updated_at + 1 WHERE scope = ? AND scope_id = ? AND key = ?`,
-      )
-      .run(userRef.scope, userRef.scopeId, userRef.key);
 
-    expect(await mod.deleteAppSecret(userRef, original!.updatedAt)).toBe(false);
+    expect(await mod.deleteAppSecret(userRef, originalVersion!)).toBe(false);
     expect((await mod.readAppSecret(userRef))?.value).toBe("replacement-value");
     expect(await mod.deleteAppSecret(userRef)).toBe(true);
   });

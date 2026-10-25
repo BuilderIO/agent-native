@@ -692,7 +692,7 @@ export async function removeMessagingChannelCredentials(
       readCredentialStatus(keys.get(key)!, access),
     ),
   );
-  const refsToRemove: ChannelCredentialRef[] = [];
+  const refsToRemove: { ref: ChannelCredentialRef; version: string }[] = [];
   for (const {
     status,
     removalRef,
@@ -724,12 +724,22 @@ export async function removeMessagingChannelCredentials(
         },
       );
     }
-    refsToRemove.push(removalRef);
+    refsToRemove.push({ ref: removalRef, version: removalVersion });
   }
 
   const removedKeys: string[] = [];
-  for (const ref of refsToRemove) {
-    if ((await deleteAppSecret(ref)) && !removedKeys.includes(ref.key)) {
+  for (const { ref, version } of refsToRemove) {
+    if (!(await deleteAppSecret(ref, version))) {
+      fail(
+        "The channel credentials changed. Refresh and confirm removal again.",
+        {
+          statusCode: 409,
+          errorCode: "channel_removal_confirmation_stale",
+          details: { key: ref.key },
+        },
+      );
+    }
+    if (!removedKeys.includes(ref.key)) {
       removedKeys.push(ref.key);
     }
   }

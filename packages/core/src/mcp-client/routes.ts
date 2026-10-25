@@ -1204,9 +1204,14 @@ async function handleTestExisting(
   try {
     config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
   } catch (error) {
-    if (!(error instanceof InvalidMcpHeaderConfigurationError)) throw error;
-    setResponseStatus(event, 400);
-    return { ok: false, error: error.message };
+    if (
+      error instanceof AppSecretDecryptionError ||
+      error instanceof InvalidMcpHeaderConfigurationError
+    ) {
+      setResponseStatus(event, 400);
+      return { ok: false, error: error.message };
+    }
+    throw error;
   }
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
