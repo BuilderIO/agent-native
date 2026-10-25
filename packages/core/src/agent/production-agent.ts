@@ -416,7 +416,6 @@ import {
   recordRunDiagnostic,
   countRunsForTurn,
   RUN_DIAG_STAGE,
-  BACKGROUND_PROCESSING_RUN_STALE_MS,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
@@ -524,8 +523,6 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
-export const BACKGROUND_SETUP_HEARTBEAT_MAX_MS =
-  BACKGROUND_PROCESSING_RUN_STALE_MS;
 const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
@@ -11740,11 +11737,11 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   let preclaimHeartbeatInFlight = false;
   let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
-  let setupHeartbeatDeadline: ReturnType<typeof setTimeout> | undefined;
+  let setupHeartbeatStarted = false;
   const preclaimHeartbeatStartedAt = Date.now();
   const heartbeatWhileUnclaimed = () => {
     if (
-      !setupHeartbeatDeadline &&
+      !setupHeartbeatStarted &&
       Date.now() - preclaimHeartbeatStartedAt >=
         BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
     ) {
@@ -11764,22 +11761,16 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       clearInterval(preclaimHeartbeatTimer);
       preclaimHeartbeatTimer = undefined;
     }
-    if (setupHeartbeatDeadline !== undefined) {
-      clearTimeout(setupHeartbeatDeadline);
-      setupHeartbeatDeadline = undefined;
-    }
   };
   const keepSetupAlive = () => {
+    // Setup has no cancellation boundary; keep the run fresh until run-manager liveness takes over.
+    setupHeartbeatStarted = true;
     if (preclaimHeartbeatTimer === undefined) {
       preclaimHeartbeatTimer = setInterval(
         heartbeatWhileUnclaimed,
         BACKGROUND_PRECLAIM_HEARTBEAT_MS,
       );
     }
-    setupHeartbeatDeadline = setTimeout(
-      stopPreclaimHeartbeat,
-      BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
-    );
   };
 
   preclaimHeartbeatTimer = setInterval(
