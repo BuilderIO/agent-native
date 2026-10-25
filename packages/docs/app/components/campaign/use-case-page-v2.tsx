@@ -224,7 +224,7 @@ export function UseCasePageV2({ page }: { page: Page }) {
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button mt-[var(--spacing-2)]"
-            style={{ gap: "4px" }}
+            style={{ gap: "4px", textTransform: "uppercase" }}
             onClick={() =>
               trackEvent("use_case_cta_click", {
                 slug: page.slug,
