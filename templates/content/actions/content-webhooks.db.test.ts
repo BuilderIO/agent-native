@@ -2368,7 +2368,7 @@ describe("property generations", () => {
 
     // A third source, holding the second row, is attached between the Source
     // column's scan and its lock. That row's Source is the new source, not
-    // Local.
+    // Local, and the column lists it as an option.
     lockHook.beforeNext = async (tx) => {
       await tx.insert(schema.contentDatabaseSources).values(sources[2]);
       await tx.insert(links).values(link(1, 2));
@@ -2379,7 +2379,10 @@ describe("property generations", () => {
     });
     expect(lockHook.beforeNext).toBeNull();
     const [sourceColumn] = await getDb()
-      .select({ id: schema.documentPropertyDefinitions.id })
+      .select({
+        id: schema.documentPropertyDefinitions.id,
+        optionsJson: schema.documentPropertyDefinitions.optionsJson,
+      })
       .from(schema.documentPropertyDefinitions)
       .where(
         and(
@@ -2393,5 +2396,10 @@ describe("property generations", () => {
     expect(await storedValue(ids.rows[1].documentId, sourceColumn.id)).toBe(
       sources[2].id,
     );
+    expect(
+      JSON.parse(sourceColumn.optionsJson).options.map(
+        (option: { id: string }) => option.id,
+      ),
+    ).toEqual([...sources.map((source) => source.id), "local"]);
   });
 });

@@ -8181,14 +8181,7 @@ export async function ensureDatabaseSourceProperty(args: {
     return;
   }
   const db = getDb();
-  const sources = await db
-    .select({
-      id: schema.contentDatabaseSources.id,
-      sourceName: schema.contentDatabaseSources.sourceName,
-    })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+  const sources = await readDatabaseSourceNames(db, args.database.id);
   if (sources.length < 2) return;
 
   const [existing] = await db
@@ -8202,19 +8195,9 @@ export async function ensureDatabaseSourceProperty(args: {
       ),
     );
 
-  const priorOptions = existing
-    ? (parsePropertyOptions(existing.optionsJson).options ?? [])
-    : [];
-  const options = sourcePropertyOptionsForSources(sources, priorOptions);
-  const optionsJson = serializePropertyOptions({ options });
-
   let propertyId: string;
   if (existing) {
     propertyId = existing.id;
-    await db
-      .update(schema.documentPropertyDefinitions)
-      .set({ optionsJson, updatedAt: args.now })
-      .where(eq(schema.documentPropertyDefinitions.id, existing.id));
   } else {
     propertyId = crypto.randomUUID();
     await withPositionLock(
@@ -8234,7 +8217,9 @@ export async function ensureDatabaseSourceProperty(args: {
           name: SOURCE_PROPERTY_NAME,
           type: "select",
           visibility: "always_show",
-          optionsJson,
+          optionsJson: serializePropertyOptions({
+            options: sourcePropertyOptionsForSources(sources, []),
+          }),
           position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
@@ -8244,10 +8229,11 @@ export async function ensureDatabaseSourceProperty(args: {
   }
 
   // As in materializeSourceFieldPropertyValues, the scan runs without the
-  // lock and only finds the rows to look at. Under the lock their Source is
-  // worked out again from the sources, links and memberships as they are now,
-  // so a row moved to another source, or one whose source was attached, since
-  // the scan isn't set back.
+  // lock and only finds the rows to look at. Under the lock the column's
+  // options and those rows' Source are both worked out again from the
+  // sources, links and memberships as they are now. So a row moved to another
+  // source, or one whose source was attached, since the scan isn't set back,
+  // and every Source value has its option.
   const candidates = await sourcePropertyWrites(
     db,
     args,
@@ -8255,15 +8241,30 @@ export async function ensureDatabaseSourceProperty(args: {
     sources,
     null,
   );
-  if (candidates.length === 0) return;
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
     await lockContentDatabaseMutation(tx, args.database.id);
-    const currentSources = await tx
-      .select({ id: schema.contentDatabaseSources.id })
-      .from(schema.contentDatabaseSources)
-      .where(eq(schema.contentDatabaseSources.databaseId, args.database.id));
+    const currentSources = await readDatabaseSourceNames(tx, args.database.id);
     if (currentSources.length < 2) return;
+    const definitions = schema.documentPropertyDefinitions;
+    const [definition] = await tx
+      .select({ optionsJson: definitions.optionsJson })
+      .from(definitions)
+      .where(eq(definitions.id, propertyId));
+    if (!definition) return;
+    await tx
+      .update(definitions)
+      .set({
+        optionsJson: serializePropertyOptions({
+          options: sourcePropertyOptionsForSources(
+            currentSources,
+            parsePropertyOptions(definition.optionsJson).options ?? [],
+          ),
+        }),
+        updatedAt: args.now,
+      })
+      .where(eq(definitions.id, propertyId));
+    if (candidates.length === 0) return;
     await upsertSourcePropertyValues(
       tx,
       await sourcePropertyWrites(
@@ -8275,6 +8276,21 @@ export async function ensureDatabaseSourceProperty(args: {
       ),
     );
   });
+}
+
+/** A collection's sources, oldest first, as the Source column lists them. */
+function readDatabaseSourceNames(
+  db: ReturnType<typeof getDb>,
+  databaseId: string,
+) {
+  return db
+    .select({
+      id: schema.contentDatabaseSources.id,
+      sourceName: schema.contentDatabaseSources.sourceName,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId))
+    .orderBy(asc(schema.contentDatabaseSources.createdAt));
 }
 
 /**
