@@ -361,8 +361,52 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
             typingArrivedFirst,
           }),
         ).toBe("A big cat! day.");
+        // One character made of two code points has an inside too.
+        expect(
+          acceptWhileTyping({
+            stored: "A 👍🏽 day.",
+            next: "A 👎🏽 day.",
+            words: "👍🏽",
+            typing: typeAt("!", after("👍🏽")),
+            typingArrivedFirst,
+          }),
+        ).toBe("A 👎🏽! day.");
       }
     }
+  });
+
+  it("deletes the reviewed word, not the same word after it", () => {
+    const pages = [
+      ["The cat cat sleeps.", "The cat sleeps.", "The dog sleeps."],
+      ["The cat **cat sleeps.**", "The **cat sleeps.**", "The **dog sleeps.**"],
+      [
+        "The cat [cat](https://example.com) sleeps.",
+        "The [cat](https://example.com) sleeps.",
+        "The [dog](https://example.com) sleeps.",
+      ],
+    ];
+    // Someone else turns the second "cat" into "dog", keeping its formatting.
+    const renameSecondCat = (current: PMNode) => {
+      const { from, to } = find(current, "cat", 1);
+      const marks = current.resolve(from + 1).marks();
+      return current.replace(
+        from,
+        to,
+        new Slice(Fragment.from(schema.text("dog", marks)), 0, 0),
+      );
+    };
+    for (const [stored, next, shown] of pages)
+      for (let run = 0; run < 12; run += 1)
+        for (const typingArrivedFirst of [false, true])
+          expect(
+            acceptWhileTyping({
+              stored: stored!,
+              next: next!,
+              words: "cat ",
+              typing: renameSecondCat,
+              typingArrivedFirst,
+            }),
+          ).toBe(shown);
   });
 
   it("refuses, rather than changing the twin, when someone edited the reviewed words", () => {

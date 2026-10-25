@@ -113,37 +113,38 @@ function textSplice(before: string, after: string) {
 /**
  * Deletes `length` characters at `index`. y-prosemirror records typing as
  * far right as the text allows, so a space typed before " cat" goes in after
- * its space. When the same characters follow the deleted ones, the deletion
- * moves right over them too, and that typing stays whole.
+ * that word's space. When the deleted text starts with a space and the same
+ * space, formatted the same, follows it, the deletion moves right past it and
+ * that typing stays whole. Only spaces move it: a repeated word could be one
+ * someone else is editing.
  */
 function deleteText(text: Y.XmlText, index: number, length: number) {
-  const characters = new Map<number, string>();
-  let position = 0;
-  for (const { segment } of graphemes.segment(plainText(text))) {
-    characters.set(position, segment);
-    position += segment.length;
-  }
+  const characters = plainText(text);
+  const formats = text
+    .toDelta()
+    .flatMap((op: { insert?: unknown; attributes?: unknown }) =>
+      Array<string>(typeof op.insert === "string" ? op.insert.length : 1).fill(
+        JSON.stringify(op.attributes ?? {}),
+      ),
+    );
   let start = index;
-  for (;;) {
-    const first = characters.get(start);
-    if (
-      !first ||
-      first === OBJECT_REPLACEMENT ||
-      characters.get(start + length) !== first
-    )
-      break;
-    start += first.length;
-  }
+  while (
+    /\s/u.test(characters[start] ?? "") &&
+    characters[start] === characters[start + length] &&
+    formats[start] === formats[start + length]
+  )
+    start += 1;
   text.delete(start, length);
 }
 
 /**
  * Replaces `from` with `to` in `text` at `offset`. Yjs places new text by the
  * characters on either side of it, and puts anyone else's typing between the
- * same two characters in client order. So the new text goes in between
- * characters inside `from`, where nobody typing beside it is, before the old
- * text is deleted. A character next to the change is retyped when the change
- * has no inside of its own.
+ * same two characters in client order. So the new text goes in between code
+ * points inside `from`, where nobody typing beside it is, before the old text
+ * is deleted. That can be inside an emoji with a skin tone, which is deleted
+ * whole. A code point next to the change is retyped when the change has no
+ * inside of its own.
  */
 function spliceText(text: Y.XmlText, offset: number, from: string, to: string) {
   const { at, remove, insert } = textSplice(from, to);
@@ -152,24 +153,24 @@ function spliceText(text: Y.XmlText, offset: number, from: string, to: string) {
     return;
   }
   const boundaries = [0];
-  for (const { segment } of graphemes.segment(from))
-    boundaries.push(boundaries[boundaries.length - 1]! + segment.length);
+  for (const character of from)
+    boundaries.push(boundaries[boundaries.length - 1]! + character.length);
   const lastBefore = (limit: number) =>
     boundaries.reduce((best, boundary) => (boundary < limit ? boundary : best));
   let start = at;
   let end = at + remove;
   let anchor = at;
   if (remove) {
-    // Between the last two characters replaced, or after a lone one.
+    // Between the last two code points replaced, or after a lone one.
     const inside = lastBefore(end);
     anchor = inside > at ? inside : end < from.length || at === 0 ? end : at;
   } else if (at === 0) {
-    // New text at the start goes in after the first character, retyped.
+    // New text at the start goes in after the first code point, retyped.
     end = boundaries[1] ?? 0;
     anchor = end;
   } else {
-    // New text follows what's before it, so it goes in ahead of the
-    // character before it, retyped, rather than beside what comes next.
+    // New text follows what's before it, so it goes in ahead of the code
+    // point before it, retyped, rather than beside what comes next.
     const previous = lastBefore(at);
     if (previous > 0) {
       start = previous;
