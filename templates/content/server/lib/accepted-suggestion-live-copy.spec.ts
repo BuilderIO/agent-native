@@ -330,6 +330,17 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
     expect(() =>
       acceptWhileTyping({ ...input, typingArrivedFirst: true }),
     ).toThrow(refused);
+    // The space after the words is bold. The kept space takes that bold, and
+    // the typing beside it with it, as on main; the words stay apart.
+    for (let run = 0; run < 12; run += 1)
+      expect(
+        acceptWhileTyping({
+          stored: "The cat** **sleeps.",
+          next: "The** **sleeps.",
+          words: " cat",
+          typing: typeAt(" happy", before(" cat")),
+        }),
+      ).toBe("The** happy **sleeps.");
   });
 
   it("keeps typing beside words a suggestion replaces", () => {

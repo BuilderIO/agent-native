@@ -114,24 +114,16 @@ function textSplice(before: string, after: string) {
  * Deletes `length` characters at `index`. y-prosemirror records typing as
  * far right as the text allows, so a space typed before " cat" goes in after
  * that word's space. When the deleted text starts with a space and the same
- * space, formatted the same, follows it, the deletion moves right past it and
- * that typing stays whole. Only spaces move it: a repeated word could be one
- * someone else is editing.
+ * space follows it, the deletion moves right past it and that typing stays
+ * whole. The space kept then takes the accepted Page's formatting, as on main.
+ * Only spaces move it: a repeated word could be one someone else is editing.
  */
 function deleteText(text: Y.XmlText, index: number, length: number) {
   const characters = plainText(text);
-  const formats = text
-    .toDelta()
-    .flatMap((op: { insert?: unknown; attributes?: unknown }) =>
-      Array<string>(typeof op.insert === "string" ? op.insert.length : 1).fill(
-        JSON.stringify(op.attributes ?? {}),
-      ),
-    );
   let start = index;
   while (
     /\s/u.test(characters[start] ?? "") &&
-    characters[start] === characters[start + length] &&
-    formats[start] === formats[start + length]
+    characters[start] === characters[start + length]
   )
     start += 1;
   text.delete(start, length);
