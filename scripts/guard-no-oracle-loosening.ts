@@ -42,6 +42,12 @@
  * TypeScript AST, not a regex, so a `.skip(` or `expect(` inside a string or a
  * comment (a fixture, say) is not a test being skipped or an assertion.
  *
+ * This is a tripwire for the ordinary ways an agent loosens a test, written the
+ * way oxfmt leaves code. It is not a sandbox: syntax chosen to hide the change
+ * (computed matcher keys, a shadowed local `expect`, `expect.anything() ?? {}`)
+ * is deliberate evasion, and review catches that, not this guard. Widen a rule
+ * when a real branch slips past it, not for every equivalent spelling.
+ *
  * Same diff-base contract as every changed-lines guard: a base that cannot be
  * resolved exits GUARD_EXIT_COULD_NOT_RUN, which run-guards.ts reports as
  * SKIPPED rather than as a pass.
