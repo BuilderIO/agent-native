@@ -93,7 +93,7 @@ function mapRecording(r: any) {
 
 async function fetchRecording(id: string) {
   const db = getDb();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(schema.recordings)
     .where(
@@ -107,7 +107,8 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  if (!row) return null;
+  if (rows.length === 0) return null;
+  const [row] = rows;
   const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
   if (
     isRecordingTrashedForViewer({ trashedAt: row.trashedAt, viewerIsOwner }) ||

@@ -191,8 +191,10 @@ vi.mock("../server/lib/recordings.js", () => ({
     email,
   }),
   parseSpaceIds: vi.fn(),
-  sameOwnerEmail: (a: string, b: string) =>
-    a?.toLowerCase() === b?.toLowerCase(),
+  sameOwnerEmail: (
+    a: string | null | undefined,
+    b: string | null | undefined,
+  ) => a?.toLowerCase() === b?.toLowerCase(),
 }));
 
 vi.mock("../server/lib/user-identities.js", () => ({
@@ -255,11 +257,13 @@ describe("view-screen library view on a cold start", () => {
 });
 
 describe("view-screen recording access", () => {
+  let recording: Record<string, unknown>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     context.navigation.view = "recording";
     context.email = "viewer@example.com";
-    context.recording = {
+    recording = {
       id: "rec-test",
       title: "Fake recording",
       ownerEmail: "owner@example.com",
@@ -268,13 +272,14 @@ describe("view-screen recording access", () => {
       trashedAt: null,
       expiresAt: null,
     };
+    context.recording = recording;
   });
 
   it.each([
     { trashedAt: "2026-01-01T00:00:00Z" },
     { expiresAt: "2020-01-01T00:00:00Z" },
   ])("withholds recording context after access ends: %j", async (settings) => {
-    Object.assign(context.recording!, settings);
+    Object.assign(recording, settings);
     const screen = JSON.parse(await action.run({}));
     expect(screen.recording).toBeUndefined();
     expect(screen.comments).toBeUndefined();
@@ -286,7 +291,7 @@ describe("view-screen recording access", () => {
     "applies owner visibility to disabled comments for %s",
     async (email) => {
       context.email = email;
-      context.recording!.enableComments = false;
+      recording.enableComments = false;
       const screen = JSON.parse(await action.run({}));
       expect(screen.recording.id).toBe("rec-test");
       expect(
@@ -316,7 +321,7 @@ describe("view-screen recording access", () => {
     "keeps owner previews and restored viewer context: %j",
     async ({ email, ...settings }) => {
       context.email = email;
-      Object.assign(context.recording!, settings);
+      Object.assign(recording, settings);
       const screen = JSON.parse(await action.run({}));
       expect(screen.recording.id).toBe("rec-test");
       expect(screen.comments[0].content).toBe("Fake discussion");
