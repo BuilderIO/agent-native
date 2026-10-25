@@ -6152,53 +6152,27 @@ export async function materializeSourceFieldPropertyValues(args: {
 }) {
   const boundFields = args.fields.filter((field) => field.propertyId);
   if (boundFields.length === 0) return;
-  // Under the collection's mutation lock, like every other value write, so a
-  // guarded write can't fill a value between the read below and the upsert.
-  await getDb().transaction(async (transaction) => {
-    const db = transaction as unknown as ReturnType<typeof getDb>;
-    await lockContentDatabaseMutation(db, args.database.id);
-    const documentIdSet =
-      args.documentIds && args.documentIds.length > 0
-        ? new Set(args.documentIds)
-        : null;
-    const propertyIds = Array.from(
-      new Set(boundFields.map((field) => field.propertyId!)),
-    );
-    const definitions = await db
-      .select()
-      .from(schema.documentPropertyDefinitions)
-      .where(inArray(schema.documentPropertyDefinitions.id, propertyIds));
-    const definitionById = new Map(
-      definitions.map((definition) => [definition.id, definition]),
-    );
-    const scopedRows: Array<{
-      documentId: string;
-      sourceValuesJson: string;
-    }> = [];
-    if (documentIdSet) {
-      for (const idChunk of chunks(Array.from(documentIdSet), idChunkSize())) {
-        scopedRows.push(
-          ...(await db
-            .select({
-              documentId: schema.contentDatabaseSourceRows.documentId,
-              sourceValuesJson:
-                schema.contentDatabaseSourceRows.sourceValuesJson,
-            })
-            .from(schema.contentDatabaseSourceRows)
-            .where(
-              and(
-                eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
-                inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
-              ),
-            )
-            .orderBy(
-              asc(schema.contentDatabaseSourceRows.updatedAt),
-              asc(schema.contentDatabaseSourceRows.createdAt),
-              asc(schema.contentDatabaseSourceRows.id),
-            )),
-        );
-      }
-    } else {
+  const db = getDb();
+  const documentIdSet =
+    args.documentIds && args.documentIds.length > 0
+      ? new Set(args.documentIds)
+      : null;
+  const propertyIds = Array.from(
+    new Set(boundFields.map((field) => field.propertyId!)),
+  );
+  const definitions = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(inArray(schema.documentPropertyDefinitions.id, propertyIds));
+  const definitionById = new Map(
+    definitions.map((definition) => [definition.id, definition]),
+  );
+  const scopedRows: Array<{
+    documentId: string;
+    sourceValuesJson: string;
+  }> = [];
+  if (documentIdSet) {
+    for (const idChunk of chunks(Array.from(documentIdSet), idChunkSize())) {
       scopedRows.push(
         ...(await db
           .select({
@@ -6206,7 +6180,12 @@ export async function materializeSourceFieldPropertyValues(args: {
             sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
           })
           .from(schema.contentDatabaseSourceRows)
-          .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+              inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
+            ),
+          )
           .orderBy(
             asc(schema.contentDatabaseSourceRows.updatedAt),
             asc(schema.contentDatabaseSourceRows.createdAt),
@@ -6214,102 +6193,93 @@ export async function materializeSourceFieldPropertyValues(args: {
           )),
       );
     }
-    if (scopedRows.length === 0) return;
-
-    const existingValues: Array<
-      typeof schema.documentPropertyValues.$inferSelect
-    > = [];
-    const scopedExistingValueChunkSize = documentIdSet
-      ? bulkChunkSizeForColumnCount(2)
-      : idChunkSize();
-    for (const propertyIdChunk of chunks(
-      propertyIds,
-      scopedExistingValueChunkSize,
-    )) {
-      if (documentIdSet) {
-        for (const documentIdChunk of chunks(
-          Array.from(documentIdSet),
-          scopedExistingValueChunkSize,
-        )) {
-          existingValues.push(
-            ...(await db
-              .select()
-              .from(schema.documentPropertyValues)
-              .where(
-                and(
-                  inArray(
-                    schema.documentPropertyValues.propertyId,
-                    propertyIdChunk,
-                  ),
-                  inArray(
-                    schema.documentPropertyValues.documentId,
-                    documentIdChunk,
-                  ),
-                ),
-              )),
-          );
-        }
-      } else {
-        existingValues.push(
-          ...(await db
-            .select()
-            .from(schema.documentPropertyValues)
-            .where(
-              inArray(
-                schema.documentPropertyValues.propertyId,
-                propertyIdChunk,
-              ),
-            )),
-        );
-      }
-    }
-    const existingByDocumentAndProperty = new Map(
-      existingValues.map((value) => [
-        `${value.documentId}\0${value.propertyId}`,
-        value,
-      ]),
+  } else {
+    scopedRows.push(
+      ...(await db
+        .select({
+          documentId: schema.contentDatabaseSourceRows.documentId,
+          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        })
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))
+        .orderBy(
+          asc(schema.contentDatabaseSourceRows.updatedAt),
+          asc(schema.contentDatabaseSourceRows.createdAt),
+          asc(schema.contentDatabaseSourceRows.id),
+        )),
     );
-    const upsertsByDocumentAndProperty = new Map<
-      string,
-      typeof schema.documentPropertyValues.$inferInsert
-    >();
+  }
+  if (scopedRows.length === 0) return;
 
-    for (const row of scopedRows) {
-      const sourceValues =
-        parseObject<Record<string, DocumentPropertyValue>>(
-          row.sourceValuesJson,
-        ) ?? {};
-      for (const field of boundFields) {
-        const propertyId = field.propertyId!;
-        const definition = definitionById.get(propertyId);
-        if (!definition) continue;
-        const normalized = normalizePropertyValueWithOptions(
-          definition.type as DocumentProperty["definition"]["type"],
-          sourceValues[field.sourceFieldKey],
-          parsePropertyOptions(definition.optionsJson),
-        );
-        if (normalized === null) continue;
-        const valueJson = serializePropertyValue(normalized);
-        const key = `${row.documentId}\0${propertyId}`;
-        const existing = existingByDocumentAndProperty.get(key);
-        if (existing?.valueJson === valueJson) continue;
-        upsertsByDocumentAndProperty.set(key, {
-          id: existing?.id ?? nanoid(),
-          ownerEmail: existing?.ownerEmail ?? args.database.ownerEmail,
-          documentId: row.documentId,
-          propertyId,
-          valueJson,
-          createdAt: existing?.createdAt ?? args.now,
-          updatedAt: args.now,
-        });
-      }
+  // What the source says each bound field holds; a later source row wins.
+  const desired = new Map<
+    string,
+    { documentId: string; propertyId: string; valueJson: string }
+  >();
+  for (const row of scopedRows) {
+    const sourceValues =
+      parseObject<Record<string, DocumentPropertyValue>>(
+        row.sourceValuesJson,
+      ) ?? {};
+    for (const field of boundFields) {
+      const propertyId = field.propertyId!;
+      const definition = definitionById.get(propertyId);
+      if (!definition) continue;
+      const normalized = normalizePropertyValueWithOptions(
+        definition.type as DocumentProperty["definition"]["type"],
+        sourceValues[field.sourceFieldKey],
+        parsePropertyOptions(definition.optionsJson),
+      );
+      if (normalized === null) continue;
+      desired.set(`${row.documentId}\0${propertyId}`, {
+        documentId: row.documentId,
+        propertyId,
+        valueJson: serializePropertyValue(normalized),
+      });
     }
-    for (const chunk of chunks(
-      Array.from(upsertsByDocumentAndProperty.values()),
-      bulkChunkSizeForColumnCount(7),
-    )) {
+  }
+  const differs = (stored: Map<string, StoredSourceFieldValue>, key: string) =>
+    stored.get(key)?.valueJson !== desired.get(key)!.valueJson;
+  const before = await readStoredSourceFieldValues(
+    db,
+    propertyIds,
+    documentIdSet ? Array.from(documentIdSet) : null,
+  );
+  const changing = Array.from(desired.keys()).filter((key) =>
+    differs(before, key),
+  );
+  if (changing.length === 0) return;
+
+  // Only the write takes the collection's mutation lock, like every other
+  // value write. It reads the values about to change again under the lock, so
+  // a guarded write that filled one since the read above is updated in place
+  // rather than doubled, and the source scan above holds up no other writer.
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(tx, args.database.id);
+    const current = await readStoredSourceFieldValues(
+      tx,
+      Array.from(new Set(changing.map((key) => desired.get(key)!.propertyId))),
+      Array.from(new Set(changing.map((key) => desired.get(key)!.documentId))),
+    );
+    const upserts: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
+    for (const key of changing) {
+      if (!differs(current, key)) continue;
+      const want = desired.get(key)!;
+      const stored = current.get(key);
+      upserts.push({
+        id: stored?.id ?? nanoid(),
+        ownerEmail: stored?.ownerEmail ?? args.database.ownerEmail,
+        documentId: want.documentId,
+        propertyId: want.propertyId,
+        valueJson: want.valueJson,
+        createdAt: stored?.createdAt ?? args.now,
+        updatedAt: args.now,
+      });
+    }
+    for (const chunk of chunks(upserts, bulkChunkSizeForColumnCount(7))) {
       if (chunk.length === 0) continue;
-      await db
+      await tx
         .insert(schema.documentPropertyValues)
         .values(chunk)
         .onConflictDoUpdate({
@@ -6321,6 +6291,61 @@ export async function materializeSourceFieldPropertyValues(args: {
         });
     }
   });
+}
+
+type StoredSourceFieldValue = Pick<
+  typeof schema.documentPropertyValues.$inferSelect,
+  "id" | "ownerEmail" | "valueJson" | "createdAt"
+>;
+
+/** Stored values of these properties, keyed by page and property. */
+async function readStoredSourceFieldValues(
+  db: ReturnType<typeof getDb>,
+  propertyIds: string[],
+  documentIds: string[] | null,
+): Promise<Map<string, StoredSourceFieldValue>> {
+  const values = schema.documentPropertyValues;
+  const columns = {
+    id: values.id,
+    ownerEmail: values.ownerEmail,
+    documentId: values.documentId,
+    propertyId: values.propertyId,
+    valueJson: values.valueJson,
+    createdAt: values.createdAt,
+  };
+  const rows: Array<
+    StoredSourceFieldValue & { documentId: string; propertyId: string }
+  > = [];
+  const chunkSize = documentIds
+    ? bulkChunkSizeForColumnCount(2)
+    : idChunkSize();
+  for (const propertyIdChunk of chunks(propertyIds, chunkSize)) {
+    if (!documentIds) {
+      rows.push(
+        ...(await db
+          .select(columns)
+          .from(values)
+          .where(inArray(values.propertyId, propertyIdChunk))),
+      );
+      continue;
+    }
+    for (const documentIdChunk of chunks(documentIds, chunkSize)) {
+      rows.push(
+        ...(await db
+          .select(columns)
+          .from(values)
+          .where(
+            and(
+              inArray(values.propertyId, propertyIdChunk),
+              inArray(values.documentId, documentIdChunk),
+            ),
+          )),
+      );
+    }
+  }
+  return new Map(
+    rows.map((row) => [`${row.documentId}\0${row.propertyId}`, row]),
+  );
 }
 
 function openChangeSetKey(row: ContentDatabaseSourceChangeSetRowDb) {
