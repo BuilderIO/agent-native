@@ -9,6 +9,7 @@ import {
   uploadFile,
 } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -145,14 +146,20 @@ function parseJsonObject(value: string | null | undefined) {
     : {};
 }
 
-/** Runs GitHub reads as the person who linked the folder. */
+/**
+ * Runs GitHub reads as the person who linked the folder, in the collection's
+ * workspace, or the one they linked it from when it has none.
+ */
 async function asLinker<T>(
-  state: Pick<GitHubSourceState, "linkedBy">,
+  state: Pick<GitHubSourceState, "linkedBy" | "linkedOrgId">,
   orgId: string | null,
   run: () => Promise<T>,
 ): Promise<T> {
   return await runWithRequestContext(
-    { userEmail: state.linkedBy, orgId: orgId ?? undefined },
+    {
+      userEmail: state.linkedBy,
+      orgId: orgId ?? state.linkedOrgId ?? undefined,
+    },
     run,
   );
 }
@@ -2816,6 +2823,7 @@ export async function createGitHubSourceLink(args: {
     ...resolved.location,
     connectionId: args.connectionId,
     linkedBy: args.userEmail,
+    linkedOrgId: getRequestOrgId() ?? null,
     linkedAt: now,
     mode: "view_only",
     headEtag: null,

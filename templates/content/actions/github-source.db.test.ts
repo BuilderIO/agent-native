@@ -75,6 +75,8 @@ const github = vi.hoisted(() => {
     hangHead: false,
     /** What GitHub says about the saved connection. */
     connected: true as boolean | null,
+    /** The workspace each branch and file read ran in. */
+    readOrgIds: [] as Array<string | undefined>,
   };
   let commitCount = 0;
   return {
@@ -106,6 +108,7 @@ const github = vi.hoisted(() => {
       state.hangBatchesAfter = null;
       state.hangHead = false;
       state.connected = true;
+      state.readOrgIds = [];
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -124,6 +127,8 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       typeof import("../server/lib/github-source-client.js")
     >();
   const { GitHubSourceDeadlineError, GitHubSourceError } = original;
+  const { getRequestOrgId } =
+    await import("@agent-native/core/server/request-context");
   // A request GitHub never answers, until the sync's deadline ends it.
   const hang = (signal?: AbortSignal) =>
     new Promise<never>((_, reject) => {
@@ -150,6 +155,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       target: { branch: string; signal?: AbortSignal },
       etag?: string | null,
     ) => {
+      github.state.readOrgIds.push(getRequestOrgId());
       if (github.state.failure) throw github.state.failure;
       if (github.state.hangHead) await hang(target.signal);
       if (target.branch !== "main") {
@@ -181,6 +187,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     },
     readGitHubBlob: async (target: { sha: string; signal?: AbortSignal }) => {
       github.state.blobReads += 1;
+      github.state.readOrgIds.push(getRequestOrgId());
       const hangAfter = github.state.hangAfterBlobReads;
       if (hangAfter !== null && github.state.blobReads > hangAfter) {
         await hang(target.signal);
@@ -1544,6 +1551,29 @@ describe("GitHub folder source", () => {
       "Two, edited",
       "Three, edited",
       "Four",
+    ]);
+  });
+
+  it("reads GitHub from the workspace it was linked from when the collection has none", async () => {
+    github.commit({ "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    expect(database.orgId ?? null).toBeNull();
+    await runWithRequestContext({ userEmail: owner, orgId: "org-linker" }, () =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ "docs/1.md": "# One, edited\n" });
+    github.state.readOrgIds = [];
+
+    // A background sync runs with no request of its own.
+    const synced = await syncGitHubSource({
+      sourceId: await sourceId(database.id),
+      budgetMs: 30_000,
+    });
+    expect(synced).toMatchObject({ state: "synced", updated: 1 });
+    expect(github.state.readOrgIds.length).toBeGreaterThan(0);
+    expect(new Set(github.state.readOrgIds)).toEqual(new Set(["org-linker"]));
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
     ]);
   });
 
