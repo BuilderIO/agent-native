@@ -64,7 +64,12 @@ export interface ReplayResult extends ReplayMetrics {
 export interface HistoryLoadResult {
   /** Frames from the history rendering until the view rests at the bottom. */
   framesToBottom: number;
-  /** Largest single-frame scroll movement while landing. */
+  /**
+   * Largest single-frame scroll movement after the first painted position.
+   * The jump from 0 to that position is the landing itself, which should be
+   * one snap; counting it would hide later shifts, such as older rows
+   * mounting above the view.
+   */
   largestStepPx: number;
   distanceFromBottomPx: number;
 }
