@@ -1381,6 +1381,78 @@ test("spring precision and easing-segment double-click preserve Motion state", a
       page.off("request", countMotionEditRequests);
     }
 
+    await bounceInput.fill("1");
+    const maxBounceSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await springTab.focus();
+    const savedMaxBounce = await maxBounceSave;
+    expect(savedMaxBounce.ok(), await savedMaxBounce.text()).toBe(true);
+    expect(await savedMaxBounce.json()).toMatchObject({ persisted: true });
+    const maxBounceTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const positionAtMaxBounce =
+      maxBounceTimeline.timelines?.[0]?.nativeStyles?.find(
+        (style: { styleKey: string; targetNodeId: string }) =>
+          style.styleKey === "Position" &&
+          style.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+    expect(positionAtMaxBounce).toMatchObject({
+      props: { easing: "spring(1)" },
+    });
+
+    let clampedBounceSaveCount = 0;
+    const countClampedBounceSaves = (request: {
+      method(): string;
+      url(): string;
+    }) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/_agent-native/actions/apply-motion-edit")
+      ) {
+        clampedBounceSaveCount += 1;
+      }
+    };
+    page.on("request", countClampedBounceSaves);
+    try {
+      await bounceInput.fill("2");
+      await expect(bounceInput).toHaveValue("2");
+      await springTab.focus();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      await expect(bounceInput).toHaveValue("1");
+      expect(clampedBounceSaveCount).toBe(0);
+      const timelineAfterClampedBounce = await getAction(
+        request,
+        "get-motion-timeline",
+        { designId: regressionDesignId, sourceRef: regressionFileId },
+      );
+      const positionAfterClampedBounce =
+        timelineAfterClampedBounce.timelines?.[0]?.nativeStyles?.find(
+          (style: { styleKey: string; targetNodeId: string }) =>
+            style.styleKey === "Position" &&
+            style.targetNodeId === "e2e-motion-reference-rectangle",
+        );
+      expect(positionAfterClampedBounce).toMatchObject({
+        props: { easing: "spring(1)" },
+      });
+      await captureReferenceState(
+        page,
+        "motion-controls-clamped-spring-bounce-1",
+      );
+    } finally {
+      page.off("request", countClampedBounceSaves);
+    }
+
     const restoreEasingPicker = positionSettings.getByRole("button", {
       name: "Custom spring",
       exact: true,

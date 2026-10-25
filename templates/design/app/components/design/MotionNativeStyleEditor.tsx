@@ -2845,8 +2845,15 @@ export function MotionSpringEditor({
                 return;
               }
               setBounceDraftEdited(false);
-              if (bounce === spring.bounce) return;
-              onChange(springToken({ bounce, settle: spring.settle }));
+              const nextEase = springToken({
+                bounce,
+                settle: spring.settle,
+              });
+              if (parseSpringToken(nextEase)?.bounce === spring.bounce) {
+                setBounceDraft(springBounceDraft(value, spring.bounce));
+                return;
+              }
+              onChange(nextEase);
             }}
           />
         </>

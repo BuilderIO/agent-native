@@ -201,6 +201,28 @@ describe("MotionNativeStyleEditor", () => {
     ).toBe("M 0 100 L 50 60 L 50 40 L 100 0");
   });
 
+  // oracle-change: CSS Easing Functions Level 2 §2.1.4 selects the second
+  // point when the first two inputs are equal, including for left extrapolation:
+  // https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  it("uses the second output when the first CSS linear() stops share a positive position", async () => {
+    await act(async () => {
+      root.render(
+        <MotionBezierCurveEditor
+          value="linear(0 20%, 0.4 20%, 1)"
+          disabled={false}
+          onChange={vi.fn()}
+          t={(key) => key}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("svg[data-easing-curve] path[data-curve-path]")
+        ?.getAttribute("d"),
+    ).toBe("M 0 60 L 20 60 L 100 0");
+  });
+
   it.each(["steps(1, jump-none)", "steps(129, end)"])(
     "does not draw invalid or unsupported CSS step counts: %s",
     async (ease) => {
@@ -2366,6 +2388,33 @@ describe("MotionNativeStyleEditor", () => {
 
     expect(onChange).not.toHaveBeenCalled();
     expect(bounceInput.value).toBe("0.125");
+  });
+
+  it("resets a clamped Bounce draft when it normalizes to the stored value", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(1)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      label.textContent?.includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    onChange.mockClear();
+    await act(async () => bounceInput.focus());
+    await setInputValue(bounceInput, "2");
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(bounceInput.value).toBe("1");
   });
 
   it("preserves an intermediate decimal in Bounce until blur, then commits it", async () => {

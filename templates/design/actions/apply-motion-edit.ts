@@ -1514,16 +1514,20 @@ export default defineAction({
             modulePath: localSourceLocation.filePath,
             moduleVersionHash: localSourceInput.moduleVersionHash,
           });
-          // The pre-edit probe cannot see audio metadata supplied by this write.
-          const incomingAudioAuthorizesMetadataOnlyWrite =
-            sourceAudioClips !== undefined &&
+          // The probe sees only persisted metadata; the source editor validates
+          // the incoming metadata and its source-anchor requirements.
+          const incomingMetadataAuthorizesMetadataOnlyWrite =
             targetNodeIds.length === 0 &&
             writeCapability.status === "unsupported" &&
             writeCapability.code === "missing-node" &&
-            writeCapability.targetNodeIds.length === 0;
+            writeCapability.targetNodeIds.length === 0 &&
+            (sourceAudioClips !== undefined ||
+              (currentReactRead?.status === "valid" &&
+                (animationStylesInput !== undefined ||
+                  easingVariablesInput !== undefined)));
           if (
             writeCapability.status === "unsupported" &&
-            !incomingAudioAuthorizesMetadataOnlyWrite
+            !incomingMetadataAuthorizesMetadataOnlyWrite
           ) {
             throw new MotionReactSourceError(
               writeCapability.code,

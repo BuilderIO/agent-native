@@ -1106,9 +1106,12 @@ function reconcileStoredTrackEasing(
       ) {
         return parsedKeyframe;
       }
-      return storedKeyframe.ease === undefined
-        ? parsedKeyframe
-        : { ...parsedKeyframe, ease: storedKeyframe.ease };
+      if (storedKeyframe.ease === undefined) {
+        const inheritedKeyframe = { ...parsedKeyframe };
+        delete inheritedKeyframe.ease;
+        return inheritedKeyframe;
+      }
+      return { ...parsedKeyframe, ease: storedKeyframe.ease };
     }),
   };
 }

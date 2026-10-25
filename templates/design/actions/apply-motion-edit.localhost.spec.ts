@@ -254,6 +254,27 @@ const animationStyle = {
     },
   ],
 };
+const managedTrackSource = applyMotionReactSourceEdit({
+  currentSource: source,
+  expectedSource: source,
+  preview: { sourceHash: bridgeVersionHash },
+  modulePath: "app/routes/home.tsx",
+  timeline: {
+    id: "timeline-1",
+    designId: "design-1",
+    sourceRef: "screen-1",
+    filePath: "app/routes/home.tsx",
+    tracks: request.tracks,
+    durationMs: request.durationMs,
+    defaultEase: request.defaultEase,
+    compiledHash: null,
+    createdAt: "2026-10-11T00:00:00.000Z",
+    updatedAt: "2026-10-11T00:00:00.000Z",
+  },
+}).source;
+const managedTrackVersionHash = createHash("sha256")
+  .update(managedTrackSource)
+  .digest("hex");
 const managedStyleSource = applyMotionReactSourceEdit({
   currentSource: source,
   expectedSource: source,
@@ -548,6 +569,54 @@ describe("apply-motion-edit localhost React source", () => {
       document: { tracks: [], audioClips, durationMs: 900 },
     });
   });
+
+  it.each([
+    ["style library", { animationStyles: [animationStyle] }],
+    [
+      "style library and easing variables",
+      {
+        animationStyles: [animationStyle],
+        easingVariables: [
+          { id: "gentle", name: "Gentle", value: "ease-in-out" },
+        ],
+      },
+    ],
+  ])(
+    "writes the first %s after the last React track is cleared",
+    async (_label, metadata) => {
+      mocks.readLocal.mockReset();
+      mocks.readLocal.mockResolvedValueOnce({ reachable: true });
+      mocks.readLocal.mockResolvedValue({
+        content: managedTrackSource,
+        versionHash: managedTrackVersionHash,
+      });
+
+      const result = await action.run({
+        ...request,
+        localSource: {
+          ...request.localSource,
+          moduleVersionHash: managedTrackVersionHash,
+          timelineVersionHash: managedTrackVersionHash,
+          renderedNodeIds: [],
+        },
+        tracks: [],
+        ...metadata,
+      });
+
+      const writtenSource = mocks.writeLocal.mock.calls[0]?.[0]
+        .content as string;
+      expect(result).toMatchObject({
+        trackCount: 0,
+        persisted: true,
+        sourcePatched: true,
+      });
+      expect(readMotionReactSource(writtenSource)).toMatchObject({
+        status: "valid",
+        targetNodeIds: [],
+        document: { tracks: [], ...metadata },
+      });
+    },
+  );
 
   it("persists pathLength for an enabled native Path style in React source", async () => {
     const pathSource = `function Home() {
