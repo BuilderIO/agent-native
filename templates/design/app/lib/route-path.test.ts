@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isSameOriginRoutePath,
   resolveSameOriginRoutePath,
+  routePathWithoutSearchParam,
 } from "./route-path";
 
 const ORIGIN = "https://preview.example";
@@ -43,5 +44,31 @@ describe("same-origin route paths", () => {
 
   it("rejects an invalid origin", () => {
     expect(resolveSameOriginRoutePath("not a URL", "/settings")).toBeNull();
+  });
+});
+
+describe("routePathWithoutSearchParam", () => {
+  it("drops only the named parameter and keeps the rest of the route", () => {
+    expect(
+      routePathWithoutSearchParam(
+        "/?agentNativeBridgeKey=1%3A2",
+        "agentNativeBridgeKey",
+      ),
+    ).toBe("/");
+    expect(
+      routePathWithoutSearchParam(
+        "/pricing?tab=a&agentNativeBridgeKey=1%3A2#plans",
+        "agentNativeBridgeKey",
+      ),
+    ).toBe("/pricing?tab=a#plans");
+  });
+
+  it("returns a route without the parameter unchanged", () => {
+    expect(
+      routePathWithoutSearchParam("/pricing?tab=a", "agentNativeBridgeKey"),
+    ).toBe("/pricing?tab=a");
+    expect(routePathWithoutSearchParam("srcdoc", "agentNativeBridgeKey")).toBe(
+      "srcdoc",
+    );
   });
 });

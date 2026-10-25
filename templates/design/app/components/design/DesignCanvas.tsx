@@ -91,6 +91,7 @@ import {
 import {
   isSameOriginRoutePath,
   resolveSameOriginRoutePath,
+  routePathWithoutSearchParam,
 } from "@/lib/route-path";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
@@ -1071,6 +1072,12 @@ function liveEditDocumentIdentityUrl(liveEditUrl: string): string {
   target.searchParams.delete(FRAME_BRIDGE_KEY_PARAM);
   liveEdit.searchParams.set("url", target.toString());
   return liveEdit.toString();
+}
+
+// The editor shows and opens this route, so the bridge key stays out of it.
+// liveRoutePathRef keeps the raw route: ready messages are matched against it.
+function editorRoutePath(routePath: string): string {
+  return routePathWithoutSearchParam(routePath, FRAME_BRIDGE_KEY_PARAM);
 }
 
 function liveEditDocumentIdentityForRoute(
@@ -4513,7 +4520,7 @@ export function DesignCanvas({
               }
             });
           }
-          onRoutePathChange?.(screenId, e.data.routePath);
+          onRoutePathChange?.(screenId, editorRoutePath(e.data.routePath));
           requestSharedSnapshotAfterEdit();
         }
         return;
@@ -4643,7 +4650,7 @@ export function DesignCanvas({
       }
       if (isSameOriginRoutePath(e.data.routePath)) {
         liveRoutePathRef.current = e.data.routePath;
-        onRoutePathChange?.(screenId, e.data.routePath);
+        onRoutePathChange?.(screenId, editorRoutePath(e.data.routePath));
       }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
         const payload = e.data.payload;

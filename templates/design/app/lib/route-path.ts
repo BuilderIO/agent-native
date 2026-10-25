@@ -26,3 +26,17 @@ export function isSameOriginRoutePath(value: unknown): value is string {
     resolveSameOriginRoutePath("https://design-route.invalid", value) !== null
   );
 }
+
+/** `routePath` without the query parameter `name`; anything unparseable is returned as given. */
+export function routePathWithoutSearchParam(
+  routePath: string,
+  name: string,
+): string {
+  const route = resolveSameOriginRoutePath(
+    "https://design-route.invalid",
+    routePath,
+  );
+  if (!route?.searchParams.has(name)) return routePath;
+  route.searchParams.delete(name);
+  return `${route.pathname}${route.search}${route.hash}`;
+}
