@@ -1504,7 +1504,12 @@ export function MotionDock({
         moved: false,
       };
       if (event.nativeEvent.isTrusted) {
-        event.currentTarget.setPointerCapture(event.pointerId);
+        // Capturing the track container retargets row double-clicks away from their handlers.
+        const captureTarget =
+          event.target instanceof HTMLElement
+            ? event.target
+            : event.currentTarget;
+        captureTarget.setPointerCapture(event.pointerId);
       }
     },
     [selectedKeyframeKeys],

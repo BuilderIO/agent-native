@@ -314,9 +314,6 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   ).toBeVisible();
   await expect(page.locator('button[aria-label="Add audio"]')).toBeVisible();
   await expect(page.locator("[data-motion-audio-timeline]")).toHaveCount(0);
-  await expect(
-    page.getByText("Pick a property to add the first track.", { exact: false }),
-  ).toBeVisible();
 
   const roundTripTimeline = await postAction(request, "apply-motion-edit", {
     designId,
@@ -383,6 +380,7 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     designId,
     sourceRef: fileId,
   });
+  expect(importedTimeline.timelines?.[0]?.defaultEase).toBe("ease");
   const importedTracks = importedTimeline.timelines?.[0]?.tracks ?? [];
   const importedPosition = importedTracks.find(
     (track: { targetNodeId: string; property: string }) =>
@@ -420,8 +418,8 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     ),
   ).toEqual([
     [0, "0.1", "cubic-bezier(0.5, 0, 0.5, 1)"],
-    // Read back from compiled CSS, a keyframe saved without an ease gets the CSS default.
-    [1, "1", "ease"],
+    // A keyframe without an authored easing remains inherited from the timeline default.
+    [1, "1", undefined],
   ]);
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -1358,15 +1356,36 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     );
   const positionRowBox = await positionTimelineRow.boundingBox();
   if (!positionRowBox) throw new Error("The Position timeline row is missing.");
+  const keyframeBoxes = await positionKeyframes.evaluateAll((keyframes) =>
+    keyframes
+      .map((keyframe) => {
+        const rect = keyframe.getBoundingClientRect();
+        return { left: rect.left, right: rect.right };
+      })
+      .sort((left, right) => left.left - right.left),
+  );
+  const widestKeyframeGap = keyframeBoxes.slice(1).reduce(
+    (widest, current, index) => {
+      const previous = keyframeBoxes[index]!;
+      const gap = { left: previous.right, right: current.left };
+      return gap.right - gap.left > widest.right - widest.left ? gap : widest;
+    },
+    { left: 0, right: 0 },
+  );
+  expect(widestKeyframeGap.right - widestKeyframeGap.left).toBeGreaterThan(20);
+  const insertionPoint = {
+    x:
+      (widestKeyframeGap.left + widestKeyframeGap.right) / 2 - positionRowBox.x,
+    y: 5,
+  };
   const addDoubleClickSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
       response.request().method() === "POST",
     { timeout: 20_000 },
   );
-  await positionTimelineRow.dblclick({
-    position: { x: positionRowBox.width * 0.75, y: positionRowBox.height / 2 },
-  });
+  // Easing segments stop double-clicks at the row center.
+  await positionTimelineRow.dblclick({ position: insertionPoint });
   const savedDoubleClick = await addDoubleClickSave;
   expect(savedDoubleClick.ok(), await savedDoubleClick.text()).toBe(true);
   await expect

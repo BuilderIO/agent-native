@@ -1779,7 +1779,8 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
             keyframes: track.keyframes.map((keyframe) => ({
               t: keyframe.t,
               value: keyframe.value,
-              ease: keyframe.ease ?? "linear",
+              ease:
+                keyframe.ease ?? timeline.timelines?.[0]?.defaultEase ?? "ease",
             })),
           }),
         ),
@@ -2478,7 +2479,8 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
           keyframes: track.keyframes.map((keyframe) => ({
             t: keyframe.t,
             value: keyframe.value,
-            ease: keyframe.ease ?? "linear",
+            ease:
+              keyframe.ease ?? timeline.timelines?.[0]?.defaultEase ?? "ease",
           })),
         }),
       ),
