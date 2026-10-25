@@ -39,7 +39,7 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: async () => true,
 }));
 
-const { claimTurnExecutionLease, ensureRunTables, insertRun } =
+const { claimTurnExecutionLease, ensureRunTables, insertRun, insertRunEvents } =
   await import("./run-store.js");
 const { AGENT_INTERNAL_CONTINUE_PROMPT, runAgentLoop } =
   await import("./production-agent.js");
@@ -337,5 +337,74 @@ describe("durable execution step identity", () => {
     expect((await stepRows(threadId)).map((row) => row.step_id)).toEqual([
       slotOnlyStepId,
     ]);
+  });
+
+  it("replays a slot-only step from before this release when its call moves", async () => {
+    const threadId = "thread-resume-moved-slot-only-step";
+    const turnId = "turn-resume-moved-slot-only-step";
+    const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-before-release-move",
+      titles: ["Q4 plan", "Q3 plan"],
+      messages: [request],
+      run,
+    });
+    const priorStart = priorEvents.find(
+      (event) =>
+        event.type === "tool_start" &&
+        event.id === "run-before-release-move-call-1",
+    );
+    if (priorStart?.type !== "tool_start" || !priorStart.executionStepId) {
+      throw new Error("The prior run did not start a durable step");
+    }
+    const checkpoint = createHash("sha256")
+      .update(JSON.stringify([request]))
+      .digest("hex");
+    const slotOnlyStepId = `model-step:${createHash("sha256")
+      .update(`${checkpoint}:1`)
+      .digest("hex")}`;
+    await pglite.query(
+      `UPDATE agent_execution_steps
+          SET step_id = ?, operation_id = ?
+        WHERE thread_id = ? AND step_id = ?`,
+      [slotOnlyStepId, slotOnlyStepId, threadId, priorStart.executionStepId],
+    );
+    // The run ledger kept the start but lost the result before history did.
+    await insertRunEvents("run-before-release-move", [
+      {
+        seq: 0,
+        eventAt: Date.now(),
+        eventData: JSON.stringify({
+          ...priorStart,
+          executionStepId: slotOnlyStepId,
+        }),
+      },
+    ]);
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-move",
+      titles: ["Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      run,
+    });
+
+    expect(run.mock.calls.map(([args]) => args.title)).toEqual([
+      "Q4 plan",
+      "Q3 plan",
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-move-call-0",
+        executionStepId: slotOnlyStepId,
+        result: expect.stringContaining("Saved Q3 plan"),
+      }),
+    );
   });
 });
