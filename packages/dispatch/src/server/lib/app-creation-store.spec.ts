@@ -519,7 +519,7 @@ describe("listWorkspaceApps", () => {
     }
   });
 
-  it("returns an empty list when every gateway registry app URL is invalid", async () => {
+  it("rejects a gateway registry when every app URL is invalid", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
@@ -541,15 +541,18 @@ describe("listWorkspaceApps", () => {
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
       vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
 
-      const apps = await runWithRequestContext(
-        {
-          userEmail: "dev@example.test",
-          requestOrigin: "https://beta.dispatch.agent-native.com",
-        },
-        () => listWorkspaceApps({ includeAgentCards: false }),
-      );
-
-      expect(apps).toEqual([]);
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "dev@example.test",
+            requestOrigin: "https://beta.dispatch.agent-native.com",
+          },
+          () => listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: "workspace_gateway_invalid_response",
+      });
       expect(warnSpy).toHaveBeenCalledWith(
         "[dispatch] Could not resolve Workspace app invalid-url; skipping app",
         expect.any(Error),
@@ -558,6 +561,28 @@ describe("listWorkspaceApps", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it("accepts a genuinely empty gateway registry", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ apps: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([

@@ -1001,8 +1001,7 @@ function parseWorkspaceAppsGatewayResponse(
   const apps = parseWorkspaceAppsManifest(parsed, () => {
     invalidUrlCount += 1;
   });
-  if (!apps) return invalidUrlCount === rawApps.length ? [] : null;
-  if (apps.length + invalidUrlCount !== rawApps.length) return null;
+  if (!apps || apps.length + invalidUrlCount !== rawApps.length) return null;
   const ids = new Set(apps.map((app) => app.id.toLowerCase()));
   return ids.size === apps.length ? apps : null;
 }
