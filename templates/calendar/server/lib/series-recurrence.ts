@@ -113,9 +113,23 @@ function zoneOffsetMs(instant: number, timeZone: string): number {
   return wallSeconds - Math.floor(instant / 1000) * 1000;
 }
 
+// Compatible policy (Temporal disambiguation "compatible"): a wall time inside
+// a spring-forward gap resolves forward by the gap length (02:30 -> 03:30), and
+// an ambiguous fall-back wall time resolves to the earlier instant. Both use
+// the offset in force before the transition. A single offset lookup on a
+// guessed instant lands on whichever side of the gap the guess falls, so it
+// silently resolves a gap backward.
 function instantFromZoneWall(wall: number, timeZone: string): number {
-  const guess = wall - zoneOffsetMs(wall, timeZone);
-  return wall - zoneOffsetMs(guess, timeZone);
+  const dayMs = 86_400_000;
+  const beforeOffset = zoneOffsetMs(wall - dayMs, timeZone);
+  const afterOffset = zoneOffsetMs(wall + dayMs, timeZone);
+  const beforeInstant = wall - beforeOffset;
+  const afterInstant = wall - afterOffset;
+  const beforeValid = zoneOffsetMs(beforeInstant, timeZone) === beforeOffset;
+  const afterValid = zoneOffsetMs(afterInstant, timeZone) === afterOffset;
+  if (beforeValid && afterValid) return Math.min(beforeInstant, afterInstant);
+  if (afterValid) return afterInstant;
+  return beforeInstant;
 }
 
 function shiftedZoneWallInstant(

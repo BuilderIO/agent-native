@@ -7,15 +7,18 @@
  * behaviour changing. This guard fails on lines THIS branch added (via
  * scripts/lib/changed-lines.mjs) that loosen an oracle without a visible reason.
  *
- *   disabled-test       test files: .skip( .only( .todo( .fixme( .skipIf( .runIf(
- *                       .skip.each( and xit( xdescribe( xtest(
+ *   disabled-test       test files: .skip( .only( .todo( .fixme( .fails( .skipIf(
+ *                       .runIf( .skip.each( and xit( xdescribe( xtest(, also
+ *                       when chained after a call such as it.each(rows).skip(
  *   expect-anything     test files: expect.anything()
  *   runner-loosened     vitest.config.* / vitest.*.config.* / playwright.config.*:
  *                       retry / retries set to anything but 0, passWithNoTests
  *   script-loosened     package.json scripts: --passWithNoTests, vitest -u / --update
- *   assertions-removed  test files: removed expect( / assert( calls minus added
- *                       ones, per file. A deleted file counts all its removed
- *                       assertions. A renamed file is compared under its new path.
+ *   assertions-removed  test files: fewer expect( / expect.soft|poll|element( / assert( /
+ *                       assert.x( calls than before, counted in the AST of the
+ *                       file at the merge-base and of the file now. A deleted
+ *                       file counts all its calls as removed; a new file had none.
+ *                       A renamed file is compared old path against new path.
  *
  * Opt-out, with a reason of at least 10 characters:
  *
@@ -24,10 +27,13 @@
  * on the flagged added line or on the added line directly above it.
  * assertions-removed takes it on any added line in the file. A deleted file
  * takes `oracle-change(<path>): <reason>` on any added line in the diff.
+ * The pragma counts only inside a comment. In TypeScript or JavaScript, text
+ * in a string or template literal is not a reason. JSON has no comments, so
+ * package.json keeps the older line match.
  *
- * disabled-test and expect-anything are found with the TypeScript AST, not a
- * regex, so a `.skip(` inside a string or a comment (a fixture, say) is not a
- * test being skipped.
+ * disabled-test, expect-anything and assertions-removed are found with the
+ * TypeScript AST, not a regex, so a `.skip(` or `expect(` inside a string or a
+ * comment (a fixture, say) is not a test being skipped or an assertion.
  *
  * Same diff-base contract as every changed-lines guard: a base that cannot be
  * resolved exits GUARD_EXIT_COULD_NOT_RUN, which run-guards.ts reports as
@@ -42,6 +48,8 @@ import ts from "typescript";
 
 import {
   GUARD_EXIT_COULD_NOT_RUN,
+  diffBaseCommit,
+  readCommitFile,
   removedLines,
   requireAddedLines,
 } from "./lib/changed-lines.mjs";
@@ -50,21 +58,26 @@ const GUARD_NAME = "guard:no-oracle-loosening";
 const rootDir = path.resolve(import.meta.dirname, "..");
 
 const MIN_REASON_LENGTH = 10;
+const PRAGMA_MARKER = "oracle-change:";
 const TEST_FILE = /(?:\.(?:spec|test)\.tsx?|\.e2e\.ts)$|(?:^|\/)e2e\//;
 const CONFIG_FILE =
   /(?:^|\/)(?:vitest\.config\.[^/]+|vitest\.[^/]+\.config\.[^/]+|playwright\.config\.[^/]+)$/;
 const PACKAGE_JSON = /(?:^|\/)package\.json$/;
-const ASSERTION = /\b(expect(\.soft)?|assert(\.\w+)?)\(/;
+const JSON_FILE = /\.json$/i;
 const DISABLING_PROPERTIES = new Set([
   "skip",
   "only",
   "todo",
   "fixme",
+  "fails",
   "skipIf",
   "runIf",
 ]);
 const DISABLING_IDENTIFIERS = new Set(["xit", "xdescribe", "xtest"]);
-const PRAGMA = /(?:\/\/|\/\*|^\s*\*)\s*oracle-change:(.*)$/;
+// package.json has no comments, so its pragma is matched on the line.
+const JSON_PRAGMA = /(?:\/\/|\/\*|^\s*\*)\s*oracle-change:(.*)$/;
+// Run on the part of one line that lies inside a comment.
+const COMMENT_PRAGMA = /oracle-change(?:\([^)]*\))?:.*$/;
 const RETRY = /\bretr(?:y|ies)\s*:\s*([^,}]+)/;
 const PASS_WITH_NO_TESTS = /\bpassWithNoTests\b(?!\s*:\s*false\b)/;
 const SCRIPT_ENTRY = /^\s*"([^"]+)"\s*:\s*"(.*)"\s*,?\s*$/;
@@ -75,6 +88,8 @@ export interface ChangedFile {
   source: string[];
   /** Line numbers this branch added. */
   added: ReadonlySet<number>;
+  /** Pragma texts by line, from `pragmasIn`; each starts at `oracle-change`. */
+  pragmas: ReadonlyMap<number, readonly string[]>;
 }
 
 export interface RemovedFile {
@@ -83,7 +98,16 @@ export interface RemovedFile {
   /** Pre-change repo path. Differs from `path` only for a rename. */
   oldPath: string;
   deleted: boolean;
+  /** New on this branch: there is no pre-change file. */
+  created: boolean;
   lines: { line: number; text: string }[];
+}
+
+export interface AssertionSource {
+  /** Text at the merge-base; null when the file is new on this branch. */
+  base: string | null;
+  /** Text now; null when the file was deleted. */
+  next: string | null;
 }
 
 export interface OracleChanges {
@@ -92,6 +116,8 @@ export interface OracleChanges {
   added: ReadonlyMap<string, ChangedFile>;
   /** Keyed by absolute path, as `removedLines` returns it. */
   removed: ReadonlyMap<string, RemovedFile>;
+  /** Keyed like `removed`. Every changed test file in `removed` needs one. */
+  assertionSources: ReadonlyMap<string, AssertionSource>;
 }
 
 export interface OracleViolation {
@@ -105,25 +131,115 @@ export function isTestFile(relPath: string): boolean {
   return TEST_FILE.test(relPath);
 }
 
-function pragmaReason(text: string | undefined): string | null {
-  const match = PRAGMA.exec(text ?? "");
-  return match ? match[1].replace(/\*\/\s*$/, "").trim() : null;
+function scriptKind(file: string): ts.ScriptKind {
+  return /\.[cm]?tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 }
 
-function bestReason(reasons: (string | null)[]): string | null {
-  const found = reasons.filter((reason): reason is string => reason !== null);
+function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
   return (
-    found.find((reason) => reason.length >= MIN_REASON_LENGTH) ??
-    found[0] ??
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+  );
+}
+
+function commentRanges(file: string, source: string): ts.CommentRange[] {
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const ranges = new Map<number, ts.CommentRange>();
+  const jsxText: [start: number, end: number][] = [];
+  // A comment on the token's own line is trailing trivia of the token before
+  // it; one on a later line is leading trivia of the token after. getChildren
+  // yields every token, so visiting each node's two edges reaches every comment.
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxText(node)) jsxText.push([node.pos, node.end]);
+    const comments = [
+      ...(ts.getLeadingCommentRanges(source, node.pos) ?? []),
+      ...(ts.getTrailingCommentRanges(source, node.end) ?? []),
+    ];
+    for (const range of comments) ranges.set(range.pos, range);
+    for (const child of node.getChildren(sourceFile)) visit(child);
+  };
+  visit(sourceFile);
+  // JSX text is content: `// x` between tags is not a comment.
+  return [...ranges.values()].filter(
+    (range) =>
+      !jsxText.some(([start, end]) => range.pos >= start && range.pos < end),
+  );
+}
+
+/**
+ * Pragma texts per line, each starting at `oracle-change`. Only text inside a
+ * comment counts, so a string that holds the pragma opts nothing out.
+ */
+export function pragmasIn(file: string, source: string): Map<number, string[]> {
+  const pragmas = new Map<number, string[]>();
+  const add = (line: number, tail: string) => {
+    pragmas.set(line, [...(pragmas.get(line) ?? []), tail]);
+  };
+  const lines = source.split("\n");
+
+  if (JSON_FILE.test(file)) {
+    lines.forEach((text, index) => {
+      const match = JSON_PRAGMA.exec(text);
+      if (match) add(index + 1, `${PRAGMA_MARKER}${match[1]}`);
+    });
+    return pragmas;
+  }
+
+  const comments = commentRanges(file, source);
+  let lineStart = 0;
+  lines.forEach((text, index) => {
+    const lineEnd = lineStart + text.length;
+    for (const comment of comments) {
+      const from = Math.max(comment.pos, lineStart);
+      const to = Math.min(comment.end, lineEnd);
+      if (from >= to) continue;
+      const match = COMMENT_PRAGMA.exec(source.slice(from, to));
+      if (match) add(index + 1, match[0]);
+    }
+    lineStart = lineEnd + 1;
+  });
+  return pragmas;
+}
+
+function reasonAfter(tail: string, marker: string): string | null {
+  if (!tail.startsWith(marker)) return null;
+  return tail
+    .slice(marker.length)
+    .replace(/\*\/\s*$/, "")
+    .trim();
+}
+
+function reasonsOn(
+  pragmas: ReadonlyMap<number, readonly string[]>,
+  line: number,
+  marker: string,
+): string[] {
+  return (pragmas.get(line) ?? []).flatMap(
+    (tail) => reasonAfter(tail, marker) ?? [],
+  );
+}
+
+function bestReason(reasons: string[]): string | null {
+  return (
+    reasons.find((reason) => reason.length >= MIN_REASON_LENGTH) ??
+    reasons[0] ??
     null
   );
 }
 
 function optOutFor(file: ChangedFile, line: number): string | null {
   const above = file.added.has(line - 1)
-    ? pragmaReason(file.source[line - 2])
-    : null;
-  return bestReason([pragmaReason(file.source[line - 1]), above]);
+    ? reasonsOn(file.pragmas, line - 1, PRAGMA_MARKER)
+    : [];
+  return bestReason([
+    ...reasonsOn(file.pragmas, line, PRAGMA_MARKER),
+    ...above,
+  ]);
 }
 
 function reportable(message: string, reason: string | null): string | null {
@@ -139,10 +255,16 @@ function isIdentifierNamed(node: ts.Expression, name: string): boolean {
 const TEST_ROOTS = new Set(["it", "test", "describe", "suite", "bench"]);
 
 // `stream.skip(2)` or `query.only(...)` are ordinary calls; only a chain that
-// starts at a test API (`it.skip`, `test.describe.only`) disables a test.
+// starts at a test API (`it.skip`, `test.describe.only`, `it.each(rows).skip`)
+// disables a test. Calls are walked like property accesses to reach the root.
 function isTestApi(node: ts.Expression): boolean {
-  let current = node;
-  while (ts.isPropertyAccessExpression(current)) current = current.expression;
+  let current: ts.Expression = node;
+  while (
+    ts.isPropertyAccessExpression(current) ||
+    ts.isCallExpression(current)
+  ) {
+    current = current.expression;
+  }
   return ts.isIdentifier(current) && TEST_ROOTS.has(current.text);
 }
 
@@ -159,42 +281,51 @@ function isWholeExpectedValue(call: ts.CallExpression): boolean {
   );
 }
 
+// `.fails(` inverts the test: a failing assertion is reported as a pass.
+function disabledMessage(what: string): string {
+  return what.startsWith(".fails")
+    ? `added ${what} makes a failing assertion read as passing`
+    : `added ${what} turns off or narrows a test`;
+}
+
 interface DisabledSite {
   line: number;
   rule: "disabled-test" | "expect-anything";
-  what: string;
+  message: string;
 }
 
 export function findDisabledTests(
   file: string,
   source: string,
 ): DisabledSite[] {
-  const kind = /\.[cm]?tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const sourceFile = ts.createSourceFile(
     file,
     source,
     ts.ScriptTarget.Latest,
     true,
-    kind,
+    scriptKind(file),
   );
   const sites: DisabledSite[] = [];
   const at = (node: ts.Node, site: Omit<DisabledSite, "line">) => {
-    const line =
-      sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line +
-      1;
-    sites.push({ line, ...site });
+    sites.push({ line: lineOf(sourceFile, node), ...site });
   };
 
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       if (ts.isIdentifier(callee) && DISABLING_IDENTIFIERS.has(callee.text)) {
-        at(callee, { rule: "disabled-test", what: `${callee.text}(` });
+        at(callee, {
+          rule: "disabled-test",
+          message: disabledMessage(`${callee.text}(`),
+        });
       } else if (ts.isPropertyAccessExpression(callee)) {
         const name = callee.name.text;
         const inner = callee.expression;
         if (DISABLING_PROPERTIES.has(name) && isTestApi(inner)) {
-          at(callee.name, { rule: "disabled-test", what: `.${name}(` });
+          at(callee.name, {
+            rule: "disabled-test",
+            message: disabledMessage(`.${name}(`),
+          });
         } else if (
           name === "anything" &&
           isIdentifierNamed(inner, "expect") &&
@@ -202,7 +333,8 @@ export function findDisabledTests(
         ) {
           at(callee.name, {
             rule: "expect-anything",
-            what: "expect.anything()",
+            message:
+              "expect.anything() matches any value, so the assertion checks nothing",
           });
         } else if (
           name === "each" &&
@@ -212,7 +344,7 @@ export function findDisabledTests(
         ) {
           at(inner.name, {
             rule: "disabled-test",
-            what: `.${inner.name.text}.each(`,
+            message: disabledMessage(`.${inner.name.text}.each(`),
           });
         }
       }
@@ -221,6 +353,46 @@ export function findDisabledTests(
   };
   visit(sourceFile);
   return sites;
+}
+
+const EXPECT_VARIANTS = new Set(["soft", "poll", "element"]);
+
+// `expect(...)`, `expect.soft/poll/element(...)`, `assert(...)` and
+// `assert.x(...)`: the calls an oracle is made of. Matched on the callee, so
+// `expect(` inside a string or comment is not one, and a chained
+// `expect(x).toBe(y)` counts once, at the inner `expect(x)`.
+function isAssertionCall(call: ts.CallExpression): boolean {
+  const callee = call.expression;
+  if (ts.isIdentifier(callee)) {
+    return callee.text === "expect" || callee.text === "assert";
+  }
+  if (!ts.isPropertyAccessExpression(callee)) return false;
+  if (isIdentifierNamed(callee.expression, "expect")) {
+    return EXPECT_VARIANTS.has(callee.name.text);
+  }
+  let root: ts.Expression = callee;
+  while (ts.isPropertyAccessExpression(root)) root = root.expression;
+  return isIdentifierNamed(root, "assert");
+}
+
+function assertionCallLines(file: string, source: string | null): number[] {
+  if (source === null) return [];
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const lines: number[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && isAssertionCall(node)) {
+      lines.push(lineOf(sourceFile, node));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return lines;
 }
 
 function sortedAdded(file: ChangedFile): number[] {
@@ -239,11 +411,7 @@ function checkTestFile(
 ) {
   for (const site of findDisabledTests(rel, file.source.join("\n"))) {
     if (!file.added.has(site.line)) continue;
-    const message =
-      site.rule === "expect-anything"
-        ? "expect.anything() matches any value, so the assertion checks nothing"
-        : `added ${site.what} turns off or narrows a test`;
-    report(site.line, site.rule, message, optOutFor(file, site.line));
+    report(site.line, site.rule, site.message, optOutFor(file, site.line));
   }
 }
 
@@ -311,24 +479,15 @@ function deletedFileReason(
   const reasons: string[] = [];
   for (const file of added.values()) {
     for (const line of file.added) {
-      const text = file.source[line - 1] ?? "";
-      const at = text.indexOf(marker);
-      if (at !== -1) {
-        reasons.push(
-          text
-            .slice(at + marker.length)
-            .replace(/\*\/\s*$/, "")
-            .trim(),
-        );
-      }
+      reasons.push(...reasonsOn(file.pragmas, line, marker));
     }
   }
   return bestReason(reasons);
 }
 
 /**
- * Pure: takes the changed files and removed lines, returns violations. The
- * glue in main() only reads the files and calls this.
+ * Pure: takes the changed files, removed lines and both sides of each changed
+ * test file, returns violations. The glue in main() only reads and calls this.
  */
 export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
   const violations: OracleViolation[] = [];
@@ -354,31 +513,41 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
 
   for (const [abs, removed] of changes.removed) {
     if (!isTestFile(removed.path) && !isTestFile(removed.oldPath)) continue;
-    const gone = removed.lines.filter((entry) => ASSERTION.test(entry.text));
-    const current = removed.deleted ? undefined : changes.added.get(abs);
-    const addedAssertions = current
-      ? sortedAdded(current).filter((line) =>
-          ASSERTION.test(current.source[line - 1] ?? ""),
-        ).length
-      : 0;
-    const net = gone.length - addedAssertions;
-    if (gone.length === 0 || net <= 0) continue;
+    const sources = changes.assertionSources.get(abs);
+    if (sources === undefined) {
+      throw new Error(
+        `${GUARD_NAME}: no assertion sources for ${removed.path}; both sides of every changed test file must be read`,
+      );
+    }
+    const before = assertionCallLines(removed.oldPath, sources.base).length;
+    const after = assertionCallLines(removed.path, sources.next).length;
+    if (after >= before) continue;
 
+    const current = removed.deleted ? undefined : changes.added.get(abs);
     const reason = removed.deleted
       ? deletedFileReason(removed.oldPath, changes.added)
       : bestReason(
           current
-            ? sortedAdded(current).map((line) =>
-                pragmaReason(current.source[line - 1]),
+            ? sortedAdded(current).flatMap((line) =>
+                reasonsOn(current.pragmas, line, PRAGMA_MARKER),
               )
             : [],
         );
-    const message = `removed ${gone.length} assertion line(s) and added ${addedAssertions}${removed.deleted ? " (file deleted)" : ""}`;
+    const location =
+      removed.lines.find(
+        (entry) => assertionCallLines(removed.oldPath, entry.text).length > 0,
+      ) ?? removed.lines[0];
+    if (location === undefined) {
+      throw new Error(
+        `${GUARD_NAME}: ${removed.path} lost ${before - after} assertion call(s) but the diff has no removed line for it`,
+      );
+    }
+    const message = `removed ${before - after} assertion call(s): ${before} before, ${after} now${removed.deleted ? " (file deleted)" : ""}`;
     const text = reportable(message, reason);
     if (text !== null) {
       violations.push({
         file: removed.path,
-        line: gone[0].line,
+        line: location.line,
         rule: "assertions-removed",
         message: text,
       });
@@ -387,12 +556,9 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
   return violations;
 }
 
-function readChangedFile(
-  absPath: string,
-  added: ReadonlySet<number>,
-): ChangedFile {
+function readText(absPath: string): string {
   try {
-    return { source: readFileSync(absPath, "utf8").split("\n"), added };
+    return readFileSync(absPath, "utf8");
   } catch (error) {
     console.error(
       `${GUARD_NAME}: could not read ${absPath}: ${(error as Error).message}`,
@@ -401,10 +567,23 @@ function readChangedFile(
   }
 }
 
+function readChangedFile(
+  absPath: string,
+  added: ReadonlySet<number>,
+): ChangedFile {
+  const source = readText(absPath);
+  return {
+    source: source.split("\n"),
+    added,
+    pragmas: pragmasIn(absPath, source),
+  };
+}
+
 function main() {
   const added = requireAddedLines(rootDir, GUARD_NAME);
   const removed = removedLines(rootDir);
-  if (removed === null) {
+  const base = diffBaseCommit(rootDir);
+  if (removed === null || base === null) {
     console.error(
       `${GUARD_NAME}: could not read the removed lines from git diff, so the ` +
         "check did not run.\n" +
@@ -418,10 +597,20 @@ function main() {
     changed.set(absPath, readChangedFile(absPath, lines));
   }
 
+  const assertionSources = new Map<string, AssertionSource>();
+  for (const [absPath, entry] of removed) {
+    if (!isTestFile(entry.path) && !isTestFile(entry.oldPath)) continue;
+    assertionSources.set(absPath, {
+      base: entry.created ? null : readCommitFile(rootDir, base, entry.oldPath),
+      next: entry.deleted ? null : readText(absPath),
+    });
+  }
+
   const violations = findOracleLoosening({
     root: rootDir,
     added: changed,
     removed,
+    assertionSources,
   });
   if (violations.length === 0) {
     console.log(`${GUARD_NAME}: OK (${added.size} changed file(s) inspected)`);
@@ -438,8 +627,8 @@ function main() {
   }
   console.error(
     "  fix: restore the removed assertion or test, or add `oracle-change: <reason>` " +
-      "(10+ characters) on the flagged line or the line above, naming the behaviour " +
-      "that changed; a deleted file takes `oracle-change(<path>): <reason>`",
+      "(10+ characters) in a comment on the flagged line or the line above, naming the " +
+      "behaviour that changed; a deleted file takes `oracle-change(<path>): <reason>`",
   );
   process.exit(1);
 }

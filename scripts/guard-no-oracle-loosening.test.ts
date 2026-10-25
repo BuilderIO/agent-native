@@ -7,7 +7,10 @@ import {
   findDisabledTests,
   findOracleLoosening,
   isTestFile,
+  pragmasIn,
+  type AssertionSource,
   type ChangedFile,
+  type OracleViolation,
 } from "./guard-no-oracle-loosening.js";
 import { parseRemovedLines } from "./lib/changed-lines.mjs";
 
@@ -17,23 +20,62 @@ function at(rel: string) {
   return path.resolve(ROOT, rel);
 }
 
-function changedFile(source: string, added: number[]): ChangedFile {
-  return { source: source.split("\n"), added: new Set(added) };
+function changedFile(
+  rel: string,
+  source: string,
+  added: number[],
+): ChangedFile {
+  return {
+    source: source.split("\n"),
+    added: new Set(added),
+    pragmas: pragmasIn(rel, source),
+  };
+}
+
+function required<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`test setup is missing ${what}`);
+  return value;
+}
+
+/**
+ * Runs the pure check. `files` are the post-change texts of the changed files,
+ * `bases` the pre-change texts keyed by old path. A test file in the diff must
+ * have an entry in whichever side it exists on.
+ */
+function findViolations(
+  files: Record<string, { source: string; added: number[] }>,
+  diff = "",
+  bases: Record<string, string> = {},
+): OracleViolation[] {
+  const added = new Map(
+    Object.entries(files).map(([rel, file]) => [
+      at(rel),
+      changedFile(rel, file.source, file.added),
+    ]),
+  );
+  const removed = parseRemovedLines(diff, ROOT) ?? new Map();
+  const assertionSources = new Map<string, AssertionSource>();
+  for (const [abs, entry] of removed) {
+    if (!isTestFile(entry.path) && !isTestFile(entry.oldPath)) continue;
+    assertionSources.set(abs, {
+      base: entry.created
+        ? null
+        : required(bases[entry.oldPath], `base text of ${entry.oldPath}`),
+      next: entry.deleted
+        ? null
+        : required(files[entry.path], `file ${entry.path}`).source,
+    });
+  }
+  return findOracleLoosening({ root: ROOT, added, removed, assertionSources });
 }
 
 /** Runs the pure check and reports each violation as `path:line: rule`. */
 function flagged(
   files: Record<string, { source: string; added: number[] }>,
   diff = "",
+  bases: Record<string, string> = {},
 ): string[] {
-  const added = new Map(
-    Object.entries(files).map(([rel, file]) => [
-      at(rel),
-      changedFile(file.source, file.added),
-    ]),
-  );
-  const removed = parseRemovedLines(diff, ROOT) ?? new Map();
-  return findOracleLoosening({ root: ROOT, added, removed }).map(
+  return findViolations(files, diff, bases).map(
     (violation) => `${violation.file}:${violation.line}: ${violation.rule}`,
   );
 }
@@ -73,6 +115,40 @@ describe("disabled-test and expect-anything in test files", () => {
       `${SPEC}:10: disabled-test`,
       `${SPEC}:11: expect-anything`,
     ]);
+  });
+
+  it("flags disabling calls chained after .each, and .fails in every form", () => {
+    const source = [
+      'it.each(cases).skip("a", () => {});',
+      'describe.each(rows).only("b", () => {});',
+      'test.each(rows).todo("c");',
+      'it.fails("d", () => {});',
+      'test.fails.each(rows)("e", () => {});',
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:1: disabled-test`,
+      `${SPEC}:2: disabled-test`,
+      `${SPEC}:3: disabled-test`,
+      `${SPEC}:4: disabled-test`,
+      `${SPEC}:5: disabled-test`,
+    ]);
+    assert.match(
+      findDisabledTests(SPEC, 'it.fails("d", () => {});')[0].message,
+      /failing assertion read as passing/,
+    );
+  });
+
+  it("does not flag an .each row that is not a test API", () => {
+    const source = [
+      "const pages = queue.each(rows).skip(2);",
+      "const page = pages.each(rows).only(id);",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: allLines(source) } }),
+      [],
+    );
   });
 
   it("applies to e2e files and anything under an e2e directory", () => {
@@ -240,6 +316,14 @@ describe("opt-out pragma", () => {
     assert.deepEqual(flagged({ [SPEC]: { source, added: [1, 2] } }), []);
   });
 
+  it("suppresses an it.fails with a pragma comment on the line above", () => {
+    const source = [
+      "// oracle-change: the series recurrence bug is documented in the oracle report",
+      'it.fails("keeps the series id", () => {});',
+    ].join("\n");
+    assert.deepEqual(flagged({ [SPEC]: { source, added: [1, 2] } }), []);
+  });
+
   it("does not use a pragma above the flagged line when that line is not added", () => {
     const source = [
       "// oracle-change: quarantined while the fixture is rebuilt",
@@ -252,11 +336,11 @@ describe("opt-out pragma", () => {
 
   it("does not suppress with a reason shorter than ten characters", () => {
     const source = 'it.skip("flaky", () => {}); // oracle-change: flaky';
-    const added = new Map([[at(SPEC), changedFile(source, [1])]]);
     const violations = findOracleLoosening({
       root: ROOT,
-      added,
+      added: new Map([[at(SPEC), changedFile(SPEC, source, [1])]]),
       removed: new Map(),
+      assertionSources: new Map(),
     });
     assert.equal(violations.length, 1);
     assert.equal(violations[0].rule, "disabled-test");
@@ -281,6 +365,17 @@ describe("opt-out pragma", () => {
     ].join("\n");
     assert.deepEqual(flagged({ [SPEC]: { source, added: [1, 2] } }), []);
   });
+
+  it("does not accept the pragma text from a string or template literal", () => {
+    const source = [
+      'const note = "// oracle-change: fixture text, not a reason";',
+      "const tpl = `/* oracle-change: also only text */`;",
+      'it.skip("x", () => {}); const s = "// oracle-change: still a string";',
+    ].join("\n");
+    assert.deepEqual(flagged({ [SPEC]: { source, added: [1, 2, 3] } }), [
+      `${SPEC}:3: disabled-test`,
+    ]);
+  });
 });
 
 describe("assertions-removed", () => {
@@ -295,16 +390,114 @@ describe("assertions-removed", () => {
       '-  expect(result.body.id).toBe("msg_1");',
       '+  it.skip("sends the message", async () => {',
     ].join("\n");
+    const lines = Array.from(
+      { length: 9 },
+      (_, index) => `// line ${index + 1}`,
+    );
     const source = [
-      ...Array.from({ length: 9 }, (_, index) => `// line ${index + 1}`),
+      ...lines,
       '  it.skip("sends the message", async () => {',
       "  });",
     ].join("\n");
+    const base = [
+      ...lines,
+      "  expect(result.status).toBe(200);",
+      '  expect(result.body.id).toBe("msg_1");',
+      "  });",
+    ].join("\n");
 
-    assert.deepEqual(flagged({ [SPEC]: { source, added: [10] } }, diff), [
-      `${SPEC}:10: disabled-test`,
-      `${SPEC}:10: assertions-removed`,
-    ]);
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [10] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:10: disabled-test`, `${SPEC}:10: assertions-removed`],
+    );
+  });
+
+  it("counts calls, not lines: one line that loses one of two assertions is flagged", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -3 +3 @@",
+      "-  expect(a).toBe(1); expect(b).toBe(2);",
+      "+  expect(a).toBe(1);",
+    ].join("\n");
+    const base = "\n\n  expect(a).toBe(1); expect(b).toBe(2);";
+    const source = "\n\n  expect(a).toBe(1);";
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [3] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:3: assertions-removed`],
+    );
+  });
+
+  it("does not flag a file that moves an assertion to another line and keeps the count", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2 +1,0 @@",
+      "-  expect(b).toBe(2);",
+      "@@ -4,0 +4 @@",
+      "+  expect(c).toBe(3);",
+    ].join("\n");
+    const base = "  expect(a).toBe(1);\n  expect(b).toBe(2);\n// kept";
+    const source = "  expect(a).toBe(1);\n// kept\n\n  expect(c).toBe(3);";
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [4] } }, diff, { [SPEC]: base }),
+      [],
+    );
+  });
+
+  it("does not count expect( inside a string or a comment as an assertion", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -1,2 +0,0 @@",
+      '-const s = "expect(x)";',
+      "-// expect(y)",
+    ].join("\n");
+    const base = 'const s = "expect(x)";\n// expect(y)';
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source: "", added: [] } }, diff, { [SPEC]: base }),
+      [],
+    );
+  });
+
+  it("counts expect.soft and assert.x calls and reports the call count", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -1,2 +0,0 @@",
+      "-  expect.soft(a).toBe(1);",
+      "-  assert.strictEqual(b, 2);",
+    ].join("\n");
+    const base = "  expect.soft(a).toBe(1);\n  assert.strictEqual(b, 2);";
+
+    assert.deepEqual(
+      findViolations({ [SPEC]: { source: "", added: [] } }, diff, {
+        [SPEC]: base,
+      }).map((violation) => violation.message),
+      ["removed 2 assertion call(s): 2 before, 0 now"],
+    );
+  });
+
+  it("does not flag a file that is new on this branch", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${SPEC}`,
+      "@@ -0,0 +1,2 @@",
+      "+  expect(a).toBe(1);",
+      "+  expect(b).toBe(2);",
+    ].join("\n");
+    const source = "  expect(a).toBe(1);\n  expect(b).toBe(2);";
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: [1, 2] } }, diff), []);
   });
 
   it("does not flag a rename whose assertion count is unchanged", () => {
@@ -331,6 +524,10 @@ describe("assertions-removed", () => {
           },
         },
         diff,
+        {
+          "templates/mail/actions/old-name.spec.ts":
+            "\n\n\n  expect(result.status).toBe(201);",
+        },
       ),
       [],
     );
@@ -358,32 +555,39 @@ describe("assertions-removed", () => {
           },
         },
         diff,
+        {
+          "templates/mail/actions/old-name.spec.ts":
+            "\n\n\n  expect(result.status).toBe(201);\n  expect(result.body).toBeDefined();",
+        },
       ),
       ["templates/mail/actions/new-name.spec.ts:4: assertions-removed"],
     );
   });
 
-  it("counts every removed assertion in a deleted test file", () => {
+  it("counts every removed assertion call in a deleted test file", () => {
+    const gone = "templates/mail/actions/gone.spec.ts";
     const diff = [
-      "diff --git a/templates/mail/actions/gone.spec.ts b/templates/mail/actions/gone.spec.ts",
+      `diff --git a/${gone} b/${gone}`,
       "deleted file mode 100644",
-      "--- a/templates/mail/actions/gone.spec.ts",
+      `--- a/${gone}`,
       "+++ /dev/null",
       "@@ -1,2 +0,0 @@",
       "-  expect(a).toBe(1);",
       "-  assert.ok(b);",
     ].join("\n");
 
-    assert.deepEqual(flagged({}, diff), [
-      "templates/mail/actions/gone.spec.ts:1: assertions-removed",
-    ]);
+    assert.deepEqual(
+      flagged({}, diff, { [gone]: "  expect(a).toBe(1);\n  assert.ok(b);" }),
+      [`${gone}:1: assertions-removed`],
+    );
   });
 
   it("accepts a deleted file's pragma on any added line in the diff", () => {
+    const gone = "templates/mail/actions/gone.spec.ts";
     const diff = [
-      "diff --git a/templates/mail/actions/gone.spec.ts b/templates/mail/actions/gone.spec.ts",
+      `diff --git a/${gone} b/${gone}`,
       "deleted file mode 100644",
-      "--- a/templates/mail/actions/gone.spec.ts",
+      `--- a/${gone}`,
       "+++ /dev/null",
       "@@ -1,1 +0,0 @@",
       "-  expect(a).toBe(1);",
@@ -399,6 +603,7 @@ describe("assertions-removed", () => {
           },
         },
         diff,
+        { [gone]: "  expect(a).toBe(1);" },
       ),
       [],
     );
@@ -427,6 +632,7 @@ describe("assertions-removed", () => {
           },
         },
         diff,
+        { [SPEC]: "\n\n  expect(result.status).toBe(200);" },
       ),
       [],
     );

@@ -120,12 +120,14 @@ function arbitraryAt(
       `${composed.join(" and ")} cannot be combined`,
     );
   }
-  if (Object.hasOwn(schema, "const")) return fc.constant(schema.const);
+  if (Object.hasOwn(schema, "const")) {
+    return listedArbitrary([schema.const], schema, path);
+  }
   if (Object.hasOwn(schema, "enum")) {
     if (!Array.isArray(schema.enum) || schema.enum.length === 0) {
       throw new UnsupportedSchemaError(path, "enum must be a non-empty array");
     }
-    return fc.constantFrom(...schema.enum);
+    return listedArbitrary(schema.enum, schema, path);
   }
   if (composed.length === 1) {
     if (Object.hasOwn(schema, "type")) {
@@ -141,8 +143,17 @@ function arbitraryAt(
         `${composed[0]} must be a non-empty array`,
       );
     }
-    return fc.oneof(
-      ...branches.map((branch) => arbitraryAt(branch, path, overrides)),
+    const branchArbitraries = branches.map((branch) =>
+      arbitraryAt(branch, path, overrides),
+    );
+    if (composed[0] === "anyOf") return fc.oneof(...branchArbitraries);
+    return filteredArbitrary(
+      fc.oneof(...branchArbitraries),
+      (value) =>
+        branches.filter((branch) => jsonSchemaAccepts(branch, value)).length ===
+        1,
+      path,
+      "match exactly one oneOf branch",
     );
   }
 
@@ -190,7 +201,6 @@ function stringArbitrary(
 ): fc.Arbitrary<string> {
   const minLength = nonNegativeInteger(schema, "minLength", path) ?? 0;
   const maxLength = nonNegativeInteger(schema, "maxLength", path);
-  let base: fc.Arbitrary<string>;
   if (schema.format === undefined) {
     if (schema.pattern !== undefined) {
       throw new UnsupportedSchemaError(
@@ -198,30 +208,37 @@ function stringArbitrary(
         '"pattern" is only supported next to a format',
       );
     }
-    base = fc.string({
+    return fc.string({
       minLength,
       ...(maxLength === undefined ? {} : { maxLength }),
     });
-  } else {
-    if (
-      typeof schema.format !== "string" ||
-      !SUPPORTED_FORMATS.has(schema.format)
-    ) {
-      throw new UnsupportedSchemaError(
-        path,
-        `format ${JSON.stringify(schema.format)} is not supported`,
-      );
-    }
-    base = formatArbitrary(schema.format);
-    if (minLength > 0 || maxLength !== undefined) {
-      base = base.filter(
-        (value) =>
-          value.length >= minLength &&
-          (maxLength === undefined || value.length <= maxLength),
-      );
-    }
   }
-  return base;
+  if (
+    typeof schema.format !== "string" ||
+    !SUPPORTED_FORMATS.has(schema.format)
+  ) {
+    throw new UnsupportedSchemaError(
+      path,
+      `format ${JSON.stringify(schema.format)} is not supported`,
+    );
+  }
+  const base = formatArbitrary(schema.format);
+  const pattern =
+    schema.pattern === undefined
+      ? undefined
+      : patternRegExp(schema.pattern, path);
+  if (minLength === 0 && maxLength === undefined && pattern === undefined) {
+    return base;
+  }
+  return filteredArbitrary(
+    base,
+    (value) =>
+      value.length >= minLength &&
+      (maxLength === undefined || value.length <= maxLength) &&
+      (pattern === undefined || pattern.test(value)),
+    path,
+    `satisfy format "${schema.format}" and its length and pattern keywords`,
+  );
 }
 
 function formatArbitrary(format: string): fc.Arbitrary<string> {
@@ -461,8 +478,20 @@ export async function checkActionProperties(
       "checkActionProperties needs an action defined with a zod `schema`; this action has none.",
     );
   }
+  if (action.outputSchema && action.outputErrorStrategy === "fallback") {
+    // "warn" passes the raw return through, so the output check below sees it.
+    // "fallback" swaps an invalid return for outputFallback before it is seen.
+    throw new TypeError(
+      `${describeAction(action)} uses outputErrorStrategy "fallback", which replaces an invalid return with outputFallback before this check can see it. Test it with outputErrorStrategy: "strict".`,
+    );
+  }
   const jsonSchema = inputJsonSchema(schema);
   const inputs = arbitraryFromJsonSchema(jsonSchema, {
+    overrides: options.overrides,
+  });
+  // Nested cases replace one item of an array, so they draw from inputs whose
+  // arrays are never empty.
+  const populated = arbitraryFromJsonSchema(withPopulatedArrays(jsonSchema), {
     overrides: options.overrides,
   });
   // The report carries the thrown error only when asked: without it the
@@ -501,7 +530,7 @@ export async function checkActionProperties(
   );
 
   await fc.assert(
-    fc.asyncProperty(inputs, async (valid) => {
+    fc.asyncProperty(populated, async (valid) => {
       for (const invalid of invalidInputs(jsonSchema, valid)) {
         await requireSchemaRejects(schema, invalid.input, invalid.label);
         const before = counter.runs;
@@ -650,32 +679,107 @@ interface InvalidInput {
   input: unknown;
 }
 
+interface InvalidVariant {
+  label: string;
+  /** Replaces the value at the variant's path. */
+  value: unknown;
+}
+
 function invalidInputs(schema: JsonObject, valid: unknown): InvalidInput[] {
-  const cases: InvalidInput[] = [];
   const wrongRoot = wrongValueFor(schema, "the input");
-  cases.push({
-    label: `input set to ${JSON.stringify(wrongRoot)}`,
-    input: wrongRoot,
-  });
+  return [
+    { label: `input set to ${JSON.stringify(wrongRoot)}`, input: wrongRoot },
+    ...invalidVariants(schema, valid, "").map(({ label, value }) => ({
+      label,
+      input: structuredClone(value),
+    })),
+  ];
+}
+
+// Each variant replaces the value at `path` with one the schema must reject.
+// Nested objects recurse, and an array with object items gets a one-element
+// array, so every case is labelled with the JSON pointer it breaks.
+function invalidVariants(
+  schema: JsonObject,
+  valid: unknown,
+  path: string,
+): InvalidVariant[] {
+  const variants: InvalidVariant[] = [];
   if (schema.type === "object" && isJsonObject(valid)) {
     const properties = isJsonObject(schema.properties) ? schema.properties : {};
     const required = Array.isArray(schema.required)
       ? (schema.required as string[])
       : [];
     for (const key of required) {
-      const copy = structuredClone(valid);
+      const copy = { ...valid };
       delete copy[key];
-      cases.push({ label: `required "${key}" removed`, input: copy });
-    }
-    for (const key of Object.keys(properties)) {
-      const wrong = wrongValueFor(properties[key], `property "${key}"`);
-      cases.push({
-        label: `"${key}" set to ${JSON.stringify(wrong)}`,
-        input: { ...structuredClone(valid), [key]: wrong },
+      variants.push({
+        label: `${path}/${escapePointerToken(key)} required removed`,
+        value: copy,
       });
     }
+    for (const key of Object.keys(properties)) {
+      const childPath = `${path}/${escapePointerToken(key)}`;
+      const childSchema = properties[key];
+      const wrong = wrongValueFor(childSchema, childPath);
+      variants.push({
+        label: `${childPath} set to ${JSON.stringify(wrong)}`,
+        value: { ...valid, [key]: wrong },
+      });
+      if (isJsonObject(childSchema)) {
+        for (const nested of invalidVariants(
+          childSchema,
+          valid[key],
+          childPath,
+        )) {
+          variants.push({
+            label: nested.label,
+            value: { ...valid, [key]: nested.value },
+          });
+        }
+      }
+    }
   }
-  return cases;
+  if (
+    schema.type === "array" &&
+    Array.isArray(valid) &&
+    valid.length > 0 &&
+    isJsonObject(schema.items)
+  ) {
+    const itemPath = `${path}/0`;
+    const wrong = wrongValueFor(schema.items, itemPath);
+    variants.push({
+      label: `${itemPath} set to ${JSON.stringify(wrong)}`,
+      value: [wrong],
+    });
+    for (const nested of invalidVariants(schema.items, valid[0], itemPath)) {
+      variants.push({ label: nested.label, value: [nested.value] });
+    }
+  }
+  return variants;
+}
+
+// The schema with every array that has items required to hold one item, so a
+// generated input always has an item to change. `maxItems: 0` stays empty.
+function withPopulatedArrays(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withPopulatedArrays);
+  if (!isJsonObject(schema)) return schema;
+  const copy: JsonObject = {};
+  for (const [key, value] of Object.entries(schema)) {
+    copy[key] = withPopulatedArrays(value);
+  }
+  const types = Array.isArray(copy.type) ? copy.type : [copy.type];
+  if (
+    types.includes("array") &&
+    copy.items !== undefined &&
+    copy.maxItems !== 0
+  ) {
+    copy.minItems = Math.max(
+      typeof copy.minItems === "number" ? copy.minItems : 0,
+      1,
+    );
+  }
+  return copy;
 }
 
 // A value whose JSON kind is not admitted cannot satisfy the schema, however
@@ -739,4 +843,227 @@ function kindOf(value: unknown): JsonKind {
   if (typeof value === "string") return "string";
   if (typeof value === "boolean") return "boolean";
   return "object";
+}
+
+// Generated values are kept only if this share of a sample passes a filter.
+// Below it the filter would discard most runs, so the generator is too weak.
+const MIN_ACCEPTED_SHARE = 0.05;
+
+function filteredArbitrary<T>(
+  base: fc.Arbitrary<T>,
+  accepts: (value: T) => boolean,
+  path: string,
+  condition: string,
+): fc.Arbitrary<T> {
+  const sample = fc.sample(base, { seed: 0, numRuns: 200 });
+  const kept = sample.filter(accepts).length;
+  if (kept < sample.length * MIN_ACCEPTED_SHARE) {
+    throw new UnsupportedSchemaError(
+      path,
+      `only ${kept} of ${sample.length} generated values ${condition}`,
+    );
+  }
+  return base.filter(accepts);
+}
+
+// The listed values that the schema's other keywords, such as `type`, admit.
+// A value that breaks them is never generated.
+function listedArbitrary(
+  values: unknown[],
+  schema: JsonObject,
+  path: string,
+): fc.Arbitrary<unknown> {
+  const rest: JsonObject = { ...schema };
+  delete rest.const;
+  delete rest.enum;
+  const allowed = values.filter((value) => jsonSchemaAccepts(rest, value));
+  if (allowed.length === 0) {
+    throw new UnsupportedSchemaError(
+      path,
+      "no const or enum value satisfies the schema's other keywords",
+    );
+  }
+  return fc.constantFrom(...allowed);
+}
+
+function patternRegExp(pattern: unknown, path: string): RegExp {
+  if (typeof pattern !== "string") {
+    throw new UnsupportedSchemaError(path, "pattern must be a string");
+  }
+  try {
+    return new RegExp(pattern, "u");
+  } catch (error) {
+    throw new UnsupportedSchemaError(
+      path,
+      `pattern ${JSON.stringify(pattern)} is not a valid regular expression (${describeThrown(error)})`,
+    );
+  }
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATE_TIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+
+/**
+ * Whether a value satisfies a schema built from the keywords this module
+ * supports. Synchronous, so a generator can filter by it. Annotations are
+ * ignored. The schema has already passed `arbitraryAt`, so its keywords are
+ * known to be supported.
+ */
+function jsonSchemaAccepts(schema: JsonObject, value: unknown): boolean {
+  if (Object.hasOwn(schema, "const") && !jsonEqual(schema.const, value)) {
+    return false;
+  }
+  if (
+    Object.hasOwn(schema, "enum") &&
+    !(schema.enum as unknown[]).some((item) => jsonEqual(item, value))
+  ) {
+    return false;
+  }
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!types.some((type) => valueHasType(type, value))) return false;
+  }
+  if (
+    Array.isArray(schema.anyOf) &&
+    !schema.anyOf.some((branch) => jsonSchemaAccepts(branch, value))
+  ) {
+    return false;
+  }
+  if (
+    Array.isArray(schema.oneOf) &&
+    schema.oneOf.filter((branch) => jsonSchemaAccepts(branch, value)).length !==
+      1
+  ) {
+    return false;
+  }
+  if (typeof value === "string") return stringAccepts(schema, value);
+  if (typeof value === "number") return numberAccepts(schema, value);
+  if (Array.isArray(value)) return arrayAccepts(schema, value);
+  if (isJsonObject(value)) return objectAccepts(schema, value);
+  return true;
+}
+
+function valueHasType(type: unknown, value: unknown): boolean {
+  switch (type) {
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "number":
+      return typeof value === "number";
+    case "string":
+      return typeof value === "string";
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return isJsonObject(value);
+    default:
+      throw new Error(`Unknown JSON Schema type ${String(type)}.`);
+  }
+}
+
+function stringAccepts(schema: JsonObject, value: string): boolean {
+  if (typeof schema.minLength === "number" && value.length < schema.minLength) {
+    return false;
+  }
+  if (typeof schema.maxLength === "number" && value.length > schema.maxLength) {
+    return false;
+  }
+  if (
+    typeof schema.pattern === "string" &&
+    !new RegExp(schema.pattern, "u").test(value)
+  ) {
+    return false;
+  }
+  return typeof schema.format === "string"
+    ? formatAccepts(schema.format, value)
+    : true;
+}
+
+function formatAccepts(format: string, value: string): boolean {
+  switch (format) {
+    case "uuid":
+      return UUID_PATTERN.test(value);
+    case "email":
+      return EMAIL_PATTERN.test(value);
+    case "date-time":
+      return DATE_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+    case "uri":
+      return URL.canParse(value);
+    default:
+      throw new Error(`Unknown format "${format}" in a generated schema.`);
+  }
+}
+
+function numberAccepts(schema: JsonObject, value: number): boolean {
+  if (typeof schema.minimum === "number" && value < schema.minimum)
+    return false;
+  if (
+    typeof schema.exclusiveMinimum === "number" &&
+    value <= schema.exclusiveMinimum
+  ) {
+    return false;
+  }
+  if (typeof schema.maximum === "number" && value > schema.maximum)
+    return false;
+  if (
+    typeof schema.exclusiveMaximum === "number" &&
+    value >= schema.exclusiveMaximum
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function arrayAccepts(schema: JsonObject, value: unknown[]): boolean {
+  if (typeof schema.minItems === "number" && value.length < schema.minItems) {
+    return false;
+  }
+  if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+    return false;
+  }
+  return !isJsonObject(schema.items)
+    ? true
+    : value.every((item) =>
+        jsonSchemaAccepts(schema.items as JsonObject, item),
+      );
+}
+
+function objectAccepts(schema: JsonObject, value: JsonObject): boolean {
+  const properties = isJsonObject(schema.properties) ? schema.properties : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  if (required.some((key) => !Object.hasOwn(value, key))) return false;
+  for (const [key, child] of Object.entries(value)) {
+    if (Object.hasOwn(properties, key)) {
+      if (!jsonSchemaAccepts(properties[key] as JsonObject, child))
+        return false;
+    } else if (schema.additionalProperties === false) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a)) {
+    return (
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => jsonEqual(item, b[index]))
+    );
+  }
+  if (isJsonObject(a)) {
+    if (!isJsonObject(b)) return false;
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((key) => Object.hasOwn(b, key) && jsonEqual(a[key], b[key]))
+    );
+  }
+  return a === b;
 }

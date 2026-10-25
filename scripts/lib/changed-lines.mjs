@@ -27,15 +27,37 @@ export function resolveDiffBase(cwd) {
   return null;
 }
 
-export function addedLines(cwd, { includeWorkingTree = true } = {}) {
+/**
+ * The commit every diff here is taken against: the merge-base of the resolved
+ * base and HEAD. Pre-change file text must be read at this commit, not at the
+ * base tip, or commits that landed on main after the branch point count too.
+ */
+export function diffBaseCommit(cwd) {
   const base = resolveDiffBase(cwd);
   if (!base) return null;
   const mergeBase = git(["merge-base", base, "HEAD"], cwd);
+  return mergeBase === null ? null : mergeBase.trim();
+}
+
+/**
+ * A repo file's text at `commit`. The caller only asks for files its diff says
+ * existed there, so a failed `git show` exits instead of reading as empty.
+ */
+export function readCommitFile(cwd, commit, repoPath) {
+  return execGuardCommand("git", ["show", `${commit}:${repoPath}`], {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+export function addedLines(cwd, { includeWorkingTree = true } = {}) {
+  const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;
 
   const args = ["diff", "--unified=0", "--no-color", "--diff-filter=ACMR"];
-  if (!includeWorkingTree) args.push(mergeBase.trim(), "HEAD");
-  else args.push(mergeBase.trim());
+  if (!includeWorkingTree) args.push(mergeBase, "HEAD");
+  else args.push(mergeBase);
 
   const diff = git(args, cwd);
   if (diff === null) return null;
@@ -47,16 +69,15 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
  * `path` is the post-change repo path (the pre-change path for a deleted file)
  * and `oldPath` the pre-change path, so a rename's removals and additions meet
  * under one key. Each removed line records the new-file line it sat before.
+ * `created` marks a file new on this branch, so its pre-change text is empty.
  */
 export function removedLines(cwd, { includeWorkingTree = true } = {}) {
-  const base = resolveDiffBase(cwd);
-  if (!base) return null;
-  const mergeBase = git(["merge-base", base, "HEAD"], cwd);
+  const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;
 
   const args = ["diff", "--unified=0", "--no-color"];
-  if (!includeWorkingTree) args.push(mergeBase.trim(), "HEAD");
-  else args.push(mergeBase.trim());
+  if (!includeWorkingTree) args.push(mergeBase, "HEAD");
+  else args.push(mergeBase);
 
   const diff = git(args, cwd);
   if (diff === null) return null;
@@ -98,7 +119,8 @@ export function parseRemovedLines(diff, cwd, pathApi = path) {
       const deleted = newPath === "/dev/null";
       const repoPath = deleted ? oldPath : newPath;
       const before = oldPath === "/dev/null" ? repoPath : oldPath;
-      entry = { path: repoPath, oldPath: before, deleted, lines: [] };
+      const created = oldPath === "/dev/null";
+      entry = { path: repoPath, oldPath: before, deleted, created, lines: [] };
       result.set(pathApi.resolve(cwd, repoPath), entry);
       continue;
     }
@@ -145,7 +167,33 @@ export function parseUnifiedDiff(diff, cwd, pathApi = path) {
   const result = new Map();
   let file = null;
   let line = 0;
+  // Lines of the current hunk still owed by its header. Inside a hunk every
+  // line is body, even one whose text starts with "+++" or "---" (an added
+  // "++i;" or a removed "--y"); headers are only read once both counts are 0.
+  let oldLeft = 0;
+  let newLeft = 0;
   for (const raw of diff.split("\n")) {
+    if (oldLeft > 0 || newLeft > 0) {
+      if (raw.startsWith("+")) {
+        newLeft -= 1;
+        if (file) {
+          if (!result.has(file)) result.set(file, new Set());
+          result.get(file).add(line);
+        }
+        line += 1;
+      } else if (raw.startsWith("-")) {
+        oldLeft -= 1;
+      } else if (raw.startsWith(" ")) {
+        oldLeft -= 1;
+        newLeft -= 1;
+        line += 1;
+      }
+      continue;
+    }
+    if (raw.startsWith("diff --git ")) {
+      file = null;
+      continue;
+    }
     // Git emits no +++/@@/+ lines for a file it considers binary, so such a
     // file contributes nothing here and every diff-scoped guard passes having
     // inspected none of it. A single stray NUL byte is enough to mark a .ts
@@ -172,16 +220,11 @@ export function parseUnifiedDiff(diff, cwd, pathApi = path) {
           : pathApi.resolve(cwd, path);
       continue;
     }
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);
+    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
     if (hunk) {
-      line = Number(hunk[1]);
-      continue;
-    }
-    if (!file) continue;
-    if (raw.startsWith("+") && !raw.startsWith("+++")) {
-      if (!result.has(file)) result.set(file, new Set());
-      result.get(file).add(line);
-      line += 1;
+      oldLeft = hunk[1] === undefined ? 1 : Number(hunk[1]);
+      line = Number(hunk[2]);
+      newLeft = hunk[3] === undefined ? 1 : Number(hunk[3]);
     }
   }
   return result;

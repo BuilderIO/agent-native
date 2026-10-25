@@ -100,6 +100,25 @@ const DST_DAYS: Record<Zone, number[]> = {
   "Asia/Tokyo": [],
 };
 
+// Transition days whose offset rises: the 02:00-03:00 wall hour does not exist.
+// Computed once here; the generator must not rescan the calendar per sample.
+function isSpringForward(day: number, zone: Zone): boolean {
+  return (
+    offsetAt(day * DAY_MS + 12 * HOUR_MS, zone) >
+    offsetAt((day - 1) * DAY_MS + 12 * HOUR_MS, zone)
+  );
+}
+
+const SPRING_FORWARD_DAYS: Record<Zone, number[]> = {
+  "America/New_York": DST_DAYS["America/New_York"].filter((day) =>
+    isSpringForward(day, "America/New_York"),
+  ),
+  "Europe/Berlin": DST_DAYS["Europe/Berlin"].filter((day) =>
+    isSpringForward(day, "Europe/Berlin"),
+  ),
+  "Asia/Tokyo": [],
+};
+
 function compactUtc(ms: number): string {
   return new Date(ms).toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
 }
@@ -401,6 +420,7 @@ describe("alignSeriesRecurrenceToStart against the RFC 5545 expansion", () => {
   });
 
   // oracle finding: moving a multi-day series start past its other weekdays adds occurrences the series never had.
+  // oracle-change: documented open policy finding (multi-day BYDAY extent); flips to it() when the policy is decided
   it.fails("never adds an occurrence the original series did not have", () => {
     fc.assert(
       fc.property(multiDayWeekly1Series(endArb), (series) => {
@@ -532,6 +552,78 @@ describe("shiftSeriesDateValue", () => {
           expect(shiftedWall).toBe(master.wall + (next.wall - instance.wall));
         },
       ),
+      RUNS,
+    );
+  });
+
+  // Compatible policy (Temporal disambiguation "compatible"): a wall time in a
+  // spring-forward gap moves forward by the gap length; an ambiguous fall-back
+  // wall time takes the earlier instant.
+  it("moves a master at 02:30 onto a spring-forward gap to 03:30 (America/New_York)", () => {
+    expect(
+      shiftSeriesDateValue(
+        "2026-03-08T06:00:00-04:00",
+        "2026-03-01T06:00:00-05:00",
+        "2026-03-01T02:30:00-05:00",
+        "America/New_York",
+      ),
+    ).toBe("2026-03-08T07:30:00Z");
+  });
+
+  it("moves a master at 02:30 onto a spring-forward gap to 03:30 (Europe/Berlin)", () => {
+    expect(
+      shiftSeriesDateValue(
+        "2026-03-29T06:00:00+02:00",
+        "2026-03-22T06:00:00+01:00",
+        "2026-03-22T02:30:00+01:00",
+        "Europe/Berlin",
+      ),
+    ).toBe("2026-03-29T01:30:00Z");
+  });
+
+  it("resolves a fall-back overlap wall time to the earlier (EDT) instant (America/New_York)", () => {
+    expect(
+      shiftSeriesDateValue(
+        "2026-11-01T06:00:00-05:00",
+        "2026-10-25T06:00:00-04:00",
+        "2026-10-25T01:30:00-04:00",
+        "America/New_York",
+      ),
+    ).toBe("2026-11-01T05:30:00Z");
+  });
+
+  it("moves any wall time inside a spring-forward gap forward by the gap length", () => {
+    const springGapArb = fc
+      .constantFrom<Zone>("America/New_York", "Europe/Berlin")
+      .chain((zone) =>
+        fc
+          .tuple(
+            fc.constantFrom(...SPRING_FORWARD_DAYS[zone]),
+            fc.integer({ min: 0, max: 59 }),
+          )
+          .map(([day, minute]) => ({ zone, day, minute })),
+      );
+    fc.assert(
+      fc.property(springGapArb, ({ zone, day, minute }) => {
+        // The master sits on the same wall time one week earlier, so the shift
+        // (+7 days) lands it on 02:mm of the transition day.
+        const gapWall = day * DAY_MS + 2 * HOUR_MS + minute * MINUTE_MS;
+        const master = momentAt(
+          (day - 7) * DAY_MS + 2 * HOUR_MS + minute * MINUTE_MS,
+          zone,
+        );
+        const instance = momentAt((day - 7) * DAY_MS + 6 * HOUR_MS, zone);
+        const next = momentAt(day * DAY_MS + 6 * HOUR_MS, zone);
+        const shifted = shiftSeriesDateValue(
+          next.value,
+          instance.value,
+          master.value,
+          zone,
+        );
+        expect(zoneWall(Date.parse(shifted ?? ""), zone)).toBe(
+          gapWall + HOUR_MS,
+        );
+      }),
       RUNS,
     );
   });

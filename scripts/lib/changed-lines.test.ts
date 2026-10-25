@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 // @ts-expect-error - .mjs helper without types
-import { parseUnifiedDiff } from "./changed-lines.mjs";
+import { parseRemovedLines, parseUnifiedDiff } from "./changed-lines.mjs";
 
 const CWD = "/repo";
 
@@ -85,5 +85,121 @@ describe("parseUnifiedDiff", () => {
     const result = parseUnifiedDiff(diff, CWD);
     expect(result).not.toBeNull();
     expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(new Set([1]));
+  });
+
+  // Inside a hunk the header's counts decide what is body, so an added line
+  // whose text begins with "++" never reads as a header or drops out.
+  it("counts added lines whose text starts with ++ or +++ as body", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +1,4 @@",
+      "+const a = 1;",
+      "+++i;",
+      "++++x",
+      "+const b = 2;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(
+      new Set([1, 2, 3, 4]),
+    );
+  });
+
+  it("does not read an added line like '++ x' as a new file header", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +1,2 @@",
+      "+++ x",
+      "+const b = 2;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect([...(result?.keys() ?? [])]).toEqual([
+      path.resolve(CWD, "src/a.ts"),
+    ]);
+    expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(new Set([1, 2]));
+  });
+
+  it("keeps removed lines whose text starts with -- in the hunk", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,3 +1,2 @@",
+      "---y",
+      "----z",
+      "-const c = 3;",
+      "+const d = 4;",
+      "+const e = 5;",
+    ].join("\n");
+
+    const added = parseUnifiedDiff(diff, CWD);
+    expect(added?.get(path.resolve(CWD, "src/a.ts"))).toEqual(new Set([1, 2]));
+
+    const removed = parseRemovedLines(diff, CWD);
+    expect(
+      removed
+        ?.get(path.resolve(CWD, "src/a.ts"))
+        .lines.map((line: { text: string }) => line.text),
+    ).toEqual(["--y", "---z", "const c = 3;"]);
+  });
+
+  it("keeps line numbers across hunks and files in a normal diff", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -2 +2,2 @@",
+      "-old",
+      "+new one",
+      "+new two",
+      "@@ -9,0 +11 @@",
+      "+appended",
+      "diff --git a/src/b.ts b/src/b.ts",
+      "--- a/src/b.ts",
+      "+++ b/src/b.ts",
+      "@@ -0,0 +1 @@",
+      "+x",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(
+      new Set([2, 3, 11]),
+    );
+    expect(result?.get(path.resolve(CWD, "src/b.ts"))).toEqual(new Set([1]));
+  });
+
+  it("marks a file created on the branch and a file deleted from it", () => {
+    const diff = [
+      "diff --git a/src/new.ts b/src/new.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/new.ts",
+      "@@ -0,0 +1 @@",
+      "+const n = 1;",
+      "diff --git a/src/old.ts b/src/old.ts",
+      "deleted file mode 100644",
+      "--- a/src/old.ts",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-const o = 1;",
+    ].join("\n");
+
+    const removed = parseRemovedLines(diff, CWD);
+    expect(removed?.get(path.resolve(CWD, "src/new.ts"))).toMatchObject({
+      path: "src/new.ts",
+      created: true,
+      deleted: false,
+    });
+    expect(removed?.get(path.resolve(CWD, "src/old.ts"))).toMatchObject({
+      path: "src/old.ts",
+      created: false,
+      deleted: true,
+    });
   });
 });

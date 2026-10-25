@@ -151,6 +151,103 @@ describe("checkActionProperties", () => {
       /needs an action defined with a zod `schema`/,
     );
   });
+
+  it("checks a nested property, labelled by its JSON pointer", async () => {
+    const action = defineAction({
+      description: "Store an address",
+      schema: z.object({ address: z.object({ zip: z.coerce.string() }) }),
+      run: async () => ({}),
+    });
+
+    await expect(
+      checkActionProperties(action, { context, runs: 5, seed: 3 }),
+    ).rejects.toThrow(/\/address\/zip set to \S+ is marked invalid/);
+  });
+
+  it("checks a nested property inside an array item as a one-element array", async () => {
+    const action = defineAction({
+      description: "Record labelled items",
+      schema: z.object({
+        items: z.array(z.object({ label: z.coerce.string() })),
+      }),
+      run: async () => ({}),
+    });
+
+    await expect(
+      checkActionProperties(action, { context, runs: 5, seed: 3 }),
+    ).rejects.toThrow(/\/items\/0\/label set to \S+ is marked invalid/);
+  });
+
+  it("passes nested required removals, objects and arrays of objects that zod rejects", async () => {
+    const action = defineAction({
+      description: "Record a shipment",
+      schema: z.object({
+        address: z.object({ street: z.string(), zip: z.string() }),
+        lines: z
+          .array(z.object({ sku: z.string(), qty: z.int().min(1) }))
+          .max(3),
+      }),
+      run: async () => ({}),
+    });
+
+    await expect(
+      checkActionProperties(action, { context, runs: 30, seed: 9 }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("generates only values that match exactly one oneOf branch", async () => {
+    const action = defineAction({
+      description: "Pick a length band",
+      schema: z.object({ x: z.xor([z.string().min(2), z.string().max(5)]) }),
+      run: async () => ({}),
+    });
+
+    await expect(
+      checkActionProperties(action, { context, runs: 50, seed: 1 }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("generates a formatted string that satisfies both its format and its pattern", async () => {
+    const action = defineAction({
+      description: "Record a v4 id",
+      schema: z.object({ id: z.uuid({ version: "v4" }) }),
+      run: async () => ({}),
+    });
+
+    await expect(
+      checkActionProperties(action, { context, runs: 50, seed: 5 }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws UnsupportedSchemaError naming the path when a pattern rejects nearly every value", async () => {
+    const action = defineAction({
+      description: "Record a timestamp",
+      schema: z.object({ at: z.iso.datetime({ precision: 0 }) }),
+      run: async () => ({}),
+    });
+
+    await expect(checkActionProperties(action, { context })).rejects.toThrow(
+      UnsupportedSchemaError,
+    );
+    await expect(checkActionProperties(action, { context })).rejects.toThrow(
+      /JSON pointer "\/at"/,
+    );
+  });
+
+  it("refuses an action with outputErrorStrategy fallback, which hides the handler's return", async () => {
+    const action = defineAction({
+      description: "Double a count into a capped total",
+      schema: z.object({ count: z.number().int().min(0).max(20) }),
+      outputSchema: z.object({ total: z.number().int().max(10) }),
+      outputErrorStrategy: "fallback",
+      outputFallback: { total: 0 },
+      run: async ({ count }) => ({ total: count * 2 }),
+    });
+
+    await expect(
+      checkActionProperties(action, { context, seed: 1 }),
+    ).rejects.toThrow(/outputErrorStrategy "fallback"/);
+  });
 });
 
 describe("arbitraryFromJsonSchema", () => {
@@ -182,5 +279,38 @@ describe("arbitraryFromJsonSchema", () => {
       { name: "x" },
       { name: "x" },
     ]);
+  });
+
+  it("emits only the const and enum values that its type admits", () => {
+    const enumArb = arbitraryFromJsonSchema({
+      type: "string",
+      enum: ["a", 1, null, "b"],
+    });
+
+    expect(new Set(fc.sample(enumArb, { seed: 1, numRuns: 100 }))).toEqual(
+      new Set(["a", "b"]),
+    );
+  });
+
+  it("throws when no const value satisfies its type", () => {
+    expect(() => arbitraryFromJsonSchema({ type: "string", const: 5 })).toThrow(
+      UnsupportedSchemaError,
+    );
+  });
+
+  it("throws when oneOf branches overlap on every value, naming the path", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        x: { oneOf: [{ type: "string" }, { type: "string" }] },
+      },
+      required: ["x"],
+      additionalProperties: false,
+    };
+
+    expect(() => arbitraryFromJsonSchema(schema)).toThrow(
+      UnsupportedSchemaError,
+    );
+    expect(() => arbitraryFromJsonSchema(schema)).toThrow(/JSON pointer "\/x"/);
   });
 });
