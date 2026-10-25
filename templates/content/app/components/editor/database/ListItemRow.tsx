@@ -25,7 +25,12 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-import { displayValue, PropertyValuePopover } from "../DocumentProperties";
+import {
+  displayValue,
+  propertyUrlHref,
+  PropertyUrlLink,
+  PropertyValuePopover,
+} from "../DocumentProperties";
 import {
   DatabaseItemPageIcon,
   dbText,
@@ -344,6 +349,12 @@ export function DatabaseLayoutListRow({
     : line2Property
       ? line2Text(line2Property)
       : "";
+  // A web address there opens from its link, except while the layout is being
+  // edited, when the whole slot is a button.
+  const line2Href =
+    !editing && line2Property?.definition.type === "url"
+      ? propertyUrlHref(line2Property.value)
+      : null;
   const filled = (properties: DocumentProperty[]) =>
     properties
       .map((property) => itemValue(item, property))
@@ -397,7 +408,11 @@ export function DatabaseLayoutListRow({
             LINE_CLAMP_CLASSES[resolved.line2.lines],
           )}
         >
-          {line2}
+          {line2Href ? (
+            <PropertyUrlLink href={line2Href}>{line2}</PropertyUrlLink>
+          ) : (
+            line2
+          )}
         </span>
       </SlotZone>
       <SlotZone

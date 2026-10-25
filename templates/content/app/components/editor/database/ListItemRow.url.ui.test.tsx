@@ -59,7 +59,7 @@ describe("list rows with a web address", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  function renderRow(editing: boolean) {
+  function renderRow(editing: boolean, slot: "line2" | "line3" = "line3") {
     act(() => {
       root.render(
         <DatabaseLayoutListRow
@@ -68,8 +68,12 @@ describe("list rows with a web address", () => {
             resolved: {
               leading: { kind: "page_icon", property: null },
               titleWeight: "medium",
-              line2: { property: null, pageText: false, lines: 1 },
-              line3: [reviewProperty],
+              line2: {
+                property: slot === "line2" ? reviewProperty : null,
+                pageText: false,
+                lines: 1,
+              },
+              line3: slot === "line3" ? [reviewProperty] : [],
               trailing: [],
             },
             properties: [reviewProperty],
@@ -113,9 +117,28 @@ describe("list rows with a web address", () => {
     expect(onPreview).toHaveBeenCalledTimes(2);
   });
 
-  it("shows the address as text while the row's layout is being edited", () => {
-    renderRow(true);
-    expect(container.querySelector("a")).toBeNull();
-    expect(container.textContent).toContain(reviewUrl);
+  it("opens an address shown under the title from its link", () => {
+    renderRow(false, "line2");
+    const link = container.querySelector<HTMLAnchorElement>("a");
+    expect(link?.getAttribute("href")).toBe(reviewUrl);
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.closest("button")).toBeNull();
+
+    act(() => {
+      link?.addEventListener("click", (event) => event.preventDefault(), {
+        once: true,
+      });
+      link?.click();
+    });
+    expect(onPreview).not.toHaveBeenCalled();
   });
+
+  it.each(["line2", "line3"] as const)(
+    "shows the address in %s as text while the row's layout is being edited",
+    (slot) => {
+      renderRow(true, slot);
+      expect(container.querySelector("a")).toBeNull();
+      expect(container.textContent).toContain(reviewUrl);
+    },
+  );
 });

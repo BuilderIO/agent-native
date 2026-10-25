@@ -346,6 +346,34 @@ const keepEventOnLink = {
   onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
 };
 
+/** A web address that opens in a new tab. */
+export function PropertyUrlLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={href}
+      // Ringed inside, since cells, rows and cards clip what overflows them.
+      className={cn(
+        "rounded-sm underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        className,
+      )}
+      {...keepEventOnLink}
+    >
+      {children}
+    </a>
+  );
+}
+
 export function displayValue(
   property: DocumentProperty,
   t?: TFunction,
@@ -488,28 +516,30 @@ export function displayValue(
   }
 
   if (type === "url" && typeof value === "string") {
-    const className = cn(
-      "underline decoration-muted-foreground/40 underline-offset-2",
-      propertyValueTextClass(presentation),
-    );
     const href = displayOptions.interactiveUrls ? propertyUrlHref(value) : null;
-    if (!href) return <span className={className}>{value}</span>;
+    if (!href) {
+      return (
+        <span
+          className={cn(
+            "underline decoration-muted-foreground/40 underline-offset-2",
+            propertyValueTextClass(presentation),
+          )}
+        >
+          {value}
+        </span>
+      );
+    }
     return (
-      <a
+      <PropertyUrlLink
         href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={href}
-        // Sized to the cell, so its click target covers only the visible
-        // text, and ringed inside, since the cell clips what overflows it.
+        // Sized to the cell, so its click target covers only the visible text.
         className={cn(
-          className,
-          "inline-block max-w-full rounded-sm align-top hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "inline-block max-w-full align-top",
+          propertyValueTextClass(presentation),
         )}
-        {...keepEventOnLink}
       >
         {value}
-      </a>
+      </PropertyUrlLink>
     );
   }
 
