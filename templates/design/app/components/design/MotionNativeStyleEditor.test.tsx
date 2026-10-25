@@ -74,7 +74,7 @@ describe("MotionNativeStyleEditor", () => {
   );
 
   it.each([
-    ["step-start", "M 0 0 H 100"],
+    ["step-start", "M 0 100 V 0 H 100"],
     ["step-end", "M 0 100 H 100 V 0"],
     ["steps(2, end)", "M 0 100 H 50 V 50 H 100 V 0"],
     ["steps(2, start)", "M 0 50 H 50 V 0 H 100"],

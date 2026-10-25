@@ -103,6 +103,52 @@ test.afterAll(async ({ request }) => {
   await postAction(request, "delete-design", { id: designId });
 });
 
+test("renders the start jump for step-start easing in the Motion inspector", async ({
+  page,
+  request,
+}) => {
+  await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 1000,
+    playbackMode: "once",
+    defaultEase: "linear",
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "step-start" },
+          { t: 1, value: "10px 0px" },
+        ],
+      },
+    ],
+  });
+
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await gotoEditor(page, designId);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  const easingSegment = dock
+    .locator("[data-motion-track-row]")
+    .first()
+    .getByRole("button", { name: /Segment easing:/ })
+    .first();
+  await expect(easingSegment).toBeVisible();
+  await expect(easingSegment).toHaveAccessibleName("Segment easing: Hold");
+  await easingSegment.click();
+
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Easing"]') });
+  await expect(
+    easingInspector.locator("[data-easing-curve] path[data-curve-path]"),
+  ).toHaveAttribute("d", "M 0 100 V 0 H 100");
+});
+
 test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   page,
   request,

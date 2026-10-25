@@ -3142,7 +3142,7 @@ function parseBezier(value: string): [number, number, number, number] | null {
 
 function parseStepsPath(value: string): string | null {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "step-start") return "M 0 0 H 100";
+  if (normalized === "step-start") return "M 0 100 V 0 H 100";
   if (normalized === "step-end") return "M 0 100 H 100 V 0";
   const match =
     /^steps\(\s*(\d+)\s*(?:,\s*(jump-start|jump-end|jump-none|jump-both|start|end)\s*)?\)$/i.exec(
