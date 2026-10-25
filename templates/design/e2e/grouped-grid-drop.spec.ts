@@ -6,15 +6,10 @@ import {
   node,
   openEditor,
   postAction,
-  setBaseURL,
 } from "./drag-and-drop.shared";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
 
 const GROUPED_GRID_FIXTURE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Grouped grid drop</title></head>
@@ -354,8 +349,5 @@ test("dropping a two-item group on an occupied grid cell keeps every item inside
   await app.settled();
   expectOnlyChanged(dropped, await app.savedNodes(designId), []);
   await page.reload({ waitUntil: "domcontentloaded" });
-  // A reload re-boots the editor, which alone takes ~12 s on CI runners.
-  await expect
-    .poll(() => targetGridBoxes(app), { timeout: 45_000 })
-    .toEqual(boxes);
+  await expect.poll(() => targetGridBoxes(app)).toEqual(boxes);
 });

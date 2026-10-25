@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { chromium, type FullConfig } from "@playwright/test";
+import {
+  chromium,
+  type FullConfig,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
@@ -30,14 +35,9 @@ const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
 const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
 const SEED_BUDGET_MS = 2 * 60_000;
-const HOME_WARMUP_BUDGET_MS = 6 * 60_000;
-const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;
-const HOME_RECOVERY_RETRY_BUDGET_MS = 2 * 60_000;
-const HOME_INITIAL_NAVIGATION_BUDGET_MS =
-  HOME_WARMUP_BUDGET_MS -
-  HOME_RECOVERY_DETECTION_BUDGET_MS -
-  HOME_RECOVERY_RETRY_BUDGET_MS;
+const HOME_WARMUP_BUDGET_MS = 3 * 60_000;
 const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
+const WARMUP_ATTEMPT_MS = 2 * 60_000;
 
 async function withDeadline<T>(
   label: string,
@@ -67,6 +67,36 @@ function timeoutBefore(deadline: number, requestedMs: number): number {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) throw new Error("the warmup budget expired");
   return Math.min(requestedMs, remainingMs);
+}
+
+/**
+ * Loads `url` until `ready` shows, and returns why it never did by `deadline`. The first compile of a
+ * route can outlast one attempt, and Vite's dependency optimizer can reload or abort a navigation
+ * partway, so a failed attempt navigates again instead of leaving the first test a cold server.
+ */
+async function warmupFailure(
+  page: Page,
+  url: string,
+  ready: Locator,
+  deadline: number,
+): Promise<string | null> {
+  let failure = "the warmup budget expired";
+  while (Date.now() < deadline) {
+    try {
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: timeoutBefore(deadline, WARMUP_ATTEMPT_MS),
+      });
+      await ready.waitFor({
+        state: "visible",
+        timeout: timeoutBefore(deadline, WARMUP_ATTEMPT_MS),
+      });
+      return null;
+    } catch (error) {
+      failure = (error as Error).message.split("\n")[0];
+    }
+  }
+  return failure;
 }
 
 export async function startLoopbackProvider(port: number): Promise<void> {
@@ -468,96 +498,44 @@ export default async function globalSetup(config: FullConfig) {
       },
     );
 
-    const homeDeadline = Math.min(
-      Date.now() + HOME_WARMUP_BUDGET_MS,
-      globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
-    );
-    const homeRecoveryDeadline = homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;
-    const homeInitialNavigationDeadline =
-      homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;
     const warmupPage = await context.newPage();
     try {
-      const homeURL = `${baseURL}/home`;
-      const homeComposer = warmupPage.locator("[data-design-home-composer]");
-      let homeComposerWarmed = false;
-      try {
-        await warmupPage.goto(homeURL, {
-          waitUntil: "domcontentloaded",
-          timeout: timeoutBefore(
-            homeInitialNavigationDeadline,
-            HOME_INITIAL_NAVIGATION_BUDGET_MS,
-          ),
-        });
-        const homeRecoveryDetectionDeadline = Math.min(
-          homeRecoveryDeadline,
-          Date.now() + HOME_RECOVERY_DETECTION_BUDGET_MS,
+      const homeFailure = await warmupFailure(
+        warmupPage,
+        `${baseURL}/home`,
+        warmupPage.locator("[data-design-home-composer]"),
+        Math.min(
+          Date.now() + HOME_WARMUP_BUDGET_MS,
+          globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
+        ),
+      );
+      if (homeFailure) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] home warmup did not finish (${homeFailure}); the first test touching /home will pay the compile.`,
         );
-        await homeComposer.waitFor({
-          state: "visible",
-          timeout: timeoutBefore(
-            homeRecoveryDetectionDeadline,
-            HOME_RECOVERY_DETECTION_BUDGET_MS,
-          ),
-        });
-        homeComposerWarmed = true;
-      } catch (error) {
-        const hasViteRecoveryMarker = new URL(
-          warmupPage.url(),
-        ).searchParams.has("__an_vite_dev_recovery");
-        if (hasViteRecoveryMarker) {
-          try {
-            await warmupPage.goto(homeURL, {
-              waitUntil: "domcontentloaded",
-              timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
-            });
-            await homeComposer.waitFor({
-              state: "visible",
-              timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
-            });
-            homeComposerWarmed = true;
-          } catch (recoveryError) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              `[e2e] home warmup did not finish after Vite recovery (${(recoveryError as Error).message.split("\n")[0]}); ` +
-                "the first test touching /home will pay the compile.",
-            );
-          }
-        } else {
-          // Home tests remain responsible for reporting any warmup failure.
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[e2e] home warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-              "the first test touching /home will pay the compile.",
-          );
-        }
-      }
-      if (homeComposerWarmed) {
+      } else {
         // eslint-disable-next-line no-console
         console.log("[e2e] home composer warm");
       }
-
-      const editorDeadline = Math.min(
-        Date.now() + EDITOR_WARMUP_BUDGET_MS,
-        globalSetupDeadline,
+      const editorFailure = await warmupFailure(
+        warmupPage,
+        `${baseURL}/design/${designId}`,
+        warmupPage
+          .locator(
+            "[data-design-canvas-container] iframe[data-design-preview-iframe]",
+          )
+          .first(),
+        Math.min(Date.now() + EDITOR_WARMUP_BUDGET_MS, globalSetupDeadline),
       );
-      try {
-        await warmupPage.goto(`${baseURL}/design/${designId}`, {
-          waitUntil: "domcontentloaded",
-          timeout: timeoutBefore(editorDeadline, 180_000),
-        });
-        await warmupPage
-          .getByRole("button", { name: "Move", exact: true })
-          .waitFor({ timeout: timeoutBefore(editorDeadline, 180_000) });
-        // eslint-disable-next-line no-console
-        console.log("[e2e] editor warm");
-      } catch (error) {
-        // Not fatal — the suite still runs, the first test just pays the
-        // compile again. Say so out loud rather than reporting a warm editor.
+      if (editorFailure) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-            "the first test will pay the compile.",
+          `[e2e] editor warmup did not finish (${editorFailure}); the first test will pay the compile.`,
         );
+      } else {
+        // eslint-disable-next-line no-console
+        console.log("[e2e] editor warm");
       }
     } finally {
       await warmupPage.close();

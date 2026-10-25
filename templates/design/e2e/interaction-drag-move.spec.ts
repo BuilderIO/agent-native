@@ -146,9 +146,7 @@ async function selectSecondScreen(app: App) {
   await app.page.goto(appPath(`/design/${id}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(app.page.locator("[data-screen-shell]")).toHaveCount(2, {
-    timeout: 30_000,
-  });
+  await expect(app.page.locator("[data-screen-shell]")).toHaveCount(2);
   await app.page.locator("[data-frame-label]").nth(1).click();
   const surface = app.page.locator("[data-frame-drag-surface]");
   await expect(surface).toBeVisible();

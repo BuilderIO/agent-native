@@ -659,7 +659,7 @@ async function openSidebarComposer(
   });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   const workspaceRail = page.locator(
     '[data-design-chrome-region="workspace-rail"]',
   );
@@ -1329,7 +1329,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await expect(
     page.getByText(
       "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
@@ -2035,7 +2035,7 @@ test("Design editor sidebar applies a same-thread edit and persists it", async (
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await expect(designFrame(page, fileId).locator("h1.title")).toHaveCSS(
     "font-size",
     "48px",

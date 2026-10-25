@@ -6,6 +6,8 @@ import {
 } from "@playwright/test";
 import { parse } from "parse5";
 
+import { NATIVE_RENDER_CONTEXT_LEDGER_KEY } from "../shared/native-local-export";
+import { isEditorUrl, waitForEditorBoot } from "./editor-boot";
 import { appPath, gotoEditor } from "./helpers";
 
 const NODE_ID = "data-agent-native-node-id";
@@ -41,6 +43,8 @@ export class App {
   async attach() {
     const page = this.page;
     // Playwright can't say who started a navigation, so the test's own navigations are counted on the way in.
+    // A navigation that lands in the editor also returns only once the editor has booted, so no spec
+    // has to know how long a boot takes; `waitUntil: "commit"` opts out to observe the boot itself.
     let expectedLoads = 0;
     for (const method of [
       "goto",
@@ -53,13 +57,35 @@ export class App {
         ...args: unknown[]
       ) => Promise<unknown>;
       Object.assign(page, {
-        [method]: (...args: unknown[]) => {
+        [method]: async (...args: unknown[]) => {
           expectedLoads += 1;
-          return navigate(...args);
+          const startedAt = Date.now();
+          const response = await navigate(...args);
+          const options = args.find(
+            (arg): arg is { waitUntil?: string } =>
+              typeof arg === "object" && arg !== null,
+          );
+          if (
+            method !== "setContent" &&
+            options?.waitUntil !== "commit" &&
+            isEditorUrl(page.url())
+          )
+            await waitForEditorBoot(page, startedAt);
+          return response;
         },
       });
     }
+    // Vite pushes a full reload to every open page when a watched source file changes, such as a spec edited mid-run.
+    let devServerReloading = false;
+    page.on("websocket", (socket) => {
+      socket.on("framereceived", ({ payload }) => {
+        if (typeof payload === "string" && payload.includes('"full-reload"'))
+          devServerReloading = true;
+      });
+    });
     page.on("load", () => {
+      const reloadedByDevServer = devServerReloading;
+      devServerReloading = false;
       // Vite's dev optimizer can reload one route while recovering stale deps.
       if (new URL(page.url()).searchParams.has("__an_vite_dev_recovery"))
         return;
@@ -67,10 +93,13 @@ export class App {
         expectedLoads -= 1;
         return;
       }
+      const reason = reloadedByDevServer
+        ? "was reloaded by the dev server, which does that when a watched source file changes mid-run"
+        : "loaded without the test navigating";
       if (this.recording) {
         this.failures.push({
           kind: "unexpected page load",
-          detail: `${page.url()} loaded without the test navigating`,
+          detail: `${page.url()} ${reason}`,
         });
       }
     });
@@ -397,7 +426,15 @@ export class App {
       ) {
         await this.attachRecorderReport(testInfo);
       }
+      const tabId = await this.browserTabId();
       await this.page.goto("about:blank").catch(() => {});
+      if (tabId)
+        await this.releaseRenderContext(tabId).catch((error: Error) => {
+          this.failures.push({
+            kind: "render context not released",
+            detail: error.message,
+          });
+        });
     }
     for (const id of this.designs)
       await this.action("delete-design", { id }).catch(() => {});
@@ -423,6 +460,45 @@ export class App {
           pattern.test(`${failure.kind} ${failure.detail}`),
         ),
     );
+  }
+
+  private async browserTabId() {
+    if (new URL(this.page.url()).origin !== new URL(appPath("/")).origin)
+      return null;
+    return this.page.evaluate(() =>
+      sessionStorage.getItem("agent-native:browser-tab-id"),
+    );
+  }
+
+  /**
+   * Every editor tab holds one of the user's few native render-context slots until it expires, and every
+   * test is a new tab of the same user, so a run of short tests would otherwise fill them.
+   */
+  private async releaseRenderContext(tabId: string) {
+    const url = appPath(
+      `/_agent-native/application-state/${NATIVE_RENDER_CONTEXT_LEDGER_KEY}`,
+    );
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const read = await this.page.request.get(url);
+      if (!read.ok()) throw new Error(`ledger read ${read.status()}`);
+      const ledger = (await read.json()) as {
+        contexts: { tabId: string }[];
+      } | null;
+      if (!ledger?.contexts.some((entry) => entry.tabId === tabId)) return;
+      const write = await this.page.request.patch(url, {
+        headers: { "X-Agent-Native-CSRF": "1" },
+        data: {
+          expected: ledger,
+          next: {
+            ...ledger,
+            contexts: ledger.contexts.filter((entry) => entry.tabId !== tabId),
+          },
+        },
+      });
+      if (!write.ok()) throw new Error(`ledger write ${write.status()}`);
+      if (((await write.json()) as { changed: boolean }).changed) return;
+    }
+    throw new Error("the ledger kept changing concurrently");
   }
 
   private async attachRecorderReport(testInfo: TestInfo) {

@@ -25,6 +25,7 @@ import {
   injectMotionTextRuntime,
 } from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
+import { waitForEditorBoot } from "./editor-boot";
 import {
   appPath,
   enableLab,
@@ -264,6 +265,7 @@ test.describe.serial("React Motion source browser writeback", () => {
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     );
@@ -427,6 +429,7 @@ test.describe.serial("React Motion source browser writeback", () => {
     });
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForEditorBoot(page);
     const reloadedFrame = page
       .locator(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
@@ -1666,6 +1669,7 @@ createRoot(document.getElementById("root")!).render(<App />);
     });
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForEditorBoot(page);
     await waitForDesignPreviewReady(page);
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
