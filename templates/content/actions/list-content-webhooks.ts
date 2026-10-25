@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,6 +8,7 @@ import {
   contentWebhookScopeForRow,
   resolveContentWebhookScope,
   serializeContentWebhook,
+  type RecentContentWebhookDelivery,
 } from "./_content-webhooks.js";
 
 const RECENT_DELIVERIES = 5;
@@ -79,22 +80,50 @@ export default defineAction({
     if (!rows.length) return { webhooks: [] };
 
     // The newest few per webhook, so a busy webhook can't push another's
-    // failures out of the list. Each read walks the (webhook, sequence)
-    // index from the newest end and stops after a few rows.
+    // failures out of the list. One query: for each webhook, the lateral read
+    // walks the (webhook, sequence) index from the newest end and stops after
+    // a few rows. Event bodies aren't listed, so they aren't read.
     const deliveries = schema.contentWebhookDeliveries;
-    const recent = await Promise.all(
-      rows.map((row) =>
-        db
-          .select()
-          .from(deliveries)
-          .where(eq(deliveries.webhookId, row.id))
-          .orderBy(desc(deliveries.sequence))
-          .limit(RECENT_DELIVERIES),
-      ),
-    );
+    const latest = db
+      .select({
+        webhookId: deliveries.webhookId,
+        sequence: deliveries.sequence,
+        id: deliveries.id,
+        eventType: deliveries.eventType,
+        documentId: deliveries.documentId,
+        status: deliveries.status,
+        attempts: deliveries.attempts,
+        lastStatusCode: deliveries.lastStatusCode,
+        lastError: deliveries.lastError,
+        nextAttemptAt: deliveries.nextAttemptAt,
+        createdAt: deliveries.createdAt,
+        deliveredAt: deliveries.deliveredAt,
+      })
+      .from(deliveries)
+      .where(eq(deliveries.webhookId, hooks.id))
+      .orderBy(desc(deliveries.sequence))
+      .limit(RECENT_DELIVERIES)
+      .as("recent_delivery");
+    const recent = await db
+      .select()
+      .from(hooks)
+      .innerJoinLateral(latest, sql`true`)
+      .where(
+        inArray(
+          hooks.id,
+          rows.map((row) => row.id),
+        ),
+      )
+      .orderBy(desc(latest.sequence));
+    const byWebhook = new Map<string, RecentContentWebhookDelivery[]>();
+    for (const { recent_delivery: delivery } of recent) {
+      const list = byWebhook.get(delivery.webhookId) ?? [];
+      list.push(delivery);
+      byWebhook.set(delivery.webhookId, list);
+    }
     return {
-      webhooks: rows.map((row, index) =>
-        serializeContentWebhook(row, recent[index]),
+      webhooks: rows.map((row) =>
+        serializeContentWebhook(row, byWebhook.get(row.id)),
       ),
     };
   },

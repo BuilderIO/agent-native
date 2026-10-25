@@ -439,6 +439,37 @@ describe("content webhooks", () => {
     expect(await deliveries(propertyOnly.id)).toHaveLength(0);
   });
 
+  it("W2-2: resolving a thread while editing its first comment sends the new text", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["comment.resolved"],
+      }),
+    );
+    const comment = await asOwner(() =>
+      addComment.run({ documentId: row.documentId, content: "Draft" }),
+    );
+    await asOwner(() =>
+      updateComment.run({
+        id: comment.id,
+        content: "Done, back to you",
+        resolved: true,
+      }),
+    );
+    await settled(webhook.id, 1);
+    expect(eventsFor(webhook.id).map((request) => request.event)).toMatchObject(
+      [
+        {
+          type: "comment.resolved",
+          data: { commentId: comment.id, content: "Done, back to you" },
+        },
+      ],
+    );
+  });
+
   it("W2-3: a failing receiver is retried with the same event ID and body", async () => {
     const ids = await fixture();
     const [row] = ids.rows;
@@ -967,7 +998,7 @@ describe("content webhooks", () => {
         }),
       );
     }
-    await settled(busy.id, 6);
+    const busySent = await settled(busy.id, 6);
 
     const byScope = await asOwner(() =>
       listWebhooks.run({ databaseId: ids.databaseId }),
@@ -978,7 +1009,14 @@ describe("content webhooks", () => {
     expect(listed(created.webhook.id).recentDeliveries).toMatchObject([
       { type: "property.changed", status: "delivered", attempts: 1 },
     ]);
-    expect(listed(busy.id).recentDeliveries).toHaveLength(5);
+    expect(
+      listed(busy.id).recentDeliveries.map((delivery) => delivery.id),
+    ).toEqual(
+      busySent
+        .slice(1)
+        .reverse()
+        .map((delivery) => delivery.id),
+    );
     expect(JSON.stringify(byScope)).not.toContain(created.secret);
     const mine = await asOwner(() => listWebhooks.run({}));
     expect(mine.webhooks.map((hook) => hook.id)).toContain(created.webhook.id);

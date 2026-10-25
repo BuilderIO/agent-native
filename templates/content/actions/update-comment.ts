@@ -170,7 +170,11 @@ export default defineAction({
                 threadId: comment.threadId,
                 parentId: null,
                 authorEmail: root.authorEmail,
-                content: root.content,
+                // The thread's first comment may have been edited just above.
+                content:
+                  args.id === root.id && args.content !== undefined
+                    ? args.content
+                    : root.content,
                 resolved: true,
               },
               actor: contentChangeActor(ctx),

@@ -921,9 +921,24 @@ export async function contentWebhookScopeForRow(
   }
 }
 
+/** The delivery fields a webhook listing shows. */
+export type RecentContentWebhookDelivery = Pick<
+  DeliveryRow,
+  | "id"
+  | "eventType"
+  | "documentId"
+  | "status"
+  | "attempts"
+  | "lastStatusCode"
+  | "lastError"
+  | "nextAttemptAt"
+  | "createdAt"
+  | "deliveredAt"
+>;
+
 export function serializeContentWebhook(
   webhook: WebhookRow,
-  recentDeliveries: DeliveryRow[] = [],
+  recentDeliveries: RecentContentWebhookDelivery[] = [],
 ) {
   return {
     id: webhook.id,
