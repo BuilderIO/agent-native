@@ -19,8 +19,8 @@ export interface AppDefinition {
   icon: string;
   description: string;
   devPort: number;
-  color?: string;
-  colorRgb?: string;
+  color?: string | undefined;
+  colorRgb?: string | undefined;
   placeholder?: boolean;
 }
 

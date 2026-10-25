@@ -40,42 +40,44 @@ export type JQueryMigrationPolicy =
 export interface MigrationRouteOwnershipRule {
   pattern: string;
   owner: MigrationRouteOwner;
-  notes?: string;
+  notes?: string | undefined;
 }
 
 export interface MigrationPlanInputs {
   summary?: string;
-  notes?: string;
+  notes?: string | undefined;
   aem?: {
     modes?: AemMigrationMode[];
     evidence?: string[];
-    contentFragmentPolicy?: AemContentFragmentPolicy;
-    experienceFragmentPolicy?: AemExperienceFragmentPolicy;
-    componentPolicy?: AemComponentPolicy;
+    contentFragmentPolicy?: AemContentFragmentPolicy | undefined;
+    experienceFragmentPolicy?: AemExperienceFragmentPolicy | undefined;
+    componentPolicy?: AemComponentPolicy | undefined;
   };
   builder?: {
-    enabled?: boolean;
+    enabled?: boolean | undefined;
     routeOwnership?: MigrationRouteOwnershipRule[];
-    componentRegistration?: "register" | "manual" | "skip";
-    notes?: string;
+    componentRegistration?: "register" | "manual" | "skip" | undefined;
+    notes?: string | undefined;
   };
   headless?: {
-    provider?: string;
-    routePatterns?: string[];
-    notes?: string;
+    provider?: string | undefined;
+    routePatterns?: string[] | undefined;
+    notes?: string | undefined;
   };
   jquery?: {
-    policy?: JQueryMigrationPolicy;
-    classifications?: Array<{
-      pattern: string;
-      policy: JQueryMigrationPolicy;
-      notes?: string;
-    }>;
+    policy?: JQueryMigrationPolicy | undefined;
+    classifications?:
+      | Array<{
+          pattern: string;
+          policy: JQueryMigrationPolicy;
+          notes?: string | undefined;
+        }>
+      | undefined;
   };
   verification?: {
-    sampleSize?: number;
-    required?: string[];
-    notes?: string;
+    sampleSize?: number | undefined;
+    required?: string[] | undefined;
+    notes?: string | undefined;
   };
 }
 

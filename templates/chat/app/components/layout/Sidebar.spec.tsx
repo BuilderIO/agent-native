@@ -108,7 +108,11 @@ describe("Sidebar ownership history decorator", () => {
   ) {
     if (!options.decorateItem) throw new Error("Missing Sidebar decorator");
     const item = options.decorateItem(
-      { id: row.id, title: "Previous item title", titleText: row.title },
+      {
+        id: row.id,
+        title: "Previous item title",
+        ...(row.title === undefined ? {} : { titleText: row.title }),
+      },
       row,
       { section: "mine" },
     );

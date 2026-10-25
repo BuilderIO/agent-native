@@ -105,7 +105,7 @@ for interrupted-run recovery.
 
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
 
-Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
+Every new action declares `outputSchema`: it types the action's return and is enforced strictly by default (`guard:action-output-schema`). Declare its failure codes with `defineActionErrors` and fail through them. Reach for `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 
 ### Write receipts
 
@@ -176,7 +176,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 - **Do** render `actionErrorMessage(error) ?? yourCopy` in UI, never bare `error.message`. The message keeps an `Action <name> failed:` prefix that belongs in a console, so a toast built from it reads "Action update-brand-kit failed: That name is taken." The helper returns only what the action wrote, and `undefined` when nothing did (network drop, proxy HTML page), which is why the fallback is not optional.
 - **Do** pass a real `errorCode` when the agent should branch on the failure rather than re-read it. Codes other than the default `action_failed` are appended to the tool result as `(errorCode: not_found)`, on both the in-app agent and MCP. `details` follow as an `Error details: {...}` JSON line, and as `structuredContent.error` over MCP, capped at 2,000 characters, so keep them to what the agent acts on next: ids, limits, field names. The status never reaches either.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.
-- **Don't** reach for provider integrations, `outputSchema`, `authorize`, `needsApproval`, or `_agentImages` without checking `references/` first — each has sharp edges covered there, not here.
+- **Don't** reach for provider integrations, `authorize`, `needsApproval`, or `_agentImages` without checking `references/` first — each has sharp edges covered there, not here.
 
 ## Troubleshooting
 
