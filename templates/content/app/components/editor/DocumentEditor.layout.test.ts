@@ -444,13 +444,24 @@ describe("document editor layout", () => {
     expect(suggestionToDecideAfterSave(persisted, unrelated, null)).toBe(
       unrelated,
     );
+    const editing = { id: "amended", revision: 1, operations: [] } as never;
+    const recorded = { id: "amended", revision: 2, baseRevision: "page-2" };
     expect(
       suggestionToDecideAfterSave(
         new Map([["edited-operation", amended]]) as never,
-        { id: "editing", revision: 1, operations: [] } as never,
-        "editing",
+        editing,
+        recorded,
       ),
     ).toBe(amended);
+    // An earlier save already amended it, so this save had nothing to send.
+    expect(
+      suggestionToDecideAfterSave(new Map(), editing, recorded),
+    ).toMatchObject({ id: "amended", revision: 2, baseRevision: "page-2" });
+    // Another tab amended it since, so the card's copy is newer.
+    const refreshed = { id: "amended", revision: 3, operations: [] } as never;
+    expect(suggestionToDecideAfterSave(new Map(), refreshed, recorded)).toBe(
+      refreshed,
+    );
   });
 
   it("keeps review geometry stable after the final inline decision", () => {
@@ -3387,7 +3398,7 @@ describe("document editor layout", () => {
     expect(decision).toContain("await refreshSuggestionDecisionDocument(");
     expect(decision).toContain('result.suggestion.status === "accepted"');
     expect(decision).toContain(
-      "suggestionToDecideAfterSave(persisted, target, editingSuggestionId)",
+      "suggestionBaseRef.current?.existingSuggestion ?? null",
     );
     expect(source).toContain("setDecisionRefreshFailed(true)");
     expect(source).toMatch(

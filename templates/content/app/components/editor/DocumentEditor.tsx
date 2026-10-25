@@ -639,16 +639,28 @@ export function sessionEditsDrawnAsSaved(
 
 // A suggestion typed in Suggesting mode is saved before it's decided. Its
 // saved copy is the one the save matched to it, and a saved suggestion the
-// save amended is decided at the revision the save gave it.
+// save amended is decided at the revision the save gave it. The suggestion
+// being edited comes back from a save with nothing left to change when an
+// earlier save already amended it, so it takes the revision the session
+// recorded then, unless the card already shows a newer one.
 export function suggestionToDecideAfterSave(
   persisted: ReadonlyMap<string, ResourceSuggestion>,
   target: ResourceSuggestion | DraftSuggestion,
-  editingSuggestionId: string | null,
+  editing: Pick<ResourceSuggestion, "id" | "revision" | "baseRevision"> | null,
 ): ResourceSuggestion | null {
   if ("durability" in target)
     return materializedSuggestionForDraft(persisted, target);
-  if (target.id === editingSuggestionId)
-    return [...persisted.values()][0] ?? target;
+  if (target.id === editing?.id)
+    return (
+      [...persisted.values()][0] ??
+      (editing.revision > target.revision
+        ? {
+            ...target,
+            revision: editing.revision,
+            baseRevision: editing.baseRevision,
+          }
+        : target)
+    );
   return (
     [...persisted.values()].find((saved) => saved.id === target.id) ?? target
   );
@@ -9092,7 +9104,11 @@ function PageEditorSessionBody({
       )
         return;
       observedSuggestion = persisted
-        ? suggestionToDecideAfterSave(persisted, target, editingSuggestionId)
+        ? suggestionToDecideAfterSave(
+            persisted,
+            target,
+            suggestionBaseRef.current?.existingSuggestion ?? null,
+          )
         : null;
     }
     if (!observedSuggestion) {

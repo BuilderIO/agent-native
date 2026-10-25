@@ -72,6 +72,8 @@ interface View {
   editable: string | null;
   cards: string[];
   paragraphs: string[];
+  /** The struck-out words in each paragraph, in the same order. */
+  struck: string[];
 }
 
 interface Frame extends View {
@@ -155,6 +157,13 @@ async function watch(page: Page): Promise<void> {
               }
               return text.replace(/ /g, " ");
             })
+          : [],
+        struck: root
+          ? [...root.querySelectorAll(":scope > p")].map((p) =>
+              [...p.querySelectorAll<HTMLElement>(".suggestion-deleted-text")]
+                .map((struck) => struck.innerText)
+                .join(""),
+            )
           : [],
       };
     };
@@ -355,8 +364,14 @@ async function suggestOverLazy(page: Page, n: number, word: string) {
 
 /** Paragraph `n` shows "lazy" struck out with `word` suggested beside it. */
 const suggests = (view: View, n: number, word: string) => {
-  const text = view.paragraphs.find((p) => p.includes(`dog number ${n}.`));
-  return !!text && text.includes("lazy") && text.includes(word);
+  const index = view.paragraphs.findIndex((p) =>
+    p.includes(`dog number ${n}.`),
+  );
+  return (
+    index >= 0 &&
+    !!view.paragraphs.at(index)?.includes(word) &&
+    !!view.struck.at(index)?.includes("lazy")
+  );
 };
 
 /** Paragraph `n` shows `word`'s suggestion decided. */
@@ -1399,25 +1414,6 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
           (frame) => decidedAs(frame, 5, "drowsy", decision),
           `the ${decision} suggestion`,
         );
-        await expectView(
-          page,
-          (view) =>
-            decidedAs(view, 5, "drowsy", decision) &&
-            !view.cards.some((card) => card.startsWith("draft-")),
-          "the decided suggestion, saved",
-        );
-        const dropped = (await framesSoFar(page)).filter(
-          (frame) =>
-            frame.at >= clicked &&
-            !(suggests(frame, 3, "sleepy") && frame.cards.includes(earlier)),
-        );
-        expect(
-          dropped.map(
-            ({ at, cards, paragraphs }) =>
-              `${at} ms: ${paragraphs.join(" / ")} [${cards.join(", ")}]`,
-          ),
-          "the other suggestion's words or card dropped out",
-        ).toEqual([]);
         await r.expectSaved({
           includes: [
             "lazy dog number 3.",
@@ -1439,6 +1435,28 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
             { message: "the saved suggestions", timeout: 30_000 },
           )
           .toEqual([`drowsy: ${decision}`, "sleepy: pending"]);
+        // The editor opens for typing again once the decided page reads back.
+        await expectView(
+          page,
+          (view) =>
+            view.editable === "true" &&
+            decidedAs(view, 5, "drowsy", decision) &&
+            !view.cards.some((card) => card.startsWith("draft-")),
+          "the decided page, read back",
+        );
+        await page.waitForTimeout(1_000);
+        const dropped = (await framesSoFar(page)).filter(
+          (frame) =>
+            frame.at >= clicked &&
+            !(suggests(frame, 3, "sleepy") && frame.cards.includes(earlier)),
+        );
+        expect(
+          dropped.map(
+            ({ at, cards, paragraphs, struck }) =>
+              `${at} ms: ${paragraphs.join(" / ")} struck [${struck.join(", ")}] cards [${cards.join(", ")}]`,
+          ),
+          "the other suggestion's struck-out words or card dropped out",
+        ).toEqual([]);
       });
     });
   }
