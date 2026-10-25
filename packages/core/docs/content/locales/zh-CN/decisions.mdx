@@ -23,11 +23,11 @@ const input = [
 
 每个问题都有 name 和 instructions。问题类型决定了额外字段：
 
-| 类型 | 额外字段 | 用途 |
-| --- | --- | --- |
-| `predicate` | 无 | 评估指定的谓词 |
-| `choice` | `choices`：带说明的字符串值 | 从提供的值中选择 |
-| `score` | `levels`：2 到 10 个有序标签及说明 | 将输入放到给定的量表上 |
+| 类型        | 额外字段                           | 用途                   |
+| ----------- | ---------------------------------- | ---------------------- |
+| `predicate` | 无                                 | 评估指定的谓词         |
+| `choice`    | `choices`：带说明的字符串值        | 从提供的值中选择       |
+| `score`     | `levels`：2 到 10 个有序标签及说明 | 将输入放到给定的量表上 |
 
 choices 项的形状为 `{ value: string, description: string }`。score 等级的形状为 `{ label: string, description: string }`。
 
@@ -108,7 +108,6 @@ const urgency = triage.answers["urgency"];
 - **options**: 可选的 signal、timeoutMs、providers 或 cacheKey 设置。
 
 成功时 result.status 为 ok。结果包含 provider、model 和按问题名称索引的 answers，cached 和 usage 为可选字段。not_configured 包含 missing_credentials 原因和 providers 列表。failed 包含类型化原因，并可能包含 provider 和 questionNames。只有提供 cacheKey 时才会启用缓存。缓存键的范围包括 owner、组织、provider、model、cacheKey、input 和 questions。内存缓存有效期为 60 秒，最多保存 256 个条目。
-
 
 ## 能力感知的提供方支持
 

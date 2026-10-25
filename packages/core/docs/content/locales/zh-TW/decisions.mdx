@@ -23,11 +23,11 @@ const input = [
 
 每個問題都有 name 和 instructions。問題類型會決定額外欄位：
 
-| 類型 | 額外欄位 | 用途 |
-| --- | --- | --- |
-| `predicate` | 無 | 評估指定的述詞 |
-| `choice` | `choices`：附有說明的字串值 | 從提供的值中選擇 |
-| `score` | `levels`：2 到 10 個有序標籤與說明 | 將輸入放在提供的量表上 |
+| 類型        | 額外欄位                           | 用途                   |
+| ----------- | ---------------------------------- | ---------------------- |
+| `predicate` | 無                                 | 評估指定的述詞         |
+| `choice`    | `choices`：附有說明的字串值        | 從提供的值中選擇       |
+| `score`     | `levels`：2 到 10 個有序標籤與說明 | 將輸入放在提供的量表上 |
 
 choices 項目的形狀為 `{ value: string, description: string }`。score 等級的形狀為 `{ label: string, description: string }`。
 
@@ -108,7 +108,6 @@ const urgency = triage.answers["urgency"];
 - **options**: 選用的 signal、timeoutMs、providers 或 cacheKey 設定。
 
 成功時 result.status 為 ok。結果包含 provider、model 與依問題名稱索引的 answers，cached 和 usage 則為選用欄位。not_configured 包含 missing_credentials 原因與 providers 清單。failed 包含具型別的原因，並可能包含 provider 和 questionNames。只有提供 cacheKey 時才會啟用快取。快取鍵的範圍包括 owner、組織、provider、model、cacheKey、input 和 questions。記憶體快取有效期為 60 秒，最多保存 256 個項目。
-
 
 ## 能力感知的提供者支援
 

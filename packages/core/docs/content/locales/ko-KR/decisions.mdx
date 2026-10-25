@@ -23,11 +23,11 @@ const input = [
 
 각 질문에는 name과 instructions가 있습니다. 질문 유형에 따라 추가 필드가 정해집니다.
 
-| 유형 | 추가 필드 | 목적 |
-| --- | --- | --- |
-| `predicate` | 없음 | 명시된 조건 평가 |
-| `choice` | `choices`: 설명이 포함된 문자열 값 | 제공된 값 중 선택 |
-| `score` | `levels`: 라벨과 설명이 있는 2~10개의 순서 있는 단계 | 제공된 척도에 입력 배치 |
+| 유형        | 추가 필드                                            | 목적                    |
+| ----------- | ---------------------------------------------------- | ----------------------- |
+| `predicate` | 없음                                                 | 명시된 조건 평가        |
+| `choice`    | `choices`: 설명이 포함된 문자열 값                   | 제공된 값 중 선택       |
+| `score`     | `levels`: 라벨과 설명이 있는 2~10개의 순서 있는 단계 | 제공된 척도에 입력 배치 |
 
 choices 항목은 `{ value: string, description: string }` 형태입니다. score 단계는 `{ label: string, description: string }` 형태입니다.
 
@@ -108,7 +108,6 @@ const urgency = triage.answers["urgency"];
 - **options**: 선택적 signal, timeoutMs, providers 또는 cacheKey 설정.
 
 성공하면 result.status는 ok입니다. 결과에는 provider, model, 질문 이름을 키로 한 answers가 포함되며 cached와 usage는 선택 항목입니다. not_configured에는 missing_credentials 사유와 providers 목록이 포함됩니다. failed에는 유형이 지정된 사유가 포함되며 provider와 questionNames가 있을 수 있습니다. 캐싱은 cacheKey를 제공한 경우에만 활성화됩니다. 캐시 키에는 owner, 조직, provider, model, cacheKey, input, questions가 포함됩니다. 메모리 캐시는 60초 후 만료되며 최대 256개 항목을 저장합니다.
-
 
 ## 기능 인식 provider 지원
 

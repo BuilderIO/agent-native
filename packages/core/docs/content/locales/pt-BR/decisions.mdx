@@ -23,11 +23,11 @@ const input = [
 
 Cada pergunta tem um nome e instruções. O tipo define os campos adicionais:
 
-| Tipo | Campos adicionais | Finalidade |
-| --- | --- | --- |
-| `predicate` | Nenhum | Avaliar um predicado informado |
-| `choice` | `choices`: valores de texto com descrições | Escolher entre os valores fornecidos |
-| `score` | `levels`: 2 a 10 níveis ordenados com rótulos e descrições | Posicionar a entrada em uma escala fornecida |
+| Tipo        | Campos adicionais                                          | Finalidade                                   |
+| ----------- | ---------------------------------------------------------- | -------------------------------------------- |
+| `predicate` | Nenhum                                                     | Avaliar um predicado informado               |
+| `choice`    | `choices`: valores de texto com descrições                 | Escolher entre os valores fornecidos         |
+| `score`     | `levels`: 2 a 10 níveis ordenados com rótulos e descrições | Posicionar a entrada em uma escala fornecida |
 
 Os itens de choices têm o formato `{ value: string, description: string }`. Os níveis de score têm o formato `{ label: string, description: string }`.
 
@@ -108,7 +108,6 @@ O objeto de argumentos contém estes campos:
 - **options**: Configurações opcionais signal, timeoutMs, providers ou cacheKey.
 
 Em caso de sucesso, result.status é ok. O resultado inclui provider, model e answers indexadas pelo nome da pergunta, com cached e usage opcionais. not_configured inclui o motivo missing_credentials e uma lista de providers. failed inclui um motivo tipado e pode incluir provider e questionNames. O cache só é ativado quando cacheKey é informado. A chave do cache considera proprietário, organização, provedor, modelo, cacheKey, input e questions. O cache em memória expira em 60 segundos e comporta até 256 entradas.
-
 
 ## Suporte de provedores conforme suas capacidades
 

@@ -23,11 +23,11 @@ const input = [
 
 質問には name と instructions を指定します。質問の種類によって追加フィールドが決まります。
 
-| 種類 | 追加フィールド | 目的 |
-| --- | --- | --- |
-| `predicate` | なし | 指定した条件を評価する |
-| `choice` | `choices`: 説明付きの文字列値 | 指定した値から選ぶ |
-| `score` | `levels`: ラベルと説明を持つ2〜10個の順序付きレベル | 指定した尺度上に入力を位置付ける |
+| 種類        | 追加フィールド                                      | 目的                             |
+| ----------- | --------------------------------------------------- | -------------------------------- |
+| `predicate` | なし                                                | 指定した条件を評価する           |
+| `choice`    | `choices`: 説明付きの文字列値                       | 指定した値から選ぶ               |
+| `score`     | `levels`: ラベルと説明を持つ2〜10個の順序付きレベル | 指定した尺度上に入力を位置付ける |
 
 choices の各項目は `{ value: string, description: string }` の形です。score の各レベルは `{ label: string, description: string }` の形です。
 
@@ -108,7 +108,6 @@ const urgency = triage.answers["urgency"];
 - **options**: signal、timeoutMs、providers、cacheKey の任意設定。
 
 成功時の result.status は ok です。結果には provider、model、質問名をキーとする answers が含まれ、cached と usage は任意です。not_configured には missing_credentials という理由と providers の一覧が含まれます。failed には型付きの理由が含まれ、provider と questionNames が付く場合があります。キャッシュは cacheKey を指定した場合にのみ有効です。キャッシュキーには owner、組織、provider、model、cacheKey、input、questions が含まれます。メモリー上のキャッシュは60秒で期限切れとなり、最大256件です。
-
 
 ## 機能対応に応じた provider のサポート
 

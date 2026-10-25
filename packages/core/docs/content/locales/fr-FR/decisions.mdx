@@ -23,11 +23,11 @@ const input = [
 
 Chaque question possède un nom et des instructions. Son type détermine les champs supplémentaires :
 
-| Type | Champs supplémentaires | Objectif |
-| --- | --- | --- |
-| `predicate` | Aucun | Évaluer un prédicat indiqué |
-| `choice` | `choices` : valeurs textuelles avec descriptions | Choisir parmi les valeurs fournies |
-| `score` | `levels` : 2 à 10 niveaux ordonnés avec libellés et descriptions | Situer l’entrée sur une échelle fournie |
+| Type        | Champs supplémentaires                                           | Objectif                                |
+| ----------- | ---------------------------------------------------------------- | --------------------------------------- |
+| `predicate` | Aucun                                                            | Évaluer un prédicat indiqué             |
+| `choice`    | `choices` : valeurs textuelles avec descriptions                 | Choisir parmi les valeurs fournies      |
+| `score`     | `levels` : 2 à 10 niveaux ordonnés avec libellés et descriptions | Situer l’entrée sur une échelle fournie |
 
 Les éléments de choices ont la forme `{ value: string, description: string }`. Les niveaux de score ont la forme `{ label: string, description: string }`.
 
@@ -108,7 +108,6 @@ L’objet d’arguments comprend les champs suivants :
 - **options**: Les paramètres facultatifs signal, timeoutMs, providers ou cacheKey.
 
 En cas de réussite, result.status vaut ok. Le résultat contient provider, model et answers indexées par nom de question, avec cached et usage en option. not_configured contient le motif missing_credentials et une liste de providers. failed contient un motif typé et peut inclure provider et questionNames. La mise en cache est activée uniquement si cacheKey est fourni. La clé de cache tient compte du propriétaire, de l’organisation, du fournisseur, du modèle, de cacheKey, de input et des questions. Le cache en mémoire expire au bout de 60 secondes et est limité à 256 entrées.
-
 
 ## Prise en charge selon les capacités du fournisseur
 

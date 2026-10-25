@@ -23,11 +23,11 @@ const input = [
 
 हर प्रश्न का एक नाम और निर्देश होते हैं। प्रश्न का प्रकार अतिरिक्त फ़ील्ड तय करता है:
 
-| प्रकार | अतिरिक्त फ़ील्ड | उद्देश्य |
-| --- | --- | --- |
-| `predicate` | कोई नहीं | दिए गए कथन का मूल्यांकन करना |
-| `choice` | `choices`: विवरण के साथ टेक्स्ट मान | दिए गए मानों में से चुनना |
-| `score` | `levels`: विवरण और लेबल वाले 2–10 क्रमबद्ध स्तर | इनपुट को दिए गए पैमाने पर रखना |
+| प्रकार      | अतिरिक्त फ़ील्ड                                 | उद्देश्य                       |
+| ----------- | ----------------------------------------------- | ------------------------------ |
+| `predicate` | कोई नहीं                                        | दिए गए कथन का मूल्यांकन करना   |
+| `choice`    | `choices`: विवरण के साथ टेक्स्ट मान             | दिए गए मानों में से चुनना      |
+| `score`     | `levels`: विवरण और लेबल वाले 2–10 क्रमबद्ध स्तर | इनपुट को दिए गए पैमाने पर रखना |
 
 choices के आइटम का आकार `{ value: string, description: string }` होता है। score स्तरों का आकार `{ label: string, description: string }` होता है।
 
@@ -108,7 +108,6 @@ const urgency = triage.answers["urgency"];
 - **options**: वैकल्पिक signal, timeoutMs, providers या cacheKey सेटिंग।
 
 सफलता पर result.status ok होता है। परिणाम में provider, model और प्रश्न के नाम से indexed answers होते हैं; cached और usage वैकल्पिक हैं। not_configured में missing_credentials कारण और providers की सूची होती है। failed में typed कारण होता है और provider तथा questionNames वैकल्पिक रूप से हो सकते हैं। caching केवल cacheKey देने पर चालू होती है। cache का दायरा owner, संगठन, provider, model, cacheKey, input और questions से तय होता है। memory cache 60 सेकंड तक रहता है और इसमें अधिकतम 256 entries होती हैं।
-
 
 ## क्षमता के अनुसार provider समर्थन
 

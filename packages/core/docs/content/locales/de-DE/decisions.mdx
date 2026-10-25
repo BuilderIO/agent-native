@@ -23,11 +23,11 @@ const input = [
 
 Fragen haben einen Namen und Anweisungen. Der Fragetyp legt die zusätzlichen Felder fest:
 
-| Typ | Zusätzliche Felder | Zweck |
-| --- | --- | --- |
-| `predicate` | Keine | Eine angegebene Aussage bewerten |
-| `choice` | `choices`: Zeichenfolgenwerte mit Beschreibungen | Einen der angegebenen Werte auswählen |
-| `score` | `levels`: 2–10 geordnete Stufen mit Bezeichnungen und Beschreibungen | Die Eingabe auf einer vorgegebenen Skala einordnen |
+| Typ         | Zusätzliche Felder                                                   | Zweck                                              |
+| ----------- | -------------------------------------------------------------------- | -------------------------------------------------- |
+| `predicate` | Keine                                                                | Eine angegebene Aussage bewerten                   |
+| `choice`    | `choices`: Zeichenfolgenwerte mit Beschreibungen                     | Einen der angegebenen Werte auswählen              |
+| `score`     | `levels`: 2–10 geordnete Stufen mit Bezeichnungen und Beschreibungen | Die Eingabe auf einer vorgegebenen Skala einordnen |
 
 Einträge in choices haben die Form `{ value: string, description: string }`. score-Stufen haben die Form `{ label: string, description: string }`.
 
@@ -108,7 +108,6 @@ Das Argumentobjekt enthält diese Felder:
 - **options**: Optionale Einstellungen für signal, timeoutMs, providers oder cacheKey.
 
 Bei Erfolg ist result.status gleich ok. Das Ergebnis enthält provider, model und nach Fragennamen indizierte answers sowie optional cached und usage. not_configured enthält den Grund missing_credentials und eine Liste von providers. failed enthält einen typisierten Grund und kann provider sowie questionNames enthalten. Caching wird nur aktiviert, wenn cacheKey angegeben ist. Der Cache-Schlüssel berücksichtigt Eigentümer, Organisation, Provider, Modell, cacheKey, input und questions. Der In-Memory-Cache läuft nach 60 Sekunden ab und ist auf 256 Einträge begrenzt.
-
 
 ## Fähigkeitsbewusste Provider-Unterstützung
 

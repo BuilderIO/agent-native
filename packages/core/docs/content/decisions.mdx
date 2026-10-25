@@ -21,11 +21,11 @@ const input = [
 
 Questions have a `name` and `instructions`. The question type determines the additional fields:
 
-| Type | Additional fields | Purpose |
-| --- | --- | --- |
-| `predicate` | None | Evaluate a stated predicate |
-| `choice` | `choices`: `{ value: string, description: string }[]` | Choose among the supplied values |
-| `score` | `levels`: 2–10 ordered `{ label: string, description: string }` entries | Place the input on a supplied scale |
+| Type        | Additional fields                                                       | Purpose                             |
+| ----------- | ----------------------------------------------------------------------- | ----------------------------------- |
+| `predicate` | None                                                                    | Evaluate a stated predicate         |
+| `choice`    | `choices`: `{ value: string, description: string }[]`                   | Choose among the supplied values    |
+| `score`     | `levels`: 2–10 ordered `{ label: string, description: string }` entries | Place the input on a supplied scale |
 
 ## API
 
@@ -105,12 +105,12 @@ The argument object has these fields:
 
 The option fields have these types:
 
-| Field | Type | Details |
-| --- | --- | --- |
-| `signal` | `AbortSignal` | Optional cancellation signal |
-| `timeoutMs` | `number` | Milliseconds before timeout. Defaults to 10,000. |
-| `providers` | `DecisionProvider[]` | Optional provider list |
-| `cacheKey` | `string` | Optional key that enables caching when supplied |
+| Field       | Type                 | Details                                          |
+| ----------- | -------------------- | ------------------------------------------------ |
+| `signal`    | `AbortSignal`        | Optional cancellation signal                     |
+| `timeoutMs` | `number`             | Milliseconds before timeout. Defaults to 10,000. |
+| `providers` | `DecisionProvider[]` | Optional provider list                           |
+| `cacheKey`  | `string`             | Optional key that enables caching when supplied  |
 
 When `result.status` is `"ok"`, the result includes `provider`, `model`, and `answers` keyed by question name; `cached` and `usage` are optional. `not_configured` includes the `missing_credentials` reason and provider list. `failed` includes a typed reason and may include `provider` and `questionNames`. Keep both states distinct from a successful answer. Caching is opt-in through `cacheKey`. Cache identity includes the owner, organization, provider, model, cache key, input, and questions. The in-memory cache has a 60-second TTL and a 256-entry cap.
 
