@@ -1526,7 +1526,8 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Current Dispatch work");
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
-    expect(container.textContent).toContain("5m ago");
+    // Rail rows are title-only; timestamps stay in the popover list.
+    expect(container.textContent).not.toContain("5m ago");
     expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
     const sourceToggle = container.querySelector(
       "[data-dispatch-chat-source-toggle]",
@@ -1536,10 +1537,9 @@ describe("Dispatch NavContent", () => {
       sourceToggle.click();
     });
     expect(sourceToggle.getAttribute("aria-pressed")).toBe("true");
-    const age = [...container.querySelectorAll("span")].find(
-      (element) => element.textContent === "5m ago",
-    );
-    expect(age?.className).toContain("an-chat-history-row__timestamp");
+    expect(
+      container.querySelector(".an-chat-history-row__timestamp"),
+    ).toBeNull();
     const historyList = container.querySelector(
       '[data-agent-native="chat-history-list"]',
     );
