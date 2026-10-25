@@ -1808,6 +1808,51 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("waits for a voice chat turn to finish before titling or saving it", async () => {
+    const onGenerateTitle = vi.fn();
+    const savedSnapshots = vi.fn();
+    const props = baseProps({
+      onGenerateTitle,
+      onSaveThread: savedSnapshots,
+      runtime: {} as never,
+    });
+    await mount(props);
+    const voiceTurn = (text: string, status: "streaming" | "complete") => ({
+      id: "voice-user-1",
+      role: "user",
+      status,
+      createdAt: "2026-10-24T12:00:00.000Z",
+      parts: [{ type: "text", text }],
+      metadata: { custom: { source: "realtime-voice" } },
+    });
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [voiceTurn("Book a", "streaming")],
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+    expect(onGenerateTitle).not.toHaveBeenCalled();
+
+    await act(async () => root.render(null));
+    expect(savedSnapshots).not.toHaveBeenCalled();
+
+    await mount(props);
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [voiceTurn("Book a table for two", "complete")],
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+    expect(onGenerateTitle).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      "Book a table for two",
+      {},
+    );
+  });
+
   it("uses a sanitized first-message fallback when the thread title is blank", async () => {
     const savedSnapshots = vi.fn();
     const message = {

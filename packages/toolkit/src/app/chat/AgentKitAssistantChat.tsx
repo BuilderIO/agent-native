@@ -170,6 +170,7 @@ import {
   agentKitTurnInProgress,
   pendingSubmissionFiles,
 } from "../agentkit/react/pending-submissions.js";
+import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
 import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
 import {
   AgentKitDevCheckpointProvider,
@@ -3295,7 +3296,7 @@ const AgentKitAssistantChatBody = forwardRef<
     let addedUserMessage = false;
     for (let index = 0; index < thread.messages.length; index += 1) {
       const message = thread.messages[index];
-      if (!message) continue;
+      if (!message || isStreamingVoiceMessage(message)) continue;
       if (observedMessagesRef.current.has(message.id)) continue;
       observedMessagesRef.current.add(message.id);
       if (message.role !== "user") continue;
@@ -3348,7 +3349,7 @@ const AgentKitAssistantChatBody = forwardRef<
     metadataOnly = false,
     allowCompletionRetry = false,
   ) => {
-    if (thread.messages.length === 0) return;
+    if (!hasPersistableMessages(thread)) return;
     const snapshot = createAgentKitThreadSnapshot(thread);
     if (
       isUnmountingRef.current &&
@@ -4907,7 +4908,7 @@ const AgentKitAssistantChatBody = forwardRef<
         ),
       focusComposer: () => requestComposerFocus(threadId),
       exportThreadSnapshot: () => {
-        if (thread.messages.length === 0) return null;
+        if (!hasPersistableMessages(thread)) return null;
         const snapshot = createAgentKitThreadSnapshot(thread);
         if (!props.createTransport && !props.runtime) {
           storeAgentKitThreadHandoffSnapshot(
@@ -8188,8 +8189,14 @@ function persistedQueuedMessage(
   };
 }
 
+function hasPersistableMessages(thread: AgentThreadState): boolean {
+  return thread.messages.some((message) => !isStreamingVoiceMessage(message));
+}
+
 function createAgentKitThreadSnapshot(thread: AgentThreadState) {
-  const messages = thread.messages.map(persistedAgentMessage);
+  const messages = thread.messages
+    .filter((message) => !isStreamingVoiceMessage(message))
+    .map(persistedAgentMessage);
   const repositoryMessages = messages.map((message, index) => ({
     parentId: index > 0 ? (messages[index - 1]?.id ?? null) : null,
     message: {

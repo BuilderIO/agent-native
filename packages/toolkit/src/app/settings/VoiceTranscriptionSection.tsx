@@ -63,6 +63,8 @@ interface ProviderStatus {
   googleRealtime?: boolean;
   browser: true;
   native?: true;
+  /** Providers whose flag is false because their credentials could not be read. */
+  credentialLookupFailed?: string[];
 }
 
 function transcriptionPrefsUrl(): string {
@@ -309,12 +311,17 @@ export function VoiceTranscriptionSection({
       .then((status: ProviderStatus | null) => {
         if (cancelled) return;
         if (status) {
-          setOpenAiConfigured(status.openai);
-          setGeminiConfigured(status.gemini);
-          setGroqConfigured(status.groq);
-          setGoogleRealtimeConfigured(!!status.googleRealtime);
-          setBuilderVoiceReady(status.builder === true);
-          setProviderStatusLoadFailed(false);
+          const unreadable = new Set(status.credentialLookupFailed ?? []);
+          const known = (provider: string, configured: boolean) =>
+            unreadable.has(provider) ? null : configured;
+          setOpenAiConfigured(known("openai", status.openai));
+          setGeminiConfigured(known("gemini", status.gemini));
+          setGroqConfigured(known("groq", status.groq));
+          setGoogleRealtimeConfigured(
+            known("googleRealtime", !!status.googleRealtime),
+          );
+          setBuilderVoiceReady(known("builder", status.builder === true));
+          setProviderStatusLoadFailed(unreadable.size > 0);
           return;
         }
         return fetchResolvedPath(secretsUrl)

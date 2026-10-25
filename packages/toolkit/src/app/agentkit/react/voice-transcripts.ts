@@ -29,7 +29,8 @@ function realtimeVoiceTranscriptMessage(
   };
 }
 
-function isStreamingVoiceMessage(message: AgentMessage): boolean {
+/** A voice chat turn still being spoken; hosts must not save it. */
+export function isStreamingVoiceMessage(message: AgentMessage): boolean {
   const custom = message.metadata?.custom as { source?: unknown } | undefined;
   return (
     message.status === "streaming" &&
