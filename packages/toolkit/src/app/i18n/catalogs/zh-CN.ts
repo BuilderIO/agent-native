@@ -1758,6 +1758,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "无法清除存储凭据。",
   "settings.storage.loadFailed": "无法加载文件存储设置。",
   "settings.storage.retry": "重试",
+  "settings.storage.unreadable":
+    "部分已保存的存储设置无法检查。请重试，或在保存前替换无法读取的必填值。",
+  "settings.storage.unreadableField": "无法读取此已保存的值。请重新输入。",
+  "settings.storage.clearUnreadableField": "清除无法读取的{{field}}",
+  "settings.storage.unreadableFieldCleared": "保存时将删除此已保存的值。",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
   "settings.audit.action": "操作",
   "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
@@ -2133,13 +2138,25 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.action": "移除",
   "settingsShell.channels.removeCredentials.aria": "移除 {{platform}} 凭据",
   "settingsShell.channels.removeCredentials.body":
-    "除非部署环境也设置了这些密钥，否则代理将不再为任何人在 {{platform}} 中回复。",
+    "移除这些工作区凭据后，代理可能无法在 {{platform}} 中回复任何人，除非部署环境也设置了这些密钥。",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "这只会移除你在 {{platform}} 中的个人凭据。其他用户和工作区的凭据保持不变。",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "这会移除 {{platform}} 的选定已保存凭据。其他已保存凭据不会更改。",
   "settingsShell.channels.removeCredentials.confirm": "移除",
   "settingsShell.channels.removeCredentials.failed": "无法移除凭据。",
   "settingsShell.channels.removeCredentials.removing": "正在移除…",
   "settingsShell.channels.removeCredentials.title":
     "要移除 {{platform}} 凭据吗？",
   "settingsShell.channels.retry": "重试",
+  "settingsShell.channels.setup.unreadable":
+    "无法读取已保存的凭据。请输入替代值。",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "这只会替换你的个人凭据；其他用户的凭据不会更改。",
+  "settingsShell.channels.setup.repairUnavailable":
+    "此凭据由其他设置区域管理。请先在那里更新，再设置此频道。",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "部分已保存的频道凭据无法读取。请在启用此频道前替换它们。",
   "settingsShell.channels.setup.addToEnvironment": "请添加到部署环境中",
   "settingsShell.channels.setup.body": "将这些值添加到此部署，然后开启。",
   "settingsShell.channels.setup.close": "关闭",
@@ -2147,6 +2164,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "可选",
   "settingsShell.channels.setup.replace": "替换",
   "settingsShell.channels.setup.replaceAria": "替换 {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "请在对应的集成设置中替换此已保存的凭据。",
   "settingsShell.channels.setup.save": "保存",
   "settingsShell.channels.setup.saveAndTurnOn": "保存并开启",
   "settingsShell.channels.setup.saving": "正在保存…",
@@ -2159,6 +2178,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "未设置",
   "settingsShell.channels.state.off": "已关闭",
   "settingsShell.channels.state.on": "已开启",
+  "settingsShell.channels.state.unavailable": "不可用",
   "settingsShell.channels.status": "状态",
   "settingsShell.channels.toggleFailed": "无法更新 {{platform}}。",
   "settingsShell.channels.turnOnAria": "开启 {{platform}}",
@@ -2401,6 +2421,8 @@ const messages: ToolkitAgentChatTranslation = {
     "模型访问、浏览器自动化、文件存储和工作区身份。提供免费套餐。",
   "settingsShell.integrations.builderStatusFailed":
     "连接状态暂时不可用。请重试以再次检查。",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "无法读取部分已保存的 Builder 账户信息。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "设计",
   "settingsShell.integrations.category.engineering": "工程",
@@ -2822,11 +2844,15 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} 已于 {{date}} 拒绝此密钥。请让所有者或管理员替换它。",
   "settingsModel.rejectedHeadline": "{{provider}} 拒绝了此密钥",
+  "settingsModel.unreadable": "无法读取已保存的提供商设置。替换它以恢复访问。",
+  "settingsModel.unreadableAskAdmin":
+    "无法读取已保存的提供商设置。请让所有者或管理员替换它。",
   "settingsModel.remove": "移除",
   "settingsModel.removeProvider": "移除提供商",
   "settingsModel.removeTitle": "要移除 {{provider}} 吗？",
   "settingsModel.removing": "正在移除",
   "settingsModel.replace": "替换",
+  "settingsModel.replaceEndpoint": "替换端点",
   "settingsModel.replaceKey": "替换密钥",
   "settingsModel.restrictBody": "成员只能使用组织提供商。",
   "settingsModel.restrictConfirm": "限制密钥",

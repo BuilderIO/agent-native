@@ -2004,6 +2004,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "Não foi possível carregar as configurações de armazenamento de arquivos.",
   "settings.storage.retry": "Tentar novamente",
+  "settings.storage.unreadable":
+    "Não foi possível verificar algumas configurações de armazenamento salvas. Tente novamente ou substitua os valores obrigatórios ilegíveis antes de salvar.",
+  "settings.storage.unreadableField":
+    "Não foi possível ler este valor salvo. Insira-o novamente.",
+  "settings.storage.clearUnreadableField": "Limpar campo ilegível {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "Este valor salvo será removido ao salvar.",
   "settings.storage.adminOnly":
     "Somente proprietários e administradores da organização podem alterar o armazenamento de arquivos.",
   "settings.audit.action": "Ação",
@@ -2447,7 +2454,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "Remover as credenciais do {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "O agente para de responder no {{platform}} para todos, a menos que o ambiente de implantação também defina essas chaves.",
+    "A remoção dessas credenciais do espaço de trabalho pode impedir que o agente responda a todos no {{platform}}, a menos que o ambiente de implantação também defina essas chaves.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Isso remove apenas suas credenciais pessoais do {{platform}}. As credenciais de outras pessoas e do espaço de trabalho permanecem inalteradas.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Isso remove as credenciais salvas selecionadas do {{platform}}. As demais credenciais salvas permanecem inalteradas.",
   "settingsShell.channels.removeCredentials.confirm": "Remover",
   "settingsShell.channels.removeCredentials.failed":
     "Não foi possível remover as credenciais.",
@@ -2455,6 +2466,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "Remover as credenciais do {{platform}}?",
   "settingsShell.channels.retry": "Tentar novamente",
+  "settingsShell.channels.setup.unreadable":
+    "Não foi possível ler uma credencial salva. Insira um valor substituto.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Isso substitui apenas sua credencial pessoal; as credenciais de outras pessoas permanecem iguais.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Esta credencial é gerenciada em outra área de configurações. Atualize-a lá antes de configurar este canal.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Não foi possível ler algumas credenciais salvas do canal. Substitua-as antes de ativar este canal.",
   "settingsShell.channels.setup.addToEnvironment":
     "Adicione ao ambiente de implantação",
   "settingsShell.channels.setup.body":
@@ -2465,6 +2484,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "Opcional",
   "settingsShell.channels.setup.replace": "Substituir",
   "settingsShell.channels.setup.replaceAria": "Substituir {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Substitua esta credencial salva nas configurações da integração correspondente.",
   "settingsShell.channels.setup.save": "Salvar",
   "settingsShell.channels.setup.saveAndTurnOn": "Salvar e ativar",
   "settingsShell.channels.setup.saving": "Salvando…",
@@ -2479,6 +2500,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Não configurado",
   "settingsShell.channels.state.off": "Desativado",
   "settingsShell.channels.state.on": "Ativado",
+  "settingsShell.channels.state.unavailable": "Indisponível",
   "settingsShell.channels.status": "Status",
   "settingsShell.channels.toggleFailed":
     "Não foi possível atualizar o {{platform}}.",
@@ -2786,6 +2808,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Acesso a modelos, automação de navegador, armazenamento de arquivos e identidade do workspace. Plano gratuito disponível.",
   "settingsShell.integrations.builderStatusFailed":
     "O status da conexão está indisponível. Tente novamente para verificar.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Não foi possível ler alguns dados salvos da conta Builder.",
   "settingsShell.integrations.category.analytics": "Análise",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engenharia",
@@ -3265,11 +3289,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "O {{provider}} recusou esta chave em {{date}}. Peça a um proprietário ou administrador para substituí-la.",
   "settingsModel.rejectedHeadline": "O {{provider}} recusou esta chave",
+  "settingsModel.unreadable":
+    "Não foi possível ler a configuração salva do provedor. Substitua-a para restaurar o acesso.",
+  "settingsModel.unreadableAskAdmin":
+    "Não foi possível ler a configuração salva do provedor. Peça a um proprietário ou administrador para substituí-la.",
   "settingsModel.remove": "Remover",
   "settingsModel.removeProvider": "Remover provedor",
   "settingsModel.removeTitle": "Remover {{provider}}?",
   "settingsModel.removing": "Removendo",
   "settingsModel.replace": "Substituir",
+  "settingsModel.replaceEndpoint": "Substituir endpoint",
   "settingsModel.replaceKey": "Substituir chave",
   "settingsModel.restrictBody":
     "Os membros só podem usar provedores da organização.",

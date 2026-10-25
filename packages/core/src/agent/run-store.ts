@@ -429,6 +429,49 @@ export const agentRunsStore = defineStore({
         });
       },
     },
+    {
+      name: "agent-run-harness-transcript-order-runtime-schema",
+      run: async (exec) => {
+        await ensureColumnExists(
+          "agent_run_events",
+          "transcript_order",
+          "ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS transcript_order BIGINT",
+        );
+        await exec.execute({
+          sql: `CREATE OR REPLACE FUNCTION agent_run_events_assign_harness_transcript_order()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                DECLARE
+                  session_record_id TEXT;
+                  next_transcript_order BIGINT;
+                BEGIN
+                  IF to_regclass('agent_harness_sessions') IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM pg_attribute
+                    WHERE attrelid = to_regclass('agent_harness_sessions')
+                      AND attname = 'transcript_order' AND NOT attisdropped
+                  ) THEN
+                    RETURN NEW;
+                  END IF;
+                  EXECUTE 'SELECT id FROM agent_harness_sessions
+                           WHERE run_id = $1 ORDER BY id LIMIT 1'
+                    INTO session_record_id USING NEW.run_id;
+                  IF session_record_id IS NULL THEN
+                    RETURN NEW;
+                  END IF;
+                  EXECUTE 'UPDATE agent_harness_sessions
+                           SET transcript_order = transcript_order + 1
+                           WHERE id = $1 RETURNING transcript_order'
+                    INTO next_transcript_order USING session_record_id;
+                  NEW.transcript_order := next_transcript_order;
+                  RETURN NEW;
+                END $$`,
+        });
+        await exec.execute({
+          sql: `CREATE OR REPLACE TRIGGER agent_run_events_harness_transcript_order
+                BEFORE INSERT ON agent_run_events
+                FOR EACH ROW EXECUTE FUNCTION agent_run_events_assign_harness_transcript_order()`,
+        });
+      },
+    },
   ],
 });
 
@@ -4271,25 +4314,21 @@ export async function insertRunEvent(
           const runAdmissionArgs = continuationReason
             ? [continuationReason]
             : [];
-          const insertSql = options?.requireInserted
-            ? `WITH eligible_run AS MATERIALIZED (
-          SELECT run.id FROM agent_runs AS run
-          WHERE run.id = ? ${runAdmissionPredicate}
-          FOR UPDATE
-        )
-        INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-        SELECT id, ?, ?, ? FROM eligible_run LIMIT 1
-        ON CONFLICT (run_id, seq) DO NOTHING`
-            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-      SELECT ?, ?, ?, ?
-      WHERE NOT EXISTS (
-        SELECT 1 FROM agent_runs
-        WHERE id = ? AND status <> 'running'
-      )
-      ON CONFLICT (run_id, seq) DO NOTHING`;
-          const insertArgs = options?.requireInserted
-            ? [runId, ...runAdmissionArgs, seq, eventAt, storedEventData]
-            : [runId, seq, eventAt, storedEventData, runId];
+          const insertSql = `WITH eligible_run AS MATERIALIZED (
+            SELECT run.id FROM agent_runs AS run
+            WHERE run.id = ? ${runAdmissionPredicate}
+            FOR UPDATE
+          )
+          INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+          SELECT id, ?, ?, ? FROM eligible_run LIMIT 1
+          ON CONFLICT (run_id, seq) DO NOTHING`;
+          const insertArgs = [
+            runId,
+            ...runAdmissionArgs,
+            seq,
+            eventAt,
+            storedEventData,
+          ];
           const { rowsAffected } = await writeTx.execute({
             sql: insertSql,
             args: insertArgs,
@@ -4427,6 +4466,18 @@ export async function insertRunEvents(
   const writeBatch = async (tx: DbExec) => {
     for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
       const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+      const run = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ? FOR UPDATE",
+        args: [runId],
+      });
+      const status = (run.rows[0] as { status?: string } | undefined)?.status;
+      if (status !== "running") {
+        throw new AgentRunEventNotPersistedError(
+          runId,
+          chunk[0]?.seq ?? null,
+          status !== undefined,
+        );
+      }
       const storedChunk = chunk.map((event) => ({
         ...event,
         eventData: persistedRunEventData(event.eventData),
@@ -4440,10 +4491,6 @@ export async function insertRunEvents(
               "(CAST(? AS TEXT), CAST(? AS BIGINT), CAST(? AS BIGINT), CAST(? AS TEXT))",
           )
           .join(", ")}) AS v(run_id, seq, event_at, event_data)
-        WHERE NOT EXISTS (
-          SELECT 1 FROM agent_runs
-          WHERE id = ? AND status <> 'running'
-        )
         ON CONFLICT (run_id, seq) DO NOTHING`,
         args: [
           ...storedChunk.flatMap(({ seq, eventAt, eventData }) => [
@@ -4452,7 +4499,6 @@ export async function insertRunEvents(
             eventAt,
             eventData,
           ]),
-          runId,
         ],
       });
       const persisted = await tx.execute({
@@ -4487,10 +4533,15 @@ export async function insertRunEvents(
     }
   };
   await withFencedExecutionWrite(
-    (tx) =>
-      currentExecutionFence()
-        ? writeBatch(tx)
-        : (tx.transaction?.(writeBatch) ?? writeBatch(tx)),
+    (tx) => {
+      if (currentExecutionFence() || getScopedTransactionDbExec() === tx) {
+        return writeBatch(tx);
+      }
+      if (!tx.transaction) {
+        throw new Error("Run event batch writes require transaction support");
+      }
+      return tx.transaction(writeBatch);
+    },
     { runId },
   );
 }
@@ -4587,7 +4638,14 @@ export async function getRunEventsSince(
   runId: string,
   fromSeq: number,
   opts?: { limit?: number },
-): Promise<Array<{ seq: number; eventData: string }>> {
+): Promise<
+  Array<{
+    seq: number;
+    eventAt: number | null;
+    transcriptOrder: number | null;
+    eventData: string;
+  }>
+> {
   await ensureRunTables();
   const client = getDbExec();
   const limit =
@@ -4601,14 +4659,25 @@ export async function getRunEventsSince(
   ];
   if (limit != null) args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC${
-      limit == null ? "" : " LIMIT ?"
-    }`,
+    sql: `SELECT seq, event_at, transcript_order, event_data
+          FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ?
+          ORDER BY seq ASC${limit == null ? "" : " LIMIT ?"}`,
     args,
   });
   return rows.map((r) => {
-    const row = r as { seq: number | string; event_data: string };
-    return { seq: Number(row.seq), eventData: row.event_data };
+    const row = r as {
+      seq: number | string;
+      event_at: number | string | null;
+      transcript_order: number | string | null;
+      event_data: string;
+    };
+    return {
+      seq: Number(row.seq),
+      eventAt: row.event_at == null ? null : Number(row.event_at),
+      transcriptOrder:
+        row.transcript_order == null ? null : Number(row.transcript_order),
+      eventData: row.event_data,
+    };
   });
 }
 
@@ -5234,7 +5303,6 @@ async function getCurrentTurnRunEvents(
             AND (r.status IS DISTINCT FROM 'aborted' OR r.terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission')
           ORDER BY COALESCE(r.continuation_order, 0) ASC,
                    r.started_at ASC,
-                   e.event_at ASC NULLS LAST,
                    e.seq ASC,
                    r.id ASC`,
     args: [threadId, turnId],

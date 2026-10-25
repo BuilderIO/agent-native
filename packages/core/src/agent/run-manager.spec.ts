@@ -3935,11 +3935,8 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(1));
-    expect(bumpRunProgress).toHaveBeenNthCalledWith(
-      1,
-      "run-progress-insert-race",
-    );
+    await Promise.resolve();
+    expect(bumpRunProgress).not.toHaveBeenCalled();
 
     resolveInsert();
     await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
@@ -4161,6 +4158,83 @@ describe("run manager soft timeout", () => {
       ),
     );
   });
+
+  it.each(["batch", "single"] as const)(
+    "waits for the initial run row before persisting early %s events",
+    async (writeMode) => {
+      vi.mocked(insertRunEvent).mockClear();
+      vi.mocked(insertRunEvents).mockClear();
+      let releaseInsert!: () => void;
+      let insertSettled = false;
+      const insertGate = new Promise<void>((resolve) => {
+        releaseInsert = () => {
+          insertSettled = true;
+          resolve();
+        };
+      });
+      vi.mocked(insertRun).mockReturnValueOnce(insertGate);
+
+      if (writeMode === "single") {
+        const insertEvent = vi.mocked(insertRunEvent).getMockImplementation()!;
+        vi.mocked(insertRunEvent).mockImplementationOnce(async (...args) => {
+          expect(insertSettled).toBe(true);
+          return insertEvent(...args);
+        });
+      } else {
+        const insertEvents = vi
+          .mocked(insertRunEvents)
+          .getMockImplementation()!;
+        vi.mocked(insertRunEvents).mockImplementationOnce(async (...args) => {
+          expect(insertSettled).toBe(true);
+          return insertEvents(...args);
+        });
+      }
+
+      const run = startRun(
+        `run-early-event-${writeMode}`,
+        `thread-early-event-${writeMode}`,
+        async (send) => {
+          await send({ type: "text", text: "early event" });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          ...(writeMode === "single"
+            ? { persistEvent: async (write) => write() }
+            : {}),
+        },
+      );
+
+      try {
+        await vi.waitFor(() => expect(insertRun).toHaveBeenCalled());
+        await Promise.resolve();
+        expect(insertRunEvent).not.toHaveBeenCalled();
+        expect(insertRunEvents).not.toHaveBeenCalled();
+
+        releaseInsert();
+        await run.finalized;
+
+        if (writeMode === "single") {
+          expect(insertRunEvent).toHaveBeenCalledWith(
+            run.runId,
+            0,
+            JSON.stringify({ type: "text", text: "early event" }),
+            { eventAt: expect.any(Number), requireInserted: true },
+          );
+        } else {
+          expect(insertRunEvents).toHaveBeenCalledWith(run.runId, [
+            {
+              seq: 0,
+              eventAt: expect.any(Number),
+              eventData: JSON.stringify({ type: "text", text: "early event" }),
+            },
+          ]);
+        }
+      } finally {
+        releaseInsert();
+      }
+    },
+  );
 
   it("persists completed thread data before the terminal run status", async () => {
     const writeOrder: string[] = [];

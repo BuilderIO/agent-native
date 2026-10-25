@@ -1763,6 +1763,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "無法清除儲存憑證。",
   "settings.storage.loadFailed": "無法載入檔案儲存空間設定。",
   "settings.storage.retry": "重試",
+  "settings.storage.unreadable":
+    "部分已儲存的儲存空間設定無法檢查。請重試，或在儲存前取代無法讀取的必填值。",
+  "settings.storage.unreadableField": "無法讀取此已儲存的值。請重新輸入。",
+  "settings.storage.clearUnreadableField": "清除無法讀取的{{field}}",
+  "settings.storage.unreadableFieldCleared": "儲存時會移除此已儲存的值。",
   "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
   "settings.audit.action": "操作",
   "settings.audit.agentVia": "透過 {{protocol}} 的代理",
@@ -2148,13 +2153,25 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.action": "移除",
   "settingsShell.channels.removeCredentials.aria": "移除 {{platform}} 憑證",
   "settingsShell.channels.removeCredentials.body":
-    "除非部署環境也設定了這些金鑰，否則代理將不再為任何人在 {{platform}} 中回覆。",
+    "移除這些工作區憑證後，代理可能無法在 {{platform}} 中回覆任何人，除非部署環境也設定了這些金鑰。",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "這只會移除你在 {{platform}} 中的個人憑證。其他使用者和工作區的憑證維持不變。",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "這會移除 {{platform}} 的選取已儲存憑證。其他已儲存憑證不會變更。",
   "settingsShell.channels.removeCredentials.confirm": "移除",
   "settingsShell.channels.removeCredentials.failed": "無法移除憑證。",
   "settingsShell.channels.removeCredentials.removing": "正在移除…",
   "settingsShell.channels.removeCredentials.title":
     "要移除 {{platform}} 憑證嗎？",
   "settingsShell.channels.retry": "重試",
+  "settingsShell.channels.setup.unreadable":
+    "無法讀取已儲存的憑證。請輸入替代值。",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "這只會取代你的個人憑證；其他使用者的憑證不會變更。",
+  "settingsShell.channels.setup.repairUnavailable":
+    "這項憑證由其他設定區域管理。請先在該處更新，再設定此頻道。",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "部分已儲存的頻道憑證無法讀取。請在啟用此頻道前取代它們。",
   "settingsShell.channels.setup.addToEnvironment": "請新增到部署環境中",
   "settingsShell.channels.setup.body": "將這些值加入此部署，然後開啟。",
   "settingsShell.channels.setup.close": "關閉",
@@ -2162,6 +2179,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "選用",
   "settingsShell.channels.setup.replace": "取代",
   "settingsShell.channels.setup.replaceAria": "取代 {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "請在對應的整合設定中替換此已儲存的憑證。",
   "settingsShell.channels.setup.save": "儲存",
   "settingsShell.channels.setup.saveAndTurnOn": "儲存並開啟",
   "settingsShell.channels.setup.saving": "正在儲存…",
@@ -2174,6 +2193,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "尚未設定",
   "settingsShell.channels.state.off": "已關閉",
   "settingsShell.channels.state.on": "已開啟",
+  "settingsShell.channels.state.unavailable": "無法使用",
   "settingsShell.channels.status": "狀態",
   "settingsShell.channels.toggleFailed": "無法更新 {{platform}}。",
   "settingsShell.channels.turnOnAria": "開啟 {{platform}}",
@@ -2414,6 +2434,8 @@ const messages: ToolkitAgentChatTranslation = {
     "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
   "settingsShell.integrations.builderStatusFailed":
     "連線狀態目前無法確認。請重試以再次檢查。",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "無法讀取部分已儲存的 Builder 帳戶資訊。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "設計",
   "settingsShell.integrations.category.engineering": "工程",
@@ -2837,11 +2859,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} 已於 {{date}} 拒絕此金鑰。請擁有者或管理員替換。",
   "settingsModel.rejectedHeadline": "{{provider}} 拒絕了此金鑰",
+  "settingsModel.unreadable":
+    "無法讀取已儲存的供應商設定。替換它以恢復存取權。",
+  "settingsModel.unreadableAskAdmin":
+    "無法讀取已儲存的供應商設定。請擁有者或管理員替換。",
   "settingsModel.remove": "移除",
   "settingsModel.removeProvider": "移除供應商",
   "settingsModel.removeTitle": "要移除 {{provider}} 嗎？",
   "settingsModel.removing": "正在移除",
   "settingsModel.replace": "替換",
+  "settingsModel.replaceEndpoint": "替換端點",
   "settingsModel.replaceKey": "替換金鑰",
   "settingsModel.restrictBody": "成員只能使用組織供應商。",
   "settingsModel.restrictConfirm": "限制金鑰",

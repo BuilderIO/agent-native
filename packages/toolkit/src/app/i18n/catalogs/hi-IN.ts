@@ -1864,6 +1864,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "स्टोरेज क्रेडेंशियल साफ़ नहीं हो सके।",
   "settings.storage.loadFailed": "फ़ाइल स्टोरेज सेटिंग लोड नहीं हो सकीं।",
   "settings.storage.retry": "फिर से कोशिश करें",
+  "settings.storage.unreadable":
+    "सेव की गई कुछ स्टोरेज सेटिंग की जाँच नहीं हो सकी। फिर कोशिश करें या सेव करने से पहले न पढ़े जा सकने वाले ज़रूरी मान बदलें।",
+  "settings.storage.unreadableField":
+    "यह सेव किया गया मान पढ़ा नहीं जा सका। इसे फिर से दर्ज करें।",
+  "settings.storage.clearUnreadableField": "न पढ़ा जा सकने वाला {{field}} हटाएँ",
+  "settings.storage.unreadableFieldCleared":
+    "सेव करने पर यह सेव किया गया मान हटा दिया जाएगा।",
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
   "settings.audit.action": "कार्रवाई",
@@ -2274,13 +2281,25 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.action": "हटाएं",
   "settingsShell.channels.removeCredentials.aria": "{{platform}} क्रेडेंशियल हटाएं",
   "settingsShell.channels.removeCredentials.body":
-    "जब तक डिप्लॉयमेंट एनवायरनमेंट भी ये कुंजियां सेट नहीं करता, एजेंट सभी के लिए {{platform}} में जवाब देना बंद कर देगा।",
+    "इन वर्कस्पेस क्रेडेंशियल को हटाने से एजेंट {{platform}} में सभी को जवाब देना बंद कर सकता है, जब तक डिप्लॉयमेंट एनवायरनमेंट भी ये कुंजियां सेट न करे।",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "इससे केवल {{platform}} के लिए आपकी निजी क्रेडेंशियल हटती हैं। अन्य उपयोगकर्ताओं और वर्कस्पेस के क्रेडेंशियल अपरिवर्तित रहते हैं।",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "इससे {{platform}} के लिए चुने गए सहेजे गए क्रेडेंशियल हटेंगे। अन्य सहेजे गए क्रेडेंशियल अपरिवर्तित रहेंगे।",
   "settingsShell.channels.removeCredentials.confirm": "हटाएं",
   "settingsShell.channels.removeCredentials.failed": "क्रेडेंशियल हटाए नहीं जा सके।",
   "settingsShell.channels.removeCredentials.removing": "हटाया जा रहा है…",
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} क्रेडेंशियल हटाएं?",
   "settingsShell.channels.retry": "फिर से कोशिश करें",
+  "settingsShell.channels.setup.unreadable":
+    "सेव की गई क्रेडेंशियल पढ़ी नहीं जा सकी। उसकी जगह नया मान डालें।",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "यह केवल आपकी निजी क्रेडेंशियल को बदलता है; अन्य लोगों की क्रेडेंशियल नहीं बदलेंगी।",
+  "settingsShell.channels.setup.repairUnavailable":
+    "यह क्रेडेंशियल सेटिंग के किसी दूसरे हिस्से का है। इस चैनल को सेट अप करने से पहले इसे वहीं अपडेट करें।",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "चैनल की सेव की गई कुछ क्रेडेंशियल नहीं पढ़ी जा सकीं। इस चैनल को चालू करने से पहले उन्हें बदलें।",
   "settingsShell.channels.setup.addToEnvironment":
     "इसे डिप्लॉयमेंट एनवायरनमेंट में जोड़ें",
   "settingsShell.channels.setup.body": "इन्हें इस डिप्लॉयमेंट में जोड़ें, फिर इसे चालू करें।",
@@ -2289,6 +2308,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "वैकल्पिक",
   "settingsShell.channels.setup.replace": "बदलें",
   "settingsShell.channels.setup.replaceAria": "{{key}} बदलें",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "इस सेव की गई क्रेडेंशियल को इसकी संबंधित इंटीग्रेशन सेटिंग में बदलें।",
   "settingsShell.channels.setup.save": "सहेजें",
   "settingsShell.channels.setup.saveAndTurnOn": "सहेजें और चालू करें",
   "settingsShell.channels.setup.saving": "सेव हो रहा है…",
@@ -2301,6 +2322,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "सेट अप नहीं है",
   "settingsShell.channels.state.off": "बंद",
   "settingsShell.channels.state.on": "चालू",
+  "settingsShell.channels.state.unavailable": "उपलब्ध नहीं",
   "settingsShell.channels.status": "स्थिति",
   "settingsShell.channels.toggleFailed": "{{platform}} अपडेट नहीं हो सका।",
   "settingsShell.channels.turnOnAria": "{{platform}} चालू करें",
@@ -2585,6 +2607,8 @@ const messages: ToolkitAgentChatTranslation = {
     "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
   "settingsShell.integrations.builderStatusFailed":
     "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Builder खाते की कुछ सहेजी गई जानकारी पढ़ी नहीं जा सकी।",
   "settingsShell.integrations.category.analytics": "एनालिटिक्स",
   "settingsShell.integrations.category.design": "डिज़ाइन",
   "settingsShell.integrations.category.engineering": "इंजीनियरिंग",
@@ -3037,11 +3061,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} ने {{date}} को यह कुंजी अस्वीकार कर दी। किसी मालिक या एडमिन से इसे बदलने को कहें।",
   "settingsModel.rejectedHeadline": "{{provider}} ने यह कुंजी अस्वीकार कर दी",
+  "settingsModel.unreadable":
+    "सेव की गई प्रदाता सेटिंग पढ़ी नहीं जा सकती। पहुँच बहाल करने के लिए इसे बदलें।",
+  "settingsModel.unreadableAskAdmin":
+    "सेव की गई प्रदाता सेटिंग पढ़ी नहीं जा सकती। किसी मालिक या एडमिन से इसे बदलने को कहें।",
   "settingsModel.remove": "हटाएँ",
   "settingsModel.removeProvider": "प्रदाता हटाएँ",
   "settingsModel.removeTitle": "{{provider}} हटाएँ?",
   "settingsModel.removing": "हटाया जा रहा है",
   "settingsModel.replace": "बदलें",
+  "settingsModel.replaceEndpoint": "एंडपॉइंट बदलें",
   "settingsModel.replaceKey": "कुंजी बदलें",
   "settingsModel.restrictBody": "सदस्य सिर्फ़ संगठन के प्रदाता इस्तेमाल कर सकते हैं।",
   "settingsModel.restrictConfirm": "कुंजियाँ प्रतिबंधित करें",

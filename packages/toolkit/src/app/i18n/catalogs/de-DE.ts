@@ -1993,6 +1993,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "Dateispeicher-Einstellungen konnten nicht geladen werden.",
   "settings.storage.retry": "Erneut versuchen",
+  "settings.storage.unreadable":
+    "Einige gespeicherte Speichereinstellungen konnten nicht geprüft werden. Versuche es erneut oder ersetze unlesbare Pflichtwerte vor dem Speichern.",
+  "settings.storage.unreadableField":
+    "Der gespeicherte Wert kann nicht gelesen werden. Gib ihn erneut ein.",
+  "settings.storage.clearUnreadableField": "Unlesbares Feld {{field}} löschen",
+  "settings.storage.unreadableFieldCleared":
+    "Dieser gespeicherte Wert wird beim Speichern entfernt.",
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
   "settings.audit.action": "Aktion",
@@ -2432,7 +2439,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "{{platform}}-Zugangsdaten entfernen",
   "settingsShell.channels.removeCredentials.body":
-    "Der Agent antwortet für alle nicht mehr in {{platform}}, es sei denn, die Deployment-Umgebung setzt diese Schlüssel ebenfalls.",
+    "Das Entfernen dieser Workspace-Zugangsdaten kann dazu führen, dass der Agent in {{platform}} nicht mehr allen antwortet, es sei denn, die Bereitstellungsumgebung legt diese Schlüssel ebenfalls fest.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Dadurch werden nur deine persönlichen Zugangsdaten für {{platform}} entfernt. Die Zugangsdaten anderer Nutzer und des Workspace bleiben unverändert.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Dadurch werden die ausgewählten gespeicherten Zugangsdaten für {{platform}} entfernt. Andere gespeicherte Zugangsdaten bleiben unverändert.",
   "settingsShell.channels.removeCredentials.confirm": "Entfernen",
   "settingsShell.channels.removeCredentials.failed":
     "Die Zugangsdaten konnten nicht entfernt werden.",
@@ -2440,6 +2451,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}}-Zugangsdaten entfernen?",
   "settingsShell.channels.retry": "Erneut versuchen",
+  "settingsShell.channels.setup.unreadable":
+    "Ein gespeicherter Zugangswert ist nicht lesbar. Gib einen Ersatzwert ein.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Dadurch wird nur dein persönlicher Zugangswert ersetzt; die Zugangsdaten anderer bleiben unverändert.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Diese Zugangsdaten werden in einem anderen Einstellungsbereich verwaltet. Aktualisiere sie dort, bevor du diesen Kanal einrichtest.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Einige gespeicherte Kanalzugangsdaten können nicht gelesen werden. Ersetze sie, bevor du diesen Kanal aktivierst.",
   "settingsShell.channels.setup.addToEnvironment":
     "In der Deployment-Umgebung hinzufügen",
   "settingsShell.channels.setup.body":
@@ -2450,6 +2469,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "Optional",
   "settingsShell.channels.setup.replace": "Ersetzen",
   "settingsShell.channels.setup.replaceAria": "{{key}} ersetzen",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Ersetze diesen gespeicherten Zugangswert in den zugehörigen Integrationseinstellungen.",
   "settingsShell.channels.setup.save": "Speichern",
   "settingsShell.channels.setup.saveAndTurnOn": "Speichern und aktivieren",
   "settingsShell.channels.setup.saving": "Wird gespeichert…",
@@ -2465,6 +2486,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Nicht eingerichtet",
   "settingsShell.channels.state.off": "Aus",
   "settingsShell.channels.state.on": "An",
+  "settingsShell.channels.state.unavailable": "Nicht verfügbar",
   "settingsShell.channels.status": "Status",
   "settingsShell.channels.toggleFailed":
     "{{platform}} konnte nicht aktualisiert werden.",
@@ -2775,6 +2797,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
   "settingsShell.integrations.builderStatusFailed":
     "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Einige gespeicherte Builder-Kontodaten konnten nicht gelesen werden.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Entwicklung",
@@ -3253,11 +3277,16 @@ const messages: ToolkitAgentChatTranslation = {
     "{{provider}} hat diesen Schlüssel am {{date}} abgelehnt. Bitte einen Inhaber oder Admin, ihn zu ersetzen.",
   "settingsModel.rejectedHeadline":
     "{{provider}} hat diesen Schlüssel abgelehnt",
+  "settingsModel.unreadable":
+    "Die gespeicherte Anbietereinstellung ist nicht lesbar. Ersetze sie, um den Zugriff wiederherzustellen.",
+  "settingsModel.unreadableAskAdmin":
+    "Die gespeicherte Anbietereinstellung ist nicht lesbar. Bitte einen Inhaber oder Admin, sie zu ersetzen.",
   "settingsModel.remove": "Entfernen",
   "settingsModel.removeProvider": "Anbieter entfernen",
   "settingsModel.removeTitle": "{{provider}} entfernen?",
   "settingsModel.removing": "Wird entfernt",
   "settingsModel.replace": "Ersetzen",
+  "settingsModel.replaceEndpoint": "Endpunkt ersetzen",
   "settingsModel.replaceKey": "Schlüssel ersetzen",
   "settingsModel.restrictBody":
     "Mitglieder können nur Anbieter der Organisation nutzen.",

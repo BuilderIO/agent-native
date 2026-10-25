@@ -11,7 +11,8 @@ takeover, or a redispatch.
 Helper invariants, checked in the same runs:
 
 - **P1, single writer.** Every committed write to `agent_execution_steps` was
-  made by the owner of the current live lease generation.
+  made by the owner of the current live lease generation. The reset fallback
+  is attributed to the successor whose live lease and running run it locks.
 - **P6, no resurrection.** A lease `(owner, generation)` that stopped being
   live never becomes live again.
 - **ClaimRespectsLiveOwner.** A claim never supersedes a live lease whose
@@ -29,35 +30,49 @@ Helper invariants, checked in the same runs:
   (expiry, or a revoke with no owner check).
 - Workers are adversarial. They keep acting until a database guard rejects
   them; the heartbeat abort and the 3 s abort poll are not relied on.
+- The dispatched marker commits before handler entry. Cancellation can reset
+  that marker only in the interval before handler entry; after entry the
+  action may be a zombie and its effect may still land.
+- A read-only cache hit may complete a dispatched step without entering the
+  handler because it has no external effect.
 - `PruneWhileTurnActive = FALSE` in the checks: the retention prune only
   reaches a turn that no worker or continuation will touch again. Finding F2
   shows what happens without it.
 - Transactions are the Postgres ones the code opens, with `FOR UPDATE` and the
   turn advisory lock. Driver differences are not modelled.
+- At the coverage sync revision, terminal projection retry-order bookkeeping
+  is outside the lease model, and earlier-projection blockers restrict when
+  reaping may terminalize a run. Run admission also has pending-inbox and
+  pending-approval gates that the model omits, so `InsertRun` is an
+  over-approximation. These changes do not add an unfenced step-journal write.
 - Not covered: thread content folding, liveness (an abandoned run is
   eventually reaped or resumed), lock-order deadlocks, the team queue, and A2A
   task leases beyond their revoke.
 
-## Results at 38ce309e5da9
+## Results against source snapshot c8190ab8
 
-| Config                                                           | Result                          | Distinct states | Time  |
-| ---------------------------------------------------------------- | ------------------------------- | --------------- | ----- |
-| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 38,030          | 5 s   |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 1,883,858       | 183 s |
-| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 38,030          | 12 s  |
-| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 48,052          | 13 s  |
-| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 144             | 4 s   |
-| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 7,445           | 4 s   |
-| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,634           | 3 s   |
-| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 2 s   |
-| `mutations/e` fence check commits before the write               | P1 violated                     | 146             | 2 s   |
-| `findings/F2` prune reaches a turn that still sees work          | P8 violated                     | 52,839          | 6 s   |
-| `findings/F3` policy flip after a retry-safe dispatch            | P8Strict violated               | 880,137         | 60 s  |
+| Config                                                           | Result                          | Distinct states | Time   |
+| ---------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
+| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 45,902          | 5.4 s  |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,403,007       | 63.7 s |
+| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 45,902          | 1.8 s  |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 71,679          | 2.1 s  |
+| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 149             | 0.8 s  |
+| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 19,923          | 1.1 s  |
+| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,078           | 1.3 s  |
+| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 1.0 s  |
+| `mutations/e` fence check commits before the write               | P1 violated                     | 138             | 0.9 s  |
+| mutations/g reset fallback without successor fence               | P1 violated                     | 331             | 0.9 s  |
+| `findings/F2` prune reaches a turn that still sees work          | P8 violated                     | 75,455          | 2.9 s  |
+| `findings/F3` policy flip after a retry-safe dispatch            | P8Strict violated               | 1,392,684       | 32.0 s |
 
 Each mutation and finding config checks only the invariant it is meant to
 break, and the runner requires that exact invariant to be the one violated.
-Times are from a loaded laptop; the policy-flip check took 100 s on a quieter
-run.
+All expected violations reproduced; the verifier exited 0.
+
+Mutation g removes the successor Current(q) condition from the reset
+fallback. The resulting stale journal write violates P1, confirming that the
+fallback's successor lease lock is required.
 
 Observations:
 
@@ -167,7 +182,7 @@ not reproduced.
 Paths are under `packages/core/src/`. Every action in `ExecutionLease.tla`
 cites the lines it models.
 
-Drift coverage (`manifest.json`, 42 entries) hashes the code in this map, the
+Drift coverage (`manifest.json`, 43 entries) hashes the code in this map, the
 step-intent and replay-policy derivation in `production-agent.ts`, and the
 helpers that compute the policy's inputs: `classifyActionCall`,
 `actionCallIntent`, `preparedCallArguments`, `actionCallIsRetrySafe`,
@@ -176,26 +191,27 @@ helpers that compute the policy's inputs: `classifyActionCall`,
 dependency would flag most core changes. Deeper helpers rely on their own unit
 tests.
 
-| Code                                                                                                       | Model action                                                                |
-| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `agent/run-store.ts` `claimExecutionLease`                                                                 | `Claim`                                                                     |
-| `renewExecutionLease`                                                                                      | `Renew`                                                                     |
-| `releaseTurnExecutionLease`                                                                                | `WorkerRelease`                                                             |
-| `agent/execution-fence.ts` `withFencedExecutionWrite`, `lockAndAssertCurrentExecutionFences`               | `Current`, `FenceOK` in every fenced action                                 |
-| `beginAgentExecutionStep`                                                                                  | `BeginStep`                                                                 |
-| `markAgentExecutionStepDispatched`                                                                         | `MarkDispatched`                                                            |
-| `completeAgentExecutionStep`                                                                               | `CompleteStep`                                                              |
-| `markAgentExecutionStepUnknown`                                                                            | `MarkUnknown`                                                               |
-| `recordLateAgentExecutionStepOutcome`, `withAgentExecutionStepIntentFence`                                 | `LateOutcome`                                                               |
-| `updateRunStatusIfRunning`                                                                                 | `WorkerTerminal` (fenced), `TerminaliseUnclaimed` (unfenced setup failures) |
-| `revokeTaskExecutionLease`, `revokeExecutionLeasesForRuns`                                                 | `LeaseLapse`                                                                |
-| `updateRunAborted`                                                                                         | `StopRun`                                                                   |
-| `markTurnAborted`                                                                                          | `AbortTurn`                                                                 |
-| `reapSingleStaleRun`, `failRunBeforeDispatch`                                                              | `ReapOrFailUnowned`                                                         |
-| `finalizeClaimedBackgroundRunFailure`                                                                      | `FinalizeClaimedFailure`                                                    |
-| `releaseBackgroundRunBeforeStart`, `reapUnclaimedBackgroundRun`                                            | `TerminaliseUnclaimed`                                                      |
-| `insertRun`, `tryClaimRunSlot`, `attemptStaleRunRecovery`                                                  | `InsertRun`                                                                 |
-| `pruneAndRollUpPrunedRunOutcomes`                                                                          | `PruneRun`, `PruneStep`, `PruneLease`                                       |
-| `agent/production-agent.ts` `invokeAction`, `jobs/background-automation-runner.ts` `confirmAutomationWork` | `MarkDispatched` before `Effect`                                            |
-| `agent/production-agent.ts` step-intent region (fence lookup through `beginAgentExecutionStep`)            | `BeginStep` preconditions: intent only under a fence, policy per run        |
-| `currentExecutionFence`, `currentExecutionFenceForScope`, `withExecutionFence`, `lockTurnExecutionLease`   | `Current`, `Claim`, reaper and abort lease locks                            |
+| Code                                                                                                       | Model action                                                                     |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `agent/run-store.ts` `claimExecutionLease`                                                                 | `Claim`                                                                          |
+| `renewExecutionLease`                                                                                      | `Renew`                                                                          |
+| `releaseTurnExecutionLease`                                                                                | `WorkerRelease`                                                                  |
+| `agent/execution-fence.ts` `withFencedExecutionWrite`, `lockAndAssertCurrentExecutionFences`               | `Current`, `FenceOK` in every fenced action                                      |
+| `beginAgentExecutionStep`                                                                                  | `BeginStep`                                                                      |
+| `markAgentExecutionStepDispatched`                                                                         | `MarkDispatched`                                                                 |
+| `resetAgentExecutionStepBeforeInvocation`                                                                  | `ResetBeforeInvocation` (direct fence, or locked current-owner reconciliation)   |
+| `completeAgentExecutionStep`                                                                               | `CompleteStep`                                                                   |
+| `markAgentExecutionStepUnknown`                                                                            | `MarkUnknown`                                                                    |
+| `recordLateAgentExecutionStepOutcome`, `withAgentExecutionStepIntentFence`                                 | `LateOutcome`                                                                    |
+| `updateRunStatusIfRunning`                                                                                 | `WorkerTerminal` (fenced), `TerminaliseUnclaimed` (unfenced setup failures)      |
+| `revokeTaskExecutionLease`, `revokeExecutionLeasesForRuns`                                                 | `LeaseLapse`                                                                     |
+| `updateRunAborted`                                                                                         | `StopRun`                                                                        |
+| `markTurnAborted`                                                                                          | `AbortTurn`                                                                      |
+| `reapSingleStaleRun`, `failRunBeforeDispatch`                                                              | `ReapOrFailUnowned`                                                              |
+| `finalizeClaimedBackgroundRunFailure`                                                                      | `FinalizeClaimedFailure`                                                         |
+| `releaseBackgroundRunBeforeStart`, `reapUnclaimedBackgroundRun`                                            | `TerminaliseUnclaimed`                                                           |
+| `insertRun`, `tryClaimRunSlot`, `attemptStaleRunRecovery`                                                  | `InsertRun`                                                                      |
+| `pruneAndRollUpPrunedRunOutcomes`                                                                          | `PruneRun`, `PruneStep`, `PruneLease`                                            |
+| `agent/production-agent.ts` `invokeAction`, `jobs/background-automation-runner.ts` `confirmAutomationWork` | `MarkDispatched`, then `InvokeHandler` before `Effect`; reset may win in between |
+| `agent/production-agent.ts` step-intent region (fence lookup through `beginAgentExecutionStep`)            | `BeginStep` preconditions: intent only under a fence, policy per run             |
+| `currentExecutionFence`, `currentExecutionFenceForScope`, `withExecutionFence`, `lockTurnExecutionLease`   | `Current`, `Claim`, reaper and abort lease locks                                 |

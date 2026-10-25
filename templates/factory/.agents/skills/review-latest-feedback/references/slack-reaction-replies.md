@@ -7,14 +7,18 @@ this actor's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Eac
 eligible owned root needs a current same-actor status after the latest human
 reply. Unowned canonical-linked `Clustered` roots and checker-verified
 `personAssignedSkip` roots stay unclaimed and receive no reply when this actor
-has no workflow mark; they are not eligible owned roots. “All Slack items
-replied to” means every bounded-inventory root carrying this actor's `👀` has a
-current same-thread status after the latest human reply. Exclude `✅`-only and
-`🎫`-only roots from that reply count; reconcile them separately and report
-gated skips.
+has no workflow mark and no direct user grant covers them. Under a direct
+bounded grant, every in-scope root-level `👀`, regardless of who added it,
+needs a current same-thread status after the latest human reply; list each
+covered held, assigned, or duplicate root in both authorization records, add
+this actor's `👀` where needed, and do not record a skip for it. “All Slack
+items replied to” means every bounded-inventory root carrying a root-level
+`👀` has that status. Exclude `✅`-only and `🎫`-only roots from that reply
+count; reconcile them separately and report gated skips.
 A direct reaction read showing another actor's workflow mark or this actor's
 `:mag:` holds a root by default. A direct, unconditional user grant may
-authorize full follow-up and reaction work for exact roots or a bounded sweep.
+authorize full follow-up and reaction work for exact roots or a bounded sweep,
+including roots held by another mark, assignment, or duplicate status.
 List each covered `{channelId, rootTs}` in both `scope.authorizedRoots` and the
 separate orchestrator confirmation; the checker constrains them to the scanned
 window. Reconcile authorized roots through the normal full-thread, claim, and
@@ -110,11 +114,11 @@ each distinct human handoff with its scope, owner, and action. In the framework
 repository, run
 `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json]`
 before the recap. The first three inputs are required; the fourth is required
-for explicitly narrowed scope and must be a separate record of the active user
-request. The checker validates that record against the inventory but cannot
-authenticate the original request. A failed check means source coverage or
-owned-root reconciliation is incomplete. The checker does not authorize
-changing another actor's reactions or replies.
+for explicitly narrowed scope or exact-root authorization and must be a
+separate record of the active user request. The checker validates that record
+against the inventory but cannot authenticate the original request. A failed
+check means source coverage or owned-root reconciliation is incomplete. A
+matching direct grant authorizes only the exact listed roots and operations.
 
 ## Prior questions and reporter replies
 
@@ -154,9 +158,10 @@ not a substitute.
 Reactions are permanent history and do not replace the current disposition or
 status reply. For every eligible unowned root this sweep reviews, use root `👀`
 to show the sweep has taken responsibility for its status. Before claiming,
-exclude person-assigned roots and unowned canonical-linked duplicates; record
-the former with exact assignment evidence in `personAssignedSkip`, and link the
-latter with `clusteredUnder`. At the root, `👀` records this workflow's claim,
+exclude person-assigned roots and unowned canonical-linked duplicates unless a
+direct user grant covers the exact root; record unauthorized assignments with
+exact evidence in `personAssignedSkip`, and link unauthorized duplicates with
+`clusteredUnder`. At the root, `👀` records this workflow's claim,
 `✅` marks one or more named scopes
 that passed direct post-change proof, and `🎫` tracks distinct human/team or
 reporter actions, including actions with no named owner yet. Do not use `🎫` as
@@ -166,8 +171,10 @@ listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 `handoffs[]`, including unassigned, accepted, and completed actions. Completion
 evidence changes its status, not the historical `🎫` reaction. For every
 unheld root carrying any of this actor's marks, post or reuse a current status
-in that root's thread; unclaimed items, held roots, and another actor's marks
-are not ours to reply to. Reconcile
+in that root's thread. Under a direct bounded grant, do the same for every
+covered root carrying a root-level `👀`, regardless of who added it; add this
+actor's `👀` if needed. Unclaimed items, held roots, and another actor's marks
+are outside the reply set only when no direct authorization covers them. Reconcile
 each report as one unit: send or verify its current same-thread status reply,
 then immediately update and read back each applicable root reaction before
 advancing to the next report. Add `✅` as soon as any reported scope passes the
@@ -179,8 +186,10 @@ multi-symptom report to be resolved before checking off its verified scope.
 Keep all accurate existing reactions after scopes close. Post the final disposition and
 read back the final reply and reactions; the status shows closure while the
 eye remains as history. After a fresh root reaction read, correct and record
-this actor's stale or misapplied root mark. Never change another actor's mark
-or remove reply reactions. An open PR can
+this actor's stale or misapplied root mark. Preserve other actors' accurate
+marks by default. A direct user grant that covers exact reaction work may
+authorize a correction to another actor's mark on those roots; do not remove
+reply reactions. An open PR can
 earn `✅` as soon as the relevant
 `verifying-changes` proof bar passes. During that period, `✅` marks the
 verified scope and `👀` may remain whether or not another scope or merge is
@@ -272,14 +281,16 @@ Compare exact actor IDs returned for the reaction and reply; do not describe a
 separate “workflow identity” when the connector posts as the invoking user. An
 explicit handoff from another eye owner permits investigation and a status
 reply only; it does not transfer the eye or authorize changing that actor's
-reactions. If the eye owner differs from the connected actor, or an actor ID
+reactions unless a direct user grant separately covers that exact root and
+reaction work. If the eye owner differs from the connected actor, or an actor ID
 cannot be verified, record the mismatch and leave the item visibly
 unreconciled for its owner. Do not claim that eye or create a duplicate reply
 under another actor.
 Keep a reaction as history while it still describes the workflow. Correct
 this actor's stale or misapplied reaction after a fresh direct read and update
-the inventory. Change another actor's reaction only when the user explicitly
-authorizes that exact change. Read back every new reaction and status update.
+the inventory. Change another actor's reaction only when a direct user grant
+explicitly covers that root and reaction change; a bounded grant needs no
+separate per-reaction confirmation. Read back every new reaction and status update.
 
 An unanswered request for a reporter-provided URL, access grant, evidence, or
 clarification is **Asked** or **Clarification needed** and remains an open

@@ -2027,6 +2027,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "Impossible de charger les paramètres de stockage des fichiers.",
   "settings.storage.retry": "Réessayer",
+  "settings.storage.unreadable":
+    "Certains paramètres de stockage enregistrés n’ont pas pu être vérifiés. Réessayez ou remplacez les valeurs obligatoires illisibles avant d’enregistrer.",
+  "settings.storage.unreadableField":
+    "Cette valeur enregistrée est illisible. Saisissez-la à nouveau.",
+  "settings.storage.clearUnreadableField":
+    "Effacer le champ illisible {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "Cette valeur enregistrée sera supprimée lors de l’enregistrement.",
   "settings.storage.adminOnly":
     "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier le stockage des fichiers.",
   "settings.audit.action": "Action",
@@ -2476,7 +2484,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "Supprimer les identifiants {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "L'agent cesse de répondre dans {{platform}} pour tout le monde, sauf si l'environnement de déploiement définit aussi ces clés.",
+    "La suppression de ces identifiants d’espace de travail peut empêcher l’agent de répondre à tout le monde dans {{platform}}, sauf si l’environnement de déploiement définit aussi ces clés.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Cela supprime uniquement vos identifiants personnels pour {{platform}}. Ceux des autres utilisateurs et de l’espace de travail restent inchangés.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Cela supprime les identifiants enregistrés sélectionnés pour {{platform}}. Les autres identifiants enregistrés restent inchangés.",
   "settingsShell.channels.removeCredentials.confirm": "Supprimer",
   "settingsShell.channels.removeCredentials.failed":
     "Impossible de supprimer les identifiants.",
@@ -2484,6 +2496,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "Supprimer les identifiants {{platform}} ?",
   "settingsShell.channels.retry": "Réessayer",
+  "settingsShell.channels.setup.unreadable":
+    "Un identifiant enregistré est illisible. Saisissez une valeur de remplacement.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Cela remplace uniquement votre identifiant personnel ; ceux des autres utilisateurs restent inchangés.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Cet identifiant est géré dans une autre section des paramètres. Mettez-le à jour là-bas avant de configurer ce canal.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Certains identifiants de canal enregistrés sont illisibles. Remplacez-les avant d’activer ce canal.",
   "settingsShell.channels.setup.addToEnvironment":
     "Ajoutez-la à l'environnement de déploiement",
   "settingsShell.channels.setup.body":
@@ -2494,6 +2514,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "Facultatif",
   "settingsShell.channels.setup.replace": "Remplacer",
   "settingsShell.channels.setup.replaceAria": "Remplacer {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Remplacez cet identifiant enregistré dans les paramètres de l'intégration correspondante.",
   "settingsShell.channels.setup.save": "Enregistrer",
   "settingsShell.channels.setup.saveAndTurnOn": "Enregistrer et activer",
   "settingsShell.channels.setup.saving": "Enregistrement…",
@@ -2509,6 +2531,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Non configuré",
   "settingsShell.channels.state.off": "Désactivé",
   "settingsShell.channels.state.on": "Activé",
+  "settingsShell.channels.state.unavailable": "Indisponible",
   "settingsShell.channels.status": "Statut",
   "settingsShell.channels.toggleFailed":
     "Impossible de mettre à jour {{platform}}.",
@@ -2820,6 +2843,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Accès aux modèles, automatisation du navigateur, stockage de fichiers et identité de l’espace de travail. Offre gratuite disponible.",
   "settingsShell.integrations.builderStatusFailed":
     "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Certaines informations enregistrées du compte Builder n’ont pas pu être lues.",
   "settingsShell.integrations.category.analytics": "Analytique",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Ingénierie",
@@ -3305,11 +3330,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} a refusé cette clé le {{date}}. Demandez à un propriétaire ou un administrateur de la remplacer.",
   "settingsModel.rejectedHeadline": "{{provider}} a refusé cette clé",
+  "settingsModel.unreadable":
+    "Le paramètre enregistré du fournisseur est illisible. Remplacez-le pour rétablir l’accès.",
+  "settingsModel.unreadableAskAdmin":
+    "Le paramètre enregistré du fournisseur est illisible. Demandez à un propriétaire ou un administrateur de le remplacer.",
   "settingsModel.remove": "Supprimer",
   "settingsModel.removeProvider": "Supprimer le fournisseur",
   "settingsModel.removeTitle": "Supprimer {{provider}} ?",
   "settingsModel.removing": "Suppression",
   "settingsModel.replace": "Remplacer",
+  "settingsModel.replaceEndpoint": "Remplacer le point de terminaison",
   "settingsModel.replaceKey": "Remplacer la clé",
   "settingsModel.restrictBody":
     "Les membres ne peuvent utiliser que les fournisseurs de l’organisation.",
