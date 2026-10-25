@@ -219,6 +219,15 @@ function normalizeCoreCredentialResult(
   result: WorkspaceConnectionCredentialResolution,
   fallback: { provider: string; key: string; ctx: CredentialContext },
 ): AnalyticsProviderCredential | null {
+  if (result.status === "error") {
+    fail(
+      `The ${fallback.provider} workspace credential lookup failed. Retry the request.`,
+      {
+        errorCode: "workspace_connection_credential_lookup_failed",
+        statusCode: 503,
+      },
+    );
+  }
   if (!result.available || !result.value) return null;
   const scope =
     result.provenance?.secretScope === "user" ||

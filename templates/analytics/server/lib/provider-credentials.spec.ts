@@ -822,6 +822,31 @@ describe("analytics provider credentials", () => {
     });
   });
 
+  it("does not hide HubSpot workspace credential lookup failures with a local token", async () => {
+    mocks.coreResult = {
+      available: false,
+      status: "error",
+      reason: "Credential store temporarily unavailable",
+      provider: "hubspot",
+      key: "HUBSPOT_PRIVATE_APP_TOKEN",
+      provenance: null,
+      checked: [],
+    };
+    mocks.localCredentials.set("HUBSPOT_PRIVATE_APP_TOKEN", "legacy-token");
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "hubspot",
+        keys: HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "workspace_connection_credential_lookup_failed",
+      statusCode: 503,
+    });
+    expect(mocks.coreResolverCalls).toHaveLength(1);
+  });
+
   it("prefers a granted HubSpot OAuth bearer token over legacy credentials", async () => {
     mocks.workspaceConnectionResult = {
       available: true,
