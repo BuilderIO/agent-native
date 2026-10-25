@@ -732,6 +732,7 @@ export function MotionDock({
       const instance = nativeStyles[index];
       if (!instance) return;
       const identity = createMotionNativeStyleIdentity(instance, index);
+      setSelectedEasingSegmentKey(null);
       setSelectedNativeStyleIdentity(identity);
       onNativeStyleSelectionChange?.(identity);
     },

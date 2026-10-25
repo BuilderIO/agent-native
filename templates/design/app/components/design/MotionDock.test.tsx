@@ -1575,6 +1575,35 @@ describe("MotionDock — timeline body anatomy", () => {
     ]);
   });
 
+  it("clears the easing selection when selecting a native style row", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const nativeStyleButton = container.querySelector<HTMLButtonElement>(
+      "[data-motion-select-native-style]",
+    );
+    if (!nativeStyleButton)
+      throw new Error("Native style row was not rendered");
+    await act(async () => nativeStyleButton.click());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
   it("keeps a selected native style row from another layer selected", async () => {
     const otherLayerStyle: MotionNativeStyleInstance = {
       ...sampleNativeStyle,
