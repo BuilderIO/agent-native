@@ -69,7 +69,9 @@ const CATCH_UP_RETRY_MS = 2000;
 const ADOPTION_RETRY_MS = 1000;
 const ADOPTION_RETRY_MAX_MS = 30_000;
 const ADOPTION_WARN_AFTER_FAILURES = 3;
-const SEEN_SNAPSHOTS_MAX = 16;
+// Each rebase follows another editor's adoption, so a run of them means the
+// doc keeps moving under this one, or the server answers wrongly.
+const ADOPTION_REBASES_MAX = 5;
 // The provider sends the server every update but its own; the adopted state
 // came from the server, so it is not sent back.
 const SNAPSHOT_ADOPTION_ORIGIN = "remote";
@@ -117,8 +119,11 @@ export interface UseCollabReconcileOptions {
    * inserts survive the merge, so the text appears once per editor.
    * `already-adopted` means another editor's proposal won; `rebase` means the
    * doc took in `adoptedRevision` after this proposal was built; `stale` means
-   * a newer body was saved. Reject with `status: 404` when the server cannot
-   * take adoptions. Leave it unset and the snapshot is applied locally.
+   * a newer body was saved. `adoptedBody` is the saved body at
+   * `adoptedRevision`, which the next proposal is planned against. A
+   * rejection retries with backoff, except a 4xx other than 404, 408 or 429, which
+   * stops; the snapshot is never applied here alone. Leave it unset and the
+   * snapshot is applied locally.
    */
   requestSnapshotAdoption?: (request: {
     revision: string;
@@ -126,6 +131,7 @@ export interface UseCollabReconcileOptions {
   }) => Promise<{
     status: "adopted" | "already-adopted" | "rebase" | "stale";
     adoptedRevision?: string | null;
+    adoptedBody?: string | null;
     state: Uint8Array;
   }>;
   /**
@@ -586,17 +592,10 @@ export function useCollabReconcile({
 
   const syncedBeforeAdoptRef = useRef<string | null>(null);
   const adoptionInFlightRef = useRef(false);
-  // Saved bodies by revision, so a doc that took in one this editor saw but
-  // never adopted can still be merged against it.
-  const seenSnapshotsRef = useRef(new Map<string, string>());
-  const rememberSnapshot = (revision: string, body: string) => {
-    const seen = seenSnapshotsRef.current;
-    seen.delete(revision);
-    seen.set(revision, body);
-    if (seen.size > SEEN_SNAPSHOTS_MAX) {
-      seen.delete(seen.keys().next().value!);
-    }
-  };
+  const adoptionRebasesRef = useRef<{ revision: string; count: number }>({
+    revision: "",
+    count: 0,
+  });
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -649,7 +648,6 @@ export function useCollabReconcile({
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       const callbacks = reconcileCallbacksRef.current;
-      if (contentRevision) rememberSnapshot(contentRevision, value);
       if (contentUpdatedAt) {
         const rollback = acknowledgementBaseRollbackRef.current;
         const conflictsWithAcceptedAcknowledgement =
@@ -1030,7 +1028,6 @@ export function useCollabReconcile({
         const adoptThroughServer = (
           target: ProseMirrorNode,
           settle: () => void,
-          fallBack: () => void,
         ) => {
           if (!adoptSnapshot || !ydoc || !contentRevision) return;
           let update: Uint8Array;
@@ -1058,7 +1055,9 @@ export function useCollabReconcile({
           };
           // Only the server's answer may put the snapshot into the doc. A
           // proposal applied here as well would sit beside the one the server
-          // took, and an answer lost after the server took it would too.
+          // took, and an answer lost after the server took it would too. So
+          // would one applied here because this editor's server cannot take
+          // it while another editor's server can.
           const fail = (error: unknown) => {
             if (cancelled || editor.isDestroyed) {
               release();
@@ -1068,21 +1067,13 @@ export function useCollabReconcile({
               error && typeof error === "object" && "status" in error
                 ? error.status
                 : undefined;
-            if (status === 404) {
-              // A server without adoptions leaves applying it here, the
-              // behavior before they existed.
-              release();
-              console.warn(
-                "Adopting a saved snapshot without the server's claim",
-                error,
-              );
-              fallBack();
-              return;
-            }
             if (
               typeof status === "number" &&
               status >= 400 &&
               status < 500 &&
+              // An instance from before adoptions existed answers 404 while
+              // a deploy rolls out; a later attempt reaches a newer one.
+              status !== 404 &&
               status !== 408 &&
               status !== 429
             ) {
@@ -1127,18 +1118,31 @@ export function useCollabReconcile({
                 }
                 isSettingContentRef.current = false;
                 release();
-                const taken =
+                // The doc now holds the revision the server took in last: this
+                // one, or for `rebase` another editor's. `stale` leaves it
+                // where this proposal found it.
+                const adopted =
                   result.status === "adopted" ||
-                  result.status === "already-adopted";
-                if (taken) rememberSnapshot(contentRevision, value);
+                  result.status === "already-adopted"
+                    ? { value, revision: contentRevision }
+                    : result.status === "rebase" &&
+                        typeof result.adoptedRevision === "string" &&
+                        typeof result.adoptedBody === "string" &&
+                        result.adoptedRevision !== contentRevision &&
+                        result.adoptedRevision !== proposedBase?.revision
+                      ? {
+                          value: result.adoptedBody,
+                          revision: result.adoptedRevision,
+                        }
+                      : null;
                 if (cancelled) {
-                  // The doc holds this revision now; the newer snapshot that
-                  // cancelled it is planned against it.
-                  if (taken && authoritativeBaseRef.current === proposedBase) {
-                    authoritativeBaseRef.current = {
-                      value,
-                      revision: contentRevision,
-                    };
+                  // The newer snapshot that cancelled this one is planned
+                  // against the revision the doc holds.
+                  if (
+                    adopted &&
+                    authoritativeBaseRef.current === proposedBase
+                  ) {
+                    authoritativeBaseRef.current = adopted;
                   }
                   return;
                 }
@@ -1146,29 +1150,30 @@ export function useCollabReconcile({
                 // snapshot, measured against the base this one would replace.
                 if (result.status === "stale") return;
                 if (result.status === "rebase") {
+                  const rebases = adoptionRebasesRef.current;
+                  if (rebases.revision !== contentRevision) {
+                    rebases.revision = contentRevision;
+                    rebases.count = 0;
+                  }
+                  rebases.count += 1;
+                  if (!adopted || rebases.count > ADOPTION_REBASES_MAX) {
+                    console.warn(
+                      "The server sent a saved snapshot back to rebuild without a revision to rebuild it on",
+                      result.adoptedRevision,
+                    );
+                    return;
+                  }
                   // Another editor's proposal took in a different revision
-                  // first. Plan this snapshot again against the doc holding
-                  // that revision, with it as the base where its body is
-                  // known; otherwise the merged doc stands in for it.
-                  const adopted = result.adoptedRevision;
-                  if (adopted) {
-                    const callbacks = reconcileCallbacksRef.current;
-                    const markdown = callbacks.getMarkdown(editor);
-                    const known = seenSnapshotsRef.current.get(adopted);
-                    authoritativeBaseRef.current = {
-                      value: known ?? markdown,
-                      revision: adopted,
-                    };
-                    reportedConflictRevisionRef.current = null;
-                    // A doc that is exactly that revision holds no typing
-                    // this snapshot could overwrite.
-                    if (
-                      known !== undefined &&
-                      markdown === callbacks.normalizeValue(known)
-                    ) {
-                      lastAppliedValueRef.current = known;
-                      lastAppliedSerializedRef.current = markdown;
-                    }
+                  // first. Plan this snapshot again against that revision.
+                  authoritativeBaseRef.current = adopted;
+                  reportedConflictRevisionRef.current = null;
+                  const callbacks = reconcileCallbacksRef.current;
+                  const markdown = callbacks.getMarkdown(editor);
+                  // A doc that is exactly that revision holds no typing this
+                  // snapshot could overwrite.
+                  if (markdown === callbacks.normalizeValue(adopted.value)) {
+                    lastAppliedValueRef.current = adopted.value;
+                    lastAppliedSerializedRef.current = markdown;
                   }
                   retry = setTimeout(() => apply(deferred), 0);
                   return;
@@ -1259,7 +1264,7 @@ export function useCollabReconcile({
             settleMerged();
             return;
           }
-          adoptThroughServer(plan.mergedDoc, settleMerged, reconcileLocally);
+          adoptThroughServer(plan.mergedDoc, settleMerged);
           return;
         }
         const settleApplied = () => {
@@ -1299,18 +1304,21 @@ export function useCollabReconcile({
         const parsedDoc = adoptSnapshot
           ? (parse?.(editor, value) ?? null)
           : null;
-        const target = parsedDoc
-          ? surgicalApplyTarget(editor.state.doc, parsedDoc)
-          : "failed";
+        if (!parsedDoc) {
+          applyLocally();
+          return;
+        }
+        const target = surgicalApplyTarget(editor.state.doc, parsedDoc);
         if (target === "noop") {
           settleApplied();
           return;
         }
-        if (target === "failed") {
-          applyLocally();
-          return;
-        }
-        adoptThroughServer(target, settleApplied, applyLocally);
+        // Where no surgical change fits, the whole parsed body replaces the
+        // doc, as `setContent` would.
+        adoptThroughServer(
+          target === "failed" ? parsedDoc : target,
+          settleApplied,
+        );
       }, 0);
       retry = applyTimer;
     };

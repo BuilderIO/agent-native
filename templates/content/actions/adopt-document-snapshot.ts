@@ -47,6 +47,7 @@ export default defineAction({
         { statusCode: 409 },
       );
     }
+    const savedBody = access.resource.content ?? "";
     const result = await adoptSnapshotOnce(
       id,
       base64ToUint8Array(adoptionUpdateBase64),
@@ -64,11 +65,19 @@ export default defineAction({
             ) === revision
           );
         },
+        // Read before the lock; `isCurrent` refuses the adoption unless the
+        // saved body is still this one.
+        body:
+          documentRevisionToken(access.resource.bodyRevision, savedBody) ===
+          revision
+            ? savedBody
+            : undefined,
       },
     );
     return {
       status: result.status,
       adoptedRevision: result.adoptedRevision,
+      adoptedBody: result.adoptedBody,
       stateBase64: uint8ArrayToBase64(result.state),
     };
   },

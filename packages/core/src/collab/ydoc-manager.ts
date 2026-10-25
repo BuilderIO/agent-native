@@ -1134,6 +1134,11 @@ function adoptedRevisionOf(doc: Y.Doc): string | null {
   return typeof revision === "string" ? revision : null;
 }
 
+function adoptedBodyOf(doc: Y.Doc): string | null {
+  const body = doc.getMap(SNAPSHOT_ADOPTION_MAP).get("body");
+  return typeof body === "string" ? body : null;
+}
+
 /**
  * Takes a saved-body snapshot into the live doc at most once per revision.
  * Every open editor proposes the same change, and without one arbiter each
@@ -1142,6 +1147,10 @@ function adoptedRevisionOf(doc: Y.Doc): string | null {
  * `adoptionUpdate` is the proposing editor's whole doc with the snapshot
  * taken in. A proposal built before the server took in another revision is
  * refused with `rebase`: its inserts would land beside that revision's.
+ *
+ * `body` is the saved body at `revision`. The doc keeps it next to the
+ * revision, so an editor that never saw that revision can still plan the next
+ * one against it rather than against its own unsaved typing.
  */
 export async function adoptSnapshotOnce(
   docId: string,
@@ -1149,12 +1158,14 @@ export async function adoptSnapshotOnce(
   revision: string,
   options: {
     isCurrent?: () => Promise<boolean> | boolean;
+    body?: string;
     requestSource?: string;
   } = {},
 ): Promise<{
   status: SnapshotAdoptionStatus;
   state: Uint8Array;
   adoptedRevision: string | null;
+  adoptedBody: string | null;
 }> {
   if (!revision) throw new Error("A snapshot revision is required");
   const proposal = new Y.Doc();
@@ -1183,6 +1194,7 @@ export async function adoptSnapshotOnce(
             status,
             state: Y.encodeStateAsUpdate(committed),
             adoptedRevision,
+            adoptedBody: adoptedBodyOf(committed),
           });
           if (adoptedRevision === revision) return answer("already-adopted");
           if (adoptedRevision !== baseRevision) return answer("rebase");
@@ -1195,7 +1207,10 @@ export async function adoptSnapshotOnce(
           const beforeVector = Y.encodeStateVector(committed);
           committed.transact(() => {
             Y.applyUpdate(committed, adoptionUpdate);
-            committed.getMap(SNAPSHOT_ADOPTION_MAP).set("revision", revision);
+            const marker = committed.getMap(SNAPSHOT_ADOPTION_MAP);
+            marker.set("revision", revision);
+            if (options.body === undefined) marker.delete("body");
+            else marker.set("body", options.body);
           });
           if (committed.store.pendingStructs || committed.store.pendingDs) {
             throw new Error(
@@ -1224,7 +1239,12 @@ export async function adoptSnapshotOnce(
             uint8ArrayToBase64(committedUpdate),
             options.requestSource,
           );
-          return { status: "adopted", state, adoptedRevision: revision };
+          return {
+            status: "adopted",
+            state,
+            adoptedRevision: revision,
+            adoptedBody: options.body ?? null,
+          };
         } finally {
           committed.destroy();
         }

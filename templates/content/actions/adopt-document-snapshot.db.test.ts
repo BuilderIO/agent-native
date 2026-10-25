@@ -108,6 +108,8 @@ describe("adopt-document-snapshot", () => {
     });
     expect(first.status).toBe("adopted");
     expect(second.status).toBe("already-adopted");
+    // The saved body travels with the revision, for editors that rebuild on it.
+    expect(second.adoptedBody).toBe("Outside paragraph.");
     expect(body(second.stateBase64)).toBe(
       "<paragraph>Outside paragraph.</paragraph>",
     );

@@ -9,6 +9,7 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
+import { applyDocSurgically, defaultParseValue } from "./surgical-apply.js";
 import {
   getEditorMarkdown,
   useCollabReconcile,
@@ -79,7 +80,11 @@ function makeTabs(
       if (origin !== "remote") outboxes[index]!.push(update);
     });
   });
+  // Holds back the server's relay, as for a revision another server took in
+  // that has not reached the tabs yet.
+  let relayPaused = false;
   server.on("update", (update: Uint8Array, origin: unknown) => {
+    if (relayPaused) return;
     docs.forEach((doc, index) => {
       if (origin !== `tab-${index}`) Y.applyUpdate(doc, update, "remote");
     });
@@ -103,6 +108,10 @@ function makeTabs(
   });
 
   let savedRevision = "revision-1";
+  // Saved bodies by revision, as the server reads them when it adopts one.
+  const bodies = new Map<string, string>();
+  let rebaseWithoutRevision = false;
+  let lostAnswers = 0;
   let failuresLeft = 0;
   let failureStatus = 503;
   const adoptionCalls: Array<{ index: number; revision: string }> = [];
@@ -130,6 +139,14 @@ function makeTabs(
           return;
         }
         const marker = server.getMap("agentNativeSnapshotAdoption");
+        if (rebaseWithoutRevision) {
+          resolve({
+            status: "rebase",
+            adoptedRevision: null,
+            state: Y.encodeStateAsUpdate(server),
+          });
+          return;
+        }
         const adopted = (marker.get("revision") as string | undefined) ?? null;
         const proposal = new Y.Doc();
         Y.applyUpdate(proposal, request.update);
@@ -142,6 +159,7 @@ function makeTabs(
           resolve({
             status,
             adoptedRevision: adopted,
+            adoptedBody: (marker.get("body") as string | undefined) ?? null,
             state: Y.encodeStateAsUpdate(server),
           });
         if (adopted === request.revision) return answer("already-adopted");
@@ -150,10 +168,17 @@ function makeTabs(
         server.transact(() => {
           Y.applyUpdate(server, request.update);
           marker.set("revision", request.revision);
+          marker.set("body", bodies.get(request.revision)!);
         }, "adoption");
+        if (lostAnswers > 0) {
+          lostAnswers -= 1;
+          reject(new Error("The answer was lost after the server took it"));
+          return;
+        }
         resolve({
           status: "adopted",
           adoptedRevision: request.revision,
+          adoptedBody: bodies.get(request.revision)!,
           state: Y.encodeStateAsUpdate(server),
         });
       });
@@ -164,6 +189,7 @@ function makeTabs(
 
   const editors: Array<Editor | null> = docs.map(() => null);
   const reconciled: Array<{ status: string; baseRevision: string }> = [];
+  let extraOptions: Partial<UseCollabReconcileOptions> = {};
   function Tab({
     index,
     value,
@@ -218,7 +244,9 @@ function makeTabs(
         }),
       getMarkdown: (editorToRead) => getEditorMarkdown(editorToRead),
       initialAppliedUpdatedAt: null,
+      overlapPolicy: "prefer-live",
       editable: true,
+      ...extraOptions,
     });
     return React.createElement("div");
   }
@@ -228,6 +256,7 @@ function makeTabs(
     updatedAt: string;
   }) =>
     act(() => {
+      bodies.set(props.revision, props.value);
       root.render(
         React.createElement(
           React.Fragment,
@@ -243,8 +272,48 @@ function makeTabs(
     render,
     push,
     settleAdoptions,
+    settleOneAdoption: () => pendingAdoptions.shift()?.(),
     adoptionCalls,
     reconciled,
+    setOptions: (next: Partial<UseCollabReconcileOptions>) => {
+      extraOptions = next;
+    },
+    /** Types at the start of the first paragraph without pushing it. */
+    type: (index: number, text: string) =>
+      act(() => {
+        editors[index]!.commands.insertContentAt(1, text);
+      }),
+    rebaseWithoutRevision: () => {
+      rebaseWithoutRevision = true;
+    },
+    loseNextAnswer: () => {
+      lostAnswers += 1;
+    },
+    /** Another editor's adoption of `revision`, which no tab has yet. */
+    adoptElsewhere: (value: string, revision: string) => {
+      bodies.set(revision, value);
+      relayPaused = true;
+      const writer = new CoreEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: server,
+        }),
+      });
+      try {
+        server.transact(() => {
+          applyDocSurgically(
+            writer as unknown as Editor,
+            defaultParseValue(writer as unknown as Editor, value)!,
+          );
+          const marker = server.getMap("agentNativeSnapshotAdoption");
+          marker.set("revision", revision);
+          marker.set("body", value);
+        }, "elsewhere");
+      } finally {
+        writer.destroy();
+        relayPaused = false;
+      }
+    },
     holdAnswersFor: (index: number) => heldTabs.add(index),
     deliverHeldAnswers: () => {
       heldTabs.clear();
@@ -415,24 +484,191 @@ describe("useCollabReconcile — snapshot adoption", () => {
     }
   });
 
-  it("applies a snapshot itself, with a warning, when the server has no adoptions", async () => {
+  it.each([
+    ["every server lacks it", 2],
+    ["only one tab's server lacks it", 1],
+  ])(
+    "keeps one copy when a server has no adoptions (%s)",
+    async (_case, missing) => {
+      vi.useFakeTimers();
+      setVisibility("hidden");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const tabs = makeTabs(2, { visible: false, adoption: "server" });
+      try {
+        tabs.render(FIRST);
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        tabs.failNextAdoptions(missing, 404);
+        tabs.saveRevision(SECOND.revision);
+        tabs.render(SECOND);
+        await act(async () => vi.advanceTimersByTimeAsync(8000));
+        expect(tabs.adoptionCalls).toHaveLength(2);
+        // The first answer is the 404; neither tab applies the snapshot
+        // itself while the other's proposal is still out.
+        tabs.settleOneAdoption();
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(tabs.markdown()).toEqual([BASELINE, BASELINE]);
+        for (let step = 0; step < 4; step += 1) {
+          tabs.settleAdoptions();
+          await act(async () => vi.advanceTimersByTimeAsync(3000));
+        }
+        tabs.push(0);
+        tabs.push(1);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(tabs.markdown()).toEqual([OUTSIDE, OUTSIDE]);
+        expect(tabs.serverMarkdown()).toBe(OUTSIDE);
+      } finally {
+        warn.mockRestore();
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("asks again, without a second copy, when an answer is lost after the server took it", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.loseNextAnswer();
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(1100));
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.push(0);
+      expect(tabs.adoptionCalls).toHaveLength(2);
+      expect(tabs.markdown()).toEqual([OUTSIDE]);
+      expect(tabs.serverMarkdown()).toBe(OUTSIDE);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("keeps unsaved typing when it rebuilds on a revision this tab never saw", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const third = {
+      value: `${OUTSIDE}\n\nLater paragraph.`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Unsaved ");
+      tabs.saveRevision(third.revision);
+      tabs.render(third);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.adoptionCalls).toHaveLength(1);
+      tabs.adoptElsewhere(OUTSIDE, SECOND.revision);
+      for (let step = 0; step < 3; step += 1) {
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+      }
+      expect(tabs.adoptionCalls.map((call) => call.revision)).toEqual([
+        "revision-3",
+        "revision-3",
+      ]);
+      expect(tabs.markdown()).toEqual([`Unsaved ${third.value}`]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("stops when the server keeps sending a proposal back without a revision to rebuild on", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const tabs = makeTabs(1, { visible: true, adoption: "server" });
     try {
       tabs.render(FIRST);
       await act(async () => vi.advanceTimersByTimeAsync(30));
-      tabs.failNextAdoptions(1, 404);
+      tabs.rebaseWithoutRevision();
       tabs.saveRevision(SECOND.revision);
       tabs.render(SECOND);
-      await act(async () => vi.advanceTimersByTimeAsync(100));
-      tabs.settleAdoptions();
-      await act(async () => vi.advanceTimersByTimeAsync(100));
-      expect(tabs.markdown()).toEqual([OUTSIDE]);
+      for (let step = 0; step < 30; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(5));
+        tabs.settleAdoptions();
+      }
+      await act(async () => vi.advanceTimersByTimeAsync(5));
       expect(tabs.adoptionCalls).toHaveLength(1);
+      expect(tabs.markdown()).toEqual([BASELINE]);
       expect(warn).toHaveBeenCalled();
     } finally {
       warn.mockRestore();
+      tabs.dispose();
+    }
+  });
+
+  it("gives up, warning, when other editors' adoptions keep landing first", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      for (let step = 0; step < 10; step += 1) {
+        tabs.adoptElsewhere(
+          `${BASELINE}\n\nElsewhere ${step}.`,
+          `elsewhere-${step}`,
+        );
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+      }
+      // The first proposal and five rebuilds.
+      expect(tabs.adoptionCalls).toHaveLength(6);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      tabs.dispose();
+    }
+  });
+
+  it("takes in the next write whole after a rebuild answer it no longer waits for", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const second = { ...SECOND, value: `${BASELINE}\n\nOutside paragraph.` };
+    const third = {
+      value: `${second.value}\n\nLater paragraph.`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    const fourth = {
+      value: `${third.value}\n\nNewest paragraph.`,
+      revision: "revision-4",
+      updatedAt: "2024-01-01T00:00:04.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      // Revision 2 arrives and is passed over for revision 3 at once.
+      tabs.saveRevision(second.revision);
+      tabs.render(second);
+      tabs.saveRevision(third.revision);
+      tabs.render(third);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.adoptionCalls).toEqual([
+        { index: 0, revision: "revision-3" },
+      ]);
+      // Another editor takes in revision 2 first, so revision 3 comes back to
+      // rebuild, but only once revision 4 has replaced it here.
+      tabs.adoptElsewhere(second.value, second.revision);
+      tabs.holdAnswersFor(0);
+      tabs.settleAdoptions();
+      tabs.saveRevision(fourth.revision);
+      tabs.render(fourth);
+      tabs.deliverHeldAnswers();
+      for (let step = 0; step < 4; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        tabs.settleAdoptions();
+      }
+      expect(tabs.markdown()).toEqual([fourth.value]);
+      expect(tabs.reconciled).toEqual([]);
+    } finally {
       tabs.dispose();
     }
   });

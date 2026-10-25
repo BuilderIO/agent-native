@@ -4347,6 +4347,7 @@ export function VisualEditor({
       const result = await callAction<{
         status: "adopted" | "already-adopted" | "rebase" | "stale";
         adoptedRevision: string | null;
+        adoptedBody: string | null;
         stateBase64: string;
       }>("adopt-document-snapshot", {
         id: documentId,
@@ -4356,6 +4357,7 @@ export function VisualEditor({
       return {
         status: result.status,
         adoptedRevision: result.adoptedRevision,
+        adoptedBody: result.adoptedBody,
         state: Uint8Array.from(atob(result.stateBase64), (char) =>
           char.charCodeAt(0),
         ),

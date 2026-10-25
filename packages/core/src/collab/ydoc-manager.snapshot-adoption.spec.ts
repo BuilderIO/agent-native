@@ -256,7 +256,9 @@ it("sends a proposal built before another revision was taken in back to rebase",
   const { pglite, emit } = await setUp(docId);
   const manager = await import("./ydoc-manager.js");
   try {
-    await manager.adoptSnapshotOnce(docId, proposal(10), "revision-2");
+    await manager.adoptSnapshotOnce(docId, proposal(10), "revision-2", {
+      body: "Alpha\n\nOutside",
+    });
     // Another editor built revision 3, which keeps revision 2's paragraph,
     // on the doc from before revision 2 was taken in.
     const behind = new Y.Doc();
@@ -273,6 +275,8 @@ it("sends a proposal built before another revision was taken in back to rebase",
     behind.destroy();
     expect(refused.status).toBe("rebase");
     expect(refused.adoptedRevision).toBe("revision-2");
+    // The editor rebuilds against revision 2's body, not its own doc.
+    expect(refused.adoptedBody).toBe("Alpha\n\nOutside");
     expect(xmlBody(refused.state)).toBe(ONE_COPY);
     expect(emit).toHaveBeenCalledTimes(1);
 
@@ -290,6 +294,8 @@ it("sends a proposal built before another revision was taken in back to rebase",
     expect(xmlBody(third.state)).toBe(
       `${ONE_COPY}<paragraph>Later</paragraph>`,
     );
+    // Adopted without a body, revision 3 leaves none behind for revision 2's.
+    expect(third.adoptedBody).toBeNull();
   } finally {
     manager.releaseDoc(docId);
     await pglite.close();

@@ -14,8 +14,9 @@ export const LIVE_COPY_TASK = {
 } as const;
 
 /**
- * Y.Map holding the saved-body revision a legacy page's live doc last took in.
- * It carries no body content, so a live copy may hold it next to the field.
+ * Y.Map holding the saved-body revision a legacy page's live doc last took in,
+ * with that revision's Markdown. It is bookkeeping, not page content, so a live
+ * copy may hold it next to the field.
  */
 export const SNAPSHOT_ADOPTION_MAP = "agentNativeSnapshotAdoption";
 
