@@ -249,6 +249,7 @@ describe("messages sent into a running turn", () => {
               name: "inline.png",
               data: "data:image/png;base64,AAAA",
             },
+            { name: "untyped-upload", url: "https://cdn.example.com/u/1" },
           ],
         },
       ],
@@ -263,6 +264,10 @@ describe("messages sent into a running turn", () => {
       expect.objectContaining({
         type: "image",
         url: "https://cdn.example.com/logo.png",
+      }),
+      expect.objectContaining({
+        type: "image",
+        url: "https://cdn.example.com/u/1",
       }),
     ]);
   });

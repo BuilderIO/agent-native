@@ -1897,7 +1897,11 @@ function queuedAttachmentsForSteer(
           : undefined;
     return [
       {
-        type: mediaType?.toLowerCase().startsWith("image/") ? "image" : "file",
+        type:
+          file?.type === "image" ||
+          mediaType?.toLowerCase().startsWith("image/")
+            ? "image"
+            : "file",
         name: typeof file?.name === "string" ? file.name : "attachment",
         url,
         ...(mediaType ? { mediaType, contentType: mediaType } : {}),
@@ -1921,11 +1925,11 @@ export function steeredQueuedMessageRecords(
     // replays only what this record keeps.
     const attachments = queuedAttachmentsForSteer([
       ...(message.attachments ?? []),
-      ...(message.requestAttachments ?? []).map((value) => {
+      // Request attachments are always images, with an optional content type.
+      ...(message.requestAttachments ?? []).flatMap((value) => {
         const file = value as Record<string, unknown> | null;
-        return file && typeof file === "object" && file.url === undefined
-          ? { ...file, url: file.referenceUrl }
-          : value;
+        if (!file || typeof file !== "object") return [];
+        return [{ ...file, type: "image", url: file.url ?? file.referenceUrl }];
       }),
     ]).filter(
       (attachment, index, all) =>

@@ -389,4 +389,106 @@ describe("useVoiceDictation — cancelled transcription", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it("stops a cancelled start's microphone instead of recording into the next one", async () => {
+    const opened: Array<(stream: MediaStream) => void> = [];
+    stubSpeechEnvironment(
+      vi.fn(
+        () =>
+          new Promise<MediaStream>((resolve) => {
+            opened.push(resolve);
+          }),
+      ),
+    );
+    vi.stubGlobal("SpeechRecognition", undefined);
+    vi.stubGlobal("webkitSpeechRecognition", undefined);
+    vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+    const probe = await renderVoiceDictation();
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    await act(async () => {
+      void probe.latest().start();
+      await flush();
+    });
+    expect(opened).toHaveLength(1);
+    act(() => probe.latest().cancel());
+    await act(async () => {
+      void probe.latest().start();
+      await flush();
+    });
+    expect(opened).toHaveLength(2);
+
+    const staleStop = vi.fn();
+    await act(async () => {
+      opened[0]!({
+        getTracks: () => [{ stop: staleStop }],
+      } as unknown as MediaStream);
+      await flush();
+    });
+    expect(staleStop).toHaveBeenCalled();
+    expect(FakeMediaRecorder.last).toBeUndefined();
+
+    await act(async () => {
+      opened[1]!({ getTracks: () => [] } as unknown as MediaStream);
+      await flush();
+    });
+    expect(FakeMediaRecorder.last?.started).toBe(true);
+    expect(probe.latest().state).toBe("recording");
+    await probe.cleanup();
+  });
+
+  it("drops a transcript whose response body finishes after cancel", async () => {
+    stubSpeechEnvironment(vi.fn().mockResolvedValue({ getTracks: () => [] }));
+    vi.stubGlobal("SpeechRecognition", undefined);
+    vi.stubGlobal("webkitSpeechRecognition", undefined);
+    vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+    let finishBody: (body: { text: string }) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/transcribe-voice")
+          ? Promise.resolve({
+              ok: true,
+              status: 200,
+              json: () =>
+                new Promise((resolve) => {
+                  finishBody = resolve;
+                }),
+            })
+          : Promise.resolve(new Response("{}", { status: 404 })),
+      ),
+    );
+    const onTranscript = vi.fn();
+    const seen: VoiceDictationApi[] = [];
+    function Probe() {
+      seen.push(useVoiceDictation({ onTranscript }));
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<Probe />));
+    const latest = () => seen[seen.length - 1]!;
+
+    await act(async () => {
+      await latest().start();
+    });
+    await act(async () => {
+      FakeMediaRecorder.last!.ondataavailable?.({ data: new Blob(["audio"]) });
+      void FakeMediaRecorder.last!.onstop?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(latest().state).toBe("transcribing");
+
+    act(() => latest().cancel());
+    await act(async () => {
+      finishBody({ text: "too late" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(latest().state).toBe("idle");
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });

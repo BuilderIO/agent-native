@@ -451,10 +451,10 @@ export function useVoiceDictation(
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number>(0);
-  const cancelledRef = useRef(false);
-  // Cancel bumps this. A recording's late continuations (a transcription
-  // response, a socket close) share refs with any newer recording, so one from
-  // an earlier session must return without touching them.
+  // start() opens a session and cancel() ends it. A late continuation (a
+  // transcription response, a socket event) shares refs with any newer session,
+  // so one from an ended session returns without touching them; cancel() has
+  // already torn its own session down.
   const sessionRef = useRef(0);
   const speechRef = useRef<any>(null);
   const speechTranscriptRef = useRef<string>("");
@@ -596,13 +596,14 @@ export function useVoiceDictation(
   }, []);
 
   const startOpenAi = useCallback(
-    async (providerPref: VoiceProvider, instructions?: string) => {
-      const session = sessionRef.current;
+    async (
+      session: number,
+      providerPref: VoiceProvider,
+      instructions?: string,
+    ) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (cancelledRef.current) {
+      if (session !== sessionRef.current) {
         for (const track of stream.getTracks()) track.stop();
-        cancelledRef.current = false;
-        setState("idle");
         return;
       }
       mediaStreamRef.current = stream;
@@ -620,11 +621,6 @@ export function useVoiceDictation(
         const localMime = recorder.mimeType || mimeType;
         const liveSnapshot = liveTextRef.current;
         teardown();
-        if (cancelledRef.current) {
-          cancelledRef.current = false;
-          setState("idle");
-          return;
-        }
         if (localChunks.length === 0) {
           if (liveSnapshot) onTranscriptRef.current?.(liveSnapshot.trim());
           setState("idle");
@@ -665,12 +661,8 @@ export function useVoiceDictation(
                 ),
             );
           }
-          if (cancelledRef.current) {
-            cancelledRef.current = false;
-            setState("idle");
-            return;
-          }
           const data = (await res.json()) as { text?: string };
+          if (session !== sessionRef.current) return;
           const text = (data.text ?? "").trim();
           if (text) {
             onTranscriptRef.current?.(text);
@@ -680,11 +672,6 @@ export function useVoiceDictation(
           setState("idle");
         } catch (err) {
           if (session !== sessionRef.current) return;
-          if (cancelledRef.current) {
-            cancelledRef.current = false;
-            setState("idle");
-            return;
-          }
           if (liveSnapshot) {
             onTranscriptRef.current?.(liveSnapshot.trim());
             setState("idle");
@@ -716,6 +703,7 @@ export function useVoiceDictation(
         liveTextRef.current = "";
 
         liveSpeech.onresult = (event: any) => {
+          if (session !== sessionRef.current) return;
           let interim = "";
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
@@ -761,10 +749,10 @@ export function useVoiceDictation(
 
   const startBrowser = useCallback(
     async (
+      session: number,
       prefs: VoicePrefs,
       onUnavailable?: (error: string | undefined) => boolean,
     ) => {
-      const session = sessionRef.current;
       const Ctor = getSpeechRecognitionCtor();
       if (!Ctor) {
         throw new Error(
@@ -774,11 +762,7 @@ export function useVoiceDictation(
           }),
         );
       }
-      if (cancelledRef.current) {
-        cancelledRef.current = false;
-        setState("idle");
-        return;
-      }
+      if (session !== sessionRef.current) return;
 
       const recognition = new Ctor();
       recognition.continuous = true;
@@ -794,12 +778,15 @@ export function useVoiceDictation(
 
       recognition.onaudiostart = () => {
         capturing = true;
-        if (cancelledRef.current) return;
+        if (session !== sessionRef.current) return;
         void Promise.resolve()
           .then(() => navigator.mediaDevices?.getUserMedia({ audio: true }))
           .then((stream) => {
             if (!stream) return;
-            if (cancelledRef.current || speechRef.current !== recognition) {
+            if (
+              session !== sessionRef.current ||
+              speechRef.current !== recognition
+            ) {
               for (const track of stream.getTracks()) track.stop();
               return;
             }
@@ -812,6 +799,7 @@ export function useVoiceDictation(
       };
 
       recognition.onresult = (event: any) => {
+        if (session !== sessionRef.current) return;
         capturing = true;
         let interim = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -833,13 +821,7 @@ export function useVoiceDictation(
       recognition.onend = () => {
         if (session !== sessionRef.current) return;
         const text = speechTranscriptRef.current.trim();
-        const wasCancelled = cancelledRef.current;
-        cancelledRef.current = false;
         teardown();
-        if (wasCancelled) {
-          setState("idle");
-          return;
-        }
         if (!text) {
           if (fatal || !capturing) {
             if (onUnavailable?.(lastError)) return;
@@ -867,10 +849,7 @@ export function useVoiceDictation(
             }
           }
           if (session !== sessionRef.current) return;
-          if (!cancelledRef.current && finalText) {
-            onTranscriptRef.current?.(finalText);
-          }
-          cancelledRef.current = false;
+          if (finalText) onTranscriptRef.current?.(finalText);
           setState("idle");
         })();
       };
@@ -892,13 +871,10 @@ export function useVoiceDictation(
   );
 
   const startGoogleRealtime = useCallback(
-    async (prefs: VoicePrefs) => {
-      const session = sessionRef.current;
+    async (session: number, prefs: VoicePrefs) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (cancelledRef.current) {
+      if (session !== sessionRef.current) {
         for (const track of stream.getTracks()) track.stop();
-        cancelledRef.current = false;
-        setState("idle");
         return;
       }
 
@@ -931,10 +907,8 @@ export function useVoiceDictation(
             }),
         );
       }
-      if (cancelledRef.current) {
+      if (session !== sessionRef.current) {
         for (const track of stream.getTracks()) track.stop();
-        cancelledRef.current = false;
-        setState("idle");
         return;
       }
 
@@ -959,11 +933,6 @@ export function useVoiceDictation(
             .join(" ")
             .trim();
           teardown();
-          if (cancelledRef.current) {
-            cancelledRef.current = false;
-            setState("idle");
-            return;
-          }
           if (text) {
             let cleanedText = text;
             if (prefs.cleanupEnabled) {
@@ -982,10 +951,7 @@ export function useVoiceDictation(
               }
             }
             if (session !== sessionRef.current) return;
-            if (!cancelledRef.current && cleanedText) {
-              onTranscriptRef.current?.(cleanedText);
-            }
-            cancelledRef.current = false;
+            if (cleanedText) onTranscriptRef.current?.(cleanedText);
             setState("idle");
             return;
           }
@@ -998,6 +964,7 @@ export function useVoiceDictation(
       };
 
       recorder.ondataavailable = async (event) => {
+        if (session !== sessionRef.current) return;
         if (!event.data || event.data.size === 0) return;
         const socket = realtimeSocketRef.current;
         if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -1014,6 +981,7 @@ export function useVoiceDictation(
       };
 
       recorder.onstop = () => {
+        if (session !== sessionRef.current) return;
         const socket = realtimeSocketRef.current;
         if (!socket || socket.readyState !== WebSocket.OPEN) {
           finish();
@@ -1048,10 +1016,7 @@ export function useVoiceDictation(
       realtimeSocketRef.current = socket;
 
       socket.onmessage = (event) => {
-        if (cancelledRef.current) {
-          finish();
-          return;
-        }
+        if (session !== sessionRef.current) return;
         const raw =
           typeof event.data === "string"
             ? event.data
@@ -1128,10 +1093,7 @@ export function useVoiceDictation(
       };
 
       socket.onopen = () => {
-        if (cancelledRef.current) {
-          finish();
-          return;
-        }
+        if (session !== sessionRef.current) return;
         try {
           socket.send(
             JSON.stringify({
@@ -1169,9 +1131,10 @@ export function useVoiceDictation(
     if (state === "recording" || state === "starting") return;
     setErrorMessage(null);
     setState("starting");
-    cancelledRef.current = false;
+    const session = ++sessionRef.current;
 
     const prefs = await readVoicePrefs(resolvePath);
+    if (session !== sessionRef.current) return;
     const pref = prefs.provider;
     setProvider(pref);
 
@@ -1197,7 +1160,7 @@ export function useVoiceDictation(
             }),
           );
         }
-        await startOpenAi(pref, prefs.instructions);
+        await startOpenAi(session, pref, prefs.instructions);
       } else if (resolvedProvider === "google-realtime") {
         if (!mediaRecorderSupported) {
           throw new Error(
@@ -1210,17 +1173,18 @@ export function useVoiceDictation(
             ),
           );
         }
-        await startGoogleRealtime(prefs);
+        await startGoogleRealtime(session, prefs);
       } else {
         await startBrowser(
+          session,
           prefs,
           pref === "auto" && mediaRecorderSupported
             ? (error) => {
                 if (isMicPermissionError(error)) return false;
                 activeProviderRef.current = "openai";
                 setState("starting");
-                void startOpenAi("auto", prefs.instructions).catch((err) =>
-                  failWith(voiceDictationStartErrorMessage(err, t)),
+                void startOpenAi(session, "auto", prefs.instructions).catch(
+                  (err) => failWith(voiceDictationStartErrorMessage(err, t)),
                 );
                 return true;
               }
@@ -1228,12 +1192,7 @@ export function useVoiceDictation(
         );
       }
     } catch (err) {
-      if (cancelledRef.current) {
-        cancelledRef.current = false;
-        teardown();
-        setState("idle");
-        return;
-      }
+      if (session !== sessionRef.current) return;
       failWith(voiceDictationStartErrorMessage(err, t));
     }
   }, [
@@ -1249,7 +1208,6 @@ export function useVoiceDictation(
 
   const stop = useCallback(() => {
     if (state !== "recording") return;
-    cancelledRef.current = false;
     if (
       (activeProviderRef.current === "openai" ||
         activeProviderRef.current === "google-realtime") &&
@@ -1281,7 +1239,6 @@ export function useVoiceDictation(
       state !== "transcribing"
     )
       return;
-    cancelledRef.current = true;
     sessionRef.current += 1;
     if (
       (activeProviderRef.current === "openai" ||
