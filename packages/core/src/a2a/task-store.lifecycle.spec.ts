@@ -1349,4 +1349,38 @@ describe("task-store lifecycle (real pglite)", () => {
       expect(scoped.every((t) => t.contextId === "ctx-1")).toBe(true);
     });
   });
+
+  describe("cancel racing a synchronous send", () => {
+    it("keeps the task canceled when the handler completes after the cancel", async () => {
+      const {
+        A2ATaskCanceledError,
+        cancelA2ATask,
+        createTask,
+        getTask,
+        updateTask,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("slow"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await updateTask(task.id, { state: "working" });
+
+      await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
+        status: "canceled",
+      });
+      const completion = updateTask(task.id, {
+        state: "completed",
+        message: makeMessage("late result", "agent"),
+      });
+      await expect(completion).rejects.toBeInstanceOf(A2ATaskCanceledError);
+      await expect(completion).rejects.toMatchObject({
+        task: { id: task.id, status: { state: "canceled" } },
+      });
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "canceled" },
+      });
+    });
+  });
 });

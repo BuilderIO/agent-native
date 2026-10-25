@@ -148,9 +148,10 @@ const TEST_FILE = /\.(spec|test)\.tsx?$/;
 
 /**
  * The specs named after each mutated file, relative to Core: for
- * `src/a2a/task-store.ts`, `task-store.spec.ts`, `task-store.db.spec.ts`,
- * and `task-store-lifecycle.spec.ts` in the same directory. Returns the
- * mutated files with no such spec under `missing`.
+ * `src/a2a/task-store.ts`, `task-store.spec.ts` and `task-store.db.spec.ts`
+ * in the same directory. A dash extends the module name, so
+ * `task-store-lifecycle.spec.ts` names a `task-store-lifecycle` module and is
+ * not counted. Returns the mutated files with no such spec under `missing`.
  */
 export function namedSpecs(
   specs: readonly string[],
@@ -163,9 +164,7 @@ export function namedSpecs(
     const directory = path.posix.dirname(file);
     const base = path.posix.basename(file).replace(/\.tsx?$/, "");
     const named = listDirectory(directory).filter(
-      (entry) =>
-        TEST_FILE.test(entry) &&
-        (entry.startsWith(`${base}.`) || entry.startsWith(`${base}-`)),
+      (entry) => entry.startsWith(`${base}.`) && TEST_FILE.test(entry),
     );
     if (named.length === 0) missing.push(file);
     for (const entry of named) include.add(`${directory}/${entry}`);

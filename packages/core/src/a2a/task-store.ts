@@ -38,6 +38,21 @@ export function a2aTaskLeaseThreadId(taskId: string): string {
 
 export const A2A_TASK_CLAIM_LOST_ERROR_CODE = "a2a_task_claim_lost";
 
+/**
+ * An `updateTask` write that tasks/cancel beat. The stored task stays
+ * canceled; `task` is that row, so the caller can answer with it.
+ */
+export class A2ATaskCanceledError extends Error {
+  readonly code = "a2a_task_canceled";
+  readonly task: Task;
+
+  constructor(task: Task) {
+    super(`A2A task ${task.id} was canceled`);
+    this.name = "A2ATaskCanceledError";
+    this.task = task;
+  }
+}
+
 export interface A2ATaskListCursor {
   createdAt: number;
   id: string;
@@ -931,7 +946,7 @@ export async function updateTask(
       assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
 
       const result = await tx.execute({
-        sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
+        sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql} AND status_state <> ${taskSql("canceled")}`,
         args: [
           task.status.state,
           task.status.message ? JSON.stringify(task.status.message) : null,
@@ -943,12 +958,21 @@ export async function updateTask(
           ...predicate.args,
         ],
       });
+      if (getAffectedRowCount(result) === 1) return task;
 
-      if (accessScope && getAffectedRowCount(result) !== 1) {
-        return null;
+      // Zero rows: the task is missing, outside the access scope, or canceled.
+      // Only a canceled row is a cancel win; the others stay null.
+      const { rows: current } = await tx.execute({
+        sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+        args: [id, ...predicate.args],
+      });
+      if (current[0]) {
+        const stored = taskFromRow(current[0]);
+        if (stored.status.state === "canceled") {
+          throw new A2ATaskCanceledError(stored);
+        }
       }
-
-      return task;
+      return null;
     },
     { threadId: a2aTaskLeaseThreadId(id), turnId: id },
   );

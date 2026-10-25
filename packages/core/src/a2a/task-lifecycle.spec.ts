@@ -39,6 +39,16 @@ const ALL_TASK_STATES: readonly A2ATaskStatus[] = [
   "input-required",
 ] as const;
 
+// Every state but canceled: updateTask's UPDATE refuses a canceled row.
+const OVERWRITE_FROM: readonly A2ATaskStatus[] = [
+  "submitted",
+  "working",
+  "processing",
+  "completed",
+  "failed",
+  "input-required",
+];
+
 const TASK_EVENTS: Array<{
   event: A2ATaskEvent;
   from: readonly A2ATaskStatus[];
@@ -142,60 +152,60 @@ const TASK_EVENTS: Array<{
     to: "canceled",
     sqlTo: "'canceled'",
   },
-  // updateTask, update.state "submitted": SQL has no status predicate
+  // updateTask, update.state "submitted": the UPDATE refuses canceled rows
   {
     event: "overwriteAsSubmitted",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "submitted",
     sqlTo: "'submitted'",
   },
   {
     event: "overwriteAsWorking",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "working",
     sqlTo: "'working'",
   },
   {
     event: "overwriteAsProcessing",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "processing",
     sqlTo: "'processing'",
   },
   {
     event: "overwriteAsCompleted",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "completed",
     sqlTo: "'completed'",
   },
   {
     event: "overwriteAsFailed",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "failed",
     sqlTo: "'failed'",
   },
   {
     event: "overwriteAsCanceled",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "canceled",
     sqlTo: "'canceled'",
   },
   {
     event: "overwriteAsInputRequired",
-    from: ALL_TASK_STATES,
+    from: OVERWRITE_FROM,
     sqlList:
-      "'submitted', 'working', 'processing', 'completed', 'failed', 'canceled', 'input-required'",
+      "'submitted', 'working', 'processing', 'completed', 'failed', 'input-required'",
     to: "input-required",
     sqlTo: "'input-required'",
   },
@@ -238,10 +248,16 @@ describe("a2aTaskMachine", () => {
     expect(a2aTaskMachine.initial).toBe("submitted");
   });
 
-  it("has no terminal state because the SQL moves every state out", () => {
+  it("makes canceled the only terminal state", () => {
     for (const state of ALL_TASK_STATES) {
-      expect(a2aTaskMachine.isTerminal(state)).toBe(false);
+      expect(a2aTaskMachine.isTerminal(state)).toBe(state === "canceled");
     }
+  });
+
+  it("rejects overwriting a canceled task", () => {
+    expect(() =>
+      a2aTaskMachine.transition("canceled", "overwriteAsCompleted"),
+    ).toThrow(StateMachineError);
   });
 
   it.each(TASK_EVENTS)(

@@ -19,13 +19,23 @@ const TASK_STATES = [
   "input-required",
 ] as const;
 
+// updateTask's UPDATE skips canceled rows, so no overwrite starts from canceled.
+const OVERWRITE_FROM = [
+  "submitted",
+  "working",
+  "processing",
+  "completed",
+  "failed",
+  "input-required",
+] as const;
+
 export const a2aTaskMachine = defineMachine({
   id: "a2a-task",
   states: TASK_STATES,
   initial: "submitted",
-  // Empty on purpose: updateTask has no status guard, so the SQL moves
-  // completed and failed rows out of their state too.
-  terminal: [],
+  // canceled has no outgoing event, so a cancel is final. completed and failed
+  // still have overwrite events: updateTask can move them.
+  terminal: ["canceled"],
   transitions: {
     // claimA2ATaskForProcessing
     claimForProcessing: { from: ["submitted", "working"], to: "processing" },
@@ -55,14 +65,14 @@ export const a2aTaskMachine = defineMachine({
       from: ["submitted", "working", "processing", "input-required"],
       to: "canceled",
     },
-    // updateTask, with update.state: no status guard in the SQL
-    overwriteAsSubmitted: { from: TASK_STATES, to: "submitted" },
-    overwriteAsWorking: { from: TASK_STATES, to: "working" },
-    overwriteAsProcessing: { from: TASK_STATES, to: "processing" },
-    overwriteAsCompleted: { from: TASK_STATES, to: "completed" },
-    overwriteAsFailed: { from: TASK_STATES, to: "failed" },
-    overwriteAsCanceled: { from: TASK_STATES, to: "canceled" },
-    overwriteAsInputRequired: { from: TASK_STATES, to: "input-required" },
+    // updateTask, with update.state: the UPDATE refuses canceled rows
+    overwriteAsSubmitted: { from: OVERWRITE_FROM, to: "submitted" },
+    overwriteAsWorking: { from: OVERWRITE_FROM, to: "working" },
+    overwriteAsProcessing: { from: OVERWRITE_FROM, to: "processing" },
+    overwriteAsCompleted: { from: OVERWRITE_FROM, to: "completed" },
+    overwriteAsFailed: { from: OVERWRITE_FROM, to: "failed" },
+    overwriteAsCanceled: { from: OVERWRITE_FROM, to: "canceled" },
+    overwriteAsInputRequired: { from: OVERWRITE_FROM, to: "input-required" },
   },
 });
 

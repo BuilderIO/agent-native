@@ -64,6 +64,7 @@ import {
   pauseProcessingA2ATask,
   MAX_A2A_IDEMPOTENCY_KEY_CHARS,
   A2A_TASK_CLAIM_LOST_ERROR_CODE,
+  A2ATaskCanceledError,
   A2A_PERSONAL_OWNER_SCOPE,
   A2A_ORG_ID_OWNER_SCOPE_PREFIX,
 } from "./task-store.js";
@@ -1095,68 +1096,81 @@ async function handleSend(
     );
 
     try {
-      const result = getHandler(config)(message, ctx.context);
+      try {
+        const result = getHandler(config)(message, ctx.context);
 
-      if (
-        result &&
-        typeof result === "object" &&
-        Symbol.asyncIterator in result
-      ) {
-        let lastMessage: Message | undefined;
-        for await (const msg of result as AsyncGenerator<Message>) {
-          lastMessage = msg;
+        if (
+          result &&
+          typeof result === "object" &&
+          Symbol.asyncIterator in result
+        ) {
+          let lastMessage: Message | undefined;
+          for await (const msg of result as AsyncGenerator<Message>) {
+            lastMessage = msg;
+          }
+          if (
+            lastMessage?.metadata?.agentNativeTaskState === "input-required"
+          ) {
+            const updated = await updateTask(task.id, {
+              state: "input-required",
+              message: lastMessage,
+            });
+            return { ...jsonRpcResult(0, updated), _id: 0 };
+          }
+          await ctx.persistFileArtifacts();
+          const updated = await updateTask(task.id, {
+            state: "completed",
+            message: lastMessage,
+            artifacts: ctx.artifacts.length > 0 ? ctx.artifacts : undefined,
+          });
+          return { ...jsonRpcResult(0, updated), _id: 0 };
         }
-        if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
+
+        const handlerResult = await (result as Promise<A2AHandlerResult>);
+        const allArtifacts = [
+          ...ctx.artifacts,
+          ...(handlerResult.artifacts ?? []),
+        ];
+        if (handlerResult.taskState === "input-required") {
           const updated = await updateTask(task.id, {
             state: "input-required",
-            message: lastMessage,
+            message: handlerResult.message,
           });
           return { ...jsonRpcResult(0, updated), _id: 0 };
         }
         await ctx.persistFileArtifacts();
         const updated = await updateTask(task.id, {
           state: "completed",
-          message: lastMessage,
-          artifacts: ctx.artifacts.length > 0 ? ctx.artifacts : undefined,
-        });
-        return { ...jsonRpcResult(0, updated), _id: 0 };
-      }
-
-      const handlerResult = await (result as Promise<A2AHandlerResult>);
-      const allArtifacts = [
-        ...ctx.artifacts,
-        ...(handlerResult.artifacts ?? []),
-      ];
-      if (handlerResult.taskState === "input-required") {
-        const updated = await updateTask(task.id, {
-          state: "input-required",
           message: handlerResult.message,
+          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
+      } catch (err: any) {
+        const failureMessage = taskFailureMessage(err, "Handler failed");
+        await updateTask(task.id, {
+          state: "failed",
+          message: failureMessage,
+        });
+        return {
+          ...jsonRpcError(
+            0,
+            -32000,
+            failureMessage.parts[0]?.type === "text"
+              ? failureMessage.parts[0].text
+              : "Handler failed",
+          ),
+          _id: 0,
+        };
       }
-      await ctx.persistFileArtifacts();
-      const updated = await updateTask(task.id, {
-        state: "completed",
-        message: handlerResult.message,
-        artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-      });
-      return { ...jsonRpcResult(0, updated), _id: 0 };
-    } catch (err: any) {
-      const failureMessage = taskFailureMessage(err, "Handler failed");
-      await updateTask(task.id, {
-        state: "failed",
-        message: failureMessage,
-      });
-      return {
-        ...jsonRpcError(
-          0,
-          -32000,
-          failureMessage.parts[0]?.type === "text"
-            ? failureMessage.parts[0].text
-            : "Handler failed",
-        ),
-        _id: 0,
-      };
+    } catch (err: unknown) {
+      // A cancel that landed first is the answer; the handler's outcome is dropped.
+      if (err instanceof A2ATaskCanceledError) {
+        return {
+          ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
+          _id: 0,
+        };
+      }
+      throw err;
     }
   });
 }
@@ -1236,56 +1250,66 @@ async function handleStream(
     );
 
     try {
-      const result = getHandler(config)(message, context);
+      try {
+        const result = getHandler(config)(message, context);
 
-      if (
-        result &&
-        typeof result === "object" &&
-        Symbol.asyncIterator in result
-      ) {
-        for await (const msg of result as AsyncGenerator<Message>) {
-          const intermediate = await updateTask(task.id, {
-            state: "working",
-            message: msg,
+        if (
+          result &&
+          typeof result === "object" &&
+          Symbol.asyncIterator in result
+        ) {
+          for await (const msg of result as AsyncGenerator<Message>) {
+            const intermediate = await updateTask(task.id, {
+              state: "working",
+              message: msg,
+            });
+            res.write(
+              `data: ${JSON.stringify(jsonRpcResult(0, intermediate))}\n\n`,
+            );
+          }
+        } else {
+          const handlerResult = await (result as Promise<A2AHandlerResult>);
+          const allArtifacts = [
+            ...artifacts,
+            ...(handlerResult.artifacts ?? []),
+          ];
+          await persistFileArtifacts();
+          const updated = await updateTask(task.id, {
+            state: "completed",
+            message: handlerResult.message,
+            artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
           });
-          res.write(
-            `data: ${JSON.stringify(jsonRpcResult(0, intermediate))}\n\n`,
-          );
+          res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
+          res.end();
+          return;
         }
-      } else {
-        const handlerResult = await (result as Promise<A2AHandlerResult>);
-        const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+
+        const allArtifacts = [...artifacts];
         await persistFileArtifacts();
-        const updated = await updateTask(task.id, {
+        const final = await updateTask(task.id, {
           state: "completed",
-          message: handlerResult.message,
           artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         });
-        res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
-        res.end();
-        return;
+        res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
+      } catch (err: any) {
+        const failureMessage = taskFailureMessage(err, "Handler failed");
+        await updateTask(task.id, { state: "failed", message: failureMessage });
+        res.write(
+          `data: ${JSON.stringify(
+            jsonRpcError(
+              0,
+              -32000,
+              failureMessage.parts[0]?.type === "text"
+                ? failureMessage.parts[0].text
+                : "Handler failed",
+            ),
+          )}\n\n`,
+        );
       }
-
-      const allArtifacts = [...artifacts];
-      await persistFileArtifacts();
-      const final = await updateTask(task.id, {
-        state: "completed",
-        artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-      });
-      res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
-    } catch (err: any) {
-      const failureMessage = taskFailureMessage(err, "Handler failed");
-      await updateTask(task.id, { state: "failed", message: failureMessage });
+    } catch (err: unknown) {
+      if (!(err instanceof A2ATaskCanceledError)) throw err;
       res.write(
-        `data: ${JSON.stringify(
-          jsonRpcError(
-            0,
-            -32000,
-            failureMessage.parts[0]?.type === "text"
-              ? failureMessage.parts[0].text
-              : "Handler failed",
-          ),
-        )}\n\n`,
+        `data: ${JSON.stringify(jsonRpcResult(0, sanitizeTaskForResponse(err.task)))}\n\n`,
       );
     }
 
