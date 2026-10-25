@@ -5,6 +5,7 @@ import type { EnvKeyConfig } from "../server/create-server.js";
 const store = vi.hoisted(() => new Map<string, string>());
 const env = vi.hoisted(() => new Map<string, string>());
 const configs = vi.hoisted(() => new Map<string, boolean>());
+const unreadable = vi.hoisted(() => new Set<string>());
 const roleRef = vi.hoisted(() => ({ role: "owner" as string | null }));
 
 vi.mock("../secrets/storage.js", () => ({
@@ -12,7 +13,13 @@ vi.mock("../secrets/storage.js", () => ({
     async (args: { keys: string[]; scope: string; scopeId: string }) => {
       const out = new Map<string, { value: string }>();
       for (const key of args.keys) {
-        const value = store.get(`${args.scope}:${args.scopeId}:${key}`);
+        const storageKey = `${args.scope}:${args.scopeId}:${key}`;
+        const value = store.get(storageKey);
+        if (value !== undefined && unreadable.has(key)) {
+          const error = new Error("Secret value could not be decrypted.");
+          error.name = "AppSecretDecryptionError";
+          throw error;
+        }
         if (value !== undefined) out.set(key, { value });
       }
       return out;
@@ -133,6 +140,7 @@ describe("channel settings", () => {
     store.clear();
     env.clear();
     configs.clear();
+    unreadable.clear();
     roleRef.role = "owner";
     mounted = {
       adapters: [
@@ -287,6 +295,22 @@ describe("channel settings", () => {
     expect(result.removedKeys).toEqual(["TELEGRAM_BOT_TOKEN"]);
     expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
     expect(env.get("TELEGRAM_WEBHOOK_SECRET")).toBe("fake-env-secret");
+    expect(result.channel.state).toBe("not-set-up");
+  });
+
+  it("removes known channel credentials when one saved value is unreadable", async () => {
+    store.set(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`, "corrupted-ciphertext");
+    store.set(`workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`, "fake-secret");
+    unreadable.add("TELEGRAM_BOT_TOKEN");
+
+    const result = await removeMessagingChannelCredentials(OWNER, "telegram");
+
+    expect(result.removedKeys).toEqual([
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_WEBHOOK_SECRET",
+    ]);
+    expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
+    expect(store.has(`workspace:${ORG}:TELEGRAM_WEBHOOK_SECRET`)).toBe(false);
     expect(result.channel.state).toBe("not-set-up");
   });
 

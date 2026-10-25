@@ -178,6 +178,8 @@ type Parent = {
   };
   // Attachments on this source message, preserved from Slack's read-back.
   files?: SlackFileAttachment[];
+  // Search did not return attachment metadata; files may still come from a thread read-back.
+  sourceSearchFilesUnavailableReason?: string;
   reactionChecked: boolean;
   // Exact time of the latest root reaction read-back.
   reactionReadAt?: string;
@@ -560,6 +562,15 @@ function validateSourceFilesInSnapshot(
   parent: Parent,
   snapshot: ThreadSnapshot | undefined,
 ): void {
+  if (
+    parent.sourceSearchFilesUnavailableReason !== undefined &&
+    (typeof parent.sourceSearchFilesUnavailableReason !== "string" ||
+      !parent.sourceSearchFilesUnavailableReason.trim())
+  ) {
+    throw new Error(
+      `${parentName}: unavailable source-search attachment metadata needs a reason`,
+    );
+  }
   if (!snapshot) {
     if (parent.ownershipSkip) return;
     if (parent.files?.length) {
@@ -574,6 +585,11 @@ function validateSourceFilesInSnapshot(
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
   const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
+  if (parent.files === undefined && snapshotFiles?.length) {
+    throw new Error(
+      `${parentName}: preserve attachments returned by the full thread read in the inventory`,
+    );
+  }
   if (
     parent.files !== undefined &&
     JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files)
@@ -5500,6 +5516,19 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
     "(?:reports?|roots?|threads?|items?|assigned|unassigned|duplicates?|clustered|held|unowned|foreign|owned|administrative)";
   const sentences =
     withoutQuotedScopeContext(userRequest).split(/(?:[.!?;]\s+|\n+)/);
+  const populationInSentence = `[^.!?;\\n]{0,120}\\b${population}\\b`;
+  const populationAfterExclusion = new RegExp(
+    `\\b(?:skip|skipping|leave|leaving|avoid|avoiding|ignore|ignoring|exclude|excluding|omit|omitting)\\b${populationInSentence}`,
+    "i",
+  );
+  const negatedPopulationAction = new RegExp(
+    `\\b(?:do not|don't|never)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on)\\b${populationInSentence}`,
+    "i",
+  );
+  const exclusionLeavesPopulationAlone = new RegExp(
+    `\\b(?:skip|leave|avoid|ignore|exclude|omit)\\b${populationInSentence}[^.!?;\\n]{0,60}\\b(?:alone|untouched|out of scope|off limits)\\b`,
+    "i",
+  );
   return sentences.some(
     (sentence) =>
       new RegExp(
@@ -5508,7 +5537,10 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
       ).test(sentence) ||
       new RegExp(`\\bonly\\b[^.!?;\\n]{0,100}\\b${population}\\b`, "i").test(
         sentence,
-      ),
+      ) ||
+      populationAfterExclusion.test(sentence) ||
+      negatedPopulationAction.test(sentence) ||
+      exclusionLeavesPopulationAlone.test(sentence),
   );
 }
 
@@ -7756,10 +7788,25 @@ function validateSourceReceipt(
               `${parentName}: attachment IDs, names, and MIME types must match the raw source listing`,
             );
           }
-        } else if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
-          throw new Error(
-            `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
-          );
+          if (parent.sourceSearchFilesUnavailableReason !== undefined) {
+            throw new Error(
+              `${parentName}: sourceSearchFilesUnavailableReason must not be set when the raw search returned attachment metadata`,
+            );
+          }
+        } else {
+          if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
+            throw new Error(
+              `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
+            );
+          }
+          if (
+            typeof parent.sourceSearchFilesUnavailableReason !== "string" ||
+            !parent.sourceSearchFilesUnavailableReason.trim()
+          ) {
+            throw new Error(
+              `${parentName}: record why the raw source search omitted attachment metadata`,
+            );
+          }
         }
       }
     }
@@ -17739,6 +17786,21 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(unassignedOnlyRoot),
       "scope.userRequest must explicitly authorize work on exact root",
     );
+    for (const [restriction, label] of [
+      ["Skip anything assigned to someone else.", "skip assigned roots"],
+      ["Leave assigned reports alone.", "leave assigned reports alone"],
+      ["Don't touch assigned reports.", "don't touch assigned reports"],
+    ]) {
+      const excludedPopulationRoot = structuredClone(assignedForeignEyeRoot);
+      excludedPopulationRoot.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. ${restriction}`;
+      excludedPopulationRoot.scope.narrowingJudgment!.instruction =
+        excludedPopulationRoot.scope.userRequest;
+      expectFocusedFailure(
+        `bounded write grant does not cover an excluded population: ${label}`,
+        () => validateTestInventory(excludedPopulationRoot),
+        "scope.userRequest must explicitly authorize work on exact root",
+      );
+    }
     const directWorkAuthorization = structuredClone(authorizedMagRoot);
     directWorkAuthorization.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000, including the claim and same-thread status reply.";
@@ -21445,17 +21507,19 @@ if (args[0] === "--self-test" && args.length === 1) {
           pages: channel.pages.map((page) => ({
             ...page,
             readAt: pageReadAt,
-            parents: page.parents.map((parent) =>
-              parent.ts === parent.threadParentTs
+            parents: page.parents.map((parent) => ({
+              ...parent,
+              sourceSearchFilesUnavailableReason:
+                "The synthetic Slack search fixture omitted attachment metadata.",
+              ...(parent.ts === parent.threadParentTs
                 ? {
-                    ...parent,
                     reactionReadAt:
                       pageReadAt === undefined
                         ? undefined
                         : new Date(Date.parse(pageReadAt) + 1).toISOString(),
                   }
-                : parent,
-            ),
+                : {}),
+            })),
           })),
           threadRootAudits: channel.threadRootAudits?.map((parent) => ({
             ...parent,
@@ -21620,6 +21684,25 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     const completeSourceReceipt = sourceReceiptFor(receiptFreshInventory);
     const completeRawSourcePages = rawSourcePagesFor(completeSourceReceipt);
+    const missingFilesUnavailableReason = structuredClone(
+      receiptFreshInventory,
+    );
+    delete missingFilesUnavailableReason.channels[0]!.pages[0]!.parents[0]!
+      .sourceSearchFilesUnavailableReason;
+    const missingReasonReceipt = sourceReceiptFor(
+      missingFilesUnavailableReason,
+    );
+    expectFocusedFailure(
+      "raw source search omitted attachment metadata without a recorded reason",
+      () =>
+        validateSourceReceipt(
+          missingFilesUnavailableReason,
+          missingReasonReceipt,
+          rawSourcePagesFor(missingReasonReceipt),
+          true,
+        ),
+      "record why the raw source search omitted attachment metadata",
+    );
     const connectorOmissionInventory: Inventory = {
       ...receiptFreshInventory,
       channels: receiptFreshInventory.channels.map((channel) => ({
@@ -23072,6 +23155,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             sourceText: parent.ownershipSkip
               ? ambiguousHeldSearchMessage.rawText
               : "",
+            ...(parent.ownershipSkip
+              ? { sourceSearchFilesUnavailableReason: undefined }
+              : {}),
             ...(parent.ownershipSkip &&
             ambiguousHeldSearchMessage.filesMetadata !== undefined
               ? { files: ambiguousHeldSearchMessage.filesMetadata }
@@ -23138,9 +23224,36 @@ if (args[0] === "--self-test" && args.length === 1) {
         threadReadAttachmentInventory,
       ),
     });
-    validateSourceFilesInSnapshot(
+    expectFocusedFailure(
       "search result omitted attachment metadata present in the full thread",
-      { ts: "11.000000", threadParentTs: "11.000000" },
+      () =>
+        validateSourceFilesInSnapshot(
+          "search result omitted attachment metadata present in the full thread",
+          {
+            ts: "11.000000",
+            threadParentTs: "11.000000",
+            sourceSearchFilesUnavailableReason:
+              "The search response omitted attachment metadata.",
+          },
+          {
+            rootTs: "11.000000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootFiles: [sourceAttachmentFixture],
+            replies: [],
+          },
+        ),
+      "preserve attachments returned by the full thread read in the inventory",
+    );
+    validateSourceFilesInSnapshot(
+      "search omitted file metadata but inventory preserved the thread read",
+      {
+        ts: "11.000000",
+        threadParentTs: "11.000000",
+        files: [sourceAttachmentFixture],
+        sourceSearchFilesUnavailableReason:
+          "The search response omitted attachment metadata.",
+      },
       {
         rootTs: "11.000000",
         readAt: freshSnapshotReadAt,
@@ -23191,7 +23304,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     const heldAttachmentInventory = withPageRoot(
       heldPageRootWithoutThread,
       "11.000000",
-      (parent) => ({ ...parent, files: [sourceAttachmentFixture] }),
+      (parent) => ({
+        ...parent,
+        files: [sourceAttachmentFixture],
+        sourceSearchFilesUnavailableReason: undefined,
+      }),
     );
     const heldAttachmentReceipt = sourceReceiptFor(heldAttachmentInventory);
     const heldAttachmentRawPages = rawSourcePagesFor(heldAttachmentReceipt);

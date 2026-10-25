@@ -365,14 +365,8 @@ export async function removeMessagingChannelCredentials(
     .getRequiredEnvKeys()
     .map((item) => item.key)
     .filter(isChannelsManaged);
-  const saved = await readAppSecrets({
-    keys,
-    scope: "workspace",
-    scopeId: access.scopeId,
-  });
   const removedKeys: string[] = [];
   for (const key of keys) {
-    if (!saved.get(key)?.value) continue;
     if (
       await deleteAppSecret({
         key,
