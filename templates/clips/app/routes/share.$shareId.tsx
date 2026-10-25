@@ -122,7 +122,6 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
-import { missingShareRetryDelayMs } from "@/lib/missing-share-retry";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   readRecoverableRecordingBackupForServerId,
@@ -775,15 +774,6 @@ export default function ShareRoute() {
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
-      const status = (q.state.data as { status?: number } | undefined)?.status;
-      const updateCount =
-        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      const retryDelay = missingShareRetryDelayMs({
-        status,
-        updateCount,
-        loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
-      });
-      if (retryDelay !== null) return retryDelay;
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -1321,19 +1311,7 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
-  const retryingMissingShare =
-    missingShareRetryDelayMs({
-      status: dataQ.data?.status,
-      updateCount:
-        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0,
-      loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
-    }) !== null;
-
-  if (
-    dataQ.isLoading ||
-    retryingMissingShare ||
-    (sessionNeedsRetry && shareNeedsSession)
-  ) {
+  if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
     return (
       <>
         {agentDiscovery}
