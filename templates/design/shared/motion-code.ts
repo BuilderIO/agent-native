@@ -510,14 +510,18 @@ export function reconcileMotionCodeDocument(
   }
 
   const timelineDuration = parseTimelineSpanMs(css);
+  const storedEasingVariables = stored.easingVariables ?? [];
   const easingVariables = [...cssEasingVariables.entries()].map(
     ([id, value]) => {
-      const metadata = stored.easingVariables?.find(
+      const metadata = storedEasingVariables.find(
         (variable) => variable.id === id,
       );
+      const compiledValue = metadata
+        ? compiledMotionEase(metadata.value, storedEasingVariables)
+        : null;
       return {
         ...(metadata ?? { id, name: id }),
-        value,
+        value: metadata && value === compiledValue ? metadata.value : value,
       };
     },
   );
@@ -784,7 +788,14 @@ export function reconcileMotionCodeDocument(
     );
     if (!parsedTrack) return [];
     consumedParsedTracks.add(parsedTrack);
-    return [parsedTrack];
+    return [
+      reconcileStoredTrackEasing(
+        parsedTrack,
+        storedTrack,
+        stored.defaultEase,
+        storedEasingVariables,
+      ),
+    ];
   });
   const playbackMode = parsePlaybackMode(css);
   const document: MotionCodeDocument = {
@@ -1047,11 +1058,73 @@ function motionTracksMatch(
     }
     if (index === expected.keyframes.length - 1) return true;
     const ease = keyframe.ease ?? defaultEase;
-    const expectedEase = isMotionEaseVariableReference(ease)
-      ? ease
-      : motionEaseToCss(resolveMotionEase(ease, easingVariables));
+    const expectedEase = compiledMotionEase(ease, easingVariables);
     return (parsed.ease ?? "ease") === expectedEase;
   });
+}
+
+function compiledMotionEase(
+  ease: string,
+  easingVariables: readonly MotionEasingVariable[],
+): string {
+  return isMotionEaseVariableReference(ease)
+    ? ease
+    : motionEaseToCss(resolveMotionEase(ease, easingVariables));
+}
+
+function reconcileStoredTrackEasing(
+  parsedTrack: MotionTrack,
+  storedTrack: MotionTrack,
+  defaultEase: string,
+  easingVariables: readonly MotionEasingVariable[],
+): MotionTrack {
+  return {
+    ...parsedTrack,
+    keyframes: parsedTrack.keyframes.map((parsedKeyframe) => {
+      const matchingOffsets = storedTrack.keyframes.filter(
+        (keyframe) =>
+          compiledMotionKeyframeOffset(keyframe.t) === parsedKeyframe.t,
+      );
+      const matchingValues =
+        matchingOffsets.length === 1
+          ? matchingOffsets
+          : matchingOffsets.filter((keyframe) =>
+              motionTrackValuesMatch(
+                storedTrack.property,
+                keyframe.value,
+                parsedKeyframe.value,
+              ),
+            );
+      const storedKeyframe =
+        matchingValues.length === 1 ? matchingValues[0] : undefined;
+      if (!storedKeyframe) return parsedKeyframe;
+
+      const storedEase = storedKeyframe.ease ?? defaultEase;
+      if (
+        (parsedKeyframe.ease ?? "ease") !==
+        compiledMotionEase(storedEase, easingVariables)
+      ) {
+        return parsedKeyframe;
+      }
+      if (storedKeyframe.ease === undefined) {
+        const inheritedKeyframe = { ...parsedKeyframe };
+        delete inheritedKeyframe.ease;
+        return inheritedKeyframe;
+      }
+      return { ...parsedKeyframe, ease: storedKeyframe.ease };
+    }),
+  };
+}
+
+function compiledMotionKeyframeOffset(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+
+  // Keep in sync with motion-compiler's formatPercent hundredth-percent rounding.
+  const percent = Math.round(t * 10_000) / 100;
+  if (percent >= 100) return 0.9999;
+  if (percent <= 0) return 0.0001;
+  return percent / 100;
 }
 
 function motionTrackValuesMatch(
