@@ -151,6 +151,22 @@ describe("useCollabReconcile merge counts", () => {
     expect(captured.merges).toEqual([]);
   });
 
+  it("counts nothing for a newer revision that left the body as it was", async () => {
+    const { captured, render } = makeHarness({ overlapPolicy: "prefer-live" });
+    await render(opened);
+    typeAtEndOfList(captured.editor!, " local");
+    const live = getEditorMarkdown(captured.editor!);
+
+    await render({
+      ...opened,
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(live);
+    expect(captured.merges).toEqual([]);
+  });
+
   it("merges and saves the same when counting throws", async () => {
     const { captured, render } = makeHarness({
       overlapPolicy: "prefer-live",

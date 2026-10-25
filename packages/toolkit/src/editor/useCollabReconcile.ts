@@ -95,7 +95,7 @@ export interface UseCollabReconcileOptions {
     serverRevision: string;
   }) => void;
   /**
-   * Called once for each newer saved body the base-aware merge takes in, with
+   * Called once for each changed saved body the base-aware merge takes in, with
    * how many of its changes were set aside for overlapping this tab's edits
    * (only `prefer-live` sets any aside). For counting: it runs after the merge
    * and cannot change it, even by throwing.
@@ -1036,12 +1036,15 @@ export function useCollabReconcile({
               serverRevision: contentRevision,
             });
           }
-          try {
-            scheduledCallbacks.onBaseAwareMerge?.({
-              setAside: reconciled.setAside,
-            });
-          } catch {
-            // coercion-ok: counting a merge never changes the merge.
+          // A newer revision with the base's body brought nothing to merge.
+          if (!serverDoc.eq(baseDoc)) {
+            try {
+              scheduledCallbacks.onBaseAwareMerge?.({
+                setAside: reconciled.setAside,
+              });
+            } catch {
+              // coercion-ok: counting a merge never changes the merge.
+            }
           }
           return;
         }

@@ -43,8 +43,9 @@ export type BaseAwareReconcilePlan =
 export interface BaseAwareReconcileOptions {
   overlapPolicy?: "conflict" | "prefer-live";
   /**
-   * The live editor's selection while it has focus. A filler line holding it
-   * stays, so the next keystroke lands where the cursor was.
+   * The live editor's selection while it has focus. A filler line holding the
+   * cursor, or the end of a selection, stays, so the next keystroke lands
+   * where the cursor was.
    */
   liveSelection?: { from: number; to: number };
 }
@@ -234,26 +235,30 @@ export function planDocReconcile(
     hasUnambiguousReplacementPositions(baseDoc, serverDoc)
   ) {
     localHunks = splitReplacementHunks(localHunks);
-    serverHunks = splitReplacementHunks(serverHunks).filter(
-      (server) =>
-        !localHunks.some(
-          (local) =>
-            local.baseFromIndex === server.baseFromIndex &&
-            local.baseToIndex === server.baseToIndex &&
-            comparedLive.content
-              .cut(
-                positionOfChild(comparedLive, local.changedFromIndex),
-                positionOfChild(comparedLive, local.changedToIndex),
-              )
-              .eq(
-                serverDoc.content.cut(
-                  positionOfChild(serverDoc, server.changedFromIndex),
-                  positionOfChild(serverDoc, server.changedToIndex),
-                ),
-              ),
-        ),
-    );
+    serverHunks = splitReplacementHunks(serverHunks);
   }
+  // A change both sides made is already in the tab. Repeated blocks only stop
+  // the split above: the same base range given the same blocks is still the
+  // same change.
+  serverHunks = serverHunks.filter(
+    (server) =>
+      !localHunks.some(
+        (local) =>
+          local.baseFromIndex === server.baseFromIndex &&
+          local.baseToIndex === server.baseToIndex &&
+          comparedLive.content
+            .cut(
+              positionOfChild(comparedLive, local.changedFromIndex),
+              positionOfChild(comparedLive, local.changedToIndex),
+            )
+            .eq(
+              serverDoc.content.cut(
+                positionOfChild(serverDoc, server.changedFromIndex),
+                positionOfChild(serverDoc, server.changedToIndex),
+              ),
+            ),
+      ),
+  );
   if (serverHunks.length === 0) return { status: "noop", setAside: 0 };
   const overlapsLocal = (server: TopLevelHunk) =>
     localHunks.some((local) => hunksOverlap(local, server));
@@ -289,12 +294,13 @@ export function planDocReconcile(
     }
     // Once a paragraph closes the page, the filler is a stray empty line the
     // next save would keep. The editor adds it back when it is needed again.
+    // A selection's `to` is its later end, so a range reaching in counts too.
     const fillerFrom = liveDoc.content.size - liveDoc.lastChild!.nodeSize;
-    const cursorOnFiller =
-      !!options.liveSelection && options.liveSelection.from > fillerFrom;
+    const selectionOnFiller =
+      !!options.liveSelection && options.liveSelection.to > fillerFrom;
     if (
       liveHasFiller &&
-      !cursorOnFiller &&
+      !selectionOnFiller &&
       !endsInEditorFiller(tr.doc) &&
       isEditorFiller(tr.doc.lastChild)
     ) {

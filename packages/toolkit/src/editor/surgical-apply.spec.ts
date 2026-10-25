@@ -420,6 +420,26 @@ describe("reconcileDocAgainstBase", () => {
     }
   });
 
+  it.each(["prefer-live", "conflict"] as const)(
+    "does not count a change both sides made beside repeated blocks (%s)",
+    (overlapPolicy) => {
+      const editor = makeEditor("Same\n\nAlpha edited\n\nSame");
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "Same\n\nAlpha\n\nSame"),
+          parse(editor, "Same\n\nAlpha edited\n\nSame\n\nServer tail."),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe("Same\n\nAlpha edited\n\nSame\n\nServer tail.");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it("counts the server changes prefer-live sets aside", () => {
     const editor = makeEditor("Alpha local\n\nBravo");
     try {
@@ -733,6 +753,40 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
       }
     },
   );
+
+  it("keeps the empty closing line while a selection reaches into it", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const editor = openPage(base);
+    try {
+      const inTwo =
+        editor.state.doc.child(0).nodeSize +
+        editor.state.doc.child(1).nodeSize -
+        4;
+      editor.commands.setTextSelection({
+        from: inTwo,
+        to: editor.state.doc.content.size - 1,
+      });
+      editor.isFocused = true;
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, `${base}\n\n## Added\n\nNew paragraph.`),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      const doc = editor.state.doc;
+      expect(blockTypes(doc).slice(2)).toEqual([
+        "heading",
+        "paragraph",
+        "empty paragraph",
+      ]);
+      expect(editor.state.selection.from).toBe(inTwo);
+      expect(editor.state.selection.to).toBe(doc.content.size - 1);
+    } finally {
+      editor.destroy();
+    }
+  });
 
   it("still sets aside a server change to a closing block the tab edited", () => {
     const base = "Intro.\n\n- One\n- Two";
