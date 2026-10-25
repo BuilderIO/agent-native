@@ -7027,7 +7027,7 @@ function parseFormattedSlackReactionMetadata(
 ): string[] | undefined {
   if (!line.startsWith("Reactions: ")) return undefined;
   const value = line.slice("Reactions: ".length);
-  const matches = [...value.matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi)];
+  const matches = [...value.matchAll(/([-a-z0-9_+.:]+)\s+\(\d+\)(?:, |$)/gi)];
   if (
     matches.length === 0 ||
     matches.map((reaction) => reaction[0]).join("") !== value
