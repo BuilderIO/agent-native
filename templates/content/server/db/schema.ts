@@ -2,6 +2,7 @@ import {
   table,
   text,
   integer,
+  bigint,
   now,
   ownableColumns,
   createSharesTable,
@@ -1163,7 +1164,7 @@ export const contentWebhookDeliveries = table(
   {
     id: text("id").primaryKey(),
     /** BIGSERIAL: for one page and property, a later commit has a larger value. */
-    sequence: integer("sequence"),
+    sequence: bigint("sequence", { mode: "number" }),
     webhookId: text("webhook_id").notNull(),
     eventType: text("event_type").notNull(),
     documentId: text("document_id").notNull(),
