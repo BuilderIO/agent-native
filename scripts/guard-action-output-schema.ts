@@ -225,14 +225,39 @@ function isKnownZodSchema(
   value: ts.Expression,
   sourceFile: ts.SourceFile,
   namespaces: ReadonlySet<string>,
+  depth = 0,
 ): boolean {
+  if (depth >= 5) return false;
   if (
     ts.isParenthesizedExpression(value) ||
     ts.isAsExpression(value) ||
     ts.isSatisfiesExpression(value) ||
     ts.isNonNullExpression(value)
   ) {
-    return isKnownZodSchema(value.expression, sourceFile, namespaces);
+    return isKnownZodSchema(
+      value.expression,
+      sourceFile,
+      namespaces,
+      depth + 1,
+    );
+  }
+  if (ts.isIdentifier(value)) {
+    const declarations = declarationsNamed(sourceFile, value.text);
+    const [declaration] = declarations;
+    return (
+      declarations.length === 1 &&
+      declaration !== undefined &&
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined &&
+      ts.isVariableDeclarationList(declaration.parent) &&
+      (declaration.parent.flags & ts.NodeFlags.Const) !== 0 &&
+      isKnownZodSchema(
+        declaration.initializer,
+        sourceFile,
+        namespaces,
+        depth + 1,
+      )
+    );
   }
   if (
     !ts.isCallExpression(value) ||
@@ -255,7 +280,7 @@ function isKnownZodSchema(
   }
   return (
     ZOD_SCHEMA_METHODS.has(name.text) &&
-    isKnownZodSchema(receiver, sourceFile, namespaces)
+    isKnownZodSchema(receiver, sourceFile, namespaces, depth + 1)
   );
 }
 
