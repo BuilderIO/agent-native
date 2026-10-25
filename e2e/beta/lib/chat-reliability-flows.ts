@@ -102,17 +102,23 @@ export async function secondMessageWhileRunning(
 ): Promise<void> {
   const first = newNonce();
   const second = newNonce();
+  const third = newNonce();
+  const firstLastLine = STOP_ANSWER_LINES;
+  const directMessageId = `direct-${third.toLowerCase()}`;
   const turns: ExpectedTurn[] = [
-    { userToken: first, answerToken: lineToken(first, LAST_LINE) },
+    { userToken: first, answerToken: lineToken(first, firstLastLine) },
     { userToken: second, answerToken: second },
+    { userToken: third, answerToken: third },
   ];
-  await s.send(longAnswerPrompt(first), first);
+  // Keep both the UI and API admissions inside the first run's active window.
+  await s.send(longAnswerPrompt(first, firstLastLine), first);
   await s.waitUntil(
     "the first answer to start streaming",
     (state) => streaming(state, first),
     { timeoutMs: 60_000 },
   );
-  await s.captureThreadId(first);
+  const threadId = await s.captureThreadId(first);
+  if (!threadId) throw new Error("could not identify the active chat thread");
 
   const queuedPostsBefore = s.traffic.entries.filter(
     isQueuedMessageAppendPost,
@@ -120,10 +126,15 @@ export async function secondMessageWhileRunning(
   await s.send(exactReplyPrompt(second), second, { expectTurnPost: false });
   await s.assertQueuedSubmissionReceipt(queuedPostsBefore);
   const afterSecond = await s.readState();
+  if (!afterSecond.ok) {
+    throw new Error(
+      `could not verify the first run after UI queue admission: ${afterSecond.reason}`,
+    );
+  }
   if (
-    afterSecond.ok &&
+    isIdle(afterSecond.state) ||
     assistantTextAfter(afterSecond.state.messages, first).includes(
-      lineToken(first, LAST_LINE),
+      lineToken(first, firstLastLine),
     )
   ) {
     throw new Error(
@@ -131,17 +142,45 @@ export async function secondMessageWhileRunning(
     );
   }
 
+  await s.assertDirectBusySubmissionReceipt({
+    threadId,
+    messageId: directMessageId,
+    text: exactReplyPrompt(third),
+  });
+  const afterDirectPost = await s.readState();
+  if (!afterDirectPost.ok) {
+    throw new Error(
+      `could not verify the first run after direct POST admission: ${afterDirectPost.reason}`,
+    );
+  }
+  if (
+    isIdle(afterDirectPost.state) ||
+    assistantTextAfter(afterDirectPost.state.messages, first).includes(
+      lineToken(first, firstLastLine),
+    )
+  ) {
+    throw new Error(
+      "the first answer finished before the direct POST admission, so the authenticated busy path was not exercised",
+    );
+  }
+
   await s.waitUntil(
-    "both answers to arrive in order with the composer idle",
+    "all three answers to arrive in order with the composer idle",
     (state) => turnsFinished(state, turns),
     { timeoutMs: 180_000 },
   );
+  await s.assertDirectSubmissionWasSubmitted({
+    threadId,
+    messageId: directMessageId,
+  });
   await s.assertComposerUsable();
-  await s.assertClean("after sending a second message during a run");
+  await s.assertClean(
+    "after sending queued UI and direct API messages during a run",
+  );
   await s.assertServerRunIdle(20_000);
   await s.assertThreadPersisted({
-    minMessages: 4,
-    answerTokens: [lineToken(first, LAST_LINE), second],
+    minMessages: 6,
+    answerTokens: [lineToken(first, firstLastLine), second, third],
   });
 }
 

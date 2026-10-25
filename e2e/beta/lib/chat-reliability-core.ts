@@ -9,7 +9,7 @@
 export const RELIABILITY_TAG = "[chat-reliability]";
 
 /**
- * Apps that run the whole reliability set (8 turns each). Every other chat app
+ * Apps that run the whole reliability set (9 turns each). Every other chat app
  * runs only the refresh-mid-run smoke (1 turn). Widening this list is a spend
  * decision, the same way `CHAT_APPS` in fleet.ts is.
  */
