@@ -5495,6 +5495,30 @@ function hasExplicitWorkflowWriteAuthorization(
   return boundedFollowupAndReaction || exactRootWriteActions;
 }
 
+function hasRootPopulationRestriction(userRequest: string): boolean {
+  const population =
+    "(?:reports?|roots?|threads?|items?|assigned|unassigned|duplicates?|clustered|held|unowned|foreign|owned|administrative)";
+  const sentences =
+    withoutQuotedScopeContext(userRequest).split(/(?:[.!?;]\s+|\n+)/);
+  return sentences.some(
+    (sentence) =>
+      new RegExp(
+        `\\b(?:except|excluding|exclude|other than|apart from|not including)\\b[^.!?;\\n]{0,120}\\b${population}\\b`,
+        "i",
+      ).test(sentence) ||
+      new RegExp(`\\bonly\\b[^.!?;\\n]{0,100}\\b${population}\\b`, "i").test(
+        sentence,
+      ),
+  );
+}
+
+function hasBoundedWorkflowWriteAuthorization(userRequest: string): boolean {
+  return (
+    !hasRootPopulationRestriction(userRequest) &&
+    hasExplicitWorkflowWriteAuthorization(userRequest, [])
+  );
+}
+
 function validateAuthorizedRootsDeclaration(
   scope: Inventory["scope"],
   confirmation: unknown,
@@ -5509,7 +5533,7 @@ function validateAuthorizedRootsDeclaration(
   if (entries.length === 0) return new Set();
   const hasBoundedWriteAuthorization =
     typeof scope.userRequest === "string" &&
-    hasExplicitWorkflowWriteAuthorization(scope.userRequest, []);
+    hasBoundedWorkflowWriteAuthorization(scope.userRequest);
   if (
     typeof scope.userRequest !== "string" ||
     !scope.userRequest.trim() ||
@@ -7800,6 +7824,17 @@ function sourceTextMatchesCapturedSearch(
   capturedSearchText: string,
   snapshot: ThreadSnapshot | undefined,
 ): boolean {
+  if (parent.sourceTextUnavailableReason !== undefined) {
+    const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
+    return (
+      parent.sourceText === "" &&
+      capturedSearchText.trim() === "" &&
+      parent.sourceTextUnavailableReason.trim() !== "" &&
+      typeof threadText === "string" &&
+      threadText.trim() !== ""
+    );
+  }
+
   if (parent.sourceText === capturedSearchText) {
     if (parent.sourceText.trim() !== "") return true;
     if (parent.ownershipSkip) return snapshot === undefined;
@@ -7870,9 +7905,16 @@ function validateRootClassificationJudgment(
 ): void {
   if (!required) return;
   const judgment = parent.rootClassificationJudgment;
+  const sourceTextMatchesRecord =
+    parent.sourceTextUnavailableReason === undefined
+      ? parent.sourceText === sourceText
+      : parent.sourceText === "" &&
+        parent.sourceTextUnavailableReason.trim() !== "" &&
+        typeof sourceText === "string" &&
+        sourceText.trim() !== "";
   if (
     typeof sourceText !== "string" ||
-    parent.sourceText !== sourceText ||
+    !sourceTextMatchesRecord ||
     !judgment ||
     judgment.actorId !== sweepActorId ||
     judgment.decision !== parent.rootClassification ||
@@ -7906,8 +7948,12 @@ function validateRootClassificationText(
     );
   }
   if (
-    typeof parent.sourceText !== "string" ||
-    !matchesSlackMessageText(parent.sourceText, snapshot.rootText)
+    parent.sourceTextUnavailableReason !== undefined
+      ? parent.sourceText !== "" ||
+        !parent.sourceTextUnavailableReason.trim() ||
+        snapshot.rootText.trim() === ""
+      : typeof parent.sourceText !== "string" ||
+        !matchesSlackMessageText(parent.sourceText, snapshot.rootText)
   ) {
     throw new Error(
       `${parentName}: classified source text must match the complete thread root text`,
@@ -8589,7 +8635,7 @@ function validateInventory(
   );
   const hasBoundedWriteAuthorization =
     typeof scope.userRequest === "string" &&
-    hasExplicitWorkflowWriteAuthorization(scope.userRequest, []);
+    hasBoundedWorkflowWriteAuthorization(scope.userRequest);
   const authorizedRootKeysInScope = new Set<string>();
   const inScopeRootEyeKeys = new Set<string>();
 
@@ -9162,7 +9208,12 @@ function validateInventory(
             parentName,
             parent,
             inventory.sweepActorId,
-            parent.sourceText,
+            parent.sourceTextUnavailableReason !== undefined
+              ? sourceTextFromThreadSnapshot(
+                  parent,
+                  threadSnapshots.get(parent.threadParentTs),
+                )
+              : parent.sourceText,
             options.requireSourceText === true,
           );
           validateRootClassificationText(
@@ -17668,6 +17719,26 @@ if (args[0] === "--self-test" && args.length === 1) {
           : parent,
       );
     validateTestInventory(assignedForeignEyeRoot);
+    const excludedAssignedRoot = structuredClone(assignedForeignEyeRoot);
+    excludedAssignedRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like, except reports assigned to another person.";
+    excludedAssignedRoot.scope.narrowingJudgment!.instruction =
+      excludedAssignedRoot.scope.userRequest;
+    expectFocusedFailure(
+      "bounded write grant does not cover an explicitly excluded assigned report",
+      () => validateTestInventory(excludedAssignedRoot),
+      "scope.userRequest must explicitly authorize work on exact root",
+    );
+    const unassignedOnlyRoot = structuredClone(assignedForeignEyeRoot);
+    unassignedOnlyRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like, but only for unassigned reports.";
+    unassignedOnlyRoot.scope.narrowingJudgment!.instruction =
+      unassignedOnlyRoot.scope.userRequest;
+    expectFocusedFailure(
+      "bounded write grant does not cover a root outside an only-population qualifier",
+      () => validateTestInventory(unassignedOnlyRoot),
+      "scope.userRequest must explicitly authorize work on exact root",
+    );
     const directWorkAuthorization = structuredClone(authorizedMagRoot);
     directWorkAuthorization.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000, including the claim and same-thread status reply.";
@@ -21477,6 +21548,48 @@ if (args[0] === "--self-test" && args.length === 1) {
         ]),
       ),
     });
+    const rawThreadPagesFor = (inventory: Inventory): RawThreadPages =>
+      Object.fromEntries(
+        inventory.channels.map((channel) => [
+          sourceReceiptChannelName(channel),
+          Object.fromEntries(
+            (channel.threadSnapshots ?? []).map((snapshot) => [
+              snapshot.rootTs,
+              [
+                {
+                  cursor: null,
+                  nextCursor: null,
+                  exhausted: true,
+                  readAt: snapshot.readAt,
+                  replyCount: snapshot.replyCount,
+                  messages: [
+                    {
+                      ts: snapshot.rootTs,
+                      actorId: "U_REPORTER",
+                      isBot: false,
+                      text: snapshot.rootText as string,
+                      threadParentTs: snapshot.rootTs,
+                      files: snapshot.rootFiles ?? [],
+                      replyCount: snapshot.replyCount,
+                    },
+                    ...snapshot.replies.map((reply) => ({
+                      ts: reply.ts,
+                      actorId: reply.actorId,
+                      isBot: reply.kind === "bot",
+                      text: reply.text,
+                      threadParentTs: snapshot.rootTs,
+                      files: reply.files ?? [],
+                      workflowReactionNames: Object.keys(
+                        reply.workflowReactionOwners,
+                      ),
+                    })),
+                  ],
+                },
+              ],
+            ]),
+          ),
+        ]),
+      ) as RawThreadPages;
     const rawSourcePagesFor = (receipt: SourceReceipt): RawSourcePages =>
       Object.fromEntries(
         Object.entries(receipt.channels).map(([name, channel]) => {
@@ -21547,6 +21660,46 @@ if (args[0] === "--self-test" && args.length === 1) {
       .find((parent) => parent.ts === "10.000000");
     if (!connectorOmissionRoot) {
       throw new Error("self-test omission fixture lost its root row");
+    }
+    const unavailableBodySnapshot =
+      connectorOmissionInventory.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === connectorOmissionRoot.threadParentTs,
+      );
+    if (!unavailableBodySnapshot) {
+      throw new Error("self-test omission fixture lost its thread snapshot");
+    }
+    const unavailableBodySource: Parent = {
+      ...connectorOmissionRoot,
+      sourceText: "",
+      sourceTextUnavailableReason:
+        "Slack search omitted the block-only message body",
+    };
+    if (
+      !sourceTextMatchesCapturedSearch(
+        unavailableBodySource,
+        "",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        { ...unavailableBodySource, sourceTextUnavailableReason: "   " },
+        "",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        { ...unavailableBodySource, sourceTextUnavailableReason: undefined },
+        "",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        unavailableBodySource,
+        "captured search body",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(unavailableBodySource, "", undefined)
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to constrain block-only source text to an empty search body, reason, and exact non-empty thread snapshot.",
+      );
     }
     if (
       !sourceTextMatchesCapturedSearch(
@@ -21710,6 +21863,140 @@ if (args[0] === "--self-test" && args.length === 1) {
         receiptFreshInventory,
       ),
     });
+    const blockOnlyRootTs = "10.000000";
+    const blockOnlyThreadText = "Block-only report text from the full thread.";
+    const blockOnlyInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages
+          .filter((page) =>
+            page.parents.some((parent) => parent.ts === blockOnlyRootTs),
+          )
+          .map((page) => ({
+            ...page,
+            messageCount: 1,
+            sourceTimestamps: [blockOnlyRootTs],
+            parents: page.parents
+              .filter((parent) => parent.ts === blockOnlyRootTs)
+              .map((parent) => ({
+                ...parent,
+                sourceText: "",
+                sourceTextUnavailableReason:
+                  "Slack search omitted the block-only message body",
+                rootClassificationJudgment: {
+                  actorId: receiptFreshInventory.sweepActorId,
+                  decision: "report",
+                  rationale:
+                    "The complete thread body describes a product behavior report.",
+                },
+              })),
+          })),
+        threadSnapshots: channel.threadSnapshots
+          ?.filter((snapshot) => snapshot.rootTs === blockOnlyRootTs)
+          .map((snapshot) => ({
+            ...snapshot,
+            rootText: blockOnlyThreadText,
+          })),
+        threadRootAudits: [],
+      })),
+    };
+    const validateWithReceipt = (
+      inventory: Inventory,
+      rawSourcePages?: RawSourcePages,
+    ) => {
+      const receipt = sourceReceiptFor(inventory);
+      validateInventory(inventory, {
+        requireFreshReads: true,
+        requireSourceText: true,
+        sourceReceipt: receipt,
+        rawSourcePages: rawSourcePages ?? rawSourcePagesFor(receipt),
+        rawThreadPages: rawThreadPagesFor(inventory),
+        scopeConfirmation: scopeConfirmationForTestInventory(inventory),
+      });
+    };
+    validateWithReceipt(blockOnlyInventory);
+    expectFocusedFailure(
+      "block-only source text needs its exact full-thread snapshot",
+      () => {
+        const withoutSnapshot: Inventory = {
+          ...blockOnlyInventory,
+          channels: blockOnlyInventory.channels.map((channel) => ({
+            ...channel,
+            threadSnapshots: channel.threadSnapshots?.filter(
+              (snapshot) => snapshot.rootTs !== blockOnlyRootTs,
+            ),
+          })),
+        };
+        validateWithReceipt(withoutSnapshot);
+      },
+      "record this actor's human report/admin judgment and rationale against the exact source text",
+    );
+    expectFocusedFailure(
+      "block-only source text cannot replace a non-empty search result",
+      () => {
+        const receipt = sourceReceiptFor(blockOnlyInventory);
+        const nonEmptySearch = rawSourcePagesFor(receipt);
+        const rowIndex = nonEmptySearch["test-channel"]![0]!.rows.findIndex(
+          (row) => row.ts === blockOnlyRootTs,
+        );
+        if (rowIndex === -1) {
+          throw new Error("self-test block-only fixture lost its root row");
+        }
+        nonEmptySearch["test-channel"]![0]!.rows[rowIndex] = {
+          ...nonEmptySearch["test-channel"]![0]!.rows[rowIndex]!,
+          text: "a non-empty captured search result",
+          rawText: "a non-empty captured search result",
+        };
+        validateWithReceipt(blockOnlyInventory, nonEmptySearch);
+      },
+      "must match the captured Slack result",
+    );
+    expectFocusedFailure(
+      "block-only source text without an unavailable reason is rejected",
+      () => {
+        const missingReason: Inventory = {
+          ...blockOnlyInventory,
+          channels: blockOnlyInventory.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== blockOnlyRootTs) return parent;
+                const {
+                  sourceTextUnavailableReason: _reason,
+                  ...withoutReason
+                } = parent;
+                return withoutReason;
+              }),
+            })),
+          })),
+        };
+        validateWithReceipt(missingReason);
+      },
+      "classified source text must match the complete thread root text",
+    );
+    expectFocusedFailure(
+      "block-only source text with a blank unavailable reason is rejected",
+      () => {
+        const blankReason: Inventory = {
+          ...blockOnlyInventory,
+          channels: blockOnlyInventory.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) =>
+                parent.ts === blockOnlyRootTs
+                  ? { ...parent, sourceTextUnavailableReason: "   " }
+                  : parent,
+              ),
+            })),
+          })),
+        };
+        validateWithReceipt(blankReason);
+      },
+      "record this actor's human report/admin judgment and rationale against the exact source text",
+    );
 
     const heldPageRoot = withPageRoot(
       receiptFreshInventory,

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+
 const store = new Map<string, { value: unknown }>();
 const readAppSecret = vi.fn();
 const deleteAppSecret = vi.fn();
@@ -566,6 +568,22 @@ describe("credentials encryption at rest", () => {
       }),
     ).resolves.toBe("personal-legacy-token");
     expect(readAppSecret).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fall through to a legacy credential when an app secret cannot be decrypted", async () => {
+    store.set("o:org-1:credential:GONG_ACCESS_KEY", {
+      value: "stale-legacy-token",
+    });
+    readAppSecret.mockRejectedValue(new AppSecretDecryptionError());
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("GONG_ACCESS_KEY", {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      }),
+    ).rejects.toBeInstanceOf(AppSecretDecryptionError);
   });
 
   it("puts the org's credential ahead of an owner's or admin's own, keeping theirs as the fallback", async () => {

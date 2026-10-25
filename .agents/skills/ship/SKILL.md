@@ -456,6 +456,11 @@ to show that a root has not yet been reviewed. Keep accurate marks as history. A
 reaction read, remove and record this actor's stale or misapplied mark. Change
 another actor's mark only when a direct user grant covers that root and
 reaction change; a bounded grant needs no separate per-reaction confirmation.
+Use root reactions as item-level coverage: after handling an in-scope root, add
+and read back this actor's `👀`. If a distinct human action remains, add and
+read back `🎫` as well, and name that action and its owner in the same-thread
+status. Do not use `🎫` as a generic seen marker or as a substitute for `👀` on
+a handled root.
 Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say
 what changed. If `🎫` is used, briefly name what still needs investigation or

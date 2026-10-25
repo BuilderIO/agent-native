@@ -37,6 +37,12 @@ for covered roots. The grant applies only to this sweep's fixed channels and
 window. Emoji meanings and stale-mark handling are in
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
+A bounded grant covers only root populations included by its wording. Clauses
+such as `except assigned reports` or `only unassigned reports` narrow the
+authorized roots; they do not grant writes to excluded roots. If a population
+qualifier cannot be resolved from captured root evidence, require an exact-root
+grant before writing on that root.
+
 ## Slack channels and ownership
 
 Use the connected Slack integration for every read and write. The default

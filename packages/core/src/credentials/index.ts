@@ -5,6 +5,7 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
   readAppSecret,
@@ -154,7 +155,8 @@ async function readScopedAppSecret(
 ): Promise<string | undefined> {
   try {
     return (await readAppSecret({ key, scope, scopeId }))?.value;
-  } catch {
+  } catch (error) {
+    if (error instanceof AppSecretDecryptionError) throw error;
     // Older databases may not have app_secrets yet. Keep the legacy
     // credential store available while the table bootstraps.
     return undefined;
