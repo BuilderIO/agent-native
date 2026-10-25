@@ -107,7 +107,7 @@ export interface A2ATokenPayload {
 }
 
 export class A2AIdentityVerificationUnavailableError extends Error {
-  readonly cause: unknown;
+  override readonly cause: unknown;
 
   constructor(cause: unknown) {
     super("A2A identity verification is temporarily unavailable");

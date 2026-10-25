@@ -625,7 +625,7 @@ export function usePlanVersions(planId: string | null, open = true) {
     {
       enabled: Boolean(planId && open),
       placeholderData: (prev) => prev,
-    } as any,
+    },
   );
 }
 
@@ -639,7 +639,7 @@ export function usePlanVersion(
     {
       enabled: Boolean(planId && versionId),
       placeholderData: (prev) => prev,
-    } as any,
+    },
   );
 }
 

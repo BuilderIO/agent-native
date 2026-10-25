@@ -300,6 +300,40 @@ export function fail(message: string, options: FailOptions = {}): never {
 }
 
 /**
+ * The closed set of `errorCode`s an action fails with. Its `fail` and
+ * `noWrite` accept only these codes, so a misspelled code is a compile error
+ * and a caller can switch over the action's failures exhaustively. Pass it to
+ * `defineAction` as `errors` to publish the codes on the definition.
+ */
+export interface ActionErrors<TCode extends string> {
+  readonly codes: readonly TCode[];
+  fail(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+  noWrite(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+}
+
+export function defineActionErrors<const TCode extends string>(
+  ...codes: [TCode, ...TCode[]]
+): ActionErrors<TCode> {
+  const errors: ActionErrors<TCode> = {
+    codes: Object.freeze([...new Set(codes)]),
+    fail: (message, errorCode, options = {}) =>
+      fail(message, { ...options, errorCode }),
+    noWrite: (message, errorCode, options = {}) => {
+      throw new NoWriteError(message, { ...options, errorCode });
+    },
+  };
+  return Object.freeze(errors);
+}
+
+/**
  * A rejection raised before the action's first write: a missing target, an
  * edit that matches nothing, a patch identical to what is saved. A caller may
  * then retry with corrected arguments instead of treating the call as
@@ -886,6 +920,11 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What a result that does not match `outputSchema` does. Defaults to
+ * `"strict"`. `"fallback"` is deprecated: it replaces a broken result with a
+ * value callers cannot tell from a real one.
+ */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
 
 export interface ActionMcpToolAnnotations {
@@ -907,7 +946,11 @@ interface DefineActionWithSchema<
   agentInputSchema?: StandardSchemaV1;
   outputSchema?: TOutputSchema;
   outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated `outputErrorStrategy: "fallback"` hides a broken result
+   *  behind a plausible one. Fix the result or use `"strict"`. */
   outputFallback?: TReturn;
+  /** The action's closed error-code set, from `defineActionErrors`. */
+  errors?: ActionErrors<string>;
   /** Advertise `outputSchema` to MCP clients as the tool's `outputSchema`
    *  and validate every `structuredContent` against it. Set it only after
    *  auditing that every value `run` can return meets the schema; it requires
@@ -1052,7 +1095,9 @@ interface DefineActionWithParams<
   agentInputSchema?: never;
   outputSchema?: StandardSchemaV1;
   outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   outputFallback?: TReturn;
+  errors?: ActionErrors<string>;
   mcpOutputSchema?: boolean;
   run: (
     args: InferParams<TParams>,
@@ -1140,7 +1185,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxResultChars?: number;
   readonly outputSchema?: StandardSchemaV1;
   readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   readonly outputFallback?: TReturn;
+  /** Present only when the action declared `errors`. */
+  readonly errorCodes?: readonly string[];
   /** Present only when the action opted in with `mcpOutputSchema: true`. */
   readonly mcpOutputContract?: ActionMcpOutputContract;
   readonly needsApproval?:
@@ -1151,12 +1199,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly access?: ActionAccessConfig;
 }
 
-export function defineAction<
-  TSchema extends StandardSchemaV1,
-  TReturn,
-  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
->(
-  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
+export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
+  options: DefineActionWithSchema<TSchema, TReturn, undefined>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
@@ -1164,6 +1208,22 @@ export function defineAction<
 >(
   options: DefineActionWithParams<TParams, TReturn>,
 ): ActionDefinition<InferParams<TParams>, TReturn>;
+// Last, so a `run` whose result does not match is reported against this
+// overload. With an `outputSchema`, `run` must return the schema's input and the action
+// returns the schema's output: the validated value is what callers receive.
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TOutputSchema extends StandardSchemaV1,
+>(
+  options: DefineActionWithSchema<
+    TSchema,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  StandardSchemaV1.InferInput<TSchema>,
+  StandardSchemaV1.InferOutput<TOutputSchema>
+>;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
@@ -1243,7 +1303,7 @@ export function defineAction(options: any) {
     options.outputErrorStrategy === "warn" ||
     options.outputErrorStrategy === "fallback"
       ? options.outputErrorStrategy
-      : "warn";
+      : "strict";
 
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
@@ -1533,6 +1593,7 @@ export function defineAction(options: any) {
         }
       : {}),
     ...(mcpOutputContract ? { mcpOutputContract } : {}),
+    ...(options.errors ? { errorCodes: options.errors.codes } : {}),
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
@@ -1560,7 +1621,9 @@ export function defineAction(options: any) {
   if (inputSchemaVerdict) {
     recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
   }
-  return entry;
+  // `never` input keeps the implementation compatible with every overload,
+  // which `exactOptionalPropertyTypes` rejects for the inferred entry type.
+  return entry as ActionDefinition<never, unknown>;
 }
 
 export function isActionExposedToExternalAgents(entry: {
