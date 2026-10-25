@@ -295,6 +295,8 @@ function makeTabs(
     });
 
   return {
+    docs,
+    server,
     render,
     push,
     settleAdoptions,
@@ -1029,6 +1031,75 @@ describe("useCollabReconcile — snapshot adoption", () => {
       act(() => root.unmount());
       root = createRoot(container);
       doc.destroy();
+    }
+  });
+
+  it("keeps unsent typing when another editor's adoption arrives through sync first", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const expected =
+      "Unsent Alpha paragraph.\n\nOutside paragraph.\n\nBravo paragraph.";
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Unsent ");
+      tabs.adoptElsewhere(OUTSIDE, SECOND.revision);
+      Y.applyUpdate(
+        tabs.docs[0]!,
+        Y.encodeStateAsUpdate(tabs.server),
+        "remote",
+      );
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      for (let step = 0; step < 3; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        tabs.settleAdoptions();
+      }
+      tabs.push(0);
+
+      expect(tabs.markdown()).toEqual([expected]);
+      expect(tabs.serverMarkdown()).toBe(expected);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("drops a retry for a superseded snapshot instead of making the next one wait", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const third = {
+      value: `${OUTSIDE}\n\nLater paragraph.`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.failNextAdoptions(5);
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      // Four failures leave the next attempt 8 s out.
+      for (const wait of [1000, 2000, 4000]) {
+        tabs.settleAdoptions();
+        await act(async () => vi.advanceTimersByTimeAsync(wait + 10));
+      }
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(10));
+      expect(tabs.adoptionCalls).toHaveLength(4);
+
+      tabs.failNextAdoptions(0);
+      tabs.saveRevision(third.revision);
+      tabs.render(third);
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      expect(tabs.adoptionCalls.at(-1)?.revision).toBe(third.revision);
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.markdown()).toEqual([third.value]);
+    } finally {
+      warn.mockRestore();
+      tabs.dispose();
     }
   });
 });

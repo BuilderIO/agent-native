@@ -682,6 +682,8 @@ export function useCollabReconcile({
     const peerWait = peerReconcileWaitRef.current!;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    // Adoption retries waiting out a backoff, each dropped with its wait.
+    const backoffs = new Set<() => void>();
     // Another editor's adoption that reached this doc through sync makes its
     // body the base; measured against an older one, that body would look like
     // typing here, and the next snapshot's changes to it would be dropped.
@@ -1166,8 +1168,19 @@ export function useCollabReconcile({
                 error,
               );
             }
-            // Not `retry`: cleanup must not drop the in-flight mark with it.
-            setTimeout(propose, backoff(failures));
+            // Not `retry`: cleanup drops the wait and the in-flight mark
+            // together, so a newer snapshot doesn't wait out this one's
+            // backoff. No request is out while it waits.
+            const abandon = () => {
+              backoffs.delete(abandon);
+              clearTimeout(timer);
+              release();
+            };
+            const timer = setTimeout(() => {
+              backoffs.delete(abandon);
+              propose();
+            }, backoff(failures));
+            backoffs.add(abandon);
           };
           const propose = () => {
             if (cancelled || editor.isDestroyed) {
@@ -1414,6 +1427,7 @@ export function useCollabReconcile({
     return () => {
       cancelled = true;
       if (retry) clearTimeout(retry);
+      for (const abandon of [...backoffs]) abandon();
     };
   }, [
     contentUpdatedAt,
