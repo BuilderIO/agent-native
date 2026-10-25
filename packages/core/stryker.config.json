@@ -18,16 +18,16 @@
   ],
   "ignorePatterns": [
     "**/.claude",
-    "dist",
-    "docs",
-    "changelog",
-    "blueprints",
-    "third-party-licenses",
-    "test-support",
-    "CHANGELOG.md",
-    "README.md",
-    "export-snapshot.json",
-    "migration-manifest.json"
+    "/dist",
+    "/docs",
+    "/changelog",
+    "/blueprints",
+    "/third-party-licenses",
+    "/test-support",
+    "/CHANGELOG.md",
+    "/README.md",
+    "/export-snapshot.json",
+    "/migration-manifest.json"
   ],
   "reporters": ["clear-text", "progress", "json"],
   "jsonReporter": {
