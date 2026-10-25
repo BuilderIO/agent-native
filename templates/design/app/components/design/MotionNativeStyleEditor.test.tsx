@@ -2491,6 +2491,107 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
+  it("keeps a dirty Bounce draft when switching away from and back to Spring", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceInput = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    )
+      .find((label) =>
+        label.textContent?.includes("designEditor.motion.bounce"),
+      )
+      ?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+    await setInputValue(bounceInput, "0.45");
+
+    const curveTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.curveTab");
+    if (!curveTab) throw new Error("Missing curve tab");
+    await act(async () =>
+      curveTab.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+
+    const curveStyle = onChange.mock.lastCall?.[0] as
+      | MotionNativeStyleInstance
+      | undefined;
+    expect(curveStyle?.props.easing).toBe("cubic-bezier(0, 0, 0.58, 1)");
+    if (!curveStyle) throw new Error("Curve tab did not update the easing");
+
+    await render({ styles: [curveStyle], onChange });
+    onChange.mockClear();
+    const springTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.springTab");
+    if (!springTab) throw new Error("Missing spring tab");
+    await act(async () =>
+      springTab.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...curveStyle,
+        props: { ...curveStyle.props, easing: "spring(0.45, 0.5)" },
+      },
+      expect.objectContaining({ index: 0, styleKey: "Position" }),
+    );
+  });
+
+  it("commits a dirty Bounce draft when the style editor closes before blur", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.5)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceInput = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    )
+      .find((label) =>
+        label.textContent?.includes("designEditor.motion.bounce"),
+      )
+      ?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+    await setInputValue(bounceInput, "0.45");
+    onChange.mockClear();
+
+    const closeButton = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.animationStyles.close"]',
+    );
+    if (!closeButton) throw new Error("Missing style editor close button");
+    await act(async () => closeButton.click());
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...styleWithSpring,
+        props: { ...styleWithSpring.props, easing: "spring(0.45, 0.5)" },
+      },
+      expect.objectContaining({ index: 0, styleKey: "Position" }),
+    );
+  });
+
   it("shows the style-key menu separately from Type and keeps close functional", async () => {
     const onChange = vi.fn();
     await render({ onChange });

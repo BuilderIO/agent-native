@@ -1197,7 +1197,7 @@ test("Motion inspector states match the editable timeline", async ({
   await captureReferenceState(page, "motion-controls-cross-layer-selection");
 });
 
-test("spring precision and easing-segment double-click preserve Motion state", async ({
+test("spring precision persists and easing-segment double-click adds a keyframe", async ({
   page,
   request,
 }) => {
@@ -1544,7 +1544,21 @@ test("spring precision and easing-segment double-click preserve Motion state", a
     );
     await expect(easingSegment).toHaveCount(1);
     await expect(easingSegment).toBeVisible();
+    const addEasingSegmentKeyframe = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
     await easingSegment.dblclick();
+    const savedEasingSegmentKeyframe = await addEasingSegmentKeyframe;
+    expect(
+      savedEasingSegmentKeyframe.ok(),
+      await savedEasingSegmentKeyframe.text(),
+    ).toBe(true);
+    expect(await savedEasingSegmentKeyframe.json()).toMatchObject({
+      persisted: true,
+    });
     const timelineAfterDoubleClick = await getAction(
       request,
       "get-motion-timeline",
@@ -1556,11 +1570,13 @@ test("spring precision and easing-segment double-click preserve Motion state", a
           track.property === "opacity" &&
           track.targetNodeId === "e2e-motion-reference-rectangle-2",
       );
-    expect(
-      trackAfterDoubleClick?.keyframes?.map(
-        (keyframe: { t: number }) => keyframe.t,
-      ),
-    ).toEqual([0, 0.5]);
+    const keyframeTimes = trackAfterDoubleClick?.keyframes?.map(
+      (keyframe: { t: number }) => keyframe.t,
+    );
+    expect(keyframeTimes).toHaveLength(3);
+    expect(keyframeTimes?.[0]).toBe(0);
+    expect(keyframeTimes?.[1]).toBeCloseTo(0.25, 2);
+    expect(keyframeTimes?.[2]).toBe(0.5);
   } finally {
     if (regressionDesignId) {
       await postAction(request, "delete-design", { id: regressionDesignId });
@@ -1776,11 +1792,17 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
             property: track.property,
             delayMs: track.delayMs ?? 0,
             durationMs: track.durationMs,
-            keyframes: track.keyframes.map((keyframe) => ({
+            keyframes: track.keyframes.map((keyframe, index) => ({
               t: keyframe.t,
               value: keyframe.value,
-              ease:
-                keyframe.ease ?? timeline.timelines?.[0]?.defaultEase ?? "ease",
+              ...(index < track.keyframes.length - 1
+                ? {
+                    ease:
+                      keyframe.ease ??
+                      timeline.timelines?.[0]?.defaultEase ??
+                      "ease",
+                  }
+                : {}),
             })),
           }),
         ),
@@ -1792,7 +1814,9 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
           keyframes: track.keyframes.map((keyframe, index) => ({
             t: keyframe.t,
             value: keyframe.value,
-            ease: index === 0 ? track.easing : "ease",
+            ...(index < track.keyframes.length - 1
+              ? { ease: index === 0 ? track.easing : "ease" }
+              : {}),
           })),
         })),
       );
@@ -2476,11 +2500,17 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
           property: track.property,
           delayMs: track.delayMs ?? 0,
           durationMs: track.durationMs,
-          keyframes: track.keyframes.map((keyframe) => ({
+          keyframes: track.keyframes.map((keyframe, index) => ({
             t: keyframe.t,
             value: keyframe.value,
-            ease:
-              keyframe.ease ?? timeline.timelines?.[0]?.defaultEase ?? "ease",
+            ...(index < track.keyframes.length - 1
+              ? {
+                  ease:
+                    keyframe.ease ??
+                    timeline.timelines?.[0]?.defaultEase ??
+                    "ease",
+                }
+              : {}),
           })),
         }),
       ),
@@ -2492,7 +2522,9 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
         keyframes: track.keyframes.map((keyframe, index) => ({
           t: keyframe.t,
           value: keyframe.value,
-          ease: index === 0 ? track.easing : "ease",
+          ...(index < track.keyframes.length - 1
+            ? { ease: index === 0 ? track.easing : "ease" }
+            : {}),
         })),
       })),
     );

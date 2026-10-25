@@ -4510,7 +4510,6 @@ function EasingSegment({
         event.stopPropagation();
         onSelect();
       }}
-      onDoubleClick={(event) => event.stopPropagation()}
       aria-label={t("designEditor.motion.segmentEasing", {
         ease: effectiveLabel,
       })}
@@ -4552,9 +4551,19 @@ export function MotionEasingEditor({
       ? curveValue
       : springToken({ bounce: MOTION_SPRING_DEFAULT_BOUNCE, settle: 1 }),
   );
+  const lastSeenSpringValueRef = useRef(spring ? curveValue : undefined);
+  const springDraftCommitRef = useRef<
+    ((persist?: boolean) => string | undefined) | null
+  >(null);
   useEffect(() => {
-    if (spring) previousSpring.current = curveValue;
-    else previousCurve.current = curveValue;
+    if (spring) {
+      if (curveValue !== lastSeenSpringValueRef.current) {
+        previousSpring.current = curveValue;
+        lastSeenSpringValueRef.current = curveValue;
+      }
+    } else {
+      previousCurve.current = curveValue;
+    }
   }, [curveValue, spring]);
 
   const updateCurve = (value: string) => {
@@ -4578,7 +4587,8 @@ export function MotionEasingEditor({
           previousCurve.current = curveValue;
           updateCurve(previousSpring.current);
         } else if (nextValue === "curve" && spring) {
-          previousSpring.current = curveValue;
+          previousSpring.current =
+            springDraftCommitRef.current?.(false) ?? curveValue;
           updateCurve(previousCurve.current);
         }
       }}
@@ -4630,6 +4640,7 @@ export function MotionEasingEditor({
           disabled={!canEditValue}
           onChange={updateCurve}
           t={t}
+          draftCommitRef={springDraftCommitRef}
         />
       </TabsContent>
     </Tabs>
