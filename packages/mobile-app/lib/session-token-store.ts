@@ -7,6 +7,11 @@ const NATIVE_TOKEN_MUTATION_TIMEOUT_MS = 5_000;
 const nativeTokenMutationTails = new Map<string, Promise<void>>();
 const nativeTokenMutationVersions = new Map<string, number>();
 const nativeTokenMutationFailures = new Map<string, Error>();
+type NativeTokenMutationFailureListener = (error: Error) => void;
+const nativeTokenMutationFailureListeners = new Map<
+  string,
+  Set<NativeTokenMutationFailureListener>
+>();
 
 function nativeTokenMutationVersion(logicalKey: string): number {
   return nativeTokenMutationVersions.get(logicalKey) ?? 0;
@@ -23,25 +28,28 @@ async function waitForNativeTokenTurn(
   logicalKey: string,
   pending: Promise<void>,
 ): Promise<void> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const failure = nativeTokenMutationFailures.get(logicalKey);
+  if (failure) throw failure;
+
+  let listeners = nativeTokenMutationFailureListeners.get(logicalKey);
+  if (!listeners) {
+    listeners = new Set();
+    nativeTokenMutationFailureListeners.set(logicalKey, listeners);
+  }
+  let listener!: NativeTokenMutationFailureListener;
+  const failed = new Promise<never>((_, reject) => {
+    listener = reject;
+    listeners.add(listener);
+  });
   try {
-    await Promise.race([
-      pending,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              nativeTokenMutationFailures.get(logicalKey) ??
-                new Error(
-                  `Timed out waiting for session token storage after ${NATIVE_TOKEN_MUTATION_TIMEOUT_MS}ms`,
-                ),
-            ),
-          NATIVE_TOKEN_MUTATION_TIMEOUT_MS,
-        );
-      }),
-    ]);
+    // Queue delay does not count toward a caller's storage timeout. If the
+    // active mutation stalls, its own timeout wakes all queued callers.
+    await Promise.race([pending, failed]);
   } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      nativeTokenMutationFailureListeners.delete(logicalKey);
+    }
   }
 }
 
@@ -122,6 +130,11 @@ async function withNativeTokenMutationLock<T>(
       );
       // Native storage cannot cancel an in-flight mutation, so keep this key locked until it settles to prevent a late write from overwriting a retry.
       nativeTokenMutationFailures.set(logicalKey, error);
+      for (const listener of nativeTokenMutationFailureListeners.get(
+        logicalKey,
+      ) ?? []) {
+        listener(error);
+      }
       keepLockUntilOperationSettles = true;
       const releaseAfterOperationSettles = () => {
         if (nativeTokenMutationFailures.get(logicalKey) === error) {

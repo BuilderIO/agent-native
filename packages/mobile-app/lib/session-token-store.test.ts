@@ -106,6 +106,59 @@ describe("secure mobile session token storage", () => {
     void pendingRead;
   });
 
+  it("does not charge queue wait toward a native mutation timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const logicalKey = "agent-native:session-token:slow-mutation-queue";
+      const startedValues: string[] = [];
+      let markFirstStarted!: () => void;
+      let markSecondStarted!: () => void;
+      const firstStarted = new Promise<void>(
+        (resolve) => (markFirstStarted = resolve),
+      );
+      const secondStarted = new Promise<void>(
+        (resolve) => (markSecondStarted = resolve),
+      );
+      vi.mocked(SecureStore.setItemAsync).mockImplementation(
+        (key, value) =>
+          new Promise<void>((resolve) => {
+            startedValues.push(value);
+            if (value === "first-token") markFirstStarted();
+            if (value === "second-token") markSecondStarted();
+            setTimeout(() => {
+              secureStorage.set(key, value);
+              resolve();
+            }, 4_000);
+          }),
+      );
+
+      const first = saveSessionToken("first-token", logicalKey);
+      await firstStarted;
+      const second = saveSessionToken("second-token", logicalKey);
+      const third = saveSessionToken("third-token", logicalKey);
+      const settled = Promise.allSettled([first, second, third]);
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      await secondStarted;
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(startedValues).toEqual([
+        "first-token",
+        "second-token",
+        "third-token",
+      ]);
+      await vi.advanceTimersByTimeAsync(4_000);
+
+      expect((await settled).map((result) => result.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+        "fulfilled",
+      ]);
+      await expect(getSessionToken(logicalKey)).resolves.toBe("third-token");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fails fast while a timed-out SecureStore write remains unsettled", async () => {
     vi.useFakeTimers();
     try {
