@@ -532,6 +532,58 @@ describe("durable execution step identity", () => {
     );
   });
 
+  it("pairs repeated finished slot-only steps from before this release in order", async () => {
+    const threadId = "thread-resume-repeated-finished-slot-only-steps";
+    const turnId = "turn-resume-repeated-finished-slot-only-steps";
+    let saves = 0;
+    const run = vi.fn(
+      async ({ title }: { title: string }) => `Saved ${title} as #${++saves}`,
+    );
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-before-release-repeated",
+      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      messages: [request],
+      run,
+    });
+    const slotOnlyStepIds: string[] = [];
+    for (const slot of [1, 2]) {
+      slotOnlyStepIds.push(
+        await recordUnderSlotOnlyId({
+          threadId,
+          priorRunId: "run-before-release-repeated",
+          priorEvents,
+          slot,
+          withResult: true,
+        }),
+      );
+    }
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-repeated",
+      titles: ["Q3 plan", "Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      run,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    for (const [index, executionStepId] of slotOnlyStepIds.entries()) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          id: `run-after-release-repeated-call-${index}`,
+          executionStepId,
+          result: expect.stringContaining(`Saved Q3 plan as #${index + 2}`),
+        }),
+      );
+    }
+  });
+
   it("holds a moved write whose slot-only step from before this release may have run", async () => {
     const threadId = "thread-resume-moved-dispatched-step";
     const turnId = "turn-resume-moved-dispatched-step";

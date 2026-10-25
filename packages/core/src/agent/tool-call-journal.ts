@@ -926,25 +926,50 @@ export function findInterruptedJournalEntryForCall(
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
-  return findJournalStepEntryForCall(
+  const matches = journalStepEntriesForCall(
     journal.interrupted,
     toolName,
     argumentsHash,
     input,
     consumedKeys,
   );
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
 }
 
-/** The one entry with a durable step that this call's identity matches. */
-export function findJournalStepEntryForCall(
+/**
+ * The earliest unclaimed finished entry with a durable step that this call's
+ * identity matches. Each finished entry carries its own result, so identical
+ * calls pair with identical entries in ledger order.
+ */
+export function findFinishedJournalStepForCall(
   entries: readonly ToolCallJournalEntry[],
   toolName: string,
   argumentsHash: string | undefined,
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
+  const [match] = journalStepEntriesForCall(
+    entries,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+function journalStepEntriesForCall(
+  entries: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys: ReadonlySet<string> | undefined,
+): ToolCallJournalEntry[] {
   const inputFingerprint = toolCallInputFingerprint(input);
-  const matches = entries.filter((entry) => {
+  return entries.filter((entry) => {
     if (
       entry.tool !== toolName ||
       !entry.executionStepId ||
@@ -963,9 +988,6 @@ export function findJournalStepEntryForCall(
       inputSignature(entry.input) === inputSignature(input)
     );
   });
-  const match = matches.length === 1 ? matches[0] : undefined;
-  if (match) consumedKeys?.add(match.key);
-  return match;
 }
 
 export function findInterruptedLegacyJournalEntryForCall(

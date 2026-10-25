@@ -441,7 +441,7 @@ import {
   ambiguousLegacyCallEffectKey,
   findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
-  findJournalStepEntryForCall,
+  findFinishedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
   isUnavailableToolCallInput,
@@ -9629,7 +9629,7 @@ export async function runAgentLoop(opts: {
       // call too, whichever scheme named it.
       const unseenFinishedStep =
         executionFence && toolCallJournal && !interruptedStep
-          ? findJournalStepEntryForCall(
+          ? findFinishedJournalStepForCall(
               unseenFinishedJournalSteps,
               toolCall.name,
               argumentsHash,
