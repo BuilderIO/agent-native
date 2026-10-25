@@ -81,6 +81,7 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
@@ -23669,6 +23670,10 @@ describe("claimBackgroundWorkerRunEarly", () => {
       updateRunHeartbeat: vi.fn(async (_runId: string) => {
         calls.push("heartbeat");
       }),
+      abortRunDurably: vi.fn(async (_runId: string, reason?: string) => {
+        calls.push(`abortDurably:${reason}`);
+        return false;
+      }),
       isTurnAborted: vi.fn(async () => false),
       markRunAborted: vi.fn(async (_runId: string) => {
         calls.push("abort");
@@ -23738,14 +23743,20 @@ describe("claimBackgroundWorkerRunEarly", () => {
     }
   });
 
-  it("keeps a claimed worker fresh until handoff beyond the stale window", async () => {
+  it("durably aborts a claimed setup at its deadline", async () => {
     vi.useFakeTimers();
     try {
       const d = deps();
+      let finishAbort!: (aborted: boolean) => void;
+      d.abortRunDurably.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          finishAbort = resolve;
+        }),
+      );
       const result = await claimBackgroundWorkerRunEarly({
-        runId: "run-setup-handoff",
-        threadId: "thread-setup-handoff",
-        markerTurnId: "turn-setup-handoff",
+        runId: "run-setup-timeout",
+        threadId: "thread-setup-timeout",
+        markerTurnId: "turn-setup-timeout",
         continuationCount: 0,
         runsInBackgroundFunction: true,
         deps: d,
@@ -23753,24 +23764,57 @@ describe("claimBackgroundWorkerRunEarly", () => {
 
       expect(result).toMatchObject({ claimed: true });
       if (!result.claimed) return;
-      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      expect(result.setupDeadlineExpired()).toBe(false);
 
-      await vi.advanceTimersByTimeAsync(
-        runStore.BACKGROUND_PROCESSING_RUN_STALE_MS,
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      expect(result.setupDeadlineExpired()).toBe(true);
+      expect(d.abortRunDurably).toHaveBeenCalledWith(
+        "run-setup-timeout",
+        "background_setup_timeout",
       );
-      const previousDeadlineHeartbeatCount =
-        d.updateRunHeartbeat.mock.calls.length;
+      const deadlineHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
       await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
       expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
-        previousDeadlineHeartbeatCount,
+        deadlineHeartbeatCount,
+      );
+
+      finishAbort(false);
+      await vi.advanceTimersByTimeAsync(0);
+      const stoppedHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(stoppedHeartbeatCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a timed-out setup fresh when durable abort fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      d.abortRunDurably.mockRejectedValueOnce(
+        new Error("database unavailable"),
+      );
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-abort-failed",
+        threadId: "thread-setup-abort-failed",
+        markerTurnId: "turn-setup-abort-failed",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      expect(result.setupDeadlineExpired()).toBe(true);
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        heartbeatCount,
       );
 
       result.stopSetupHeartbeat();
-      const handedOffHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
-      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(
-        handedOffHeartbeatCount,
-      );
     } finally {
       vi.useRealTimers();
     }
