@@ -485,12 +485,15 @@ describe("MotionNativeStyleEditor", () => {
   }
 
   async function setInputValue(input: HTMLInputElement, value: string) {
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
     await act(async () => {
-      valueSetter?.call(input, value);
+      const valueDescriptor = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      );
+      if (typeof valueDescriptor?.set !== "function") {
+        throw new Error("Missing native input value setter");
+      }
+      valueDescriptor.set.call(input, value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
@@ -1153,15 +1156,16 @@ describe("MotionNativeStyleEditor", () => {
         useState<MotionNativeStyleIdentity | null>(
           createMotionNativeStyleIdentity(styles[1]!, 1),
         );
+      const selectedDistance =
+        currentStyles[selectedStyle?.index ?? -1]?.props.distance ?? "none";
+      const renderedDistance =
+        typeof selectedDistance === "object"
+          ? (JSON.stringify(selectedDistance) ?? "none")
+          : String(selectedDistance);
 
       return (
         <>
-          <output data-test-selected-distance>
-            {String(
-              currentStyles[selectedStyle?.index ?? -1]?.props.distance ??
-                "none",
-            )}
-          </output>
+          <output data-test-selected-distance>{renderedDistance}</output>
           <MotionNativeStyleEditor
             styles={currentStyles}
             targetNodeId="target-1"

@@ -647,7 +647,7 @@ async function readManagedReactForSource(args: {
   ];
   const canEditWithoutTarget =
     read.status === "valid" &&
-    ((read.document?.tracks?.length ?? 0) > 0 ||
+    ((read.document?.tracks.length ?? 0) > 0 ||
       (read.document?.animationStyles?.length ?? 0) > 0 ||
       (read.document?.easingVariables?.length ?? 0) > 0 ||
       read.document?.audioClips !== undefined);

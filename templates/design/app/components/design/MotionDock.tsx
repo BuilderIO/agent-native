@@ -791,6 +791,7 @@ export function MotionDock({
       for (let index = 0; index < ordered.length - 1; index += 1) {
         const fromT = ordered[index];
         const toT = ordered[index + 1];
+        if (fromT === undefined || toT === undefined) continue;
         if (
           easingSegmentSelectionKey(id, fromT, toT) !== selectedEasingSegmentKey
         ) {
@@ -3650,7 +3651,7 @@ function MotionTrackSettingsButton({
             ])}
             ease={firstEase}
             easingVariables={easingVariables}
-            onEasingVariablesChange={onEasingVariablesChange}
+            {...(onEasingVariablesChange ? { onEasingVariablesChange } : {})}
             disabled={readOnly}
             onChange={(ease) => onEaseChange(track, ease)}
           />

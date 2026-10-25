@@ -1872,8 +1872,8 @@ export function MotionEasingPicker({
       </PopoverTrigger>
       <PopoverContent
         align={align}
-        side={side}
-        sideOffset={sideOffset}
+        {...(side === undefined ? {} : { side })}
+        {...(sideOffset === undefined ? {} : { sideOffset })}
         className={compactPopover ? "max-h-[336px] w-[232px] p-2" : "w-60 p-2"}
       >
         {view === "new-variable" ? (
@@ -2849,13 +2849,16 @@ export function MotionSpringEditor({
     draftCommitRef.current = commitBounceDraftRef.current;
   }
 
+  const springBounce = spring?.bounce;
+
   useEffect(() => {
-    const next = spring ? springBounceDraft(value, spring.bounce) : "";
+    const next =
+      springBounce === undefined ? "" : springBounceDraft(value, springBounce);
     bounceDraftRef.current = next;
     bounceDraftEditedRef.current = false;
-    if (spring) lastSpringValueRef.current = value;
+    if (springBounce !== undefined) lastSpringValueRef.current = value;
     setBounceDraft(next);
-  }, [spring?.bounce, value]);
+  }, [springBounce, value]);
 
   useEffect(() => {
     return () => {
@@ -3168,17 +3171,22 @@ export function easingPreviewPath(value: string): string {
   }
   const linearPoints = parseLinearStops(value);
   if (linearPoints) {
-    const previewPoints = linearPreviewPoints(linearPoints)!;
+    const previewPoints = linearPreviewPoints(linearPoints);
+    if (!previewPoints?.length) return "";
+    const [firstPoint, ...remainingPoints] = previewPoints;
+    if (!firstPoint) return "";
     const toPreviewPoint = ({ position, output }: LinearStopPoint) =>
       `${formatEasingNumber(1 + (position / 100) * 14)} ${formatEasingNumber(14 - output * 12)}`;
-    return `M${toPreviewPoint(previewPoints[0]!)} L${previewPoints
-      .slice(1)
-      .map(toPreviewPoint)
-      .join(" L")}`;
+    const path = remainingPoints.map(toPreviewPoint).join(" L");
+    return path
+      ? `M${toPreviewPoint(firstPoint)} L${path}`
+      : `M${toPreviewPoint(firstPoint)}`;
   }
 
-  const [x1, y1, x2, y2] =
-    parseBezier(value) ?? parseBezier(MOTION_DEFAULT_CUSTOM_BEZIER)!;
+  const bezier =
+    parseBezier(value) ?? parseBezier(MOTION_DEFAULT_CUSTOM_BEZIER);
+  if (!bezier) return "";
+  const [x1, y1, x2, y2] = bezier;
   return `M1 14 C${1 + x1 * 14} ${14 - y1 * 12}, ${1 + x2 * 14} ${14 - y2 * 12}, 15 2`;
 }
 
@@ -3216,16 +3224,32 @@ function parseBezier(value: string): [number, number, number, number] | null {
     "ease-out": [0, 0, 0.58, 1],
     "ease-in-out": [0.42, 0, 0.58, 1],
   };
-  if (aliases[normalized]) return aliases[normalized]!;
+  const alias = aliases[normalized];
+  if (alias) return alias;
   const match =
-    /^cubic-bezier\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^\)]+)\)$/i.exec(
+    /^cubic-bezier\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i.exec(
       normalized,
     );
   if (!match) return null;
-  const points = match.slice(1).map(Number);
-  return points.length === 4 && points.every(Number.isFinite)
-    ? (points as [number, number, number, number])
-    : null;
+  const rawPoints = match.slice(1, 5);
+  if (
+    rawPoints.length !== 4 ||
+    rawPoints.some((point) => point === undefined)
+  ) {
+    return null;
+  }
+  const points = rawPoints.map(Number);
+  const [x1, y1, x2, y2] = points;
+  if (
+    x1 === undefined ||
+    y1 === undefined ||
+    x2 === undefined ||
+    y2 === undefined ||
+    !points.every(Number.isFinite)
+  ) {
+    return null;
+  }
+  return [x1, y1, x2, y2];
 }
 
 function parseStepsPath(value: string): string | null {
@@ -3238,7 +3262,9 @@ function parseStepsPath(value: string): string | null {
     );
   if (!match) return null;
 
-  const requestedCount = Number(match[1]);
+  const countText = match[1];
+  if (countText === undefined) return null;
+  const requestedCount = Number(countText);
   const position = (match[2] ?? "end")
     .replace(/^start$/, "jump-start")
     .replace(/^end$/, "jump-end");
@@ -3300,15 +3326,19 @@ type LinearStopPoint = { position: number; output: number };
 function parseLinearStops(value: string): LinearStopPoint[] | null {
   const match = /^linear\((.*)\)$/i.exec(value.trim());
   if (!match) return null;
+  const body = match[1];
+  if (body === undefined) return null;
   const number = String.raw`[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?`;
   const stopPattern = new RegExp(
     `^(${number})(?:\\s+(${number})%(?:\\s+(${number})%)?)?$`,
     "i",
   );
-  const stops = match[1]!.split(",").map((entry) => {
+  const parsedStops = body.split(",").map((entry) => {
     const parsed = stopPattern.exec(entry.trim());
     if (!parsed) return null;
-    const output = Number(parsed[1]);
+    const outputText = parsed[1];
+    if (outputText === undefined) return null;
+    const output = Number(outputText);
     const positions = [parsed[2], parsed[3]]
       .filter((position): position is string => position !== undefined)
       .map(Number);
@@ -3316,15 +3346,23 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
       ? { output, positions }
       : null;
   });
-  if (stops.length < 2 || stops.some((stop) => stop === null)) return null;
+  if (parsedStops.length < 2) return null;
+  const stops: Array<{ output: number; positions: number[] }> = [];
+  for (const stop of parsedStops) {
+    if (!stop) return null;
+    stops.push(stop);
+  }
 
   const expanded: Array<{ position: number | null; output: number }> = [];
   for (const stop of stops) {
-    if (!stop) return null;
     if (stop.positions.length === 2) {
+      const [firstPosition, secondPosition] = stop.positions;
+      if (firstPosition === undefined || secondPosition === undefined) {
+        return null;
+      }
       expanded.push(
-        { position: stop.positions[0]!, output: stop.output },
-        { position: stop.positions[1]!, output: stop.output },
+        { position: firstPosition, output: stop.output },
+        { position: secondPosition, output: stop.output },
       );
     } else {
       expanded.push({
@@ -3333,48 +3371,56 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
       });
     }
   }
-  if (expanded[0]!.position === null) expanded[0]!.position = 0;
-  const lastExpandedStop = expanded[expanded.length - 1]!;
+  const firstExpandedStop = expanded[0];
+  const lastExpandedStop = expanded[expanded.length - 1];
+  if (!firstExpandedStop || !lastExpandedStop) return null;
+  if (firstExpandedStop.position === null) firstExpandedStop.position = 0;
   if (lastExpandedStop.position === null) lastExpandedStop.position = 100;
 
   let previousKnown = 0;
   for (let index = 1; index < expanded.length; index += 1) {
-    if (expanded[index]!.position === null) continue;
-    const start = expanded[previousKnown]!.position!;
-    if (expanded[index]!.position! < start) {
-      expanded[index]!.position = start;
-    }
-    const end = expanded[index]!.position!;
+    const currentStop = expanded[index];
+    const previousKnownStop = expanded[previousKnown];
+    if (!currentStop || !previousKnownStop) return null;
+    if (currentStop.position === null) continue;
+    const start = previousKnownStop.position;
+    if (start === null) return null;
+    if (currentStop.position < start) currentStop.position = start;
+    const end = currentStop.position;
     const gap = index - previousKnown;
     for (let offset = 1; offset < gap; offset += 1) {
-      expanded[previousKnown + offset]!.position =
-        start + ((end - start) * offset) / gap;
+      const interpolatedStop = expanded[previousKnown + offset];
+      if (!interpolatedStop) return null;
+      interpolatedStop.position = start + ((end - start) * offset) / gap;
     }
     previousKnown = index;
   }
 
-  return expanded.map(({ position, output }) => ({
-    position: position!,
-    output,
-  }));
+  const points: LinearStopPoint[] = [];
+  for (const { position, output } of expanded) {
+    if (position === null) return null;
+    points.push({ position, output });
+  }
+  return points;
 }
 
 function linearPreviewPoints(
-  points: LinearStopPoint[] | null,
+  points: readonly LinearStopPoint[] | null,
 ): LinearStopPoint[] | null {
-  if (!points || points.length < 2) return points;
+  if (!points) return null;
+  if (points.length < 2) return [...points];
 
-  const first = points[0]!;
-  const second = points[1]!;
+  const first = points[0];
+  const second = points[1];
+  if (!first || !second) return null;
   let preview = [...points];
 
   if (first.position > 0) {
     if (first.position === second.position) {
       let firstRunEnd = 1;
-      while (
-        firstRunEnd + 1 < points.length &&
-        points[firstRunEnd + 1]!.position === first.position
-      ) {
+      while (firstRunEnd + 1 < points.length) {
+        const next = points[firstRunEnd + 1];
+        if (!next || next.position !== first.position) break;
         firstRunEnd += 1;
       }
       preview = [
@@ -3390,18 +3436,19 @@ function linearPreviewPoints(
     }
   } else if (first.position === 0 && first.position === second.position) {
     let firstRunEnd = 1;
-    while (
-      firstRunEnd + 1 < points.length &&
-      points[firstRunEnd + 1]!.position === first.position
-    ) {
+    while (firstRunEnd + 1 < points.length) {
+      const next = points[firstRunEnd + 1];
+      if (!next || next.position !== first.position) break;
       firstRunEnd += 1;
     }
     preview = points.slice(firstRunEnd);
   }
 
-  const last = points[points.length - 1]!;
+  const last = points[points.length - 1];
+  if (!last) return null;
   if (last.position < 100) {
-    const penultimate = points[points.length - 2]!;
+    const penultimate = points[points.length - 2];
+    if (!penultimate) return null;
     preview.push({
       position: 100,
       output: extrapolateLinearOutput(penultimate, last, 100),
@@ -3411,20 +3458,21 @@ function linearPreviewPoints(
   const curve: LinearStopPoint[] = [];
   for (let index = 0; index < preview.length; ) {
     let lastIndex = index;
-    while (
-      lastIndex + 1 < preview.length &&
-      preview[lastIndex + 1]!.position === preview[index]!.position
-    ) {
+    const firstPoint = preview[index];
+    if (!firstPoint) return null;
+    let lastPoint = firstPoint;
+    while (lastIndex + 1 < preview.length) {
+      const next = preview[lastIndex + 1];
+      if (!next) return null;
+      if (next.position !== firstPoint.position) break;
       lastIndex += 1;
+      lastPoint = next;
     }
 
-    curve.push(preview[index]!);
-    if (
-      lastIndex > index &&
-      preview[lastIndex]!.output !== preview[index]!.output
-    ) {
+    curve.push(firstPoint);
+    if (lastIndex > index && lastPoint.output !== firstPoint.output) {
       // Intermediate equal-input stops do not contribute output values.
-      curve.push(preview[lastIndex]!);
+      curve.push(lastPoint);
     }
     index = lastIndex + 1;
   }

@@ -546,7 +546,6 @@ export function renderDesignEditorView({
     );
     if (fromIndex < 0) return null;
     const from = orderedKeyframes[fromIndex];
-    if (!from) return null;
     return {
       ...motionEasingSelection,
       targetNodeId: track.targetNodeId,
@@ -557,7 +556,7 @@ export function renderDesignEditorView({
     };
   })();
   const activeMotionEasingSegment =
-    motionDockOpen && activeFile?.id ? motionEasingSegment : null;
+    motionDockOpen && activeFile.id ? motionEasingSegment : null;
   const motionTargetForInspector = activeMotionEasingSegment
     ? {
         nodeId: activeMotionEasingSegment.targetNodeId,
@@ -569,18 +568,24 @@ export function renderDesignEditorView({
 
   const handleMotionEasingSegmentChange = (ease: MotionEase) => {
     if (!canWriteMotion || !activeMotionEasingSegment) return;
-    let changed = false;
     const nextTracks = motionDockTracksForInspector.map((track) => {
       if (track.id !== activeMotionEasingSegment.trackId) return track;
+      let trackChanged = false;
       const keyframes = track.keyframes.map((keyframe) => {
         if (keyframe.t !== activeMotionEasingSegment.fromT) return keyframe;
         if (keyframe.ease === ease) return keyframe;
-        changed = true;
+        trackChanged = true;
         return { ...keyframe, ease };
       });
-      return changed ? { ...track, keyframes } : track;
+      return trackChanged ? { ...track, keyframes } : track;
     });
-    if (changed) handleMotionDockTracksChange(nextTracks);
+    if (
+      nextTracks.some(
+        (track, index) => track !== motionDockTracksForInspector[index],
+      )
+    ) {
+      handleMotionDockTracksChange(nextTracks);
+    }
   };
 
   const createMotionNativeStyle = (

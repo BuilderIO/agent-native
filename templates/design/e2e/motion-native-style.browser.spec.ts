@@ -1140,7 +1140,7 @@ test("custom Size axes round-trip through source, reopen, and reload", async ({
     ["End width", "117"],
     ["Start height", "72"],
     ["End height", "128"],
-  ]) {
+  ] as const) {
     await applyEdit(async () => {
       await page.locator(`input[aria-label="${label}"]`).fill(value);
     });
@@ -1165,7 +1165,7 @@ test("custom Size axes round-trip through source, reopen, and reload", async ({
     ["End width", "117"],
     ["Start height", "72"],
     ["End height", "128"],
-  ]) {
+  ] as const) {
     await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
       value,
     );
@@ -1222,7 +1222,7 @@ test("custom Size axes round-trip through source, reopen, and reload", async ({
     ["End width", "117"],
     ["Start height", "72"],
     ["End height", "128"],
-  ]) {
+  ] as const) {
     await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
       value,
     );

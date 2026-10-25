@@ -1241,13 +1241,15 @@ describe("MotionDock selected animation settings", () => {
       'button[aria-label="Linear"]',
     );
     expect(easingPicker).not.toBeNull();
-    await act(async () => easingPicker!.click());
+    if (!easingPicker) throw new Error("Linear easing picker was not rendered");
+    await act(async () => easingPicker.click());
     const springTab = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
     ).find((tab) => tab.textContent === "Spring");
     expect(springTab).toBeDefined();
+    if (!springTab) throw new Error("Spring easing tab was not rendered");
     await act(async () => {
-      springTab!.dispatchEvent(
+      springTab.dispatchEvent(
         new MouseEvent("mousedown", {
           bubbles: true,
           button: 0,
@@ -2025,9 +2027,11 @@ describe("MotionDock keyframe selection and deletion", () => {
       ease: "linear",
     });
 
-    await clickKeyframe(
-      container.querySelector<SVGElement>('[aria-label="Keyframe at 1000ms"]')!,
+    const laterKeyframe = container.querySelector<SVGElement>(
+      '[aria-label="Keyframe at 1000ms"]',
     );
+    if (!laterKeyframe) throw new Error("Later keyframe was not rendered");
+    await clickKeyframe(laterKeyframe);
     expect(
       onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
     ).toBeNull();
@@ -2143,9 +2147,8 @@ describe("MotionDock keyframe selection and deletion", () => {
       onTracksChange,
       onPlayheadChange,
     });
-    const row = container.querySelector<HTMLElement>(
-      "[data-motion-track-row]",
-    )!;
+    const row = container.querySelector<HTMLElement>("[data-motion-track-row]");
+    if (!row) throw new Error("Motion track row was not rendered");
     setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
 
     await act(async () => {
@@ -2173,7 +2176,8 @@ describe("MotionDock keyframe selection and deletion", () => {
     setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
     const segment = container.querySelector<HTMLButtonElement>(
       "[data-motion-easing-segment]",
-    )!;
+    );
+    if (!segment) throw new Error("Motion easing segment was not rendered");
     onTracksChange.mockClear();
 
     await act(async () => {

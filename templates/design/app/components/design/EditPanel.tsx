@@ -2411,12 +2411,13 @@ export const EditPanel = memo(function EditPanel({
       if (property !== "resolvedLineHeightPx") delete inlineStyles[property];
     }
     Object.assign(inlineStyles, textEditingState.inlineStyles ?? {});
-    return {
-      ...element,
-      computedStyles,
-      inlineStyles:
-        Object.keys(inlineStyles).length > 0 ? inlineStyles : undefined,
-    };
+    const resolvedElement = { ...element, computedStyles };
+    if (Object.keys(inlineStyles).length > 0) {
+      resolvedElement.inlineStyles = inlineStyles;
+    } else {
+      delete resolvedElement.inlineStyles;
+    }
+    return resolvedElement;
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
   const selectedElementsKey = JSON.stringify(
@@ -2665,6 +2666,18 @@ export const EditPanel = memo(function EditPanel({
   const inspectorElementSectionKey = inspectorElementForSections
     ? elementInspectorKey(inspectorElementForSections, fileId)
     : "inspector";
+  const componentSectionPreviewFrameId =
+    previewFrameId ??
+    (viewMode === "overview" && fileId && breakpointContext
+      ? getActiveScreenIframeId({
+          id: fileId,
+          ...(breakpointContext.activeWidthPx !== null &&
+          breakpointContext.activeWidthPx !== undefined
+            ? { activeBreakpointWidth: breakpointContext.activeWidthPx }
+            : {}),
+          breakpointWidths: [...breakpointContext.breakpointWidths],
+        })
+      : fileId);
   const selectedScreenElementSectionKey = selectedScreenElement
     ? elementInspectorKey(selectedScreenElement, selectedScreenGeometry?.id)
     : "selected-screen";
@@ -2921,9 +2934,12 @@ export const EditPanel = memo(function EditPanel({
                             key={`${motionEasingSegment.trackId}:${motionEasingSegment.fromT}:${motionEasingSegment.toT}`}
                             ease={motionEasingSegment.ease}
                             easingVariables={motionEasingVariables}
-                            onEasingVariablesChange={
-                              onMotionEasingVariablesChange
-                            }
+                            {...(onMotionEasingVariablesChange !== undefined
+                              ? {
+                                  onEasingVariablesChange:
+                                    onMotionEasingVariablesChange,
+                                }
+                              : {})}
                             disabled={readOnly || !onMotionEasingSegmentChange}
                             onChange={(ease) =>
                               onMotionEasingSegmentChange?.(ease)
@@ -2941,8 +2957,12 @@ export const EditPanel = memo(function EditPanel({
                       timelineDurationMs={motionAudioDurationMs}
                       timelineScaleDurationMs={motionAudioDurationMs}
                       readOnly={readOnly || motionWriteUnavailable}
-                      onClipsChange={onMotionAudioClipsChange}
-                      onDurationChange={onMotionAudioDurationChange}
+                      {...(onMotionAudioClipsChange !== undefined
+                        ? { onClipsChange: onMotionAudioClipsChange }
+                        : {})}
+                      {...(onMotionAudioDurationChange !== undefined
+                        ? { onDurationChange: onMotionAudioDurationChange }
+                        : {})}
                     />
                   </>
                 ) : (
@@ -2950,11 +2970,10 @@ export const EditPanel = memo(function EditPanel({
                     {!inspectorElement && selectedScreenGeometry ? (
                       <ScreenSelectionHeader
                         screen={selectedScreenGeometry}
-                        route={
-                          selectedScreenSource?.sourceType === "url"
-                            ? selectedScreenRoute
-                            : undefined
-                        }
+                        {...(selectedScreenSource?.sourceType === "url" &&
+                        selectedScreenRoute !== undefined
+                          ? { route: selectedScreenRoute }
+                          : {})}
                         trailing={gridDebugToggle}
                       />
                     ) : null}
@@ -2981,48 +3000,51 @@ export const EditPanel = memo(function EditPanel({
                     {designId && componentNodeId && selectedCount <= 1 && (
                       <ComponentSection
                         designId={designId}
-                        fileId={fileId}
-                        boardFileId={boardFileId}
-                        previewFrameId={
-                          previewFrameId ??
-                          (viewMode === "overview" &&
-                          fileId &&
-                          breakpointContext
-                            ? getActiveScreenIframeId({
-                                id: fileId,
-                                activeBreakpointWidth:
-                                  breakpointContext.activeWidthPx ?? undefined,
-                                breakpointWidths: [
-                                  ...breakpointContext.breakpointWidths,
-                                ],
-                              })
-                            : fileId)
-                        }
-                        activeContent={activeContent}
-                        activeFileUpdatedAt={activeFileUpdatedAt}
-                        getExpectedFiles={getComponentExpectedFiles}
+                        {...(fileId !== undefined ? { fileId } : {})}
+                        {...(boardFileId !== undefined ? { boardFileId } : {})}
+                        {...(componentSectionPreviewFrameId !== undefined
+                          ? { previewFrameId: componentSectionPreviewFrameId }
+                          : {})}
+                        {...(activeContent !== undefined
+                          ? { activeContent }
+                          : {})}
+                        {...(activeFileUpdatedAt !== undefined
+                          ? { activeFileUpdatedAt }
+                          : {})}
+                        {...(getComponentExpectedFiles !== undefined
+                          ? { getExpectedFiles: getComponentExpectedFiles }
+                          : {})}
                         componentDetailsReady={componentDetailsReady}
                         nodeId={componentNodeId}
-                        runtime={componentRuntime}
-                        requestLocalhostWrite={requestLocalhostWrite}
+                        {...(requestLocalhostWrite !== undefined
+                          ? { requestLocalhostWrite }
+                          : {})}
                         hasLocalOverrides={componentInstanceHasLocalOverrides}
                         swapPickerRequest={componentSwapPickerRequest}
-                        onResetOverrides={
-                          onResetComponentInstanceOverrides
-                            ? () =>
+                        {...(onResetComponentInstanceOverrides !== undefined
+                          ? {
+                              onResetOverrides: () =>
                                 onResetComponentInstanceOverrides(
                                   componentNodeId,
-                                )
-                            : undefined
-                        }
-                        onRestoreComponent={
-                          onRestoreComponent
-                            ? () => onRestoreComponent(componentNodeId)
-                            : undefined
-                        }
-                        onGoToMainComponent={onGoToMainComponent}
-                        onComponentPropApplied={onComponentPropApplied}
+                                ),
+                            }
+                          : {})}
+                        {...(onRestoreComponent !== undefined
+                          ? {
+                              onRestoreComponent: () =>
+                                onRestoreComponent(componentNodeId),
+                            }
+                          : {})}
+                        {...(onGoToMainComponent !== undefined
+                          ? { onGoToMainComponent }
+                          : {})}
+                        {...(onComponentPropApplied !== undefined
+                          ? { onComponentPropApplied }
+                          : {})}
                         sourceCapabilities={sourceCapabilities}
+                        {...(componentRuntime !== undefined
+                          ? { runtime: componentRuntime }
+                          : {})}
                       />
                     )}
 
@@ -3044,38 +3066,48 @@ export const EditPanel = memo(function EditPanel({
                       <>
                         <ScreenGeometryProperties
                           screen={selectedScreenGeometry}
-                          onGeometryChange={
-                            readOnly ? undefined : onScreenGeometryChange
-                          }
-                          onHeightModeChange={
-                            readOnly ? undefined : onScreenHeightModeChange
-                          }
-                          onConstraintChange={
-                            !readOnly &&
-                            selectedScreenElement &&
-                            onSelectedScreenStyleChange
-                              ? (axis, kind, value, meta) =>
+                          {...(!readOnly && onScreenGeometryChange !== undefined
+                            ? { onGeometryChange: onScreenGeometryChange }
+                            : {})}
+                          {...(!readOnly &&
+                          onScreenHeightModeChange !== undefined
+                            ? { onHeightModeChange: onScreenHeightModeChange }
+                            : {})}
+                          {...(!readOnly &&
+                          selectedScreenElement &&
+                          onSelectedScreenStyleChange !== undefined
+                            ? {
+                                onConstraintChange: (
+                                  axis: "horizontal" | "vertical",
+                                  kind: "min" | "max",
+                                  value: number | null,
+                                  meta?: StyleChangeMeta,
+                                ) =>
                                   commitElementMinMax(
                                     axis,
                                     kind,
                                     value,
                                     onSelectedScreenStyleChange,
                                     meta,
-                                  )
-                              : undefined
-                          }
-                          selectedScreenSource={selectedScreenSource}
+                                  ),
+                              }
+                            : {})}
+                          {...(selectedScreenSource !== undefined
+                            ? { selectedScreenSource }
+                            : {})}
                           localhostConnections={localhostConnections}
-                          onScreenSourceChange={
-                            readOnly ? undefined : onScreenSourceChange
-                          }
-                          onScreenUrlChange={
-                            readOnly ? undefined : onScreenUrlChange
-                          }
-                          onAddLocalhostScreen={
-                            readOnly ? undefined : onAddLocalhostScreen
-                          }
-                          onRemoveScreen={readOnly ? undefined : onRemoveScreen}
+                          {...(!readOnly && onScreenSourceChange !== undefined
+                            ? { onScreenSourceChange }
+                            : {})}
+                          {...(!readOnly && onScreenUrlChange !== undefined
+                            ? { onScreenUrlChange }
+                            : {})}
+                          {...(!readOnly && onAddLocalhostScreen !== undefined
+                            ? { onAddLocalhostScreen }
+                            : {})}
+                          {...(!readOnly && onRemoveScreen !== undefined
+                            ? { onRemoveScreen }
+                            : {})}
                           screenSourcePending={screenSourcePending}
                           screenBreakpointControls={screenBreakpointControls}
                         />
@@ -3098,58 +3130,106 @@ export const EditPanel = memo(function EditPanel({
                               key={`layout-context:${selectedScreenElementSectionKey}`}
                               element={selectedScreenElement}
                               onStyleChange={onSelectedScreenStyleChange}
-                              onStylesChange={onSelectedScreenStylesChange}
-                              onDisableAutoLayout={onDisableAutoLayout}
-                              onApplyLayoutFlow={onApplyLayoutFlow}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                              {...(onDisableAutoLayout !== undefined
+                                ? { onDisableAutoLayout }
+                                : {})}
+                              {...(onApplyLayoutFlow !== undefined
+                                ? { onApplyLayoutFlow }
+                                : {})}
                               showContainerSizing={false}
                             />
                             <AppearanceProperties
                               key={`appearance:${selectedScreenElementSectionKey}`}
                               element={selectedScreenElement}
                               onStyleChange={onSelectedScreenStyleChange}
-                              onStylesChange={onSelectedScreenStylesChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
                               hidden={selectionHidden}
-                              onToggleHidden={onToggleSelectionHidden}
+                              {...(onToggleSelectionHidden !== undefined
+                                ? { onToggleHidden: onToggleSelectionHidden }
+                                : {})}
                             />
                             <ShaderAwareFillProperties
                               key={`fill:${selectedScreenElementSectionKey}`}
                               element={selectedScreenElement}
                               uploadScopeKey={selectedScreenElementSectionKey}
                               onStyleChange={onSelectedScreenStyleChange}
-                              onStylesChange={onSelectedScreenStylesChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
                               documentColorPalette={documentColorPalette}
-                              shaderContext={screenShaderContext}
-                              readSubtreeColorStyles={readSubtreeColorStyles}
+                              {...(screenShaderContext !== undefined
+                                ? { shaderContext: screenShaderContext }
+                                : {})}
+                              {...(readSubtreeColorStyles !== undefined
+                                ? { readSubtreeColorStyles }
+                                : {})}
                             />
                             <StrokeProperties
                               key={`stroke:${selectedScreenElementSectionKey}`}
                               element={selectedScreenElement}
                               onStyleChange={onSelectedScreenStyleChange}
-                              onStylesChange={onSelectedScreenStylesChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
                             />
                             <EffectsProperties
                               key={`effects:${selectedScreenElementSectionKey}`}
                               element={selectedScreenElement}
                               onStyleChange={onSelectedScreenStyleChange}
-                              onStylesChange={onSelectedScreenStylesChange}
-                              shaderContext={screenShaderContext}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                              {...(screenShaderContext !== undefined
+                                ? { shaderContext: screenShaderContext }
+                                : {})}
                             />
                             <SelectionColorsProperties
                               elements={selectedScreenElements}
                               scopes={selectionColorScopes}
-                              readSubtreeColorStyles={readSubtreeColorStyles}
-                              onColorTarget={onSelectionColorTarget}
-                              canSelectColorTarget={
-                                canSelectSelectionColorTarget
-                              }
-                              onColorPickerOpenChange={
-                                onSelectionColorPickerOpenChange
-                              }
-                              onColorChange={
-                                readOnly || interactionState
-                                  ? undefined
-                                  : onSelectionColorChange
-                              }
+                              {...(readSubtreeColorStyles !== undefined
+                                ? { readSubtreeColorStyles }
+                                : {})}
+                              {...(onSelectionColorTarget !== undefined
+                                ? { onColorTarget: onSelectionColorTarget }
+                                : {})}
+                              {...(canSelectSelectionColorTarget !== undefined
+                                ? {
+                                    canSelectColorTarget:
+                                      canSelectSelectionColorTarget,
+                                  }
+                                : {})}
+                              {...(onSelectionColorPickerOpenChange !==
+                              undefined
+                                ? {
+                                    onColorPickerOpenChange:
+                                      onSelectionColorPickerOpenChange,
+                                  }
+                                : {})}
+                              {...(!readOnly &&
+                              !interactionState &&
+                              onSelectionColorChange !== undefined
+                                ? { onColorChange: onSelectionColorChange }
+                                : {})}
                             />
                           </>
                         ) : null}
@@ -3162,16 +3242,26 @@ export const EditPanel = memo(function EditPanel({
                       <SelectionColorsProperties
                         elements={[]}
                         scopes={selectionColorScopes}
-                        onColorTarget={onSelectionColorTarget}
-                        canSelectColorTarget={canSelectSelectionColorTarget}
-                        onColorPickerOpenChange={
-                          onSelectionColorPickerOpenChange
-                        }
-                        onColorChange={
-                          readOnly || interactionState
-                            ? undefined
-                            : onSelectionColorChange
-                        }
+                        {...(onSelectionColorTarget !== undefined
+                          ? { onColorTarget: onSelectionColorTarget }
+                          : {})}
+                        {...(canSelectSelectionColorTarget !== undefined
+                          ? {
+                              canSelectColorTarget:
+                                canSelectSelectionColorTarget,
+                            }
+                          : {})}
+                        {...(onSelectionColorPickerOpenChange !== undefined
+                          ? {
+                              onColorPickerOpenChange:
+                                onSelectionColorPickerOpenChange,
+                            }
+                          : {})}
+                        {...(!readOnly &&
+                        !interactionState &&
+                        onSelectionColorChange !== undefined
+                          ? { onColorChange: onSelectionColorChange }
+                          : {})}
                       />
                     ) : null}
 
@@ -3183,9 +3273,15 @@ export const EditPanel = memo(function EditPanel({
                         styles={pageStyles}
                         onStyleChange={onStyleChange}
                         onStylesChange={onStylesChange}
-                        canvasBackground={canvasBackground}
-                        canvasBackgroundFallback={canvasBackgroundFallback}
-                        onCanvasBackgroundChange={onCanvasBackgroundChange}
+                        {...(canvasBackground !== undefined
+                          ? { canvasBackground }
+                          : {})}
+                        {...(canvasBackgroundFallback !== undefined
+                          ? { canvasBackgroundFallback }
+                          : {})}
+                        {...(onCanvasBackgroundChange !== undefined
+                          ? { onCanvasBackgroundChange }
+                          : {})}
                       />
                     ) : null}
 
@@ -3272,33 +3368,50 @@ export const EditPanel = memo(function EditPanel({
                                   </Popover>
                                   <AddTrackMenu
                                     selectedTarget={motionSelectedTarget}
-                                    disabledProperties={
-                                      selectedCount === 1
-                                        ? motionKeyframeState?.keyframedProperties
-                                        : undefined
-                                    }
-                                    disabledReason={
-                                      motionWriteUnavailable
-                                        ? (motionWriteUnavailableReason ??
-                                          t(
-                                            "designEditor.motion.sourceWriteUnavailable",
-                                          ))
-                                        : selectionHasOutermostFrame(
-                                              effectiveSelectedElements,
-                                            )
-                                          ? t(
+                                    {...(selectedCount === 1 &&
+                                    motionKeyframeState?.keyframedProperties !==
+                                      undefined
+                                      ? {
+                                          disabledProperties:
+                                            motionKeyframeState.keyframedProperties,
+                                        }
+                                      : {})}
+                                    {...(motionWriteUnavailable
+                                      ? {
+                                          disabledReason:
+                                            motionWriteUnavailableReason ??
+                                            t(
+                                              "designEditor.motion.sourceWriteUnavailable",
+                                            ),
+                                        }
+                                      : selectionHasOutermostFrame(
+                                            effectiveSelectedElements,
+                                          )
+                                        ? {
+                                            disabledReason: t(
                                               "designEditor.motion.addMenu.outermostFrame",
-                                            )
-                                          : undefined
-                                    }
+                                            ),
+                                          }
+                                        : {})}
                                     onCreateTrack={
                                       onCreateMotionTrack ?? (() => undefined)
                                     }
-                                    onCreateStyle={onCreateMotionStyle}
-                                    onCreateNativeStyle={
-                                      onCreateMotionNativeStyle
-                                    }
-                                    onCreateText={onCreateMotionTextAnimation}
+                                    {...(onCreateMotionStyle !== undefined
+                                      ? { onCreateStyle: onCreateMotionStyle }
+                                      : {})}
+                                    {...(onCreateMotionNativeStyle !== undefined
+                                      ? {
+                                          onCreateNativeStyle:
+                                            onCreateMotionNativeStyle,
+                                        }
+                                      : {})}
+                                    {...(onCreateMotionTextAnimation !==
+                                    undefined
+                                      ? {
+                                          onCreateText:
+                                            onCreateMotionTextAnimation,
+                                        }
+                                      : {})}
                                   />
                                 </div>
                               ) : null
@@ -3324,10 +3437,18 @@ export const EditPanel = memo(function EditPanel({
                                   <MotionNativeStyleEditor
                                     styles={motionNativeStyles}
                                     targetNodeId={inspectorMotionTargetNodeId}
-                                    selectedStyle={selectedMotionNativeStyle}
-                                    onSelectedStyleChange={
-                                      onSelectMotionNativeStyle
-                                    }
+                                    {...(selectedMotionNativeStyle !== undefined
+                                      ? {
+                                          selectedStyle:
+                                            selectedMotionNativeStyle,
+                                        }
+                                      : {})}
+                                    {...(onSelectMotionNativeStyle !== undefined
+                                      ? {
+                                          onSelectedStyleChange:
+                                            onSelectMotionNativeStyle,
+                                        }
+                                      : {})}
                                     isText={
                                       motionSelectedTarget?.nodeId ===
                                       inspectorMotionTargetNodeId
@@ -3337,9 +3458,13 @@ export const EditPanel = memo(function EditPanel({
                                     }
                                     disabled={motionWriteUnavailable}
                                     easingVariables={motionEasingVariables}
-                                    onEasingVariablesChange={
-                                      onMotionEasingVariablesChange
-                                    }
+                                    {...(onMotionEasingVariablesChange !==
+                                    undefined
+                                      ? {
+                                          onEasingVariablesChange:
+                                            onMotionEasingVariablesChange,
+                                        }
+                                      : {})}
                                     onChange={(instance, identity) =>
                                       onMotionNativeStyleChange?.(
                                         instance,
@@ -3540,25 +3665,43 @@ export const EditPanel = memo(function EditPanel({
                             timelineDurationMs={motionAudioDurationMs}
                             timelineScaleDurationMs={motionAudioDurationMs}
                             readOnly={readOnly || motionWriteUnavailable}
-                            onClipsChange={onMotionAudioClipsChange}
-                            onDurationChange={onMotionAudioDurationChange}
+                            {...(onMotionAudioClipsChange !== undefined
+                              ? { onClipsChange: onMotionAudioClipsChange }
+                              : {})}
+                            {...(onMotionAudioDurationChange !== undefined
+                              ? {
+                                  onDurationChange: onMotionAudioDurationChange,
+                                }
+                              : {})}
                           />
                         ) : null}
                         {!motionInspector ? (
                           <SelectionColorsProperties
                             elements={effectiveSelectedElements}
                             scopes={selectionColorScopes}
-                            readSubtreeColorStyles={readSubtreeColorStyles}
-                            onColorTarget={onSelectionColorTarget}
-                            canSelectColorTarget={canSelectSelectionColorTarget}
-                            onColorPickerOpenChange={
-                              onSelectionColorPickerOpenChange
-                            }
-                            onColorChange={
-                              readOnly || interactionState
-                                ? undefined
-                                : onSelectionColorChange
-                            }
+                            {...(readSubtreeColorStyles !== undefined
+                              ? { readSubtreeColorStyles }
+                              : {})}
+                            {...(onSelectionColorTarget !== undefined
+                              ? { onColorTarget: onSelectionColorTarget }
+                              : {})}
+                            {...(canSelectSelectionColorTarget !== undefined
+                              ? {
+                                  canSelectColorTarget:
+                                    canSelectSelectionColorTarget,
+                                }
+                              : {})}
+                            {...(onSelectionColorPickerOpenChange !== undefined
+                              ? {
+                                  onColorPickerOpenChange:
+                                    onSelectionColorPickerOpenChange,
+                                }
+                              : {})}
+                            {...(!readOnly &&
+                            !interactionState &&
+                            onSelectionColorChange !== undefined
+                              ? { onColorChange: onSelectionColorChange }
+                              : {})}
                           />
                         ) : null}
                         {!motionInspector && selectionHasContainerElement ? (
