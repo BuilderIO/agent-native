@@ -21,6 +21,7 @@ import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime";
 import { e2eBaseURL } from "./base-url";
+import { waitForEditorBoot } from "./editor-boot";
 import {
   appPath,
   cdpScreenshot,
@@ -295,6 +296,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     );
@@ -1088,6 +1090,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     await selectHtmlNodeFromCanvas(page, screenId, nativeNodeId);
     await page
       .getByRole("button", { name: "Motion dock", exact: true })
