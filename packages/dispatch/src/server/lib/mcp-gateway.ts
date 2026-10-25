@@ -20,6 +20,7 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
@@ -593,8 +594,15 @@ function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
   }
   const target = new URL(appUrl);
   if (gateway.origin !== target.origin) return undefined;
+  const configuredBasePath = getConfiguredAppBasePath();
   const gatewayPath = gateway.pathname.replace(/\/+$/, "");
-  gateway.pathname = `${gatewayPath}/mcp` || "/mcp";
+  const basePath =
+    configuredBasePath &&
+    gatewayPath !== configuredBasePath &&
+    !gatewayPath.startsWith(`${configuredBasePath}/`)
+      ? `${configuredBasePath}${gatewayPath}`
+      : gatewayPath;
+  gateway.pathname = `${basePath}/mcp` || "/mcp";
   gateway.search = "";
   gateway.hash = "";
   return gateway.toString().replace(/\/$/, "");

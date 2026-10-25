@@ -1575,14 +1575,38 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
-  it.each(["workspace-sso", "dispatch-grant"] as const)(
-    "uses the mounted Workspace MCP endpoint and audience for %s embeds",
-    async (route) => {
+  it.each([
+    [
+      "workspace-sso",
+      "gateway mount path",
+      "https://beta.agent-workspace.builder.io/dispatch",
+      "",
+    ],
+    [
+      "dispatch-grant",
+      "gateway mount path",
+      "https://beta.agent-workspace.builder.io/dispatch",
+      "",
+    ],
+    [
+      "workspace-sso",
+      "APP_BASE_PATH",
+      "https://beta.agent-workspace.builder.io",
+      "/dispatch",
+    ],
+    [
+      "dispatch-grant",
+      "APP_BASE_PATH",
+      "https://beta.agent-workspace.builder.io",
+      "/dispatch",
+    ],
+  ] as const)(
+    "uses the mounted Workspace MCP endpoint and audience for %s embeds with %s",
+    async (route, _mountConfig, gatewayUrl, appBasePath) => {
       vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-      vi.stubEnv(
-        "WORKSPACE_GATEWAY_URL",
-        "https://beta.agent-workspace.builder.io/dispatch",
-      );
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", gatewayUrl);
+      vi.stubEnv("APP_BASE_PATH", appBasePath);
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
       vi.stubEnv(
         "IDENTITY_SSO_APP_REGISTRY_JSON",
         JSON.stringify([
