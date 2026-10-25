@@ -2807,10 +2807,14 @@ function replyExplicitlyRefusesHandoff(text: string): boolean {
     .replace(/[’‘]/g, "'")
     .toLowerCase();
   const refusedAction = `(?:${explicitHandoffActions}|commit|promise)`;
+  const abilityRefusal = new RegExp(
+    `\\b(?:i|we)(?:'m|'re|\\s+am|\\s+are)\\s+(?:unable to|not going to be able to)\\s+${refusedAction}\\b`,
+  );
   return (
     new RegExp(
       `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:(?:be\\s+)?able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
     ).test(normalized) ||
+    abilityRefusal.test(normalized) ||
     /\b(?:i|we)\s+(?:need to|have to)\s+back out\b|\b(?:i|we)\s+(?:no longer|don't|do not)\s+have\s+(?:the\s+)?(?:time|capacity|bandwidth)\b|\b(?:not sure|unsure|uncertain)\s+(?:if|whether)\s+(?:i|we)\s+(?:can|will)\b|\b(?:i|we)\s+(?:may|might)\s+not be able to\b/i.test(
       normalized,
     )
@@ -5466,6 +5470,9 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
     /\b(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|not\s+authorized|not\s+approved|forbidden|prohibited|disallowed)\b/i.test(
       statement,
     ) ||
+    /\b(?:skip|omit|leave out)\s+(?:(?:adding|posting|sending|leaving|using)\s+)?(?:(?:the|any)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
+      statement,
+    ) ||
     /\b(?:but|however|though|except|only)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
       statement,
     ) ||
@@ -5478,10 +5485,10 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
 function hasExplicitPartialWriteRestriction(statement: string): boolean {
   return (
     hasExplicitNoReactionRestriction(statement) ||
-    /(?:^|[.!?;,:]\s*)(?:(?:but|however|though|except|with)\s+)?(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+    /(?:^|[.!?;,:]\s*|\b(?:but|however|though|except|with)\s+)(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:replies?|responses?|updates?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
       statement,
     ) ||
-    /\b(?:replies?|responses?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|forbidden|prohibited|disallowed)\b/i.test(
+    /\b(?:replies?|responses?|updates?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|forbidden|prohibited|disallowed)\b/i.test(
       statement,
     ) ||
     /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b|\b(?:you\s+)?(?:(?:may|can|should|must)\s+)?only\s+(?:(?:add|post|send|leave|use)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
@@ -11878,6 +11885,9 @@ if (args[0] === "--self-test" && args.length === 1) {
   for (const text of [
     "I won't be able to take it.",
     "I'm not able to take this.",
+    "I'm unable to take this.",
+    "I'm not going to be able to take this.",
+    "I'm unable to take this, but I'll handle the docs.",
   ]) {
     if (
       !replyExplicitlyRefusesHandoff(text) ||
@@ -17935,7 +17945,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       "No reactions.",
       "No replies.",
       "No status replies.",
+      "No status updates.",
       "Reactions are not allowed.",
+      "Skip reactions.",
+      "Leave out emojis.",
       "You may only add reactions.",
     ]) {
       const earlierRestriction = structuredClone(authorizedMagRoot);
@@ -17999,7 +18012,7 @@ if (args[0] === "--self-test" && args.length === 1) {
 
     const inlineNoReplyAuthorization = structuredClone(authorizedMagRoot);
     inlineNoReplyAuthorization.scope.userRequest =
-      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but no replies.";
+      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, and add emojis but without any status replies.";
     inlineNoReplyAuthorization.scope.narrowingJudgment!.instruction =
       inlineNoReplyAuthorization.scope.userRequest;
     expectFocusedFailure(
@@ -25028,7 +25041,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 9 handoff phrase cases; 21 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 12 handoff phrase cases; 24 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
