@@ -731,6 +731,12 @@ async function deliverOne(
     .where(eq(schema.contentWebhooks.id, delivery.webhookId))
     .limit(1);
   if (!webhook) {
+    // An event queued while its webhook was being removed can commit just
+    // after the removal deleted the webhook's events. Delete it the same way
+    // rather than keep it, and the page values it holds, as a failure.
+    await db
+      .delete(schema.contentWebhookDeliveries)
+      .where(eq(schema.contentWebhookDeliveries.webhookId, delivery.webhookId));
     return { ok: false, error: "The webhook was removed.", permanent: true };
   }
   // Checked for every send, not once per drain, so a revoked creator's

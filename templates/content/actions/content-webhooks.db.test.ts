@@ -1071,6 +1071,42 @@ describe("content webhooks", () => {
     ).toEqual([busy.id]);
   });
 
+  it("W2-4: an event that commits just after its webhook is removed is deleted, not sent", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    receiver.status = 500;
+    await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value: "agent",
+      }),
+    );
+    const [queued] = await settled(webhook.id, 1);
+    await asOwner(() => deleteWebhook.run({ id: webhook.id }));
+    expect(await deliveries(webhook.id)).toEqual([]);
+
+    // The race: a write that read the webhook before the removal commits its
+    // event after it.
+    await getDb()
+      .insert(schema.contentWebhookDeliveries)
+      .values({ ...queued, status: "pending", leaseExpiresAt: null });
+    await makeDue(webhook.id);
+    receiver.status = 200;
+    receiver.requests.length = 0;
+    await hooks.drainContentWebhookDeliveries();
+    expect(receiver.requests).toHaveLength(0);
+    expect(await deliveries(webhook.id)).toEqual([]);
+  });
+
   it("W2-4: permanently deleting a collection removes its webhooks, secrets and deliveries", async () => {
     const ids = await fixture();
     const kept = await fixture();
