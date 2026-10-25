@@ -2484,6 +2484,7 @@ export function createAgentKitProtocolAdapter(
       options.onRunOutcome({
         runId: run.turn.runId ?? run.runId,
         threadId: run.threadId,
+        ...(run.turn.requestTurnId ? { turnId: run.turn.requestTurnId } : {}),
         outcome:
           event.type === "run.completed"
             ? "succeeded"
@@ -3799,7 +3800,12 @@ export function createAgentKitProtocolAdapter(
       run.quietAuthorityReads = 0;
       run.successorWaitStartedAtMs = undefined;
     }
-    run.turn = resumed;
+    // A resumed stream is the same turn; only the response that started it
+    // carries the turn the server stored the run under.
+    run.turn =
+      resumed.requestTurnId || !run.turn.requestTurnId
+        ? resumed
+        : { ...resumed, requestTurnId: run.turn.requestTurnId };
     indexRun(run, resumed.runId);
   }
 

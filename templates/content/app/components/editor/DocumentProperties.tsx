@@ -21,7 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type {
   BindContentDatabaseSourceFieldRequest,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSource,
   ContentDatabaseSummary,
   DocumentProperty,
@@ -1261,7 +1261,7 @@ export function PropertyManagementPopover({
     databaseId,
   );
   const bindSourceField = useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
     invalidates: [

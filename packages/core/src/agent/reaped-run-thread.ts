@@ -4,7 +4,10 @@ import {
   withThreadDataLock,
 } from "../chat-threads/store.js";
 import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
-import { readStoppedRunForThreadFold } from "./run-store.js";
+import {
+  AgentRunJournalUnreadableError,
+  readStoppedRunForThreadFold,
+} from "./run-store.js";
 import {
   buildAssistantTurnSegments,
   extractThreadMeta,
@@ -12,6 +15,67 @@ import {
   isRunPrompt,
   normalizeThreadRepository,
 } from "./thread-data-builder.js";
+
+function readThreadRepository(
+  threadId: string,
+  turnId: string,
+  threadData: string,
+) {
+  let repository: unknown;
+  try {
+    repository = JSON.parse(threadData || "{}");
+  } catch (cause) {
+    throw new AgentRunJournalUnreadableError(
+      threadId,
+      turnId,
+      0,
+      "invalid_thread_data",
+      { cause },
+    );
+  }
+
+  const unreadable = (message: string) =>
+    new AgentRunJournalUnreadableError(
+      threadId,
+      turnId,
+      0,
+      "invalid_thread_data",
+      { cause: new Error(message) },
+    );
+  if (
+    typeof repository !== "object" ||
+    repository === null ||
+    Array.isArray(repository)
+  ) {
+    throw unreadable("Stored thread data is not a repository object");
+  }
+  const messages = (repository as { messages?: unknown }).messages;
+  if (
+    messages !== undefined &&
+    (!Array.isArray(messages) ||
+      !messages.every((entry) => {
+        if (
+          typeof entry !== "object" ||
+          entry === null ||
+          Array.isArray(entry)
+        ) {
+          return false;
+        }
+        const storedMessage = (entry as { message?: unknown }).message;
+        const message = storedMessage ?? entry;
+        return (
+          typeof message === "object" &&
+          message !== null &&
+          !Array.isArray(message) &&
+          typeof (message as { id?: unknown }).id === "string" &&
+          (message as { id: string }).id.length > 0
+        );
+      }))
+  ) {
+    throw unreadable("Stored thread data has malformed messages");
+  }
+  return normalizeThreadRepository(repository);
+}
 
 /**
  * Saves the reply of a run the server ended because its worker stopped
@@ -72,8 +136,10 @@ export async function foldReapedRunIntoThread(
   return withThreadDataLock(run.threadId, async () => {
     const thread = await getThread(run.threadId);
     if (!thread) return "superseded";
-    const repo = normalizeThreadRepository(
-      JSON.parse(thread.threadData || "{}"),
+    const repo = readThreadRepository(
+      run.threadId,
+      run.turnId,
+      thread.threadData,
     );
     const folded = foldAssistantTurnWithSteers(repo, assistant, steered, {
       runId,
@@ -122,8 +188,10 @@ export async function foldReapedRunIntoThread(
             rows[0] as { thread_data?: string } | undefined
           )?.thread_data;
           if (typeof currentThreadData !== "string") return false;
-          const currentRepo = normalizeThreadRepository(
-            JSON.parse(currentThreadData || "{}"),
+          const currentRepo = readThreadRepository(
+            run.threadId,
+            run.turnId,
+            currentThreadData,
           );
           const last =
             currentRepo.messages.at(-1)?.message ?? currentRepo.messages.at(-1);

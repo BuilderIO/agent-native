@@ -97,7 +97,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({ width: 120, height: 40 });
+    expect(hints.hints[alphaId()]).toEqual({ width: 120, height: 40 });
   });
 
   it("returns no hint when the active file's iframe cannot be found", () => {
@@ -111,7 +111,10 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints).toEqual({});
+    expect(hints).toEqual({
+      hints: {},
+      unmeasured: [{ nodeId: alphaId(), reason: "no-preview" }],
+    });
   });
 
   it("resolves the dedicated board iframe when the active file is the board file", () => {
@@ -126,7 +129,7 @@ describe("collectLiveSizeHints", () => {
       "board",
     );
 
-    expect(hints[alphaId()]).toEqual({ width: 150, height: 60 });
+    expect(hints.hints[alphaId()]).toEqual({ width: 150, height: 60 });
   });
 
   it("measures in the active breakpoint sub-frame, not the primary screen iframe", () => {
@@ -141,7 +144,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({ width: 200, height: 80 });
+    expect(hints.hints[alphaId()]).toEqual({ width: 200, height: 80 });
   });
 
   it("adds parent-content-relative offsets from the active iframe layout", () => {
@@ -183,7 +186,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({
+    expect(hints.hints[alphaId()]).toEqual({
       width: 25.5,
       height: 14.3984,
       left: 32,
@@ -241,7 +244,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({
+    expect(hints.hints[alphaId()]).toEqual({
       width: 25,
       height: 14,
       left: 41,
@@ -269,7 +272,43 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[absoluteId()]).toEqual({ width: 60, height: 24 });
+    expect(hints.hints[absoluteId()]).toEqual({
+      width: 60,
+      height: 24,
+      outOfFlow: true,
+    });
+  });
+
+  it("measures an absolute target's layout origin so framing can pin it", () => {
+    mountScreenIframe("active.html", { width: 266, height: 96 });
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      '[data-screen-iframe-id="active.html"]',
+    )!;
+    const element = iframe.contentDocument!.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    element.dataset.agentNativeNodeId = "absolute";
+    element.style.position = "absolute";
+    Object.defineProperties(element, {
+      offsetParent: { get: () => iframe.contentDocument!.body },
+      offsetLeft: { get: () => 110 },
+      offsetTop: { get: () => 272 },
+    });
+
+    const hints = collectLiveSizeHints(
+      [absoluteId()],
+      buildCodeLayerProjection(ABSOLUTE_FIXTURE),
+      "active.html",
+      undefined,
+    );
+
+    expect(hints.hints[absoluteId()]).toEqual({
+      width: 266,
+      height: 96,
+      left: 110,
+      top: 272,
+      outOfFlow: true,
+    });
   });
 
   it("marks authored-stylesheet absolute targets as out of flow", () => {
@@ -294,7 +333,9 @@ describe("collectLiveSizeHints", () => {
     )!.id;
 
     expect(
-      collectLiveSizeHints([id], projection, "active.html", undefined)[id],
+      collectLiveSizeHints([id], projection, "active.html", undefined).hints[
+        id
+      ],
     ).toEqual({ width: 80, height: 40, outOfFlow: true });
   });
 
@@ -320,7 +361,7 @@ describe("collectLiveSizeHints", () => {
     const id = projection.nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === "alpha",
     )!.id;
-    const sizeHints = collectLiveSizeHints(
+    const { hints: sizeHints } = collectLiveSizeHints(
       [id],
       projection,
       "active.html",
@@ -362,9 +403,8 @@ describe("collectLiveSizeHints", () => {
     const projection = buildCodeLayerProjection(FIXTURE);
 
     expect(
-      collectLiveSizeHints([alphaId()], projection, "active.html", undefined)[
-        alphaId()
-      ],
+      collectLiveSizeHints([alphaId()], projection, "active.html", undefined)
+        .hints[alphaId()],
     ).toEqual({ width: 25, height: 14 });
   });
 
@@ -406,7 +446,7 @@ describe("collectLiveSizeHints", () => {
     const id = nodeIdFor(fixture, "alpha");
 
     expect(
-      collectLiveSizeHints([id], projection, "board", "board")[id],
+      collectLiveSizeHints([id], projection, "board", "board").hints[id],
     ).toEqual({ width: 25, height: 14, left: 30, top: 50 });
   });
 
@@ -431,7 +471,9 @@ describe("collectLiveSizeHints", () => {
     const id = nodeIdFor(fixture, "alpha");
 
     expect(
-      collectLiveSizeHints([id], projection, "active.html", undefined)[id],
+      collectLiveSizeHints([id], projection, "active.html", undefined).hints[
+        id
+      ],
     ).toEqual({ width: 25, height: 14 });
   });
 });

@@ -49,6 +49,16 @@ type ReporterRequest = {
   requestReply: ReporterRequestReply;
 };
 
+type UnreconciledTicketMark = {
+  reason: string;
+  evidenceReplyTs: string[];
+};
+
+type UnreconciledCheckmarkMark = {
+  reason: string;
+  evidenceReplyTs: string[];
+};
+
 type ClosedReporterRequest =
   | (ReporterRequest & {
       resolution: "answered";
@@ -71,6 +81,16 @@ type StatusReply = {
 type OwnershipSkip = {
   rootTs: string;
   reason: "foreign_workflow_mark" | "mag_opt_out";
+};
+
+type PersonAssignedSkip = {
+  assigneeId: string;
+  assignmentTs: string;
+};
+
+type AuthorizedRoot = {
+  channelId: string;
+  rootTs: string;
 };
 
 type ClusteredUnder = {
@@ -97,6 +117,13 @@ type HistoricalReactionMark = {
   previousStatus: StatusReply;
   handoff?: Handoff;
   closedReporterRequest?: ClosedReporterRequest;
+  completedSelfOwnedAction?: {
+    actorId: string;
+    action: string;
+    actionSummary: string;
+    actionReference: string;
+    completionEvidence: string;
+  };
   withdrawalReply?: {
     ts: string;
     threadParentTs: string;
@@ -171,9 +198,13 @@ type Parent = {
     actorId: string;
     text: string;
   };
+  // A stale self-owned eye retained on an administrative root after triage.
+  preservedAdministrativeEye?: { reason: string };
   statusReply?: StatusReply;
   // A direct reaction read proves this root is held without opening its thread.
   ownershipSkip?: OwnershipSkip;
+  // A checker-verified assignment to another person that stays unclaimed.
+  personAssignedSkip?: PersonAssignedSkip;
   // Exact canonical report root that owns this duplicate's shared feedback.
   clusteredUnder?: ClusteredUnder;
   // Permanently retained marks whose formerly verified/accepted meaning changed.
@@ -193,6 +224,10 @@ type Parent = {
   handoff?: Handoff;
   handoffs?: Handoff[];
   reporterRequests?: ReporterRequest[];
+  // Preserve a ticket reaction when source evidence cannot support a human action.
+  unreconciledTicketMark?: UnreconciledTicketMark;
+  // Preserve a checkmark when captured evidence cannot support a verified scope.
+  unreconciledCheckmarkMark?: UnreconciledCheckmarkMark;
 };
 
 type ThreadSnapshot = {
@@ -401,6 +436,7 @@ type Inventory = {
   scope: {
     channelIds: string[];
     userRequest?: string;
+    authorizedRoots?: AuthorizedRoot[];
     narrowingJudgment?: {
       instruction: string;
       channelIds: string[];
@@ -535,10 +571,7 @@ function validateSourceFilesInSnapshot(
     parent.ts === parent.threadParentTs
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
-  const snapshotText =
-    parent.ts === parent.threadParentTs
-      ? snapshot.rootText
-      : snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
+  const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
   if (
     JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
   ) {
@@ -552,36 +585,180 @@ function validateSourceFilesInSnapshot(
     !matchesSlackMessageText(parent.sourceText, snapshotText)
   ) {
     throw new Error(
-      `${parentName}: threadSnapshot text must match the captured source message`,
+      `${parentName}: threadSnapshot text must match the captured source message; rescan the source after edits`,
     );
   }
+}
+
+function sourceTextFromThreadSnapshot(
+  parent: Parent,
+  snapshot: ThreadSnapshot | undefined,
+): string | undefined {
+  if (!snapshot) return undefined;
+  if (parent.ts === parent.threadParentTs) return snapshot.rootText;
+  return snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
 }
 
 function matchesSlackMessageText(
   sourceText: string,
   threadText: string,
 ): boolean {
-  const normalize = (text: string) =>
-    text
-      // Search omits the connector origin footer that thread reads append.
-      .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
-      // Search can add one or more bot disclosures and a page separator that
-      // the complete thread read does not include.
-      .replace(/\n+---\s*$/, "")
-      .replace(/(?:\s+\*?this was sent from a bot\.?\*?)+\s*$/i, "")
-      .replace(/```[ \t]*\n?[ \t]*/g, "```")
-      .replace(/`([^`\n]+)`/g, "$1")
-      .replace(/\*([^*\n]+)\*/g, "$1")
-      .replace(/_([^_\n]+)_/g, "$1")
-      .replace(/&gt;/g, ">")
-      .replace(/&lt;/g, "<")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;|&apos;/g, "'")
-      .replace(/&amp;/g, "&")
-      .replace(/\n+/g, "\n")
-      .trim();
+  const appNotificationTail =
+    /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i;
+  const sourceNotificationTail = sourceText.match(appNotificationTail)?.[0];
+  const normalizedThread = threadText
+    .replace(/^I[’']m looking into this for you\r?\nCancel button\r?\n/i, "")
+    .replace(/\r?\n?Open thread button\s*$/, "");
+  if (
+    sourceText.trim() === "" &&
+    isBlockOnlyAgentNativeFeedbackSubmission(normalizedThread)
+  ) {
+    return true;
+  }
+  if (
+    sourceText.trim() === "" &&
+    /^New submission: [^\r\n]+\r?\n\*Email:\* <mailto:[^|>]+\|[^>]+>\r?\n\*App URL:\* <https:\/\/[^|>]+(?:\|[^>]+)?>\r?\n(?:\*[^*\r\n]+:\* [^\r\n]+\r?\n)*\*Source:\* [^\r\n]+\r?\n\*Use case:\* [^\r\n]+\r?\nSubmitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>]+>(?: by \*[^*\r\n]+\*)?$/.test(
+      normalizedThread,
+    )
+  ) {
+    return true;
+  }
+  if (
+    sourceText.trim() === "" &&
+    /^\*<slack:\/\/user\?[^>]+\|@[^>]+> created a [A-Za-z]+ from this message\*\r?\n\*<https:\/\/[^/]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+[^|>]*\|[^>]+>\*\r?\nStatus: \*[^*\r\n]+\*\r?\nType: \*[^*\r\n]+\*\r?\nAssignee: \*[^*\r\n]+\*$/.test(
+      normalizedThread,
+    )
+  ) {
+    return true;
+  }
+  const threadNotificationTail =
+    normalizedThread.match(appNotificationTail)?.[0];
+  const sourcePreviewMatchesThreadPreview =
+    sourceNotificationTail !== undefined &&
+    sourceNotificationTail === threadNotificationTail;
+  const normalize = (text: string, removeAppNotificationTail = false) => {
+    const textWithAppNotificationRemoved = removeAppNotificationTail
+      ? text.replace(appNotificationTail, "")
+      : text;
+    return (
+      textWithAppNotificationRemoved
+        // Search omits the connector origin footer that thread reads append.
+        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        // Search can add one or more bot disclosures and a page separator that
+        // the complete thread read does not include.
+        .replace(/\n+---\s*$/, "")
+        // Search appends this line for result messages with no thread replies.
+        .replace(
+          /\n+No thread mes{2,3}ages?(?:\s+in this thread)?[.!]?\s*$/i,
+          "",
+        )
+        // App previews can follow the connector origin footer, so strip that footer again after the preview.
+        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        .replace(
+          /\n+Reactions: [a-z0-9_+.-]+\s+\(\d+\)(?:, [a-z0-9_+.-]+\s+\(\d+\))*\s*$/i,
+          "",
+        )
+        .replace(/(?:\s+[_*]?this was sent from a bot\.?[_*]?)+\s*$/i, "")
+        .replace(
+          /(^|\n)```(?:[ \t]*\r?\n[ \t]*|[ \t]+)?(?=\S)/gm,
+          (match, prefix: string, offset: number, input: string) => {
+            const fencesBefore =
+              input.slice(0, offset + prefix.length).match(/```/g)?.length ?? 0;
+            return fencesBefore % 2 === 0 ? prefix + "```" : match;
+          },
+        )
+        .replace(/`([^`\n]+)`/g, "$1")
+        // Search and thread reads differ in how they prefix Slack block quotes.
+        .replace(/^>[ \t]?/gm, "")
+        .replace(/\*([^*\n]+)\*/g, "$1")
+        .replace(/_([^_\n]+)_/g, "$1")
+        .replace(/&gt;/g, ">")
+        .replace(/&lt;/g, "<")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&amp;/g, "&")
+        // Search renders Slack user-group mentions differently from thread reads.
+        .replace(/<@([S][A-Z0-9]+)>/g, "<!subteam^$1>")
+        // Rich app blocks use a private glyph between duplicated text sections.
+        .replace(/[ \t]*[\uE000-\uF8FF][ \t]*/g, "\n")
+        .replace(/\n+/g, "\n")
+        .trim()
+    );
+  };
+  if (
+    sourceText === threadText ||
+    normalize(sourceText, sourcePreviewMatchesThreadPreview) ===
+      normalize(normalizedThread, true)
+  ) {
+    return true;
+  }
+
+  const canonicalAppNotificationSections = (text: string) => {
+    const headers = [
+      ...text.matchAll(/App notification from App \(([^)\r\n]+)\):/gi),
+    ];
+    if (headers.length === 0) return undefined;
+    const sections = headers.map((header, index) => {
+      const target = header[1]!.trim();
+      const linkedTarget = /^<([^>|]+)(?:\|[^>]*)?>$/.exec(target)?.[1];
+      return {
+        target: linkedTarget ?? target,
+        text: normalize(
+          text.slice(
+            header.index! + header[0].length,
+            headers[index + 1]?.index ?? text.length,
+          ),
+        ),
+      };
+    });
+    return sections.filter(
+      (section, index) =>
+        index === 0 ||
+        section.target !== sections[index - 1]!.target ||
+        section.text !== sections[index - 1]!.text,
+    );
+  };
+  const sourceAppNotifications = canonicalAppNotificationSections(sourceText);
+  const threadAppNotifications =
+    canonicalAppNotificationSections(normalizedThread);
+  if (
+    sourceNotificationTail !== undefined &&
+    threadNotificationTail !== undefined &&
+    sourceAppNotifications !== undefined &&
+    threadAppNotifications !== undefined &&
+    normalize(sourceText, true) === normalize(normalizedThread, true) &&
+    isDeepStrictEqual(sourceAppNotifications, threadAppNotifications)
+  ) {
+    return true;
+  }
+
+  const normalizedSource = normalize(
+    sourceText,
+    sourcePreviewMatchesThreadPreview,
+  );
+  const normalizedThreadText = normalize(normalizedThread, true);
+  const groupMention = /<!subteam\^S[A-Z0-9]+(?:\|@([^>]+))?>/gi;
+  const groupHandle =
+    /(?<![\p{L}\p{N}_@.-])(@?[\p{L}\p{N}_.-]+)[ \t]+handle(?![\p{L}\p{N}_-])/giu;
+  const sourceGroups = [...normalizedSource.matchAll(groupMention)];
+  const threadGroups = [...normalizedThreadText.matchAll(groupHandle)];
+  if (
+    sourceGroups.length === 0 ||
+    threadGroups.length !== sourceGroups.length ||
+    sourceGroups.some(
+      (group, index) =>
+        group[1] === undefined ||
+        group[1].replace(/^@/, "").toLowerCase() !==
+          threadGroups[index]![1]!.replace(/^@/, "").toLowerCase(),
+    )
+  ) {
+    return false;
+  }
+
+  // Search keeps user-group IDs; complete thread reads render them as handles.
   return (
-    sourceText === threadText || normalize(sourceText) === normalize(threadText)
+    normalizedSource.replace(groupMention, "\u0000") ===
+    normalizedThreadText.replace(groupHandle, "\u0000")
   );
 }
 
@@ -688,12 +865,208 @@ function validateOwnershipSkipRecord(
     parent.latestOwnedReply !== undefined ||
     parent.latestRelevantHumanReply !== undefined ||
     parent.otherOwnerEvidence !== undefined ||
+    parent.personAssignedSkip !== undefined ||
     parent.historicalReactionMarks !== undefined ||
     parent.reactionDecision !== undefined
   ) {
     throw new Error(
       `${parentName}: a held thread must record only its exact root and safe-skip reason, with no inferred thread status or work evidence`,
     );
+  }
+  return true;
+}
+
+function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
+  const assigneeMention = "<@" + assigneeId + "(?:\\|[^>]+)?>";
+  const reportSubject =
+    "(?:this|the)\\s+(?:report|issue|ticket|task|action|work|root|thread)";
+  const clauses = withoutQuotedScopeContext(text)
+    .split(/[.!?;\n]+|,\s*(?=(?:but|and|however|actually|correction|sorry)\b)/i)
+    .filter((clause) => clause.trim().length > 0);
+  const negatedAssignment = new RegExp(
+    "\\b(?:i|we)\\s+(?:(?:actually|correction|sorry)\\s+)?(?:did\\s+not|didn't|do\\s+not|don't|never)\\s+assign\\s+" +
+      reportSubject +
+      "(?:\\s+to\\s+<@[^>]+>)?(?![\\w])|\\b" +
+      reportSubject +
+      "\\s+(?:is|was|has been)\\s+not\\s+assigned(?:\\s+to\\s+<@[^>]+>)?\\b",
+    "i",
+  );
+  const pronounRetraction =
+    /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
+  const ellipticalRetraction =
+    /^\s*(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+  const correctionCue =
+    /\b(?:actually|correction|wait|sorry|no)\b[^.!?;]{0,50}\b(?:wrong|incorrect|not right|mistake|retract(?:ed)?|withdraw(?:n)?|cancel(?:led)?|scratch that)\b/i;
+  const directEllipticalRetraction =
+    /^\s*(?:actually|correction|wait|sorry|no)[,:\s]+(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+  let assigned = false;
+  let pendingCorrection = false;
+  let lastClauseWasAssignment = false;
+  for (const rawClause of clauses) {
+    const followsAssignment = lastClauseWasAssignment;
+    lastClauseWasAssignment = false;
+    const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
+    const hasCorrectionCue = correctionCue.test(clause);
+    if (
+      negatedAssignment.test(clause) ||
+      (assigned && pronounRetraction.test(clause)) ||
+      (assigned &&
+        (directEllipticalRetraction.test(clause) ||
+          (ellipticalRetraction.test(clause) &&
+            (pendingCorrection || hasCorrectionCue || followsAssignment))))
+    ) {
+      assigned = false;
+      pendingCorrection = false;
+      continue;
+    }
+    if (assigned && hasCorrectionCue) {
+      pendingCorrection = true;
+      continue;
+    }
+    pendingCorrection = false;
+    const directAssignment = new RegExp(
+      "^\\s*(?:i|we)\\s+assigned\\s+" +
+        reportSubject +
+        "\\s+to\\s+" +
+        assigneeMention +
+        "\\s*$",
+      "i",
+    );
+    const passiveAssignment = new RegExp(
+      "^\\s*" +
+        reportSubject +
+        "\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+" +
+        assigneeMention +
+        "\\s*$",
+      "i",
+    );
+    if (directAssignment.test(clause) || passiveAssignment.test(clause)) {
+      assigned = true;
+      lastClauseWasAssignment = true;
+    }
+  }
+  return assigned;
+}
+
+function validatePersonAssignedSkipRecord(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+  threadSnapshot: ThreadSnapshot | undefined,
+  requireFreshReads: boolean,
+): boolean {
+  const skip = parent.personAssignedSkip;
+  if (!skip) return false;
+  if (
+    !isSlackUserId(skip.assigneeId) ||
+    skip.assigneeId === sweepActorId ||
+    parent.ts !== parent.threadParentTs ||
+    parent.rootClassification !== "report" ||
+    parent.disposition !== "Skipped" ||
+    parent.ownershipSkip !== undefined ||
+    parent.clusteredUnder !== undefined ||
+    parent.otherOwnerEvidence !== undefined ||
+    parent.latestOwnedReply !== undefined ||
+    parent.statusReply !== undefined ||
+    parent.latestRelevantHumanReply != null ||
+    parent.fixedScopes !== undefined ||
+    parent.unfinishedScopes !== undefined ||
+    parent.handoff !== undefined ||
+    parent.handoffs !== undefined ||
+    parent.reporterRequests !== undefined ||
+    parent.historicalReactionMarks !== undefined ||
+    parent.reactionDecision !== undefined ||
+    parent.unreconciledTicketMark !== undefined ||
+    parent.unreconciledCheckmarkMark !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: a person-assigned skip must be an unclaimed report with no status or follow-up work`,
+    );
+  }
+
+  const workflowOwners = [
+    ...(parent.reactionOwners.eyes ?? []),
+    ...(parent.reactionOwners.white_check_mark ?? []),
+    ...(parent.reactionOwners.ticket ?? []),
+  ];
+  if (
+    workflowOwners.includes(sweepActorId) ||
+    workflowOwners.some((actorId) => actorId !== sweepActorId) ||
+    (parent.reactionOwners.mag ?? []).includes(sweepActorId)
+  ) {
+    throw new Error(
+      `${parentName}: person-assigned roots stay outside all workflow claims; use the reaction-held skip when another workflow mark or this actor's :mag: is present`,
+    );
+  }
+  if (
+    !threadSnapshot ||
+    threadSnapshot.rootTs !== parent.ts ||
+    threadSnapshot.replyCount !== threadSnapshot.replies.length
+  ) {
+    throw new Error(
+      `${parentName}: a person-assigned skip needs a complete read-back containing the exact assignment`,
+    );
+  }
+  validateThreadSnapshotStructure(
+    parentName,
+    parent.ts,
+    threadSnapshot,
+    sweepActorId,
+    requireFreshReads,
+  );
+
+  const assignmentTimestamp = slackTimestamp(
+    skip.assignmentTs,
+    `${parentName}.personAssignedSkip.assignmentTs`,
+  );
+  const rootTimestamp = slackTimestamp(parent.ts, `${parentName}.ts`);
+  let assignmentText: string | undefined;
+  let latestHumanTimestamp = rootTimestamp;
+  for (const [replyIndex, reply] of threadSnapshot.replies.entries()) {
+    const replyTimestamp = slackTimestamp(
+      reply.ts,
+      `${parentName}.threadSnapshot.replies[${replyIndex}].ts`,
+    );
+    if (reply.kind === "sweep" && reply.actorId === sweepActorId) {
+      throw new Error(
+        `${parentName}: a person-assigned skip cannot contain a reply from this actor`,
+      );
+    }
+    if (reply.kind === "human") latestHumanTimestamp = replyTimestamp;
+    if (replyTimestamp === assignmentTimestamp && reply.kind === "human") {
+      assignmentText = reply.text;
+    }
+  }
+  if (assignmentTimestamp === rootTimestamp) {
+    assignmentText = threadSnapshot.rootText;
+    if (threadSnapshot.replies.some((reply) => reply.kind === "human")) {
+      throw new Error(
+        `${parentName}: a root-level assignment is stale once a human has replied`,
+      );
+    }
+  } else if (assignmentTimestamp !== latestHumanTimestamp) {
+    throw new Error(
+      `${parentName}: the named person's assignment must be the latest human reply`,
+    );
+  }
+  if (
+    typeof assignmentText !== "string" ||
+    !messageAssignsNamedPerson(assignmentText, skip.assigneeId)
+  ) {
+    throw new Error(
+      `${parentName}: personAssignedSkip needs an exact root or latest human message assigning work to the named Slack user`,
+    );
+  }
+  if (requireFreshReads) {
+    const readAt = Date.parse(threadSnapshot.readAt);
+    if (
+      !Number.isFinite(readAt) ||
+      new Date(readAt).toISOString() !== threadSnapshot.readAt
+    ) {
+      throw new Error(
+        `${parentName}: assignment read-back needs an ISO read timestamp`,
+      );
+    }
   }
   return true;
 }
@@ -745,6 +1118,235 @@ function validateOwnershipSkipRootEvidence(
       `${parentName}: an in-page root with captured source text must still be classified`,
     );
   }
+}
+
+function isBuilderCloudAgentsWaitlistForm(text: string): boolean {
+  const lines = text.trimEnd().split(/\r?\n/);
+  if (lines[0] !== "New submission: Builder Cloud Agents Waitlist") {
+    return false;
+  }
+
+  let index = 1;
+  if (
+    !/^\*Email:\* <mailto:[^\s|@<>\r\n]+@[^\s|<>\r\n]+\|[^>\r\n]*\S[^>\r\n]*>$/.test(
+      lines[index++] ?? "",
+    )
+  ) {
+    return false;
+  }
+  if (/^\*Organization or workspace:\* \S.*$/.test(lines[index] ?? "")) {
+    index += 1;
+  }
+  if (
+    !/^\*App URL:\* <https:\/\/[^\s|<>\r\n]+(?:\|[^>\r\n]*\S[^>\r\n]*)?>$/.test(
+      lines[index++] ?? "",
+    )
+  ) {
+    return false;
+  }
+  if (/^\*Original request:\* \S.*$/.test(lines[index] ?? "")) {
+    index += 1;
+  }
+  if (
+    !/^\*Source:\* \S.*$/.test(lines[index++] ?? "") ||
+    !/^\*Use case:\* \S.*$/.test(lines[index++] ?? "") ||
+    !/^Submitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>\r\n]*\S[^>\r\n]*>(?: by \*\S[^*\r\n]*\*)?$/.test(
+      lines[index++] ?? "",
+    )
+  ) {
+    return false;
+  }
+  if (/^App: \S.*$/.test(lines[index] ?? "")) index += 1;
+  if (/^Page: \S.*$/.test(lines[index] ?? "")) index += 1;
+  return index === lines.length;
+}
+
+function isCanonicalPreservedAdministrativeStatus(text: string): boolean {
+  const paragraphs = text.trimEnd().split(/\r?\n\r?\n/);
+  if (
+    paragraphs.length !== 3 ||
+    paragraphs[2] !== "this was sent from a bot."
+  ) {
+    return false;
+  }
+
+  const designWaitlistSummary =
+    "Skipped for this sweep — this is a Cloud Agents waitlist submission to publish a design, not a verified product defect or an endorsed feature request. I did not publish the app or change access. The existing :eyes: is retained as history; no active work is claimed.";
+  const onlineWaitlistSummary =
+    "Skipped for this sweep — this is a Cloud Agents build-online waitlist submission, not a verified product behavior report or an endorsed feature request. The existing :eyes: is retained as history; no active work is claimed. Current-site coverage remains unverified; no product change is made.";
+  const duplicateSummary =
+    /^(?:Skipped as an unendorsed feature request\. The near-identical submission at <https:\/\/[^/|<>]+\/archives\/[A-Z0-9]+\/p\d+\|the later thread> is a duplicate\. I did not change Clips behavior\.|Skipped as a duplicate of <https:\/\/[^/|<>]+\/archives\/[A-Z0-9]+\/p\d+\|the earlier submission> and as an unendorsed feature request\. I did not change Clips behavior\.) The existing :eyes: is retained as history; no active work is claimed\.$/;
+  const designWaitlistDecision =
+    "No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending.";
+  const onlineWaitlistDecision =
+    "No :white_check_mark: — no product fix or verified behavior change is in scope for this waitlist request. No :ticket: — no separate person or team action is pending.";
+  const duplicateDecision =
+    "No :white_check_mark: — no verified behavior change is in scope. No :ticket: — no separate human or team action is pending.";
+
+  return (
+    (paragraphs[0] === designWaitlistSummary &&
+      paragraphs[1] === designWaitlistDecision) ||
+    (paragraphs[0] === onlineWaitlistSummary &&
+      paragraphs[1] === onlineWaitlistDecision) ||
+    (duplicateSummary.test(paragraphs[0] ?? "") &&
+      paragraphs[1] === duplicateDecision)
+  );
+}
+
+function validatePreservedAdministrativeEye(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+  threadSnapshot: ThreadSnapshot | undefined,
+  requireFreshReads = false,
+): boolean {
+  const preservation = parent.preservedAdministrativeEye;
+  if (!preservation) return false;
+
+  const rootTs = slackTimestamp(parent.ts, `${parentName}.ts`);
+  const latestReply = parent.latestOwnedReply;
+  const statusReply = parent.statusReply;
+  const reply = latestReply
+    ? threadSnapshot?.replies.find(
+        (candidate) => candidate.ts === latestReply.ts,
+      )
+    : undefined;
+  const reason =
+    "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.";
+  const reactionState = workflowReactionState(
+    parent.reactionOwners,
+    sweepActorId,
+  );
+  if (requireFreshReads && threadSnapshot) {
+    validateReadAt(
+      threadSnapshot.readAt,
+      `${parentName}.threadSnapshot.readAt`,
+      "read the complete Slack thread again before reconciling this retained 👀",
+    );
+  }
+  validateThreadSnapshotStructure(
+    parentName,
+    parent.ts,
+    threadSnapshot,
+    sweepActorId,
+    requireFreshReads,
+  );
+  if (threadSnapshot) {
+    validateLatestHumanReplyReadback(
+      parentName,
+      threadSnapshot,
+      parent,
+      latestReply?.ts,
+    );
+  }
+  const invalid: string[] = [];
+  const require = (condition: unknown, label: string) => {
+    if (!condition) invalid.push(label);
+  };
+  require(parent.rootClassification ===
+    "administrative", "administrative root");
+  require(typeof parent.sourceText === "string" &&
+    typeof threadSnapshot?.rootText === "string" &&
+    isBuilderCloudAgentsWaitlistForm(parent.sourceText) &&
+    matchesSlackMessageText(
+      parent.sourceText,
+      threadSnapshot.rootText,
+    ), "verified Builder Cloud Agents waitlist form");
+  require(parent.disposition === "Skipped", "Skipped disposition");
+  require(reactionState.eyes, "self-owned 👀");
+  require(!reactionState.white_check_mark, "no self-owned ✅");
+  require(!reactionState.ticket, "no self-owned 🎫");
+  require(!(parent.reactionOwners.white_check_mark ?? []).some(
+    (actorId) => actorId !== sweepActorId,
+  ), "no foreign ✅ mark");
+  require(!(parent.reactionOwners.ticket ?? []).some(
+    (actorId) => actorId !== sweepActorId,
+  ), "no foreign 🎫 mark");
+  require((parent.reactionOwners.eyes ?? []).length === 1 &&
+    parent.reactionOwners.eyes?.[0] ===
+      sweepActorId, "exact self-owned 👀 reaction");
+  require(preservation.reason === reason, "canonical preservation reason");
+  if (statusReply !== undefined) {
+    require(statusReply.ts === latestReply?.ts &&
+      statusReply.threadParentTs === parent.threadParentTs &&
+      statusReply.actorId === sweepActorId &&
+      statusReply.disposition === parent.disposition &&
+      statusReply.evidence === latestReply?.text &&
+      statusReply.text ===
+        latestReply?.text, "current status record matches latest reply");
+  }
+  require(parent.reactionWriteAt ===
+    undefined, "no reaction written during this sweep");
+  require(parent.ownershipSkip === undefined, "not a held-thread skip");
+  require(parent.clusteredUnder === undefined, "not a clustered report");
+  require(parent.otherOwnerEvidence === undefined, "no other-owner evidence");
+  require(parent.reactionDecision ===
+    undefined, "no active reaction decisions");
+  require(parent.historicalReactionMarks ===
+    undefined, "no historical ✅ or 🎫");
+  require(parent.unreconciledTicketMark ===
+    undefined, "no unreconciled 🎫 mark");
+  require(parent.unreconciledCheckmarkMark ===
+    undefined, "no unreconciled ✅ mark");
+  require(!parent.fixedScopes?.length, "no fixed scopes");
+  require(!parent.unfinishedScopes?.length, "no unfinished scopes");
+  require(parent.handoff === undefined, "no handoff");
+  require(!parent.handoffs?.length, "no handoffs");
+  require(!parent.reporterRequests?.length, "no reporter requests");
+  require(Boolean(latestReply), "latest owned reply recorded");
+  if (latestReply) {
+    require(latestReply.actorId === sweepActorId, "latest reply by this actor");
+    require(latestReply.threadParentTs ===
+      parent.threadParentTs, "latest reply belongs to this root");
+    require(slackTimestamp(
+      latestReply.ts,
+      `${parentName}.latestOwnedReply.ts`,
+    ) > rootTs, "latest reply is newer than the root");
+  }
+  require(Boolean(threadSnapshot), "full-thread read-back recorded");
+  if (threadSnapshot) {
+    require(threadSnapshot.rootTs ===
+      parent.ts, "full-thread read-back matches root");
+  }
+  require(Boolean(reply), "latest reply is in the full-thread read-back");
+  const latestSweepReply = threadSnapshot?.replies
+    .filter((candidate) => candidate.kind === "sweep")
+    .at(-1);
+  require(Boolean(latestSweepReply), "latest sweep reply recorded");
+  if (latestSweepReply && latestReply) {
+    require(latestSweepReply.ts ===
+      latestReply.ts, "latest sweep reply is current");
+    require(latestSweepReply.actorId ===
+      latestReply.actorId, "latest sweep actor matches");
+    require(latestSweepReply.text ===
+      latestReply.text, "latest sweep text matches");
+  }
+  if (reply && latestReply) {
+    require(reply.actorId === sweepActorId, "read-back actor matches");
+    require(reply.kind === "sweep", "read-back identifies a sweep reply");
+    require(reply.text === latestReply.text, "read-back text matches");
+    require(isCanonicalPreservedAdministrativeStatus(
+      reply.text,
+    ), "canonical no-work status reply");
+    require(replyStartsWithDisposition(
+      reply.text,
+      "Skipped",
+    ), "reply starts with Skipped");
+    require(reply.text.includes(
+      "The existing :eyes: is retained as history; no active work is claimed.",
+    ), "reply explains the retained 👀");
+    require(reply.text.includes("No :white_check_mark:"), "reply states no ✅");
+    require(reply.text.includes("No :ticket:"), "reply states no 🎫");
+    require(reply.text
+      .trimEnd()
+      .endsWith("this was sent from a bot."), "reply ends with bot disclosure");
+  }
+  if (invalid.length > 0) {
+    throw new Error(
+      `${parentName}: invalid preserved administrative 👀 evidence (${invalid.join(", ")})`,
+    );
+  }
+  return true;
 }
 
 function validateHeldMessageSkipRecords(
@@ -1137,6 +1739,45 @@ function validateThreadSnapshotStructure(
   }
 }
 
+function validateLatestHumanReplyReadback(
+  parentName: string,
+  snapshot: ThreadSnapshot,
+  parent: Parent,
+  currentReplyTs?: string,
+): void {
+  const latestHumanReply = snapshot.replies
+    .filter((reply) => reply.kind === "human")
+    .at(-1);
+  const recordedHumanReply = parent.latestRelevantHumanReply;
+  if (
+    (latestHumanReply === undefined) !== (recordedHumanReply === null) ||
+    (latestHumanReply !== undefined &&
+      (!recordedHumanReply ||
+        latestHumanReply.ts !== recordedHumanReply.ts ||
+        latestHumanReply.actorId !== recordedHumanReply.actorId ||
+        latestHumanReply.text !== recordedHumanReply.text ||
+        JSON.stringify(latestHumanReply.files ?? []) !==
+          JSON.stringify(recordedHumanReply.files ?? [])))
+  ) {
+    throw new Error(
+      `${parentName}: threadSnapshot reveals a newer or unrecorded human reply; update the status before reconciling`,
+    );
+  }
+  if (
+    latestHumanReply &&
+    currentReplyTs &&
+    slackTimestamp(currentReplyTs, `${parentName}.latestOwnedReply.ts`) <=
+      slackTimestamp(
+        latestHumanReply.ts,
+        `${parentName}.latestRelevantHumanReply.ts`,
+      )
+  ) {
+    throw new Error(
+      `${parentName}: status reply must be newer than the latest relevant human reply in the thread`,
+    );
+  }
+}
+
 function validateThreadSnapshot(
   parentName: string,
   rootTs: string,
@@ -1147,7 +1788,6 @@ function validateThreadSnapshot(
   validateThreadSnapshotStructure(parentName, rootTs, snapshot, sweepActorId);
   const replies = snapshot!.replies;
   const sweepReplies = replies.filter((reply) => reply.kind === "sweep");
-  const humanReplies = replies.filter((reply) => reply.kind === "human");
   const repliesByTimestamp = new Map(replies.map((reply) => [reply.ts, reply]));
 
   const statusReply = parent.statusReply;
@@ -1256,22 +1896,12 @@ function validateThreadSnapshot(
     }
   }
 
-  const latestHumanReply = humanReplies.at(-1);
-  const recordedHumanReply = parent.latestRelevantHumanReply;
-  if (
-    (latestHumanReply === undefined) !== (recordedHumanReply === null) ||
-    (latestHumanReply !== undefined &&
-      (!recordedHumanReply ||
-        latestHumanReply.ts !== recordedHumanReply.ts ||
-        latestHumanReply.actorId !== recordedHumanReply.actorId ||
-        latestHumanReply.text !== recordedHumanReply.text ||
-        JSON.stringify(latestHumanReply.files ?? []) !==
-          JSON.stringify(recordedHumanReply.files ?? [])))
-  ) {
-    throw new Error(
-      `${parentName}: threadSnapshot reveals a newer or unrecorded human reply; update the status before reconciling`,
-    );
-  }
+  validateLatestHumanReplyReadback(
+    parentName,
+    snapshot!,
+    parent,
+    latestOwnedReply.ts,
+  );
 
   const handoffs = parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
   for (const handoff of handoffs) {
@@ -1553,15 +2183,22 @@ function hasPublicEvidenceSummary(
   return (
     hasConcisePublicEvidenceSummary(reply) &&
     scopedProofs.every(({ scope, verification }) =>
-      verification
-        .split(/[.;!?\n]+/)
-        .some(
-          (clause) =>
-            replyContainsPhrase(clause, scope) &&
-            replyContainsPhrase(clause, reply.publicEvidenceSummary),
-        ),
+      splitEvidenceClauses(verification).some(
+        (clause) =>
+          replyContainsPhrase(clause, scope) &&
+          replyContainsPhrase(clause, reply.publicEvidenceSummary),
+      ),
     )
   );
+}
+
+function splitEvidenceClauses(text: string): string[] {
+  return text
+    .replace(
+      /<https?:\/\/[^>|]+(?:\|([^>]+))?>/gi,
+      (_match, label: string) => label ?? "",
+    )
+    .split(/[.;!?\n]+/);
 }
 
 function hasConcisePublicEvidenceSummary(reply: StatusReply): boolean {
@@ -1683,6 +2320,385 @@ function replyNamesRecordedAction(
   );
 }
 
+function explicitActionReferenceKeys(text: string): Set<string> {
+  const normalized = text.normalize("NFKC").toLowerCase().replace(/[*_`]/g, "");
+  const references = new Set<string>();
+  for (const match of normalized.matchAll(
+    /\b(pr|pull request|issue|ticket)\s+(#?)([\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*)\b/giu,
+  )) {
+    const originalKind = match[1]!.toLowerCase();
+    const kind = originalKind === "pull request" ? "pr" : originalKind;
+    const marker = match[2]!;
+    const id = match[3]!;
+    if (!marker && !/\p{N}/u.test(id)) continue;
+    references.add(`${kind}:${id.toLowerCase()}`);
+  }
+  return references;
+}
+
+function replyExplicitlyOwnsRecordedAction(
+  text: string,
+  actionSummary: string,
+  actionReference?: string,
+): boolean {
+  const summary = normalizeReplyPhrase(actionSummary).split(" ");
+  if (!summary.length) return false;
+  const actionReferences = explicitActionReferenceKeys(
+    `${actionSummary} ${actionReference ?? ""}`,
+  );
+
+  const patterns = [
+    /\b(?:i|we) (?:m|am) (taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/g,
+    /\b(?:i|we) (?:ll|will) (take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/g,
+    /\b(?:i|we) (?:ve|have) (taken|started|opened|created|accepted)\b/g,
+  ];
+  const verbForms: Record<string, string[]> = {
+    taking: ["taking", "take"],
+    tracking: ["tracking", "track"],
+    following: ["following", "follow", "follow up"],
+    handling: ["handling", "handle"],
+    owning: ["owning", "own"],
+    "working on": ["working on", "work on"],
+    reviewing: ["reviewing", "review"],
+    investigating: ["investigating", "investigate"],
+    fixing: ["fixing", "fix"],
+    checking: ["checking", "check"],
+    monitoring: ["monitoring", "monitor"],
+    testing: ["testing", "test"],
+    building: ["building", "build"],
+    implementing: ["implementing", "implement"],
+    confirming: ["confirming", "confirm"],
+    shipping: ["shipping", "ship"],
+    take: ["take", "taking"],
+    track: ["track", "tracking"],
+    "follow up": ["follow up", "following up"],
+    handle: ["handle", "handling"],
+    own: ["own", "owning"],
+    "work on": ["work on", "working on"],
+    review: ["review", "reviewing"],
+    investigate: ["investigate", "investigating"],
+    fix: ["fix", "fixing"],
+    check: ["check", "checking"],
+    monitor: ["monitor", "monitoring"],
+    test: ["test", "testing"],
+    build: ["build", "building"],
+    implement: ["implement", "implementing"],
+    confirm: ["confirm", "confirming"],
+    ship: ["ship", "shipping"],
+    taken: ["taken", "take"],
+    started: ["started", "start"],
+    opened: ["opened", "open"],
+    created: ["created", "create"],
+    accepted: ["accepted", "accept"],
+  };
+
+  const clauses = text.split(
+    /([\n.!?;:,—–]+|\b(?:while|whereas|although|though|unless|but)\b)/gi,
+  );
+  for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex += 2) {
+    const clause = clauses[clauseIndex]!;
+    const normalized = normalizeReplyPhrase(clause);
+    for (const pattern of patterns) {
+      for (const match of normalized.matchAll(pattern)) {
+        const verb = match[1]!;
+        const summaryVariants = [summary];
+        for (const form of verbForms[verb] ?? [verb]) {
+          const formWords = form.split(" ");
+          if (
+            summary.length > formWords.length &&
+            formWords.every((word, index) => summary[index] === word)
+          ) {
+            summaryVariants.push(summary.slice(formWords.length));
+          }
+          if (
+            summary.length > formWords.length &&
+            formWords.every(
+              (word, index) =>
+                summary[summary.length - formWords.length + index] === word,
+            )
+          ) {
+            summaryVariants.push(summary.slice(0, -formWords.length));
+          }
+        }
+
+        const followingWords = normalized
+          .slice(match.index + match[0].length)
+          .trim()
+          .split(/\s+/);
+        const matchedSummary = summaryVariants.find(
+          (target) =>
+            target.length > 0 &&
+            target.every((word, index) => followingWords[index] === word),
+        );
+        if (matchedSummary) {
+          const commitmentPrefix = [
+            ...clauses.slice(0, clauseIndex),
+            normalized.slice(0, match.index),
+          ]
+            .join(" ")
+            .normalize("NFKC")
+            .replace(/[’‘]/g, "'");
+          const currentSentencePrefix =
+            commitmentPrefix
+              .split(/[.!?;\n]+/)
+              .at(-1)
+              ?.trim() ?? "";
+          if (
+            /^(?:if|unless|provided that|assuming(?: that)?|depending on|once|when|after|until|pending|awaiting|subject to|dependent on|as long as|in case)\b/i.test(
+              currentSentencePrefix,
+            )
+          ) {
+            continue;
+          }
+
+          const continuation = [
+            followingWords.slice(matchedSummary.length).join(" "),
+            ...clauses.slice(clauseIndex + 1),
+          ]
+            .join(" ")
+            .normalize("NFKC")
+            .replace(/[’‘]/g, "'");
+          const continuationParts = continuation.split(
+            /([.!?;:,—–]+|\b(?:while|whereas|although|though|unless|but|and|if|however|provided that|depending on|once|when|after|until|pending|awaiting|subject to|dependent on)\b)/gi,
+          );
+          const conditionalConnectors = new Set([
+            "unless",
+            "if",
+            "provided that",
+            "depending on",
+            "once",
+            "when",
+            "after",
+            "until",
+            "pending",
+            "awaiting",
+            "subject to",
+            "dependent on",
+          ]);
+          const contrastiveConnectors = new Set([
+            "and",
+            "but",
+            "although",
+            "though",
+            "however",
+          ]);
+          let currentActionReferences = actionReferences;
+          let continuationActionIsRecorded = true;
+          const continuationNegatesAction = continuationParts.some(
+            (part, partIndex) => {
+              if (partIndex % 2 !== 0 || !part.trim()) return false;
+              const clauseReferences = explicitActionReferenceKeys(part);
+              const normalizedPart = normalizeReplyPhrase(part);
+              const startsDifferentAction =
+                actionReferences.size > 0 &&
+                clauseReferences.size > 0 &&
+                ![...clauseReferences].some((reference) =>
+                  actionReferences.has(reference),
+                ) &&
+                /\b(?:i|we)\b.{0,30}\b(?:take|taking|track|tracking|follow up|following up|handle|handling|own|owning|work on|working on|review|reviewing|investigate|investigating|fix|fixing|check|checking|monitor|monitoring|test|testing|build|building|implement|implementing|confirm|confirming|ship|shipping|start|started|open|opened|create|created|accept|accepted)\b/i.test(
+                  normalizedPart,
+                );
+              if (startsDifferentAction) {
+                currentActionReferences = clauseReferences;
+              }
+              const connector = continuationParts[partIndex - 1]
+                ?.trim()
+                .toLowerCase();
+              if (
+                connector !== undefined &&
+                conditionalConnectors.has(connector) &&
+                continuationActionIsRecorded &&
+                (currentActionReferences.size === 0 ||
+                  [...currentActionReferences].some((reference) =>
+                    actionReferences.has(reference),
+                  ))
+              ) {
+                return true;
+              }
+              const continuationVerb = normalizedPart.match(
+                /\b(?:(?:i|we)\s+)?(?:(?:will|can|could|would|am|are|have|has)\s+)?(take|taking|track|tracking|follow|following|handle|handling|own|owning|work|working|review|reviewing|investigate|investigating|fix|fixing|check|checking|monitor|monitoring|test|testing|build|building|implement|implementing|confirm|confirming|ship|shipping|post|posting|send|sending|share|sharing|update|updating|notify|notifying|tell|telling)\b/i,
+              )?.[1];
+              if (continuationVerb) {
+                const startsDifferentRecordedAction =
+                  ![...(verbForms[verb] ?? [verb])].includes(
+                    continuationVerb,
+                  ) &&
+                  !/\b(?:it|that|this|same|original)\b/i.test(normalizedPart);
+                const hasDifferentReference =
+                  actionReferences.size > 0 &&
+                  clauseReferences.size > 0 &&
+                  ![...clauseReferences].some((reference) =>
+                    actionReferences.has(reference),
+                  );
+                if (startsDifferentRecordedAction || hasDifferentReference) {
+                  continuationActionIsRecorded = false;
+                }
+              }
+              if (
+                actionReferences.size > 0 &&
+                clauseReferences.size > 0 &&
+                ![...clauseReferences].some((reference) =>
+                  actionReferences.has(reference),
+                )
+              ) {
+                return false;
+              }
+
+              const clearlyUnrelatedTarget =
+                /\b(?:other|another|different|unrelated|separate|second)\s+(?:pr|pull request|issue|ticket|task|project|request|bug|feature|work|item|action|repro)\b/i.test(
+                  normalizedPart,
+                );
+              if (clearlyUnrelatedTarget) return false;
+
+              const hasCoreferentialTarget =
+                /\b(?:it|that|this|same|original)\b/i.test(normalizedPart);
+              const actionPhraseWithoutReference = normalizeReplyPhrase(
+                actionSummary,
+              ).replace(
+                /\b(?:pr|pull request|issue|ticket)\s+[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*\b/giu,
+                (reference) => reference.split(/\s+/)[0]!,
+              );
+              const repeatsRecordedAction =
+                actionPhraseWithoutReference.length > 0 &&
+                ` ${normalizedPart} `.includes(
+                  ` ${actionPhraseWithoutReference} `,
+                );
+              if (
+                !hasCoreferentialTarget &&
+                !repeatsRecordedAction &&
+                clauseReferences.size === 0
+              ) {
+                return false;
+              }
+
+              return (
+                /\b(?:i|we)\s+(?:won't|will not|can't|cannot|am not going to|are not going to|don't|do not|refuse to)\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i'm|i am|we're|we are)\s+not\s+(?:going to\s+)?(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i'm|i am|we're|we are)\s+not\s+(?:taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:won't|will not|can't|cannot|don't|do not)\s+be\s+(?:taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:(?:will\s+)?no longer\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)|(?:no longer|don't|do not)\s+(?:plan|intend|want)\s+to\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship))\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:won't|will not|can't|cannot|don't|do not|wouldn't|would not|shouldn't|should not)\s+do\s+(?:it|that|this)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:am not going to|are not going to|will not|won't|would not|wouldn't)\s+do\s+(?:it|that|this)\b/i.test(
+                  part,
+                ) ||
+                (connector !== undefined &&
+                  contrastiveConnectors.has(connector) &&
+                  /\b(?:won't|will not|can't|cannot|not going to|don't|do not|refuse|not take|not own|not handle|someone else handles?)\b/i.test(
+                    part,
+                  ))
+              );
+            },
+          );
+          if (continuationNegatesAction) {
+            continue;
+          }
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function isBlockOnlyAgentNativeFeedbackSubmission(text: string): boolean {
+  const lines = text.trimEnd().split(/\r?\n/);
+  if (!/^New submission: Agent(?:-|\s)Native Feedback$/.test(lines[0] ?? "")) {
+    return false;
+  }
+  const question = lines[1]?.match(
+    /^\*What can we improve about Agent(?:-|\s)Native\?:\*(.*)$/,
+  );
+  if (!question) return false;
+
+  const submittedIndex = lines.findIndex(
+    (line, index) =>
+      index > 1 &&
+      /^Submitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>\r\n]*\S[^>\r\n]*>(?: by \*\S[^*\r\n]*\*)?$/.test(
+        line,
+      ),
+  );
+  if (submittedIndex < 0) return false;
+
+  // The answer is freeform, including multiline text; only the form's outer structure is fixed.
+  const answer = [question[1] ?? "", ...lines.slice(2, submittedIndex)];
+  if (!answer.some((line) => line.trim())) return false;
+
+  const metadata = new Set<string>();
+  for (const line of lines.slice(submittedIndex + 1)) {
+    const field = line.match(/^(App|Page|Source):\s+\S.*$/)?.[1];
+    if (!field || metadata.has(field)) return false;
+    metadata.add(field);
+  }
+  return true;
+}
+
+function explicitlyStatesCompletion(text: string): boolean {
+  const completionWords = "completed|complete|merged|shipped|delivered|done";
+  const normalized = text
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .toLowerCase();
+  const completionWord = new RegExp(`\\b(?:${completionWords})\\b`, "i");
+  const hasInterrogativeCompletion = normalized
+    .split(/(?<=[.!?])\s+|\n+/)
+    .some((sentence) => {
+      const trimmed = sentence.trim();
+      return (
+        completionWord.test(trimmed) &&
+        (trimmed.endsWith("?") ||
+          /^(?:is|are|was|were|has|have|had|did|does|do|can|could|will|would|should|might|may)\b/i.test(
+            trimmed,
+          ))
+      );
+    });
+  const postposedNegation = new RegExp(
+    `\\b(?:${completionWords})\\b\\s*[.!?;,:—–-]?\\s*(?:not\\s+yet\\b|(?:no|nope)\\s*[.!?]?$)`,
+    "i",
+  );
+  const contradictoryStatus =
+    /\b(?:it|(?:the\s+)?(?:pr|pull request))\s+(?:is\s+)?(?:still\s+open|open|unmerged|not\s+merged|not\s+yet\s+merged)\b|\b(?:remains?|stays?)\s+(?:still\s+)?(?:open|unmerged)\b/i;
+  const hedgedCompletion = new RegExp(
+    `\\b(?:maybe|perhaps|possibly|probably|likely|apparently|reportedly|expected|may|might|could|would|should|seems?|appears?|looks?)\\b.{0,40}\\b(?:${completionWords})\\b`,
+    "i",
+  );
+  const postCompletionHedge = new RegExp(
+    `\\b(?:${completionWords})\\b.{0,40}\\b(?:maybe|perhaps|possibly|probably|likely|i think|i guess|not sure|unsure|unconfirmed|unverified|no confirmation)\\b`,
+    "i",
+  );
+  const nothingCompleted = new RegExp(
+    `\\bnothing\\s+(?:(?:has|have|was|were|is|are|been|ever|yet)\\s+){0,3}\\b(?:${completionWords})\\b`,
+    "i",
+  );
+  const retractedCompletion =
+    /\b(?:actually|correction|i was wrong|that was wrong)\b[\s\S]{0,40}\b(?:no|not|isn't|is not|wasn't|was not|still open|unmerged)\b/i;
+  return (
+    completionWord.test(normalized) &&
+    !hasInterrogativeCompletion &&
+    !new RegExp(
+      `\\b(?:not|never|pending|awaiting|still|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|didn't|doesn't|don't|couldn't|wouldn't|shouldn't|can't|cannot|won't|shan't)\\b.{0,40}\\b(?:${completionWords})\\b`,
+      "i",
+    ).test(normalized) &&
+    !postposedNegation.test(normalized) &&
+    !nothingCompleted.test(normalized) &&
+    !contradictoryStatus.test(normalized) &&
+    !hedgedCompletion.test(normalized) &&
+    !postCompletionHedge.test(normalized) &&
+    !retractedCompletion.test(normalized)
+  );
+}
+
 function replyNamesHandoffOwner(text: string, handoff: Handoff): boolean {
   const normalizedReply = ` ${normalizeReplyPhrase(text)} `;
   const normalizedOwner = normalizeReplyPhrase(handoff.owner);
@@ -1731,14 +2747,19 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
     .toLowerCase();
   if (replyExplicitlyRefusesHandoff(normalized)) return false;
   const firstClause = normalized.split(/[.!?;\n]/, 1)[0] ?? normalized;
+  if (/\bonly\s+if\b/.test(firstClause)) return false;
+  const acceptanceClause = firstClause.replace(
+    /\bcheck\b[^.!?;]*\bif\s+(?:we|they|the team)\s+should\b/,
+    (match) => match.replace(/\bif\b/, "whether"),
+  );
   if (
     /\b(?:maybe|perhaps|possibly|might|may|could|would)\b|\b(?:if|unless|provided that|depending on)\b/.test(
-      firstClause,
+      acceptanceClause,
     )
   ) {
     return false;
   }
-  return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on)\b|(?:i|we)(?:'m|\s+am)\s+(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
+  return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|check|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on)\b|(?:i|we)(?:'m|\s+am)\s+(?:also\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|checking|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|check|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
     normalized,
   );
 }
@@ -2113,7 +3134,8 @@ function validateHistoricalReactionMarks(
     }
     if (
       mark.emoji === "ticket" &&
-      !replyStartsWithDisposition(previous.text, previous.disposition)
+      !replyStartsWithDisposition(previous.text, previous.disposition) &&
+      !replyStatesDispositionAfterCourtesy(previous.text, previous.disposition)
     ) {
       throw new Error(
         `${label}: historical 🎫 needs a prior disposition stated in its captured reply`,
@@ -2137,9 +3159,14 @@ function validateHistoricalReactionMarks(
     }
 
     if (mark.emoji === "white_check_mark") {
-      if (mark.handoff || mark.closedReporterRequest || mark.withdrawalReply) {
+      if (
+        mark.handoff ||
+        mark.closedReporterRequest ||
+        mark.completedSelfOwnedAction ||
+        mark.withdrawalReply
+      ) {
         throw new Error(
-          `${label}: a historical ✅ cannot contain handoff or reporter-request evidence`,
+          `${label}: a historical ✅ cannot contain handoff, reporter-request, or self-owned action evidence`,
         );
       }
       result.checkmark = true;
@@ -2149,9 +3176,13 @@ function validateHistoricalReactionMarks(
     result.ticket = true;
     const closedReporterRequest = mark.closedReporterRequest;
     if (closedReporterRequest) {
-      if (mark.handoff || mark.withdrawalReply) {
+      if (
+        mark.handoff ||
+        mark.withdrawalReply ||
+        mark.completedSelfOwnedAction
+      ) {
         throw new Error(
-          `${label}: historical 🎫 cannot mix reporter-request and handoff evidence`,
+          `${label}: historical 🎫 cannot mix reporter-request, handoff, or self-owned action evidence`,
         );
       }
       const request = closedReporterRequest.requestReply;
@@ -2286,6 +3317,77 @@ function validateHistoricalReactionMarks(
       } else {
         throw new Error(
           `${label}: reporter request resolution must be answered or abandoned_no_answer`,
+        );
+      }
+      continue;
+    }
+
+    const completedSelfOwnedAction = mark.completedSelfOwnedAction;
+    if (completedSelfOwnedAction) {
+      if (
+        mark.handoff ||
+        mark.closedReporterRequest ||
+        mark.withdrawalReply ||
+        completedSelfOwnedAction.actorId !== sweepActorId ||
+        completedSelfOwnedAction.actorId !== previous.actorId ||
+        completedSelfOwnedAction.actorId !== currentStatus.actorId ||
+        typeof completedSelfOwnedAction.action !== "string" ||
+        !completedSelfOwnedAction.action.trim() ||
+        typeof completedSelfOwnedAction.actionSummary !== "string" ||
+        !completedSelfOwnedAction.actionSummary.trim() ||
+        typeof completedSelfOwnedAction.actionReference !== "string" ||
+        !completedSelfOwnedAction.actionReference.trim() ||
+        typeof completedSelfOwnedAction.completionEvidence !== "string" ||
+        !completedSelfOwnedAction.completionEvidence.trim() ||
+        !publicActionSummaryMatchesAction(
+          completedSelfOwnedAction.action,
+          completedSelfOwnedAction.actionSummary,
+        ) ||
+        !replyNamesRecordedAction(
+          previous.text,
+          completedSelfOwnedAction.action,
+          completedSelfOwnedAction.actionSummary,
+        ) ||
+        !replyExplicitlyOwnsRecordedAction(
+          previous.text,
+          completedSelfOwnedAction.actionSummary,
+          completedSelfOwnedAction.actionReference,
+        ) ||
+        !replyContainsPhrase(
+          completedSelfOwnedAction.action,
+          completedSelfOwnedAction.actionReference,
+        ) ||
+        !replyContainsPhrase(
+          previous.text,
+          completedSelfOwnedAction.actionReference,
+        ) ||
+        !replyContainsPhrase(
+          currentStatus.text,
+          completedSelfOwnedAction.actionReference,
+        ) ||
+        !replyContainsPhrase(
+          currentStatus.evidence,
+          completedSelfOwnedAction.actionReference,
+        ) ||
+        !replyContainsPhrase(
+          completedSelfOwnedAction.completionEvidence,
+          completedSelfOwnedAction.actionReference,
+        ) ||
+        !currentStatus.evidence.includes(
+          completedSelfOwnedAction.completionEvidence,
+        ) ||
+        !currentStatus.text.includes(
+          completedSelfOwnedAction.completionEvidence,
+        ) ||
+        !explicitlyStatesCompletion(
+          completedSelfOwnedAction.completionEvidence,
+        ) ||
+        !historicalCheckmarkDispositions.has(currentStatus.disposition) ||
+        !mark.reason.includes(completedSelfOwnedAction.actionReference) ||
+        !mark.reason.includes(completedSelfOwnedAction.completionEvidence)
+      ) {
+        throw new Error(
+          `${label}: historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof`,
         );
       }
       continue;
@@ -2490,6 +3592,20 @@ function replyStartsWithDisposition(
   );
 }
 
+function replyStatesDispositionAfterCourtesy(
+  text: string,
+  disposition: string,
+): boolean {
+  const visibleText = text.replace(/[*_`]/g, "").trim();
+  const courtesy = /^(?:thanks|ty)\b[^.!?]*[.!?]\s+/i.exec(visibleText);
+  if (!courtesy) return false;
+  const statusText = visibleText.slice(courtesy[0].length);
+  return (
+    replyStartsWithDisposition(statusText, disposition) &&
+    replyStatesDisposition(statusText, disposition)
+  );
+}
+
 function validateStatusReactionLanguage(
   parentName: string,
   text: string,
@@ -2521,7 +3637,7 @@ function validateStatusReactionLanguage(
     const summaryWordCount = normalizeReplyPhrase(summary)
       .split(" ")
       .filter(Boolean).length;
-    const unfinishedStateTerm = String.raw`(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|require(?:d|s)?|awaiting|waiting)`;
+    const unfinishedStateTerm = String.raw`(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|follow[- ]?up|needs?|require(?:d|s)?|awaiting|waiting)`;
     const openStateSummary = summary
       .replace(
         new RegExp(
@@ -2541,9 +3657,10 @@ function validateStatusReactionLanguage(
     if (
       summaryWordCount < 3 ||
       summaryWordCount > 12 ||
-      !new RegExp(String.raw`\b(?:not yet|${unfinishedStateTerm})\b`, "i").test(
-        openStateSummary,
-      ) ||
+      !new RegExp(
+        String.raw`\b(?:not yet|${unfinishedStateTerm}|remain(?:s|ing)?\s+(?:(?:a|an|currently|still)\s+)?${unfinishedStateTerm})\b`,
+        "i",
+      ).test(openStateSummary) ||
       !replyContainsPhrase(text, summary) ||
       !unfinishedScopeSummaryMatchesRecordedWork(summary, unfinishedScopes)
     ) {
@@ -2757,6 +3874,7 @@ function validateDispositionScopes(
   handoffs: Handoff[],
   reporterRequests: ReporterRequest[],
   hasHistoricalCheckmark = false,
+  hasUnreconciledCheckmark = false,
 ): void {
   const hasFixedScope = fixedScopeNames.size > 0;
   const hasUnfinishedScope = unfinishedScopeNames.size > 0;
@@ -2845,7 +3963,10 @@ function validateDispositionScopes(
     }
   }
   if (
-    (hasCheckmark && !hasFixedScope && !hasHistoricalCheckmark) ||
+    (hasCheckmark &&
+      !hasFixedScope &&
+      !hasHistoricalCheckmark &&
+      !hasUnreconciledCheckmark) ||
     (!hasCheckmark && hasFixedScope)
   ) {
     throw new Error(
@@ -2857,12 +3978,14 @@ function validateDispositionScopes(
     ![
       "Fixed",
       "Partially fixed",
+      "Shipped",
+      "Live verified",
       "Verified locally",
       "Resolved elsewhere",
     ].includes(parent.disposition)
   ) {
     throw new Error(
-      `${parentName}: verified scope needs Fixed, Partially fixed, Verified locally, or Resolved elsewhere disposition`,
+      `${parentName}: verified scope needs Fixed, Partially fixed, Shipped, Live verified, Verified locally, or Resolved elsewhere disposition`,
     );
   }
   if (parent.disposition === "Verified locally" && !hasFixedScope) {
@@ -2893,6 +4016,7 @@ function validateOtherOwnerEvidence(
   threadSnapshot: ThreadSnapshot | undefined,
   isInScopeReport: boolean,
   hasOwnedReaction: boolean,
+  explicitlyAuthorized = false,
 ): void {
   const evidence = parent.otherOwnerEvidence;
   const otherEyeOwners = (parent.reactionOwners.eyes ?? []).filter(
@@ -2933,7 +4057,8 @@ function validateOtherOwnerEvidence(
     if (
       isInScopeReport &&
       !hasOwnedReaction &&
-      activeOtherEyeOwners.length > 0
+      activeOtherEyeOwners.length > 0 &&
+      !explicitlyAuthorized
     ) {
       throw new Error(
         `${parentName}: another actor owns this report; do not add this actor's 👀 or reply—record Owned elsewhere with current owner evidence`,
@@ -3057,8 +4182,9 @@ function validateInScopeReportOwnership(
   hasOwnedWorkflowMark: boolean,
   hasOwnershipSkip: boolean,
   isCursorOverlap: boolean,
+  hasPersonAssignedSkip = false,
 ): void {
-  if (hasOwnershipSkip || isCursorOverlap) return;
+  if (hasOwnershipSkip || isCursorOverlap || hasPersonAssignedSkip) return;
   if (parent.disposition === "Owned elsewhere" && !hasOwnedWorkflowMark) return;
   if (parent.disposition === "Clustered" && !hasOwnedWorkflowMark) {
     if (!parent.clusteredUnder) {
@@ -3348,12 +4474,331 @@ function validateHandoffDefinitions(
   return handoffs;
 }
 
+function validateUnreconciledTicketMark(
+  parentName: string,
+  parent: Parent,
+  hasTicket: boolean,
+  hasHistoricalTicket: boolean,
+  activeActionCount: number,
+  threadSnapshot: ThreadSnapshot | undefined,
+  sweepActorId: string,
+): boolean {
+  const mark = parent.unreconciledTicketMark;
+  if (mark === undefined) return false;
+  if (
+    !mark ||
+    typeof mark.reason !== "string" ||
+    !mark.reason.trim() ||
+    !Array.isArray(mark.evidenceReplyTs) ||
+    mark.evidenceReplyTs.length === 0 ||
+    !hasTicket ||
+    hasHistoricalTicket ||
+    activeActionCount !== 0 ||
+    !threadSnapshot ||
+    !parent.statusReply
+  ) {
+    throw new Error(
+      `${parentName}: an unreconciled 🎫 needs its current mark, no competing action history, and captured evidence replies`,
+    );
+  }
+  const status = parent.statusReply;
+  const statusTs = slackTimestamp(status.ts, parentName + ".statusReply.ts");
+  const statusAction = classifyHumanTicketAction(status.text);
+  const evidenceAction = classifyHumanTicketAction(status.evidence);
+  if (statusAction === "ambiguous" || evidenceAction === "ambiguous") {
+    throw new Error(
+      parentName +
+        ": a named actor is ambiguous; identify it as a human or correct the no-action claim before preserving an unreconciled 🎫",
+    );
+  }
+  if (
+    !/ticket/i.test(status.text) ||
+    !explicitlyIdentifiesMissingHumanTicketAction(status.text) ||
+    !explicitlyIdentifiesMissingHumanTicketAction(status.evidence) ||
+    statusAction === "present" ||
+    evidenceAction === "present"
+  ) {
+    throw new Error(
+      parentName +
+        ": current status and its evidence must identify the missing separate human action for the retained 🎫",
+    );
+  }
+  const seen = new Set<string>();
+  for (const [index, replyTs] of mark.evidenceReplyTs.entries()) {
+    const label = `${parentName}.unreconciledTicketMark.evidenceReplyTs[${index + 1}]`;
+    const timestamp = slackTimestamp(replyTs, label);
+    const reply = threadSnapshot.replies.find(
+      (candidate) => candidate.ts === replyTs,
+    );
+    const replyAction = reply
+      ? classifyHumanTicketAction(reply.text)
+      : "absent";
+    if (replyAction === "ambiguous") {
+      throw new Error(
+        label +
+          ": a named actor is ambiguous; identify it as a human or correct the no-action claim",
+      );
+    }
+    if (
+      seen.has(replyTs) ||
+      timestamp >= statusTs ||
+      reply?.actorId !== sweepActorId ||
+      reply.kind !== "sweep" ||
+      !/ticket/i.test(reply.text) ||
+      !explicitlyIdentifiesMissingHumanTicketAction(reply.text) ||
+      replyAction === "present"
+    ) {
+      throw new Error(
+        label +
+          ": evidence must be a unique earlier captured sweep reply that identifies the missing separate human action",
+      );
+    }
+    seen.add(replyTs);
+  }
+  return true;
+}
+
+function validateUnreconciledCheckmarkMark(
+  parentName: string,
+  parent: Parent,
+  hasCheckmark: boolean,
+  hasHistoricalCheckmark: boolean,
+  fixedScopeCount: number,
+  threadSnapshot: ThreadSnapshot | undefined,
+  sweepActorId: string,
+): boolean {
+  const mark = parent.unreconciledCheckmarkMark;
+  if (mark === undefined) return false;
+  if (
+    !mark ||
+    typeof mark.reason !== "string" ||
+    !mark.reason.trim() ||
+    !Array.isArray(mark.evidenceReplyTs) ||
+    mark.evidenceReplyTs.length === 0 ||
+    !hasCheckmark ||
+    hasHistoricalCheckmark ||
+    fixedScopeCount !== 0 ||
+    !threadSnapshot ||
+    !parent.statusReply
+  ) {
+    throw new Error(
+      `${parentName}: an unreconciled ✅ needs its current mark, no verified scopes or historical checkmark, and captured evidence replies`,
+    );
+  }
+  const status = parent.statusReply;
+  const statusTs = slackTimestamp(status.ts, `${parentName}.statusReply.ts`);
+  if (
+    !/(?:checkmark|white_check_mark|✅)/i.test(status.text) ||
+    !explicitlyIdentifiesUnverifiedScope(status.text) ||
+    !explicitlyIdentifiesUnverifiedScope(status.evidence)
+  ) {
+    throw new Error(
+      `${parentName}: current status and its evidence must identify the unverified scope for the retained ✅`,
+    );
+  }
+  const seen = new Set<string>();
+  for (const [index, replyTs] of mark.evidenceReplyTs.entries()) {
+    const label = `${parentName}.unreconciledCheckmarkMark.evidenceReplyTs[${index + 1}]`;
+    const timestamp = slackTimestamp(replyTs, label);
+    const reply = threadSnapshot.replies.find(
+      (candidate) => candidate.ts === replyTs,
+    );
+    if (
+      seen.has(replyTs) ||
+      timestamp >= statusTs ||
+      reply?.actorId !== sweepActorId ||
+      reply.kind !== "sweep" ||
+      !/(?:checkmark|white_check_mark|✅)/i.test(reply.text) ||
+      !explicitlyIdentifiesUnverifiedScope(reply.text) ||
+      claimsVerifiedScope(reply.text)
+    ) {
+      throw new Error(
+        `${label}: evidence must be a unique earlier captured sweep reply that identifies an unverified scope`,
+      );
+    }
+    seen.add(replyTs);
+  }
+  return true;
+}
+
+function explicitlyIdentifiesMissingHumanTicketAction(text: string): boolean {
+  return /\b(?:no|without|lacks?|not attached to)\b.{0,80}\b(?:owner|reporter|human)\b.{0,35}\baction\b/i.test(
+    normalizeReplyPhrase(text),
+  );
+}
+
+function classifyHumanTicketAction(
+  text: string,
+): "present" | "absent" | "ambiguous" {
+  const humanActor =
+    "(?:i|we|they|owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|someone|anyone)";
+  const namedActor = String.raw`\p{Lu}[\p{L}'-]*`;
+  const lowercaseNamedActor = String.raw`\p{Ll}[\p{L}'-]*`;
+  const nonActorWords = new Set([
+    "a",
+    "an",
+    "anyone",
+    "app",
+    "assistant",
+    "automation",
+    "behavior",
+    "bot",
+    "bug",
+    "calendar",
+    "channel",
+    "comment",
+    "database",
+    "disposition",
+    "evidence",
+    "file",
+    "fix",
+    "handoff",
+    "issue",
+    "it",
+    "mark",
+    "message",
+    "model",
+    "nobody",
+    "noone",
+    "not",
+    "never",
+    "one",
+    "page",
+    "pr",
+    "repro",
+    "report",
+    "request",
+    "root",
+    "run",
+    "scope",
+    "server",
+    "system",
+    "task",
+    "team",
+    "the",
+    "that",
+    "this",
+    "thread",
+    "ticket",
+    "tool",
+    "work",
+  ]);
+  const actionStatements = [
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:open(?:s|ed|ing)?|creat(?:e|es|ed|ing)|fil(?:e|es|ed|ing))\b.{0,50}\b(?:ticket|issue|action)\b`,
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:assign(?:s|ed|ing)?|delegate(?:s|d|ing)?)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:on the hook for|responsible for|accountable for|in charge of)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
+    String.raw`(?:has|have|got|gets)\s+(?:it|this|that|(?:the\s+)?(?:work|task|issue|ticket|request|handoff|bug|repro|pr))\b`,
+  ];
+  const humanPassiveAssignment = new RegExp(
+    String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+(?!(?:[Nn]o one|[Nn]obody|[Aa]nyone|[Aa]nybody|[Tt]he (?:bot|system|automation|app|agent|assistant|server|model|tool|api))\b)(?:me|us|you|someone|somebody|the (?:owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|team))\b`,
+    "u",
+  );
+  const ambiguousPassiveAssignment = new RegExp(
+    String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+\p{Lu}[\p{L}'-]*\b`,
+    "u",
+  );
+  const actorStatementMatches = (
+    actor: string,
+    statement: string,
+    input: string,
+    flags: string,
+  ) => new RegExp("\\b" + actor + "\\s+" + statement, flags).test(input);
+  let hasAmbiguousActor = false;
+
+  for (const clause of splitEvidenceClauses(text).flatMap((sentence) =>
+    sentence.split(
+      /,|\b(?:but|however|whereas|while|although|though|yet|and)\b/i,
+    ),
+  )) {
+    const normalized = normalizeReplyPhrase(clause);
+    if (
+      /\b(?:automatically|automated|automation|auto[- ]?(?:created|opened|filed)|bot|system)\b/i.test(
+        normalized,
+      )
+    ) {
+      continue;
+    }
+    const sourceText = clause.normalize("NFKC");
+    const hasHumanAction =
+      humanPassiveAssignment.test(sourceText) ||
+      actionStatements.some((statement) =>
+        actorStatementMatches(humanActor, statement, sourceText, "iu"),
+      );
+    if (hasHumanAction) return "present";
+
+    // A bare proper noun is ambiguous with a product or service name.
+    const hasAmbiguousAction =
+      ambiguousPassiveAssignment.test(sourceText) ||
+      actionStatements.some((statement) => {
+        const matches = sourceText.matchAll(
+          new RegExp(String.raw`\b(${namedActor})\s+${statement}`, "gu"),
+        );
+        return Array.from(matches).some(
+          (match) => !nonActorWords.has(match[1]!.toLowerCase()),
+        );
+      }) ||
+      actionStatements.some((statement) => {
+        const matches = sourceText.matchAll(
+          new RegExp(
+            String.raw`\b(${lowercaseNamedActor})\s+${statement}`,
+            "gu",
+          ),
+        );
+        return Array.from(matches).some(
+          (match) => !nonActorWords.has(match[1]!.toLowerCase()),
+        );
+      });
+    if (hasAmbiguousAction) hasAmbiguousActor = true;
+  }
+
+  return hasAmbiguousActor ? "ambiguous" : "absent";
+}
+function explicitlyIdentifiesUnverifiedScope(text: string): boolean {
+  const normalized = normalizeReplyPhrase(text);
+  return (
+    /\b(?:scope|disposition)\b/i.test(normalized) &&
+    (/\b(?:no|not|without|unverified)\b.{0,70}\b(?:verified|passed|fixed|completed)\b/i.test(
+      normalized,
+    ) ||
+      /\b(?:does not|doesnt|did not) establish\b.{0,70}\bverified\b/i.test(
+        normalized,
+      )) &&
+    !claimsVerifiedScope(text)
+  );
+}
+
+function claimsVerifiedScope(text: string): boolean {
+  return splitEvidenceClauses(text)
+    .flatMap((clause) =>
+      clause.split(
+        /\b(?:but|however|whereas|while|although|though|yet|and)\b/i,
+      ),
+    )
+    .some((clause) => {
+      const normalized = normalizeReplyPhrase(clause);
+      const claimsVerification =
+        /\b(?:verified|passed|fixed|completed)\b.{0,50}\b(?:scope|fix|behavior|disposition)\b/i.test(
+          normalized,
+        ) ||
+        /\b(?:scope|fix|behavior|disposition)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
+          normalized,
+        );
+      const deniesVerification =
+        /\b(?:no|not|without|unverified|does not|doesnt|did not)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
+          normalized,
+        );
+      return claimsVerification && !deniesVerification;
+    });
+}
+
 function validateHandoffTicketParity(
   parentName: string,
   handoffs: Handoff[],
   hasTicket: boolean,
   hasHistoricalTicket = false,
   reporterRequests: ReporterRequest[] = [],
+  hasUnreconciledTicketMark = false,
 ): void {
   if (!Array.isArray(reporterRequests)) {
     throw new Error(parentName + ": reporterRequests must be an array");
@@ -3364,7 +4809,20 @@ function validateHandoffTicketParity(
       `${parentName}: every handoff or active reporter request needs this actor's 🎫`,
     );
   }
-  if (trackedHumanActions === 0 && hasTicket && !hasHistoricalTicket) {
+  if (
+    hasUnreconciledTicketMark &&
+    (trackedHumanActions > 0 || !hasTicket || hasHistoricalTicket)
+  ) {
+    throw new Error(
+      `${parentName}: an unreconciled 🎫 cannot overlap a current or historical human action`,
+    );
+  }
+  if (
+    trackedHumanActions === 0 &&
+    hasTicket &&
+    !hasHistoricalTicket &&
+    !hasUnreconciledTicketMark
+  ) {
     throw new Error(
       `${parentName}: this actor's 🎫 needs a distinct active or explicitly historical human action`,
     );
@@ -3381,6 +4839,7 @@ function validateSupplementalRootAudit(
   requireFreshReads: boolean,
   finalPageReadAt: number | null,
   requireSourceText = false,
+  explicitlyAuthorized = false,
 ): void {
   const parentName = `${channelName} supplemental root ${rootTs}`;
   validateSlackFiles(`${parentName}.files`, parent.files);
@@ -3469,6 +4928,9 @@ function validateSupplementalRootAudit(
     parent.reactionSummary,
     parent.reactionOwners,
   );
+  if (explicitlyAuthorized) {
+    validateAuthorizedRootTarget(parentName, parent, sweepActorId);
+  }
 
   if (
     validateOwnershipSkipRecord(
@@ -3481,16 +4943,37 @@ function validateSupplementalRootAudit(
     return;
   }
 
+  validatePersonAssignedSkipRecord(
+    parentName,
+    parent,
+    sweepActorId,
+    threadSnapshot,
+    requireFreshReads,
+  );
+
   const rootReactionState = workflowReactionState(
     parent.reactionOwners,
     sweepActorId,
   );
   const hasOwnedReaction = hasWorkflowReaction(rootReactionState);
-  if (parent.rootClassification === "administrative" && hasOwnedReaction) {
+  const preservesAdministrativeEye = validatePreservedAdministrativeEye(
+    parentName,
+    parent,
+    sweepActorId,
+    threadSnapshot,
+    requireFreshReads,
+  );
+  if (
+    parent.rootClassification === "administrative" &&
+    hasOwnedReaction &&
+    !preservesAdministrativeEye &&
+    !parent.statusReply
+  ) {
     throw new Error(
-      `${parentName}: this actor's workflow marks cannot be placed on an administrative root`,
+      `${parentName}: this actor's workflow marks on an administrative root need a current same-thread status`,
     );
   }
+  if (preservesAdministrativeEye) return;
   validateOtherOwnerEvidence(
     parentName,
     parent,
@@ -3499,6 +4982,7 @@ function validateSupplementalRootAudit(
     threadSnapshot,
     false,
     hasOwnedReaction,
+    explicitlyAuthorized,
   );
 
   const {
@@ -3519,6 +5003,24 @@ function validateSupplementalRootAudit(
   );
   const hasHistoricalTicket = historicalMarks.some(
     (mark) => mark.emoji === "ticket",
+  );
+  const hasUnreconciledTicketMark = validateUnreconciledTicketMark(
+    parentName,
+    parent,
+    rootReactionState.ticket,
+    hasHistoricalTicket,
+    handoffs.length + (parent.reporterRequests?.length ?? 0),
+    threadSnapshot,
+    sweepActorId,
+  );
+  const hasUnreconciledCheckmarkMark = validateUnreconciledCheckmarkMark(
+    parentName,
+    parent,
+    rootReactionState.white_check_mark,
+    hasHistoricalCheckmark,
+    fixedScopes.length,
+    threadSnapshot,
+    sweepActorId,
   );
   if (!hasOwnedReaction) {
     if (historicalMarks.length > 0) {
@@ -3545,6 +5047,7 @@ function validateSupplementalRootAudit(
       handoffs,
       parent.reporterRequests ?? [],
       hasHistoricalCheckmark,
+      hasUnreconciledCheckmarkMark,
     );
     validateHandoffTicketParity(
       parentName,
@@ -3552,6 +5055,7 @@ function validateSupplementalRootAudit(
       rootReactionState.ticket,
       hasHistoricalTicket,
       parent.reporterRequests ?? [],
+      hasUnreconciledTicketMark,
     );
     return;
   }
@@ -3561,6 +5065,7 @@ function validateSupplementalRootAudit(
     rootReactionState.ticket,
     hasHistoricalTicket,
     parent.reporterRequests ?? [],
+    hasUnreconciledTicketMark,
   );
   validateDispositionScopes(
     parentName,
@@ -3574,6 +5079,7 @@ function validateSupplementalRootAudit(
     handoffs,
     parent.reporterRequests ?? [],
     hasHistoricalCheckmark,
+    hasUnreconciledCheckmarkMark,
   );
 
   if (
@@ -3758,7 +5264,7 @@ function validateSupplementalRootAudit(
   }
 }
 
-const MAX_READ_AGE_MS = 15 * 60 * 1000;
+const MAX_READ_AGE_MS = 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
 
 type ValidationOptions = {
@@ -3777,12 +5283,14 @@ type OrchestratorScopeConfirmation = {
   decision: "explicitly-requested";
   userRequest: string;
   channelIds: string[];
+  authorizedRoots?: AuthorizedRoot[];
 };
 
 function validateOrchestratorScopeConfirmation(
   confirmation: unknown,
   userRequest: string,
   requestedChannelIds: Set<string>,
+  authorizedRoots: AuthorizedRoot[] = [],
 ): void {
   if (confirmation === undefined) {
     throw new Error(
@@ -3809,6 +5317,35 @@ function validateOrchestratorScopeConfirmation(
       "external scope confirmation must record source=orchestrator and decision=explicitly-requested",
     );
   }
+  const confirmedAuthorizedRoots = record.authorizedRoots ?? [];
+  const rootKey = ({ channelId, rootTs }: AuthorizedRoot) =>
+    `${channelId}\u0000${rootTs}`;
+  const expectedRootKeys = authorizedRoots.map(rootKey).sort();
+  const confirmedRootKeys = Array.isArray(confirmedAuthorizedRoots)
+    ? confirmedAuthorizedRoots.map((root) => {
+        if (
+          !root ||
+          typeof root.channelId !== "string" ||
+          typeof root.rootTs !== "string"
+        ) {
+          return "";
+        }
+        return rootKey(root);
+      })
+    : [];
+  if (
+    !Array.isArray(confirmedAuthorizedRoots) ||
+    confirmedRootKeys.some((key) => !key) ||
+    new Set(confirmedRootKeys).size !== confirmedRootKeys.length ||
+    expectedRootKeys.length !== confirmedRootKeys.length ||
+    expectedRootKeys.some(
+      (key, index) => key !== confirmedRootKeys.sort()[index],
+    )
+  ) {
+    throw new Error(
+      "external scope confirmation must match the inventory's exact authorizedRoots",
+    );
+  }
   const confirmedChannelIds = record.channelIds;
   if (
     confirmedChannelIds.some(
@@ -3827,11 +5364,307 @@ function validateOrchestratorScopeConfirmation(
   }
 }
 
+function hasExplicitNoReactionRestriction(statement: string): boolean {
+  return (
+    /^(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?:\s*,?\s*please)?\s*[.!?]*\s*$/i.test(
+      statement.trim(),
+    ) ||
+    /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:but|however|though|except|only)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+      statement,
+    ) ||
+    /\b(?:do\s+not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:add|post|send|leave|use|react|mark)\b[^.!?;\n]{0,80}\b(?:emojis?|reactions?|marks?)\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitAuthorizationRevocation(text: string): boolean {
+  return (
+    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:(?:reply(?:ing)?|respond(?:ing)?|work(?:ing)?|post(?:ing)?|send(?:ing)?|react(?:ing)?|claim(?:ing)?|handle|handling|follow(?:ing)?\s+up|write|writing|edit|editing|change|changing|update|updating|touch|touching|review|reviewing|inspect|inspecting)\b|(?:the|this|that)\s+(?:work|follow[ -]?up|migration|root|thread|task|review|changes?)\b))|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
+      text,
+    ) ||
+    /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:(?:this|that|my|our)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    )
+  );
+}
+
+function hasExplicitWorkflowWriteAuthorization(
+  userRequest: string,
+  roots: readonly AuthorizedRoot[],
+): boolean {
+  const requestText = withoutQuotedScopeContext(userRequest);
+  const sentences = requestText.split(/(?:[.!?;]\s+|\n+)/);
+  if (
+    /\b(?:unless|only\s+if|provided\s+that|conditional\s+on|subject\s+to)\b/i.test(
+      requestText,
+    ) ||
+    /\b(?:do\s+not|don't|cannot|can't|never|not)\s+(?:to\s+)?(?:authorize|approve|permit|allow|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over|work|handle)\b/i.test(
+      requestText,
+    ) ||
+    hasExplicitAuthorizationRevocation(requestText)
+  ) {
+    return false;
+  }
+
+  const grant =
+    /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
+  const boundedGrantIndex = sentences.findIndex(
+    (sentence) =>
+      grant.test(sentence) &&
+      /\b(?:any|all|every)\b[^.!?;\n]{0,100}\b(?:follow[ -]?ups?|replies|responses)\b/i.test(
+        sentence,
+      ) &&
+      /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(sentence),
+  );
+  const boundedFollowupAndReaction =
+    boundedGrantIndex >= 0 &&
+    !hasExplicitNoReactionRestriction(sentences[boundedGrantIndex]!) &&
+    !sentences
+      .slice(boundedGrantIndex + 1)
+      .some(hasExplicitNoReactionRestriction);
+  const exactRootWriteActions =
+    roots.length > 0 &&
+    roots.every(
+      (root) =>
+        typeof root?.channelId === "string" &&
+        typeof root?.rootTs === "string" &&
+        userRequestAuthorizesExactRoot(userRequest, root) &&
+        sentences.some(
+          (sentence) =>
+            userRequestAuthorizesExactRoot(sentence, root) &&
+            /\b(?:claim|take over|work on|handle|reconcile|react|reaction|emoji|emojis|mark|add)\b/i.test(
+              sentence,
+            ) &&
+            /\b(?:reply|replies|respond|post|send|status|follow[ -]?up)\b/i.test(
+              sentence,
+            ),
+        ),
+    );
+
+  return boundedFollowupAndReaction || exactRootWriteActions;
+}
+
+function validateAuthorizedRootsDeclaration(
+  scope: Inventory["scope"],
+  confirmation: unknown,
+  requestedChannelIds: Set<string>,
+): Set<string> {
+  const entries = scope.authorizedRoots ?? [];
+  if (!Array.isArray(entries)) {
+    throw new Error(
+      "scope.authorizedRoots must be an array of exact Slack roots",
+    );
+  }
+  if (entries.length === 0) return new Set();
+  const hasBoundedWriteAuthorization =
+    typeof scope.userRequest === "string" &&
+    hasExplicitWorkflowWriteAuthorization(scope.userRequest, []);
+  if (
+    typeof scope.userRequest !== "string" ||
+    !scope.userRequest.trim() ||
+    !hasExplicitWorkflowWriteAuthorization(scope.userRequest, entries)
+  ) {
+    throw new Error(
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+  }
+
+  const rootKeys = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    if (
+      !entry ||
+      typeof entry.channelId !== "string" ||
+      !requestedChannelIds.has(entry.channelId) ||
+      typeof entry.rootTs !== "string"
+    ) {
+      throw new Error(
+        `scope.authorizedRoots[${index + 1}] must name a requested channel and exact root timestamp`,
+      );
+    }
+    const timestamp = slackTimestamp(
+      entry.rootTs,
+      `scope.authorizedRoots[${index + 1}].rootTs`,
+    );
+    if (slackTimestampFromMicros(timestamp) !== entry.rootTs) {
+      throw new Error(
+        `scope.authorizedRoots[${index + 1}].rootTs must use the exact six-digit Slack timestamp`,
+      );
+    }
+    const key = `${entry.channelId}\u0000${entry.rootTs}`;
+    if (rootKeys.has(key)) {
+      throw new Error("scope.authorizedRoots cannot contain duplicate roots");
+    }
+    if (
+      !hasBoundedWriteAuthorization &&
+      !userRequestAuthorizesExactRoot(scope.userRequest, entry)
+    ) {
+      throw new Error(
+        `scope.userRequest must explicitly authorize work on exact root ${entry.channelId} ${entry.rootTs}`,
+      );
+    }
+    rootKeys.add(key);
+  }
+  validateOrchestratorScopeConfirmation(
+    confirmation,
+    scope.userRequest.trim(),
+    requestedChannelIds,
+    entries,
+  );
+  return rootKeys;
+}
+
+function escapeRegularExpression(value: string): string {
+  return Array.from(value, (character) =>
+    ".+*?^$()[]{}|\\".includes(character) ? "\\" + character : character,
+  ).join("");
+}
+
+function authorizedRootPairAppears(
+  statement: string,
+  root: AuthorizedRoot,
+): boolean {
+  const channelId = escapeRegularExpression(root.channelId);
+  const timestamp = escapeRegularExpression(root.rootTs);
+  const compactTimestamp = escapeRegularExpression(
+    root.rootTs.replace(".", ""),
+  );
+  const connector =
+    "(?:[\\s,:/#()\\-]*(?:(?:slack|root|thread|message|channel|timestamp|ts|in|at|for)\\b[\\s,:/#()\\-]*){0,4})";
+  const exactPair = new RegExp(
+    "\\b" +
+      channelId +
+      "\\b" +
+      connector +
+      timestamp +
+      "(?!\\d)|" +
+      timestamp +
+      "(?!\\d)" +
+      connector +
+      "\\b" +
+      channelId +
+      "\\b",
+    "i",
+  );
+  const slackPermalink = new RegExp(
+    "/archives/" + channelId + "/p" + compactTimestamp + "(?!\\d)",
+    "i",
+  );
+  return exactPair.test(statement) || slackPermalink.test(statement);
+}
+
+function userRequestAuthorizesExactRoot(
+  userRequest: string,
+  root: AuthorizedRoot,
+): boolean {
+  const action =
+    "(?:(?:read|inspect)\\s+and\\s+)?(?:work(?:\\s+on)?|handle|reconcile|take over|follow up(?:\\s+with)?)";
+  const explicitAuthorization = new RegExp(
+    "^\\s*(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?" +
+      action +
+      "\\b",
+    "i",
+  );
+  const grantedPermission = new RegExp(
+    "^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+" +
+      action +
+      "\\b|^\\s*(?:you may|you can|go ahead and)\\s+" +
+      action +
+      "\\b|^\\s*you have my permission to\\s+" +
+      action +
+      "\\b",
+    "i",
+  );
+  const authorizationLimit =
+    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+  const directlyAttachedQualifier =
+    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
+  const workAuthorizationLanguage =
+    /\b(?:work|handle|reconcile|take over|follow up|claim(?:ing)?|reply(?:ing)?|read|inspect|authorize|permission)\b/i;
+  const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  if (hasExplicitAuthorizationRevocation(unquotedRequest)) return false;
+  const statements = unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/);
+  let searchOffset = 0;
+  return statements.some((statement, statementIndex) => {
+    const statementStart = unquotedRequest.indexOf(statement, searchOffset);
+    if (statementStart < 0) return false;
+    searchOffset = statementStart + statement.length;
+    if (
+      !(
+        explicitAuthorization.test(statement) ||
+        grantedPermission.test(statement)
+      ) ||
+      !authorizedRootPairAppears(statement, root)
+    ) {
+      return false;
+    }
+    if (
+      authorizationLimit.test(statement) ||
+      hasExplicitNoReactionRestriction(statement)
+    ) {
+      return false;
+    }
+    return !statements
+      .slice(statementIndex + 1)
+      .some(
+        (followingStatement) =>
+          directlyAttachedQualifier.test(followingStatement) ||
+          hasExplicitNoReactionRestriction(followingStatement) ||
+          hasExplicitAuthorizationRevocation(followingStatement) ||
+          (authorizationLimit.test(followingStatement) &&
+            workAuthorizationLanguage.test(followingStatement)),
+      );
+  });
+}
+
+function validateAuthorizedRootTarget(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+): void {
+  if (
+    parent.ts !== parent.threadParentTs ||
+    parent.rootClassification !== "report" ||
+    parent.disposition === "Clustered" ||
+    parent.personAssignedSkip !== undefined ||
+    parent.ownershipSkip !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: explicit authorization applies only to a held, non-duplicate report root`,
+    );
+  }
+  const hasForeignWorkflowMark = (
+    ["eyes", "white_check_mark", "ticket"] as const
+  ).some((emoji) =>
+    (parent.reactionOwners[emoji] ?? []).some(
+      (actorId) => actorId !== sweepActorId,
+    ),
+  );
+  const hasOwnMag = (parent.reactionOwners.mag ?? []).includes(sweepActorId);
+  if (!hasForeignWorkflowMark && !hasOwnMag) {
+    throw new Error(
+      `${parentName}: an authorized root must have the exact foreign workflow mark or this actor's :mag: hold that required authorization`,
+    );
+  }
+  if (!(parent.reactionOwners.eyes ?? []).includes(sweepActorId)) {
+    throw new Error(
+      `${parentName}: authorized work needs this actor's exact root 👀 and current status`,
+    );
+  }
+}
+
 function withoutQuotedScopeContext(userRequest: string): string {
   return userRequest
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`\n]*`/g, " ")
     .replace(/^\s*>[^\n]*$/gm, " ")
+    .replace(/(^|[\s([{=:,])'[^'\n]*'/gm, "$1 ")
     .replace(/"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)|‘[^’\n]*(?:’|$)/g, " ");
 }
 
@@ -4040,7 +5873,7 @@ function validateReadAt(
   }
   const age = Date.now() - readAt;
   if (age > MAX_READ_AGE_MS) {
-    throw new Error(`${label} is older than 15 minutes; ${nextAction}`);
+    throw new Error(`${label} is older than 60 minutes; ${nextAction}`);
   }
   if (age < -MAX_FUTURE_SKEW_MS) {
     throw new Error(
@@ -5019,61 +6852,41 @@ function parseFormattedSlackThreadMessage(
   }
 
   const actorId = actorIdMatch[1]!;
-  const lines = match[3]!.split(/\r?\n/);
+  const lines = stripConnectorSlackThreadTrailers(match[3]!).split(/\r?\n/);
   const files: SlackFileAttachment[] = [];
   const workflowReactionNames = new Set<string>();
   const metadataLines = new Set<string>();
   while (lines.length > 0) {
     const tail = lines.at(-1)!;
     if (tail.startsWith("Files: ")) {
-      const value = tail.slice("Files: ".length);
-      const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
-      const fileMatches = [...value.matchAll(filePattern)];
-      if (
-        fileMatches.length === 0 ||
-        fileMatches.map((file) => file[0]).join("") !== value
-      ) {
-        break;
-      }
+      const parsedFiles = parseFormattedSlackFileMetadata(tail);
+      if (!parsedFiles) break;
       if (metadataLines.has("Files")) {
         throw new Error(
           `${label}: ambiguous repeated Files line in formatted Slack message`,
         );
       }
       metadataLines.add("Files");
-      for (const file of fileMatches) {
-        files.push({ id: file[2]!, name: file[1]!, mimeType: file[3]! });
-      }
+      files.push(...parsedFiles);
       lines.pop();
       continue;
     }
     if (tail.startsWith("Reactions: ")) {
-      const reactionMatches = [
-        ...tail
-          .slice("Reactions: ".length)
-          .matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi),
-      ];
-      const reactionValue = tail.slice("Reactions: ".length);
-      if (
-        reactionMatches.length === 0 ||
-        reactionMatches.map((reaction) => reaction[0]).join("") !==
-          reactionValue
-      ) {
-        break;
-      }
+      const parsedReactions = parseFormattedSlackReactionMetadata(tail);
+      if (!parsedReactions) break;
       if (metadataLines.has("Reactions")) {
         throw new Error(
           `${label}: ambiguous repeated Reactions line in formatted Slack message`,
         );
       }
       metadataLines.add("Reactions");
-      for (const reaction of reactionMatches) {
+      for (const reaction of parsedReactions) {
         if (
-          reaction[1] === "eyes" ||
-          reaction[1] === "white_check_mark" ||
-          reaction[1] === "ticket"
+          reaction === "eyes" ||
+          reaction === "white_check_mark" ||
+          reaction === "ticket"
         ) {
-          workflowReactionNames.add(reaction[1]);
+          workflowReactionNames.add(reaction);
         }
       }
       lines.pop();
@@ -5094,6 +6907,72 @@ function parseFormattedSlackThreadMessage(
     files: exactSlackFiles(files, `${label}.files`),
     workflowReactionNames: [...workflowReactionNames].sort(),
   };
+}
+
+function parseFormattedSlackFileMetadata(
+  line: string,
+): SlackFileAttachment[] | undefined {
+  if (!line.startsWith("Files: ")) return undefined;
+  const value = line.slice("Files: ".length);
+  const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
+  const matches = [...value.matchAll(filePattern)];
+  if (
+    matches.length === 0 ||
+    matches.map((file) => file[0]).join("") !== value
+  ) {
+    return undefined;
+  }
+  return matches.map((file) => ({
+    id: file[2]!,
+    name: file[1]!,
+    mimeType: file[3]!,
+  }));
+}
+
+function parseFormattedSlackReactionMetadata(
+  line: string,
+): string[] | undefined {
+  if (!line.startsWith("Reactions: ")) return undefined;
+  const value = line.slice("Reactions: ".length);
+  const matches = [...value.matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi)];
+  if (
+    matches.length === 0 ||
+    matches.map((reaction) => reaction[0]).join("") !== value
+  ) {
+    return undefined;
+  }
+  return matches.map((reaction) => reaction[1]!);
+}
+
+function stripConnectorSlackThreadTrailers(body: string): string {
+  let text = body;
+  const appNotification =
+    /\n+App notification from App \(https?:\/\/[^)\r\n]+\):[\s\S]*$/i.exec(
+      text,
+    );
+  if (appNotification) {
+    const beforeNotification = text.slice(0, appNotification.index);
+    const lastLine = beforeNotification.split(/\r?\n/).at(-1)?.trim() ?? "";
+    if (
+      parseFormattedSlackFileMetadata(lastLine) ||
+      parseFormattedSlackReactionMetadata(lastLine)
+    ) {
+      text = beforeNotification;
+    }
+  }
+
+  const forwardedPreview =
+    /\nForwarded message from [^\r\n]+\s+\(https?:\/\/[^)\r\n]+\):[\s\S]*?\s+\u2014 use slack_read_thread or slack_read_channel to read it in context\s*$/i.exec(
+      text,
+    );
+  if (forwardedPreview) {
+    const beforePreview = text.slice(0, forwardedPreview.index);
+    const lastLine = beforePreview.split(/\r?\n/).at(-1)?.trim() ?? "";
+    if (parseFormattedSlackReactionMetadata(lastLine)) {
+      text = beforePreview;
+    }
+  }
+  return text;
 }
 
 function parseFormattedSlackThreadResponse(
@@ -5869,12 +7748,84 @@ function validateSourceReceipt(
       if (
         requireSourceText &&
         (typeof parent.sourceText !== "string" ||
-          parent.sourceText !== rawTexts[rowIndex])
+          !sourceTextMatchesCapturedSearch(
+            parent,
+            rawTexts[rowIndex]!,
+            channel.threadSnapshots?.find(
+              (snapshot) => snapshot.rootTs === parent.threadParentTs,
+            ),
+          ))
       ) {
         throw new Error(
-          `${name}: source row ${rowIndex + 1} text does not match the captured Slack result; preserve the exact source text`,
+          `${name}: source row ${rowIndex + 1} text must match the captured Slack result, or replace an omitted search body with the matching full-thread text`,
         );
       }
+    }
+  }
+}
+
+function sourceTextMatchesCapturedSearch(
+  parent: Parent,
+  capturedSearchText: string,
+  snapshot: ThreadSnapshot | undefined,
+): boolean {
+  if (parent.sourceText === capturedSearchText) {
+    if (parent.sourceText.trim() !== "") return true;
+    if (parent.ownershipSkip) return snapshot === undefined;
+    const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
+    return (
+      typeof threadText === "string" &&
+      (threadText.trim() === "" ||
+        matchesSlackMessageText(parent.sourceText, threadText))
+    );
+  }
+
+  if (
+    typeof parent.sourceText === "string" &&
+    parent.sourceText.trim() !== "" &&
+    capturedSearchText.trim() !== ""
+  ) {
+    const comparableSourceText = parent.sourceText.replace(
+      /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i,
+      "",
+    );
+    if (
+      matchesSlackMessageText(comparableSourceText, capturedSearchText) ||
+      matchesSlackMessageText(capturedSearchText, comparableSourceText)
+    ) {
+      return true;
+    }
+  }
+
+  const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
+  return (
+    capturedSearchText.trim() === "" &&
+    typeof parent.sourceText === "string" &&
+    parent.sourceText.trim() !== "" &&
+    typeof threadText === "string" &&
+    matchesSlackMessageText(parent.sourceText, threadText)
+  );
+}
+
+function expectFocusedFailure(
+  name: string,
+  run: () => void,
+  diagnostic: string,
+): void {
+  try {
+    run();
+    throw new Error(`self-test failed to reject ${name}`);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (!(error instanceof Error) || !error.message.includes(diagnostic)) {
+      throw new Error(
+        `self-test ${name} expected diagnostic containing "${diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+      );
     }
   }
 }
@@ -5923,7 +7874,10 @@ function validateRootClassificationText(
       `${parentName}: every classified root requires a complete thread read-back for exact source text`,
     );
   }
-  if (!matchesSlackMessageText(parent.sourceText, snapshot.rootText)) {
+  if (
+    typeof parent.sourceText !== "string" ||
+    !matchesSlackMessageText(parent.sourceText, snapshot.rootText)
+  ) {
     throw new Error(
       `${parentName}: classified source text must match the complete thread root text`,
     );
@@ -6543,6 +8497,28 @@ function confirmedOwnedRootMarksFromReadback(
   return confirmed;
 }
 
+function inWindowReportRoots(
+  channelName: string,
+  reportRoots: Parent[],
+  supplementalRoots: Parent[],
+  channelCutoff: bigint,
+): Map<string, Parent> {
+  const roots = new Map(reportRoots.map((parent) => [parent.ts, parent]));
+  for (const root of supplementalRoots) {
+    const rootTimestamp = slackTimestamp(
+      root.ts,
+      `${channelName} summary supplemental root ${root.ts}.ts`,
+    );
+    if (
+      rootTimestamp >= channelCutoff &&
+      root.rootClassification === "report"
+    ) {
+      roots.set(root.ts, root);
+    }
+  }
+  return roots;
+}
+
 function validateInventory(
   inventory: Inventory,
   options: ValidationOptions = {},
@@ -6557,6 +8533,7 @@ function validateInventory(
     | {
         channelIds?: unknown;
         userRequest?: unknown;
+        authorizedRoots?: unknown;
         narrowingJudgment?: unknown;
       }
     | undefined;
@@ -6574,6 +8551,12 @@ function validateInventory(
     );
   }
   const requestedChannelIds = new Set(scope.channelIds as string[]);
+  const authorizedRootKeys = validateAuthorizedRootsDeclaration(
+    scope as Inventory["scope"],
+    options.scopeConfirmation,
+    requestedChannelIds,
+  );
+  const authorizedRootKeysInScope = new Set<string>();
 
   slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -7182,6 +9165,11 @@ function validateInventory(
           );
         }
         const isRootMessage = timestamp === threadParentTimestamp;
+        if (!isRootMessage && parent.personAssignedSkip) {
+          throw new Error(
+            `${parentName}: personAssignedSkip belongs only on the exact root row`,
+          );
+        }
         const hasOwnershipSkip = validateOwnershipSkipRecord(
           parentName,
           parent,
@@ -7265,6 +9253,25 @@ function validateInventory(
           parent.reactionOwners,
           inventory.sweepActorId,
         );
+        const rootKey = `${channel.channelId}\u0000${slackTimestampFromMicros(threadParentTimestamp)}`;
+        const isAuthorizedRoot =
+          isRootMessage && authorizedRootKeys.has(rootKey);
+        const hasPersonAssignedSkip =
+          isRootMessage &&
+          validatePersonAssignedSkipRecord(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+            threadSnapshot,
+            options.requireFreshReads === true,
+          );
+        if (isAuthorizedRoot) {
+          validateAuthorizedRootTarget(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+          );
+        }
         if (!isRootMessage) {
           validateLegacyReplyReactionReadback(
             parentName,
@@ -7278,6 +9285,15 @@ function validateInventory(
         const ownsEye = rootWorkflowState.eyes;
         const hasCheckmark = rootWorkflowState.white_check_mark;
         const hasTicket = rootWorkflowState.ticket;
+        const preservesAdministrativeEye = isRootMessage
+          ? validatePreservedAdministrativeEye(
+              parentName,
+              parent,
+              inventory.sweepActorId,
+              threadSnapshot,
+              options.requireFreshReads === true,
+            )
+          : false;
         const historicalMarks = parent.historicalReactionMarks ?? [];
         const hasHistoricalCheckmark = historicalMarks.some(
           (mark) => mark.emoji === "white_check_mark",
@@ -7288,16 +9304,23 @@ function validateInventory(
         const reconcilesOwnedStatus =
           isRootMessage &&
           hasWorkflowReaction(rootWorkflowState) &&
-          !hasOwnershipSkip;
+          !hasOwnershipSkip &&
+          !hasPersonAssignedSkip &&
+          !preservesAdministrativeEye;
         let fixedScopes: NonNullable<Parent["fixedScopes"]> = [];
         let fixedScopeNames = new Set<string>();
         let unfinishedScopes: NonNullable<Parent["unfinishedScopes"]> = [];
         let unfinishedScopeNames = new Set<string>();
         let handoffs: Handoff[] = [];
+        let hasUnreconciledTicketMark = false;
+        let hasUnreconciledCheckmarkMark = false;
         if (isRootMessage) {
           const isInScopeReport =
             timestamp >= channelCutoff &&
             parent.rootClassification === "report";
+          if (isAuthorizedRoot && isInScopeReport) {
+            authorizedRootKeysInScope.add(rootKey);
+          }
           if (isInScopeReport && !hasOwnershipSkip) {
             validateThreadSnapshotStructure(
               parentName,
@@ -7309,10 +9332,12 @@ function validateInventory(
           }
           if (
             parent.rootClassification === "administrative" &&
-            reconcilesOwnedStatus
+            hasWorkflowReaction(rootWorkflowState) &&
+            !preservesAdministrativeEye &&
+            !parent.statusReply
           ) {
             throw new Error(
-              `${parentName}: this actor's workflow marks cannot be placed on an administrative root`,
+              `${parentName}: this actor's workflow marks on an administrative root need a current same-thread status`,
             );
           }
           validateOtherOwnerEvidence(
@@ -7323,6 +9348,7 @@ function validateInventory(
             threadSnapshot,
             isInScopeReport,
             reconcilesOwnedStatus,
+            isAuthorizedRoot,
           );
           if (isInScopeReport) {
             validateInScopeReportOwnership(
@@ -7332,6 +9358,7 @@ function validateInventory(
               hasWorkflowReaction(rootWorkflowState),
               hasOwnershipSkip,
               isCursorOverlap,
+              hasPersonAssignedSkip,
             );
           }
           const scopeEvidence = validateScopeEvidence(parentName, parent);
@@ -7344,6 +9371,24 @@ function validateInventory(
             parentName,
             parent,
             fixedScopeNames,
+          );
+          hasUnreconciledTicketMark = validateUnreconciledTicketMark(
+            parentName,
+            parent,
+            hasTicket,
+            hasHistoricalTicket,
+            handoffs.length + (parent.reporterRequests?.length ?? 0),
+            threadSnapshot,
+            inventory.sweepActorId,
+          );
+          hasUnreconciledCheckmarkMark = validateUnreconciledCheckmarkMark(
+            parentName,
+            parent,
+            hasCheckmark,
+            hasHistoricalCheckmark,
+            fixedScopes.length,
+            threadSnapshot,
+            inventory.sweepActorId,
           );
           if (!reconcilesOwnedStatus && !hasOwnershipSkip) {
             if (historicalMarks.length > 0) {
@@ -7363,6 +9408,7 @@ function validateInventory(
               handoffs,
               parent.reporterRequests ?? [],
               hasHistoricalCheckmark,
+              hasUnreconciledCheckmarkMark,
             );
             validateHandoffTicketParity(
               parentName,
@@ -7370,6 +9416,7 @@ function validateInventory(
               hasTicket,
               hasHistoricalTicket,
               parent.reporterRequests ?? [],
+              hasUnreconciledTicketMark,
             );
           }
         }
@@ -7412,6 +9459,7 @@ function validateInventory(
             hasTicket,
             hasHistoricalTicket,
             parent.reporterRequests ?? [],
+            hasUnreconciledTicketMark,
           );
           validateDispositionScopes(
             parentName,
@@ -7426,6 +9474,7 @@ function validateInventory(
             handoffs,
             parent.reporterRequests ?? [],
             hasHistoricalCheckmark,
+            hasUnreconciledCheckmarkMark,
           );
           const reply = parent.statusReply;
           if (!reply) {
@@ -7738,6 +9787,9 @@ function validateInventory(
         options.requireFreshReads === true,
         finalPageReadAt,
         options.requireSourceText === true,
+        authorizedRootKeys.has(
+          `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`,
+        ),
       );
     }
     if (auditedSupplementalRoots.size !== supplementalRoots.size) {
@@ -7832,11 +9884,6 @@ function validateInventory(
           );
         }
         if (rootAudit.ownershipSkip) continue;
-        if (rootAudit.rootClassification === "administrative") {
-          throw new Error(
-            `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
-          );
-        }
         const snapshot = [...threadSnapshots.values()].find(
           (candidate) =>
             slackTimestamp(
@@ -7855,14 +9902,19 @@ function validateInventory(
           options.requireFreshReads === true,
         );
         if (
-          reactionReadAt !== null &&
+          reactionReadAt !== undefined &&
           reactionReadAt <= latestOwnershipSearchReadAt
         ) {
           throw new Error(
             `${name}: reread root ${rootAudit.ts} reactions after the exhaustive owned-mark searches`,
           );
         }
-        if (Date.parse(snapshot.readAt) <= latestOwnershipSearchReadAt) {
+        const snapshotReadAt = Date.parse(snapshot.readAt);
+        if (
+          !Number.isFinite(snapshotReadAt) ||
+          new Date(snapshotReadAt).toISOString() !== snapshot.readAt ||
+          snapshotReadAt <= latestOwnershipSearchReadAt
+        ) {
           throw new Error(
             `${name}: reread root ${rootAudit.ts} after the exhaustive owned-mark searches`,
           );
@@ -7871,13 +9923,36 @@ function validateInventory(
           options.rawThreadPages?.[channel.channelName]?.[snapshot.rootTs];
         if (
           !rawPages?.length ||
-          rawPages.some(
-            (page) => Date.parse(page.readAt) <= latestOwnershipSearchReadAt,
-          )
+          rawPages.some((page) => {
+            const readAt = Date.parse(page.readAt);
+            return (
+              !Number.isFinite(readAt) ||
+              new Date(readAt).toISOString() !== page.readAt ||
+              readAt <= latestOwnershipSearchReadAt
+            );
+          })
         ) {
           throw new Error(
             `${name}: every raw thread page for owned root ${rootAudit.ts} must follow the exhaustive owned-mark searches`,
           );
+        }
+        if (rootAudit.rootClassification === "administrative") {
+          if (
+            validatePreservedAdministrativeEye(
+              `${name} owned root ${rootAudit.ts}`,
+              rootAudit,
+              inventory.sweepActorId,
+              snapshot,
+              options.requireFreshReads === true,
+            )
+          ) {
+            continue;
+          }
+          if (!rootAudit.statusReply) {
+            throw new Error(
+              `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
+            );
+          }
         }
       }
     }
@@ -7907,6 +9982,16 @@ function validateInventory(
         throw new Error(
           `${name} source ${parent.ts}: threadParentTs does not resolve to an in-page root or verified threadRoots entry`,
         );
+      }
+    }
+    for (const rootAudit of channel.threadRootAudits ?? []) {
+      const rootTimestamp = slackTimestamp(
+        rootAudit.ts,
+        `${name}.authorizedRoot.ts`,
+      ).toString();
+      if (referencedSupplementalRoots.has(rootTimestamp)) {
+        const key = `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`;
+        if (authorizedRootKeys.has(key)) authorizedRootKeysInScope.add(key);
       }
     }
     if (referencedSupplementalRoots.size !== supplementalRoots.size) {
@@ -7944,18 +10029,12 @@ function validateInventory(
         ) !==
         slackTimestamp(parent.ts, `${name} summary reply ${parent.ts}.ts`),
     );
-    const distinctReportRoots = new Map(
-      reportRoots.map((parent) => [parent.ts, parent]),
+    const distinctReportRoots = inWindowReportRoots(
+      name,
+      reportRoots,
+      channel.threadRootAudits ?? [],
+      channelCutoff,
     );
-    for (const supplementalRoot of channel.threadRootAudits ?? []) {
-      const rootTimestamp = slackTimestamp(
-        supplementalRoot.ts,
-        `${name} summary supplemental root ${supplementalRoot.ts}.ts`,
-      );
-      if (rootTimestamp >= channelCutoff) {
-        distinctReportRoots.set(supplementalRoot.ts, supplementalRoot);
-      }
-    }
     const summarizeMarks = (rows: Parent[], label: string): void => {
       const ownedEyes = rows.filter((parent) =>
         (parent.reactionOwners.eyes ?? []).includes(inventory.sweepActorId),
@@ -7976,8 +10055,16 @@ function validateInventory(
       const unassignedHandoffs = new Set<string>();
       const activeReporterRequests = new Set<string>();
       const historicalReporterRequests = new Set<string>();
+      const historicalSelfOwnedActions = new Set<string>();
+      const unreconciledTicketMarks: Parent[] = [];
+      const unreconciledCheckmarkMarks = ownedCheckmarks.filter(
+        (parent) => parent.unreconciledCheckmarkMark,
+      );
       const distinctHumanActions = new Set<string>();
       for (const parent of ownedTickets) {
+        if (parent.unreconciledTicketMark) {
+          unreconciledTicketMarks.push(parent);
+        }
         const handoffs =
           parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
         for (const handoff of handoffs) {
@@ -7999,12 +10086,22 @@ function validateInventory(
         }
         for (const mark of parent.historicalReactionMarks ?? []) {
           const request = mark.closedReporterRequest;
-          if (mark.emoji !== "ticket" || !request) continue;
-          const key =
-            `${normalizeScope(request.scope)}\u0000` +
-            normalizeScope(request.action);
-          historicalReporterRequests.add(key);
-          distinctHumanActions.add(key);
+          if (mark.emoji !== "ticket") continue;
+          if (request) {
+            const key =
+              `${normalizeScope(request.scope)}\u0000` +
+              normalizeScope(request.action);
+            historicalReporterRequests.add(key);
+            distinctHumanActions.add(key);
+          }
+          const selfOwnedAction = mark.completedSelfOwnedAction;
+          if (selfOwnedAction) {
+            const key =
+              `${normalizeScope(mark.scope)}\u0000` +
+              normalizeScope(selfOwnedAction.action);
+            historicalSelfOwnedActions.add(key);
+            distinctHumanActions.add(key);
+          }
         }
       }
       const eyeOnlyRows = ownedEyes.filter(
@@ -8023,8 +10120,28 @@ function validateInventory(
         (parent) => !openDispositions.has(parent.disposition),
       );
       summaries.push(
-        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHumanActions.size} distinct human actions (${distinctHandoffs.size} team handoffs: ${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; active reporter requests: ${activeReporterRequests.size}, historical reporter requests: ${historicalReporterRequests.size}; including completed history), eye-only ${eyeOnlyRows.length}`,
+        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHumanActions.size} distinct human actions (${distinctHandoffs.size} team handoffs: ${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; active reporter requests: ${activeReporterRequests.size}, historical reporter requests: ${historicalReporterRequests.size}, historical self-owned actions: ${historicalSelfOwnedActions.size}; including completed history), unreconciled ✅ marks ${unreconciledCheckmarkMarks.length}, unreconciled ticket marks ${unreconciledTicketMarks.length}, eye-only ${eyeOnlyRows.length}`,
       );
+      if (unreconciledCheckmarkMarks.length > 0) {
+        summaries.push(
+          `${channel.channelId}: unreconciled ✅ marks: ${unreconciledCheckmarkMarks
+            .map(
+              (parent) =>
+                `${parent.ts} — ${parent.unreconciledCheckmarkMark!.reason}`,
+            )
+            .join(" | ")}`,
+        );
+      }
+      if (unreconciledTicketMarks.length > 0) {
+        summaries.push(
+          `${channel.channelId}: unreconciled 🎫 marks: ${unreconciledTicketMarks
+            .map(
+              (parent) =>
+                `${parent.ts} — ${parent.unreconciledTicketMark!.reason}`,
+            )
+            .join(" | ")}`,
+        );
+      }
       if (openEyeOnlyRows.length > 0) {
         summaries.push(
           `${channel.channelId}: ${label} eye-only open pending reasons: ${openEyeOnlyRows
@@ -8122,6 +10239,14 @@ function validateInventory(
     );
   }
 
+  const unauthorizedRootTargets = [...authorizedRootKeys].filter(
+    (rootKey) => !authorizedRootKeysInScope.has(rootKey),
+  );
+  if (unauthorizedRootTargets.length > 0) {
+    throw new Error(
+      `scope.authorizedRoots must point to in-window roots or older roots linked by an in-window reply: ${unauthorizedRootTargets.join(", ")}`,
+    );
+  }
   validateClusteredRootLinks(inventory);
 
   const inventoryChannelIds = [...channelIds].sort();
@@ -8201,6 +10326,7 @@ function validateInventory(
       options.scopeConfirmation,
       userRequest,
       requestedChannelIds,
+      (scope.authorizedRoots ?? []) as AuthorizedRoot[],
     );
     summaries.push(
       `External orchestrator confirmation matches narrowed request and channel IDs for ${[
@@ -8237,6 +10363,559 @@ function validateInventory(
 
 const args = process.argv.slice(2).filter((argument) => argument !== "--");
 if (args[0] === "--self-test" && args.length === 1) {
+  const unreconciledTicketStatus: StatusReply = {
+    ts: "12.000000",
+    threadParentTs: "10.000000",
+    actorId: "USWEEPER",
+    disposition: "In progress",
+    evidence:
+      "No separate owner or reporter action is attached to the ticket, so its mark remains unreconciled.",
+    text: "In progress — no separate owner or reporter action is attached to the :ticket:, so its mark remains unreconciled. this was sent from a bot.",
+  };
+  const unreconciledTicketParent: Parent = {
+    ts: "10.000000",
+    threadParentTs: "10.000000",
+    disposition: "In progress",
+    reactionOwners: { ticket: ["USWEEPER"] },
+    statusReply: unreconciledTicketStatus,
+    unreconciledTicketMark: {
+      reason: "The captured status identifies only internal investigation.",
+      evidenceReplyTs: ["11.000000"],
+    },
+  };
+  const unreconciledTicketSnapshot: ThreadSnapshot = {
+    rootTs: "10.000000",
+    readAt: "2030-01-01T00:00:00.000Z",
+    replyCount: 2,
+    replies: [
+      {
+        ts: "11.000000",
+        actorId: "USWEEPER",
+        kind: "sweep",
+        text: "The :ticket: has no separate owner or reporter action; it only labels the internal repro.",
+        workflowReactionReadback: [],
+        workflowReactionSummary: "none",
+        workflowReactionOwners: {},
+        workflowReactionReadAt: "2030-01-01T00:00:00.000Z",
+      },
+      {
+        ts: "12.000000",
+        actorId: "USWEEPER",
+        kind: "sweep",
+        text: unreconciledTicketStatus.text,
+        workflowReactionReadback: [],
+        workflowReactionSummary: "none",
+        workflowReactionOwners: {},
+        workflowReactionReadAt: "2030-01-01T00:00:00.000Z",
+      },
+    ],
+  };
+  if (
+    !validateUnreconciledTicketMark(
+      "self-test root 10.000000",
+      unreconciledTicketParent,
+      true,
+      false,
+      0,
+      unreconciledTicketSnapshot,
+      "USWEEPER",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to preserve a documented unreconciled ticket mark",
+    );
+  }
+  const trackedTicketSnapshot: ThreadSnapshot = {
+    ...unreconciledTicketSnapshot,
+    replies: [
+      {
+        ...unreconciledTicketSnapshot.replies[0]!,
+        text: "The :ticket: has no separate owner or reporter action; the ticket tracks the internal repro.",
+      },
+      ...unreconciledTicketSnapshot.replies.slice(1),
+    ],
+  };
+  if (
+    !validateUnreconciledTicketMark(
+      "self-test root 10.000000",
+      unreconciledTicketParent,
+      true,
+      false,
+      0,
+      trackedTicketSnapshot,
+      "USWEEPER",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test treated internal ticket tracking as human ownership",
+    );
+  }
+  expectFocusedFailure(
+    "unreconciled ticket mark with conflicting human-action evidence",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        unreconciledTicketParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledTicketSnapshot,
+          replies: [
+            {
+              ...unreconciledTicketSnapshot.replies[0]!,
+              text: "The :ticket: has no separate owner or reporter action attached; I opened a ticket for the internal repro.",
+            },
+            ...unreconciledTicketSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket mark with owner acceptance in a later sentence",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        unreconciledTicketParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledTicketSnapshot,
+          replies: [
+            {
+              ...unreconciledTicketSnapshot.replies[0]!,
+              text: "No separate owner or reporter action is attached to the ticket. I accepted the work.",
+            },
+            ...unreconciledTicketSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with owner acceptance in its evidence",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            evidence:
+              "No separate owner or reporter action is attached to the ticket. I accepted the work.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with an ambiguous service actor",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            text: "In progress — no separate owner or reporter action is attached to the :ticket:, but ServiceNow created a ticket.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "a named actor is ambiguous",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with a human assignment",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            text: "In progress — no separate owner or reporter action is attached to the ticket, but I am assigning it to Sam. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with a responsible owner",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            evidence:
+              "No separate owner or reporter action is attached to the ticket; the owner is on the hook for it.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket evidence with a person who has it",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        unreconciledTicketParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledTicketSnapshot,
+          replies: [
+            {
+              ...unreconciledTicketSnapshot.replies[0]!,
+              text: "The :ticket: has no separate owner or reporter action, but the reporter has it.",
+            },
+            ...unreconciledTicketSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies the missing separate human action",
+  );
+  for (const ambiguousAction of [
+    "JIRA created a ticket.",
+    "SLACK opened an issue.",
+    "ServiceNow created a ticket.",
+    "Asana opened an issue.",
+    "jira created a ticket.",
+    "slack opened an issue.",
+    "The ticket was assigned to ServiceNow.",
+    "The issue was assigned to Asana.",
+    "The ticket was assigned to Alex.",
+  ]) {
+    if (classifyHumanTicketAction(ambiguousAction) !== "ambiguous") {
+      throw new Error(
+        "Feedback inventory checker self-test did not preserve an ambiguous actor: " +
+          ambiguousAction,
+      );
+    }
+  }
+  for (const negatedAssignment of [
+    "I am not assigning it to Sam.",
+    "Sam is not on the hook for it.",
+    "Alex does not have it.",
+    "The ticket was not assigned to anyone.",
+    "The ticket was not assigned to Alex.",
+    "The ticket was created automatically by the system.",
+    "Jira automatically created the ticket.",
+    "A bot opened a ticket.",
+    "Bot opened a ticket.",
+    "Nobody created a ticket.",
+    "No one has the ticket.",
+    "The ticket has it.",
+  ]) {
+    if (classifyHumanTicketAction(negatedAssignment) !== "absent") {
+      throw new Error(
+        `Feedback inventory checker self-test treated a negated human action as active: ${negatedAssignment}`,
+      );
+    }
+  }
+  for (const positiveAction of [
+    "The ticket was assigned to the owner.",
+    "I opened a ticket.",
+    "I created the ticket.",
+    "I assigned it to Sam.",
+    "The reviewer is taking on the issue.",
+    "Jira automatically created a ticket and I assigned it to Sam.",
+    "Jira automatically created a ticket, I assigned it to Sam.",
+  ]) {
+    if (classifyHumanTicketAction(positiveAction) !== "present") {
+      throw new Error(
+        `Feedback inventory checker self-test missed a positive human action: ${positiveAction}`,
+      );
+    }
+  }
+  if (
+    explicitActionReferenceKeys(
+      "The ticket tracks the internal repro; review ticket later and see the issue for the login bug.",
+    ).size !== 0 ||
+    !explicitActionReferenceKeys("PR #8008").has("pr:8008") ||
+    !explicitActionReferenceKeys("issue PROJ-123").has("issue:proj-123")
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test misclassified ticket prose or explicit action references.",
+    );
+  }
+  expectFocusedFailure(
+    "unreconciled ticket status with a prior ticket assignment",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            text: "In progress — no separate owner or reporter action is attached to the ticket. The ticket was assigned to Alex. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "a named actor is ambiguous",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with only a mark mention",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            evidence: "The ticket remains on the root.",
+            text: "In progress — the retained :ticket: is unreconciled. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "identify the missing separate human action",
+  );
+
+  const unreconciledCheckmarkStatus: StatusReply = {
+    ts: "22.000000",
+    threadParentTs: "20.000000",
+    actorId: "USWEEPER",
+    disposition: "In progress",
+    evidence:
+      "The retained ✅ is unreconciled because the earlier In progress status does not establish a verified disposition for any scope; it is not a verified fix.",
+    text: "In progress — the retained ✅ is unreconciled because the earlier In progress status does not establish a verified disposition for any scope; it is not a verified fix. this was sent from a bot.",
+  };
+  const unreconciledCheckmarkParent: Parent = {
+    ts: "20.000000",
+    threadParentTs: "20.000000",
+    disposition: "In progress",
+    reactionOwners: { eyes: ["USWEEPER"], white_check_mark: ["USWEEPER"] },
+    statusReply: unreconciledCheckmarkStatus,
+    unreconciledCheckmarkMark: {
+      reason:
+        "The prior In progress status does not establish a verified disposition, so this retained mark does not count as a fix.",
+      evidenceReplyTs: ["21.000000"],
+    },
+  };
+  const unreconciledCheckmarkSnapshot: ThreadSnapshot = {
+    rootTs: "20.000000",
+    readAt: "2030-01-01T00:00:00.000Z",
+    replyCount: 2,
+    replies: [
+      {
+        ts: "21.000000",
+        actorId: "USWEEPER",
+        kind: "sweep",
+        text: "In progress: the retained :white_check_mark: was described, but no verified scope was established.",
+        workflowReactionReadback: [],
+        workflowReactionSummary: "none",
+        workflowReactionOwners: {},
+        workflowReactionReadAt: "2030-01-01T00:00:00.000Z",
+      },
+      {
+        ts: "22.000000",
+        actorId: "USWEEPER",
+        kind: "sweep",
+        text: unreconciledCheckmarkStatus.text,
+        workflowReactionReadback: [],
+        workflowReactionSummary: "none",
+        workflowReactionOwners: {},
+        workflowReactionReadAt: "2030-01-01T00:00:00.000Z",
+      },
+    ],
+  };
+  if (
+    !validateUnreconciledCheckmarkMark(
+      "self-test root 20.000000",
+      unreconciledCheckmarkParent,
+      true,
+      false,
+      0,
+      unreconciledCheckmarkSnapshot,
+      "USWEEPER",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to preserve a documented unreconciled checkmark",
+    );
+  }
+  expectFocusedFailure(
+    "unreconciled checkmark evidence with a separate positive claim",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        unreconciledCheckmarkParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledCheckmarkSnapshot,
+          replies: [
+            {
+              ...unreconciledCheckmarkSnapshot.replies[0]!,
+              text: "The retained :white_check_mark: is described, but the scope is not verified, but this fix is fixed.",
+            },
+            ...unreconciledCheckmarkSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies an unverified scope",
+  );
+  expectFocusedFailure(
+    "unreconciled checkmark status evidence with a separate positive claim",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        {
+          ...unreconciledCheckmarkParent,
+          statusReply: {
+            ...unreconciledCheckmarkStatus,
+            evidence: "The scope is not verified, but this fix is fixed.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledCheckmarkSnapshot,
+        "USWEEPER",
+      ),
+    "identify the unverified scope",
+  );
+  expectFocusedFailure(
+    "unreconciled checkmark mark with unrelated evidence",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        unreconciledCheckmarkParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledCheckmarkSnapshot,
+          replies: [
+            {
+              ...unreconciledCheckmarkSnapshot.replies[0]!,
+              text: "The :white_check_mark: is still present on the root.",
+            },
+            ...unreconciledCheckmarkSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies an unverified scope",
+  );
+  expectFocusedFailure(
+    "unreconciled checkmark status with no scope explanation",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        {
+          ...unreconciledCheckmarkParent,
+          statusReply: {
+            ...unreconciledCheckmarkStatus,
+            evidence: "The checkmark is unreconciled.",
+            text: "The retained :white_check_mark: is unreconciled; it is not verified. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledCheckmarkSnapshot,
+        "USWEEPER",
+      ),
+    "identify the unverified scope",
+  );
+  validateDispositionScopes(
+    "self-test root 20.000000",
+    unreconciledCheckmarkParent,
+    true,
+    false,
+    true,
+    true,
+    new Set(),
+    new Set(),
+    [],
+    [],
+    false,
+    true,
+  );
+  let verifiedScopeRejectedForUnreconciledCheckmark = false;
+  try {
+    validateUnreconciledCheckmarkMark(
+      "self-test root 20.000000",
+      unreconciledCheckmarkParent,
+      true,
+      false,
+      1,
+      unreconciledCheckmarkSnapshot,
+      "USWEEPER",
+    );
+  } catch (error) {
+    verifiedScopeRejectedForUnreconciledCheckmark =
+      error instanceof Error &&
+      error.message.includes("no verified scopes or historical checkmark");
+  }
+  if (!verifiedScopeRejectedForUnreconciledCheckmark) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to reject an unreconciled checkmark with a verified scope",
+    );
+  }
+  validateHandoffTicketParity(
+    "self-test root 10.000000",
+    [],
+    true,
+    false,
+    [],
+    true,
+  );
+  let undocumentedTicketRejected = false;
+  try {
+    validateHandoffTicketParity("self-test root 10.000000", [], true);
+  } catch (error) {
+    undocumentedTicketRejected =
+      error instanceof Error &&
+      error.message.includes(
+        "distinct active or explicitly historical human action",
+      );
+  }
+  if (!undocumentedTicketRejected) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted an undocumented ticket mark without a human action",
+    );
+  }
+
   if (
     !replyStatesDisposition(
       "ty for the feedback - partially fixed. PR #7720 merged.",
@@ -8387,6 +11066,34 @@ if (args[0] === "--self-test" && args.length === 1) {
   ) {
     throw new Error(
       "Feedback inventory checker self-test stripped message text that resembled connector metadata",
+    );
+  }
+  const connectorThreadTrailers = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.800000\nSlides report\nReactions: eyes (1)\nForwarded message from Reporter (https://example.com/slack/thread): forwarded context\n• Extra context\nMore context — use slack_read_thread or slack_read_channel to read it in context\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.800000\nClip link\nReactions: gratitude-thank-you (1)\nFiles: Screenshot.png (ID: FTEST2, image/png, 124 KB)\nApp notification from App (https://example.com/clip): [no preview available]",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test connector Slack thread trailers",
+    "8.800000",
+  );
+  if (
+    connectorThreadTrailers.messages[0]?.text !== "Slides report" ||
+    connectorThreadTrailers.messages[0]?.workflowReactionNames.join(",") !==
+      "eyes" ||
+    connectorThreadTrailers.messages[1]?.text !== "Clip link" ||
+    connectorThreadTrailers.messages[1]?.files[0]?.id !== "FTEST2" ||
+    connectorThreadTrailers.messages[1]?.files[0]?.mimeType !== "image/png"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test did not strip connector trailers while preserving reactions and attachments",
     );
   }
 
@@ -8928,7 +11635,15 @@ if (args[0] === "--self-test" && args.length === 1) {
   }
   for (const [text, action] of [
     ["I'll test this later today", "test this later today"],
+    [
+      "I'll check in the framework if we should add support for that",
+      "check in the Framework if we should add support for that",
+    ],
     ["I'll supersede #7524", "supersede #7524"],
+    [
+      "And then I'm also working on having it ask up front whether you want a local or hosted setup",
+      "ask up front",
+    ],
     [
       "I'll expand it to be all apps. + attachments",
       "expand it to be all apps",
@@ -8947,6 +11662,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I might test this later today",
     "I may expand it to be all apps",
     "I won't supersede #7524",
+    "I'll check the framework, but only if we should add support for that",
   ]) {
     if (replyExplicitlyAcceptsHandoff(text)) {
       throw new Error(
@@ -9354,6 +12070,72 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     })),
   });
+  const preservedAdministrativeSupplementalRoot = (
+    mark: "ticket" | "checkmark" | "foreign-workflow-marks",
+  ): Inventory => {
+    const sourceText = [
+      "New submission: Builder Cloud Agents Waitlist",
+      "*Email:* <mailto:person@example.com|person@example.com>",
+      "*App URL:* <https://example.com/app>",
+      "*Source:* app_page",
+      "*Use case:* publish a design",
+      "Submitted <!date^1792705000^{date_short_pretty} at {time}|Oct 23, 2026 at 11:36 AM>",
+    ].join("\n");
+    const reason =
+      "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.";
+    const status =
+      "Skipped for this sweep — this is a Cloud Agents waitlist submission to publish a design, not a verified product defect or an endorsed feature request. I did not publish the app or change access. The existing :eyes: is retained as history; no active work is claimed.\n\nNo :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending.\n\nthis was sent from a bot.";
+    const reactionOwners =
+      mark === "foreign-workflow-marks"
+        ? {
+            eyes: ["USWEEPER"],
+            white_check_mark: ["UOTHER"],
+            ticket: ["UOTHER2"],
+          }
+        : { eyes: ["USWEEPER"] };
+    const reactionSummary =
+      mark === "foreign-workflow-marks"
+        ? "eyes (1): USWEEPER; white_check_mark (1): UOTHER; ticket (1): UOTHER2"
+        : "eyes (1): USWEEPER";
+    return withSupplementalRootAudit(
+      supplementalRootAudit("8.500000", {
+        sourceText,
+        rootClassification: "administrative",
+        rootClassificationReason: "Waitlist intake, not product feedback",
+        rootClassificationJudgment: {
+          actorId: "USWEEPER",
+          decision: "administrative",
+          rationale:
+            "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
+        },
+        reactionSummary,
+        reactionOwners,
+        latestRelevantHumanReply: null,
+        latestOwnedReply: {
+          ts: "8.600000",
+          threadParentTs: "8.500000",
+          actorId: "USWEEPER",
+          text: status,
+        },
+        preservedAdministrativeEye: { reason },
+        ...(mark === "ticket"
+          ? {
+              unreconciledTicketMark: {
+                reason: "captured evidence does not identify a human action",
+                evidenceReplyTs: ["8.550000"],
+              },
+            }
+          : mark === "checkmark"
+            ? {
+                unreconciledCheckmarkMark: {
+                  reason: "no verified scope supports the retained mark",
+                  evidenceReplyTs: ["8.550000"],
+                },
+              }
+            : {}),
+      }),
+    );
+  };
   const withSweepOwnedParent = (overrides: Partial<Parent>): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -9441,10 +12223,14 @@ if (args[0] === "--self-test" && args.length === 1) {
         );
         const ownsReplyMark = parent.ts !== parent.threadParentTs && ownsMark;
         const otherOwnerStatus = parent.otherOwnerEvidence?.statusReply;
+        const preservedAdministrativeReply = parent.preservedAdministrativeEye
+          ? parent.latestOwnedReply
+          : undefined;
         if (
           (!ownsMark || !parent.statusReply) &&
           !otherOwnerStatus &&
-          !ownsReplyMark
+          !ownsReplyMark &&
+          !preservedAdministrativeReply
         ) {
           continue;
         }
@@ -9493,6 +12279,14 @@ if (args[0] === "--self-test" && args.length === 1) {
             "none",
             {},
             reply.files,
+          );
+        }
+        if (preservedAdministrativeReply) {
+          addReply(
+            preservedAdministrativeReply.ts,
+            preservedAdministrativeReply.actorId,
+            "sweep",
+            preservedAdministrativeReply.text,
           );
         }
         for (const handoff of parent.handoffs ??
@@ -9661,20 +12455,20 @@ if (args[0] === "--self-test" && args.length === 1) {
                 ? -1
                 : 1,
             );
+            const root = rows.find(
+              (parent) =>
+                parent.ts === rootTs && parent.threadParentTs === rootTs,
+            );
             return {
               rootTs,
               readAt: "2030-01-01T00:00:00.000Z",
               replyCount: orderedReplies.length,
-              ...(rows.find(
-                (parent) =>
-                  parent.ts === rootTs && parent.threadParentTs === rootTs,
-              )?.files?.length
+              ...(typeof root?.sourceText === "string"
+                ? { rootText: root.sourceText }
+                : {}),
+              ...(root?.files?.length
                 ? {
-                    rootFiles: rows.find(
-                      (parent) =>
-                        parent.ts === rootTs &&
-                        parent.threadParentTs === rootTs,
-                    )!.files,
+                    rootFiles: root.files,
                   }
                 : {}),
               replies: orderedReplies,
@@ -9686,6 +12480,9 @@ if (args[0] === "--self-test" && args.length === 1) {
               rootTs: root.ts,
               readAt: "2030-01-01T00:00:00.000Z",
               replyCount: 0,
+              ...(typeof root.sourceText === "string"
+                ? { rootText: root.sourceText }
+                : {}),
               ...(root.files?.length ? { rootFiles: root.files } : {}),
               replies: [],
             })),
@@ -10768,6 +13565,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     clusteredUnder: undefined,
                     reactionSummary: "eyes (1): USWEEPER",
                     reactionOwners: { eyes: ["USWEEPER"] },
+                    statusReply: undefined,
                   }
                 : parent,
             ),
@@ -11814,6 +14612,20 @@ if (args[0] === "--self-test" && args.length === 1) {
           reactionSummary: "eyes (1): USWEEPER",
           reactionOwners: { eyes: ["USWEEPER"] },
         }),
+      ),
+    },
+    {
+      name: "preserved administrative supplemental root cannot carry an unreconciled ticket",
+      inventory: preservedAdministrativeSupplementalRoot("ticket"),
+    },
+    {
+      name: "preserved administrative supplemental root cannot carry an unreconciled checkmark",
+      inventory: preservedAdministrativeSupplementalRoot("checkmark"),
+    },
+    {
+      name: "preserved administrative supplemental root cannot carry foreign workflow marks",
+      inventory: preservedAdministrativeSupplementalRoot(
+        "foreign-workflow-marks",
       ),
     },
     {
@@ -13452,7 +16264,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "other actors' marks do not replace this actor's eye on open report":
       "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "administrative manifest roots cannot carry this actor's workflow marks":
-      "this actor's workflow marks cannot be placed on an administrative root",
+      "this actor's workflow marks on an administrative root need a current same-thread status",
     "owned marks need a fresh full-thread read":
       "read the complete Slack thread again and record its threadSnapshot",
     "a newer thread reply invalidates the recorded snapshot":
@@ -13579,7 +16391,13 @@ if (args[0] === "--self-test" && args.length === 1) {
     "supplemental root cannot mark an owned report Owned elsewhere":
       "Owned elsewhere needs another actor's root 👀 and their current same-thread status",
     "administrative supplemental roots cannot carry this actor's workflow marks":
-      "this actor's workflow marks cannot be placed on an administrative root",
+      "this actor's workflow marks on an administrative root need a current same-thread status",
+    "preserved administrative supplemental root cannot carry an unreconciled ticket":
+      "invalid preserved administrative 👀 evidence (no unreconciled 🎫 mark)",
+    "preserved administrative supplemental root cannot carry an unreconciled checkmark":
+      "invalid preserved administrative 👀 evidence (no unreconciled ✅ mark)",
+    "preserved administrative supplemental root cannot carry foreign workflow marks":
+      "invalid preserved administrative 👀 evidence (no foreign ✅ mark, no foreign 🎫 mark)",
     "supplemental Fixed cannot hide an unfinished scope without this actor's marks":
       "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental Partially fixed disposition needs an unfinished scope":
@@ -13723,6 +16541,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       decision: "explicitly-requested",
       userRequest: inventory.scope.userRequest,
       channelIds: [...inventory.scope.channelIds],
+      authorizedRoots: [...(inventory.scope.authorizedRoots ?? [])],
     };
   };
   const validateTestInventory = (
@@ -13789,6 +16608,19 @@ if (args[0] === "--self-test" && args.length === 1) {
       text: "Fixed: The start screen works now. this was sent from a bot.",
     });
     validateTestInventory(conciseStatus);
+    const linkedMultiScopeEvidence = withTwoFixedScopeStatusUpdates(
+      {
+        evidence:
+          ":white_check_mark: still covers the initial route screen in <https://github.com/BuilderIO/agent-native/actions/runs/1|run 1> and account creation",
+        publicEvidenceSummary: "still covers",
+        text: "Fixed — :white_check_mark: still covers the initial route screen in <https://github.com/BuilderIO/agent-native/actions/runs/1|run 1> and account creation. this was sent from a bot.",
+      },
+      [
+        ":white_check_mark: still covers the initial route screen in <https://github.com/BuilderIO/agent-native/actions/runs/1|run 1> and account creation",
+        ":white_check_mark: still covers the initial route screen in <https://github.com/BuilderIO/agent-native/actions/runs/1|run 1> and account creation",
+      ],
+    );
+    validateTestInventory(linkedMultiScopeEvidence);
     validateStatusReactionLanguage(
       "self-test unfinished scope",
       "Partially fixed: The feature is no longer broken but still needs verification. this was sent from a bot.",
@@ -14487,7 +17319,626 @@ if (args[0] === "--self-test" && args.length === 1) {
           permalink: sourcePermalink(targetRootTs),
         },
       }));
-    validateTestInventory(clusteredRoot(valid, "10.000000"));
+    const unownedClusteredRoot = clusteredRoot(valid, "10.000000");
+    validateTestInventory(unownedClusteredRoot);
+    expectFocusedFailure(
+      "unowned Clustered duplicate cannot have this actor's status",
+      () =>
+        validateInScopeReportOwnership(
+          "C_TEST root 11.000000",
+          {
+            ...unownedClusteredRoot.channels[0]!.pages[0]!.parents[0]!,
+            statusReply: {
+              ts: "13.000000",
+              threadParentTs: "11.000000",
+              actorId: "USWEEPER",
+              disposition: "Clustered",
+              evidence: "the duplicate is linked to the canonical report",
+              text: "Clustered: the duplicate is linked to the canonical report.",
+            },
+          },
+          false,
+          false,
+          false,
+          false,
+        ),
+      "an unowned Clustered report cannot carry this actor's status reply",
+    );
+
+    const personAssignedRoot = withPageRoot(valid, "11.000000", (parent) => ({
+      ...parent,
+      sourceText: "I assigned this report to <@UOTHER>.",
+      disposition: "Skipped",
+      latestRelevantHumanReply: undefined,
+      latestOwnedReply: undefined,
+      statusReply: undefined,
+      reactionSummary: "none",
+      reactionOwners: {},
+      reactionDecision: undefined,
+      clusteredUnder: undefined,
+      personAssignedSkip: {
+        assigneeId: "UOTHER",
+        assignmentTs: "11.000000",
+      },
+    }));
+    validateTestInventory(personAssignedRoot);
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I did not assign the migration, but I assigned this report to <@UOTHER>.",
+      })),
+    );
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I assigned this report to <@UOTHER>. Did you ask me to run the migration? I did not.",
+      })),
+    );
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I assigned this report to <@UOTHER>. Reviewed the logs and I did not.",
+      })),
+    );
+    expectFocusedFailure(
+      "person-assigned skip without a named assignment",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "This report was not assigned to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "person-assigned proof must bind the assignment to the named person",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER2>. Thanks <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "negated assignment is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I did not assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "same-message assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not assign it.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "same-message exact assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "bare immediate assignment denial is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned this report to <@UOTHER>. I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "bare assignment denial after a blank line is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned this report to <@UOTHER>. \nI did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "bare assignment denial after but is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned this report to <@UOTHER>, but I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "direct elliptical assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "elliptical assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, that is wrong. I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "unrelated work cannot establish a report assignment",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned the API migration to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "the assigning actor is not the named assignee",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "<@UOTHER> assigned this report to <@USWEEPER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "future assignment wording is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I will assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "conditional assignment wording is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "If approved, I would assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+
+    const authorizedMagRoot = (() => {
+      const userRequest =
+        "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply despite its :mag: hold.";
+      const inventory = structuredClone(valid);
+      inventory.scope.userRequest = userRequest;
+      inventory.scope.narrowingJudgment!.instruction = userRequest;
+      inventory.scope.authorizedRoots = [
+        { channelId: "C_TEST", rootTs: "10.000000" },
+      ];
+      inventory.channels[0]!.pages[0]!.parents =
+        inventory.channels[0]!.pages[0]!.parents.map((parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                reactionSummary:
+                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; mag (1): USWEEPER",
+                reactionOwners: {
+                  ...parent.reactionOwners,
+                  mag: ["USWEEPER"],
+                },
+              }
+            : parent,
+        );
+      return inventory;
+    })();
+    validateTestInventory(authorizedMagRoot);
+    const directWorkAuthorization = structuredClone(authorizedMagRoot);
+    directWorkAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000, including the claim and same-thread status reply.";
+    directWorkAuthorization.scope.narrowingJudgment!.instruction =
+      directWorkAuthorization.scope.userRequest;
+    validateTestInventory(directWorkAuthorization);
+    const unrelatedFollowUpAuthorization = structuredClone(authorizedMagRoot);
+    unrelatedFollowUpAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply. Let me know if you have questions.";
+    unrelatedFollowUpAuthorization.scope.narrowingJudgment!.instruction =
+      unrelatedFollowUpAuthorization.scope.userRequest;
+    validateTestInventory(unrelatedFollowUpAuthorization);
+
+    const deniedAuthorization = structuredClone(authorizedMagRoot);
+    deniedAuthorization.scope.userRequest =
+      "I do not authorize you to claim root 10.000000 or post its status reply despite its :mag: hold.";
+    deniedAuthorization.scope.narrowingJudgment!.instruction =
+      deniedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "negated request cannot authorize a held root",
+      () => validateTestInventory(deniedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    const incompleteAndConditionalAuthorizations = [
+      [
+        "read-only authorization cannot unlock held-root work",
+        "I authorize you to read Slack root C_TEST 10.000000.",
+      ],
+      [
+        "reply-only authorization cannot unlock held-root work",
+        "I authorize you to reply to Slack root C_TEST 10.000000.",
+      ],
+      [
+        "conditional work authorization cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 only if it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on when cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 when it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on as long as cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 as long as it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on after cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 after it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on once cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 once it is assigned to you.",
+      ],
+      [
+        "a later condition cannot qualify held-root authorization",
+        "I authorize you to work on Slack root C_TEST 10.000000. Only if it is assigned to you.",
+      ],
+      [
+        "negated conditional reply cannot authorize a held root",
+        "Do not reply unless you can reply in Slack root C_TEST 10.000000.",
+      ],
+    ] as const;
+    for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
+      const incompleteAuthorization = structuredClone(authorizedMagRoot);
+      incompleteAuthorization.scope.userRequest = userRequest;
+      incompleteAuthorization.scope.narrowingJudgment!.instruction =
+        userRequest;
+      expectFocusedFailure(
+        name,
+        () => validateTestInventory(incompleteAuthorization),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      );
+    }
+
+    for (const [name, userRequest, expectedDiagnostic] of [
+      [
+        "trailing read-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply, read-only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing no-write qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply, with no writes.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing claim-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim-only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing claim only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing reply-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply-only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing reply only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing only after claim cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim it only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing only after reply cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply to it only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "just claim qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, just claim it.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+    ] as const) {
+      const incompleteAuthorization = structuredClone(authorizedMagRoot);
+      incompleteAuthorization.scope.userRequest = userRequest;
+      incompleteAuthorization.scope.narrowingJudgment!.instruction =
+        userRequest;
+      expectFocusedFailure(
+        name,
+        () => validateTestInventory(incompleteAuthorization),
+        expectedDiagnostic,
+      );
+    }
+
+    const crossPairedAuthorization = structuredClone(authorizedMagRoot);
+    crossPairedAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 11.000000 and Slack root C_OTHER 10.000000, including claims and same-thread status replies.";
+    crossPairedAuthorization.scope.narrowingJudgment!.instruction =
+      crossPairedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "cross-paired channel and timestamp cannot authorize a held root",
+      () => validateTestInventory(crossPairedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+
+    const quotedAuthorization = structuredClone(authorizedMagRoot);
+    quotedAuthorization.scope.userRequest =
+      "The quoted instruction was 'I authorize you to read and work on Slack root C_TEST 10.000000'.";
+    quotedAuthorization.scope.narrowingJudgment!.instruction =
+      quotedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "straight-single-quoted authorization cannot authorize a held root",
+      () => validateTestInventory(quotedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    const authorizationForDifferentRoot = structuredClone(authorizedMagRoot);
+    authorizationForDifferentRoot.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "11.000000" },
+    ];
+    expectFocusedFailure(
+      "authorization for one exact root cannot unlock another",
+      () => validateTestInventory(authorizationForDifferentRoot),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    const readOnlyAuthorization = structuredClone(authorizedMagRoot);
+    readOnlyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect root 10.000000.";
+    readOnlyAuthorization.scope.narrowingJudgment!.instruction =
+      readOnlyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "read-only permission cannot authorize a claim or status write",
+      () => validateTestInventory(readOnlyAuthorization),
+      "read-only, conditional, or negated permission is insufficient",
+    );
+    const conditionalAuthorization = structuredClone(authorizedMagRoot);
+    conditionalAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. Do not claim or reply unless you can claim and reply in C_TEST root 10.000000.";
+    conditionalAuthorization.scope.narrowingJudgment!.instruction =
+      conditionalAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "conditional permission cannot authorize a claim or status write",
+      () => validateTestInventory(conditionalAuthorization),
+      "read-only, conditional, or negated permission is insufficient",
+    );
+    const boundedAuthorization = structuredClone(authorizedMagRoot);
+    boundedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like.";
+    boundedAuthorization.scope.narrowingJudgment!.instruction =
+      boundedAuthorization.scope.userRequest;
+    validateTestInventory(boundedAuthorization);
+
+    const unrelatedFollowupCannotExtendReadOnlyAuthorization =
+      structuredClone(authorizedMagRoot);
+    unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect Slack root C_TEST 10.000000. Any followups and emojis are fine.";
+    unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.narrowingJudgment!.instruction =
+      unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "unrelated follow-up wording cannot turn a read-only grant into write authorization",
+      () =>
+        validateTestInventory(
+          unrelatedFollowupCannotExtendReadOnlyAuthorization,
+        ),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const noReactionAuthorization = structuredClone(authorizedMagRoot);
+    noReactionAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions.";
+    noReactionAuthorization.scope.narrowingJudgment!.instruction =
+      noReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "no-reaction restriction blocks exact-root write authorization",
+      () => validateTestInventory(noReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const inlineNoReactionAuthorization = structuredClone(authorizedMagRoot);
+    inlineNoReactionAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but no reactions.";
+    inlineNoReactionAuthorization.scope.narrowingJudgment!.instruction =
+      inlineNoReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "inline no-reaction qualifier blocks exact-root write authorization",
+      () => validateTestInventory(inlineNoReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const separateNoReactionAuthorization = structuredClone(authorizedMagRoot);
+    separateNoReactionAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions, please.";
+    separateNoReactionAuthorization.scope.narrowingJudgment!.instruction =
+      separateNoReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "polite separate no-reaction restriction blocks exact-root authorization",
+      () => validateTestInventory(separateNoReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const unrelatedNoReactionText = structuredClone(authorizedMagRoot);
+    unrelatedNoReactionText.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions are needed for the demo.";
+    unrelatedNoReactionText.scope.narrowingJudgment!.instruction =
+      unrelatedNoReactionText.scope.userRequest;
+    validateTestInventory(unrelatedNoReactionText);
+
+    const unrelatedStopByText = structuredClone(authorizedMagRoot);
+    unrelatedStopByText.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop by the front desk after the demo.";
+    unrelatedStopByText.scope.narrowingJudgment!.instruction =
+      unrelatedStopByText.scope.userRequest;
+    validateTestInventory(unrelatedStopByText);
+
+    const stoppedReplyAuthorization = structuredClone(authorizedMagRoot);
+    stoppedReplyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop replying on this root.";
+    stoppedReplyAuthorization.scope.narrowingJudgment!.instruction =
+      stoppedReplyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "stop-reply instruction cancels an exact-root write grant",
+      () => validateTestInventory(stoppedReplyAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const stoppedMigrationAuthorization = structuredClone(authorizedMagRoot);
+    stoppedMigrationAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop the migration.";
+    stoppedMigrationAuthorization.scope.narrowingJudgment!.instruction =
+      stoppedMigrationAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "stop-work instruction cancels an exact-root write grant",
+      () => validateTestInventory(stoppedMigrationAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const revokedAuthorization = structuredClone(authorizedMagRoot);
+    revokedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, don't do that.";
+    revokedAuthorization.scope.narrowingJudgment!.instruction =
+      revokedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "later revocation cancels an exact-root write authorization",
+      () => validateTestInventory(revokedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const withdrawnAuthorization = structuredClone(authorizedMagRoot);
+    withdrawnAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, I withdraw this authorization.";
+    withdrawnAuthorization.scope.narrowingJudgment!.instruction =
+      withdrawnAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "withdrawn authorization cancels an exact-root write grant",
+      () => validateTestInventory(withdrawnAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const revokedBoundedAuthorization = structuredClone(authorizedMagRoot);
+    revokedBoundedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Scratch that.";
+    revokedBoundedAuthorization.scope.narrowingJudgment!.instruction =
+      revokedBoundedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "later revocation cancels a bounded write authorization",
+      () => validateTestInventory(revokedBoundedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const permalinkOnlyRequest =
+      "I authorize you to work on Slack permalink https://slack.com/archives/C_TEST/p10000000, including the root claim and same-thread status reply despite its :mag: hold.";
+    if (
+      !hasExplicitWorkflowWriteAuthorization(permalinkOnlyRequest, [
+        { channelId: "C_TEST", rootTs: "10.000000" },
+      ])
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected an exact-root grant expressed only as a Slack permalink.",
+      );
+    }
+
+    expectFocusedFailure(
+      "authorized root needs its separate orchestrator confirmation",
+      () => validateInventory(withTestThreadSnapshots(authorizedMagRoot)),
+      "provide a separate orchestrator confirmation file",
+    );
+    expectFocusedFailure(
+      "authorization confirmation must match exact root set",
+      () =>
+        validateTestInventory(authorizedMagRoot, {
+          scopeConfirmation: {
+            ...scopeConfirmationForTestInventory(authorizedMagRoot)!,
+            authorizedRoots: [],
+          },
+        }),
+      "external scope confirmation must match the inventory's exact authorizedRoots",
+    );
+
+    const activeOtherOwner = withTestThreadSnapshots(withOtherOwnerRoot());
+    const activeOtherOwnerRoot = {
+      ...activeOtherOwner.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!,
+      disposition: "In progress",
+      otherOwnerEvidence: undefined,
+    };
+    const activeOtherOwnerSnapshot =
+      activeOtherOwner.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === "10.000000",
+      )!;
+    expectFocusedFailure(
+      "active other owner blocks an unauthorized claim",
+      () =>
+        validateOtherOwnerEvidence(
+          "C_TEST root 10.000000",
+          activeOtherOwnerRoot,
+          "USWEEPER",
+          "10.000000",
+          activeOtherOwnerSnapshot,
+          true,
+          false,
+        ),
+      "another actor owns this report",
+    );
+    validateOtherOwnerEvidence(
+      "C_TEST root 10.000000",
+      activeOtherOwnerRoot,
+      "USWEEPER",
+      "10.000000",
+      activeOtherOwnerSnapshot,
+      true,
+      false,
+      true,
+    );
 
     const ownedClusteredStatus: StatusReply = {
       ts: "13.000000",
@@ -14684,6 +18135,21 @@ if (args[0] === "--self-test" && args.length === 1) {
       text: caseInsensitiveRoot.statusReply.text,
     };
     validateTestInventory(caseInsensitiveVerification);
+    for (const disposition of ["Shipped", "Live verified"] as const) {
+      const verifiedDisposition = structuredClone(caseInsensitiveVerification);
+      const verifiedRoot =
+        verifiedDisposition.channels[0]!.pages[0]!.parents.find(
+          (parent) => parent.ts === "10.000000",
+        )!;
+      verifiedRoot.disposition = disposition;
+      verifiedRoot.statusReply!.disposition = disposition;
+      verifiedRoot.statusReply!.text = verifiedRoot.statusReply!.text.replace(
+        /^Fixed:/,
+        `${disposition}:`,
+      );
+      verifiedRoot.latestOwnedReply!.text = verifiedRoot.statusReply!.text;
+      validateTestInventory(verifiedDisposition);
+    }
     validateTestInventory(
       withSweepOwnedParent({
         latestRelevantHumanReply: {
@@ -15029,6 +18495,418 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const selfOwnedActionScope =
+      "numeric value-axis steps and matching tick labels/gridlines";
+    const selfOwnedActionVerification =
+      "Focused DataChartRenderer tests verify bounded numeric value-axis steps and matching tick labels/gridlines";
+    const selfOwnedActionReason =
+      "Historical self-owned tracking action: PR #8008 is merged after renderer tests verified the requested value-axis ticks; live chart behavior was not checked.";
+    const completedSelfOwnedActionInventory = withUnownedTicket({
+      disposition: "Fixed",
+      reactionSummary:
+        "eyes (1): USWEEPER; ticket (1): USWEEPER; white_check_mark (1): USWEEPER",
+      reactionOwners: {
+        eyes: ["USWEEPER"],
+        ticket: ["USWEEPER"],
+        white_check_mark: ["USWEEPER"],
+      },
+      reactionDecision: {
+        checkmark: {
+          state: "present",
+          reason:
+            "Focused tests verify the numeric value-axis steps and labels",
+        },
+        ticket: {
+          state: "present",
+          reason: selfOwnedActionReason,
+        },
+      },
+      latestRelevantHumanReply: null,
+      handoffs: undefined,
+      fixedScopes: [
+        {
+          scope: selfOwnedActionScope,
+          verification: selfOwnedActionVerification,
+        },
+      ],
+      unfinishedScopes: [],
+      historicalReactionMarks: [
+        {
+          emoji: "ticket",
+          scope: selfOwnedActionScope,
+          reason: selfOwnedActionReason,
+          previousStatus: {
+            ts: "11.000000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            disposition: "In progress",
+            evidence:
+              "PR #8008 adds configurable numeric value-axis tick intervals; I am tracking review and will confirm once it ships",
+            text: "In progress: PR #8008 adds configurable numeric value-axis tick intervals. I’m tracking review and will confirm once it ships. :ticket: tracks the PR; :eyes: remains. this was sent from a bot.",
+          },
+          completedSelfOwnedAction: {
+            actorId: "USWEEPER",
+            action: "tracking review for PR #8008 until it ships",
+            actionSummary: "tracking review",
+            actionReference: "PR #8008",
+            completionEvidence: "PR #8008 is merged",
+          },
+        },
+      ],
+      statusReply: {
+        ts: "13.000000",
+        threadParentTs: "10.000000",
+        actorId: "USWEEPER",
+        disposition: "Fixed",
+        evidence: `${selfOwnedActionVerification}; PR #8008 is merged; live chart behavior was not checked`,
+        publicEvidenceSummary: "bounded numeric value-axis steps",
+        text: `Fixed: PR #8008 is merged, and focused DataChartRenderer tests verify bounded numeric value-axis steps and matching tick labels/gridlines; I have not checked live chart behavior. :white_check_mark: covers ${selfOwnedActionScope}. this was sent from a bot.`,
+      },
+    });
+    const completedSelfOwnedSummary = validateTestInventory(
+      completedSelfOwnedActionInventory,
+    );
+    if (
+      !completedSelfOwnedSummary.some((line) =>
+        line.includes("historical self-owned actions: 1"),
+      )
+    ) {
+      throw new Error(
+        "self-test did not count a completed self-owned historical action",
+      );
+    }
+    const selfOwnedMarkFor = (inventory: Inventory): HistoricalReactionMark =>
+      inventory.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!.historicalReactionMarks![0]!;
+    const unownedPriorStatus = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    const unownedPriorStatusMark = selfOwnedMarkFor(unownedPriorStatus);
+    unownedPriorStatusMark.completedSelfOwnedAction!.action =
+      "PR #8008 status remains under review";
+    unownedPriorStatusMark.completedSelfOwnedAction!.actionSummary =
+      "PR #8008 status";
+    unownedPriorStatusMark.previousStatus.text =
+      "In progress: PR #8008 status remains under review. this was sent from a bot.";
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket without an ownership commitment",
+      unownedPriorStatus,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    const ownershipForDifferentWork = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    const differentWorkMark = selfOwnedMarkFor(ownershipForDifferentWork);
+    differentWorkMark.completedSelfOwnedAction!.action =
+      "PR #8008 review through merge";
+    differentWorkMark.completedSelfOwnedAction!.actionSummary =
+      "PR #8008 review";
+    differentWorkMark.previousStatus.text =
+      "In progress: I’m tracking the dashboard issue. PR #8008 review remains open. this was sent from a bot.";
+    differentWorkMark.previousStatus.evidence =
+      differentWorkMark.previousStatus.text;
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket with ownership for different work",
+      ownershipForDifferentWork,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    const ownershipAfterCommitmentEnded = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    const endedCommitmentMark = selfOwnedMarkFor(ownershipAfterCommitmentEnded);
+    endedCommitmentMark.previousStatus.text =
+      "In progress: I’m tracking. Review PR #8008 remains open. this was sent from a bot.";
+    endedCommitmentMark.previousStatus.evidence =
+      endedCommitmentMark.previousStatus.text;
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket with action after the commitment ended",
+      ownershipAfterCommitmentEnded,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    const ownershipForDifferentWorkSameSentence = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    const sameSentenceDifferentWorkMark = selfOwnedMarkFor(
+      ownershipForDifferentWorkSameSentence,
+    );
+    sameSentenceDifferentWorkMark.completedSelfOwnedAction!.action =
+      "PR #8008 review through merge";
+    sameSentenceDifferentWorkMark.completedSelfOwnedAction!.actionSummary =
+      "PR #8008 review";
+    sameSentenceDifferentWorkMark.previousStatus.text =
+      "In progress: I’m tracking the dashboard issue while PR #8008 review remains open. this was sent from a bot.";
+    sameSentenceDifferentWorkMark.previousStatus.evidence =
+      sameSentenceDifferentWorkMark.previousStatus.text;
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket with same-sentence ownership for different work",
+      ownershipForDifferentWorkSameSentence,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    for (const [text, actionSummary] of [
+      ["I can review PR #8008.", "review PR #8008"],
+      ["I will review PR #8008, but I won't take it on.", "review PR #8008"],
+      ["I will review PR #8008. I won't take it on.", "review PR #8008"],
+      ["I will review PR #8008, but I won’t take it on.", "review PR #8008"],
+      ["I will review PR #8008 once the owner confirms.", "review PR #8008"],
+      ["I will review PR #8008, pending approval.", "review PR #8008"],
+      ["If the owner confirms, I will review PR #8008.", "review PR #8008"],
+      ["Unless someone objects, I will review PR #8008.", "review PR #8008"],
+      [
+        "I will review PR #8008. I’m not going to review it.",
+        "review PR #8008",
+      ],
+      ["I will review PR #8008. I’m not reviewing it.", "review PR #8008"],
+      ["I will review PR #8008. I won't be reviewing it.", "review PR #8008"],
+      [
+        "I will review PR #8008. I no longer plan to review it.",
+        "review PR #8008",
+      ],
+      ["I will review PR #8008. Actually, I won't do that.", "review PR #8008"],
+      [
+        "I will review PR #8008 unless someone else handles it.",
+        "review PR #8008",
+      ],
+    ]) {
+      if (replyExplicitlyOwnsRecordedAction(text!, actionSummary!)) {
+        throw new Error(
+          `self-test accepted a non-committal or conditional ownership claim: ${text}`,
+        );
+      }
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008, but I won't review PR #9000.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test let an unrelated PR negation cancel an owned action",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "If you need anything, ask. I will review PR #8008.",
+        "review PR #8008",
+        "PR #8008",
+      ) ||
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test rejected an unconditional ownership commitment after a separate conditional sentence",
+      );
+    }
+    if (
+      replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008, but I won't review PR #8008.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test accepted an ownership commitment negated for the same PR",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review issue PROJ-123, but I won't review issue PROJ-456.",
+        "review issue PROJ-123",
+        "issue PROJ-123",
+      ) ||
+      replyExplicitlyOwnsRecordedAction(
+        "I will review issue PROJ-123, but I won't review issue PROJ-123.",
+        "review issue PROJ-123",
+        "issue PROJ-123",
+      )
+    ) {
+      throw new Error(
+        "self-test did not scope ownership negation to the full hyphenated issue reference",
+      );
+    }
+    if (
+      replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008 if PR #9000 is merged first.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test accepted ownership conditional on a different PR",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I will review PR #9000 if the owner asks.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test rejected an unconditional commitment because a later unrelated action was conditional",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I won't take on the unrelated database issue.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test let an unreferenced unrelated decline cancel an owned action",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I won't take on more support work.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test let an unrelated unreferenced decline cancel an owned action",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I will post an update once it ships.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test rejected an unconditional commitment because a separate follow-up is conditional",
+      );
+    }
+    const foreignSelfOwnedAction = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    selfOwnedMarkFor(foreignSelfOwnedAction).completedSelfOwnedAction!.actorId =
+      "UOTHER";
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket assigned to another actor",
+      foreignSelfOwnedAction,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    const unmatchedSelfOwnedAction = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    selfOwnedMarkFor(unmatchedSelfOwnedAction).previousStatus.text =
+      "In progress: PR #8008 remains under review. I will post an update when it ships. this was sent from a bot.";
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket without its prior action",
+      unmatchedSelfOwnedAction,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    const unprovenSelfOwnedAction = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    selfOwnedMarkFor(
+      unprovenSelfOwnedAction,
+    ).completedSelfOwnedAction!.completionEvidence =
+      "PR #8008 is still in review";
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket without current completion evidence",
+      unprovenSelfOwnedAction,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    const unrelatedCompletionEvidence = "another task is done";
+    const unrelatedSelfOwnedCompletion = structuredClone(
+      completedSelfOwnedActionInventory,
+    );
+    const unrelatedSelfOwnedParent =
+      unrelatedSelfOwnedCompletion.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!;
+    const unrelatedSelfOwnedMark =
+      unrelatedSelfOwnedParent.historicalReactionMarks![0]!;
+    unrelatedSelfOwnedMark.completedSelfOwnedAction!.completionEvidence =
+      unrelatedCompletionEvidence;
+    unrelatedSelfOwnedMark.reason += ` ${unrelatedCompletionEvidence}.`;
+    unrelatedSelfOwnedParent.reactionDecision!.ticket.reason = `Historical completed self-owned action: ${unrelatedSelfOwnedMark.reason}`;
+    unrelatedSelfOwnedParent.statusReply!.evidence += `; ${unrelatedCompletionEvidence}`;
+    unrelatedSelfOwnedParent.statusReply!.text =
+      unrelatedSelfOwnedParent.statusReply!.text.replace(
+        "this was sent from a bot.",
+        `${unrelatedCompletionEvidence}. this was sent from a bot.`,
+      );
+    unrelatedSelfOwnedParent.latestOwnedReply!.text =
+      unrelatedSelfOwnedParent.statusReply!.text;
+    expectHistoricalMarkFailure(
+      "historical self-owned ticket with unrelated completion evidence",
+      unrelatedSelfOwnedCompletion,
+      "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+    );
+    for (const negatedCompletion of [
+      "PR #8008 merged?",
+      "PR #8008 isn't merged",
+      "PR #8008 hasn't been merged",
+      "PR #8008 was not merged",
+      "PR #8008: Nothing has been completed",
+      "PR #8008 merged? Not yet.",
+      "PR #8008 merged. No.",
+      "PR #8008 merged — no.",
+      "PR #8008 merged? Nope.",
+      "PR #8008 appears merged, but it is still open.",
+      "PR #8008 may be merged",
+      "PR #8008 appears merged. Actually, no.",
+      "PR #8008 is merged. No confirmation yet.",
+    ]) {
+      const negatedSelfOwnedCompletion = structuredClone(
+        completedSelfOwnedActionInventory,
+      );
+      const negatedSelfOwnedParent =
+        negatedSelfOwnedCompletion.channels[0]!.pages[0]!.parents.find(
+          (parent) => parent.ts === "10.000000",
+        )!;
+      const negatedSelfOwnedMark =
+        negatedSelfOwnedParent.historicalReactionMarks![0]!;
+      negatedSelfOwnedMark.completedSelfOwnedAction!.completionEvidence =
+        negatedCompletion;
+      negatedSelfOwnedMark.reason = `Historical completed self-owned action: ${negatedCompletion}; focused renderer tests verify the requested value-axis ticks; live chart behavior was not checked.`;
+      negatedSelfOwnedParent.reactionDecision!.ticket.reason = `Historical completed self-owned action: ${negatedSelfOwnedMark.reason}`;
+      negatedSelfOwnedParent.statusReply!.evidence = `${selfOwnedActionVerification}; ${negatedCompletion}; live chart behavior was not checked`;
+      negatedSelfOwnedParent.statusReply!.text =
+        negatedSelfOwnedParent.statusReply!.text.replace(
+          "PR #8008 is merged",
+          negatedCompletion,
+        );
+      negatedSelfOwnedParent.latestOwnedReply!.text =
+        negatedSelfOwnedParent.statusReply!.text;
+      expectHistoricalMarkFailure(
+        `historical self-owned ticket with negated completion evidence (${negatedCompletion})`,
+        negatedSelfOwnedCompletion,
+        "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+      );
+    }
+    if (explicitlyStatesCompletion("Nothing has been completed")) {
+      throw new Error(
+        "self-test accepted explicit negative completion wording",
+      );
+    }
+    const mixedReporterSelfOwnedHistory = withClosedReporterRequestHistory();
+    const mixedReporterSelfOwnedParent =
+      mixedReporterSelfOwnedHistory.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!;
+    mixedReporterSelfOwnedParent.historicalReactionMarks![0]!.completedSelfOwnedAction =
+      {
+        actorId: "USWEEPER",
+        action: "tracking review for PR #8008 until it ships",
+        actionSummary: "tracking review",
+        actionReference: "PR #8008",
+        completionEvidence: "PR #8008 is merged",
+      };
+    expectHistoricalMarkFailure(
+      "historical reporter request mixed with a self-owned action",
+      mixedReporterSelfOwnedHistory,
+      "historical 🎫 cannot mix reporter-request, handoff, or self-owned action evidence",
+    );
     const historicalCheckWithUnapprovedFeedbackPrefix = structuredClone(
       historicalCheckInventory,
     );
@@ -16542,7 +20420,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (
       !cutoffOverlapSummary.some((line) =>
         line.includes(
-          "in-scope report roots 2; owned 👀 1, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 0; including completed history)",
+          "in-scope report roots 2; owned 👀 1, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 0, historical self-owned actions: 0; including completed history)",
         ),
       ) ||
       !cutoffOverlapSummary.some((line) =>
@@ -16567,7 +20445,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (
       !reporterRequestSummary.some((line) =>
         line.includes(
-          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 1, historical reporter requests: 0; including completed history)",
+          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 1, historical reporter requests: 0, historical self-owned actions: 0; including completed history)",
         ),
       )
     ) {
@@ -16579,7 +20457,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (
       !closedReporterRequestSummary.some((line) =>
         line.includes(
-          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 1; including completed history)",
+          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 1, historical self-owned actions: 0; including completed history)",
         ),
       )
     ) {
@@ -16597,6 +20475,40 @@ if (args[0] === "--self-test" && args.length === 1) {
         "self-test failed to preserve expired reporter ticket history",
       );
     }
+    const courtesyPrefixedHistoricalReporterStatus =
+      withClosedReporterRequestHistory("abandoned_no_answer");
+    courtesyPrefixedHistoricalReporterStatus.channels =
+      courtesyPrefixedHistoricalReporterStatus.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => {
+            if (parent.ts !== "10.000000") return parent;
+            const mark = parent.historicalReactionMarks![0]!;
+            const previousText = `Thanks for sharing the recording. ${mark.previousStatus.text}`;
+            return {
+              ...parent,
+              historicalReactionMarks: [
+                {
+                  ...mark,
+                  previousStatus: {
+                    ...mark.previousStatus,
+                    text: previousText,
+                  },
+                  closedReporterRequest: {
+                    ...mark.closedReporterRequest!,
+                    requestReply: {
+                      ...mark.closedReporterRequest!.requestReply,
+                      text: previousText,
+                    },
+                  },
+                },
+              ],
+            };
+          }),
+        })),
+      }));
+    validateTestInventory(courtesyPrefixedHistoricalReporterStatus);
     const partiallyFixedAbandonedRequest = withClosedReporterRequestHistory(
       "abandoned_no_answer",
     );
@@ -16702,6 +20614,387 @@ if (args[0] === "--self-test" && args.length === 1) {
         "self-test failed to exclude administrative posts from report-root counts",
       );
     }
+    const inWindowRootSummary = inWindowReportRoots(
+      "self-test supplemental root summary",
+      [],
+      [
+        supplementalRootAudit("12.000000", {
+          rootClassification: "administrative",
+        }),
+        supplementalRootAudit("13.000000", {
+          rootClassification: "report",
+        }),
+      ],
+      slackTimestamp("10.000000", "self-test summary cutoff"),
+    );
+    if (
+      inWindowRootSummary.size !== 1 ||
+      inWindowRootSummary.has("12.000000") ||
+      !inWindowRootSummary.has("13.000000")
+    ) {
+      throw new Error(
+        "self-test counted an administrative supplemental root in report totals",
+      );
+    }
+    const preservedAdministrativeEyeInventory = structuredClone(valid);
+    const preservedAdministrativeRoot =
+      preservedAdministrativeEyeInventory.channels[0]!.pages[0]!.parents[0]!;
+    const preservedAdministrativeStatus =
+      "Skipped for this sweep — this is a Cloud Agents waitlist submission to publish a design, not a verified product defect or an endorsed feature request. I did not publish the app or change access. The existing :eyes: is retained as history; no active work is claimed.\n\nNo :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending.\n\nthis was sent from a bot.";
+    const preservedAdministrativeSource = [
+      "New submission: Builder Cloud Agents Waitlist",
+      "*Email:* <mailto:person@example.com|person@example.com>",
+      "*Organization or workspace:* Example workspace",
+      "*App URL:* <https://example.com/app|example.com/app>",
+      "*Original request:* Publish a design.",
+      "*Source:* app_page",
+      "*Use case:* publish a design",
+      "Submitted <!date^1792705000^{date_short_pretty} at {time}|Oct 23, 2026 at 11:36 AM>",
+      "App: <https://example.com/app|Example app>",
+      "Page: <https://example.com/page|Example page>",
+    ].join("\n");
+    Object.assign(preservedAdministrativeRoot, {
+      sourceText: preservedAdministrativeSource,
+      rootClassification: "administrative" as const,
+      rootClassificationReason: "Waitlist intake, not product feedback",
+      rootClassificationJudgment: {
+        actorId: "USWEEPER",
+        decision: "administrative" as const,
+        rationale:
+          "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
+      },
+      disposition: "Skipped",
+      clusteredUnder: undefined,
+      reactionSummary: "eyes (1): USWEEPER",
+      reactionOwners: { eyes: ["USWEEPER"] },
+      latestOwnedReply: {
+        ts: "12.000000",
+        threadParentTs: "11.000000",
+        actorId: "USWEEPER",
+        text: preservedAdministrativeStatus,
+      },
+      preservedAdministrativeEye: {
+        reason:
+          "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.",
+      },
+      latestRelevantHumanReply: null,
+    });
+    validateTestInventory(
+      withTestThreadSnapshots(preservedAdministrativeEyeInventory),
+    );
+    const currentAdministrativeStatus = structuredClone(
+      preservedAdministrativeEyeInventory,
+    );
+    const currentAdministrativeRoot =
+      currentAdministrativeStatus.channels[0]!.pages[0]!.parents[0]!;
+    delete currentAdministrativeRoot.preservedAdministrativeEye;
+    currentAdministrativeRoot.statusReply = {
+      ts: "12.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "Skipped",
+      evidence: preservedAdministrativeStatus,
+      text: preservedAdministrativeStatus,
+    };
+    currentAdministrativeRoot.reactionDecision = {
+      checkmark: {
+        state: "none",
+        reason: "No product behavior change was verified",
+      },
+      ticket: {
+        state: "none",
+        reason: "No separate human action is pending",
+      },
+    };
+    validateTestInventory(withTestThreadSnapshots(currentAdministrativeStatus));
+    const preservedStatusVariants = [
+      preservedAdministrativeStatus,
+      [
+        "Skipped for this sweep — this is a Cloud Agents build-online waitlist submission, not a verified product behavior report or an endorsed feature request. The existing :eyes: is retained as history; no active work is claimed. Current-site coverage remains unverified; no product change is made.",
+        "No :white_check_mark: — no product fix or verified behavior change is in scope for this waitlist request. No :ticket: — no separate person or team action is pending.",
+        "this was sent from a bot.",
+      ].join("\n\n"),
+      [
+        "Skipped as an unendorsed feature request. The near-identical submission at <https://slack.example.com/archives/CEXAMPLE/p1792705000000000|the later thread> is a duplicate. I did not change Clips behavior. The existing :eyes: is retained as history; no active work is claimed.",
+        "No :white_check_mark: — no verified behavior change is in scope. No :ticket: — no separate human or team action is pending.",
+        "this was sent from a bot.",
+      ].join("\n\n"),
+      [
+        "Skipped as a duplicate of <https://slack.example.com/archives/CEXAMPLE/p1792705000000000|the earlier submission> and as an unendorsed feature request. I did not change Clips behavior. The existing :eyes: is retained as history; no active work is claimed.",
+        "No :white_check_mark: — no verified behavior change is in scope. No :ticket: — no separate human or team action is pending.",
+        "this was sent from a bot.",
+      ].join("\n\n"),
+    ];
+    if (
+      preservedStatusVariants.some(
+        (status) => !isCanonicalPreservedAdministrativeStatus(status),
+      )
+    ) {
+      throw new Error("self-test rejected a canonical preserved status reply");
+    }
+    if (
+      isCanonicalPreservedAdministrativeStatus(
+        `${preservedAdministrativeStatus}\nI will publish the app this week.`,
+      )
+    ) {
+      throw new Error(
+        "self-test accepted a preserved status reply with an added work commitment",
+      );
+    }
+    const preservedAdministrativeSnapshot = withTestThreadSnapshots(
+      preservedAdministrativeEyeInventory,
+    ).channels[0]!.threadSnapshots!.find(
+      (snapshot) => snapshot.rootTs === "11.000000",
+    )!;
+    const preservedAdministrativeStatusRecord = {
+      ts: "12.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "Skipped" as const,
+      evidence: preservedAdministrativeStatus,
+      text: preservedAdministrativeStatus,
+    };
+    if (
+      !validatePreservedAdministrativeEye(
+        "self-test preserved administrative root",
+        {
+          ...preservedAdministrativeRoot,
+          statusReply: preservedAdministrativeStatusRecord,
+        },
+        "USWEEPER",
+        preservedAdministrativeSnapshot,
+      )
+    ) {
+      throw new Error(
+        "self-test rejected a current status record for a preserved administrative eye",
+      );
+    }
+    expectFocusedFailure(
+      "preserved administrative eye with a stale status record",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            statusReply: {
+              ...preservedAdministrativeStatusRecord,
+              evidence: "An older status that no longer matches the thread.",
+              text: "An older status that no longer matches the thread.",
+            },
+          },
+          "USWEEPER",
+          preservedAdministrativeSnapshot,
+        ),
+      "current status record matches latest reply",
+    );
+    const preservedReplyWithoutEyeExplanation =
+      preservedAdministrativeStatus.replace(
+        "The existing :eyes: is retained as history; no active work is claimed.",
+        "",
+      );
+    expectFocusedFailure(
+      "preserved administrative eye without a current explanation",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            latestOwnedReply: {
+              ...preservedAdministrativeRoot.latestOwnedReply!,
+              text: preservedReplyWithoutEyeExplanation,
+            },
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            replies: preservedAdministrativeSnapshot.replies.map((reply) =>
+              reply.ts === preservedAdministrativeRoot.latestOwnedReply!.ts
+                ? { ...reply, text: preservedReplyWithoutEyeExplanation }
+                : reply,
+            ),
+          },
+        ),
+      "reply explains the retained 👀",
+    );
+    const preservedReplyWithPromise = preservedAdministrativeStatus.replace(
+      "The existing :eyes: is retained as history; no active work is claimed.",
+      "The existing :eyes: is retained as history; no active work is claimed. I will publish the app this week.",
+    );
+    expectFocusedFailure(
+      "preserved administrative status with a work-accepting promise",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            latestOwnedReply: {
+              ...preservedAdministrativeRoot.latestOwnedReply!,
+              text: preservedReplyWithPromise,
+            },
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            replies: preservedAdministrativeSnapshot.replies.map((reply) =>
+              reply.ts === preservedAdministrativeRoot.latestOwnedReply!.ts
+                ? { ...reply, text: preservedReplyWithPromise }
+                : reply,
+            ),
+          },
+        ),
+      "canonical no-work status reply",
+    );
+    const releaseAnnouncement =
+      "Product release: Workspace routing is now available.";
+    expectFocusedFailure(
+      "preserved administrative eye on a release announcement",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            sourceText: releaseAnnouncement,
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            rootText: releaseAnnouncement,
+          },
+        ),
+      "verified Builder Cloud Agents waitlist form",
+    );
+    for (const [name, invalidSource] of [
+      [
+        "email with an empty address",
+        preservedAdministrativeSource.replace(
+          "*Email:* <mailto:person@example.com|person@example.com>",
+          "*Email:* <mailto:a@ | >",
+        ),
+      ],
+      [
+        "app URL with a whitespace-only value",
+        preservedAdministrativeSource.replace(
+          "*App URL:* <https://example.com/app|example.com/app>",
+          "*App URL:* <https:// >",
+        ),
+      ],
+    ] as const) {
+      expectFocusedFailure(
+        `preserved administrative eye with ${name}`,
+        () =>
+          validatePreservedAdministrativeEye(
+            "self-test preserved administrative root",
+            {
+              ...preservedAdministrativeRoot,
+              sourceText: invalidSource,
+            },
+            "USWEEPER",
+            {
+              ...preservedAdministrativeSnapshot,
+              rootText: invalidSource,
+            },
+          ),
+        "verified Builder Cloud Agents waitlist form",
+      );
+    }
+    expectFocusedFailure(
+      "preserved administrative eye with an incomplete snapshot",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          preservedAdministrativeRoot,
+          "USWEEPER",
+          { ...preservedAdministrativeSnapshot, replyCount: 0 },
+        ),
+      "threadSnapshot must contain every reply reported by Slack",
+    );
+    const laterAdministrativeReply = {
+      ...preservedAdministrativeSnapshot.replies[0]!,
+      ts: "13.000000",
+      text: `${preservedAdministrativeStatus} A later reply follows.`,
+      workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a later sweep reply",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          preservedAdministrativeRoot,
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            readAt: "2030-01-01T00:00:02.000Z",
+            replyCount: preservedAdministrativeSnapshot.replyCount + 1,
+            replies: [
+              ...preservedAdministrativeSnapshot.replies.map((reply) => ({
+                ...reply,
+                workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+              })),
+              laterAdministrativeReply,
+            ],
+          },
+        ),
+      "latest sweep reply is current",
+    );
+    const laterAdministrativeHumanReply = {
+      ...preservedAdministrativeSnapshot.replies[0]!,
+      ts: "13.000000",
+      actorId: "UREPORTER",
+      kind: "human" as const,
+      text: "Could someone follow up on this request?",
+      workflowReactionSummary: "none",
+      workflowReactionOwners: {},
+      workflowReactionReadback: [],
+      workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a newer human reply",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            latestRelevantHumanReply: {
+              ts: laterAdministrativeHumanReply.ts,
+              actorId: laterAdministrativeHumanReply.actorId,
+              text: laterAdministrativeHumanReply.text,
+            },
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            readAt: "2030-01-01T00:00:02.000Z",
+            replyCount: preservedAdministrativeSnapshot.replyCount + 1,
+            replies: [
+              ...preservedAdministrativeSnapshot.replies.map((reply) => ({
+                ...reply,
+                workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+              })),
+              laterAdministrativeHumanReply,
+            ],
+          },
+        ),
+      "status reply must be newer than the latest relevant human reply",
+    );
+    expectFocusedFailure(
+      "preserved administrative eye with a stale full-thread read",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          preservedAdministrativeRoot,
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            readAt: "2020-01-01T00:00:00.000Z",
+            replies: preservedAdministrativeSnapshot.replies.map((reply) => ({
+              ...reply,
+              workflowReactionReadAt: "2020-01-01T00:00:01.000Z",
+            })),
+          },
+          true,
+        ),
+      "is older than 60 minutes",
+    );
     const paginatedSummary = validateTestInventory({
       ...valid,
       channels: [
@@ -17050,6 +21343,201 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     const completeSourceReceipt = sourceReceiptFor(receiptFreshInventory);
     const completeRawSourcePages = rawSourcePagesFor(completeSourceReceipt);
+    const connectorOmissionInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "10.000000"
+              ? { ...parent, sourceText: "report" }
+              : { ...parent, sourceText: "" },
+          ),
+        })),
+        threadSnapshots: [
+          ...(channel.threadSnapshots ?? []).map((snapshot) =>
+            snapshot.rootTs === "10.000000"
+              ? { ...snapshot, rootText: "report" }
+              : { ...snapshot, rootText: snapshot.rootText ?? "" },
+          ),
+          {
+            rootTs: "9.500000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootText: "",
+            replies: [],
+          },
+        ],
+      })),
+    };
+    const connectorOmissionReceipt = sourceReceiptFor(
+      connectorOmissionInventory,
+    );
+    const connectorOmissionRawPages = rawSourcePagesFor(
+      connectorOmissionReceipt,
+    );
+    const connectorOmissionRoot = connectorOmissionInventory.channels
+      .flatMap((channel) => channel.pages)
+      .flatMap((page) => page.parents)
+      .find((parent) => parent.ts === "10.000000");
+    if (!connectorOmissionRoot) {
+      throw new Error("self-test omission fixture lost its root row");
+    }
+    if (
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText: "The `report` remains visible &gt; hidden.",
+        },
+        "The report remains visible > hidden.",
+        undefined,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected equivalent Slack search formatting",
+      );
+    }
+    if (
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText:
+            "I’m looking into this for you\nCancel button\nThe report remains open.",
+        },
+        "The report remains open.",
+        undefined,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected the Slack thread UI prefix",
+      );
+    }
+    const threadOnlyMetadataText =
+      "The `report` remains visible &gt; hidden.\nReactions: eyes (1)\nApp notification from App (https://example.com): [no preview available]";
+    if (
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText: threadOnlyMetadataText,
+        },
+        "The report remains visible > hidden.",
+        {
+          rootTs: connectorOmissionRoot.threadParentTs,
+          readAt: freshSnapshotReadAt,
+          replyCount: 0,
+          rootText: threadOnlyMetadataText,
+          replies: [],
+        },
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected full-thread text that resolves omitted search metadata",
+      );
+    }
+    if (
+      sourceTextMatchesCapturedSearch(
+        { ...connectorOmissionRoot, sourceText: "" },
+        "",
+        undefined,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        { ...connectorOmissionRoot, sourceText: "" },
+        "",
+        {
+          rootTs: connectorOmissionRoot.threadParentTs,
+          readAt: freshSnapshotReadAt,
+          replyCount: 0,
+          replies: [],
+        },
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: empty search text requires an explicit empty root thread read",
+      );
+    }
+    const connectorOmissionRootSnapshot =
+      connectorOmissionInventory.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === connectorOmissionRoot.threadParentTs,
+      );
+    if (
+      !connectorOmissionRootSnapshot ||
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText: "report",
+          ownershipSkip: {
+            rootTs: connectorOmissionRoot.threadParentTs,
+            reason: "foreign_workflow_mark",
+          },
+        },
+        "",
+        connectorOmissionRootSnapshot,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: a held source row may use matching full-thread text to establish an omitted search body",
+      );
+    }
+    validateSourceReceipt(
+      connectorOmissionInventory,
+      connectorOmissionReceipt,
+      connectorOmissionRawPages,
+      true,
+    );
+    expectFocusedFailure(
+      "empty inventory root text does not replace an omitted search body",
+      () => {
+        const emptyRootTextInventory: Inventory = {
+          ...connectorOmissionInventory,
+          channels: connectorOmissionInventory.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) =>
+                parent.ts === "10.000000"
+                  ? { ...parent, sourceText: "" }
+                  : parent,
+              ),
+            })),
+          })),
+        };
+        const receipt = sourceReceiptFor(emptyRootTextInventory);
+        validateSourceReceipt(
+          emptyRootTextInventory,
+          receipt,
+          rawSourcePagesFor(receipt),
+          true,
+        );
+      },
+      "must match the captured Slack result",
+    );
+    expectFocusedFailure(
+      "full-thread text cannot replace a non-empty captured search body",
+      () => {
+        const nonEmptyCapturedSearch = structuredClone(
+          connectorOmissionRawPages,
+        );
+        const rowIndex = nonEmptyCapturedSearch[
+          "test-channel"
+        ]![0]!.rows.findIndex((row) => row.ts === "10.000000");
+        if (rowIndex === -1) {
+          throw new Error("self-test omission fixture lost its root row");
+        }
+        nonEmptyCapturedSearch["test-channel"]![0]!.rows[rowIndex] = {
+          ...nonEmptyCapturedSearch["test-channel"]![0]!.rows[rowIndex]!,
+          text: "different channel body",
+          rawText: "different channel body",
+        };
+        validateSourceReceipt(
+          connectorOmissionInventory,
+          connectorOmissionReceipt,
+          nonEmptyCapturedSearch,
+          true,
+        );
+      },
+      "must match the captured Slack result",
+    );
     validateInventory(receiptFreshInventory, {
       requireFreshReads: true,
       sourceReceipt: completeSourceReceipt,
@@ -17641,7 +22129,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
         ),
         diagnostic:
-          "older than 15 minutes; read the complete thread again after the final channel scan",
+          "older than 60 minutes; read the complete thread again after the final channel scan",
       },
       {
         name: "thread snapshot predates the final page",
@@ -17940,28 +22428,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test lost an owned root mark",
       );
     }
-    const expectFocusedFailure = (
-      name: string,
-      run: () => void,
-      diagnostic: string,
-    ): void => {
-      try {
-        run();
-        throw new Error(`self-test failed to reject ${name}`);
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message.startsWith("self-test failed to reject")
-        ) {
-          throw error;
-        }
-        if (!(error instanceof Error) || !error.message.includes(diagnostic)) {
-          throw new Error(
-            `self-test ${name} expected diagnostic containing "${diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
-          );
-        }
-      }
-    };
     const fixedScopeSummaryDiagnostic =
       "fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply";
     expectFocusedFailure(
@@ -18134,6 +22600,20 @@ if (args[0] === "--self-test" && args.length === 1) {
       ...heldPageRootWithoutThread,
       channels: heldPageRootWithoutThread.channels.map((channel) => ({
         ...channel,
+        threadSnapshots: [
+          ...(channel.threadSnapshots ?? []).map((snapshot) =>
+            snapshot.rootTs === "10.000000"
+              ? { ...snapshot, rootText: "" }
+              : snapshot,
+          ),
+          {
+            rootTs: "9.500000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootText: "",
+            replies: [],
+          },
+        ],
         pages: channel.pages.map((page) => ({
           ...page,
           parents: page.parents.map((parent) => ({
@@ -18302,7 +22782,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ),
           },
         ),
-      "older than 15 minutes",
+      "older than 60 minutes",
     );
     const staleHeldSupplementalRoot: Inventory = {
       ...heldSupplementalRoot,
@@ -18323,7 +22803,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             staleHeldSupplementalRoot,
           ),
         }),
-      "older than 15 minutes",
+      "older than 60 minutes",
     );
     expectFocusedFailure(
       "source request missing the frozen upper bound",
@@ -18887,6 +23367,17 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
       true,
     );
+    expectFocusedFailure(
+      "empty captured root text mismatches the complete thread read",
+      () =>
+        validateRootClassificationText(
+          "self-test classification source text",
+          { ...classificationFixture, sourceText: "" },
+          { ...ownedThreadSnapshot, rootText: "report" },
+          true,
+        ),
+      "classified source text must match the complete thread root text",
+    );
     const jiraAutomationReply = parseFormattedSlackThreadMessage(
       "From: Jira <botuser-test@slack-bots.com> (U01BOT)\nTime: 2026-10-20 00:00:00 UTC\nMessage TS: 10.100000\nCreated an issue.",
       "10.000000",
@@ -18897,6 +23388,21 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test failed: Slack botuser accounts must be classified as bots.",
       );
     }
+    const appPreviewSearchText =
+      "Status reply. this was sent from a bot.\n\nThis was sent from a bot\nApp notification from App (<https://example.com/pull/1|example.com/pull/1>): Summary\n\n• Same detail\n\nThis was sent from a bot";
+    const appPreviewThreadText =
+      "Status reply. this was sent from a bot.\n\n_This was sent from a bot_\nApp notification from App (<https://example.com/pull/1|example.com/pull/1>): _Summary_\n\n• Same detail\n*This was sent from a bot*\nApp notification from App (https://example.com/pull/1): *Summary*\n\n• Same detail";
+    const jiraExpandedPreview =
+      "*<slack://user?team=TFAKE&amp;id=UFAKE|@Example User> created a Bug from this message*\n*<https://example.atlassian.net/browse/ABC-123?atlOrigin=fake|ABC-123 [Example] Investigate issue>*\nStatus: *Open*\nType: *Bug*\nAssignee: *Unassigned*";
+    const blockOnlyBotMessage =
+      "A rendered bot response with complete content.\nOpen thread button";
+    const blockOnlyButtonFooter = "Open thread button";
+    const blockOnlyIntakeForm =
+      "New submission: Product waitlist\n*Email:* <mailto:person@example.com|person@example.com>\n*App URL:* <https://example.com/app>\n*Original request:* Publish the example design.\n*Source:* app_page\n*Use case:* publish\nSubmitted <!date^1792705000^{date_short_pretty} at {time}|2026-10-22T21:36:40.870Z>";
+    const blockOnlyFeedbackSubmission =
+      "New submission: Agent-Native Feedback\n*What can we improve about Agent-Native?:* remove inactive users\nSubmitted <!date^1792493684^{date_short_pretty} at {time}|2026-10-20T10:54:44.086Z> by *person@example.com*";
+    const legacyFeedbackFormName = ["Agent", "Native"].join(" ");
+    const blockOnlyMultilineFeedbackSubmission = `New submission: ${legacyFeedbackFormName} Feedback\n*What can we improve about ${legacyFeedbackFormName}?:*\nThe first response line.\n\nA second response line.\nSubmitted <!date^1792493684^{date_short_pretty} at {time}|2026-10-20T10:54:44.086Z> by *person@example.com*\nPage: <https://example.com/app|Example app>\nSource: Web`;
     if (
       !matchesSlackMessageText(
         "Status reply. this was sent from a bot.",
@@ -18907,6 +23413,10 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Status reply.",
       ) ||
       !matchesSlackMessageText(
+        "No-reply report.\n\nNo thread messsages",
+        "No-reply report.",
+      ) ||
+      !matchesSlackMessageText(
         "First paragraph.\n\nSecond paragraph.",
         "First paragraph.\nSecond paragraph.",
       ) ||
@@ -18914,13 +23424,186 @@ if (args[0] === "--self-test" && args.length === 1) {
         "```\n  first line\nsecond line\n```",
         "```first line\nsecond line\n```",
       ) ||
+      !matchesSlackMessageText(
+        "```\n  first line\nsecond line\n```",
+        "```  first line\nsecond line\n```",
+      ) ||
+      !matchesSlackMessageText(
+        "The search checks <!subteam^S0FAKE0001|@demo-team> and <!subteam^S0FAKE0002|@example-crew> group mentions.",
+        "The search checks demo-team handle and example-crew handle group mentions.",
+      ) ||
       matchesSlackMessageText(
         "Status reply. this was sent from a bot.",
         "Status reply. this was sent from a bot.\n\n*Sent using* user text",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <!subteam^S0FAKE0001|@demo-team> and <!subteam^S0FAKE0002|@example-crew> group mentions.",
+        "A different search checks demo-team handle and example-crew handle group mentions.",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <!subteam^S0FAKE0001|@demo-team> group mentions.",
+        "The search checks example-crew handle group mentions.",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
+        "The search checks demo-team handle and example-crew handle group mentions.",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
+        "A different search checks demo-team handle and example-crew handle group mentions.",
+      ) ||
+      !matchesSlackMessageText(
+        "Status reply.",
+        "Status reply.\n\nApp notification from App (Builder):\nExpanded preview.",
+      ) ||
+      !matchesSlackMessageText(
+        "Status *reply*.\n\nApp notification from App (Builder):\nSame preview.",
+        "Status reply.\n\nApp notification from App (Builder):\nSame preview.",
+      ) ||
+      !matchesSlackMessageText(appPreviewSearchText, appPreviewThreadText) ||
+      !matchesSlackMessageText("", jiraExpandedPreview) ||
+      matchesSlackMessageText("", blockOnlyBotMessage) ||
+      !matchesSlackMessageText("", blockOnlyButtonFooter) ||
+      !matchesSlackMessageText("", blockOnlyIntakeForm) ||
+      !matchesSlackMessageText("", blockOnlyFeedbackSubmission) ||
+      !matchesSlackMessageText("", blockOnlyMultilineFeedbackSubmission) ||
+      matchesSlackMessageText(
+        "",
+        blockOnlyFeedbackSubmission.replace(" remove inactive users", ""),
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyFeedbackSubmission}\nUnrelated metadata`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyFeedbackSubmission}\nSource: Web\nSource: Web`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyIntakeForm}\nUnrelated trailing content`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyFeedbackSubmission}\nUnrelated trailing content`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${jiraExpandedPreview}\nUnrelated trailing content`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `Unrelated leading content\n${jiraExpandedPreview}`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        blockOnlyFeedbackSubmission.replace(
+          "Agent-Native Feedback",
+          "Unrelated submission",
+        ),
+      ) ||
+      matchesSlackMessageText(
+        "",
+        blockOnlyIntakeForm.replace("*Email:*", "*Contact:*"),
+      ) ||
+      matchesSlackMessageText(
+        "A different source message.",
+        blockOnlyBotMessage,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        jiraExpandedPreview.replace(
+          "created a Bug from this message",
+          "mentioned a Bug from this message",
+        ),
+      ) ||
+      matchesSlackMessageText(
+        "",
+        "A blank source cannot match an unrelated thread body.",
+      ) ||
+      matchesSlackMessageText(
+        appPreviewSearchText,
+        appPreviewThreadText.replaceAll("Same detail", "Changed detail"),
+      ) ||
+      matchesSlackMessageText(
+        appPreviewSearchText,
+        appPreviewThreadText.replaceAll("/pull/1", "/pull/2"),
+      ) ||
+      matchesSlackMessageText(
+        "Status reply.\n\nApp notification from App (Builder):\nSource-only preview.",
+        "Status reply.",
+      ) ||
+      matchesSlackMessageText(
+        "Status reply.\n\nApp notification from App (Builder):\nSource notification tail.",
+        "Status reply.\n\nApp notification from App (Builder):\nDifferent thread notification tail.",
       )
     ) {
       throw new Error(
-        "Feedback inventory checker self-test failed: only the exact Slack connector footer may differ between search and thread reads.",
+        "Feedback inventory checker self-test failed: unexpected difference between source search and complete-thread rendering.",
+      );
+    }
+    const heldBlankSearchSource: Parent = {
+      ts: "10.100000",
+      threadParentTs: "10.000000",
+      sourceText: "",
+      reactionChecked: true,
+      reactionSummary: "none",
+      reactionOwners: {},
+      disposition: "Owned elsewhere",
+      ownershipSkip: {
+        rootTs: "10.000000",
+        reason: "foreign_workflow_mark",
+      },
+    };
+    if (
+      !sourceTextMatchesCapturedSearch(heldBlankSearchSource, "", undefined) ||
+      sourceTextMatchesCapturedSearch(
+        { ...heldBlankSearchSource, ownershipSkip: undefined },
+        "",
+        undefined,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        heldBlankSearchSource,
+        "",
+        ownedThreadSnapshot,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to preserve an exact blank search result only for a held thread without a snapshot.",
+      );
+    }
+    const omittedJiraSearchSource: Parent = {
+      ...heldBlankSearchSource,
+      ownershipSkip: undefined,
+    };
+    const omittedJiraThread = {
+      ...ownedThreadSnapshot,
+      replies: [
+        {
+          ...ownedThreadSnapshot.replies[0]!,
+          ts: omittedJiraSearchSource.ts,
+          text: jiraExpandedPreview,
+        },
+      ],
+    };
+    if (
+      !sourceTextMatchesCapturedSearch(
+        omittedJiraSearchSource,
+        "",
+        omittedJiraThread,
+      ) ||
+      sourceTextMatchesCapturedSearch(omittedJiraSearchSource, "", {
+        ...omittedJiraThread,
+        replies: [
+          {
+            ...omittedJiraThread.replies[0]!,
+            text: "Unrelated connector message.",
+          },
+        ],
+      })
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to match a block-only thread reply only to its exact rendered form.",
       );
     }
     validateSourceFilesInSnapshot(
@@ -18940,6 +23623,72 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
         ],
       },
+    );
+    expectFocusedFailure(
+      "empty captured reply text mismatches the complete thread read",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test empty reply source text",
+          {
+            ts: "10.100000",
+            threadParentTs: "10.000000",
+            sourceText: "",
+            files: [],
+          },
+          ownedThreadSnapshot,
+        ),
+      "threadSnapshot text must match the captured source message",
+    );
+    expectFocusedFailure(
+      "newer sweep-authored reply cannot pass with stale source text",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test edited reply source text",
+          {
+            ts: "10.100000",
+            threadParentTs: "10.000000",
+            sourceText: "Original status reply.",
+            files: [],
+          },
+          {
+            ...ownedThreadSnapshot,
+            readAt: new Date(
+              Date.parse(ownedThreadReadAt) + 1_000,
+            ).toISOString(),
+            replies: [
+              {
+                ...ownedThreadSnapshot.replies[0]!,
+                actorId: valid.sweepActorId,
+                text: "Edited status reply.",
+              },
+            ],
+          },
+        ),
+      "rescan the source after edits",
+    );
+    expectFocusedFailure(
+      "empty sweep-authored reply mismatch requires a source rescan",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test empty edited reply source text",
+          {
+            ts: "10.100000",
+            threadParentTs: "10.000000",
+            sourceText: "",
+            files: [],
+          },
+          {
+            ...ownedThreadSnapshot,
+            replies: [
+              {
+                ...ownedThreadSnapshot.replies[0]!,
+                actorId: valid.sweepActorId,
+                text: "Edited status reply.",
+              },
+            ],
+          },
+        ),
+      "threadSnapshot text must match the captured source message",
     );
     validateRootClassificationText(
       "self-test classification source text",
@@ -19285,6 +24034,272 @@ if (args[0] === "--self-test" && args.length === 1) {
       );
     }
 
+    const administrativeRecoveryStatus = [
+      "Skipped: the scheduled recovery run passed its threshold, so this production health notice has no active product issue.",
+      "No :white_check_mark: — no product fix or verified behavior change is in scope.",
+      "No :ticket: — no separate human action is pending.",
+      "this was sent from a bot.",
+    ].join("\n\n");
+    const administrativeStatusSearches = integratedSearches.map((search) => {
+      const rows =
+        search.emoji === "eyes"
+          ? [{ ts: "10.000000", root: "10.000000", text: "recovery" }]
+          : [];
+      return {
+        ...search,
+        pages: search.pages.map((page) => ({
+          ...page,
+          messageCount: rows.length,
+          sourceTimestamps: rows.map((row) => row.ts),
+          rows,
+        })),
+      };
+    });
+    const administrativeStatusOwnedPages: RawOwnedMarkSearchPages = {
+      [ownershipChannel.channelName]: Object.fromEntries(
+        administrativeStatusSearches.map((search) => [
+          search.emoji,
+          search.pages.map((page) => ({
+            cursor: page.cursor,
+            before: page.before,
+            nextCursor: page.nextCursor,
+            exhausted: page.exhausted,
+            readAt: page.readAt,
+            messageCount: page.messageCount,
+            sourceTimestamps: page.sourceTimestamps,
+            rows: page.rows,
+          })),
+        ]),
+      ) as RawOwnedMarkSearchPages[string],
+    };
+    const administrativeStatusBase = withPageRoot(
+      integratedInventory,
+      "10.000000",
+      (parent) => ({
+        ...parent,
+        rootClassification: "administrative",
+        rootClassificationReason:
+          "Scheduled production recovery notice, not product feedback",
+        rootClassificationJudgment: {
+          actorId: valid.sweepActorId,
+          decision: "administrative",
+          rationale:
+            "Automated production health recovery notice with no active product issue.",
+        },
+        disposition: "Skipped",
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: [valid.sweepActorId] },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "No product change is in scope for this recovery notice.",
+          },
+          ticket: {
+            state: "none",
+            reason: "No separate human action is pending.",
+          },
+        },
+        fixedScopes: undefined,
+        unfinishedScopes: undefined,
+        handoff: undefined,
+        handoffs: undefined,
+        reporterRequests: undefined,
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: valid.sweepActorId,
+          disposition: "Skipped",
+          evidence: administrativeRecoveryStatus,
+          text: administrativeRecoveryStatus,
+        },
+        latestOwnedReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: valid.sweepActorId,
+          text: administrativeRecoveryStatus,
+        },
+        latestRelevantHumanReply: null,
+        ownershipSkip: undefined,
+        preservedAdministrativeEye: undefined,
+      }),
+    );
+    const administrativeStatusInventory: Inventory = {
+      ...administrativeStatusBase,
+      channels: administrativeStatusBase.channels.map((channel) => ({
+        ...channel,
+        ownedMarkSearches: administrativeStatusSearches,
+        threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
+          ...snapshot,
+          replies: snapshot.replies.map((reply) =>
+            reply.ts === "12.000000"
+              ? { ...reply, text: administrativeRecoveryStatus }
+              : reply,
+          ),
+        })),
+      })),
+    };
+    validateInventory(administrativeStatusInventory, {
+      ...integratedOptions,
+      rawOwnedMarkPages: administrativeStatusOwnedPages,
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        administrativeStatusInventory,
+      ),
+    });
+
+    const preservedAdministrativeReadAt = new Date(
+      Date.parse(ownershipReadAt) + 2_000,
+    ).toISOString();
+    const integratedPreservedAdministrative = withTestThreadSnapshots(
+      withPageRoot(integratedInventory, "11.000000", (parent) => ({
+        ...parent,
+        sourceText: preservedAdministrativeSource,
+        rootClassification: "administrative",
+        rootClassificationReason: "Waitlist intake, not product feedback",
+        rootClassificationJudgment: {
+          actorId: valid.sweepActorId,
+          decision: "administrative",
+          rationale:
+            "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
+        },
+        disposition: "Skipped",
+        clusteredUnder: undefined,
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionReadAt: new Date(
+          Date.parse(ownershipReadAt) + 1_000,
+        ).toISOString(),
+        latestOwnedReply: {
+          ts: "12.000000",
+          threadParentTs: "11.000000",
+          actorId: valid.sweepActorId,
+          text: preservedAdministrativeStatus,
+        },
+        preservedAdministrativeEye: {
+          reason:
+            "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.",
+        },
+        latestRelevantHumanReply: null,
+        ownershipSkip: undefined,
+        statusReply: undefined,
+        reactionDecision: undefined,
+      })),
+    );
+    const freshAdministrativeThreadPages: RawThreadPages = {
+      ...integratedThreadPages,
+      [ownershipChannel.channelName]: {
+        ...integratedThreadPages[ownershipChannel.channelName]!,
+        "11.000000": [
+          {
+            cursor: null,
+            nextCursor: null,
+            exhausted: true,
+            readAt: preservedAdministrativeReadAt,
+            messages: [],
+          },
+        ],
+      },
+    };
+    const administrativeEyeWithSweepReactionWrite = withPageRoot(
+      integratedPreservedAdministrative,
+      "11.000000",
+      (parent) => ({
+        ...parent,
+        reactionWriteAt: new Date(
+          Date.parse(ownershipReadAt) + 500,
+        ).toISOString(),
+      }),
+    );
+    expectFocusedFailure(
+      "preserved administrative eye written during this sweep",
+      () =>
+        validateInventory(administrativeEyeWithSweepReactionWrite, {
+          ...integratedOptions,
+          rawThreadPages: freshAdministrativeThreadPages,
+        }),
+      "no reaction written during this sweep",
+    );
+    expectFocusedFailure(
+      "preserved administrative eye with a thread read before owned-mark search completion",
+      () =>
+        validateInventory(
+          {
+            ...integratedPreservedAdministrative,
+            channels: integratedPreservedAdministrative.channels.map(
+              (channel) => ({
+                ...channel,
+                threadSnapshots: channel.threadSnapshots?.map((snapshot) =>
+                  snapshot.rootTs === "11.000000"
+                    ? { ...snapshot, readAt: ownershipReadAt }
+                    : snapshot,
+                ),
+              }),
+            ),
+          },
+          {
+            ...integratedOptions,
+            rawThreadPages: freshAdministrativeThreadPages,
+          },
+        ),
+      "reread root 11.000000 after the exhaustive owned-mark searches",
+    );
+    const staleFirstAdministrativePage: RawThreadPages = {
+      ...freshAdministrativeThreadPages,
+      [ownershipChannel.channelName]: {
+        ...freshAdministrativeThreadPages[ownershipChannel.channelName]!,
+        "11.000000": [
+          {
+            cursor: null,
+            nextCursor: "next",
+            exhausted: false,
+            readAt: ownershipReadAt,
+            messages: [],
+          },
+          {
+            cursor: "next",
+            nextCursor: null,
+            exhausted: true,
+            readAt: preservedAdministrativeReadAt,
+            messages: [],
+          },
+        ],
+      },
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with one raw thread page read before owned-mark search completion",
+      () =>
+        validateInventory(integratedPreservedAdministrative, {
+          ...integratedOptions,
+          rawThreadPages: staleFirstAdministrativePage,
+        }),
+      "every raw thread page for owned root 11.000000 must follow the exhaustive owned-mark searches",
+    );
+    const nonCanonicalAdministrativePage: RawThreadPages = {
+      ...freshAdministrativeThreadPages,
+      [ownershipChannel.channelName]: {
+        ...freshAdministrativeThreadPages[ownershipChannel.channelName]!,
+        "11.000000": [
+          {
+            ...freshAdministrativeThreadPages[ownershipChannel.channelName]![
+              "11.000000"
+            ]![0]!,
+            readAt: preservedAdministrativeReadAt.replace(
+              /\.\d{3}Z$/,
+              "+00:00",
+            ),
+          },
+        ],
+      },
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a noncanonical raw page read time",
+      () =>
+        validateInventory(integratedPreservedAdministrative, {
+          ...integratedOptions,
+          rawThreadPages: nonCanonicalAdministrativePage,
+        }),
+      "every raw thread page for owned root 11.000000 must follow the exhaustive owned-mark searches",
+    );
+
     const integratedCandidateRoots = ownedMarkSearchRootCandidates({
       eyes: new Map([["10.000000", "10.000000"]]),
       white_check_mark: new Map([
@@ -19455,7 +24470,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 38} negative cases; 38 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 70} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -19477,10 +24492,10 @@ if (
   args.length > 4
 ) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope)",
+    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope or exact-root authorization)",
   );
   console.error(
-    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"]}',
+    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"],"authorizedRoots":[{"channelId":"<channel ID>","rootTs":"<exact Slack root timestamp>"}]}',
   );
   process.exit(2);
 }

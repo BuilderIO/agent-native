@@ -315,7 +315,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
       .toEqual({ x: 40, y: 40, width: 320, height: 360 });
     await expect
       .soft(app.page.locator('input[aria-label="H size in pixels"]'))
-      .toHaveValue("360px");
+      .toHaveValue("360");
 
     await app.page.keyboard.press(`${MOD}+z`);
     await app.settled();
@@ -638,7 +638,6 @@ test.describe("crossing the screen boundary", () => {
     expect(attrsBesidesStyle(board.get("price"))).toEqual({
       "data-agent-native-node-id": "price",
       "data-agent-native-layer-name": "Price",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
     const boardPrice = styleOf(board.get("price"));

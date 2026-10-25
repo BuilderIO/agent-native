@@ -99,7 +99,11 @@ function getActivePgliteTransactionExec(url: string): DbExec | undefined {
     ?.exec;
 }
 
-export function getDatabaseUrl(fallback = ""): string {
+export function getDatabaseUrl(
+  fallback = "",
+  options: { explicitOnly?: boolean } = {},
+): string {
+  if (options.explicitOnly) return envDatabaseValue("DATABASE_URL") || fallback;
   const testUrl = getIsolatedTestDatabaseUrl();
   if (testUrl) return testUrl;
   const appName = getAppEnvPrefix();

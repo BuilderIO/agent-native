@@ -125,9 +125,19 @@ export function runWithoutExecutionFence<T>(work: () => T): T {
 
 export async function lockAndAssertCurrentExecutionFences(
   tx: DbExec,
+  ignoredFence?: ExecutionFence,
 ): Promise<void> {
   const fences = executionFenceStorage.getStore()?.fences ?? [];
   for (const activeFence of fences) {
+    if (
+      ignoredFence &&
+      activeFence.threadId === ignoredFence.threadId &&
+      activeFence.turnId === ignoredFence.turnId &&
+      activeFence.runId === ignoredFence.runId &&
+      activeFence.generation === ignoredFence.generation
+    ) {
+      continue;
+    }
     const { rows } = await tx.execute({
       sql: `SELECT generation
             FROM agent_execution_leases

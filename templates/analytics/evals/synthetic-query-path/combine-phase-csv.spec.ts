@@ -37,6 +37,7 @@ const HEADER = [
 const VALID_HASH = "a".repeat(64);
 const VALID_REVISION = "b".repeat(40);
 const CASE_KEYS = [
+  "synthetic-row-level-roster-beats-seat-utilization",
   "synthetic-unbuilt-index-does-not-claim-absence",
   "synthetic-content-api-requests-not-visual-views",
   "synthetic-source-provenance-ambiguity",
@@ -119,9 +120,9 @@ describe("combinePhaseCsvTexts", () => {
     );
 
     expect(result).toMatchObject({
-      baselineRows: 34,
-      candidateRows: 34,
-      passed: [34, 34],
+      baselineRows: 36,
+      candidateRows: 36,
+      passed: [36, 36],
     });
     expect(result.csv).toContain("baseline");
     expect(result.csv).toContain("candidate");
@@ -217,6 +218,6 @@ describe("combinePhaseCsvTexts", () => {
       csv(...candidateRows),
     );
 
-    expect(result.passed).toEqual([33, 33]);
+    expect(result.passed).toEqual([35, 35]);
   });
 });

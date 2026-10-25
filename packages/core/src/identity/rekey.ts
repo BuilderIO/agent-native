@@ -41,6 +41,8 @@ export type IdentityColumn = {
     | "unsupported-oauth";
   /** Email-change behavior. Omitted means rewrite the value to the new address. */
   emailChange?: IdentityEmailChange;
+  /** The other key columns. An email change refuses when the new address already holds the same key. */
+  uniqueWith?: readonly string[];
   /** Offboarding behavior. Omitted means offboard.ts derives it from `mode`. */
   offboard?: IdentityOffboard;
   /** How an organization-scoped offboard finds this organization's rows. Omitted means an `org_id` column. */
@@ -131,6 +133,17 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   },
   { table: "agent_turn_initiators", column: "principal_email" },
   { table: "chat_threads", column: "owner_email" },
+  {
+    table: "chat_thread_viewer_state",
+    column: "user_email",
+    emailChange: "rekey",
+    uniqueWith: ["thread_id"],
+    offboard: "delete",
+    orgScope: {
+      column: "thread_id",
+      references: { table: "chat_threads", column: "id", orgColumn: "org_id" },
+    },
+  },
   { table: "chat_thread_shares", column: "principal_id", mode: "user-share" },
   { table: "chat_thread_shares", column: "created_by" },
   { table: "data_programs", column: "owner_email" },
@@ -261,6 +274,13 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "author_email",
   },
   { table: "agent_team_run_queue", column: "owner_email" },
+  // Expired presence state is cleared while its client ownership is retained.
+  {
+    table: "_collab_awareness",
+    column: "actor_email",
+    emailChange: "rekey",
+    offboard: "retain",
+  },
   // Submission history keeps the original actor as attribution when a member leaves.
   {
     table: "agent_chat_submission_inbox",
@@ -1457,6 +1477,19 @@ export async function rekeyIdentity(
           [...args, newEmail],
         );
     } else {
+      if (entry.uniqueWith?.length) {
+        const sameKey = entry.uniqueWith
+          .map((column) => `target.${quote(column)} = source.${quote(column)}`)
+          .join(" AND ");
+        const collisionRows = await db.unsafe(
+          `SELECT 1 FROM ${quote(entry.table)} source JOIN ${quote(entry.table)} target ON ${sameKey} AND LOWER(target.${quote(entry.column)}) = LOWER($2) WHERE LOWER(source.${quote(entry.column)}) = LOWER($1) LIMIT 1`,
+          [oldEmail, newEmail],
+        );
+        if (collisionRows.length)
+          throw new Error(
+            `${entry.table} key collision detected; no identity data was changed.`,
+          );
+      }
       if (!options.dryRun) {
         const update = await db.unsafe(
           `UPDATE ${quote(entry.table)} SET ${quote(entry.column)} = $${args.length + 1} WHERE ${where}`,

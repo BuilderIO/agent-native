@@ -5300,6 +5300,23 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("forwards the sender's preset as the send's surface", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Outline the deck",
+        preset: "deck-outline",
+        submitMessageId: "submit-preset",
+      });
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledOnce();
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Outline the deck",
+      undefined,
+      { submitMessageId: "submit-preset", surface: "deck-outline" },
+    );
+  });
+
   it("leaves /plan to the composer and has no /act to leave a mode", () => {
     act(() => {
       assistantChatMockState.onSlashCommand?.("plan");

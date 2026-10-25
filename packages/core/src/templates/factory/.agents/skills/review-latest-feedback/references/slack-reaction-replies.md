@@ -2,14 +2,29 @@
 
 Use the connected Slack integration for every Slack read and write. Never use a browser, screenshots, or UI automation to operate Slack.
 
-At sweep exit, reconcile every unheld report root in the scoped inventory that
-has this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. A
-root is held when a direct reaction read shows another actor owns any workflow
-mark or this actor owns `:mag:`. For held roots, record the root and safe-skip
-reason, then stop: do not open the thread, inspect reply reactions, write any
-reaction, or post a status. When this actor owns both `:mag:` and a workflow
-mark, use `mag_opt_out` and preserve the exact direct root reaction-owner
-record as history; the root remains held without a thread read or status reply.
+At sweep exit, enumerate every report root in the scoped inventory that has
+this actor's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Each
+eligible owned root needs a current same-actor status after the latest human
+reply. Unowned canonical-linked `Clustered` roots and checker-verified
+`personAssignedSkip` roots stay unclaimed and receive no reply when this actor
+has no workflow mark; they are not eligible owned roots. “All Slack items
+replied to” means every bounded-inventory root carrying this actor's `👀` has a
+current same-thread status after the latest human reply. Exclude `✅`-only and
+`🎫`-only roots from that reply count; reconcile them separately and report
+gated skips.
+A direct reaction read showing another actor's workflow mark or this actor's
+`:mag:` holds a root by default. A direct, unconditional user grant may
+authorize full follow-up and reaction work for exact roots or a bounded sweep.
+List each covered `{channelId, rootTs}` in both `scope.authorizedRoots` and the
+separate orchestrator confirmation; the checker constrains them to the scanned
+window. Reconcile authorized roots through the normal full-thread, claim, and
+current-status checks. Without that matching authorization, record the root
+and safe-skip reason, then do not read or write it. A root this actor already
+marked with `👀`, `✅`, or `🎫` always remains in the owned-root status gate,
+including when assigned, duplicate, or administrative. An unowned held root
+uses `ownershipSkip` until authorized. For an unauthorized root where this
+actor owns both `:mag:` and a workflow mark, use `mag_opt_out` and preserve the
+exact direct reaction-owner record as history without reading the thread.
 Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
@@ -23,7 +38,11 @@ name its owner when known. Do not explain absent reactions or mention a closed,
 historical `🎫`. Keep scope, evidence, and handoff details in the internal
 ledger.
 
-Do not send a routine second reply just to announce a merge or publication.
+Do not send a routine second reply just to announce a merge or publication. If
+merging changes an owned root's status from locally verified with merge pending
+to fixed or partially fixed, send one concise same-thread update with the PR
+link so its status reflects the merged change. Do not claim publication or
+live behavior unless separately verified.
 
 For a recent unanswered reporter question, reuse the existing same-actor
 question/update as the status reply when it still reflects the disposition. If
@@ -133,9 +152,15 @@ End every new or edited Slack reply with the exact sentence
 not a substitute.
 
 Reactions are permanent history and do not replace the current disposition or
-status reply. At the root, `👀` records this workflow's claim, `✅` marks one or
-more named scopes that passed direct post-change proof, and `🎫` tracks distinct
-human/team actions, including actions with no named owner yet. The eye alone
+status reply. For every eligible unowned root this sweep reviews, use root `👀`
+to show the sweep has taken responsibility for its status. Before claiming,
+exclude person-assigned roots and unowned canonical-linked duplicates; record
+the former with exact assignment evidence in `personAssignedSkip`, and link the
+latter with `clusteredUnder`. At the root, `👀` records this workflow's claim,
+`✅` marks one or more named scopes
+that passed direct post-change proof, and `🎫` tracks distinct human/team or
+reporter actions, including actions with no named owner yet. Do not use `🎫` as
+a generic “not reviewed” marker; it never replaces `👀` or a current status. The eye alone
 does not mean work remains open. One root `✅` covers every verified scope
 listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 `handoffs[]`, including unassigned, accepted, and completed actions. Completion
@@ -151,9 +176,11 @@ direct post-change proof bar, including before merge; use
 and record both scopes in the internal ledger. Keep the reply short; do not
 wait for an entire
 multi-symptom report to be resolved before checking off its verified scope.
-Keep all existing reactions after scopes close. Post the final disposition and
+Keep all accurate existing reactions after scopes close. Post the final disposition and
 read back the final reply and reactions; the status shows closure while the
-eye remains as history. Never remove or clean up any reaction. An open PR can
+eye remains as history. After a fresh root reaction read, correct and record
+this actor's stale or misapplied root mark. Never change another actor's mark
+or remove reply reactions. An open PR can
 earn `✅` as soon as the relevant
 `verifying-changes` proof bar passes. During that period, `✅` marks the
 verified scope and `👀` may remain whether or not another scope or merge is
@@ -175,7 +202,8 @@ person or team to act, even before ownership is assigned or accepted. Keep the
 mark as history after completion; read back each changed root reaction and
 verify its owner. Record why a mark is absent in the internal ledger. Never
 explain absent `👀` or `✅` in a Slack reply. Emoji text in a reply is not a
-reaction. Preserve every existing reaction. If later proof invalidates a prior
+reaction. Preserve accurate marks and correct this actor's stale or misapplied
+mark only after a fresh reaction read. If later proof invalidates a prior
 checkmark, move that scope out of active `fixedScopes[]` and add a
 `historicalReactionMarks[]` entry with `emoji`, `scope`, `reason`, and the exact
 prior `previousStatus`; keep the explanation in the internal ledger rather
@@ -186,7 +214,7 @@ in the internal ledger. Preserve the recorded evidence and historical action in
 the ledger; do not repeat a closed handoff in Slack unless a current action
 remains. When a recorded action has a validated `publicActionSummary`, it may
 be used for a current `🎫` summary. The checker validates it against the
-recorded action and captured thread; never remove or clean up a reaction.
+recorded action and captured thread; do not remove accurate historical marks.
 Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
 person has accepted it or an external tracker ticket exists. Record each such
@@ -248,10 +276,10 @@ reactions. If the eye owner differs from the connected actor, or an actor ID
 cannot be verified, record the mismatch and leave the item visibly
 unreconciled for its owner. Do not claim that eye or create a duplicate reply
 under another actor.
-Never remove or clean up another person's or this workflow's reaction. When
-new evidence changes the meaning of an existing mark, preserve it and update
-the current disposition, status reply, and inventory. Read back every new
-reaction and status update.
+Keep a reaction as history while it still describes the workflow. Correct
+this actor's stale or misapplied reaction after a fresh direct read and update
+the inventory. Change another actor's reaction only when the user explicitly
+authorizes that exact change. Read back every new reaction and status update.
 
 An unanswered request for a reporter-provided URL, access grant, evidence, or
 clarification is **Asked** or **Clarification needed** and remains an open
@@ -261,9 +289,11 @@ team handoff, so it does not require or imply an accepted owner in `handoffs[]`.
 When no other person needs to act and only this workflow owns the next step, do
 not add `🎫`.
 
-Resolve duplicate clusters before claiming. Represent non-owner duplicates
-by permalink and **Clustered** in one owner-thread status; do not react or reply
-separately unless a distinct question needs its own disposition. For a late
+Resolve duplicate clusters before claiming. Represent an unowned duplicate
+with its canonical permalink and **Clustered** disposition; do not add a claim
+or status reply. If this actor already owns a workflow mark on the duplicate,
+reconcile that existing mark with one current **Clustered** status. Do not
+react or reply separately unless a distinct question needs its own disposition. For a late
 duplicate that already has `👀`, recheck ownership. If this task still owns it,
 keep the eye and post one concise **Clustered** reply with the owner permalink;
 do not send a second owner update. If another task owns it or ownership is

@@ -6,6 +6,7 @@ import {
   geom,
   indexHtml,
   layerRow,
+  layersTree,
   newDesign,
   node,
   openEditor,
@@ -641,280 +642,199 @@ for (const theme of ["dark", "light"] as const) {
   });
 }
 
-test("selection-only undo/redo: click A, click B, click C, then undo/undo/redo walks the selection history", async ({
+const selectedRows = (page: Page) =>
+  page.locator('[role="treeitem"][aria-selected="true"]');
+const selectedLayerNames = (page: Page) => () =>
+  selectedRows(page).allInnerTexts();
+
+async function commitBoxAWidth(page: Page, designId: string, width: number) {
+  await selectViaTree(page, "Box A");
+  const wField = page.getByLabel("W size in pixels");
+  await expect(wField).toBeVisible({ timeout: 10_000 });
+  const before = await geom(page, designId, "box-a");
+  await wField.fill(String(width));
+  await wField.press("Enter");
+  await expect
+    .poll(async () => (await geom(page, designId, "box-a")).width, {
+      timeout: 15_000,
+      message: "the inspector width commit must persist",
+    })
+    .toBe(width);
+  return before.width;
+}
+
+test("selection changes after an edit are not undo steps: one undo reverts the edit and reselects the edited layer", async ({
   page,
 }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
+  const widthBefore = await commitBoxAWidth(page, id, 240);
 
-  await selectViaTree(page, "Box A");
   await selectViaTree(page, "Box B");
   await selectViaTree(page, "Chip 1");
-  await expect(layerRow(page, "Chip 1")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  const documentBeforeUndo = await indexHtml(page, id);
+  await page.keyboard.press("Escape");
+  await expect(selectedRows(page)).toHaveCount(0);
 
   await page.keyboard.press(UNDO);
-  await page.waitForTimeout(300);
-  await expect(
-    layerRow(page, "Box B"),
-    "first undo re-selects Box B, the previous selection",
-  ).toHaveAttribute("aria-selected", "true");
-  expect(
-    await indexHtml(page, id),
-    "a selection-only undo must never touch the document",
-  ).toBe(documentBeforeUndo);
-
-  await page.keyboard.press(UNDO);
-  await page.waitForTimeout(300);
-  await expect(
-    layerRow(page, "Box A"),
-    "second undo re-selects Box A",
-  ).toHaveAttribute("aria-selected", "true");
+  await expect
+    .poll(async () => (await geom(page, id, "box-a")).width, {
+      timeout: 15_000,
+      message: "the first undo must revert the width, not walk the selection",
+    })
+    .toBe(widthBefore);
+  await expect
+    .poll(selectedLayerNames(page), {
+      message: "undo restores the selection the edit was made with",
+    })
+    .toEqual(["Box A"]);
 
   await page.keyboard.press(REDO);
-  await page.waitForTimeout(300);
-  await expect(
-    layerRow(page, "Box B"),
-    "redo replays the selection changes forward, one at a time",
-  ).toHaveAttribute("aria-selected", "true");
+  await expect
+    .poll(async () => (await geom(page, id, "box-a")).width, {
+      timeout: 15_000,
+    })
+    .toBe(240);
+  await expect.poll(selectedLayerNames(page)).toEqual(["Box A"]);
 });
 
-test("undo walks back through a trailing selection change before reverting a sandwiched edit; redo does not replay the selection past the edit", async ({
+test("a selection change between undo and redo keeps the redo", async ({
   page,
 }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
+  const widthBefore = await commitBoxAWidth(page, id, 240);
 
-  const boxALayer = layerRow(page, "Box A");
-  await selectViaTree(page, "Box A");
-  await expect(boxALayer).toHaveAttribute("aria-selected", "true");
-  const before = await geom(page, id, "box-a");
-  const source = await box(page, "box-a");
-  const startX = source.x + source.width / 2;
-  const startY = source.y + source.height / 2;
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  await page.mouse.move(startX + 100, startY, { steps: 16 });
-  await page.mouse.up();
+  await page.keyboard.press(UNDO);
   await expect
-    .poll(
-      async () => {
-        const current = await geom(page, id, "box-a");
-        return [current.left, current.top];
-      },
-      {
-        timeout: 15_000,
-        message: "the Box A drag must persist before testing undo history",
-      },
-    )
-    .not.toEqual([before.left, before.top]);
-  const dropped = await geom(page, id, "box-a");
-  expect(
-    [dropped.left, dropped.top],
-    "precondition: the drag must actually move box-a",
-  ).not.toEqual([before.left, before.top]);
+    .poll(async () => (await geom(page, id, "box-a")).width, {
+      timeout: 15_000,
+    })
+    .toBe(widthBefore);
 
   await selectViaTree(page, "Box B");
-  await expect(layerRow(page, "Box B")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-
-  await page.keyboard.press(UNDO);
-  await expect(
-    layerRow(page, "Box A"),
-    "first undo only reverts the trailing selection change (select Box B)",
-  ).toHaveAttribute("aria-selected", "true");
-  const afterUndo1 = await geom(page, id, "box-a");
-  expect(
-    [afterUndo1.left, afterUndo1.top],
-    "the move must still be applied after only the selection is undone",
-  ).toEqual([dropped.left, dropped.top]);
-
-  await page.keyboard.press(UNDO);
-  await expect
-    .poll(
-      async () => {
-        const current = await geom(page, id, "box-a");
-        return [current.left, current.top];
-      },
-      {
-        timeout: 15_000,
-        message: "undo must persist Box A's original position",
-      },
-    )
-    .toEqual([before.left, before.top]);
-  const afterUndo2 = await geom(page, id, "box-a");
-  expect(
-    [afterUndo2.left, afterUndo2.top],
-    "second undo reverts the sandwiched drag",
-  ).toEqual([before.left, before.top]);
-  await expect(layerRow(page, "Box A")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect.poll(selectedLayerNames(page)).toEqual(["Box B"]);
 
   await page.keyboard.press(REDO);
   await expect
-    .poll(
-      async () => {
-        const current = await geom(page, id, "box-a");
-        return [current.left, current.top];
-      },
-      {
-        timeout: 15_000,
-        message: "redo must persist Box A's dropped position",
-      },
-    )
-    .toEqual([dropped.left, dropped.top]);
-  const afterRedo1 = await geom(page, id, "box-a");
-  expect(
-    [afterRedo1.left, afterRedo1.top],
-    "redo must reapply the exact dropped position",
-  ).toEqual([dropped.left, dropped.top]);
-
-  await page.keyboard.press(REDO);
-  await page.waitForTimeout(500);
-  await expect(
-    layerRow(page, "Box A"),
-    "a further redo must not resurrect the pre-edit-boundary selection",
-  ).toHaveAttribute("aria-selected", "true");
+    .poll(async () => (await geom(page, id, "box-a")).width, {
+      timeout: 15_000,
+      message: "selecting a layer must not clear the redo stack",
+    })
+    .toBe(240);
+  await expect
+    .poll(selectedLayerNames(page), {
+      message: "redo restores the selection the edit left behind",
+    })
+    .toEqual(["Box A"]);
 });
 
-test("Escape (deselect to nothing) is its own undo step", async ({ page }) => {
+test("Escape after drawing a line is not an undo step: one undo removes the line", async ({
+  page,
+}) => {
   const id = await newDesign(page);
   await openEditor(page, id);
+  const lineRows = layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: /^Line$/ });
+  await expect(lineRows).toHaveCount(0);
 
-  await selectViaTree(page, "Box A");
-  await expect(layerRow(page, "Box A")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  const boxB = await box(page, "box-b");
+  const start = { x: boxB.x + boxB.width + 80, y: boxB.y + 10 };
+  await page.keyboard.press("l");
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 140, start.y + 30, { steps: 16 });
+  await page.mouse.up();
+  await expect(lineRows).toHaveCount(1, { timeout: 15_000 });
+  await expect.poll(selectedLayerNames(page)).toEqual(["Line"]);
 
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
-  await expect(
-    page.locator('[role="treeitem"][aria-selected="true"]'),
-    "Escape must deselect to nothing",
-  ).toHaveCount(0);
+  await expect(selectedRows(page)).toHaveCount(0);
 
   await page.keyboard.press(UNDO);
-  await page.waitForTimeout(300);
   await expect(
-    layerRow(page, "Box A"),
-    "undoing a deselect-to-nothing re-selects what was selected before it",
-  ).toHaveAttribute("aria-selected", "true");
+    lineRows,
+    "the first undo after Escape must remove the line, not reselect it",
+  ).toHaveCount(0, { timeout: 15_000 });
 });
 
-test("a marquee drag selecting Box A + Box B is exactly one undo step, not one per mousemove tick", async ({
+test("one text edit session is one undo step", async ({ page }) => {
+  const id = await newDesign(
+    page,
+    FIXTURE.replace(
+      "</body>",
+      `<p data-agent-native-node-id="label" data-agent-native-layer-name="Label"
+         style="position:absolute;left:400px;top:280px;margin:0;font-size:32px;color:#fff">Hello world</p>
+  </body>`,
+    ),
+  );
+  await openEditor(page, id);
+  const labelText = async () =>
+    (await indexHtml(page, id)).match(
+      /data-agent-native-node-id="label"[^>]*>([^<]*)</,
+    )?.[1];
+  const editing = () =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll("iframe")).some((iframe) =>
+        (iframe as HTMLIFrameElement).contentDocument?.querySelector(
+          '[contenteditable="true"]',
+        ),
+      ),
+    );
+
+  const label = await box(page, "label");
+  await page.mouse.dblclick(
+    label.x + label.width - 4,
+    label.y + label.height / 2,
+  );
+  await expect.poll(editing).toBe(true);
+  await page.keyboard.press("End");
+  await page.keyboard.type("!");
+  await page.keyboard.press("Escape");
+  await expect.poll(editing).toBe(false);
+  await expect.poll(labelText, { timeout: 15_000 }).toBe("Hello world!");
+  await page.keyboard.press("Escape");
+  await expect(selectedRows(page)).toHaveCount(0);
+
+  await page.keyboard.press(UNDO);
+  await expect
+    .poll(labelText, {
+      timeout: 15_000,
+      message: "one undo must revert the whole text edit session",
+    })
+    .toBe("Hello world");
+  await expect.poll(selectedLayerNames(page)).toEqual(["Label"]);
+
+  await page.keyboard.press(REDO);
+  await expect.poll(labelText, { timeout: 15_000 }).toBe("Hello world!");
+});
+
+test("a marquee selection after an edit is not an undo step", async ({
   page,
 }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
+  const widthBefore = await commitBoxAWidth(page, id, 240);
 
-  await selectViaTree(page, "Box A");
-  await expect(layerRow(page, "Box A")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-
-  const boxA = await box(page, "box-a");
-  const boxB = await box(page, "box-b");
-  const from = { x: boxA.x - 20, y: boxA.y - 20 };
-  const to = {
-    x: boxB.x + boxB.width + 20,
-    y: boxB.y + boxB.height + 20,
-  };
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 24 });
-  await page.waitForTimeout(150);
-  await page.mouse.up();
-  await page.waitForTimeout(500);
-
-  await expect(
-    layerRow(page, "Box A"),
-    "marquee must keep Box A selected",
-  ).toHaveAttribute("aria-selected", "true");
-  await expect(
-    layerRow(page, "Box B"),
-    "marquee must add Box B to the selection",
-  ).toHaveAttribute("aria-selected", "true");
-
-  await page.keyboard.press(UNDO);
-  await page.waitForTimeout(300);
-  await page.keyboard.press(UNDO);
-  await page.waitForTimeout(300);
-  await expect(
-    page.locator('[role="treeitem"][aria-selected="true"]'),
-    "two undos (one per real step: the marquee, then the click) must reach an empty selection",
-  ).toHaveCount(0);
-
-  await page.keyboard.press(REDO);
-  await page.waitForTimeout(300);
-  await page.keyboard.press(REDO);
-  await page.waitForTimeout(300);
-  await expect(layerRow(page, "Box A")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(layerRow(page, "Box B")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-});
-
-test("a canceled marquee cannot capture an intervening selection in the next undo", async ({
-  page,
-}) => {
-  const id = await newDesign(page);
-  await openEditor(page, id);
-
-  await selectViaTree(page, "Box A");
   const boxA = await box(page, "box-a");
   const boxB = await box(page, "box-b");
   await page.mouse.move(boxA.x - 20, boxA.y - 20);
   await page.mouse.down();
   await page.mouse.move(boxB.x + boxB.width + 20, boxB.y + boxB.height + 20, {
-    steps: 12,
+    steps: 24,
   });
-  await page.waitForTimeout(150);
-  await page.keyboard.press("Escape");
-  await expect(layerRow(page, "Box A")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-
-  await selectViaTree(page, "Box B");
-  const nextBoxA = await box(page, "box-a");
-  await page.mouse.move(nextBoxA.x - 20, nextBoxA.y - 20);
-  await page.mouse.down();
-  await page.mouse.move(
-    nextBoxA.x + nextBoxA.width + 20,
-    nextBoxA.y + nextBoxA.height + 20,
-    { steps: 12 },
-  );
-  await page.waitForTimeout(150);
   await page.mouse.up();
-  await expect(layerRow(page, "Box A")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(layerRow(page, "Box B")).not.toHaveAttribute(
+  await expect(layerRow(page, "Box B")).toHaveAttribute(
     "aria-selected",
     "true",
   );
 
   await page.keyboard.press(UNDO);
-  await expect(layerRow(page, "Box B")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(layerRow(page, "Box A")).not.toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect
+    .poll(async () => (await geom(page, id, "box-a")).width, {
+      timeout: 15_000,
+      message: "the first undo must revert the width, not the marquee",
+    })
+    .toBe(widthBefore);
+  await expect.poll(selectedLayerNames(page)).toEqual(["Box A"]);
 });

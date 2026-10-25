@@ -119,8 +119,6 @@ it("restores both deleted screens into the surviving variant set", async () => {
     pendingVisualStyleUndoStackRef: ref([]),
     queryClient,
     redoOrderRef,
-    selectionRedoStackRef: ref([]),
-    selectionUndoStackRef: ref([]),
     setActiveFileId: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
     setSelectedLayerIdsState: vi.fn(),

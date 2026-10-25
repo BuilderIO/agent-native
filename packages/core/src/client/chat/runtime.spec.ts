@@ -201,6 +201,26 @@ describe("agentEngineStatusUrlForChatApi", () => {
 });
 
 describe("createHttpAgentChatRuntime", () => {
+  it("sends the configured request turn id with the default request body", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      requestTurnId: () => "turn-continued",
+    });
+
+    const session = await runtime.createSession({ id: "thread-1" });
+    const turn = await session.startTurn({ prompt: "Go on" });
+    await drain(turn.events);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).turnId).toBe(
+      "turn-continued",
+    );
+    expect(turn.requestTurnId).toBe("turn-continued");
+  });
+
   it("posts turns, streams runtime events, exposes run id, and cancels", async () => {
     const fetchMock = vi
       .fn()
@@ -1249,7 +1269,7 @@ describe("createAgentNativeChatRuntime", () => {
       text: "Review this image before publishing.",
     });
     expect(continuationBody.message).toBe(
-      "Approved. Go ahead and run the requested action.",
+      "The approved action has run. Do not repeat it; use its result in your reply.",
     );
     expect(continuationBody).not.toHaveProperty("submissionPayload");
     expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
@@ -5516,6 +5536,7 @@ describe("createAgentNativeChatRuntime", () => {
 
     const continuation = await session.continueTurn?.({
       turnId: first.id,
+      prompt: "Use the result in a concise reply.",
       approval: {
         id: approvalAskId,
         approved: true,
@@ -5535,7 +5556,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(
       JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
     ).toMatchObject({
-      message: "Approved. Go ahead and run the requested action.",
+      message: "Use the result in a concise reply.",
       threadId: "thread-approval",
       turnId: first.id,
       internalContinuation: true,
@@ -5776,6 +5797,7 @@ describe("createAgentNativeChatRuntime", () => {
       approval: { id: firstAskId, approved: true },
     });
     expect(firstContinuation).toBeDefined();
+    expect(firstContinuation!.id).not.toBe(first.id);
     const renewedEvents = await drain(firstContinuation!.events);
     expect(renewedEvents).toContainEqual(
       expect.objectContaining({
@@ -5786,13 +5808,14 @@ describe("createAgentNativeChatRuntime", () => {
     );
 
     const renewedContinuation = await session.continueTurn?.({
-      turnId: first.id,
+      turnId: firstContinuation!.id,
       approval: { id: renewedAskId, approved: true },
     });
     expect(renewedContinuation).toBeDefined();
     await drain(renewedContinuation!.events);
 
     const request = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(request.turnId).toBe(first.id);
     expect(request.approvedToolCallAskIds).toEqual([renewedAskId]);
     expect(request.structuredHistory).toEqual(
       expect.arrayContaining([
@@ -6596,7 +6619,8 @@ describe("createAgentNativeChatRuntime", () => {
       .map((part) => part.toolCallId);
 
     expect(request).toMatchObject({
-      message: "Approved. Go ahead and run the requested action.",
+      message:
+        "The approved action has run. Do not repeat it; use its result in your reply.",
       approvedToolCalls: [approvalKey],
     });
     expect(parts).toContainEqual(
@@ -7286,16 +7310,22 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("resolves a denied approval without starting another agent run", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        {
-          type: "approval_required",
-          tool: "publish-release",
-          approvalKey: "publish-release:{}",
-        },
-        { type: "done" },
-      ]),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-denied",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
     const runtime = createAgentNativeChatRuntime({
       apiUrl: "/_agent-native/agent-chat",
       threadId: "thread-denial",
@@ -7308,7 +7338,7 @@ describe("createAgentNativeChatRuntime", () => {
     const continuation = await session.continueTurn?.({
       turnId: first.id,
       approval: {
-        id: "publish-release:{}",
+        id: "agent-tool-approval-denied",
         approved: false,
       },
     });
@@ -7316,7 +7346,108 @@ describe("createAgentNativeChatRuntime", () => {
     expect(await drain(continuation!.events)).toEqual([
       { type: "done", reason: "complete" },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "/_agent-native/agent-chat/threads/thread-denial/approval-resolution",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      approvalId: "agent-tool-approval-denied",
+      decision: "deny",
+    });
+  });
+
+  it("does not complete a denied approval when the server did not apply it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-denied",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval denial could not be applied",
+            code: "approval_denial_not_applied",
+            retryable: false,
+          }),
+          {
+            status: 409,
+          },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    await expect(
+      session.continueTurn?.({
+        turnId: first.id,
+        approval: {
+          id: "agent-tool-approval-denied",
+          approved: false,
+        },
+      }),
+    ).rejects.toThrow("Approval denial could not be applied");
+  });
+
+  it("dismisses a denial card when the approval was already resolved", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-resolved",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval is no longer pending",
+            code: "approval_not_pending",
+            retryable: false,
+          }),
+          { status: 409 },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "agent-tool-approval-resolved",
+        approved: false,
+      },
+    });
+
+    expect(continuation).toBeDefined();
+    expect(await drain(continuation!.events)).toEqual([
+      { type: "done", reason: "complete" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

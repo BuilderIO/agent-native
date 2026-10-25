@@ -16,6 +16,7 @@ import {
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSourceAttachmentResult,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
@@ -58,6 +59,7 @@ import {
   materializeContentDatabaseFilterGroupModes,
   withContentDatabaseFilterGroupMode,
 } from "@shared/database-query";
+import { hydrateContentDatabaseItems } from "@shared/database-row-properties";
 import {
   databaseTableColumnIds,
   databaseFrozenColumnIds,
@@ -2814,7 +2816,7 @@ function DatabaseTable({
         nextReview,
         selectedChangeSetIdSet,
       );
-      let executedResponse: ContentDatabaseResponse | null = null;
+      let executedResponse: ContentDatabaseResponsePayload | null = null;
       for (const row of executableRows) {
         if (!row.execution?.idempotencyKey) continue;
         if (
@@ -5016,22 +5018,20 @@ export function databaseBulkScalarInputState(
   return { isValid: true, value: trimmed };
 }
 
-type DuplicatedDatabaseItemResponse = {
-  items: ContentDatabaseResponse["items"];
-  duplicatedItemId?: ContentDatabaseResponse["duplicatedItemId"];
-  duplicatedItems?: ContentDatabaseResponse["duplicatedItems"];
-};
+type DuplicatedDatabaseItemResponse = Pick<
+  ContentDatabaseResponse | ContentDatabaseResponsePayload,
+  "items" | "properties" | "duplicatedItemId" | "duplicatedItems"
+>;
 
 export function databaseDuplicatedItemFromResponse(
   response: DuplicatedDatabaseItemResponse,
-) {
-  return (
+): ContentDatabaseItem | null {
+  const duplicate =
     response.duplicatedItems?.find(
       (item) => item.id === response.duplicatedItemId,
-    ) ??
-    response.items.find((item) => item.id === response.duplicatedItemId) ??
-    null
-  );
+    ) ?? response.items.find((item) => item.id === response.duplicatedItemId);
+  if (!duplicate) return null;
+  return hydrateContentDatabaseItems([duplicate], response.properties)[0];
 }
 
 export function toggleDatabaseRowSelection(
@@ -5282,9 +5282,7 @@ function DatabaseItemPreview({
     try {
       await sessionRef.current?.flush();
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
-      const duplicate = response.items.find(
-        (candidate) => candidate.id === response.duplicatedItemId,
-      );
+      const duplicate = databaseDuplicatedItemFromResponse(response);
       if (duplicate) onPreviewItem?.(duplicate);
     } catch (error) {
       toast.error(dbText("failedToDuplicateRow"), {
@@ -8068,7 +8066,7 @@ function DatabaseSettingsPanelSheet({
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse | null>;
+  ) => Promise<ContentDatabaseResponsePayload | null>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -8680,7 +8678,7 @@ function DatabaseSettingsSourcePanel({
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse | null>;
+  ) => Promise<ContentDatabaseResponsePayload | null>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -9973,7 +9971,7 @@ function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
 }
 
 function findDetailsSource(
-  response: ContentDatabaseResponse,
+  response: Pick<ContentDatabaseResponsePayload, "sources">,
   candidate: PendingSourceCandidate,
 ) {
   return (

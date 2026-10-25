@@ -19,7 +19,12 @@ on:
         required: true
         type: string
 
-permissions: {}
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+  statuses: read
 
 concurrency:
   group: auto-merge-version-packages-${{ github.event.pull_request.number || inputs.pull_request_number }}
@@ -97,22 +102,29 @@ jobs:
           fi
 
       - name: Wait for required release PR checks
+        id: required-checks
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
         run: |
           set -euo pipefail
-          gh pr checks "$PR_NUMBER" --repo "$REPO" --required --watch --fail-fast --interval 15
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are missing or not green; refusing admin-merge." >&2
-            exit 1
-          fi
+          coordinator_run_id=$(node --experimental-strip-types scripts/release-required-checks.ts wait "$PR_NUMBER" "$REPO")
+          echo "coordinator_run_id=$coordinator_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Generate fresh merge token
+        id: merge-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
       - name: Verify release-only diff
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
@@ -210,7 +222,7 @@ jobs:
 
       - name: Verify community QR template pins
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
@@ -219,7 +231,7 @@ jobs:
 
       - name: Refuse unattended major promotions
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
@@ -228,11 +240,15 @@ jobs:
 
       - name: Revalidate release PR before merge
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+          EXPECTED_COORDINATOR_RUN_ID: ${{ steps.required-checks.outputs.coordinator_run_id }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
@@ -249,19 +265,19 @@ jobs:
             echo "::error::Release PR changed during validation; refusing admin-merge." >&2
             exit 1
           fi
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
-            exit 1
-          fi
+          node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
 
       - name: Force-merge with admin bypass
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+          EXPECTED_COORDINATOR_RUN_ID: ${{ steps.required-checks.outputs.coordinator_run_id }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           pull_request=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
@@ -283,9 +299,5 @@ jobs:
             echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
             exit 1
           fi
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
-            exit 1
-          fi
+          node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
           gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

@@ -56,7 +56,10 @@ import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls"
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
-import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
+import {
+  removeMotionNativeStyleAndReconcileSelection,
+  type MotionNativeStyleIdentity,
+} from "@/components/design/motion-native-style-identity";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -82,6 +85,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
+import { layoutMoveRefusalMessageKey } from "./commands/align-selection";
 import { resolveUrlScreen } from "./derive/url-screen";
 import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
@@ -383,6 +387,8 @@ export function renderDesignEditorView({
     motionTracks,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionEasingVariables,
     setMotionEasingVariables,
     motionAnimationStyles,
@@ -673,7 +679,6 @@ export function renderDesignEditorView({
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,
-    handleGroupFillStylesChange,
     handleSelectionColorTarget,
     activeScreenPreviewUrl,
     statesPanelProps,
@@ -1164,6 +1169,7 @@ export function renderDesignEditorView({
       editorLayoutAndStructure,
       editorModes,
       editorScreenRendering,
+      editorSourceAndSync,
       controlId,
     });
 
@@ -1501,6 +1507,12 @@ export function renderDesignEditorView({
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
+  const alignDisabledReasonKey = alignAvailability.canAlign
+    ? null
+    : layoutMoveRefusalMessageKey(alignAvailability.blocker);
+  const alignDisabledReason = alignDisabledReasonKey
+    ? t(alignDisabledReasonKey)
+    : undefined;
   const editPanelProps = {
     selectedElement,
     textEditingState,
@@ -1584,9 +1596,6 @@ export function renderDesignEditorView({
       : undefined,
     onSelectionColorPickerOpenChange: canEditActiveVisualScreen
       ? handleSelectionColorPickerOpenChange
-      : undefined,
-    onGroupFillStylesChange: canEditActiveVisualScreen
-      ? handleGroupFillStylesChange
       : undefined,
     viewMode,
     mode,
@@ -1776,6 +1785,8 @@ export function renderDesignEditorView({
           }
         : undefined,
     motionNativeStyles,
+    selectedMotionNativeStyle: motionNativeStyleSelection,
+    onSelectMotionNativeStyle: setMotionNativeStyleSelection,
     motionEasingVariables,
     onMotionEasingVariablesChange:
       canEditActiveVisualScreen && canWriteMotion
@@ -1798,28 +1809,15 @@ export function renderDesignEditorView({
     onRemoveMotionNativeStyle:
       canEditActiveVisualScreen && canWriteMotion
         ? (identity: MotionNativeStyleIdentity) => {
-            setMotionNativeStyles((current) => {
-              const index = identity.sourceInstanceId
-                ? current.findIndex(
-                    (candidate) =>
-                      candidate.sourceInstanceId ===
-                        identity.sourceInstanceId &&
-                      candidate.styleKey === identity.styleKey &&
-                      candidate.targetNodeId === identity.targetNodeId,
-                  )
-                : identity.index;
-              const instance = current[index];
-              if (
-                !instance ||
-                instance.styleKey !== identity.styleKey ||
-                instance.targetNodeId !== identity.targetNodeId
-              ) {
-                return current;
-              }
-              return current.filter(
-                (_, currentIndex) => currentIndex !== index,
-              );
-            });
+            const result = removeMotionNativeStyleAndReconcileSelection(
+              motionNativeStyles,
+              motionNativeStyleSelection,
+              identity,
+              motionSelectedTarget?.nodeId,
+            );
+            if (result.styles === motionNativeStyles) return;
+            setMotionNativeStyles(result.styles);
+            setMotionNativeStyleSelection(result.selection);
             markMotionTracksDirty();
           }
         : undefined,
@@ -2027,6 +2025,7 @@ export function renderDesignEditorView({
     reviewPanelProps: resolvedReviewPanelProps,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
+    alignSelectionDisabledReason: alignDisabledReason,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,

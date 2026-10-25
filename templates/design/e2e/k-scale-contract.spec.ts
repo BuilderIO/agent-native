@@ -168,10 +168,10 @@ function layerRow(page: Page, name: string) {
 }
 
 async function chooseBoardLayer(page: Page, name: string) {
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   if (!(await input.isVisible().catch(() => false))) {
     await page
-      .getByRole("button", { name: "Search layers...", exact: true })
+      .getByRole("button", { name: "Search layers", exact: true })
       .click();
     await expect(input).toBeVisible();
   }
@@ -314,7 +314,7 @@ test("K-dragging a Frame to 1.5x scales its size, borders, spacing and fixed chi
   await openAndFit(app, designId);
   await selectOnCanvas(app, "ordinary-frame", "Ordinary Frame");
   const widthInput = page.getByRole("textbox", { name: "W size in pixels" });
-  await expect(widthInput).toHaveValue("200px");
+  await expect(widthInput).toHaveValue("200");
   expect(await renderedBox(app, "ordinary-frame")).toEqual({
     width: 200,
     height: 160,
@@ -340,7 +340,7 @@ test("K-dragging a Frame to 1.5x scales its size, borders, spacing and fixed chi
     width: 153,
     height: 60,
   });
-  await expect(widthInput).toHaveValue("300px");
+  await expect(widthInput).toHaveValue("300");
   const scaled = await app.savedNodes(designId);
   expectOnlyChanged(before, scaled, [
     "ordinary-frame",
@@ -649,7 +649,7 @@ test("board K scales a selected nested Frame through the reserved board file", a
   await chooseBoardLayer(page, "Board frame");
   await expect(
     page.getByRole("textbox", { name: "W size in pixels" }),
-  ).toHaveValue("120px");
+  ).toHaveValue("120");
   const before = await boardState(page);
   expect(before.frame.width).toBeCloseTo(120, 0);
   expect(before.frame.height).toBeCloseTo(90, 0);
@@ -660,7 +660,7 @@ test("board K scales a selected nested Frame through the reserved board file", a
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("textbox", { name: "W size in pixels" }),
-  ).toHaveValue("120px");
+  ).toHaveValue("120");
   const se = boardFrame
     .first()
     .contentFrame()

@@ -25,6 +25,22 @@ import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
+  registerLiveAgentHarnessSession,
+  releaseLiveAgentHarnessSession,
+  sendAgentHarnessFollowUp,
+} from "./harness/lifecycle.js";
+import {
+  ensureAgentHarnessSessionTables,
+  getAgentHarnessSession,
+  markAgentHarnessSessionStopped,
+  saveAgentHarnessSession,
+  updateAgentHarnessSessionAtGeneration,
+} from "./harness/store.js";
+import type {
+  AgentHarnessAdapter,
+  AgentHarnessSession,
+} from "./harness/types.js";
+import {
   beginAgentExecutionStep,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   claimTaskExecutionLease,
@@ -113,13 +129,21 @@ function runWorkerWithTimeout(
   timeout: number,
   ...args: string[]
 ): Promise<WorkerResult> {
+  return runWorkerWithEnvironment(timeout, {}, ...args);
+}
+
+function runWorkerWithEnvironment(
+  timeout: number,
+  environment: NodeJS.ProcessEnv,
+  ...args: string[]
+): Promise<WorkerResult> {
   return new Promise((resolveResult) => {
     execFile(
       process.execPath,
       ["--import", "tsx", workerPath, ...args],
       {
         cwd: repositoryRoot,
-        env: process.env,
+        env: { ...process.env, ...environment },
         maxBuffer: 1024 * 1024,
         timeout,
       },
@@ -177,7 +201,7 @@ function startBarrierWorker(...args: string[]): BarrierWorker {
         `Execution worker did not reach its barrier: ${output.stderr || output.stdout || "no output"}`,
       ),
     );
-  }, 15_000);
+  }, 30_000);
   const closed = new Promise<BarrierWorkerResult>((resolve) => {
     child.once("close", (exitCode, signal) => {
       resolve({ ...output, exitCode, signal });
@@ -242,7 +266,7 @@ function workerJson<T>(result: WorkerResult): T {
     return JSON.parse(output.slice(output.lastIndexOf("\n") + 1)) as T;
   } catch {
     throw new Error(
-      `Execution worker returned no JSON (exit ${result.exitCode}): ${result.stderr || result.stdout}`,
+      `Execution worker returned no JSON (exit ${result.exitCode}): ${result.error ?? (result.stderr || result.stdout)}`,
     );
   }
 }
@@ -273,6 +297,7 @@ async function withTestDatabase<T>(
       withMigrationRuntime(async () => {
         await ensureRunTables();
         await ensureChatThreadTables();
+        await ensureAgentHarnessSessionTables();
       }),
     );
     await sql`
@@ -308,11 +333,21 @@ async function withTestDatabase<T>(
     await sql`DROP FUNCTION IF EXISTS agent_harness_reject_step_receipt()`;
     await sql`DELETE FROM agent_harness_test_effects WHERE effect_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_chat_submission_inbox WHERE thread_id LIKE ${`${prefix}%`}`;
+    await sql`DELETE FROM agent_harness_sessions WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM chat_threads WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_steps WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_leases WHERE thread_id LIKE ${`${prefix}%`}`;
-    await sql`DELETE FROM agent_run_events WHERE run_id LIKE ${`${prefix}%`}`;
-    await sql`DELETE FROM agent_runs WHERE id LIKE ${`${prefix}%`}`;
+    await sql`
+      DELETE FROM agent_run_events
+      WHERE run_id LIKE ${`${prefix}%`}
+         OR run_id IN (
+           SELECT id FROM agent_runs WHERE thread_id LIKE ${`${prefix}%`}
+         )
+    `;
+    await sql`
+      DELETE FROM agent_runs
+      WHERE id LIKE ${`${prefix}%`} OR thread_id LIKE ${`${prefix}%`}
+    `;
     await sql.end();
   }
 }
@@ -329,6 +364,20 @@ async function forceLeaseExpiry(
   `;
 }
 
+async function keepLeaseLive(
+  sql: postgres.Sql,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  const rows = await sql`
+    UPDATE agent_execution_leases
+    SET lease_expires_at = clock_timestamp() + INTERVAL '5 minutes'
+    WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+    RETURNING thread_id
+  `;
+  expect(rows).toHaveLength(1);
+}
+
 async function claimInProcess(
   sql: postgres.Sql,
   threadId: string,
@@ -341,9 +390,473 @@ async function claimInProcess(
   });
 }
 
+interface HarnessSessionUpdateGate {
+  gateKey: number;
+  trigger: string;
+  functionName: string;
+  lockSql: postgres.Sql;
+}
+
+async function installHarnessSessionUpdateGate(
+  sql: postgres.Sql,
+  sessionId: string,
+): Promise<HarnessSessionUpdateGate> {
+  const suffix = randomUUID().replaceAll("-", "");
+  const gateKey = Math.floor(Math.random() * 2_000_000_000) + 1;
+  const trigger = `harness_session_gate_${suffix}`;
+  const functionName = `harness_session_gate_fn_${suffix}`;
+  const escapedSessionId = sessionId.replaceAll("'", "''");
+  const lockSql = postgres(databaseUrl!, { max: 1 });
+
+  try {
+    await lockSql`SELECT pg_advisory_lock(${gateKey})`;
+    await sql.unsafe(`CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '${escapedSessionId}' THEN
+          PERFORM pg_advisory_xact_lock(${gateKey});
+        END IF;
+        RETURN NEW;
+      END $$`);
+    await sql.unsafe(`CREATE TRIGGER ${trigger}
+      BEFORE UPDATE ON agent_harness_sessions
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
+  } catch (error) {
+    await lockSql.end();
+    throw error;
+  }
+
+  return { gateKey, trigger, functionName, lockSql };
+}
+
+async function releaseHarnessSessionUpdateGate(
+  gate: HarnessSessionUpdateGate,
+): Promise<void> {
+  await gate.lockSql`SELECT pg_advisory_unlock(${gate.gateKey})`;
+}
+
+async function removeHarnessSessionUpdateGate(
+  sql: postgres.Sql,
+  gate: HarnessSessionUpdateGate,
+): Promise<void> {
+  try {
+    await sql.unsafe(
+      `DROP TRIGGER IF EXISTS ${gate.trigger} ON agent_harness_sessions`,
+    );
+    await sql.unsafe(`DROP FUNCTION IF EXISTS ${gate.functionName}()`);
+  } finally {
+    await gate.lockSql.end();
+  }
+}
+
 describe.skipIf(!databaseUrl)(
   "execution lease and journal process failures",
   () => {
+    it("admits a harness follow-up in only one independent worker", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-session`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const claimIds = [`${prefix}:claim-a`, `${prefix}:claim-b`];
+        const results = await Promise.all([
+          runWorker(
+            "harness-follow-up-claim",
+            sessionId,
+            "unused",
+            "unused-a",
+            "unused",
+            JSON.stringify({
+              expectedGeneration: session.generation,
+              claimId: claimIds[0],
+            }),
+          ),
+          runWorker(
+            "harness-follow-up-claim",
+            sessionId,
+            "unused",
+            "unused-b",
+            "unused",
+            JSON.stringify({
+              expectedGeneration: session.generation,
+              claimId: claimIds[1],
+            }),
+          ),
+        ]);
+        const outcomes = results.map((result) =>
+          workerJson<{ claimed: boolean }>(result),
+        );
+
+        expect(results.map((result) => result.exitCode)).toEqual([0, 0]);
+        expect(outcomes.filter((result) => result.claimed)).toHaveLength(1);
+        expect(outcomes.filter((result) => !result.claimed)).toHaveLength(1);
+        const persisted = await withDbExec(executor(sql), () =>
+          getAgentHarnessSession(sessionId),
+        );
+        expect(persisted).toMatchObject({ status: "running" });
+        expect(claimIds).toContain(persisted?.followUpClaimId);
+      });
+    }, 45_000);
+
+    it("serializes expiry cleanup against a follow-up claim from another worker", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-expiry-race`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const gate = await installHarnessSessionUpdateGate(sql, sessionId);
+        let cleanupWorker: BarrierWorker | undefined;
+        let claimWorker: BarrierWorker | undefined;
+
+        try {
+          cleanupWorker = startBarrierWorker(
+            "harness-expiry-cleanup",
+            sessionId,
+            "unused",
+            `${prefix}:cleanup-worker`,
+            "unused",
+            JSON.stringify({
+              expectedStatus: "idle",
+              expectedGeneration: session.generation,
+            }),
+          );
+          const cleanupReady = await cleanupWorker.ready;
+          const cleanupPid = Number(cleanupReady.databaseBackendPid);
+          await expect
+            .poll(async () => {
+              const [activity] = await sql`
+                SELECT wait_event FROM pg_stat_activity WHERE pid = ${cleanupPid}
+              `;
+              return activity?.wait_event;
+            })
+            .toBe("advisory");
+
+          claimWorker = startBarrierWorker(
+            "harness-follow-up-claim",
+            sessionId,
+            "unused",
+            `${prefix}:claim-worker`,
+            "unused",
+            JSON.stringify({
+              expectedGeneration: session.generation,
+              claimId: `${prefix}:competing-claim`,
+            }),
+          );
+          const claimReady = await claimWorker.ready;
+          const claimPid = Number(claimReady.databaseBackendPid);
+          await expect
+            .poll(async () => {
+              const [activity] = await sql`
+                SELECT ${cleanupPid} = ANY(pg_blocking_pids(${claimPid})) AS blocked
+              `;
+              return activity?.blocked;
+            })
+            .toBe(true);
+
+          await releaseHarnessSessionUpdateGate(gate);
+          const [cleanupResult, claimResult] = await Promise.all([
+            cleanupWorker.closed,
+            claimWorker.closed,
+          ]);
+          expect([cleanupResult.exitCode, claimResult.exitCode]).toEqual([
+            0, 0,
+          ]);
+          expect(
+            workerJson<{ cleanupStarted: boolean }>(cleanupResult),
+          ).toMatchObject({
+            cleanupStarted: true,
+          });
+          expect(workerJson<{ claimed: boolean }>(claimResult)).toMatchObject({
+            claimed: false,
+          });
+        } finally {
+          await releaseHarnessSessionUpdateGate(gate);
+          await Promise.all(
+            [cleanupWorker, claimWorker]
+              .filter((worker): worker is BarrierWorker => worker !== undefined)
+              .map(stopBarrierWorker),
+          );
+          await removeHarnessSessionUpdateGate(sql, gate);
+        }
+      });
+    }, 45_000);
+
+    it("starts approval dispatch before a concurrent stop from another worker", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-approval-race`;
+        const approvalId = `${prefix}:approval`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            pendingApproval: { type: "approval-request", id: approvalId },
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const reserved = await withDbExec(executor(sql), () =>
+          updateAgentHarnessSessionAtGeneration(
+            sessionId,
+            "idle",
+            session.generation,
+            { approvalResolutionId: approvalId },
+          ),
+        );
+        const gate = await installHarnessSessionUpdateGate(sql, sessionId);
+        let approvalWorker: BarrierWorker | undefined;
+        let stopWorker: BarrierWorker | undefined;
+
+        try {
+          approvalWorker = startBarrierWorker(
+            "harness-approval-dispatch",
+            sessionId,
+            "unused",
+            `${prefix}:approval-worker`,
+            "unused",
+            JSON.stringify({
+              expectedStatus: "idle",
+              expectedGeneration: reserved!.generation,
+              approvalId,
+            }),
+          );
+          const approvalReady = await approvalWorker.ready;
+          const approvalPid = Number(approvalReady.databaseBackendPid);
+          await expect
+            .poll(async () => {
+              const [activity] = await sql`
+                SELECT wait_event FROM pg_stat_activity WHERE pid = ${approvalPid}
+              `;
+              return activity?.wait_event;
+            })
+            .toBe("advisory");
+
+          stopWorker = startBarrierWorker(
+            "harness-follow-up-stop",
+            sessionId,
+            "unused",
+            `${prefix}:stop-worker`,
+            "unused",
+            "unused",
+          );
+          const stopReady = await stopWorker.ready;
+          const stopPid = Number(stopReady.databaseBackendPid);
+          await expect
+            .poll(async () => {
+              const [activity] = await sql`
+                SELECT ${approvalPid} = ANY(pg_blocking_pids(${stopPid})) AS blocked
+              `;
+              return activity?.blocked;
+            })
+            .toBe(true);
+
+          await releaseHarnessSessionUpdateGate(gate);
+          const [approvalResult, stopResult] = await Promise.all([
+            approvalWorker.closed,
+            stopWorker.closed,
+          ]);
+          expect([approvalResult.exitCode, stopResult.exitCode]).toEqual([
+            0, 0,
+          ]);
+          expect(
+            workerJson<{ providerStarted: boolean }>(approvalResult),
+          ).toMatchObject({ providerStarted: true });
+          expect(workerJson<{ status: string }>(stopResult)).toMatchObject({
+            status: "stopped",
+          });
+        } finally {
+          await releaseHarnessSessionUpdateGate(gate);
+          await Promise.all(
+            [approvalWorker, stopWorker]
+              .filter((worker): worker is BarrierWorker => worker !== undefined)
+              .map(stopBarrierWorker),
+          );
+          await removeHarnessSessionUpdateGate(sql, gate);
+        }
+      });
+    }, 45_000);
+
+    it("does not dispatch approval after an independent worker stops its session", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-stopped-approval`;
+        const approvalId = `${prefix}:approval`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            pendingApproval: { type: "approval-request", id: approvalId },
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const reserved = await withDbExec(executor(sql), () =>
+          updateAgentHarnessSessionAtGeneration(
+            sessionId,
+            "idle",
+            session.generation,
+            { approvalResolutionId: approvalId },
+          ),
+        );
+
+        const stop = await runWorker(
+          "harness-follow-up-stop",
+          sessionId,
+          "unused",
+          `${prefix}:stop-worker`,
+          "unused",
+          "unused",
+        );
+        const dispatch = await runWorker(
+          "harness-approval-dispatch",
+          sessionId,
+          "unused",
+          `${prefix}:approval-worker`,
+          "unused",
+          JSON.stringify({
+            expectedStatus: "idle",
+            expectedGeneration: reserved!.generation,
+            approvalId,
+          }),
+        );
+
+        expect([stop.exitCode, dispatch.exitCode]).toEqual([0, 0]);
+        expect(workerJson<{ status: string }>(stop)).toMatchObject({
+          status: "stopped",
+        });
+        expect(
+          workerJson<{ providerStarted: boolean }>(dispatch),
+        ).toMatchObject({ providerStarted: false });
+      });
+    }, 45_000);
+
+    it("aborts a claimed follow-up when an independent worker stops its session", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-session-stop`;
+        await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        let observedSignal: AbortSignal | undefined;
+        let resolveSignalReady!: () => void;
+        const signalReady = new Promise<void>((resolve) => {
+          resolveSignalReady = resolve;
+        });
+        const stop = vi.fn(async () => undefined);
+        const nativeSession: AgentHarnessSession = {
+          id: `${prefix}:native-session`,
+          streamTurn(input) {
+            observedSignal = input.abortSignal;
+            resolveSignalReady();
+            return (async function* () {
+              await new Promise<void>((resolve, reject) => {
+                if (input.abortSignal?.aborted) {
+                  reject(input.abortSignal.reason);
+                  return;
+                }
+                input.abortSignal?.addEventListener("abort", resolve, {
+                  once: true,
+                });
+              });
+              yield { type: "done" };
+            })();
+          },
+          stop,
+        };
+        const adapter: AgentHarnessAdapter = {
+          name: "test",
+          label: "Test",
+          description: "Integration test harness",
+          capabilities: {
+            sandbox: false,
+            resumable: true,
+            approvals: true,
+            hostTools: false,
+            fileEvents: false,
+          },
+          createSession: async () => nativeSession,
+        };
+        registerLiveAgentHarnessSession({
+          sessionId,
+          adapter,
+          session: nativeSession,
+          ownerEmail: "owner@example.com",
+          orgId: prefix,
+        });
+
+        const followUp = sendAgentHarnessFollowUp({
+          runId: `${prefix}:run`,
+          prompt: "wait for a stop from another worker",
+          scope: { ownerEmail: "owner@example.com", orgId: prefix },
+        });
+        try {
+          await signalReady;
+          const stopped = await runWorker(
+            "harness-follow-up-stop",
+            sessionId,
+            "unused",
+            `${prefix}:stop-worker`,
+            "unused",
+            "unused",
+          );
+          expect(stopped.exitCode).toBe(0);
+          expect(
+            workerJson<{ status: string; claimId: string | null }>(stopped),
+          ).toEqual({
+            status: "stopped",
+            claimId: null,
+          });
+          await expect(followUp).resolves.toMatchObject({
+            ok: false,
+            errorCode: "unavailable",
+            session: { status: "stopped" },
+          });
+          expect(observedSignal?.aborted).toBe(true);
+          expect(stop).toHaveBeenCalledOnce();
+        } finally {
+          try {
+            const latest = await withDbExec(executor(sql), () =>
+              getAgentHarnessSession(sessionId),
+            );
+            if (latest?.status === "running") {
+              await withDbExec(executor(sql), () =>
+                markAgentHarnessSessionStopped(sessionId, "stopped"),
+              );
+            }
+            await followUp.catch(() => undefined);
+          } finally {
+            releaseLiveAgentHarnessSession(sessionId, nativeSession);
+          }
+        }
+      });
+    }, 45_000);
+
     it("serializes independent workers and rejects the old generation after takeover", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:thread`;
@@ -365,6 +878,7 @@ describe.skipIf(!databaseUrl)(
         expect(loser?.candidate.exitCode).toBe(3);
         expect(loser?.payload.code).toBe("turn_execution_lease_busy");
         const firstFence = winner!.payload.fence!;
+        await keepLeaseLive(sql, threadId, turnId);
 
         const stillBusy = await runWorker(
           "claim",
@@ -754,6 +1268,141 @@ describe.skipIf(!databaseUrl)(
         }
       }, 2);
     }, 45_000);
+
+    it("recovers and projects a checkpointed continuation after its worker dies", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:checkpoint-thread`;
+        const turnId = `${prefix}:checkpoint-turn`;
+        const runId = `${prefix}:checkpoint-run`;
+        const submitted = applySubmittedUserMessage(
+          {},
+          buildUserMessage({
+            text: "Resume the checkpointed turn",
+            runId,
+            turnId,
+          }),
+        );
+        if (!("repo" in submitted)) {
+          throw new Error("Checkpoint test prompt was not submitted");
+        }
+        const threadMeta = extractThreadMeta(submitted.repo);
+        await createThread("checkpoint-recovery@example.com", {
+          id: threadId,
+          initialData: {
+            threadData: JSON.stringify(submitted.repo),
+            preview: threadMeta.preview,
+            messageCount: submitted.repo.messages.length,
+          },
+        });
+
+        const crashedWorker = await runWorkerWithTimeout(
+          90_000,
+          "checkpoint-crash",
+          threadId,
+          turnId,
+          runId,
+          "unused-step",
+          JSON.stringify({ prompt: "Resume the checkpointed turn" }),
+        );
+        expect(crashedWorker.exitCode).toBe(83);
+        expect(workerJson<{ status: string }>(crashedWorker).status).toBe(
+          "checkpointed",
+        );
+
+        const checkpointEvents = await sql`
+          SELECT seq, event_data::jsonb AS event_data
+          FROM agent_run_events WHERE run_id = ${runId} ORDER BY seq
+        `;
+        expect(checkpointEvents.at(-1)?.event_data).toMatchObject({
+          type: "auto_continue",
+          reason: "run_timeout",
+        });
+
+        const staleAt = Date.now() - 60 * 60_000;
+        await sql`
+          UPDATE agent_runs
+          SET started_at = ${staleAt}, heartbeat_at = ${staleAt},
+              last_progress_at = ${staleAt}
+          WHERE id = ${runId}
+        `;
+        await forceLeaseExpiry(sql, threadId, turnId);
+
+        const recoveryWorker = await runWorkerWithEnvironment(
+          90_000,
+          { AGENT_NATIVE_SELF_DISPATCH_URL: "http://127.0.0.1:1" },
+          "stale-reap",
+          threadId,
+          turnId,
+          runId,
+        );
+        expect(recoveryWorker.exitCode).toBe(0);
+        expect(workerJson<{ reaped: boolean }>(recoveryWorker).reaped).toBe(
+          false,
+        );
+
+        const [repairedRun] = await sql`
+          SELECT status, terminal_reason, thread_projection_pending
+          FROM agent_runs WHERE id = ${runId}
+        `;
+        expect(repairedRun).toMatchObject({
+          status: "truncated",
+          terminal_reason: "run_timeout",
+          thread_projection_pending: false,
+        });
+        const successors = await sql`
+          SELECT id, dispatch_payload
+          FROM agent_runs
+          WHERE thread_id = ${threadId}
+            AND COALESCE(turn_id, id) = ${turnId}
+            AND id <> ${runId}
+            AND status = 'running'
+            AND dispatch_mode = 'background'
+        `;
+        expect(successors).toHaveLength(1);
+        expect(
+          JSON.parse(String(successors[0]!.dispatch_payload)),
+        ).toMatchObject({
+          prompt: "Resume the checkpointed turn",
+          internalContinuation: true,
+          __agentChatRecoveryOfRunId: runId,
+        });
+
+        const projectedThread = await getThread(threadId);
+        expect(projectedThread).not.toBeNull();
+        const projectedMessages = JSON.parse(
+          projectedThread!.threadData,
+        ).messages;
+        expect(
+          projectedMessages.filter(
+            (entry: any) => (entry.message ?? entry).role === "user",
+          ),
+        ).toHaveLength(1);
+        expect(
+          projectedMessages.filter(
+            (entry: any) => (entry.message ?? entry).role === "assistant",
+          ),
+        ).toHaveLength(1);
+
+        await expect(
+          withDbExec(executor(sql), () => reapIfStale(runId)),
+        ).resolves.toBe(false);
+        const successorsAfterRetry = await sql`
+          SELECT id FROM agent_runs
+          WHERE thread_id = ${threadId}
+            AND COALESCE(turn_id, id) = ${turnId}
+            AND id <> ${runId}
+            AND dispatch_mode = 'background'
+        `;
+        expect(successorsAfterRetry).toHaveLength(1);
+        const finalThread = await getThread(threadId);
+        const finalMessages = JSON.parse(finalThread!.threadData).messages;
+        expect(
+          finalMessages.filter(
+            (entry: any) => (entry.message ?? entry).role === "assistant",
+          ),
+        ).toHaveLength(1);
+      }, 2);
+    }, 180_000);
 
     it("records a late outcome only while its captured lease generation is current", async () => {
       await withTestDatabase(async (sql, prefix) => {
