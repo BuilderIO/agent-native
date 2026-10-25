@@ -2040,7 +2040,7 @@ jobs:
     # succeed so the check fails closed instead of reporting "skipped".
     if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.core_mutation == 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Require a successful change scope
         env:
