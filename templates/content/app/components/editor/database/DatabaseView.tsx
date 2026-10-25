@@ -287,6 +287,7 @@ import {
   personItems,
   personLabel,
   PersonPill,
+  propertyValueHasLinks,
   removePropertyOption,
   renamePropertyOption,
   updatePropertyOptionColor,
@@ -873,6 +874,24 @@ export function DatabaseItemPageIcon({
       className={cn("shrink-0 text-muted-foreground", fallbackClassName)}
     />
   );
+}
+
+/**
+ * Cards and list rows open their page from a click anywhere on them. Mouse
+ * convenience only: keyboard and assistive tech use the title button, and
+ * links and buttons inside, such as web addresses, keep their own behaviour.
+ * Clicks in menus portalled out of the card don't count.
+ */
+export function openDatabaseItemOnClick(onOpen: () => void) {
+  return (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!event.currentTarget.contains(target)) return;
+    if (target.closest("a, button, input, textarea, [role='menuitem']")) {
+      return;
+    }
+    onOpen();
+  };
 }
 
 export function DatabaseView({
@@ -12886,14 +12905,17 @@ function DatabaseCalendarCard({
   const visibleProperties = properties.slice(0, 2);
 
   return (
-    <div className="group/card rounded border border-border bg-background px-2 py-1.5 text-xs shadow-sm transition-colors hover:bg-accent/60">
+    <div
+      className="group/card cursor-pointer rounded border border-border bg-background px-2 py-1.5 text-xs shadow-sm transition-colors hover:bg-accent/60"
+      onClick={openDatabaseItemOnClick(onPreview)}
+    >
       <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          className="grid min-w-0 flex-1 gap-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onPreview}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 font-medium">
+        <div className="grid min-w-0 flex-1 gap-1">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5 rounded text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onPreview}
+          >
             <DatabaseItemPageIcon
               document={item.document}
               className="size-3.5 text-xs"
@@ -12902,7 +12924,7 @@ function DatabaseCalendarCard({
             <span className="truncate">
               {item.document.title || "Untitled"}
             </span>
-          </span>
+          </button>
           {visibleProperties.length > 0 ? (
             <span className="grid gap-0.5">
               {visibleProperties.map((property) => {
@@ -12919,14 +12941,16 @@ function DatabaseCalendarCard({
                   >
                     <Icon className="size-3 shrink-0" />
                     <span className="truncate">
-                      {displayValue(itemProperty)}
+                      {displayValue(itemProperty, undefined, "compact", {
+                        interactiveUrls: true,
+                      })}
                     </span>
                   </span>
                 );
               })}
             </span>
           ) : null}
-        </button>
+        </div>
         {canEdit ? (
           <RowActionsCell
             item={item}
@@ -13582,7 +13606,7 @@ function DatabaseBoardCard({
   canEdit: boolean;
   draggable: boolean;
   isDragging: boolean;
-  onDragStart: (event: ReactDragEvent<HTMLButtonElement>) => void;
+  onDragStart: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
   onPreviewItem: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
@@ -13592,25 +13616,26 @@ function DatabaseBoardCard({
   const visibleProperties = properties.slice(0, 3);
 
   return (
+    // The whole card drags and opens, but only the title is the button, so
+    // links in its values stay links.
     <div
+      draggable={draggable}
       className={cn(
-        "group/card rounded-md border border-border bg-background p-2 shadow-sm transition-colors hover:bg-accent/60",
+        "group/card cursor-pointer rounded-md border border-border bg-background p-2 shadow-sm transition-colors hover:bg-accent/60",
+        draggable && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
       )}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          draggable={draggable}
-          className={cn(
-            "grid min-w-0 flex-1 gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            draggable && "cursor-grab active:cursor-grabbing",
-          )}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onClick={onPreview}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+        <div className="grid min-w-0 flex-1 gap-2">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5 rounded text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onPreview}
+          >
             <DatabaseItemPageIcon
               document={item.document}
               className="size-4 text-sm"
@@ -13619,7 +13644,10 @@ function DatabaseBoardCard({
             <span className="min-w-0 truncate">
               {item.document.title || "Untitled"}
             </span>
-          </span>
+            {!canEdit ? null : (
+              <span className="sr-only">{dbText("openPage")}</span>
+            )}
+          </button>
           {visibleProperties.length > 0 ? (
             <span className="grid gap-1">
               {visibleProperties.map((property) => {
@@ -13636,17 +13664,16 @@ function DatabaseBoardCard({
                   >
                     <Icon className="size-3.5 shrink-0" />
                     <span className="truncate">
-                      {displayValue(itemProperty)}
+                      {displayValue(itemProperty, undefined, "compact", {
+                        interactiveUrls: true,
+                      })}
                     </span>
                   </span>
                 );
               })}
             </span>
           ) : null}
-          {!canEdit ? null : (
-            <span className="sr-only">{dbText("openPage")}</span>
-          )}
-        </button>
+        </div>
         {canEdit ? (
           <RowActionsCell
             item={item}
@@ -14765,6 +14792,7 @@ function databaseTableCellDisplayValue(
 
   return displayValue(property, undefined, wrapCells ? "wrapped" : "compact", {
     interactiveRelations: true,
+    interactiveUrls: true,
   });
 }
 
@@ -19133,7 +19161,7 @@ function DatabaseTableRow({
               besideEditButton={
                 canEdit &&
                 itemProperty.editable &&
-                itemProperty.definition.type === "relation"
+                propertyValueHasLinks(itemProperty)
               }
             />
           </div>
