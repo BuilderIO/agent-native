@@ -7,6 +7,7 @@ import {
   openEditor,
   postAction,
   setBaseURL,
+  waitForEditorReady,
 } from "./drag-and-drop.shared";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
@@ -207,6 +208,10 @@ test("grouped span-2 grid drop previews without overlap and persists undo/redo p
     /data-agent-native-node-id="occupied-c"[^>]*grid-column:\s*1\s*\/\s*2/i,
   );
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForEditorReady(page);
+  await preview(page)
+    .locator('[data-agent-native-node-id="source-a"]')
+    .waitFor({ timeout: 30_000 });
   const afterReloadA = await stylePlacement(page, "source-a");
   const afterReloadB = await stylePlacement(page, "source-b");
   expect(afterReloadA.column).toMatch(/3\s*\/\s*5/);
@@ -354,7 +359,7 @@ test("dropping a two-item group on an occupied grid cell keeps every item inside
   await app.settled();
   expectOnlyChanged(dropped, await app.savedNodes(designId), []);
   await page.reload({ waitUntil: "domcontentloaded" });
-  // A reload re-boots the editor, which alone takes ~12 s on CI runners.
+  await waitForEditorReady(page);
   await expect
     .poll(() => targetGridBoxes(app), { timeout: 45_000 })
     .toEqual(boxes);

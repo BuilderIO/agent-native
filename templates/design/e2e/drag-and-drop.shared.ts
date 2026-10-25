@@ -160,10 +160,8 @@ export function node(page: Page, id: string): Locator {
   );
 }
 
-export async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
+/** Booting the editor, on first load or after a reload, takes ~12 s on CI runners. */
+export async function waitForEditorReady(page: Page): Promise<void> {
   await toolbar(page)
     .locator('button[aria-label="Move"]')
     .waitFor({ timeout: 45_000 });
@@ -171,6 +169,13 @@ export async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
+}
+
+export async function openEditor(page: Page, designId: string): Promise<void> {
+  await page.goto(`${baseURL}/design/${designId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await waitForEditorReady(page);
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
