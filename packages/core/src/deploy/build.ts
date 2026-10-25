@@ -4523,12 +4523,14 @@ function escapeModuleSpecifier(mod: string): string {
 }
 
 /**
- * Names imported from `mod` with `import { a, b as c } from "mod"`. Matches
- * both minified output and the spaced form the generated Worker entry uses.
+ * Names imported from `mod` with `import { a, b as c } from "mod"`, including
+ * clauses that also bind the default export (`import d, { a } from "mod"`).
+ * Matches both minified output and the spaced form the generated Worker entry
+ * uses.
  */
 export function collectNamedImportsFrom(code: string, mod: string): string[] {
   const re = new RegExp(
-    `import\\s*\\{([^}]+)\\}\\s*from\\s*["']${escapeModuleSpecifier(mod)}["']`,
+    `import(?:\\s+[\\w$]+\\s*,)?\\s*\\{([^}]+)\\}\\s*from\\s*["']${escapeModuleSpecifier(mod)}["']`,
     "g",
   );
   const names: string[] = [];
@@ -4558,7 +4560,9 @@ export function rewriteModuleImportSpecifier(
  * esbuild entry that re-bundles a bare external for a Cloudflare Worker. A
  * namespace import works for CommonJS and for ES modules with or without a
  * default export; `import x from` and `export { default } from` fail to
- * bundle an ES module that has no default export.
+ * bundle an ES module that has no default export. A named export the module
+ * defines is used as is, even when its value is `null` or `undefined`; the
+ * default export's property is only a fallback for names the module lacks.
  */
 export function cloudflareExternalBundleEntry(
   resolvedMod: string,
@@ -4570,7 +4574,10 @@ export function cloudflareExternalBundleEntry(
     `const _mod = _ns.default ?? _ns;`,
     `export default _mod;`,
     ...(names.length > 0
-      ? names.map((n) => `export const ${n} = _ns.${n} ?? _mod?.${n};`)
+      ? names.map(
+          (n) =>
+            `export const ${n} = ${JSON.stringify(n)} in _ns ? _ns.${n} : _mod?.${n};`,
+        )
       : [`export * from "${resolvedMod}";`]),
   ].join("\n");
 }

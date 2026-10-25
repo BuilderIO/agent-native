@@ -1325,6 +1325,18 @@ describe("Cloudflare module bare externals", () => {
     expect(rewritten).not.toContain(`"${poolContext}"`);
   });
 
+  it("finds named imports next to a default import", () => {
+    expect(
+      collectNamedImportsFrom('import Def, { a, b as c } from "pkg";', "pkg"),
+    ).toEqual(["a", "b"]);
+    expect(
+      collectNamedImportsFrom(
+        'import Def,{a}from"pkg";import{d}from"pkg";',
+        "pkg",
+      ),
+    ).toEqual(["a", "d"]);
+  });
+
   it("still matches minified imports", () => {
     const code = 'import{a,b as c}from"pkg";export*from"pkg";';
 
@@ -1372,6 +1384,38 @@ describe("Cloudflare module bare externals", () => {
     );
     expect(legacy.run()).toBe("cjs");
     expect(legacy.default.run()).toBe("cjs");
+  });
+
+  it("keeps a named export whose value is null instead of the default export's property", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "null-named.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const value = null;\nexport default { value: 'default', other: 'fallback' };\n",
+    );
+    const outFile = path.join(dir, "null-named-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["value", "other"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.value).toBeNull();
+    expect(mod.other).toBe("fallback");
   });
 });
 
