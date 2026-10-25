@@ -17,6 +17,7 @@ import {
   MotionEasingPicker,
   MotionBezierCurveEditor,
   MotionNativeStyleEditor,
+  easingPreviewPath,
   type MotionEasingPickerProps,
 } from "./MotionNativeStyleEditor";
 
@@ -100,6 +101,17 @@ describe("MotionNativeStyleEditor", () => {
       expect(
         preview?.querySelector("path[data-curve-path]")?.getAttribute("d"),
       ).toBe(path);
+    },
+  );
+
+  it.each([
+    ["step-end", "M1 14 H15 V2"],
+    ["steps(2, end)", "M1 14 H8 V8 H15 V2"],
+    ["steps(2, start)", "M1 8 H8 V2 H15"],
+  ])(
+    "maps the CSS %s step graph into compact preview coordinates",
+    (ease, path) => {
+      expect(easingPreviewPath(ease)).toBe(path);
     },
   );
 

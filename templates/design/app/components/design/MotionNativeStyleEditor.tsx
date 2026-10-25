@@ -3045,7 +3045,7 @@ function easingPreviewValue(
   return optionValue;
 }
 
-function easingPreviewPath(value: string): string {
+export function easingPreviewPath(value: string): string {
   const spring = parseSpringToken(value);
   if (spring) {
     const samples = Array.from({ length: 13 }, (_, index) => {
@@ -3067,7 +3067,7 @@ function easingPreviewPath(value: string): string {
       .replace(
         /^M\s*(-?[\d.]+)\s+(-?[\d.]+)/,
         (_match, x, y) =>
-          `M${1 + (Number(x) / 100) * 14} ${14 - (Number(y) / 100) * 12}`,
+          `M${1 + (Number(x) / 100) * 14} ${2 + (Number(y) / 100) * 12}`,
       )
       .replace(
         /\s+H\s+(-?[\d.]+)/g,
@@ -3075,7 +3075,7 @@ function easingPreviewPath(value: string): string {
       )
       .replace(
         /\s+V\s+(-?[\d.]+)/g,
-        (_match, y) => ` V${14 - (Number(y) / 100) * 12}`,
+        (_match, y) => ` V${2 + (Number(y) / 100) * 12}`,
       );
   }
   const linearPoints = parseLinearStops(value);
