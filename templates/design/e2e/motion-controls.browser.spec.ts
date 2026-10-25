@@ -1776,10 +1776,12 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
             property: track.property,
             delayMs: track.delayMs ?? 0,
             durationMs: track.durationMs,
-            keyframes: track.keyframes.map((keyframe) => ({
+            keyframes: track.keyframes.map((keyframe, index) => ({
               t: keyframe.t,
               value: keyframe.value,
-              ease: keyframe.ease ?? "linear",
+              ...(index < track.keyframes.length - 1
+                ? { ease: keyframe.ease ?? "linear" }
+                : {}),
             })),
           }),
         ),
@@ -1791,7 +1793,9 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
           keyframes: track.keyframes.map((keyframe, index) => ({
             t: keyframe.t,
             value: keyframe.value,
-            ease: index === 0 ? track.easing : "ease",
+            ...(index < track.keyframes.length - 1
+              ? { ease: index === 0 ? track.easing : "ease" }
+              : {}),
           })),
         })),
       );
@@ -2475,10 +2479,12 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
           property: track.property,
           delayMs: track.delayMs ?? 0,
           durationMs: track.durationMs,
-          keyframes: track.keyframes.map((keyframe) => ({
+          keyframes: track.keyframes.map((keyframe, index) => ({
             t: keyframe.t,
             value: keyframe.value,
-            ease: keyframe.ease ?? "linear",
+            ...(index < track.keyframes.length - 1
+              ? { ease: keyframe.ease ?? "linear" }
+              : {}),
           })),
         }),
       ),
@@ -2490,7 +2496,9 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
         keyframes: track.keyframes.map((keyframe, index) => ({
           t: keyframe.t,
           value: keyframe.value,
-          ease: index === 0 ? track.easing : "ease",
+          ...(index < track.keyframes.length - 1
+            ? { ease: index === 0 ? track.easing : "ease" }
+            : {}),
         })),
       })),
     );

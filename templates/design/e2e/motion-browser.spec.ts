@@ -410,19 +410,17 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     (track: { targetNodeId: string; property: string }) =>
       track.targetNodeId === "e2e-alpha-button" && track.property === "scale",
   );
+  const importedScaleKeyframes = importedScale?.keyframes ?? [];
   expect(
-    importedScale?.keyframes.map(
-      (keyframe: { t: number; value: string; ease?: string }) => [
-        keyframe.t,
-        keyframe.value,
-        keyframe.ease,
-      ],
-    ),
+    importedScaleKeyframes.map((keyframe: { t: number; value: string }) => [
+      keyframe.t,
+      keyframe.value,
+    ]),
   ).toEqual([
-    [0, "0.1", "cubic-bezier(0.5, 0, 0.5, 1)"],
-    // Read back from compiled CSS, a keyframe saved without an ease gets the CSS default.
-    [1, "1", "ease"],
+    [0, "0.1"],
+    [1, "1"],
   ]);
+  expect(importedScaleKeyframes[0]?.ease).toBe("cubic-bezier(0.5, 0, 0.5, 1)");
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();

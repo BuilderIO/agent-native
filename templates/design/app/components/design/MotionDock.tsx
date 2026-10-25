@@ -4505,7 +4505,6 @@ function EasingSegment({
         event.stopPropagation();
         onSelect();
       }}
-      onDoubleClick={(event) => event.stopPropagation()}
       aria-label={t("designEditor.motion.segmentEasing", {
         ease: effectiveLabel,
       })}
