@@ -9068,11 +9068,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
         const scheduleFollowUpDrain = (threadId: string) => {
           const followUpDepth = drainOptions.followUpDepth ?? 0;
-          if (followUpDepth >= 1) return;
+          if (followUpDepth >= 2) return;
+          const waitUntil = getRequestRunContext()?.waitUntil;
           scheduleQueuedSubmissionInboxDrain({
             threadId,
             turnContinues: false,
-            waitUntil: getRequestRunContext()?.waitUntil,
+            ...(waitUntil ? { waitUntil } : {}),
             drain: (input) =>
               drainQueuedSubmissionInbox({
                 ...input,

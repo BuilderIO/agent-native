@@ -277,7 +277,7 @@ class SubprocessApprovalSession implements AgentHarnessSession {
         this.child.kill("SIGKILL");
       }
     }, 2_000);
-    timer.unref?.();
+    timer.unref();
     await this.closed;
     clearTimeout(timer);
   }
@@ -301,7 +301,7 @@ async function main(): Promise<void> {
         await withMigrationRuntime(() => ensureRunTables());
       }
       if (mode === "stale-write") {
-        const staleFence = JSON.parse(extra ?? "null") as ExecutionFence;
+        const staleFence = JSON.parse(extra) as ExecutionFence;
         await withExecutionFence(staleFence, () =>
           insertRunEvent(
             staleFence.runId,
@@ -315,9 +315,7 @@ async function main(): Promise<void> {
       }
       if (mode === "harness-approval-rehydrate-subprocess") {
         await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
-        const { approvalId, ownerEmail, orgId } = JSON.parse(
-          extra ?? "null",
-        ) as {
+        const { approvalId, ownerEmail, orgId } = JSON.parse(extra) as {
           approvalId: string;
           ownerEmail: string;
           orgId: string;
@@ -408,7 +406,7 @@ async function main(): Promise<void> {
           await ensureAgentHarnessSessionTables();
         });
         const { approvalId, ownerEmail, orgId, effectId } = JSON.parse(
-          extra ?? "null",
+          extra,
         ) as {
           approvalId: string;
           ownerEmail: string;
@@ -477,7 +475,11 @@ async function main(): Promise<void> {
         });
 
         if (mode === "harness-follow-up-native-approval-crash") {
-          const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+          const [backendPidRow] = await sql`SELECT pg_backend_pid() AS pid`;
+          if (!backendPidRow) {
+            throw new Error("Postgres did not return a backend pid.");
+          }
+          const { pid } = backendPidRow;
           const result = await sendAgentHarnessFollowUp({
             runId,
             prompt: "Run the native action and request approval",

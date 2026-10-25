@@ -73,6 +73,10 @@ interface LiveAgentHarnessSession {
   expiryCleanupInProgress: boolean;
 }
 
+function isAbortRequested(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 const liveSessions = new Map<string, LiveAgentHarnessSession>();
 const sessionOperations = new Map<string, Promise<void>>();
 const activeFollowUps = new Set<string>();
@@ -293,9 +297,6 @@ export async function resolveAgentHarnessApproval(input: {
         }
       }
       const activeLive = live;
-      if (!activeLive) {
-        throw new Error("Approval claim has no acquired harness session.");
-      }
       if (!activeLive.session.approve && !activeLive.session.continueTurn) {
         const latest = await releaseUndispatchedApprovalResolution({
           runId: input.runId,
@@ -365,9 +366,12 @@ export async function resolveAgentHarnessApproval(input: {
               result,
             };
           }
-          const stream = liveSession.continueTurn!({
+          const stream = liveSession.continueTurn?.({
             approval: input.approval,
           });
+          if (!stream) {
+            throw new Error("Harness session cannot continue an approval.");
+          }
           const iterator = stream[Symbol.asyncIterator]();
           const firstNext = nextHarnessEvent(iterator, approvalAbort.signal);
           void firstNext.catch(() => {});
@@ -443,7 +447,7 @@ export async function resolveAgentHarnessApproval(input: {
       );
       const detachResumeState =
         continued && !nextPending && activeLive.session.detach
-          ? () => activeLive.session.detach!()
+          ? async () => activeLive.session.detach?.()
           : undefined;
       let updated: StoredAgentHarnessSession | null;
       finalizing = true;
@@ -888,16 +892,15 @@ export async function sendAgentHarnessFollowUp(input: {
       let dispatchGeneration = dispatchIntent.generation;
       let continuingNativeTurn = false;
       let physicalRunId = followUpId;
-      while (true) {
-        if (followUpAbort.signal.aborted) {
+      for (;;) {
+        if (isAbortRequested(followUpAbort.signal)) {
           throw (
             followUpAbort.signal.reason ??
             new AgentHarnessSessionConflictError(session.id)
           );
         }
         let firstDispatchResolved = false;
-        let checkpointAttempted = false;
-        let checkpointAvailable = false;
+        const checkpointState = { attempted: false, available: false };
         let runFailure: unknown;
         let resolveFirstDispatch!: (run: StartedRun) => void;
         let rejectFirstDispatch!: (error: unknown) => void;
@@ -907,8 +910,8 @@ export async function sendAgentHarnessFollowUp(input: {
         });
         void firstDispatch.catch(() => {});
         const persistNativeCheckpoint = async (): Promise<boolean> => {
-          if (checkpointAttempted) return checkpointAvailable;
-          checkpointAttempted = true;
+          if (checkpointState.attempted) return checkpointState.available;
+          checkpointState.attempted = true;
           const resumeState = await acquired.live.session.checkpoint?.();
           if (resumeState === undefined) return false;
           const checkpointed = await updateAgentHarnessSessionIfFollowUpClaim(
@@ -926,7 +929,7 @@ export async function sendAgentHarnessFollowUp(input: {
             checkpointed.generation,
           );
           dispatchGeneration = checkpointed.generation;
-          checkpointAvailable = true;
+          checkpointState.available = true;
           return true;
         };
 
@@ -948,21 +951,18 @@ export async function sendAgentHarnessFollowUp(input: {
                 const started = startRun(
                   physicalRunId,
                   session.threadId,
-                  async (send, signal, control) => {
-                    const runControl: RunChunkControl = control ?? {
-                      turnSignal: signal,
-                      chunkSignal: signal,
-                      chunkBoundaryReason: () => null,
-                      beginChunk: () => signal,
-                    };
+                  async (send, _signal, control) => {
+                    const runControl: RunChunkControl = control;
                     try {
                       let firstStream = !continuingNativeTurn;
-                      while (true) {
+                      for (;;) {
                         if (runControl.turnSignal.aborted) return;
                         const stream = firstStream
                           ? acquired.live.session.streamTurn({
                               prompt,
-                              metadata: input.metadata,
+                              ...(input.metadata === undefined
+                                ? {}
+                                : { metadata: input.metadata }),
                               abortSignal: runControl.chunkSignal,
                             })
                           : acquired.live.session.continueTurn?.({
@@ -1020,7 +1020,7 @@ export async function sendAgentHarnessFollowUp(input: {
                             runFailure = error;
                             throw error;
                           }
-                          if (runControl.turnSignal.aborted) {
+                          if (isAbortRequested(runControl.turnSignal)) {
                             await persistNativeCheckpoint();
                             return;
                           }
@@ -1030,8 +1030,8 @@ export async function sendAgentHarnessFollowUp(input: {
                           }
                         }
 
-                        if (runControl.turnSignal.aborted) {
-                          if (followUpAbort.signal.aborted) {
+                        if (isAbortRequested(runControl.turnSignal)) {
+                          if (isAbortRequested(followUpAbort.signal)) {
                             throw (
                               followUpAbort.signal.reason ??
                               new AgentHarnessSessionConflictError(session.id)
@@ -1100,22 +1100,23 @@ export async function sendAgentHarnessFollowUp(input: {
             acquired.live.session,
             dispatch.session.generation,
           );
-          if (followUpAbort.signal.aborted) abortActiveRun();
+          if (isAbortRequested(followUpAbort.signal)) abortActiveRun();
           await activeRun.finalized;
         } finally {
           followUpAbort.signal.removeEventListener("abort", abortActiveRun);
         }
 
-        if (followUpAbort.signal.aborted) {
+        if (isAbortRequested(followUpAbort.signal)) {
           throw (
             followUpAbort.signal.reason ??
             new AgentHarnessSessionConflictError(session.id)
           );
         }
         if (activeRun.status === "errored") {
-          throw (
-            runFailure ?? new Error("The AgentHarness follow-up run failed.")
-          );
+          if (runFailure instanceof Error) throw runFailure;
+          throw new Error("The AgentHarness follow-up run failed.", {
+            cause: runFailure,
+          });
         }
         if (activeRun.status === "aborted") {
           throw new Error(
@@ -1127,8 +1128,10 @@ export async function sendAgentHarnessFollowUp(input: {
           await iteratorClosePromise;
           iteratorClosePromise = undefined;
         }
-        if (!checkpointAttempted && !(await persistNativeCheckpoint())) break;
-        if (!checkpointAvailable) break;
+        if (!checkpointState.attempted && !(await persistNativeCheckpoint())) {
+          break;
+        }
+        if (!checkpointState.available) break;
 
         const latest = await getAgentHarnessSessionByRunId(input.runId);
         if (
@@ -1149,7 +1152,7 @@ export async function sendAgentHarnessFollowUp(input: {
         continuingNativeTurn = true;
         physicalRunId = randomUUID();
       }
-      if (followUpAbort.signal.aborted) {
+      if (isAbortRequested(followUpAbort.signal)) {
         throw (
           followUpAbort.signal.reason ??
           new AgentHarnessSessionConflictError(session.id)

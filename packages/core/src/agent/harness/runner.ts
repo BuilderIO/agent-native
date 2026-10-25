@@ -194,6 +194,12 @@ export function startAgentHarnessRun(
           }
 
           if (pendingApproval) {
+            const currentHarnessSession = harnessSession;
+            if (!currentHarnessSession) {
+              throw new Error(
+                "Harness session is unavailable for checkpointing.",
+              );
+            }
             const stored = await getAgentHarnessSession(storedSessionId);
             const stillPending =
               stored?.pendingApproval &&
@@ -209,8 +215,8 @@ export function startAgentHarnessRun(
                 stored.resumeState,
                 undefined,
                 async () =>
-                  harnessSession!.checkpoint
-                    ? harnessSession!.checkpoint!()
+                  currentHarnessSession.checkpoint
+                    ? currentHarnessSession.checkpoint()
                     : stored.resumeState,
                 true,
               );

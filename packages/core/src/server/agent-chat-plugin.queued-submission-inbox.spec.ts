@@ -37,6 +37,7 @@ const inboxHarness = vi.hoisted(() => ({
     call: number;
   } | null,
   activeRun: null as Record<string, unknown> | null,
+  clearActiveRunAfterLookup: false,
   completeRun: null as ((run: any, threadId?: string) => Promise<void>) | null,
   afterInterruptRunRecorded: null as (() => Promise<void>) | null,
   safeAbort: null as
@@ -220,9 +221,15 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
         inboxHarness.failActiveRunCheckThreadId = null;
         throw new Error("active run status unavailable after claiming head");
       }
-      return inboxHarness.activeRun?.threadId === threadId
-        ? inboxHarness.activeRun
-        : null;
+      const activeRun =
+        inboxHarness.activeRun?.threadId === threadId
+          ? inboxHarness.activeRun
+          : null;
+      if (inboxHarness.clearActiveRunAfterLookup) {
+        inboxHarness.clearActiveRunAfterLookup = false;
+        inboxHarness.activeRun = null;
+      }
+      return activeRun;
     }),
     abortRunAndTurnDurably: vi.fn(
       async (
@@ -456,6 +463,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.afterInboxClaim = null;
     inboxHarness.failReceiptRead = null;
     inboxHarness.activeRun = null;
+    inboxHarness.clearActiveRunAfterLookup = false;
     inboxHarness.completeRun = null;
     inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
@@ -1198,7 +1206,6 @@ describe("queued submission inbox recurring sweep", () => {
       );
       await vi.waitFor(() => expect(inboxHarness.claimBusyCount).toBe(1));
     };
-
     const response = await runSweep();
 
     expect(response.status).toBe(200);
@@ -1211,7 +1218,7 @@ describe("queued submission inbox recurring sweep", () => {
     expect(inboxHarness.admissions).toHaveLength(1);
   }, 20_000);
 
-  it("retries a thread-scoped completion drain after its claim collision", async () => {
+  it("retries thread-scoped completion drains after consecutive claim collisions", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
     const actor = { email: "inbox-owner@example.com", anonymous: false };
@@ -1265,6 +1272,26 @@ describe("queued submission inbox recurring sweep", () => {
       );
       await vi.waitFor(() => expect(inboxHarness.claimBusyCount).toBe(1));
     };
+    inboxHarness.afterInboxClaim = async () => {
+      inboxHarness.afterInboxClaim = async () => {
+        const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before collision");
+        const completionCollision = await mutateThreadQueuedMessages(threadId, {
+          type: "claimFromInbox",
+          receipt,
+          claimId: "completion-drain-during-thread-follow-up",
+        });
+        expect(completionCollision?.claimBusy).toBe(true);
+        inboxHarness.activeRun = {
+          inFlight: true,
+          runId: "run-started-during-thread-follow-up",
+          threadId,
+          turnId: "turn-started-during-thread-follow-up",
+        };
+        inboxHarness.clearActiveRunAfterLookup = true;
+      };
+    };
     await createSweepHandler();
     const onRunComplete = inboxHarness.completeRun;
     if (!onRunComplete) throw new Error("Run completion callback not captured");
@@ -1281,14 +1308,17 @@ describe("queued submission inbox recurring sweep", () => {
       threadId,
     );
 
-    await vi.waitFor(async () => {
-      await expect(
-        getQueuedSubmissionReceipt(threadId, messageId),
-      ).resolves.toMatchObject({ state: "submitted" });
-    });
+    await vi.waitFor(
+      async () => {
+        await expect(
+          getQueuedSubmissionReceipt(threadId, messageId),
+        ).resolves.toMatchObject({ state: "submitted" });
+      },
+      { timeout: 10_000 },
+    );
     expect(inboxHarness.admissionAttempts).toEqual([messageId, messageId]);
     expect(inboxHarness.admissions).toHaveLength(1);
-    expect(inboxHarness.claimBusyCount).toBe(1);
+    expect(inboxHarness.claimBusyCount).toBe(2);
   }, 20_000);
 
   it("surfaces an active-run lookup failure when another drain holds the receipt claim", async () => {

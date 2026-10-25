@@ -1146,7 +1146,6 @@ describe("agent harness lifecycle", () => {
     expect(session.streamTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: "next task",
-        metadata: undefined,
       }),
     );
     expect(mocks.startRun).toHaveBeenCalledOnce();

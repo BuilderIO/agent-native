@@ -17,8 +17,12 @@ export function resolveAgentHarnessRunPolicy(
   const noProgressTimeoutMs = resolveRunNoProgressTimeoutMs({
     softTimeoutMs,
     backgroundFunction,
-    overrideMs: options?.noProgressTimeoutMs,
-    backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
+    ...(options?.noProgressTimeoutMs !== undefined
+      ? { overrideMs: options.noProgressTimeoutMs }
+      : {}),
+    ...(options?.backgroundNoProgressTimeoutMs !== undefined
+      ? { backgroundOverrideMs: options.backgroundNoProgressTimeoutMs }
+      : {}),
   });
 
   return {
