@@ -294,7 +294,7 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
     waitUntil: "domcontentloaded",
   });
   const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
-  await expect(rightPanel).toBeVisible({ timeout: 30_000 });
+  await expect(rightPanel).toBeVisible();
   await expect(page.locator("[data-design-top-bar]")).toHaveCount(0);
   await expect(
     rightPanel.getByRole("button", { name: /^share/i }).first(),

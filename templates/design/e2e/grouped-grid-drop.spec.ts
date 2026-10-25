@@ -6,16 +6,10 @@ import {
   node,
   openEditor,
   postAction,
-  setBaseURL,
-  waitForEditorReady,
 } from "./drag-and-drop.shared";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
 
 const GROUPED_GRID_FIXTURE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Grouped grid drop</title></head>
@@ -208,10 +202,6 @@ test("grouped span-2 grid drop previews without overlap and persists undo/redo p
     /data-agent-native-node-id="occupied-c"[^>]*grid-column:\s*1\s*\/\s*2/i,
   );
   await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForEditorReady(page);
-  await preview(page)
-    .locator('[data-agent-native-node-id="source-a"]')
-    .waitFor({ timeout: 30_000 });
   const afterReloadA = await stylePlacement(page, "source-a");
   const afterReloadB = await stylePlacement(page, "source-b");
   expect(afterReloadA.column).toMatch(/3\s*\/\s*5/);
@@ -359,8 +349,5 @@ test("dropping a two-item group on an occupied grid cell keeps every item inside
   await app.settled();
   expectOnlyChanged(dropped, await app.savedNodes(designId), []);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForEditorReady(page);
-  await expect
-    .poll(() => targetGridBoxes(app), { timeout: 45_000 })
-    .toEqual(boxes);
+  await expect.poll(() => targetGridBoxes(app)).toEqual(boxes);
 });

@@ -502,6 +502,7 @@
     "./agent/harness": "./dist/agent/harness/index.js",
     "./agent/harness/hosted": "./dist/agent/harness/hosted.js",
     "./eval": "./dist/eval/index.js",
+    "./decisions": "./dist/decisions/index.js",
     "./tsconfig.base.json": "./tsconfig.base.json",
     "./client/route-warmup": "./dist/client/route-warmup.js",
     "./client/AgentNativeEmbedded": "./dist/client/AgentNativeEmbedded.js",

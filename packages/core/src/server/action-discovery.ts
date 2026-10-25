@@ -458,6 +458,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
+  "decide",
+  "decisions-status",
   // The client's same-tick GET batching depends on it, so it cannot be gated.
   "get-actions-batch",
   // Any app can mount ReportProblemButton, which needs these.
@@ -472,6 +474,11 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
  */
 export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
   return [
+    ["decide", () => import("../decisions/actions/decide.js")],
+    [
+      "decisions-status",
+      () => import("../decisions/actions/decisions-status.js"),
+    ],
     ["share-resource", () => import("../sharing/actions/share-resource.js")],
     [
       "unshare-resource",

@@ -112,10 +112,7 @@ async function openOverview(app: App, designId: string, screens: number) {
   await app.page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
     waitUntil: "domcontentloaded",
   });
-  // A cold editor boot takes ~12 s on CI runners, as gotoEditor allows for.
-  await expect(app.page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
+  await expect(app.page.locator("[data-screen-shell]")).toHaveCount(screens);
   await expect.poll(() => filenames(app, designId)).toContain(BOARD);
 }
 

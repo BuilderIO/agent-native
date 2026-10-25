@@ -1,12 +1,7 @@
-import {
-  expect,
-  type Locator,
-  type Page,
-  type TestInfo,
-} from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
-import { designFrame, expandAllLayers } from "./helpers";
+import { waitForEditorBoot } from "./editor-boot";
+import { appPath, designFrame, expandAllLayers } from "./helpers";
 
 export const PAGE_W = 1440;
 export const PAGE_H = 900;
@@ -42,22 +37,13 @@ export interface Box {
   height: number;
 }
 
-let baseURL = "";
-
-export function setBaseURL(testInfo: TestInfo): void {
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-}
-
 export async function postAction(
   page: Page,
   name: string,
   input: Record<string, unknown>,
 ) {
   const res = await page.request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
+    appPath(`/_agent-native/actions/${name}`),
     {
       data: input,
       headers: { "Content-Type": "application/json" },
@@ -97,7 +83,7 @@ export async function newDesign(
 
 export async function indexHtml(page: Page, designId: string): Promise<string> {
   const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
+    .get(appPath(`/_agent-native/actions/get-design?id=${designId}`))
     .then((r) => r.json());
   return (
     (result.files ?? []).find((f: any) => f.filename === "index.html")
@@ -160,22 +146,14 @@ export function node(page: Page, id: string): Locator {
   );
 }
 
-/** Booting the editor, on first load or after a reload, takes ~12 s on CI runners. */
-export async function waitForEditorReady(page: Page): Promise<void> {
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-}
-
 export async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
+  const startedAt = Date.now();
+  await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
-  await waitForEditorReady(page);
+  await waitForEditorBoot(page, startedAt);
+  await toolbar(page).locator('button[aria-label="Move"]').waitFor();
+  await page.locator("iframe[data-design-preview-iframe]").first().waitFor();
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }

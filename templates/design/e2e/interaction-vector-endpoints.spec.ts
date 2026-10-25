@@ -1,6 +1,6 @@
 import { type Page } from "@playwright/test";
 
-import { designFrame, expandAllLayers, waitForEditorBoot } from "./helpers";
+import { designFrame, expandAllLayers } from "./helpers";
 import { childrenOf, expect, expectOnlyChanged, styleOf, test } from "./rails";
 
 const SCREEN_HTML = `<!doctype html>
@@ -225,7 +225,6 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
   expect(persistedReversed).toMatch(/refX=["']0["']/);
 
   await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForEditorBoot(page);
   await expect
     .poll(async () => liveEndpoints(page, "endpoint-line"), {
       timeout: 40_000,
@@ -315,7 +314,6 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
   expect(persisted).toMatch(/stroke-width:\s*6px/);
 
   await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForEditorBoot(page);
   await expect
     .poll(async () => liveEndpoints(page, "endpoint-line"), {
       timeout: 40_000,

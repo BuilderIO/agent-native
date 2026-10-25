@@ -403,7 +403,7 @@ async function assertEmptyLayersState(page: Page): Promise<void> {
   });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   const layersPanel = page.locator("[data-layers-panel]");
   await expect(layersPanel).toContainText("No layers");
   await expect(layersPanel.locator("[data-screen-section]")).toHaveCount(0);
@@ -444,8 +444,6 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
   app,
   page,
 }) => {
-  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
-  test.setTimeout(180_000);
   await mkdir(ARTIFACT_DIR, { recursive: true });
   const designId = await app.seed(CHROME_FIXTURE, { title: "Chrome geometry" });
   await gotoEditor(page, designId);

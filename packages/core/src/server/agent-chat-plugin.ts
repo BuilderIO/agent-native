@@ -2352,6 +2352,7 @@ export function createAgentChatPlugin(
           workspaceAppsEnabled: input.workspaceAppsEnabled,
           apiKey: credentials.apiKey,
           personalApiKey: credentials.personalApiKey,
+          directApiKey: credentials.directApiKey,
           builderAuth: credentials.builderAuth,
           appDiscoveryOnly: true,
         });

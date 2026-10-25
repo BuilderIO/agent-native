@@ -236,9 +236,7 @@ async function openOverview(
   await page.goto(appPath(`/design/${designId}?view=overview&zoom=100`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]").first()).toBeVisible({
-    timeout: 40_000,
-  });
+  await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
   const preview = page.locator(previewSelector).first().contentFrame();
   await expect(preview.locator(contentSelector)).toBeVisible({
     timeout: 20_000,

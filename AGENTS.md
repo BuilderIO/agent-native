@@ -15,6 +15,7 @@ this file records only invariants.
 A few entry points:
 
 - `adding-a-feature` — four-area feature checklist.
+- `decisions` — when using capability-aware classification and scoring.
 - `content-product-development` — Content's product contract and shared changes.
 - `writing-agent-instructions` — before editing instructions, skills, or tool/action descriptions.
 - `verifying-changes` — exercise the broken path before calling a fix done.

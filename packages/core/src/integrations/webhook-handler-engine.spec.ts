@@ -784,7 +784,8 @@ describe("integration webhook handler engine resolution", () => {
       };
       getJevContextCredentialsMock.mockResolvedValueOnce({
         apiKey: "owner-jev-key",
-        personalApiKey: "owner-jev-key",
+        personalApiKey: undefined,
+        directApiKey: "owner-jev-key",
         builderAuth: null,
       });
 
@@ -834,7 +835,8 @@ describe("integration webhook handler engine resolution", () => {
           orgId: "org-qa",
           workspaceAppsEnabled: true,
           apiKey: "owner-jev-key",
-          personalApiKey: "owner-jev-key",
+          personalApiKey: undefined,
+          directApiKey: "owner-jev-key",
           builderAuth: null,
         }),
       );

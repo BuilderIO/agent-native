@@ -22,6 +22,8 @@ Before creating any custom route for app data, check `actions/` and the action t
 
 An action may call a provider API, validate data, and persist records without being an AI feature — keep it deterministic, focused, and independently useful to the agent. Don't put LLM calls or a second model runtime in app actions.
 
+The sanctioned model-backed exception is `@agent-native/core/decisions` for capability-aware classification and scoring, and it returns a result without performing or authorizing the selected action.
+
 When a workflow is research, analysis, generation, recommendation, or synthesis — or spans several provider calls and writes — route it to the AgentSidebar via `sendToAgentChat({ openSidebar: true })` and let the agent orchestrate focused actions instead of hiding an AI-shaped workflow behind one opaque `generate-*`/`create-*` action just because its implementation happens to be deterministic.
 
 ## How to Create an Action
