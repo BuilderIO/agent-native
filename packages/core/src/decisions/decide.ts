@@ -494,40 +494,35 @@ export async function getDecisionsStatus(
 
   throwIfAborted();
   let openAiLookupFailed = false;
-  const openAiLookup = await waitForLookup(
-    getOwnerApiKeyForEngine("ai-sdk:openai", ownerEmail, {
-      allowDeploymentFallback: false,
-      onLookupFailure: () => (openAiLookupFailed = true),
-    }),
-    signal,
-    Math.max(0, deadlineAt - Date.now()),
-  );
+  const credentialTimeoutMs = Math.max(0, deadlineAt - Date.now());
+  const [openAiLookup, jevLookup] = await Promise.all([
+    waitForLookup(
+      getOwnerApiKeyForEngine("ai-sdk:openai", ownerEmail, {
+        allowDeploymentFallback: false,
+        onLookupFailure: () => (openAiLookupFailed = true),
+      }),
+      signal,
+      credentialTimeoutMs,
+    ),
+    waitForLookup(
+      getJevContextCredentials(ownerEmail),
+      signal,
+      credentialTimeoutMs,
+    ),
+  ]);
   if (openAiLookup.status === "aborted") throwIfLookupAborted(signal);
-  if (openAiLookup.status === "timeout") {
-    throwIfAborted();
-    return status("unknown", "unknown");
-  }
-  const openAi = openAiLookup.value;
-  const openAiStatus = openAiLookupFailed
-    ? "unknown"
-    : openAi.credentialProvenance?.scope === "deployment"
-      ? "not_configured"
-      : openAi.apiKey
-        ? "ready"
-        : "not_configured";
-
-  throwIfAborted();
-  const jevTimeoutMs = Math.max(0, deadlineAt - Date.now());
-  if (jevTimeoutMs <= 0) {
-    throwIfAborted();
-    return status(openAiStatus, "unknown");
-  }
-  const jevLookup = await waitForLookup(
-    getJevContextCredentials(ownerEmail),
-    signal,
-    jevTimeoutMs,
-  );
   if (jevLookup.status === "aborted") throwIfLookupAborted(signal);
+
+  const openAiStatus =
+    openAiLookup.status === "timeout"
+      ? "unknown"
+      : openAiLookupFailed
+        ? "unknown"
+        : openAiLookup.value.credentialProvenance?.scope === "deployment"
+          ? "not_configured"
+          : openAiLookup.value.apiKey
+            ? "ready"
+            : "not_configured";
   if (jevLookup.status === "timeout") {
     throwIfAborted();
     return status(openAiStatus, "unknown");

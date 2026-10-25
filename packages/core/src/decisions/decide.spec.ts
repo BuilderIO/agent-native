@@ -378,12 +378,17 @@ describe("decide", () => {
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     resolveLookup({ apiKey: "openai-test-key" });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
-  it("returns unknown when the OpenAI status credential lookup times out", async () => {
+  it("checks Jev readiness when the OpenAI status credential lookup times out", async () => {
     vi.useFakeTimers();
     mocks.getOwnerApiKeyForEngine.mockReturnValue(new Promise(() => {}));
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
+      builderAuth: null,
+    });
 
     const pending = getDecisionsStatus(ownerEmail);
     await vi.advanceTimersByTimeAsync(10_000);
@@ -391,10 +396,10 @@ describe("decide", () => {
     await expect(pending).resolves.toMatchObject({
       providers: [
         { provider: "openai", status: "unknown" },
-        { provider: "jev", status: "unknown" },
+        { provider: "jev", status: "ready" },
       ],
     });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
   it("bounds status credential and entitlement checks to the configured timeout", async () => {
