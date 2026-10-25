@@ -179,6 +179,7 @@ function SectionHead({ heading }: { heading: string }) {
 }
 
 export function UseCasePageV2({ page }: { page: Page }) {
+  const { locale } = useLocale();
   const appId = page.app === "plans" ? "plan" : page.app;
   const AppIcon = APP_ICONS[page.app];
   const ctaHref = firstPartyAppUrl(page.hero.button.url);
@@ -343,7 +344,7 @@ export function UseCasePageV2({ page }: { page: Page }) {
                     key={card.url}
                     title={card.title}
                     body={card.body}
-                    href={sitePath(card.url)}
+                    href={campaignHref(sitePath(card.url), locale)}
                   />
                 ))}
               </div>

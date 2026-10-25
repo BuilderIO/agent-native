@@ -1,20 +1,46 @@
-import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import {
+  useLoaderData,
+  type LoaderFunctionArgs,
+  type MetaDescriptor,
+} from "react-router";
 
-import { USE_CASES_BASE } from "../../lib/campaign-content";
+import {
+  USE_CASES_BASE,
+  type UseCasePageEntry,
+  type UseCasePageV2,
+} from "../../lib/campaign-content";
 import { loadCampaignContent } from "../../lib/campaign-content.server";
 import {
   newestArticles,
   publicArticle,
   publicUseCase,
 } from "../components/campaign/public-content";
-import { UseCasePageV2 } from "../components/campaign/use-case-page-v2";
+import { UseCasePageV2 as UseCasePageV2View } from "../components/campaign/use-case-page-v2";
 import { UseCasePage } from "../components/campaign/use-cases";
+import {
+  DEFAULT_DOCS_LOCALE,
+  sitePathForLocale,
+} from "../components/docs-locale";
 import { campaignMeta } from "../lib/campaign-seo";
+
+const SITE_URL = "https://www.agent-native.com";
+
+/** A new-style page in one language, and every language it exists in. */
+export function useCasePageData(entry: UseCasePageEntry, page: UseCasePageV2) {
+  return {
+    version: "v2" as const,
+    page,
+    locales: [DEFAULT_DOCS_LOCALE, ...Object.keys(entry.translations)],
+  };
+}
 
 export function loader({ params }: LoaderFunctionArgs) {
   const content = loadCampaignContent();
-  const page = content.useCasePages.find((item) => item.slug === params.slug);
-  if (page) return { version: "v2" as const, page };
+  const entry = content.useCasePages.find((item) => item.slug === params.slug);
+  if (entry) {
+    const { translations: _translations, ...page } = entry;
+    return useCasePageData(entry, page);
+  }
   const item = content.useCases.find((item) => item.slug === params.slug);
   if (!item) throw new Response(null, { status: 404 });
   return {
@@ -39,28 +65,44 @@ export const meta = ({
 }) => {
   const content = data ?? loaderData;
   if (!content) return [];
-  const { title, description, slug } =
-    content.version === "v2"
-      ? {
-          title: content.page.seo_title,
-          description: content.page.meta_description,
-          slug: content.page.slug,
-        }
-      : {
-          title: content.item.title,
-          description: content.item.meta_description,
-          slug: content.item.slug,
-        };
+  if (content.version === "v2") {
+    const path = `${USE_CASES_BASE}/${content.page.slug}/`;
+    // Every language version names all the others, and English is the default.
+    const alternates: MetaDescriptor[] = [
+      ...content.locales.map((locale) => ({
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: locale,
+        href: `${SITE_URL}${sitePathForLocale(path, locale)}`,
+      })),
+      {
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: "x-default",
+        href: `${SITE_URL}${path}`,
+      },
+    ];
+    return [
+      ...campaignMeta(
+        content.page.seo_title,
+        content.page.meta_description,
+        `${USE_CASES_BASE}/${content.page.slug}`,
+        "website",
+        params?.locale,
+      ),
+      ...alternates,
+    ];
+  }
   return campaignMeta(
-    title,
-    description,
-    `${USE_CASES_BASE}/${slug}`,
+    content.item.title,
+    content.item.meta_description,
+    `${USE_CASES_BASE}/${content.item.slug}`,
     "website",
     params?.locale,
   );
 };
 export default function UseCaseRoute() {
   const data = useLoaderData<typeof loader>();
-  if (data.version === "v2") return <UseCasePageV2 page={data.page} />;
+  if (data.version === "v2") return <UseCasePageV2View page={data.page} />;
   return <UseCasePage {...data} />;
 }

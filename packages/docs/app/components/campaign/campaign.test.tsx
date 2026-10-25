@@ -2692,9 +2692,14 @@ describe("public campaign frontend", () => {
         `${pathname}?utm_source=test`,
       );
     }
+    // Localized use-case pages render when a translation exists (below).
+    expect(Object.keys(localizedCampaignRoute1).sort()).toEqual([
+      "default",
+      "loader",
+      "meta",
+    ]);
     for (const alias of [
       localizedCampaignRoute0,
-      localizedCampaignRoute1,
       localizedCampaignRoute2,
       localizedCampaignRoute3,
       localizedCampaignRoute4,
@@ -2703,6 +2708,37 @@ describe("public campaign frontend", () => {
     ]) {
       expect(Object.keys(alias)).toEqual(["loader"]);
     }
+  });
+
+  it("serves a translated new-style use-case page and redirects languages it lacks", () => {
+    const german = {
+      slug: "translated-page",
+      app: "slides",
+      title: "Auf Deutsch",
+    };
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [
+        {
+          ...german,
+          title: "In English",
+          translations: { "de-DE": german },
+        } as never,
+      ],
+      useCases: [],
+      articles: [],
+    });
+    const translated = localizedCampaignRoute1.loader(
+      args({ locale: "de-de", slug: "translated-page" }),
+    ) as { version: string; page: { title: string }; locales: string[] };
+    expect(translated.page.title).toBe("Auf Deutsch");
+    expect(translated.locales).toEqual(["en-US", "de-DE"]);
+    const untranslated = localizedCampaignRoute1.loader(
+      args({ locale: "fr-fr", slug: "translated-page" }),
+    ) as Response;
+    expect(untranslated.status).toBe(301);
+    expect(untranslated.headers.get("Location")).toBe(
+      "/use-cases/translated-page/?utm_source=test",
+    );
   });
 
   it("returns 404 for invalid localized campaign routes or locale tags", () => {

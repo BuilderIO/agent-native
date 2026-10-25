@@ -235,16 +235,23 @@ const useCasePageSchema = z.object({
 });
 export type PublicUseCase = z.infer<typeof useCaseSchema>;
 export type UseCasePageV2 = z.infer<typeof useCasePageSchema>;
+/** A new-style page in English, with its translations keyed by locale ("de-DE"). */
+export type UseCasePageEntry = UseCasePageV2 & {
+  translations: Partial<Record<string, UseCasePageV2>>;
+};
 export type PublicArticle = z.infer<typeof articleSchema>;
 export type CampaignContent = {
   useCases: PublicUseCase[];
-  useCasePages: UseCasePageV2[];
+  useCasePages: UseCasePageEntry[];
   articles: PublicArticle[];
 };
 export type CampaignSources = {
   useCases: Record<string, string>;
+  /** content/use-cases/<locale>/<slug>.yaml: translations of new-style pages. */
+  useCaseTranslations?: Record<string, string>;
   articles: Record<string, string>;
 };
+const LOCALE_FOLDER = /\/([a-z]{2}-[A-Z]{2})\/[^/]+\.yaml$/;
 
 function parseFiles<T extends { slug: string }>(
   sources: Record<string, string>,
@@ -292,7 +299,28 @@ export function parseCampaignContent(
       Object.entries(sources.useCases).filter(([, raw]) => isV2(raw) === v2),
     );
   const useCases = parseFiles(pick(false), useCaseSchema, false);
-  const useCasePages = parseFiles(pick(true), useCasePageSchema, false);
+  const translations = parseFiles(
+    sources.useCaseTranslations ?? {},
+    useCasePageSchema,
+    false,
+  );
+  const translationFiles = Object.keys(sources.useCaseTranslations ?? {}).sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const useCasePages = parseFiles(pick(true), useCasePageSchema, false).map(
+    (page): UseCasePageEntry => ({ ...page, translations: {} }),
+  );
+  const pagesBySlug = new Map(useCasePages.map((page) => [page.slug, page]));
+  translations.forEach((translation, index) => {
+    const file = translationFiles[index]!;
+    const locale = LOCALE_FOLDER.exec(file)?.[1];
+    const page = pagesBySlug.get(translation.slug);
+    if (!locale || !page || page.app !== translation.app)
+      throw new Error(
+        `[campaign-content] ${file}: invalid content (a translation must sit in a locale folder and match an English page's slug and app)`,
+      );
+    page.translations[locale] = translation;
+  });
   const bySlug = new Map(useCases.map((item) => [item.slug, item]));
   const articles = parseFiles(sources.articles, articleSchema, true)
     .map((article) => {

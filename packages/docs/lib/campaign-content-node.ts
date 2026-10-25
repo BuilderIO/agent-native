@@ -25,8 +25,18 @@ export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
       });
     }
   }
+  const localeFolders = fs
+    .readdirSync(path.resolve(rootDir, "content", "use-cases"), {
+      withFileTypes: true,
+    })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join("use-cases", entry.name));
   return parseCampaignContent({
     useCases: readSources("use-cases", ".yaml"),
+    useCaseTranslations: Object.assign(
+      {},
+      ...localeFolders.map((folder) => readSources(folder, ".yaml")),
+    ),
     articles: readSources("articles", ".md"),
   });
 }
