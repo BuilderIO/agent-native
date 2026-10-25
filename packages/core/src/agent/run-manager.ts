@@ -407,6 +407,7 @@ function shouldCaptureRunError(err: unknown): boolean {
 export interface StartRunOptions {
   waitUntil?: (promise: Promise<unknown>) => void;
   softTimeoutMs?: number;
+  softTimeoutDeadlineAt?: number;
   useHostedSoftTimeoutDefault?: boolean;
   turnId?: string;
   agentKitApprovalContinuation?: boolean;
@@ -835,6 +836,12 @@ export function startRun(
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
 ): StartedRun {
+  if (
+    options?.softTimeoutDeadlineAt !== undefined &&
+    !Number.isFinite(options.softTimeoutDeadlineAt)
+  ) {
+    throw new Error("Run soft-timeout deadline must be a finite timestamp.");
+  }
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
     if (existingRunId === runId) {
@@ -1789,6 +1796,16 @@ export function startRun(
     useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
     backgroundFunction: options?.backgroundFunction === true,
   });
+  const hasSoftTimeout =
+    softTimeoutMs > 0 || options?.softTimeoutDeadlineAt !== undefined;
+  const runDeadlineAt = hasSoftTimeout
+    ? Math.min(
+        softTimeoutMs > 0
+          ? Date.now() + softTimeoutMs
+          : Number.POSITIVE_INFINITY,
+        options?.softTimeoutDeadlineAt ?? Number.POSITIVE_INFINITY,
+      )
+    : null;
   const noProgressTimeoutMs = resolveRunNoProgressTimeoutMs({
     softTimeoutMs,
     backgroundFunction: options?.backgroundFunction === true,
@@ -1796,15 +1813,17 @@ export function startRun(
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
   const softTimeoutTimer =
-    softTimeoutMs > 0 && !recoverChunkBoundaries
-      ? setTimeout(() => {
-          reachRunBoundary("run_timeout", {
-            lastEventType: run.events.at(-1)?.event.type,
-          });
-        }, softTimeoutMs)
+    hasSoftTimeout && !recoverChunkBoundaries
+      ? setTimeout(
+          () => {
+            reachRunBoundary("run_timeout", {
+              lastEventType: run.events.at(-1)?.event.type,
+            });
+          },
+          Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),
+        )
       : null;
-  if (recoverChunkBoundaries && softTimeoutMs > 0) {
-    const runDeadlineAt = Date.now() + softTimeoutMs;
+  if (recoverChunkBoundaries && hasSoftTimeout) {
     recoverableRunDeadlineAt = runDeadlineAt;
     armChunkSoftTimeout = () => {
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
@@ -1816,7 +1835,7 @@ export function startRun(
             lastEventType: run.events.at(-1)?.event.type,
           });
         },
-        Math.max(0, runDeadlineAt - Date.now()),
+        Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),
       );
     };
     armChunkSoftTimeout();

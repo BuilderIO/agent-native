@@ -42,6 +42,7 @@ import {
   type StoredAgentHarnessSession,
 } from "./store.js";
 import { agentHarnessEventToAgentChatEvents } from "./translate.js";
+import { driveAgentHarnessTurnChunks } from "./turn-driver.js";
 import type {
   AgentHarnessAdapter,
   AgentHarnessApproval,
@@ -892,6 +893,11 @@ export async function sendAgentHarnessFollowUp(input: {
       let dispatchGeneration = dispatchIntent.generation;
       let continuingNativeTurn = false;
       let physicalRunId = followUpId;
+      let softTimeoutDeadlineAt: number | undefined;
+      const followUpRunOptions = agentHarnessFollowUpRunOptions(
+        session.runPolicy,
+      );
+      const followUpSoftTimeoutMs = followUpRunOptions.softTimeoutMs ?? 0;
       for (;;) {
         if (isAbortRequested(followUpAbort.signal)) {
           throw (
@@ -948,118 +954,137 @@ export async function sendAgentHarnessFollowUp(input: {
             claimId,
             () => {
               try {
+                if (
+                  softTimeoutDeadlineAt === undefined &&
+                  followUpSoftTimeoutMs > 0
+                ) {
+                  softTimeoutDeadlineAt = Date.now() + followUpSoftTimeoutMs;
+                }
                 const started = startRun(
                   physicalRunId,
                   session.threadId,
                   async (send, _signal, control) => {
                     const runControl: RunChunkControl = control;
                     try {
-                      let firstStream = !continuingNativeTurn;
-                      for (;;) {
-                        if (runControl.turnSignal.aborted) return;
-                        const stream = firstStream
-                          ? acquired.live.session.streamTurn({
-                              prompt,
-                              ...(input.metadata === undefined
-                                ? {}
-                                : { metadata: input.metadata }),
-                              abortSignal: runControl.chunkSignal,
-                            })
-                          : acquired.live.session.continueTurn?.({
-                              abortSignal: runControl.chunkSignal,
-                            });
-                        firstStream = false;
-                        if (!stream) return;
-
-                        const iterator = stream[Symbol.asyncIterator]();
-                        const firstNext = nextHarnessEvent(
-                          iterator,
-                          runControl.chunkSignal,
-                        );
-                        void firstNext.catch(() => {});
-                        providerDispatchStarted = true;
-                        if (!firstDispatchResolved) {
-                          firstDispatchResolved = true;
-                          if (activeRun) resolveFirstDispatch(activeRun);
-                        }
-
-                        try {
-                          await consumeEvents(
-                            stream,
-                            events,
-                            input.onHarnessEvent,
-                            session.id,
-                            {
-                              followUpClaimId: claimId,
-                              abortSignal: runControl.chunkSignal,
-                              firstNext,
-                              iterator,
-                              liveSession: acquired.live.session,
-                              allowCurrentApprovalResolution: true,
-                              persistEvent: async (event) => {
-                                for (const chatEvent of agentHarnessEventToAgentChatEvents(
-                                  event,
-                                )) {
-                                  await persistAgentHarnessFollowUpEvent(
-                                    session.id,
-                                    followUpId,
-                                    claimId,
-                                    chatEvent,
-                                  );
-                                  await send(chatEvent);
-                                }
+                      await driveAgentHarnessTurnChunks({
+                        session: acquired.live.session,
+                        ...(continuingNativeTurn
+                          ? {}
+                          : {
+                              input: {
+                                prompt,
+                                ...(input.metadata === undefined
+                                  ? {}
+                                  : { metadata: input.metadata }),
                               },
-                              onAbortIteratorClose: (closePromise) => {
-                                iteratorClosePromise = closePromise;
-                                void closePromise.catch(() => {});
-                              },
-                            },
+                            }),
+                        control: runControl,
+                        consume: async (stream) => {
+                          const iterator = stream[Symbol.asyncIterator]();
+                          const firstNext = nextHarnessEvent(
+                            iterator,
+                            runControl.chunkSignal,
                           );
-                        } catch (error) {
-                          if (followUpAbort.signal.aborted) {
-                            runFailure = error;
-                            throw error;
+                          void firstNext.catch(() => {});
+                          providerDispatchStarted = true;
+                          if (!firstDispatchResolved) {
+                            firstDispatchResolved = true;
+                            if (activeRun) resolveFirstDispatch(activeRun);
                           }
-                          if (isAbortRequested(runControl.turnSignal)) {
-                            await persistNativeCheckpoint();
-                            return;
-                          }
-                          if (!runControl.chunkBoundaryReason()) {
-                            runFailure = error;
-                            throw error;
-                          }
-                        }
 
-                        if (isAbortRequested(runControl.turnSignal)) {
-                          if (isAbortRequested(followUpAbort.signal)) {
-                            throw (
-                              followUpAbort.signal.reason ??
-                              new AgentHarnessSessionConflictError(session.id)
+                          try {
+                            await consumeEvents(
+                              stream,
+                              events,
+                              input.onHarnessEvent,
+                              session.id,
+                              {
+                                followUpClaimId: claimId,
+                                abortSignal: runControl.chunkSignal,
+                                firstNext,
+                                iterator,
+                                liveSession: acquired.live.session,
+                                allowCurrentApprovalResolution: true,
+                                persistEvent: async (event) => {
+                                  for (const chatEvent of agentHarnessEventToAgentChatEvents(
+                                    event,
+                                  )) {
+                                    await persistAgentHarnessFollowUpEvent(
+                                      session.id,
+                                      followUpId,
+                                      claimId,
+                                      chatEvent,
+                                    );
+                                    await send(chatEvent);
+                                  }
+                                },
+                                onAbortIteratorClose: (closePromise) => {
+                                  iteratorClosePromise = closePromise;
+                                  void closePromise.catch(() => {});
+                                },
+                              },
                             );
+                            return;
+                          } catch (error) {
+                            if (followUpAbort.signal.aborted) {
+                              runFailure = error;
+                              throw error;
+                            }
+                            if (isAbortRequested(runControl.turnSignal)) {
+                              await persistNativeCheckpoint();
+                              return "stop";
+                            }
+                            if (!runControl.chunkBoundaryReason()) {
+                              runFailure = error;
+                              throw error;
+                            }
                           }
-                          await persistNativeCheckpoint();
+
+                          if (isAbortRequested(runControl.turnSignal)) {
+                            if (isAbortRequested(followUpAbort.signal)) {
+                              throw (
+                                followUpAbort.signal.reason ??
+                                new AgentHarnessSessionConflictError(session.id)
+                              );
+                            }
+                            await persistNativeCheckpoint();
+                            return "stop";
+                          }
+                        },
+                        afterStream: async () => {
+                          if (isAbortRequested(runControl.turnSignal)) {
+                            if (isAbortRequested(followUpAbort.signal)) {
+                              throw (
+                                followUpAbort.signal.reason ??
+                                new AgentHarnessSessionConflictError(session.id)
+                              );
+                            }
+                            await persistNativeCheckpoint();
+                            return "stop";
+                          }
+                          const latest = await getAgentHarnessSessionByRunId(
+                            input.runId,
+                          );
+                          const pending = asPendingApproval(
+                            latest?.pendingApproval,
+                          );
+                          if (
+                            pending &&
+                            !latest?.resolvedApprovalIds?.includes(pending.id)
+                          ) {
+                            return "stop";
+                          }
+                          if (
+                            runControl.chunkBoundaryReason() &&
+                            acquired.live.session.continueTurn &&
+                            iteratorClosePromise
+                          ) {
+                            await iteratorClosePromise;
+                            iteratorClosePromise = undefined;
+                          }
                           return;
-                        }
-                        const latest = await getAgentHarnessSessionByRunId(
-                          input.runId,
-                        );
-                        const pending = asPendingApproval(
-                          latest?.pendingApproval,
-                        );
-                        if (
-                          pending &&
-                          !latest?.resolvedApprovalIds?.includes(pending.id)
-                        ) {
-                          return;
-                        }
-                        if (!runControl.chunkBoundaryReason()) return;
-                        if (!acquired.live.session.continueTurn) return;
-                        if (iteratorClosePromise) {
-                          await iteratorClosePromise;
-                          iteratorClosePromise = undefined;
-                        }
-                        if (runControl.beginChunk().aborted) return;
-                      }
+                        },
+                      });
                     } catch (error) {
                       runFailure ??= error;
                       throw error;
@@ -1067,7 +1092,10 @@ export async function sendAgentHarnessFollowUp(input: {
                   },
                   undefined,
                   {
-                    ...agentHarnessFollowUpRunOptions(session.runPolicy),
+                    ...followUpRunOptions,
+                    ...(softTimeoutDeadlineAt === undefined
+                      ? {}
+                      : { softTimeoutDeadlineAt }),
                     turnId: followUpId,
                     parentId: input.runId,
                   },
@@ -1124,6 +1152,12 @@ export async function sendAgentHarnessFollowUp(input: {
           );
         }
         if (activeRun.status !== "truncated") break;
+        if (
+          softTimeoutDeadlineAt !== undefined &&
+          Date.now() >= softTimeoutDeadlineAt
+        ) {
+          break;
+        }
         if (iteratorClosePromise) {
           await iteratorClosePromise;
           iteratorClosePromise = undefined;

@@ -22,6 +22,7 @@ import {
   updateAgentHarnessSessionAtGeneration,
 } from "./store.js";
 import { agentHarnessEventToAgentChatEvents } from "./translate.js";
+import { driveAgentHarnessTurnChunks } from "./turn-driver.js";
 import type {
   AgentHarnessAdapter,
   AgentHarnessCreateSessionOptions,
@@ -142,109 +143,104 @@ export function startAgentHarnessRun(
           ...opts.input,
           abortSignal: runControl.chunkSignal,
         };
+        const currentHarnessSession = harnessSession;
+        if (!currentHarnessSession || !storedSessionId) {
+          throw new Error("Harness session is unavailable for turn driving.");
+        }
+        const currentStoredSessionId = storedSessionId;
+        let checkpointHandled = false;
 
-        let firstStream = true;
         let pendingApproval: Extract<
           AgentHarnessEvent,
           { type: "approval-request" }
         > | null = null;
-        while (true) {
-          pendingApproval = null;
-          const events = firstStream
-            ? harnessSession.streamTurn(input)
-            : harnessSession.continueTurn!({
-                abortSignal: runControl.chunkSignal,
-              });
-          firstStream = false;
-          try {
-            for await (const event of events) {
-              if (runControl.turnSignal.aborted) break;
-              if (event.type === "approval-request") {
-                pendingApproval = event;
-                await updateLiveAgentHarnessSession(
-                  storedSessionId,
-                  harnessSession,
-                  { pendingApproval: event },
+        await driveAgentHarnessTurnChunks({
+          session: currentHarnessSession,
+          input,
+          control: runControl,
+          consume: async (events) => {
+            pendingApproval = null;
+            try {
+              for await (const event of events) {
+                if (runControl.turnSignal.aborted) break;
+                if (event.type === "approval-request") {
+                  pendingApproval = event;
+                  await updateLiveAgentHarnessSession(
+                    currentStoredSessionId,
+                    currentHarnessSession,
+                    { pendingApproval: event },
+                  );
+                }
+                await opts.onHarnessEvent?.(event);
+                if (event.type === "error") {
+                  throw new Error(event.error);
+                }
+                for (const chatEvent of agentHarnessEventToAgentChatEvents(
+                  event,
+                )) {
+                  send(chatEvent);
+                }
+              }
+            } catch (error) {
+              if (
+                runControl.turnSignal.aborted ||
+                !runControl.chunkBoundaryReason()
+              ) {
+                throw error;
+              }
+            }
+          },
+          afterStream: async () => {
+            if (pendingApproval) {
+              const stored = await getAgentHarnessSession(
+                currentStoredSessionId,
+              );
+              const stillPending =
+                stored?.pendingApproval &&
+                typeof stored.pendingApproval === "object" &&
+                "id" in stored.pendingApproval &&
+                stored.pendingApproval.id === pendingApproval.id &&
+                !stored.resolvedApprovalIds?.includes(pendingApproval.id);
+              if (stillPending) {
+                keepLiveSession = true;
+                await persistHarnessCheckpoint(
+                  currentStoredSessionId,
+                  currentHarnessSession,
+                  stored.resumeState,
+                  undefined,
+                  async () =>
+                    currentHarnessSession.checkpoint
+                      ? currentHarnessSession.checkpoint()
+                      : stored.resumeState,
+                  true,
                 );
-              }
-              await opts.onHarnessEvent?.(event);
-              if (event.type === "error") {
-                throw new Error(event.error);
-              }
-              for (const chatEvent of agentHarnessEventToAgentChatEvents(
-                event,
-              )) {
-                send(chatEvent);
+                checkpointHandled = true;
+                return "stop";
               }
             }
-          } catch (error) {
+
             if (
-              runControl.turnSignal.aborted ||
-              !runControl.chunkBoundaryReason()
+              runControl.chunkBoundaryReason() &&
+              !currentHarnessSession.continueTurn
             ) {
-              throw error;
-            }
-          }
-
-          if (runControl.turnSignal.aborted) {
-            await markAgentHarnessSessionStopped(storedSessionId, "stopped");
-            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-            await stopHarnessSession(harnessSession);
-            return;
-          }
-
-          if (pendingApproval) {
-            const currentHarnessSession = harnessSession;
-            if (!currentHarnessSession) {
-              throw new Error(
-                "Harness session is unavailable for checkpointing.",
+              await saveHarnessCheckpoint(
+                currentStoredSessionId,
+                currentHarnessSession,
+                opts.createSession?.resumeState,
+                detachOnComplete,
+                detachOnComplete
+                  ? releaseLiveSessionBeforeCheckpoint
+                  : undefined,
               );
-            }
-            const stored = await getAgentHarnessSession(storedSessionId);
-            const stillPending =
-              stored?.pendingApproval &&
-              typeof stored.pendingApproval === "object" &&
-              "id" in stored.pendingApproval &&
-              stored.pendingApproval.id === pendingApproval.id &&
-              !stored.resolvedApprovalIds?.includes(pendingApproval.id);
-            if (stillPending) {
-              keepLiveSession = true;
-              await persistHarnessCheckpoint(
-                storedSessionId,
-                harnessSession,
-                stored.resumeState,
-                undefined,
-                async () =>
-                  currentHarnessSession.checkpoint
-                    ? currentHarnessSession.checkpoint()
-                    : stored.resumeState,
-                true,
-              );
-              return;
-            }
-          }
-
-          if (!runControl.chunkBoundaryReason()) break;
-          if (!harnessSession.continueTurn) {
-            await saveHarnessCheckpoint(
-              storedSessionId,
-              harnessSession,
-              opts.createSession?.resumeState,
-              detachOnComplete,
-              detachOnComplete ? releaseLiveSessionBeforeCheckpoint : undefined,
-            );
-            if (!detachOnComplete) {
-              keepLiveSession = true;
+              checkpointHandled = true;
+              if (!detachOnComplete) {
+                keepLiveSession = true;
+              }
+              return "stop";
             }
             return;
-          }
-          if (runControl.beginChunk().aborted) {
-            await markAgentHarnessSessionStopped(storedSessionId, "stopped");
-            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-            await stopHarnessSession(harnessSession);
-            return;
-          }
-        }
+          },
+        });
 
         if (runControl.turnSignal.aborted) {
           await markAgentHarnessSessionStopped(storedSessionId, "stopped");
@@ -252,6 +248,7 @@ export function startAgentHarnessRun(
           await stopHarnessSession(harnessSession);
           return;
         }
+        if (checkpointHandled) return;
 
         let resumeState: unknown = opts.createSession?.resumeState;
         await persistHarnessCheckpoint(

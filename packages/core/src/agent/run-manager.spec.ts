@@ -873,6 +873,35 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("uses a carried soft-timeout deadline when a run continues elsewhere", async () => {
+    const events: AgentChatEvent[] = [];
+    const deadlineAt = Date.now() + 25;
+    const run = startRun(
+      "run-carried-soft-timeout",
+      "thread-carried-soft-timeout",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 1_000, softTimeoutDeadlineAt: deadlineAt },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(26);
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "auto_continue", reason: "run_timeout" }),
+    );
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-carried-soft-timeout",
+      "truncated",
+      expect.objectContaining({ terminalReason: "run_timeout" }),
+    );
+  });
+
   it("continues run recovery when a timeout fires after its request scope closes", async () => {
     vi.useRealTimers();
     const events: AgentChatEvent[] = [];

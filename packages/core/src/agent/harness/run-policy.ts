@@ -67,7 +67,9 @@ export function agentHarnessFollowUpRunOptions(
     return {
       executionLease: true,
       recoverChunkBoundaries: true,
-      useHostedSoftTimeoutDefault: true,
+      softTimeoutMs: resolveRunSoftTimeoutMs(undefined, {
+        useHostedDefault: true,
+      }),
     };
   }
 

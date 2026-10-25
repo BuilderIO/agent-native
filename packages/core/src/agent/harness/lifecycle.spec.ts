@@ -18,6 +18,10 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   startRun: vi.fn(),
+  resolveRunSoftTimeoutMs: vi.fn(
+    (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
+      overrideMs ?? (options?.useHostedDefault ? 40_000 : 0),
+  ),
   startRunFinalStatuses: [] as string[],
   getByRunId: vi.fn(),
   getById: vi.fn(),
@@ -51,6 +55,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../run-manager.js", () => ({
   startRun: mocks.startRun,
+  resolveRunSoftTimeoutMs: mocks.resolveRunSoftTimeoutMs,
 }));
 
 vi.mock("./store.js", () => ({
@@ -1184,6 +1189,13 @@ describe("agent harness lifecycle", () => {
     const checkpoint = vi.fn(async () => ({ token: "checkpoint" }));
     session.continueTurn = continueTurn;
     session.checkpoint = checkpoint;
+    stored.runPolicy = {
+      softTimeoutMs: 10_000,
+      noProgressTimeoutMs: 5_000,
+      backgroundFunction: false,
+      recoverChunkBoundaries: true,
+      engineName: "fake-engine",
+    };
     mocks.startRunFinalStatuses.push("truncated");
     register(stored, session);
 
@@ -1203,6 +1215,8 @@ describe("agent harness lifecycle", () => {
       turnId: mocks.startRun.mock.calls[0]?.[4].turnId,
       parentId: stored.runId,
       executionLease: true,
+      softTimeoutDeadlineAt:
+        mocks.startRun.mock.calls[0]?.[4].softTimeoutDeadlineAt,
     });
   });
 
