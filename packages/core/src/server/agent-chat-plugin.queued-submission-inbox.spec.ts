@@ -1126,6 +1126,62 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
+  it("surfaces an active-run lookup failure when another drain holds the receipt claim", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+    if (!receipt) throw new Error("Queued receipt disappeared before claim");
+    await mutateThreadQueuedMessages(threadId, {
+      type: "claimFromInbox",
+      receipt,
+      claimId: "other-drain",
+    });
+
+    inboxHarness.failActiveRunCheckThreadId = threadId;
+    const runSweep = await createSweepHandler();
+
+    try {
+      inboxHarness.queueMutations.length = 0;
+      const response = await runSweep();
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        queuedSubmissionDrain: {
+          claimed: 0,
+          failed: 1,
+          scanned: 1,
+        },
+      });
+      expect(inboxHarness.queueMutations).toEqual([
+        { threadId, type: "claimFromInbox" },
+      ]);
+      expect(inboxHarness.admissionAttempts).toEqual([]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({ state: "queued" });
+    } finally {
+      await mutateThreadQueuedMessages(threadId, {
+        type: "release",
+        messageId,
+        claimId: "other-drain",
+      });
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;
     const headMessageId = "non-retryable-admission-head";

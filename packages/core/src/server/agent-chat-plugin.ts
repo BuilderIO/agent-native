@@ -9241,10 +9241,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error.code !== "queued_message_id_conflict"
               ) {
                 claimId = undefined;
+                if (activeRunPreflightError) {
+                  throw activeRunPreflightError.error;
+                }
                 deferReceipt(receipt.threadId);
                 continue;
               }
               throw error;
+            }
+            if (activeRunPreflightError && !claim?.claimedMessage) {
+              claimId = undefined;
+              throw activeRunPreflightError.error;
             }
             if (claim?.receiptUnavailable) {
               claimId = undefined;
