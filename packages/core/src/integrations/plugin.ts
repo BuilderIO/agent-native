@@ -1067,7 +1067,7 @@ export function createIntegrationsPlugin(
     async function requireSessionContext(
       event: any,
     ): Promise<({ ownerEmail: string } & IntegrationRequestScope) | null> {
-      const session = await getSession(event).catch(() => null);
+      const session = await getSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return null;
@@ -1152,7 +1152,7 @@ export function createIntegrationsPlugin(
     async function checkOrgAdmin(
       event: any,
     ): Promise<{ ok: true } | { ok: false; error: string }> {
-      const session = await getSession(event).catch(() => null);
+      const session = await getSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { ok: false, error: "unauthorized" };
@@ -2808,7 +2808,7 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         if (!session?.email) {
           setResponseStatus(event, 401);
           return { error: "unauthorized" };
@@ -3056,7 +3056,7 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         if (!session?.email) {
           setResponseStatus(event, 401);
           return { error: "Sign in before connecting Slack." };
@@ -3159,7 +3159,7 @@ export function createIntegrationsPlugin(
             "Your Slack install session expired or changed. Sign in and start again.",
           );
         }
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         const org = await getOrgContext(event).catch(() => null);
         if (
           state.app !== "agent-native:slack" ||
@@ -3576,7 +3576,7 @@ export function createIntegrationsPlugin(
         ) {
           const adminCheck = await checkOrgAdmin(event);
           if (adminCheck.ok === false) return { error: adminCheck.error };
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const enabled = action === "enable";
           await channels.setEnabled(platform, enabled, {
             actorEmail: session?.email,

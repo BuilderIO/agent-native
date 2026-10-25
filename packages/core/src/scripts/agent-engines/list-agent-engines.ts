@@ -216,8 +216,8 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     const currentModelCandidate =
       configuredModel && configuredModel !== "auto"
         ? configuredModel
-        : appDefaultUsable && currentEntry?.name === appDefault?.engine
-          ? appDefault?.model
+        : appDefaultUsable && currentEntry?.name === appDefault.engine
+          ? appDefault.model
           : storedUsable && currentEntry?.name === current?.engine
             ? current?.model
             : undefined;

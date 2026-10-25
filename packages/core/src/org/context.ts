@@ -698,7 +698,7 @@ export async function resolveOrgScopeForEmail(
             ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
         args: [email.toLowerCase()],
       });
-      return rows.map((r: any) => String(r.org_id));
+      return rows.map((r: Record<string, unknown>) => String(r.org_id));
     });
   } catch (cause) {
     if (isTransientDatabaseError(cause)) throw cause;
@@ -722,8 +722,10 @@ export async function resolveOrgIdForEmail(
 ): Promise<string | null> {
   const resolution = await resolveOrgScopeForEmail(email);
   if (resolution.status === "unknown") {
-    if (resolution.cause !== undefined) throw resolution.cause;
-    throw new Error("Organization scope is unavailable");
+    if (resolution.cause instanceof Error) throw resolution.cause;
+    throw new Error("Organization scope is unavailable", {
+      cause: resolution.cause,
+    });
   }
   return resolution.status === "organization" ? resolution.orgId : null;
 }

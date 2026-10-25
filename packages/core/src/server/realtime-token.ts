@@ -98,7 +98,7 @@ export function createRealtimeTokenHandler() {
       return { error: "Cross-origin request rejected" };
     }
 
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };

@@ -2435,6 +2435,84 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     },
   );
 
+  it.each(["start", "finish"] as const)(
+    "stops after recipient denial even when history %s fails",
+    async (failedWrite) => {
+      await seedOrg([["bob@agent-native.test", "owner"]]);
+      const history = await import("./run-history.js");
+      await history.ensureTable();
+      const { resolveOwnerEngineApiKey } =
+        await import("../agent/production-agent.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const name = `recipient-denied-history-${failedWrite}`;
+      const automation = precondition(name, {
+        runAs: "shared",
+        orgId: "acme",
+        createdBy: "alice@agent-native.test",
+      });
+      automation.resource.owner = "__organization__:acme";
+      const denied = Object.assign(
+        new Error("permission denied for table org_members"),
+        { code: "42501" },
+      );
+      const historyFailure = new Error("history persistence unavailable");
+      const execute = rawClient.execute.getMockImplementation()!;
+      rawClient.execute.mockImplementation(async (input) => {
+        if (typeof input !== "string" && /FROM org_members/.test(input.sql))
+          throw denied;
+        return execute(input);
+      });
+      const write =
+        failedWrite === "start"
+          ? vi
+              .spyOn(history, "startAutomationRun")
+              .mockRejectedValue(historyFailure)
+          : vi
+              .spyOn(history, "finishAutomationRun")
+              .mockRejectedValue(historyFailure);
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      createThreadMock.mockClear();
+      vi.mocked(resolveOwnerEngineApiKey).mockClear();
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      try {
+        const error = await runBackgroundAutomation(
+          runOptions(automation, {
+            ownerEmail: "__organization__:acme",
+            orgId: "acme",
+          }),
+          standardDeps,
+        ).then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        expect(createThreadMock).not.toHaveBeenCalled();
+        expect(resolveOwnerEngineApiKey).not.toHaveBeenCalled();
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        expect(error).toBeInstanceOf(
+          (await import("./background-automation-runner.js"))
+            .BackgroundAutomationRunError,
+        );
+        expect(error).toMatchObject({
+          errorCode: "owner_unverifiable",
+        });
+        expect((error as Error).cause).toBeInstanceOf(AggregateError);
+        expect(((error as Error).cause as AggregateError).errors).toEqual([
+          expect.objectContaining({
+            errorCode: "owner_unverifiable",
+            cause: denied,
+          }),
+          historyFailure,
+        ]);
+        await expect(countRowsWithPrefix(`job-${name}`)).resolves.toBe(0);
+      } finally {
+        rawClient.execute.mockImplementation(execute);
+        write.mockRestore();
+        errors.mockRestore();
+      }
+    },
+  );
+
   it("alerts an org owner, not a creator who has left the organization", async () => {
     await seedOrg([["bob@agent-native.test", "owner"]]);
     expect(await orgJobAlertRecipient("org-creator-left")).toBe(

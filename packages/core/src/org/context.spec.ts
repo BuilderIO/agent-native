@@ -1456,6 +1456,17 @@ describe("resolveOrgIdForEmail", () => {
     await expect(resolveOrgIdForEmail("a@b.com")).rejects.toBe(error);
   });
 
+  it("keeps a non-Error membership failure as the cause of an Error", async () => {
+    const cause = { code: "42501", message: "fake membership read failure" };
+    mockExecute.mockRejectedValueOnce(cause);
+    const lookup = resolveOrgIdForEmail("a@b.com");
+    await expect(lookup).rejects.toBeInstanceOf(Error);
+    await expect(lookup).rejects.toMatchObject({
+      message: "Organization scope is unavailable",
+      cause,
+    });
+  });
+
   it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
     mockExecute.mockRejectedValueOnce(
       Object.assign(new Error("db query timed out"), { code: "57014" }),

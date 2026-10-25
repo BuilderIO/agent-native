@@ -148,7 +148,7 @@ export function createTranscribeVoiceHandler() {
     const applyVoiceContext = (value: string) =>
       applyVoiceContextReplacements(value, voiceContext).trim();
 
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     if (!session?.email && process.env.NODE_ENV === "production") {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };

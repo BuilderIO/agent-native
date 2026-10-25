@@ -9009,14 +9009,24 @@ describe("server/auth", () => {
           ...(await importOriginal<typeof import("../db/client.js")>()),
           getDbExec: () => ({ execute }),
         }));
-        const { getSession } = await import("./auth.js");
-        await expect(
-          getSession(
-            createMockEvent({
-              headers: { cookie: "an_session=fake-session-token" },
-            }),
-          ),
-        ).rejects.toBe(cause);
+        const { getSession, SessionResolutionUnavailableError } =
+          await import("./auth.js");
+        const session = getSession(
+          createMockEvent({
+            headers: { cookie: "an_session=fake-session-token" },
+          }),
+        );
+        if (code === "forbidden") {
+          await expect(session).rejects.toBe(cause);
+        } else {
+          await expect(session).rejects.toBeInstanceOf(
+            SessionResolutionUnavailableError,
+          );
+          await expect(session).rejects.toMatchObject({
+            statusCode: 503,
+            cause,
+          });
+        }
       },
     );
 

@@ -216,7 +216,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "docId required" };
   }
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   const contextScope = (
     event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
   )?._collabAwarenessScope;

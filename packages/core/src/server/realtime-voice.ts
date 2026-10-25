@@ -488,7 +488,7 @@ async function authenticateVoiceRequest(
   event: H3Event,
   options: MountRealtimeVoiceRoutesOptions,
 ): Promise<AuthenticatedVoiceContext | null> {
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return null;
   const resolvedOrgId = options.resolveOrgId
     ? await options.resolveOrgId(event)

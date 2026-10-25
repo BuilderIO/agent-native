@@ -613,28 +613,42 @@ export async function startBackgroundAutomationHistory(
             { cause },
           );
   }
-  const historyId = await startAutomationRun(
-    {
-      ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
-      automation: automation.name,
-      path: automation.resource.path,
-      appId,
-      notificationEmail,
-    },
-    options,
-  );
-  if (lookupFailure) {
-    await finishAutomationRun(
-      historyId,
-      "error",
+  let historyId: string;
+  try {
+    historyId = await startAutomationRun(
+      {
+        ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
+        automation: automation.name,
+        path: automation.resource.path,
+        appId,
+        notificationEmail,
+      },
+      options,
+    );
+    if (lookupFailure) {
+      await finishAutomationRun(
+        historyId,
+        "error",
+        lookupFailure.message,
+        lookupFailure.errorCode,
+        { notify: false, requirePersisted: true, expectedRunId: null },
+      );
+    }
+  } catch (historyFailure) {
+    if (!lookupFailure) throw historyFailure;
+    throw new BackgroundAutomationRunError(
       lookupFailure.message,
       lookupFailure.errorCode,
+      undefined,
       {
-        notify: false,
-        requirePersisted: true,
-        expectedRunId: null,
+        cause: new AggregateError(
+          [lookupFailure, historyFailure],
+          "Recipient lookup and failure history persistence failed",
+        ),
       },
     );
+  }
+  if (lookupFailure) {
     console.error(
       `[automations] Could not verify the alert recipient for "${automation.name}" (history "${historyId}", org "${orgId ?? "none"}"):`,
       lookupFailure,
