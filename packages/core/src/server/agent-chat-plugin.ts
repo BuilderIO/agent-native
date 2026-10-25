@@ -11,6 +11,7 @@ import {
   createError,
   defineEventHandler,
   mockEvent,
+  getResponseStatus,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -68,6 +69,7 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
   isAgentChatDurableBackgroundEnabled,
@@ -9912,6 +9914,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (expectsBackgroundRuntime) {
             runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
+          let stopBackgroundSetupHeartbeat = true;
+          const reportFailureFinalizationError = (error: unknown) => {
+            console.error(
+              "[agent-chat] _process-run failure finalization failed:",
+              error,
+            );
+            captureError(error, {
+              route: AGENT_CHAT_PROCESS_RUN_PATH,
+              method: getMethod(event),
+              userAgent: getHeader(event, "user-agent"),
+              tags: {
+                source: "agent-chat-bg-worker",
+                phase: "process-run-finalization",
+              },
+              extra: {
+                runId: prepared.runId,
+              },
+            });
+          };
 
           try {
             // DIAGNOSTIC: load the run-store diagnostic recorder only after the
@@ -10014,7 +10035,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
             await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
-            return await invokeAgentChatHandler(event);
+            const result = await invokeAgentChatHandler(event);
+            const responseStatus = getResponseStatus(event);
+            if (responseStatus >= 400) {
+              const responseCode =
+                result &&
+                typeof result === "object" &&
+                "code" in result &&
+                typeof result.code === "string"
+                  ? result.code
+                  : undefined;
+              try {
+                await finalizeClaimedAgentChatProcessRunFailure(
+                  prepared.runId,
+                  new Error(
+                    `Background worker returned HTTP ${responseStatus}${responseCode ? ` code=${responseCode}` : ""}`,
+                  ),
+                );
+              } catch (error) {
+                stopBackgroundSetupHeartbeat = false;
+                reportFailureFinalizationError(error);
+              }
+            }
+            return result;
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
             captureError(err, {
@@ -10029,13 +10072,32 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            await finalizeClaimedAgentChatProcessRunFailure(
-              prepared.runId,
-              err,
-            );
+            try {
+              await finalizeClaimedAgentChatProcessRunFailure(
+                prepared.runId,
+                err,
+              );
+            } catch (finalizationError) {
+              stopBackgroundSetupHeartbeat = false;
+              reportFailureFinalizationError(finalizationError);
+            }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           } finally {
+            const setupCleanup = (event as any).context?.[
+              AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD
+            ];
+            if ((event as any).context) {
+              delete (event as any).context[
+                AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD
+              ];
+            }
+            if (
+              stopBackgroundSetupHeartbeat &&
+              typeof setupCleanup === "function"
+            ) {
+              setupCleanup();
+            }
             if (expectsBackgroundRuntime) {
               if (hadExpectedRuntimeMarker) {
                 runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ =

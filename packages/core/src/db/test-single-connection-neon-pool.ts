@@ -1,3 +1,5 @@
+import type { PoolClient } from "@neondatabase/serverless";
+
 export const SINGLE_CONNECTION_NEON_URL =
   "postgres://user:password@ep-test-pooler.us-east-1.aws.neon.tech/neondb";
 
@@ -24,13 +26,14 @@ export async function createSingleConnectionNeonPool() {
     },
   });
 
-  let holder: object | undefined;
-  const waiters: Array<(client: object) => void> = [];
+  let holder: PoolClient | undefined;
+  const waiters: Array<(client: PoolClient) => void> = [];
   const stats = { checkouts: 0, maxWaiting: 0 };
 
-  const checkout = (): object => {
+  const checkout = (): PoolClient => {
     stats.checkouts += 1;
-    return {
+    // A fake that implements only the client calls drizzle and Better Auth make.
+    const client = {
       async query(
         config:
           | string
@@ -64,13 +67,14 @@ export async function createSingleConnectionNeonPool() {
         next(holder);
       },
     };
+    return client as unknown as PoolClient;
   };
 
   class SingleConnectionPool extends Pool {
     constructor() {
       super({ connectionString: SINGLE_CONNECTION_NEON_URL, max: 1 });
     }
-    connect(): Promise<any> {
+    override connect(): Promise<PoolClient> {
       if (!holder) {
         holder = checkout();
         return Promise.resolve(holder);
@@ -80,7 +84,7 @@ export async function createSingleConnectionNeonPool() {
         stats.maxWaiting = Math.max(stats.maxWaiting, waiters.length);
       });
     }
-    end(): Promise<void> {
+    override end(): Promise<void> {
       return Promise.resolve();
     }
   }

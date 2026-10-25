@@ -2404,7 +2404,7 @@ class AgentPanelErrorBoundary extends React.Component<
   { children: React.ReactNode; onReset: () => void },
   { error: Error | null; staleIndexRecoveryCount: number }
 > {
-  state: { error: Error | null; staleIndexRecoveryCount: number } = {
+  override state: { error: Error | null; staleIndexRecoveryCount: number } = {
     error: null,
     staleIndexRecoveryCount: 0,
   };
@@ -2416,7 +2416,7 @@ class AgentPanelErrorBoundary extends React.Component<
     return { error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     if (recoverFromStaleChunkError(error)) {
       console.warn(
         "[agent-native] Recovering agent panel after stale chunk error",
@@ -2452,7 +2452,7 @@ class AgentPanelErrorBoundary extends React.Component<
     console.error("[agent-native] Agent panel crashed", error, errorInfo);
   }
 
-  componentDidUpdate(
+  override componentDidUpdate(
     _prevProps: Readonly<{ children: React.ReactNode; onReset: () => void }>,
     prevState: Readonly<{
       error: Error | null;
@@ -2476,7 +2476,7 @@ class AgentPanelErrorBoundary extends React.Component<
     }
   }
 
-  componentWillUnmount() {
+  override componentWillUnmount() {
     if (this.recoveryTimer) {
       clearTimeout(this.recoveryTimer);
     }
@@ -2485,7 +2485,7 @@ class AgentPanelErrorBoundary extends React.Component<
     }
   }
 
-  render() {
+  override render() {
     if (!this.state.error) return this.props.children;
 
     if (

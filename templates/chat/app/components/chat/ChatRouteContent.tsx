@@ -140,7 +140,7 @@ function ChatThreadRouteContent({
   resolvedThreadId,
   navigate,
 }: {
-  routeThreadId?: string;
+  routeThreadId?: string | undefined;
   resolvedThreadId: string;
   navigate: ReturnType<typeof useNavigate>;
 }) {
@@ -736,7 +736,7 @@ function ChatRunFailure({
     isFirstMessage &&
     isMissingLlmProviderRunError({
       message: error.message,
-      details: typeof error.details === "string" ? error.details : undefined,
+      ...(typeof error.details === "string" ? { details: error.details } : {}),
       errorCode: error.code,
     })
   ) {
@@ -1085,8 +1085,8 @@ function ChatMcpConnectionRequest({
       provider={request.provider}
       reason={request.reason}
       status={request.status}
-      appId={request.appId}
-      source={request.source}
+      {...(request.appId === undefined ? {} : { appId: request.appId })}
+      {...(request.source === undefined ? {} : { source: request.source })}
       {...(request.detail ? { detail: request.detail } : {})}
       target={{ threadId, runId, requestId: request.id }}
       onConnected={() => resolve("connected")}
@@ -1196,9 +1196,9 @@ function ChatCanvas({
 }: {
   workspaceOpen: boolean;
   setWorkspaceOpen: (value: boolean | ((current: boolean) => boolean)) => void;
-  initialText?: string;
-  initialTextKey?: string;
-  recoveryOptions?: ChatInitialComposerOptions;
+  initialText?: string | undefined;
+  initialTextKey?: string | undefined;
+  recoveryOptions?: ChatInitialComposerOptions | undefined;
   recoveryDraftUnsaved: boolean;
   onRecoveryOptionsChange: (
     options: Partial<ChatInitialComposerOptions>,
@@ -1334,7 +1334,9 @@ function ChatCanvas({
         queueWhileRunning: retryIntent !== "immediate",
         queuedWhileRunActive: queuedIntent,
         ...(retrySteer ? { interruptActiveRun: true } : {}),
-        onLocalSubmit: options.onLocalSubmit,
+        ...(options.onLocalSubmit
+          ? { onLocalSubmit: options.onLocalSubmit }
+          : {}),
       });
       onRecoverySubmitAccepted();
     },
@@ -1392,25 +1394,37 @@ function ChatCanvas({
         composerProps={{
           requireAgentEngine: true,
           contextUsageSlot: <ChatContextRing threadId={threadId} />,
-          initialText,
-          initialTextKey,
+          ...(initialText === undefined ? {} : { initialText }),
+          ...(initialTextKey === undefined ? {} : { initialTextKey }),
           ...(recoveryOptions
             ? {
-                selectedModel: recoveryOptions.model,
-                selectedEngine: recoveryOptions.engine,
-                selectedEffort: recoveryOptions.effort,
-                contextItems: recoveryOptions.contextItems,
+                ...(recoveryOptions.model === undefined
+                  ? {}
+                  : { selectedModel: recoveryOptions.model }),
+                ...(recoveryOptions.engine === undefined
+                  ? {}
+                  : { selectedEngine: recoveryOptions.engine }),
+                ...(recoveryOptions.effort === undefined
+                  ? {}
+                  : { selectedEffort: recoveryOptions.effort }),
+                ...(recoveryOptions.contextItems === undefined
+                  ? {}
+                  : { contextItems: recoveryOptions.contextItems }),
                 onModelChange: (model: string, engine: string) =>
                   onRecoveryOptionsChange({ model, engine }),
                 onEffortChange: (
                   effort: NonNullable<ChatInitialComposerOptions["effort"]>,
                 ) => onRecoveryOptionsChange({ effort }),
                 onRemoveContextItem: (key: string) =>
-                  onRecoveryOptionsChange({
-                    contextItems: recoveryOptions.contextItems?.filter(
-                      (item) => item.key !== key,
-                    ),
-                  }),
+                  onRecoveryOptionsChange(
+                    recoveryOptions.contextItems === undefined
+                      ? {}
+                      : {
+                          contextItems: recoveryOptions.contextItems.filter(
+                            (item) => item.key !== key,
+                          ),
+                        },
+                  ),
                 onTextChange: (text: string) => onRecoveryDraftChange({ text }),
                 toolbarSlot: (
                   <>
@@ -1432,19 +1446,29 @@ function ChatCanvas({
                       references={recoveryOptions.references ?? []}
                       attachments={recoveryOptions.uploadedAttachments ?? []}
                       onRemoveReference={(index) =>
-                        onRecoveryOptionsChange({
-                          references: recoveryOptions.references?.filter(
-                            (_reference, candidate) => candidate !== index,
-                          ),
-                        })
+                        onRecoveryOptionsChange(
+                          recoveryOptions.references === undefined
+                            ? {}
+                            : {
+                                references: recoveryOptions.references.filter(
+                                  (_reference, candidate) =>
+                                    candidate !== index,
+                                ),
+                              },
+                        )
                       }
                       onRemoveAttachment={(index) =>
-                        onRecoveryOptionsChange({
-                          uploadedAttachments:
-                            recoveryOptions.uploadedAttachments?.filter(
-                              (_attachment, candidate) => candidate !== index,
-                            ),
-                        })
+                        onRecoveryOptionsChange(
+                          recoveryOptions.uploadedAttachments === undefined
+                            ? {}
+                            : {
+                                uploadedAttachments:
+                                  recoveryOptions.uploadedAttachments.filter(
+                                    (_attachment, candidate) =>
+                                      candidate !== index,
+                                  ),
+                              },
+                        )
                       }
                     />
                   </>

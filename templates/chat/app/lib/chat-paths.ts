@@ -52,10 +52,10 @@ export function skeletonLayoutForPath(
 }
 
 export function threadIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/chat\/([^/]+)/);
-  if (!match) return null;
+  const encoded = pathname.match(/^\/chat\/([^/]+)/)?.[1];
+  if (encoded === undefined) return null;
   try {
-    const value = decodeURIComponent(match[1]).trim();
+    const value = decodeURIComponent(encoded).trim();
     return value || null;
     // coercion-ok: a malformed percent-encoding is not a thread id, so the path has no thread.
   } catch {

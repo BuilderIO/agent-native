@@ -119,6 +119,7 @@ export interface ActiveRun {
 
 export interface StartedRun extends ActiveRun {
   finalized: Promise<void>;
+  livenessReady: Promise<boolean>;
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -916,9 +917,13 @@ export function startRun(
   let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
+  let resolveLivenessReady: (ready: boolean) => void = () => {};
   const finalized = new Promise<void>((resolve, reject) => {
     resolveFinalized = resolve;
     rejectFinalized = reject;
+  });
+  const livenessReady = new Promise<boolean>((resolve) => {
+    resolveLivenessReady = resolve;
   });
   void finalized.catch(() => {});
   const run: StartedRun = {
@@ -936,6 +941,7 @@ export function startRun(
     nextEventSeq: 0,
     startedAt: Date.now(),
     finalized,
+    livenessReady,
   };
 
   activeRuns.set(runId, run);
@@ -1741,17 +1747,24 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
+  let livenessResolved = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
       (options?.executionLease
-        ? executionFencePromise.then((fence) =>
-            fence ? renewTurnExecutionLease(fence) : Promise.resolve(),
-          )
-        : updateRunHeartbeat(runId)
+        ? executionFencePromise.then(async (fence) => {
+            if (!fence) return false;
+            await renewTurnExecutionLease(fence);
+            return true;
+          })
+        : updateRunHeartbeat(runId).then(() => true)
       )
-        .then(() => {
+        .then((livenessConfirmed) => {
           consecutiveHeartbeatFailures = 0;
+          if (livenessConfirmed && !livenessResolved) {
+            livenessResolved = true;
+            resolveLivenessReady(true);
+          }
         })
         .catch((error) => {
           if (
@@ -2664,6 +2677,10 @@ export function startRun(
     })
     .finally(async () => {
       clearInterval(heartbeatTimer);
+      if (!livenessResolved) {
+        livenessResolved = true;
+        resolveLivenessReady(false);
+      }
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (progressWriteTimer) clearTimeout(progressWriteTimer);

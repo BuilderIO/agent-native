@@ -359,9 +359,9 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 }
 
 class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
-  public accept = IMAGE_ATTACHMENT_ACCEPT;
+  public override accept = IMAGE_ATTACHMENT_ACCEPT;
 
-  public async add(state: { file: File }): Promise<PendingAttachment> {
+  public override async add(state: { file: File }): Promise<PendingAttachment> {
     return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 }
@@ -369,7 +369,7 @@ class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
 // SVGs never match the raster adapter, so agent chat stages them as reference
 // documents rather than images a model would try to read as pixels.
 class ChatDocumentAttachmentAdapter extends BinaryDocumentAttachmentAdapter {
-  public accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
+  public override accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 }
 
 export function createChatAttachmentAdapter(): AttachmentAdapter {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -47,6 +48,7 @@ import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
+import * as processRunFailure from "../server/agent-chat/process-run-failure.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
@@ -81,6 +83,7 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
@@ -5741,6 +5744,138 @@ describe("createProductionAgentHandler", () => {
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
+    }
+  });
+
+  it("keeps setup liveness through response finish and close until the deadline", async () => {
+    vi.useFakeTimers();
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    let finishSetupFinalization!: (result: boolean) => void;
+    const finalizeSetup = vi
+      .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
+      .mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishSetupFinalization = resolve;
+          }),
+      );
+    const startRun = vi.spyOn(runManager, "startRun");
+    let markOwnerEmailEntered!: () => void;
+    const ownerEmailEntered = new Promise<void>((resolve) => {
+      markOwnerEmailEntered = resolve;
+    });
+    let releaseOwnerEmail!: (email: string | null) => void;
+    const ownerEmail = new Promise<string | null>((resolve) => {
+      releaseOwnerEmail = resolve;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: {},
+      resolveOwnerEmail: async () => {
+        markOwnerEmailEntered();
+        return ownerEmail;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = {
+      message: "go",
+      threadId: "thread-background-setup-close",
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: "run-background-setup-close",
+        turnId: "turn-background-setup-close",
+      },
+    };
+    const response = new EventEmitter();
+    Object.defineProperty(event, "node", {
+      configurable: true,
+      value: { res: response },
+    });
+    let pending: Promise<unknown> | undefined;
+
+    try {
+      pending = runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      await ownerEmailEntered;
+
+      expect(response.listenerCount("finish")).toBe(0);
+      expect(response.listenerCount("close")).toBe(0);
+      const heartbeatCount = updateRunHeartbeat.mock.calls.length;
+      response.emit("finish");
+      response.emit("close");
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
+      expect(updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        heartbeatCount,
+      );
+
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_SETUP_HEARTBEAT_MAX_MS - BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+      );
+      expect(finalizeSetup).toHaveBeenCalledWith(
+        "run-background-setup-close",
+        expect.objectContaining({
+          message: "Background worker setup heartbeat deadline exceeded",
+        }),
+      );
+      const deadlineHeartbeatCount = updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        deadlineHeartbeatCount,
+      );
+
+      finishSetupFinalization(true);
+      await vi.advanceTimersByTimeAsync(0);
+      const finalizedHeartbeatCount = updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(updateRunHeartbeat).toHaveBeenCalledTimes(finalizedHeartbeatCount);
+
+      releaseOwnerEmail("alice@example.com");
+      await expect(pending).resolves.toEqual({
+        ok: true,
+        skipped: "setup-deadline",
+      });
+      expect(startRun).not.toHaveBeenCalled();
+      response.emit("finish");
+    } finally {
+      finishSetupFinalization?.(true);
+      releaseOwnerEmail("alice@example.com");
+      await pending?.catch(() => {});
+      response.emit("finish");
+      finalizeSetup.mockRestore();
+      startRun.mockRestore();
+      claimBackgroundRun.mockRestore();
+      isTurnAborted.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      updateRunHeartbeat.mockRestore();
+      vi.useRealTimers();
     }
   });
 
@@ -23684,16 +23819,16 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("claims the first background chunk before expensive setup can race foreground fallback", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-bg",
-        threadId: "thread-bg",
-        markerTurnId: "turn-bg",
-        continuationCount: 0,
-        runsInBackgroundFunction: true,
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-bg",
+      threadId: "thread-bg",
+      markerTurnId: "turn-bg",
+      continuationCount: 0,
+      runsInBackgroundFunction: true,
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
@@ -23735,8 +23870,143 @@ describe("claimBackgroundWorkerRunEarly", () => {
       expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
 
       releaseAbort(false);
-      await expect(pending).resolves.toEqual({ claimed: true });
+      const result = await pending;
+      expect(result).toMatchObject({ claimed: true });
+      if (result.claimed) result.stopSetupHeartbeat();
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a claimed worker fresh until handoff", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-handoff",
+        threadId: "thread-setup-handoff",
+        markerTurnId: "turn-setup-handoff",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_SETUP_HEARTBEAT_MAX_MS -
+          BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2,
+      );
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        heartbeatCount,
+      );
+
+      result.stopSetupHeartbeat();
+      const handedOffHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(
+        handedOffHeartbeatCount,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails a claimed worker if setup does not hand off before the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let stopDeadlineHeartbeat!: () => void;
+      const onSetupDeadline = vi.fn((stopHeartbeat: () => void) => {
+        stopDeadlineHeartbeat = stopHeartbeat;
+      });
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-deadline",
+        threadId: "thread-setup-deadline",
+        markerTurnId: "turn-setup-deadline",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        onSetupDeadline,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      expect(result.setupDeadlineExceeded()).toBe(true);
+      expect(onSetupDeadline).toHaveBeenCalledOnce();
+      const deadlineHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        deadlineHeartbeatCount,
+      );
+      stopDeadlineHeartbeat();
+      const stoppedHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(stoppedHeartbeatCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the deadline finalizer's heartbeat if setup exits after expiring", async () => {
+    vi.useFakeTimers();
+    let rejectStartupCheck!: (error: Error) => void;
+    let markStartupCheckPending!: () => void;
+    let stopDeadlineHeartbeat!: () => void;
+    const startupCheckPending = new Promise<boolean>((_resolve, reject) => {
+      rejectStartupCheck = reject;
+    });
+    const startupCheckEntered = new Promise<void>((resolve) => {
+      markStartupCheckPending = resolve;
+    });
+    try {
+      const d = deps();
+      d.isTurnAborted
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockImplementationOnce(() => {
+          markStartupCheckPending();
+          return startupCheckPending;
+        });
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-setup-check-pending",
+        threadId: "thread-setup-check-pending",
+        markerTurnId: "turn-setup-check-pending",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        onSetupDeadline: (stopHeartbeat) => {
+          stopDeadlineHeartbeat = stopHeartbeat;
+        },
+        deps: d,
+      });
+      await startupCheckEntered;
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      const deadlineHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        deadlineHeartbeatCount,
+      );
+
+      rejectStartupCheck(new Error("startup check failed"));
+      await expect(pending).rejects.toThrow("startup check failed");
+      const failedStartupHeartbeatCount =
+        d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        failedStartupHeartbeatCount,
+      );
+
+      stopDeadlineHeartbeat();
+      const stoppedHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(stoppedHeartbeatCount);
+    } finally {
+      stopDeadlineHeartbeat?.();
       vi.useRealTimers();
     }
   });
@@ -23767,7 +24037,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
 
       releaseAbort(false);
-      await expect(pending).resolves.toEqual({ claimed: true });
+      const result = await pending;
+      expect(result).toMatchObject({ claimed: true });
+      if (result.claimed) result.stopSetupHeartbeat();
     } finally {
       vi.useRealTimers();
     }
@@ -23776,18 +24048,18 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("records background runtime marker diagnostics on worker entry", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-bg-marker",
-        threadId: "thread-bg-marker",
-        markerTurnId: "turn-bg-marker",
-        continuationCount: 0,
-        runsInBackgroundFunction: true,
-        backgroundRuntimeDetail:
-          "markerExpected=true runtimeDetected=false globalMarker=false",
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-bg-marker",
+      threadId: "thread-bg-marker",
+      markerTurnId: "turn-bg-marker",
+      continuationCount: 0,
+      runsInBackgroundFunction: true,
+      backgroundRuntimeDetail:
+        "markerExpected=true runtimeDetected=false globalMarker=false",
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
       1,
@@ -23800,16 +24072,16 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("inserts a chained background continuation row before claiming it", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-next",
-        threadId: "thread-next",
-        markerTurnId: "turn-next",
-        continuationCount: 2,
-        runsInBackgroundFunction: true,
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-next",
+      threadId: "thread-next",
+      markerTurnId: "turn-next",
+      continuationCount: 2,
+      runsInBackgroundFunction: true,
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.insertRun).toHaveBeenCalledWith(
       "run-next",

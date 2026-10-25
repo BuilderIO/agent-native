@@ -2,6 +2,7 @@ import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import {
   getRequestOrgId,
+  getRequestTimezone,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
@@ -1023,6 +1024,7 @@ export async function getContentDatabasePageResponse(
       candidateItems,
       databaseProperties,
       serverTableQuery,
+      { timeZone: getRequestTimezone() },
     );
     boundedTableQueryTotal = constrainedCandidates.length;
     const pageItemIds = new Set(
@@ -1261,6 +1263,7 @@ export async function getContentDatabasePageResponse(
           serializedCandidateItems,
           responseProperties,
           serverTableQuery,
+          { timeZone: getRequestTimezone() },
         )
       : serializedCandidateItems;
   const serializedItems =

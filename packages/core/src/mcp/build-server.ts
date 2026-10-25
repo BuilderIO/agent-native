@@ -3812,7 +3812,7 @@ export function getBearerToken(
 }
 
 export class McpIdentityVerificationUnavailableError extends Error {
-  readonly cause: unknown;
+  override readonly cause: unknown;
 
   constructor(cause: unknown) {
     super("MCP identity verification is temporarily unavailable");

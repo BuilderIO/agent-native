@@ -1100,7 +1100,9 @@ describe("ChatRoute AgentKit surface", () => {
     );
     expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
 
     routeState.threadId = "another-thread";
@@ -1108,7 +1110,9 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.threadId = "chat-from-home";
     act(() => root.render(<ChatRoute />));
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 
@@ -1391,7 +1395,9 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.locationState = null;
     await act(async () => root.render(<ChatRoute />));
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
     expect(
       container.querySelector('[data-testid="chat-recovery-draft-unsaved"]'),
@@ -1433,7 +1439,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     expect(routeState.sendMessage).not.toHaveBeenCalled();
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 
@@ -1467,7 +1475,9 @@ describe("ChatRoute AgentKit surface", () => {
     root = createRoot(container);
     await act(async () => root.render(<ChatRoute />));
     expect(routeState.chatProps).toMatchObject({
-      composerProps: { initialText: undefined },
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 
