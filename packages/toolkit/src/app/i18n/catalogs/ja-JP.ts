@@ -1921,6 +1921,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "ファイルストレージの設定を読み込めませんでした。",
   "settings.storage.retry": "再試行",
+  "settings.storage.unreadable":
+    "保存されたストレージ設定の一部を確認できませんでした。再試行するか、保存する前に読み取れない必須値を置き換えてください。",
+  "settings.storage.unreadableField":
+    "保存された値を読み取れませんでした。もう一度入力してください。",
+  "settings.storage.clearUnreadableField": "読み取れない{{field}}を消去",
+  "settings.storage.unreadableFieldCleared":
+    "保存すると、この保存済みの値は削除されます。",
   "settings.storage.adminOnly":
     "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
   "settings.audit.action": "アクション",
@@ -2342,7 +2349,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "{{platform}} の認証情報を削除",
   "settingsShell.channels.removeCredentials.body":
-    "デプロイ環境でもこれらのキーが設定されていない限り、エージェントは全員に対して {{platform}} で返信しなくなります。",
+    "これらのワークスペース認証情報を削除すると、デプロイ環境にも同じキーが設定されていない限り、エージェントは{{platform}}で全員に返信できなくなる可能性があります。",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "これにより削除されるのは、{{platform}}用のあなた個人の認証情報だけです。他のユーザーやワークスペースの認証情報は変わりません。",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "{{platform}}の選択した保存済み認証情報を削除します。その他の保存済み認証情報は変更されません。",
   "settingsShell.channels.removeCredentials.confirm": "削除",
   "settingsShell.channels.removeCredentials.failed":
     "認証情報を削除できませんでした。",
@@ -2350,6 +2361,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} の認証情報を削除しますか？",
   "settingsShell.channels.retry": "再試行",
+  "settingsShell.channels.setup.unreadable":
+    "保存された認証情報を読み取れません。新しい値を入力してください。",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "置き換わるのはあなた個人の認証情報のみです。他のユーザーの認証情報は変更されません。",
+  "settingsShell.channels.setup.repairUnavailable":
+    "この認証情報は別の設定領域で管理されています。このチャネルを設定する前に、そちらで更新してください。",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "保存されたチャネル認証情報の一部を読み取れません。チャネルを有効にする前に置き換えてください。",
   "settingsShell.channels.setup.addToEnvironment":
     "デプロイ環境に追加してください",
   "settingsShell.channels.setup.body":
@@ -2359,6 +2378,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "任意",
   "settingsShell.channels.setup.replace": "置き換え",
   "settingsShell.channels.setup.replaceAria": "{{key}} を置き換え",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "この保存済み認証情報は、該当する連携設定で置き換えてください。",
   "settingsShell.channels.setup.save": "保存",
   "settingsShell.channels.setup.saveAndTurnOn": "保存してオンにする",
   "settingsShell.channels.setup.saving": "保存中…",
@@ -2372,6 +2393,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "未設定",
   "settingsShell.channels.state.off": "オフ",
   "settingsShell.channels.state.on": "オン",
+  "settingsShell.channels.state.unavailable": "利用不可",
   "settingsShell.channels.status": "ステータス",
   "settingsShell.channels.toggleFailed":
     "{{platform}} を更新できませんでした。",
@@ -2666,6 +2688,8 @@ const messages: ToolkitAgentChatTranslation = {
     "モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID。無料プランがあります。",
   "settingsShell.integrations.builderStatusFailed":
     "接続状態を確認できません。もう一度お試しください。",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "保存されたBuilderアカウント情報の一部を読み取れませんでした。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "デザイン",
   "settingsShell.integrations.category.engineering": "エンジニアリング",
@@ -3132,11 +3156,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} は {{date}} にこのキーを拒否しました。オーナーまたは管理者に置き換えを依頼してください。",
   "settingsModel.rejectedHeadline": "{{provider}} がこのキーを拒否しました",
+  "settingsModel.unreadable":
+    "保存されたプロバイダー設定を読み取れません。アクセスを復元するには置き換えてください。",
+  "settingsModel.unreadableAskAdmin":
+    "保存されたプロバイダー設定を読み取れません。オーナーまたは管理者に置き換えを依頼してください。",
   "settingsModel.remove": "削除",
   "settingsModel.removeProvider": "プロバイダーを削除",
   "settingsModel.removeTitle": "{{provider}} を削除しますか？",
   "settingsModel.removing": "削除しています",
   "settingsModel.replace": "置き換え",
+  "settingsModel.replaceEndpoint": "エンドポイントを置き換え",
   "settingsModel.replaceKey": "キーを置き換え",
   "settingsModel.restrictBody": "メンバーは組織のプロバイダーだけを使えます。",
   "settingsModel.restrictConfirm": "キーを制限",

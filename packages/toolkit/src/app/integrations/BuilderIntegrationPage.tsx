@@ -222,13 +222,15 @@ function useBuilderUsages(options: { enabled: boolean; hasOrg: boolean }) {
     (options.hasOrg && services.isPending);
   const failed =
     storage.isError ||
+    storage.data?.activeProviderUnavailable === true ||
     connection.isError ||
     defaultModel?.status === "unknown" ||
     (options.hasOrg && services.isError);
   const usages = builderUsages({
-    storageOnBuilder: storage.data
-      ? storage.data.activeProvider?.id === "builder"
-      : null,
+    storageOnBuilder:
+      !storage.data || storage.data.activeProviderUnavailable
+        ? null
+        : storage.data.activeProvider?.id === "builder",
     // No organization means no organization services to check.
     services: options.hasOrg ? (services.data?.services ?? null) : [],
     defaultModel:

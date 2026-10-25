@@ -1624,7 +1624,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         name: "Customer Ticket Triage",
         description: "Triage customer tickets",
         path: "/customer-ticket-triage",
-        url: "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
         isDispatch: false,
       };
       mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
@@ -1653,12 +1653,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           route === "workspace-sso"
             ? createWorkspaceSsoEmbedSession({
                 app: workspaceApp.id,
-                path: "/",
+                path: "/triage",
                 chrome: "minimal",
               })
             : createGrantedDispatchMcpEmbedSession({
                 app: workspaceApp.id,
-                path: "/",
+                path: "/triage",
                 chrome: "minimal",
               }),
       );
@@ -1685,7 +1685,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect(mocks.managerCallTool).toHaveBeenCalledWith(
         "mcp__target__create_embed_session",
         {
-          url: "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage/",
+          url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage/triage",
           chrome: "minimal",
         },
       );
@@ -1696,7 +1696,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       mocks.managerCallTool.mockResolvedValueOnce({
         structuredContent: {
           startUrl:
-            "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage/_agent-native/embed/start?ticket=sibling",
+            "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage/_agent-native/embed/start?ticket=sibling",
         },
       });
       await expect(
@@ -1730,7 +1730,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         name: "Customer Ticket Triage",
         description: "Triage customer tickets",
         path: "/customer-ticket-triage",
-        url: "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
         isDispatch: false,
       },
     ]);
@@ -1765,7 +1765,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       name: "Customer Ticket Triage",
       description: "Triage customer tickets",
       path: "/customer-ticket-triage",
-      url: "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+      url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
       isDispatch: false,
     };
     mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);

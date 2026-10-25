@@ -2100,6 +2100,9 @@ jobs:
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
 
+      - name: Test strictness ratchet guards
+        run: pnpm test:strictness-guards
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 

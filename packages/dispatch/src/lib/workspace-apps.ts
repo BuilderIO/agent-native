@@ -9,10 +9,13 @@ import {
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
 
+import { workspaceAppRoute } from "../shared/workspace-app-route";
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
   isWorkspaceSsoAppUrl,
 } from "../shared/workspace-sso";
+
+export { workspaceAppRoute } from "../shared/workspace-app-route";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -218,10 +221,6 @@ export function defaultWorkspaceAppUrl(rawUrl: string): string {
     // coercion-ok: malformed default metadata remains an absent navigation target.
     return rawUrl;
   }
-}
-
-export function workspaceAppRoute(appId: string): string {
-  return `/apps/${encodeURIComponent(appId)}`;
 }
 
 function normalizeWorkspaceAppRoutePath(rawPath: string): URL | null {
