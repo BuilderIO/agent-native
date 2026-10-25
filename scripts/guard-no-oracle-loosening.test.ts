@@ -84,6 +84,10 @@ function allLines(source: string): number[] {
   return source.split("\n").map((_, index) => index + 1);
 }
 
+// CI runs a root script test under vitest when its text contains a vitest
+// import specifier, so fixtures spell it through this constant.
+const VITEST = "vitest";
+
 const SPEC = "templates/mail/actions/send.spec.ts";
 
 describe("disabled-test and expect-anything in test files", () => {
@@ -135,6 +139,34 @@ describe("disabled-test and expect-anything in test files", () => {
     ]);
     assert.match(
       findDisabledTests(SPEC, 'it.fails("d", () => {});')[0].message,
+      /failing assertion read as passing/,
+    );
+  });
+
+  it("flags bracket notation with a literal key, but not a computed key", () => {
+    const source = [
+      'it["skip"]("a", () => {});',
+      'test["only"]("b", () => {});',
+      'describe["todo"]("c");',
+      "it[`fixme`]('d', () => {});",
+      'it.each(rows)["skip"]("e", () => {});',
+      'it["skip"].each(rows)("f", () => {});',
+      'it["fails"]("g", () => {});',
+      "it[name]('h', () => {});",
+      'const key = "skip"; it[key]("i", () => {});',
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:1: disabled-test`,
+      `${SPEC}:2: disabled-test`,
+      `${SPEC}:3: disabled-test`,
+      `${SPEC}:4: disabled-test`,
+      `${SPEC}:5: disabled-test`,
+      `${SPEC}:6: disabled-test`,
+      `${SPEC}:7: disabled-test`,
+    ]);
+    assert.match(
+      findDisabledTests(SPEC, 'it["fails"]("g", () => {});')[0].message,
       /failing assertion read as passing/,
     );
   });
@@ -341,7 +373,7 @@ describe("runner-loosened in test files", () => {
 describe("test API roots from imports", () => {
   it("treats aliased test APIs from a test runner import as roots", () => {
     const source = [
-      'import { it as spec, test as t } from "vitest";',
+      `import { it as spec, test as t } from "${VITEST}";`,
       'spec.skip("a", () => {});',
       't.only("b", () => {});',
       'import { test as bt } from "bun:test";',
@@ -357,7 +389,7 @@ describe("test API roots from imports", () => {
 
   it("treats members of a namespace import from a test runner as test APIs", () => {
     const source = [
-      'import * as v from "vitest";',
+      `import * as v from "${VITEST}";`,
       'v.it.skip("a", () => {});',
       'import * as p from "@playwright/test";',
       "p.test.describe.configure({ retries: 2 });",
@@ -375,11 +407,11 @@ describe("test API roots from imports", () => {
     const source = [
       'import { it as spec } from "./helpers";',
       'import * as v from "./stream";',
-      'import { skip as only } from "vitest";',
+      `import { skip as only } from "${VITEST}";`,
       "spec.skip(1);",
       "v.it.skip(2);",
       "only.skip(3);",
-      'import { it as more } from "vitest";',
+      `import { it as more } from "${VITEST}";`,
       "more.skip(4);",
     ].join("\n");
 
@@ -595,6 +627,84 @@ describe("assertions-removed", () => {
         [SPEC]: base,
       }).map((violation) => violation.message),
       ["removed 2 assertion call(s): 2 before, 0 now"],
+    );
+  });
+
+  it("counts an assertion written through an aliased expect import", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2 +1,0 @@",
+      "-check(value).toBe(1);",
+    ].join("\n");
+    const base = `import { expect as check } from "${VITEST}";\ncheck(value).toBe(1);`;
+    const source = `import { expect as check } from "${VITEST}";\n// kept`;
+
+    assert.deepEqual(
+      findViolations({ [SPEC]: { source, added: [] } }, diff, {
+        [SPEC]: base,
+      }).map((violation) => violation.message),
+      ["removed 1 assertion call(s): 1 before, 0 now"],
+    );
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:1: assertions-removed`],
+    );
+  });
+
+  it("counts assert and namespace-imported assertions, and ignores aliases from other modules", () => {
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -4,4 +3,0 @@",
+      "-assert.equal(a, 1);",
+      "-strict.ok(b);",
+      "-v.expect(c).toBe(3);",
+      "-v.expect.soft(d).toBe(4);",
+    ].join("\n");
+    const base = [
+      'import assert from "node:assert";',
+      'import * as strict from "node:assert/strict";',
+      `import * as v from "${VITEST}";`,
+      "assert.equal(a, 1);",
+      "strict.ok(b);",
+      "v.expect(c).toBe(3);",
+      "v.expect.soft(d).toBe(4);",
+    ].join("\n");
+    const source = base.split("\n").slice(0, 3).join("\n");
+
+    assert.deepEqual(
+      findViolations({ [SPEC]: { source, added: [] } }, diff, {
+        [SPEC]: base,
+      }).map((violation) => violation.message),
+      ["removed 4 assertion call(s): 4 before, 0 now"],
+    );
+
+    const otherDiff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2 +1,0 @@",
+      "-check(value).toBe(1);",
+    ].join("\n");
+    const otherBase = [
+      'import { expect as check } from "./helpers";',
+      "check(value).toBe(1);",
+    ].join("\n");
+    assert.deepEqual(
+      flagged(
+        {
+          [SPEC]: {
+            source: 'import { expect as check } from "./helpers";',
+            added: [],
+          },
+        },
+        otherDiff,
+        { [SPEC]: otherBase },
+      ),
+      [],
     );
   });
 

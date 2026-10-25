@@ -9,7 +9,8 @@
  *
  *   disabled-test       test files: .skip( .only( .todo( .fixme( .fails( .skipIf(
  *                       .runIf( .skip.each( and xit( xdescribe( xtest(, also
- *                       when chained after a call such as it.each(rows).skip(
+ *                       when chained after a call such as it.each(rows).skip(,
+ *                       and with a literal key: it["skip"](
  *   expect-anything     test files: expect.anything()
  *   runner-loosened     vitest.config.* / vitest.*.config.* / playwright.config.*:
  *                       retry / retries set to anything but 0, passWithNoTests.
@@ -19,8 +20,11 @@
  *   script-loosened     package.json scripts: --passWithNoTests, vitest -u / --update
  *   assertions-removed  test files: fewer expect( / expect.soft|poll|element( / assert( /
  *                       assert.x( calls than before, counted in the AST of the
- *                       file at the merge-base and of the file now. A deleted
- *                       file counts all its calls as removed; a new file had none.
+ *                       file at the merge-base and of the file now, with each
+ *                       file's own import aliases (`import { expect as check }`,
+ *                       `import assert from "node:assert"`, `v.expect(` after
+ *                       `import * as v`). A deleted file counts all its calls
+ *                       as removed; a new file had none.
  *                       A renamed file is compared old path against new path.
  *
  * Opt-out, with a reason of at least 10 characters:
@@ -83,6 +87,12 @@ const TEST_MODULES = new Set([
   "@playwright/test",
   "node:test",
   "bun:test",
+]);
+const ASSERT_MODULES = new Set([
+  "assert",
+  "assert/strict",
+  "node:assert",
+  "node:assert/strict",
 ]);
 // package.json has no comments, so its pragma is matched on the line.
 const JSON_PRAGMA = /(?:\/\/|\/\*|^\s*\*)\s*oracle-change:(.*)$/;
@@ -264,29 +274,44 @@ function isIdentifierNamed(node: ts.Expression, name: string): boolean {
 
 const TEST_ROOTS = new Set(["it", "test", "describe", "suite", "bench"]);
 
-interface TestApiScope {
+interface ImportScope {
   /** The globals plus any local name a test runner import gives a test API. */
   roots: ReadonlySet<string>;
   /** Namespace imports of a test runner: `v` in `import * as v from "vitest"`. */
   namespaces: ReadonlySet<string>;
+  /** `expect` plus any local name a test runner import gives `expect`. */
+  expectRoots: ReadonlySet<string>;
+  /** `assert` plus the default or namespace import of an assert module. */
+  assertRoots: ReadonlySet<string>;
 }
 
-// Collected per file: `import { it as spec } from "vitest"` makes `spec` a root,
-// and `import * as v from "vitest"` makes `v.it` one. A name from any other
-// module does not become a root, however it is spelled.
-function testApiScope(sourceFile: ts.SourceFile): TestApiScope {
+// Collected from one file's own text: `import { it as spec } from "vitest"`
+// makes `spec` a root, `import * as v from "vitest"` makes `v.it` one, and
+// `import { expect as check } from "vitest"` makes `check(x)` an assertion. A
+// name from any other module does not become a root, however it is spelled.
+function importScope(sourceFile: ts.SourceFile): ImportScope {
   const roots = new Set(TEST_ROOTS);
   const namespaces = new Set<string>();
+  const expectRoots = new Set(["expect"]);
+  const assertRoots = new Set(["assert"]);
   for (const statement of sourceFile.statements) {
     if (
       !ts.isImportDeclaration(statement) ||
-      !ts.isStringLiteral(statement.moduleSpecifier) ||
-      !TEST_MODULES.has(statement.moduleSpecifier.text)
+      !ts.isStringLiteral(statement.moduleSpecifier)
     ) {
       continue;
     }
-    const bindings = statement.importClause?.namedBindings;
-    if (bindings === undefined) continue;
+    const module = statement.moduleSpecifier.text;
+    const clause = statement.importClause;
+    const bindings = clause?.namedBindings;
+    if (ASSERT_MODULES.has(module)) {
+      if (clause?.name !== undefined) assertRoots.add(clause.name.text);
+      if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
+        assertRoots.add(bindings.name.text);
+      }
+      continue;
+    }
+    if (!TEST_MODULES.has(module) || bindings === undefined) continue;
     if (ts.isNamespaceImport(bindings)) {
       namespaces.add(bindings.name.text);
       continue;
@@ -294,20 +319,51 @@ function testApiScope(sourceFile: ts.SourceFile): TestApiScope {
     for (const element of bindings.elements) {
       const imported = (element.propertyName ?? element.name).text;
       if (TEST_ROOTS.has(imported)) roots.add(element.name.text);
+      if (imported === "expect") expectRoots.add(element.name.text);
     }
   }
-  return { roots, namespaces };
+  return { roots, namespaces, expectRoots, assertRoots };
+}
+
+interface Member {
+  /** The expression the member is read from: `it` in `it.skip`. */
+  object: ts.Expression;
+  name: string;
+  /** Where a finding about the member points: the name, or the string key. */
+  site: ts.Node;
+}
+
+// `it.skip` and `it["skip"]` read the same member. A computed key counts only
+// when it is a string literal: `it[name]` could be any member at all.
+function memberOf(node: ts.Expression): Member | null {
+  if (ts.isPropertyAccessExpression(node)) {
+    return { object: node.expression, name: node.name.text, site: node.name };
+  }
+  if (ts.isElementAccessExpression(node)) {
+    const key = node.argumentExpression;
+    if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) {
+      return { object: node.expression, name: key.text, site: key };
+    }
+  }
+  return null;
 }
 
 // `stream.skip(2)` or `query.only(...)` are ordinary calls; only a chain that
 // starts at a test API (`it.skip`, `test.describe.only`, `it.each(rows).skip`)
-// disables a test. Calls are walked like property accesses to reach the root.
-function isTestApi(node: ts.Expression, scope: TestApiScope): boolean {
+// disables a test. Calls are walked like member reads to reach the root.
+function isTestApi(node: ts.Expression, scope: ImportScope): boolean {
   const names: string[] = [];
   let base: ts.Expression = node;
-  while (ts.isPropertyAccessExpression(base) || ts.isCallExpression(base)) {
-    if (ts.isPropertyAccessExpression(base)) names.unshift(base.name.text);
-    base = base.expression;
+  for (;;) {
+    const member = memberOf(base);
+    if (member !== null) {
+      names.unshift(member.name);
+      base = member.object;
+    } else if (ts.isCallExpression(base)) {
+      base = base.expression;
+    } else {
+      break;
+    }
   }
   if (!ts.isIdentifier(base)) return false;
   if (scope.roots.has(base.text)) return true;
@@ -359,7 +415,7 @@ export function findDisabledTests(
     true,
     scriptKind(file),
   );
-  const scope = testApiScope(sourceFile);
+  const scope = importScope(sourceFile);
   const sites: DisabledSite[] = [];
   const at = (node: ts.Node, site: Omit<DisabledSite, "line">) => {
     sites.push({ line: lineOf(sourceFile, node), ...site });
@@ -368,16 +424,16 @@ export function findDisabledTests(
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
+      const member = memberOf(callee);
       if (ts.isIdentifier(callee) && DISABLING_IDENTIFIERS.has(callee.text)) {
         at(callee, {
           rule: "disabled-test",
           message: disabledMessage(`${callee.text}(`),
         });
-      } else if (ts.isPropertyAccessExpression(callee)) {
-        const name = callee.name.text;
-        const inner = callee.expression;
+      } else if (member !== null) {
+        const { name, object: inner, site } = member;
         if (DISABLING_PROPERTIES.has(name) && isTestApi(inner, scope)) {
-          at(callee.name, {
+          at(site, {
             rule: "disabled-test",
             message: disabledMessage(`.${name}(`),
           });
@@ -386,21 +442,23 @@ export function findDisabledTests(
           isIdentifierNamed(inner, "expect") &&
           isWholeExpectedValue(node)
         ) {
-          at(callee.name, {
+          at(site, {
             rule: "expect-anything",
             message:
               "expect.anything() matches any value, so the assertion checks nothing",
           });
-        } else if (
-          name === "each" &&
-          ts.isPropertyAccessExpression(inner) &&
-          DISABLING_PROPERTIES.has(inner.name.text) &&
-          isTestApi(inner.expression, scope)
-        ) {
-          at(inner.name, {
-            rule: "disabled-test",
-            message: disabledMessage(`.${inner.name.text}.each(`),
-          });
+        } else if (name === "each") {
+          const disabled = memberOf(inner);
+          if (
+            disabled !== null &&
+            DISABLING_PROPERTIES.has(disabled.name) &&
+            isTestApi(disabled.object, scope)
+          ) {
+            at(disabled.site, {
+              rule: "disabled-test",
+              message: disabledMessage(`.${disabled.name}.each(`),
+            });
+          }
         }
       }
 
@@ -461,25 +519,59 @@ export function findDisabledTests(
 
 const EXPECT_VARIANTS = new Set(["soft", "poll", "element"]);
 
-// `expect(...)`, `expect.soft/poll/element(...)`, `assert(...)` and
-// `assert.x(...)`: the calls an oracle is made of. Matched on the callee, so
-// `expect(` inside a string or comment is not one, and a chained
-// `expect(x).toBe(y)` counts once, at the inner `expect(x)`.
-function isAssertionCall(call: ts.CallExpression): boolean {
-  const callee = call.expression;
-  if (ts.isIdentifier(callee)) {
-    return callee.text === "expect" || callee.text === "assert";
+// The member reads under a callee, root first: `v.expect.soft` gives `v` and
+// ["expect", "soft"]. Calls are not walked, so `expect(x).toBe` has no root.
+function memberChain(callee: ts.Expression): {
+  root: ts.Expression;
+  names: string[];
+} {
+  const names: string[] = [];
+  let root = callee;
+  for (let member = memberOf(root); member !== null; member = memberOf(root)) {
+    names.unshift(member.name);
+    root = member.object;
   }
-  if (!ts.isPropertyAccessExpression(callee)) return false;
-  if (isIdentifierNamed(callee.expression, "expect")) {
-    return EXPECT_VARIANTS.has(callee.name.text);
-  }
-  let root: ts.Expression = callee;
-  while (ts.isPropertyAccessExpression(root)) root = root.expression;
-  return isIdentifierNamed(root, "assert");
+  return { root, names };
 }
 
-function assertionCallLines(file: string, source: string | null): number[] {
+// `expect(...)`, `expect.soft/poll/element(...)`, `assert(...)` and
+// `assert.x(...)`, through a file's own aliases and namespace imports: the calls
+// an oracle is made of. Matched on the callee, so `expect(` inside a string or
+// comment is not one, and a chained `expect(x).toBe(y)` counts once, at the
+// inner `expect(x)`.
+function isAssertionCall(call: ts.CallExpression, scope: ImportScope): boolean {
+  const callee = call.expression;
+  if (ts.isIdentifier(callee)) {
+    return (
+      scope.expectRoots.has(callee.text) || scope.assertRoots.has(callee.text)
+    );
+  }
+  const { root, names } = memberChain(callee);
+  if (!ts.isIdentifier(root)) return false;
+  if (scope.assertRoots.has(root.text)) return true;
+  if (scope.expectRoots.has(root.text)) {
+    return names.length === 1 && EXPECT_VARIANTS.has(names[0]);
+  }
+  if (scope.namespaces.has(root.text)) {
+    // `v.expect(x)` and `v.expect.soft(x)` after `import * as v`.
+    return (
+      names[0] === "expect" &&
+      (names.length === 1 ||
+        (names.length === 2 && EXPECT_VARIANTS.has(names[1])))
+    );
+  }
+  return false;
+}
+
+/**
+ * Lines of the assertion calls in `source`. `scope` defaults to the aliases
+ * `source` itself imports, so each text is read with its own imports.
+ */
+function assertionCallLines(
+  file: string,
+  source: string | null,
+  scope?: ImportScope,
+): number[] {
   if (source === null) return [];
   const sourceFile = ts.createSourceFile(
     file,
@@ -488,9 +580,10 @@ function assertionCallLines(file: string, source: string | null): number[] {
     true,
     scriptKind(file),
   );
+  const aliases = scope ?? importScope(sourceFile);
   const lines: number[] = [];
   const visit = (node: ts.Node) => {
-    if (ts.isCallExpression(node) && isAssertionCall(node)) {
+    if (ts.isCallExpression(node) && isAssertionCall(node, aliases)) {
       lines.push(lineOf(sourceFile, node));
     }
     ts.forEachChild(node, visit);
@@ -623,6 +716,17 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
         `${GUARD_NAME}: no assertion sources for ${removed.path}; both sides of every changed test file must be read`,
       );
     }
+    // A file new on this branch had no assertions to lose.
+    if (sources.base === null) continue;
+    const baseScope = importScope(
+      ts.createSourceFile(
+        removed.oldPath,
+        sources.base,
+        ts.ScriptTarget.Latest,
+        true,
+        scriptKind(removed.oldPath),
+      ),
+    );
     const before = assertionCallLines(removed.oldPath, sources.base).length;
     const after = assertionCallLines(removed.path, sources.next).length;
     if (after >= before) continue;
@@ -637,9 +741,11 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
               )
             : [],
         );
+    // A removed line is parsed alone, so it takes the base file's aliases.
     const location =
       removed.lines.find(
-        (entry) => assertionCallLines(removed.oldPath, entry.text).length > 0,
+        (entry) =>
+          assertionCallLines(removed.oldPath, entry.text, baseScope).length > 0,
       ) ?? removed.lines[0];
     if (location === undefined) {
       throw new Error(

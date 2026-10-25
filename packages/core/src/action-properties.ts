@@ -464,9 +464,12 @@ export type CheckableAction = ActionDefinition<any, any> & {
 /**
  * Check an action against inputs generated from its zod schema. Valid inputs
  * must return a value matching `outputSchema`, or throw an action contract
- * error. Invalid inputs (each required property removed, each property set to
- * a wrong-type value) must be rejected by input validation before the handler
- * runs. Rejects with fast-check's shrunk counterexample and seed on failure.
+ * error. Invalid inputs (each required property of a plain object, nested
+ * objects and array items included, removed or set to a wrong-type value) must
+ * be rejected by input validation before the handler runs. The invalid cases
+ * prove the handler sits behind validation; they do not re-test the schema's
+ * own constraints (`min`, formats) or fields inside union branches.
+ * Rejects with fast-check's shrunk counterexample and seed on failure.
  */
 export async function checkActionProperties(
   action: CheckableAction,
