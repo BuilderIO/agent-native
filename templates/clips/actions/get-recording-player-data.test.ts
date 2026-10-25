@@ -573,8 +573,8 @@ describe("get-recording-player-data view count", () => {
         const query: Record<string, unknown> = {};
         query.from = (table: unknown) => {
           isCommentsQuery =
-            (table as { videoTimestampMs?: string })?.videoTimestampMs ===
-            "recordingComments.videoTimestampMs";
+            (table as { videoTimestampMs?: string } | undefined)
+              ?.videoTimestampMs === "recordingComments.videoTimestampMs";
           return query;
         };
         query.where = () => query;

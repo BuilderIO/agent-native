@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change(templates/clips/app/lib/missing-share-retry.test.ts): Missing share links now become unavailable after the first 404; these rendering tests replace the deleted retry-helper tests.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
@@ -9,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   loaderData: {} as Record<string, unknown>,
   sessionStatus: "unauthenticated" as "unauthenticated" | "loading",
+  recordingRows: [] as Record<string, unknown>[],
 }));
 
 vi.mock("react-router", async (importOriginal) => ({
@@ -40,9 +42,30 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
   trackEvent: vi.fn(),
 }));
 
-vi.mock("../../server/db", () => ({ getDb: vi.fn(), schema: {} }));
+vi.mock("../../server/db", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve(mocks.recordingRows),
+        }),
+      }),
+    }),
+  }),
+  schema: { recordings: {}, organizationSettings: {} },
+}));
 
-import ShareRoute from "./share.$shareId";
+vi.mock("@agent-native/core/server", () => ({
+  getRequestUserEmail: () => null,
+  signScopedAgentAccessToken: () => "access-request-token",
+  verifyScopedAgentAccessToken: () => ({ ok: false }),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: () => Promise.resolve(null),
+}));
+
+import ShareRoute, { loader, meta } from "./share.$shareId";
 
 const SHARE_ID = "clip-1";
 
@@ -182,6 +205,81 @@ describe("share page when the public recording read answers Not found", () => {
     expect(pageState()).toMatchObject({
       heading: null,
       loadingPlaceholder: true,
+    });
+  });
+});
+
+describe("share page server data for a clip in Trash", () => {
+  function recordingRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: SHARE_ID,
+      title: "Quarterly roadmap",
+      description: "Pricing changes for Q4",
+      thumbnailUrl: "https://media.example.test/clip-1/thumb.jpg",
+      animatedThumbnailUrl: null,
+      updatedAt: "2026-10-24T12:00:00.000Z",
+      sharePasswordVersion: null,
+      visibility: "public",
+      status: "ready",
+      ownerEmail: "owner@example.test",
+      organizationId: null,
+      password: null,
+      expiresAt: null,
+      archivedAt: null,
+      trashedAt: null,
+      sourceAppName: null,
+      videoUrl: "https://media.example.test/clip-1/video.mp4",
+      ...overrides,
+    };
+  }
+
+  async function loadShare(row?: Record<string, unknown>) {
+    mocks.recordingRows = row ? [row] : [];
+    const pageData = await loader({
+      params: { shareId: SHARE_ID },
+      url: new URL(`https://clips.example.test/share/${SHARE_ID}`),
+    } as unknown as Parameters<typeof loader>[0]);
+    const tags = meta({ loaderData: pageData } as unknown as Parameters<
+      typeof meta
+    >[0]);
+    return { pageData, tags };
+  }
+
+  it.each(["public", "private"])(
+    "serves a trashed %s clip the same page data and meta tags as a missing one",
+    async (visibility) => {
+      const missing = await loadShare();
+      const trashed = await loadShare(
+        recordingRow({ visibility, trashedAt: "2026-10-24T12:00:00.000Z" }),
+      );
+
+      expect(trashed).toEqual(missing);
+    },
+  );
+
+  it("keeps the title and image of a public clip that is not in Trash", async () => {
+    const { pageData, tags } = await loadShare(recordingRow());
+
+    expect(pageData).toMatchObject({
+      recording: { title: "Quarterly roadmap" },
+    });
+    expect(tags).toContainEqual({
+      property: "og:title",
+      content: "Quarterly roadmap · Clips",
+    });
+    expect(tags).toContainEqual(
+      expect.objectContaining({ property: "og:image" }),
+    );
+  });
+
+  it("keeps the request-access page data for a private clip", async () => {
+    const { pageData } = await loadShare(
+      recordingRow({ visibility: "private" }),
+    );
+
+    expect(pageData).toMatchObject({
+      data: { recording: null, accessDeniedStatus: 401 },
+      init: { status: 401 },
     });
   });
 });
