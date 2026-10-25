@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change(templates/clips/app/lib/missing-share-retry.test.ts): Missing share links now become unavailable after the first 404; these rendering tests replace the deleted retry-helper tests.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
