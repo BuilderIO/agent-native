@@ -900,6 +900,7 @@ export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
   designCanvasE2eDiagnosticSpecs: string[];
+  designCanvasE2eDiagnosticShards: string[];
   designCanvasE2eSpecCount: number;
   designCanvasBroadWorkflowShards: string[];
   docsOnly: boolean;
@@ -2167,6 +2168,33 @@ function trustedAcceptanceAppsFor(
   );
 }
 
+// The full Design suite needs 48 shards to fit the 30-minute diagnostic job
+// (about 22 tests each). Shards are sized for half that load, so a change that
+// selects a few specs does not pay for 48 runners of setup.
+const DESIGN_DIAGNOSTIC_MAX_SHARDS = 48;
+const DESIGN_DIAGNOSTIC_TESTS_PER_SHARD = 11;
+
+export function designCanvasE2eDiagnosticShardsFor(
+  specs: readonly string[],
+  repositoryRoot: string,
+): string[] {
+  if (specs.length === 0) return [];
+  const tests = specs.reduce((total, spec) => {
+    const path = join(repositoryRoot, spec);
+    // Deleted specs are dropped again at run time; they hold no tests.
+    if (!existsSync(path)) return total;
+    return (
+      total +
+      (readFileSync(path, "utf8").match(/^\s*test(?:\.\w+)?\(/gm)?.length ?? 0)
+    );
+  }, 0);
+  const count = Math.min(
+    DESIGN_DIAGNOSTIC_MAX_SHARDS,
+    Math.max(1, Math.ceil(tests / DESIGN_DIAGNOSTIC_TESTS_PER_SHARD)),
+  );
+  return Array.from({ length: count }, (_, index) => `changed-${index + 1}`);
+}
+
 function designCanvasBroadWorkflowShardsFor(
   specs: readonly string[],
   changedPaths: readonly string[],
@@ -2561,6 +2589,10 @@ export function classifyChangedPaths(
     changedPaths,
     designCanvasE2eSpecs,
     designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
+    designCanvasE2eDiagnosticShards: designCanvasE2eDiagnosticShardsFor(
+      changedDesignDiagnosticSpecs,
+      repositoryRoot,
+    ),
     designCanvasE2eSpecCount: designCanvasE2eSpecs.length,
     designCanvasBroadWorkflowShards,
     docsOnly,
@@ -2690,6 +2722,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
+      `design_canvas_e2e_diagnostic_shards=${JSON.stringify(scope.designCanvasE2eDiagnosticShards)}`,
       `design_canvas_broad_workflow_shards=${JSON.stringify(scope.designCanvasBroadWorkflowShards)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
