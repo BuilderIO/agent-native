@@ -386,6 +386,27 @@ describe("channel settings", () => {
     expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
   });
 
+  it("replaces an unreadable pre-org solo credential at its exact scope", async () => {
+    const soloRef = `workspace:solo:${OWNER.userEmail}:TELEGRAM_BOT_TOKEN`;
+    store.set(soloRef, "corrupted-solo-token");
+    unreadable.add(soloRef);
+
+    const listed = await listMessagingChannels(OWNER);
+    const telegram = listed.channels.find((row) => row.platform === "telegram");
+    expect(telegram?.credentials[0]).toMatchObject({
+      source: "unreadable",
+      unreadableScope: "workspace",
+      removable: true,
+    });
+
+    await saveMessagingChannelCredentials(OWNER, "telegram", {
+      TELEGRAM_BOT_TOKEN: "fake-solo-replacement-token",
+    });
+
+    expect(store.get(soloRef)).toBe("fake-solo-replacement-token");
+    expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
+  });
+
   it("propagates channel credential query failures instead of reporting unreadable values", async () => {
     const error = new Error("database unavailable");
     readErrorRef.error = error;
@@ -481,6 +502,18 @@ describe("channel settings", () => {
     expect(store.get("org:foreign-org:TELEGRAM_WEBHOOK_SECRET")).toBe(
       "fake-foreign-secret",
     );
+  });
+
+  it("removes an unreadable pre-org solo credential for an org manager", async () => {
+    const soloRef = `workspace:solo:${OWNER.userEmail}:TELEGRAM_BOT_TOKEN`;
+    store.set(soloRef, "corrupted-solo-token");
+    unreadable.add(soloRef);
+
+    const result = await removeMessagingChannelCredentials(OWNER, "telegram");
+
+    expect(result.removedKeys).toEqual(["TELEGRAM_BOT_TOKEN"]);
+    expect(store.has(soloRef)).toBe(false);
+    expect(store.has(`workspace:${ORG}:TELEGRAM_BOT_TOKEN`)).toBe(false);
   });
 
   it("preflights store failures before writing or deleting any credential", async () => {

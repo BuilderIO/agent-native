@@ -624,23 +624,32 @@ export async function materializeHeaders(
 ): Promise<Record<string, string> | undefined> {
   const merged: Record<string, string> = { ...(stored.headers ?? {}) };
   if (stored.headerSecretKey) {
-    try {
-      const secret = await readAppSecret({
-        key: stored.headerSecretKey,
-        scope: toSecretScope(scope),
-        scopeId,
-      });
-      if (secret) {
-        const parsed = JSON.parse(secret.value) as Record<string, string>;
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === "string") merged[k] = v;
-        }
+    const secret = await readAppSecret({
+      key: stored.headerSecretKey,
+      scope: toSecretScope(scope),
+      scopeId,
+    });
+    if (secret) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(secret.value);
+      } catch {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[mcp-client] Failed to parse MCP headers for ${stored.name}: invalid JSON`,
+        );
+        return Object.keys(merged).length > 0 ? merged : undefined;
       }
-    } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[mcp-client] Failed to decrypt MCP headers for ${stored.name}: ${err?.message ?? err}`,
-      );
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[mcp-client] Failed to parse MCP headers for ${stored.name}: expected a JSON object`,
+        );
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      }
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === "string") merged[k] = v;
+      }
     }
   }
   return Object.keys(merged).length > 0 ? merged : undefined;

@@ -371,7 +371,7 @@ type AppSecretsReadQuery = { sql: string; args: unknown[] };
  * for connectivity, permission, or syntax errors both hides the real failure
  * and can introduce DDL onto a latency-sensitive read path.
  */
-function isMissingAppSecretsTableError(error: unknown): boolean {
+export function isMissingAppSecretsTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const codeValue = (error as Error & { code?: unknown }).code;
   const code = typeof codeValue === "string" ? codeValue : "";

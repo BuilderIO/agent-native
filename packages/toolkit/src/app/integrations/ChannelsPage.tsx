@@ -570,8 +570,8 @@ function ChannelSetupDialog({
         });
         next = saved.channel;
       }
-      if (status.enabled) return "done";
       if (!next.configured) return "missing";
+      if (status.enabled) return "done";
       await manage.mutateAsync({ operation: "enable", platform: channel.id });
       return "done";
     },

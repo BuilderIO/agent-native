@@ -600,6 +600,10 @@ describe("ChannelsPage", () => {
   });
 
   it("offers repair for an unreadable saved scope while keeping an environment fallback active", async () => {
+    actions.manage.mockResolvedValue({
+      channel: channel("slack", { configured: true, enabled: true }),
+      message: "ok",
+    });
     actions.list.mockResolvedValue(
       listed({
         slack: {
@@ -671,6 +675,10 @@ describe("ChannelsPage", () => {
         values: { SLACK_SIGNING_SECRET: "replacement-secret" },
       },
     ]);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "Some required variables are still missing.",
+    );
   });
 
   it("shows keys the deployment sets without an input", async () => {

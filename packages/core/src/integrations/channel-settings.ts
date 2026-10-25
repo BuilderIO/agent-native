@@ -188,6 +188,15 @@ function recoveryRefsFor(
       ? [{ key, scope: "org" as const, scopeId: access.orgId }]
       : []),
     { key, scope: "workspace", scopeId: access.scopeId },
+    ...(access.orgId
+      ? [
+          {
+            key,
+            scope: "workspace" as const,
+            scopeId: `solo:${access.email}`,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -283,9 +292,7 @@ async function readCredentialStatuses(
         resolved.cause instanceof AppSecretDecryptionError
           ? allowedRecoveryRef(item.key, access, resolved.cause)
           : undefined;
-      const recovery = resolved.lookupFailed
-        ? resolverRecovery
-        : unreadable[0];
+      const recovery = resolved.lookupFailed ? resolverRecovery : unreadable[0];
       unreadableScope = recovery?.scope;
       if (resolved.value) {
         source =

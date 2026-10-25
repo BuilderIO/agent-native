@@ -5711,26 +5711,36 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
     `\\b(?:skip|skipping|leave|leaving|avoid|avoiding|ignore|ignoring|exclude|excluding|omit|omitting)\\b${populationInSentence}`,
     "i",
   );
+  const populationAfterNegation = new RegExp(
+    `\\b(?:but\\s+not|not|no|never|neither|without)\\b${populationInSentence}`,
+    "i",
+  );
   const negatedPopulationAction = new RegExp(
-    `\\b(?:do not|don't|never)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on)\\b${populationInSentence}`,
+    `\\b(?:do not|don't|never|cannot|can't|shouldn't|mustn't|won't)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on|process|address|include)\\b${populationInSentence}`,
     "i",
   );
   const exclusionLeavesPopulationAlone = new RegExp(
     `\\b(?:skip|leave|avoid|ignore|exclude|omit)\\b${populationInSentence}[^.!?;\\n]{0,60}\\b(?:alone|untouched|out of scope|off limits)\\b`,
     "i",
   );
+  const populationDeclaredOutOfScope = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:(?:is|are|remain|stays?)\\s+)?(?:off limits|out of scope|excluded|not included|not in scope|not to be (?:handled|processed|worked on|reconciled|replied to|followed up on))\\b`,
+    "i",
+  );
   return sentences.some(
     (sentence) =>
       new RegExp(
-        `\\b(?:except|excluding|exclude|other than|apart from|not including)\\b[^.!?;\\n]{0,120}\\b${population}\\b`,
+        `\\b(?:except|excluding|exclude|other than|apart from|not including|but\\s+not)\\b[^.!?;\\n]{0,120}\\b${population}\\b`,
         "i",
       ).test(sentence) ||
       new RegExp(`\\bonly\\b[^.!?;\\n]{0,100}\\b${population}\\b`, "i").test(
         sentence,
       ) ||
       populationAfterExclusion.test(sentence) ||
+      populationAfterNegation.test(sentence) ||
       negatedPopulationAction.test(sentence) ||
-      exclusionLeavesPopulationAlone.test(sentence),
+      exclusionLeavesPopulationAlone.test(sentence) ||
+      populationDeclaredOutOfScope.test(sentence),
   );
 }
 
@@ -5738,6 +5748,41 @@ function hasBoundedWorkflowWriteAuthorization(userRequest: string): boolean {
   return (
     !hasRootPopulationRestriction(userRequest) &&
     hasExplicitWorkflowWriteAuthorization(userRequest, [])
+  );
+}
+
+function hasBoundedAdministrativeWorkflowWriteAuthorization(
+  userRequest: string,
+): boolean {
+  if (!hasBoundedWorkflowWriteAuthorization(userRequest)) return false;
+  const administrativePopulation =
+    "(?:administrative|admin)\\s+(?:posts?|roots?|messages?)";
+  const statements =
+    withoutQuotedScopeContext(userRequest).split(/(?:[.!?;]\s+|\n+)/);
+  const inclusionBeforePopulation = new RegExp(
+    "\\b(?:all|any|every|including|include|includes|cover(?:s|ed|ing)?|extend(?:s|ed|ing)?\\s+to|appl(?:y|ies|ied)\\s+to|in[ -]scope|authoriz(?:e|es|ed)|permit(?:s|ted)?)\\b[^.!?;\\n]{0,160}\\b" +
+      administrativePopulation +
+      "\\b",
+    "i",
+  );
+  const inclusionAfterPopulation = new RegExp(
+    "\\b" +
+      administrativePopulation +
+      "\\b[^.!?;\\n]{0,80}\\b(?:included|in[ -]scope|covered|authorized|permitted)\\b",
+    "i",
+  );
+  const exclusionOfPopulation = new RegExp(
+    "\\b(?:but\\s+not|not|no|never|except|excluding|exclude|skip|leave|avoid|ignore|omit|off limits|out of scope|not included|not in scope)\\b[^.!?;\\n]{0,120}\\b" +
+      administrativePopulation +
+      "\\b",
+    "i",
+  );
+
+  return statements.some(
+    (statement) =>
+      (inclusionBeforePopulation.test(statement) ||
+        inclusionAfterPopulation.test(statement)) &&
+      !exclusionOfPopulation.test(statement),
   );
 }
 
@@ -5951,6 +5996,24 @@ function validateAuthorizedRootTarget(
   if (!(parent.reactionOwners.eyes ?? []).includes(sweepActorId)) {
     throw new Error(
       `${parentName}: explicitly authorized work needs this actor's exact root 👀 and current status`,
+    );
+  }
+}
+
+function validateBoundedAdministrativeRootAuthorization(
+  parentName: string,
+  parent: Parent,
+  userRequest: string,
+  authorizedRoot: AuthorizedRoot,
+): void {
+  if (
+    parent.rootClassification === "administrative" &&
+    hasBoundedWorkflowWriteAuthorization(userRequest) &&
+    !hasBoundedAdministrativeWorkflowWriteAuthorization(userRequest) &&
+    !userRequestAuthorizesExactRoot(userRequest, authorizedRoot)
+  ) {
+    throw new Error(
+      `${parentName}: a bounded report-wide grant does not authorize administrative roots unless the request explicitly includes administrative posts`,
     );
   }
 }
@@ -9647,6 +9710,15 @@ function validateInventory(
             parentName,
             parent,
             inventory.sweepActorId,
+          );
+          validateBoundedAdministrativeRootAuthorization(
+            parentName,
+            parent,
+            scope.userRequest as string,
+            {
+              channelId: channel.channelId,
+              rootTs: slackTimestampFromMicros(threadParentTimestamp),
+            },
           );
         }
         if (!isRootMessage) {
@@ -18094,6 +18166,26 @@ if (args[0] === "--self-test" && args.length === 1) {
         "don't touch assigned reports",
         "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
       ],
+      [
+        "But not assigned reports.",
+        "but not assigned reports",
+        "scope.userRequest",
+      ],
+      [
+        "Do not process assigned reports.",
+        "do not process assigned reports",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports are off limits.",
+        "assigned reports are off limits",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports are not to be handled.",
+        "assigned reports are not to be handled",
+        "scope.userRequest",
+      ],
     ] as const) {
       const excludedPopulationRoot = structuredClone(assignedForeignEyeRoot);
       excludedPopulationRoot.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. ${restriction}`;
@@ -18313,6 +18405,73 @@ if (args[0] === "--self-test" && args.length === 1) {
     boundedAuthorization.scope.narrowingJudgment!.instruction =
       boundedAuthorization.scope.userRequest;
     validateTestInventory(boundedAuthorization);
+
+    const administrativeBoundedAuthorization =
+      structuredClone(boundedAuthorization);
+    const administrativeParent =
+      administrativeBoundedAuthorization.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "11.000000",
+      )!;
+    const administrativeStatusText =
+      "In progress: the administrative root still needs verification. No :white_check_mark: — no root scope has passed verification. No :ticket: — no separate human/team action remains unfinished. this was sent from a bot.";
+    administrativeParent.sourceText =
+      "System announcement: synthetic maintenance window.";
+    administrativeParent.rootClassification = "administrative";
+    administrativeParent.rootClassificationReason =
+      "Synthetic administrative post";
+    administrativeParent.rootClassificationJudgment = {
+      actorId: "USWEEPER",
+      decision: "administrative",
+      rationale: "A system announcement is not product feedback.",
+    };
+    administrativeParent.clusteredUnder = undefined;
+    administrativeParent.disposition = "In progress";
+    administrativeParent.reactionSummary = "eyes (1): USWEEPER";
+    administrativeParent.reactionOwners = { eyes: ["USWEEPER"] };
+    administrativeParent.latestOwnedReply = {
+      ts: "13.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      text: administrativeStatusText,
+    };
+    administrativeParent.reactionDecision = {
+      checkmark: {
+        state: "none",
+        reason: "No root scope has passed verification",
+      },
+      ticket: {
+        state: "none",
+        reason: "No distinct human handoff is assigned",
+      },
+    };
+    administrativeParent.statusReply = {
+      ts: "13.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "In progress",
+      evidence: "The administrative root still needs verification",
+      publicEvidenceSummary: "The administrative root still needs verification",
+      text: administrativeStatusText,
+    };
+    administrativeBoundedAuthorization.scope.authorizedRoots!.push({
+      channelId: "C_TEST",
+      rootTs: "11.000000",
+    });
+    expectFocusedFailure(
+      "a report-wide bounded grant cannot authorize an administrative root",
+      () => validateTestInventory(administrativeBoundedAuthorization),
+      "a bounded report-wide grant does not authorize administrative roots",
+    );
+    const administrativePostsIncludedRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim any followups, send same-thread status replies, and add emojis for all reports and administrative posts.";
+    const administrativePostsIncludedAuthorization = structuredClone(
+      administrativeBoundedAuthorization,
+    );
+    administrativePostsIncludedAuthorization.scope.userRequest =
+      administrativePostsIncludedRequest;
+    administrativePostsIncludedAuthorization.scope.narrowingJudgment!.instruction =
+      administrativePostsIncludedRequest;
+    validateTestInventory(administrativePostsIncludedAuthorization);
 
     const omittedBoundedEyeRoot = structuredClone(boundedAuthorization);
     omittedBoundedEyeRoot.channels[0]!.pages[0]!.parents =

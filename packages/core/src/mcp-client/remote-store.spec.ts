@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+
 const oauthMocks = vi.hoisted(() => ({
   delete: vi.fn(),
   revoke: vi.fn(),
@@ -9,6 +11,11 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 const mutateUserSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
 const deleteUserSettingMock = vi.hoisted(() => vi.fn());
+const appSecretMocks = vi.hoisted(() => ({
+  delete: vi.fn(),
+  read: vi.fn(),
+  write: vi.fn(),
+}));
 
 vi.mock("./oauth-client.js", () => ({
   deleteMcpOAuthCredentials: oauthMocks.delete,
@@ -24,11 +31,18 @@ vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: putUserSettingMock,
 }));
 
+vi.mock("../secrets/storage.js", () => ({
+  deleteAppSecret: appSecretMocks.delete,
+  readAppSecret: appSecretMocks.read,
+  writeAppSecret: appSecretMocks.write,
+}));
+
 import {
   addFirstPartyRemoteServer,
   addOAuthRemoteServer,
   addRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
+  materializeHeaders,
   removeRemoteServer,
   replaceOAuthRemoteServer,
   toHttpServerConfig,
@@ -44,6 +58,9 @@ vi.mock("../mcp/org-directory.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  appSecretMocks.delete.mockResolvedValue(true);
+  appSecretMocks.read.mockResolvedValue(null);
+  appSecretMocks.write.mockResolvedValue("secret-id");
   getUserSettingMock.mockResolvedValue(null);
   mutateUserSettingMock.mockImplementation(
     async (
@@ -545,5 +562,46 @@ describe("first-party remote MCP metadata", () => {
       firstPartyAppId: "assets",
       firstPartyOrgId: "org-1",
     });
+  });
+});
+
+describe("stored remote MCP headers", () => {
+  it("propagates an unreadable saved header secret", async () => {
+    const error = new AppSecretDecryptionError({
+      scope: "workspace",
+      scopeId: "org-1",
+    });
+    appSecretMocks.read.mockRejectedValue(error);
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).rejects.toBe(error);
+  });
+
+  it("keeps clear headers available when a saved header secret has malformed JSON", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    appSecretMocks.read.mockResolvedValue({ value: "not-json" });
+
+    await expect(
+      materializeHeaders("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headers: { Accept: "application/json" },
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).resolves.toEqual({ Accept: "application/json" });
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to parse MCP headers for example"),
+    );
+    warn.mockRestore();
   });
 });

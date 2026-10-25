@@ -5,9 +5,9 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
-import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
+  isMissingAppSecretsTableError,
   readAppSecret,
   type SecretRef,
 } from "../secrets/storage.js";
@@ -156,10 +156,8 @@ async function readScopedAppSecret(
   try {
     return (await readAppSecret({ key, scope, scopeId }))?.value;
   } catch (error) {
-    if (error instanceof AppSecretDecryptionError) throw error;
-    // Older databases may not have app_secrets yet. Keep the legacy
-    // credential store available while the table bootstraps.
-    return undefined;
+    if (isMissingAppSecretsTableError(error)) return undefined;
+    throw error;
   }
 }
 
