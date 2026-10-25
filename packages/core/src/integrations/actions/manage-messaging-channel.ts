@@ -11,7 +11,7 @@ import {
 
 export default defineAction({
   description:
-    'Manage one of this app\'s messaging channels. Owners and admins only. "enable" and "disable" apply to everyone who messages the app\'s agent. "save-credentials" saves `values` (credential name to value, names from list-messaging-channels) in the workspace by default, or replaces the exact unreadable scope reported by list-messaging-channels. A `user` repair changes only the caller\'s personal credential, not other users\' credentials. A credential with saveable: false can only be set in the deployment environment. "enable" fails while required credentials are missing or saved credentials cannot be read. Replace unreadable saveable credentials or remove Channels-managed credentials before enabling. "remove-credentials" deletes only the exact removable credential references listed by list-messaging-channels and confirmed by the owner; pass each selected credential\'s `key` and `removalConfirmation` in `confirmedCredentials`. Refresh the list and ask the owner to confirm again if a token is stale. It does not delete credentials stored elsewhere or deployment variables. "register-webhook" registers the webhook URL with the provider (Telegram). Call list-messaging-channels first.',
+    'Manage one of this app\'s messaging channels from the signed-in Channels settings UI. Owners and admins only. "enable" and "disable" apply to everyone who messages the app\'s agent. "save-credentials" saves `values` (credential name to value, names from list-messaging-channels) in the workspace by default, or replaces the exact unreadable scope reported by list-messaging-channels. A `user` repair changes only the caller\'s personal credential, not other users\' credentials. A credential with saveable: false can only be set in the deployment environment. "enable" fails while required credentials are missing or saved credentials cannot be read. Replace unreadable saveable credentials or remove Channels-managed credentials before enabling. "remove-credentials" deletes only the exact removable credential references reviewed and confirmed by the owner in the Settings UI. "register-webhook" registers the webhook URL with the provider (Telegram).',
   schema: z.object({
     operation: z
       .enum([
@@ -52,6 +52,8 @@ export default defineAction({
   // Credentials for a deployment-wide bot are not something a sandboxed
   // extension should be able to swap.
   toolCallable: false,
+  agentTool: false,
+  uiOnly: true,
   audit: orgAdminAudit({
     targetType: "messaging-channel",
     targetId: (args) => args.platform,

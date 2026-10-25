@@ -3448,6 +3448,29 @@ describe("Restrict personal API keys", () => {
     }
   });
 
+  it("uses an owner's or admin's org key when their personal row is unreadable", async () => {
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
+        if (scope === "user") {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        return scope === "org"
+          ? { value: "org-secret", last4: "cret", updatedAt: 1 }
+          : null;
+      });
+
+      await expect(
+        resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+      ).resolves.toMatchObject({
+        value: "org-secret",
+        lookupFailed: false,
+        source: "org",
+        scopeId: ORG,
+      });
+    }
+  });
+
   it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {
     mockGetSetting.mockResolvedValue(null);
     mockGetDbExec.mockReturnValue({

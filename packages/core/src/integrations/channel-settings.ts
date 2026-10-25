@@ -356,6 +356,7 @@ interface ResolvedChannelCredentialStatus {
 async function readCredentialStatus(
   item: EnvKeyConfig,
   access: ChannelAccess,
+  includeRemovalConfirmation = false,
 ): Promise<ResolvedChannelCredentialStatus> {
   let source: ChannelCredentialSource | null = null;
   let unreadableRef: ChannelCredentialRef | undefined;
@@ -412,7 +413,7 @@ async function readCredentialStatus(
       removable,
       ...(unreadableScope ? { unreadableScope } : {}),
       ...(repairRef ? { repairScope: repairRef.scope } : {}),
-      ...(removable && removalRef
+      ...(includeRemovalConfirmation && removable && removalRef
         ? {
             removalScope: removalRef.scope,
             removalConfirmation: removalConfirmation(
@@ -433,9 +434,12 @@ async function readCredentialStatus(
 async function readCredentialStatuses(
   keys: readonly EnvKeyConfig[],
   access: ChannelAccess,
+  includeRemovalConfirmation = false,
 ): Promise<ChannelCredentialStatus[]> {
   const resolved = await Promise.all(
-    keys.map((item) => readCredentialStatus(item, access)),
+    keys.map((item) =>
+      readCredentialStatus(item, access, includeRemovalConfirmation),
+    ),
   );
   return resolved.map(({ status }) => status);
 }
@@ -445,9 +449,14 @@ async function readChannelStatus(
   adapter: PlatformAdapter,
   access: ChannelAccess,
   baseUrl: string | null,
+  includeRemovalConfirmation = false,
 ): Promise<MessagingChannelStatus> {
   const credentialKeys = adapter.getRequiredEnvKeys();
-  const credentials = await readCredentialStatuses(credentialKeys, access);
+  const credentials = await readCredentialStatuses(
+    credentialKeys,
+    access,
+    includeRemovalConfirmation,
+  );
   const unreadableCredentials = credentials.filter(
     (item) => item.source === "unreadable",
   );
@@ -519,7 +528,13 @@ export async function listMessagingChannels(
   const baseUrl = channelBaseUrl(ctx);
   const channels = await Promise.all(
     mounted.adapters.map((adapter) =>
-      readChannelStatus(mounted, adapter, access, baseUrl),
+      readChannelStatus(
+        mounted,
+        adapter,
+        access,
+        baseUrl,
+        ctx?.caller === "frontend",
+      ),
     ),
   );
   return { canManage: access.canManage, channels };

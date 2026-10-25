@@ -2854,23 +2854,66 @@ export function hasUnavailableBuilderCredentialPair(credentials: {
  */
 export async function resolveOAuthCustodyBuilderKeyStatus(
   dependencies: {
-    resolveCredentialsDetailed: () => Promise<{
+    role?: string | null;
+    resolveOrgCredentialPair?: () => Promise<[string, string] | null>;
+    resolveCredentialsDetailed?: () => Promise<{
       privateKey: string | null;
       publicKey: string | null;
       orgName: string | null;
       lookupFailed: boolean;
       optionalMetadataLookupFailure?: "unreadable" | "unavailable";
     }>;
-  } = {
-    resolveCredentialsDetailed: async () => {
-      const { resolveBuilderCredentialsDetailed } =
-        await import("./credential-provider.js");
-      return resolveBuilderCredentialsDetailed();
-    },
-  },
+  } = {},
 ): Promise<OAuthCustodyBuilderKeyStatus> {
   try {
-    const creds = await dependencies.resolveCredentialsDetailed();
+    if (isBuilderOrgManagerRole(dependencies.role)) {
+      const resolveOrgCredentialPair =
+        dependencies.resolveOrgCredentialPair ??
+        (async () => {
+          const orgId = getRequestOrgId()?.trim();
+          if (!orgId) return null;
+          const { readAppSecrets } = await import("../secrets/storage.js");
+          const { getBuilderCredentialAuthFailure } =
+            await import("./credential-provider.js");
+          for (const scope of ["org", "workspace"] as const) {
+            const secrets = await readAppSecrets({
+              keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+              scope,
+              scopeId: orgId,
+            });
+            const privateKey = secrets.get("BUILDER_PRIVATE_KEY")?.value;
+            const publicKey = secrets.get("BUILDER_PUBLIC_KEY")?.value;
+            if (!privateKey || !publicKey) continue;
+            if (
+              !(await getBuilderCredentialAuthFailure({
+                privateKey,
+                publicKey,
+              }))
+            ) {
+              return [privateKey, publicKey];
+            }
+          }
+          return null;
+        });
+      const pair = await resolveOrgCredentialPair();
+      if (pair) {
+        return {
+          privateKeyConfigured: true,
+          publicKeyConfigured: true,
+          orgName: "Builder OAuth",
+          keyLookupFailed: false,
+        };
+      }
+    }
+
+    const resolveCredentialsDetailed =
+      dependencies.resolveCredentialsDetailed ??
+      (async () => {
+        const { resolveBuilderCredentialsDetailed } =
+          await import("./credential-provider.js");
+        return resolveBuilderCredentialsDetailed();
+      });
+    const creds = await resolveCredentialsDetailed();
     return {
       privateKeyConfigured: !!creds.privateKey,
       publicKeyConfigured: !!creds.publicKey,
@@ -4285,7 +4328,9 @@ export function createCoreRoutesPlugin(
                     legacyCredentialKeys: BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
                   });
                 if (requestAuthorization?.source === "oauth") {
-                  const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
+                  const keyStatus = await resolveOAuthCustodyBuilderKeyStatus({
+                    role: orgRole,
+                  });
                   const oauthSource =
                     requestAuthorization.oauthScope === "org"
                       ? ("org" as const)

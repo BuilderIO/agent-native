@@ -1285,8 +1285,7 @@ export interface ChannelsPageProps {
  * {App} › Channels (spec §5.19): everywhere people can message this app's
  * agent, from the channel catalog, with each adapter's own required
  * variables. Reads and changes go through `list-messaging-channels` and
- * `manage-messaging-channel`, the actions the agent calls too; the second
- * allows owners and admins only.
+ * `manage-messaging-channel`, a signed-in UI action for owners and admins.
  */
 export function ChannelsPage({ sub, context, appName }: ChannelsPageProps) {
   if (!sub) return <ChannelList appName={appName} />;

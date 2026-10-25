@@ -115,6 +115,51 @@ describe("Builder connect error correlation", () => {
 });
 
 describe("resolveOAuthCustodyBuilderKeyStatus", () => {
+  it("uses the org pair before a manager's unreadable personal pair", async () => {
+    const resolveCredentialsDetailed = vi.fn(async () => {
+      throw new Error("personal Builder credentials are unreadable");
+    });
+    const resolveOrgCredentialPair = vi.fn(
+      async () => ["org-private-key", "org-public-key"] as [string, string],
+    );
+
+    await expect(
+      resolveOAuthCustodyBuilderKeyStatus({
+        role: "admin",
+        resolveOrgCredentialPair,
+        resolveCredentialsDetailed,
+      }),
+    ).resolves.toEqual({
+      privateKeyConfigured: true,
+      publicKeyConfigured: true,
+      orgName: "Builder OAuth",
+      keyLookupFailed: false,
+    });
+    expect(resolveOrgCredentialPair).toHaveBeenCalledOnce();
+    expect(resolveCredentialsDetailed).not.toHaveBeenCalled();
+  });
+
+  it("retains an unreadable personal pair when no org pair is available", async () => {
+    await expect(
+      resolveOAuthCustodyBuilderKeyStatus({
+        role: "owner",
+        resolveOrgCredentialPair: async () => null,
+        resolveCredentialsDetailed: async () => {
+          return {
+            privateKey: "deploy-private-key",
+            publicKey: "deploy-public-key",
+            orgName: null,
+            lookupFailed: true,
+          };
+        },
+      }),
+    ).resolves.toMatchObject({
+      privateKeyConfigured: true,
+      publicKeyConfigured: true,
+      keyLookupFailed: true,
+    });
+  });
+
   it("reports confirmed-absent keys distinctly from a failed key lookup", async () => {
     const confirmedAbsent = await resolveOAuthCustodyBuilderKeyStatus({
       resolveCredentialsDetailed: async () => ({

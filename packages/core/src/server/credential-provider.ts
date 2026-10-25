@@ -2199,14 +2199,20 @@ export async function resolveSecretDetailed(
         isPersonalProviderPolicyKey(key) &&
         (await isPersonalProviderKeyUseRestricted({ email }));
 
-      const userSecret =
-        options.skipUserScope || personalRestricted
-          ? null
-          : await readAppSecret({
-              key,
-              scope: "user",
-              scopeId: email,
-            });
+      let personalReadError: AppSecretDecryptionError | undefined;
+      let userSecret: ReadSecretResult | null = null;
+      if (!options.skipUserScope && !personalRestricted) {
+        try {
+          userSecret = await readAppSecret({
+            key,
+            scope: "user",
+            scopeId: email,
+          });
+        } catch (error) {
+          if (!(error instanceof AppSecretDecryptionError)) throw error;
+          personalReadError = error;
+        }
+      }
       const personal: ResolvedSecretDetail | null = userSecret?.value
         ? {
             value: userSecret.value,
@@ -2223,8 +2229,10 @@ export async function resolveSecretDetailed(
 
       // The beta suite writes one user-scoped credential and must never turn a
       // rejected or missing test key into a charge against a shared scope.
-      if (syntheticTraffic)
+      if (syntheticTraffic) {
+        if (personalReadError) throw personalReadError;
         return personal ?? { value: null, lookupFailed: false };
+      }
 
       let orgId: string | null | undefined = getRequestOrgId();
       if (!orgId) {
@@ -2240,7 +2248,11 @@ export async function resolveSecretDetailed(
       }
 
       // An owner or admin runs on the organization's key ahead of their own.
-      if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+      const orgCredentialFirst =
+        Boolean(personal || personalReadError) &&
+        (await readsOrgCredentialFirst(orgId, email));
+      if (personalReadError && !orgCredentialFirst) throw personalReadError;
+      if (personal && !orgCredentialFirst) {
         return personal;
       }
 
@@ -2284,6 +2296,7 @@ export async function resolveSecretDetailed(
           };
         }
       }
+      if (personalReadError) throw personalReadError;
       if (personal) return personal;
 
       // Solo-workspace fallback: always checked, even when an org id was found
