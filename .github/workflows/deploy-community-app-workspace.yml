@@ -164,14 +164,14 @@ jobs:
                   ? retryAfterSeconds * 1000
                   : Date.parse(retryAfter) - Date.now()
                 : Number.NaN;
-              const delay = Math.min(
-                30_000,
-                Math.max(
-                  0,
-                  Number.isFinite(requestedDelay)
-                    ? requestedDelay
-                    : 500 * 2 ** attempt,
-                ),
+              if (Number.isFinite(requestedDelay) && requestedDelay > 30_000) {
+                return response;
+              }
+              const delay = Math.max(
+                0,
+                Number.isFinite(requestedDelay)
+                  ? requestedDelay
+                  : 500 * 2 ** attempt,
               );
               await new Promise((resolve) => setTimeout(resolve, delay));
             }
