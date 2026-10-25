@@ -481,7 +481,10 @@ export class App {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const read = await this.page.request.get(url);
       if (!read.ok()) throw new Error(`ledger read ${read.status()}`);
-      const ledger = (await read.json()) as {
+      // A user who never opened the editor has no ledger, and the state route answers with an empty body.
+      const body = await read.text();
+      if (!body) return;
+      const ledger = JSON.parse(body) as {
         contexts: { tabId: string }[];
       } | null;
       if (!ledger?.contexts.some((entry) => entry.tabId === tabId)) return;
