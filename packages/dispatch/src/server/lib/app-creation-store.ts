@@ -709,23 +709,16 @@ function workspaceAppLink(
       workspaceGatewayAppUrl(urlValue) ?? workspaceAppUrl(urlValue) ?? urlValue
     );
   }
-  try {
-    const resolved = projectEnvironmentUrl(new URL(urlValue).toString());
-    const gateway = workspaceGatewayBaseUrl();
-    if (gateway && new URL(resolved).origin === gateway.origin) {
-      return addBasePath(resolved, gateway.pathname.replace(/\/+$/, ""));
-    }
-    const runtimeBase = resolveAppRuntimeUrl();
-    if (
-      runtimeBase &&
-      new URL(resolved).origin === new URL(runtimeBase).origin
-    ) {
-      return addBasePath(resolved, getConfiguredAppBasePath());
-    }
-    return resolved;
-  } catch {
-    return urlValue;
+  const resolved = projectEnvironmentUrl(new URL(urlValue).toString());
+  const gateway = workspaceGatewayBaseUrl();
+  if (gateway && new URL(resolved).origin === gateway.origin) {
+    return addBasePath(resolved, gateway.pathname.replace(/\/+$/, ""));
   }
+  const runtimeBase = resolveAppRuntimeUrl();
+  if (runtimeBase && new URL(resolved).origin === new URL(runtimeBase).origin) {
+    return addBasePath(resolved, getConfiguredAppBasePath());
+  }
+  return resolved;
 }
 
 function normalizeWorkspaceAppAudience(value: unknown): WorkspaceAppAudience {
@@ -2205,7 +2198,16 @@ async function readWorkspaceAppsFromFilesystem(
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
     const appDir = path.join(appsDir, entry.name);
-    const pkg = readJson(path.join(appDir, "package.json"));
+    let pkg: any;
+    try {
+      pkg = readJson(path.join(appDir, "package.json"));
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not read workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     if (!pkg) continue;
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     const metadata = workspaceAppMetadataFromRecord(pkg);

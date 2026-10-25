@@ -1310,6 +1310,39 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
+  it("surfaces malformed gateway config when normalizing absolute app URLs", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      const manifestDirectory = path.join(workspaceRoot, ".agent-native");
+      fs.mkdirSync(manifestDirectory, { recursive: true });
+      fs.writeFileSync(
+        path.join(manifestDirectory, "workspace-apps.json"),
+        JSON.stringify([
+          {
+            id: "customer-ticket-triage",
+            name: "Customer Ticket Triage",
+            path: "/customer-ticket-triage",
+            url: "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+          },
+        ]),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          listWorkspaceApps({ includeAgentCards: false }),
+        ),
+      ).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps healthy filesystem apps discoverable when config or routes cannot load", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "dispatch-workspace-"),
@@ -1328,12 +1361,15 @@ describe("listWorkspaceApps", () => {
         "healthy",
         "config-broken",
         "routes-broken",
+        "package-broken",
       ]) {
         const appDir = path.join(workspaceRoot, "apps", app);
         fs.mkdirSync(appDir, { recursive: true });
         fs.writeFileSync(
           path.join(appDir, "package.json"),
-          JSON.stringify({ name: app, displayName: app }),
+          app === "package-broken"
+            ? "{"
+            : JSON.stringify({ name: app, displayName: app }),
         );
         if (app === "routes-broken") {
           const brokenRoutes = path.join(appDir, "app", "routes");
