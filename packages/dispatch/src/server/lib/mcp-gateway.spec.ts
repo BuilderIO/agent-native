@@ -1668,8 +1668,65 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect(result.startUrl).toBe(
         "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
       );
+
+      mocks.managerCallTool.mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage/_agent-native/embed/start?ticket=sibling",
+        },
+      });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "owner@example.test",
+            requestOrigin: "https://beta.dispatch.agent-native.com",
+          },
+          () =>
+            route === "workspace-sso"
+              ? createWorkspaceSsoEmbedSession({
+                  app: workspaceApp.id,
+                  path: "/",
+                  chrome: "minimal",
+                })
+              : createGrantedDispatchMcpEmbedSession({
+                  app: workspaceApp.id,
+                  path: "/",
+                  chrome: "minimal",
+                }),
+        ),
+      ).rejects.toThrow(/invalid embed start URL/);
     },
   );
+
+  it("does not fall back when the configured Workspace gateway URL is invalid", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "customer-ticket-triage",
+            path: "/",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
 
   it("rejects beta workspace SSO apps on the production lane", async () => {
     mocks.discoverAgents.mockResolvedValue([]);

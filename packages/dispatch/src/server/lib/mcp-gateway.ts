@@ -9,6 +9,7 @@ import {
   type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
+import { getAppConfig } from "@agent-native/core/app-config";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
@@ -28,6 +29,7 @@ import {
   getBuiltinAgents,
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
+import { EMBED_START_PATH } from "@agent-native/core/shared";
 
 import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
@@ -583,23 +585,19 @@ function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
 }
 
 function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
-  const configuredGateway = process.env.WORKSPACE_GATEWAY_URL?.trim();
-  if (configuredGateway) {
-    try {
-      const gateway = new URL(projectEnvironmentUrl(configuredGateway));
-      const target = new URL(appUrl);
-      const gatewayPath = gateway.pathname.replace(/\/+$/, "");
-      if (gateway.origin === target.origin) {
-        gateway.pathname = `${gatewayPath}/mcp` || "/mcp";
-        gateway.search = "";
-        gateway.hash = "";
-        return gateway.toString().replace(/\/$/, "");
-      }
-    } catch {
-      // coercion-ok: invalid gateway metadata cannot define an MCP endpoint.
-    }
+  const configuredGateway = getAppConfig().workspace.gatewayUrl?.trim();
+  if (!configuredGateway) return undefined;
+  const gateway = new URL(projectEnvironmentUrl(configuredGateway));
+  if (gateway.protocol !== "http:" && gateway.protocol !== "https:") {
+    throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
   }
-  return undefined;
+  const target = new URL(appUrl);
+  if (gateway.origin !== target.origin) return undefined;
+  const gatewayPath = gateway.pathname.replace(/\/+$/, "");
+  gateway.pathname = `${gatewayPath}/mcp` || "/mcp";
+  gateway.search = "";
+  gateway.hash = "";
+  return gateway.toString().replace(/\/$/, "");
 }
 
 function appMcpUrl(app: DispatchMcpAccessibleApp): string {
@@ -628,12 +626,8 @@ function resolveGrantedAppEmbedStartUrl(
     const resolved = new URL(startUrl, `${baseUrl}/`);
     const base = new URL(baseUrl);
     const basePath = base.pathname.replace(/\/+$/, "");
-    if (
-      resolved.origin !== base.origin ||
-      (basePath &&
-        resolved.pathname !== basePath &&
-        !resolved.pathname.startsWith(`${basePath}/`))
-    ) {
+    const expectedPath = `${basePath}${EMBED_START_PATH}`;
+    if (resolved.origin !== base.origin || resolved.pathname !== expectedPath) {
       throw new Error(
         "Target app returned an embed start URL outside the granted app.",
       );

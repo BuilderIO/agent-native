@@ -13,6 +13,7 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
+import { getAppConfig } from "@agent-native/core/app-config";
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray } from "@agent-native/core/db/schema";
 import {
@@ -295,12 +296,8 @@ interface WorkspaceAppMetadataSettings {
 }
 
 function readJson(file: string): any {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    // coercion-ok: malformed app routes cannot produce a URL.
-    return null;
-  }
+  if (!fs.existsSync(file)) return null;
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function findWorkspaceRoot(startDir = process.cwd()): string | null {
@@ -636,7 +633,6 @@ function workspaceAppUrl(appPath: string): string | null {
     );
     return appendWorkspaceAppPath(baseUrl, appPath);
   } catch {
-    // coercion-ok: invalid runtime URL cannot produce a workspace app link.
     return null;
   }
 }
@@ -660,27 +656,21 @@ function appendWorkspaceAppPath(baseUrl: URL, appPath: string): string {
 }
 
 function workspaceGatewayBaseUrl(): URL | null {
-  const configured = process.env.WORKSPACE_GATEWAY_URL?.trim();
+  const configured = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configured) return null;
-  try {
-    const url = new URL(projectEnvironmentUrl(configured));
-    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
-  } catch {
-    // coercion-ok: invalid gateway config cannot provide a route base.
-    return null;
+  const url = new URL(projectEnvironmentUrl(configured));
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
   }
+  return url;
 }
 
 function workspaceGatewayAppUrl(appPath: string): string | null {
   const baseUrl = workspaceGatewayBaseUrl();
   if (!baseUrl) return null;
   const requestOrigin = getRequestContext()?.requestOrigin;
-  if (requestOrigin) {
-    try {
-      if (new URL(requestOrigin).origin === baseUrl.origin) return null;
-    } catch {
-      // coercion-ok: an invalid origin cannot identify the local deployment.
-    }
+  if (requestOrigin && new URL(requestOrigin).origin === baseUrl.origin) {
+    return null;
   }
   return appendWorkspaceAppPath(baseUrl, appPath);
 }
