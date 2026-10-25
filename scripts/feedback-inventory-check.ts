@@ -164,6 +164,8 @@ type Parent = {
   threadParentTs: string;
   // Verbatim message body captured from the channel result or root thread.
   sourceText?: string;
+  // Explicitly records when Slack search returned no message body for a block-only post.
+  sourceTextUnavailableReason?: string;
   rootResolution?: RootResolution;
   // Required on root messages so administrative posts are not counted as reports.
   rootClassification?: "report" | "administrative" | "unclassified";
@@ -573,14 +575,31 @@ function validateSourceFilesInSnapshot(
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
   const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
   if (
-    JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
+    parent.files !== undefined &&
+    JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files)
   ) {
     throw new Error(
       `${parentName}: threadSnapshot attachment IDs, names, and MIME types must match the source message`,
     );
   }
+  if (parent.sourceTextUnavailableReason !== undefined) {
+    if (
+      !parent.sourceTextUnavailableReason.trim() ||
+      parent.sourceText !== ""
+    ) {
+      throw new Error(
+        `${parentName}: unavailable source text needs an empty captured body and a reason`,
+      );
+    }
+    if (snapshotText === undefined) {
+      throw new Error(
+        `${parentName}: unavailable source text needs a full thread read-back`,
+      );
+    }
+  }
   if (
     parent.sourceText !== undefined &&
+    parent.sourceTextUnavailableReason === undefined &&
     snapshotText !== undefined &&
     !matchesSlackMessageText(parent.sourceText, snapshotText)
   ) {
@@ -643,7 +662,10 @@ function matchesSlackMessageText(
     return (
       textWithAppNotificationRemoved
         // Search omits the connector origin footer that thread reads append.
-        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        .replace(
+          /\n+(?:\*Sent using\*|_Sent using_|Sent using) <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i,
+          "",
+        )
         // Search can add one or more bot disclosures and a page separator that
         // the complete thread read does not include.
         .replace(/\n+---\s*$/, "")
@@ -653,7 +675,10 @@ function matchesSlackMessageText(
           "",
         )
         // App previews can follow the connector origin footer, so strip that footer again after the preview.
-        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        .replace(
+          /\n+(?:\*Sent using\*|_Sent using_|Sent using) <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i,
+          "",
+        )
         .replace(
           /\n+Reactions: [a-z0-9_+.-]+\s+\(\d+\)(?:, [a-z0-9_+.-]+\s+\(\d+\))*\s*$/i,
           "",
@@ -685,6 +710,23 @@ function matchesSlackMessageText(
         .trim()
     );
   };
+  const forwardedMessagePreview = normalizedThread.match(
+    /\nForwarded message from [^\r\n]*\((https?:\/\/[^)\r\n]+)\):[\s\S]*$/i,
+  );
+  if (
+    forwardedMessagePreview &&
+    sourceText.includes(forwardedMessagePreview[1]!)
+  ) {
+    const sourcePrefix = normalizedThread.slice(
+      0,
+      forwardedMessagePreview.index,
+    );
+    const normalizeLinkedUrls = (text: string) =>
+      normalize(text).replace(/<(https?:\/\/[^|>]+)\|[^>]+>/gi, "<$1>");
+    if (normalize(sourceText) === normalizeLinkedUrls(sourcePrefix)) {
+      return true;
+    }
+  }
   if (
     sourceText === threadText ||
     normalize(sourceText, sourcePreviewMatchesThreadPreview) ===
@@ -4956,13 +4998,15 @@ function validateSupplementalRootAudit(
     sweepActorId,
   );
   const hasOwnedReaction = hasWorkflowReaction(rootReactionState);
-  const preservesAdministrativeEye = validatePreservedAdministrativeEye(
-    parentName,
-    parent,
-    sweepActorId,
-    threadSnapshot,
-    requireFreshReads,
-  );
+  const preservesAdministrativeEye = explicitlyAuthorized
+    ? false
+    : validatePreservedAdministrativeEye(
+        parentName,
+        parent,
+        sweepActorId,
+        threadSnapshot,
+        requireFreshReads,
+      );
   if (
     parent.rootClassification === "administrative" &&
     hasOwnedReaction &&
@@ -5630,31 +5674,18 @@ function validateAuthorizedRootTarget(
 ): void {
   if (
     parent.ts !== parent.threadParentTs ||
-    parent.rootClassification !== "report" ||
-    parent.disposition === "Clustered" ||
+    (parent.rootClassification !== "report" &&
+      parent.rootClassification !== "administrative") ||
     parent.personAssignedSkip !== undefined ||
     parent.ownershipSkip !== undefined
   ) {
     throw new Error(
-      `${parentName}: explicit authorization applies only to a held, non-duplicate report root`,
-    );
-  }
-  const hasForeignWorkflowMark = (
-    ["eyes", "white_check_mark", "ticket"] as const
-  ).some((emoji) =>
-    (parent.reactionOwners[emoji] ?? []).some(
-      (actorId) => actorId !== sweepActorId,
-    ),
-  );
-  const hasOwnMag = (parent.reactionOwners.mag ?? []).includes(sweepActorId);
-  if (!hasForeignWorkflowMark && !hasOwnMag) {
-    throw new Error(
-      `${parentName}: an authorized root must have the exact foreign workflow mark or this actor's :mag: hold that required authorization`,
+      `${parentName}: explicit authorization applies only to an exact classified root without a held-thread or person-assignment skip`,
     );
   }
   if (!(parent.reactionOwners.eyes ?? []).includes(sweepActorId)) {
     throw new Error(
-      `${parentName}: authorized work needs this actor's exact root 👀 and current status`,
+      `${parentName}: explicitly authorized work needs this actor's exact root 👀 and current status`,
     );
   }
 }
@@ -8556,7 +8587,11 @@ function validateInventory(
     options.scopeConfirmation,
     requestedChannelIds,
   );
+  const hasBoundedWriteAuthorization =
+    typeof scope.userRequest === "string" &&
+    hasExplicitWorkflowWriteAuthorization(scope.userRequest, []);
   const authorizedRootKeysInScope = new Set<string>();
+  const inScopeRootEyeKeys = new Set<string>();
 
   slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -8901,6 +8936,7 @@ function validateInventory(
     const seenCursors = new Set<string>();
     const uniqueInWindow = new Set<string>();
     const parentsByTimestamp = new Map<string, Parent>();
+    const inWindowRootReferences = new Set<string>();
     let oldestSourceTimestamp: bigint | null = null;
 
     for (const [pageIndex, page] of channel.pages.entries()) {
@@ -9254,6 +9290,9 @@ function validateInventory(
           inventory.sweepActorId,
         );
         const rootKey = `${channel.channelId}\u0000${slackTimestampFromMicros(threadParentTimestamp)}`;
+        if (timestamp >= channelCutoff) {
+          inWindowRootReferences.add(rootKey);
+        }
         const isAuthorizedRoot =
           isRootMessage && authorizedRootKeys.has(rootKey);
         const hasPersonAssignedSkip =
@@ -9285,15 +9324,16 @@ function validateInventory(
         const ownsEye = rootWorkflowState.eyes;
         const hasCheckmark = rootWorkflowState.white_check_mark;
         const hasTicket = rootWorkflowState.ticket;
-        const preservesAdministrativeEye = isRootMessage
-          ? validatePreservedAdministrativeEye(
-              parentName,
-              parent,
-              inventory.sweepActorId,
-              threadSnapshot,
-              options.requireFreshReads === true,
-            )
-          : false;
+        const preservesAdministrativeEye =
+          isRootMessage && !isAuthorizedRoot
+            ? validatePreservedAdministrativeEye(
+                parentName,
+                parent,
+                inventory.sweepActorId,
+                threadSnapshot,
+                options.requireFreshReads === true,
+              )
+            : false;
         const historicalMarks = parent.historicalReactionMarks ?? [];
         const hasHistoricalCheckmark = historicalMarks.some(
           (mark) => mark.emoji === "white_check_mark",
@@ -9318,7 +9358,11 @@ function validateInventory(
           const isInScopeReport =
             timestamp >= channelCutoff &&
             parent.rootClassification === "report";
-          if (isAuthorizedRoot && isInScopeReport) {
+          const isInScopeAuthorizedRoot =
+            timestamp >= channelCutoff &&
+            (parent.rootClassification === "report" ||
+              parent.rootClassification === "administrative");
+          if (isAuthorizedRoot && isInScopeAuthorizedRoot) {
             authorizedRootKeysInScope.add(rootKey);
           }
           if (isInScopeReport && !hasOwnershipSkip) {
@@ -9732,6 +9776,21 @@ function validateInventory(
       );
     }
 
+    for (const root of parentsByTimestamp.values()) {
+      if (
+        root.ts !== root.threadParentTs ||
+        !root.reactionOwners.eyes?.length
+      ) {
+        continue;
+      }
+      const key =
+        `${channel.channelId}\u0000` +
+        slackTimestampFromMicros(
+          slackTimestamp(root.ts, `${name} root ${root.ts}.ts`),
+        );
+      if (inWindowRootReferences.has(key)) inScopeRootEyeKeys.add(key);
+    }
+
     const supplementalRoots = new Set<string>();
     for (const [rootIndex, root] of (channel.threadRoots ?? []).entries()) {
       const rootTime = slackTimestamp(
@@ -9936,7 +9995,13 @@ function validateInventory(
             `${name}: every raw thread page for owned root ${rootAudit.ts} must follow the exhaustive owned-mark searches`,
           );
         }
-        if (rootAudit.rootClassification === "administrative") {
+        const rootAuditIsAuthorized = authorizedRootKeys.has(
+          `${channel.channelId}\u0000${rootTs}`,
+        );
+        if (
+          rootAudit.rootClassification === "administrative" &&
+          !rootAuditIsAuthorized
+        ) {
           if (
             validatePreservedAdministrativeEye(
               `${name} owned root ${rootAudit.ts}`,
@@ -9991,6 +10056,9 @@ function validateInventory(
       ).toString();
       if (referencedSupplementalRoots.has(rootTimestamp)) {
         const key = `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`;
+        if (rootAudit.reactionOwners.eyes?.length) {
+          inScopeRootEyeKeys.add(key);
+        }
         if (authorizedRootKeys.has(key)) authorizedRootKeysInScope.add(key);
       }
     }
@@ -10246,6 +10314,16 @@ function validateInventory(
     throw new Error(
       `scope.authorizedRoots must point to in-window roots or older roots linked by an in-window reply: ${unauthorizedRootTargets.join(", ")}`,
     );
+  }
+  if (hasBoundedWriteAuthorization) {
+    const omittedEyeRoots = [...inScopeRootEyeKeys].filter(
+      (rootKey) => !authorizedRootKeys.has(rootKey),
+    );
+    if (omittedEyeRoots.length > 0) {
+      throw new Error(
+        `a bounded direct grant must list every in-scope root with a root-level 👀 in scope.authorizedRoots: ${omittedEyeRoots.join(", ")}`,
+      );
+    }
   }
   validateClusteredRootLinks(inventory);
 
@@ -17569,6 +17647,27 @@ if (args[0] === "--self-test" && args.length === 1) {
       return inventory;
     })();
     validateTestInventory(authorizedMagRoot);
+    const assignedForeignEyeRoot = structuredClone(authorizedMagRoot);
+    assignedForeignEyeRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like.";
+    assignedForeignEyeRoot.scope.narrowingJudgment!.instruction =
+      assignedForeignEyeRoot.scope.userRequest;
+    assignedForeignEyeRoot.channels[0]!.pages[0]!.parents =
+      assignedForeignEyeRoot.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "10.000000"
+          ? {
+              ...parent,
+              sourceText: "I assigned this report to <@UOTHER>.",
+              reactionSummary:
+                "eyes (2): UOTHER, USWEEPER; white_check_mark (1): USWEEPER",
+              reactionOwners: {
+                eyes: ["UOTHER", "USWEEPER"],
+                white_check_mark: ["USWEEPER"],
+              },
+            }
+          : parent,
+      );
+    validateTestInventory(assignedForeignEyeRoot);
     const directWorkAuthorization = structuredClone(authorizedMagRoot);
     directWorkAuthorization.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000, including the claim and same-thread status reply.";
@@ -17756,6 +17855,71 @@ if (args[0] === "--self-test" && args.length === 1) {
     boundedAuthorization.scope.narrowingJudgment!.instruction =
       boundedAuthorization.scope.userRequest;
     validateTestInventory(boundedAuthorization);
+
+    const omittedBoundedEyeRoot = structuredClone(boundedAuthorization);
+    omittedBoundedEyeRoot.channels[0]!.pages[0]!.parents =
+      omittedBoundedEyeRoot.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "11.000000"
+          ? {
+              ...parent,
+              reactionSummary: "eyes (1): UOTHER",
+              reactionOwners: { eyes: ["UOTHER"] },
+            }
+          : parent,
+      );
+    expectFocusedFailure(
+      "bounded authorization lists every in-scope root-level eye",
+      () => validateTestInventory(omittedBoundedEyeRoot),
+      "a bounded direct grant must list every in-scope root with a root-level 👀 in scope.authorizedRoots",
+    );
+
+    const authorizedBoundedDuplicate = structuredClone(boundedAuthorization);
+    authorizedBoundedDuplicate.scope.authorizedRoots!.push({
+      channelId: "C_TEST",
+      rootTs: "11.000000",
+    });
+    authorizedBoundedDuplicate.channels[0]!.pages[0]!.parents =
+      authorizedBoundedDuplicate.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "11.000000"
+          ? {
+              ...parent,
+              reactionSummary: "eyes (2): UOTHER, USWEEPER",
+              reactionOwners: { eyes: ["UOTHER", "USWEEPER"] },
+              latestRelevantHumanReply: {
+                ts: "12.000000",
+                actorId: "UOTHER",
+                text: "This duplicate is already linked to the canonical report.",
+              },
+              latestOwnedReply: {
+                ts: "13.000000",
+                threadParentTs: "11.000000",
+                actorId: "USWEEPER",
+                text: "Clustered: this duplicate is tracked by canonical root 10.000000. No :white_check_mark: — no separate verified scope applies. No :ticket: — no separate human action remains. this was sent from a bot.",
+              },
+              reactionDecision: {
+                checkmark: {
+                  state: "none",
+                  reason:
+                    "No separate verified scope applies to this duplicate",
+                },
+                ticket: {
+                  state: "none",
+                  reason: "No separate human action remains",
+                },
+              },
+              statusReply: {
+                ts: "13.000000",
+                threadParentTs: "11.000000",
+                actorId: "USWEEPER",
+                disposition: "Clustered",
+                evidence:
+                  "This duplicate is tracked by canonical root 10.000000",
+                text: "Clustered: this duplicate is tracked by canonical root 10.000000. No :white_check_mark: — no separate verified scope applies. No :ticket: — no separate human action remains. this was sent from a bot.",
+              },
+            }
+          : parent,
+      );
+    validateTestInventory(authorizedBoundedDuplicate);
 
     const unrelatedFollowupCannotExtendReadOnlyAuthorization =
       structuredClone(authorizedMagRoot);
@@ -22687,6 +22851,17 @@ if (args[0] === "--self-test" && args.length === 1) {
         threadReadAttachmentInventory,
       ),
     });
+    validateSourceFilesInSnapshot(
+      "search result omitted attachment metadata present in the full thread",
+      { ts: "11.000000", threadParentTs: "11.000000" },
+      {
+        rootTs: "11.000000",
+        readAt: freshSnapshotReadAt,
+        replyCount: 0,
+        rootFiles: [sourceAttachmentFixture],
+        replies: [],
+      },
+    );
     expectFocusedFailure(
       "source attachment list differs from the full thread read",
       () =>
@@ -23409,6 +23584,10 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Status reply. this was sent from a bot.\n\n*Sent using* <@U09M7FX8WDN|ChatGPT>",
       ) ||
       !matchesSlackMessageText(
+        "Status reply. this was sent from a bot.\n\nThis was sent from a bot\nSent using <@U09M7FX8WDN|ChatGPT>",
+        "Status reply. this was sent from a bot.\n\n_This was sent from a bot_\n_Sent using_ <@U09M7FX8WDN|ChatGPT>",
+      ) ||
+      !matchesSlackMessageText(
         " Status reply. this was sent from a bot.\n\n---",
         "Status reply.",
       ) ||
@@ -23624,6 +23803,25 @@ if (args[0] === "--self-test" && args.length === 1) {
         ],
       },
     );
+    validateSourceFilesInSnapshot(
+      "thread read appended a forwarded-link preview",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText:
+          "Is this the same error? <https://slack.example/archives/C123/p456>",
+        files: [],
+      },
+      {
+        ...ownedThreadSnapshot,
+        replies: [
+          {
+            ...ownedThreadSnapshot.replies[0]!,
+            text: "Is this the same error? <https://slack.example/archives/C123/p456|https://slack.example/archives/C123/p456>\nForwarded message from Alex (https://slack.example/archives/C123/p456): linked message preview",
+          },
+        ],
+      },
+    );
     expectFocusedFailure(
       "empty captured reply text mismatches the complete thread read",
       () =>
@@ -23638,6 +23836,18 @@ if (args[0] === "--self-test" && args.length === 1) {
           ownedThreadSnapshot,
         ),
       "threadSnapshot text must match the captured source message",
+    );
+    validateSourceFilesInSnapshot(
+      "self-test block-only search result",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText: "",
+        sourceTextUnavailableReason:
+          "Slack search returned an empty Text field for this Jira app block; the full thread read contains the rendered issue.",
+        files: [],
+      },
+      ownedThreadSnapshot,
     );
     expectFocusedFailure(
       "newer sweep-authored reply cannot pass with stale source text",
@@ -24470,7 +24680,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 70} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 71} negative cases; 46 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

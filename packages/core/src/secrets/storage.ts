@@ -38,6 +38,7 @@ import {
   decryptSecretValue as decryptLegacyValue,
   hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
+import { AppSecretDecryptionError } from "./errors.js";
 import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
@@ -352,14 +353,13 @@ function invalidateRequestSecret(ref: SecretRef): void {
 
 const _warnedUndecryptableSecrets = new Set<string>();
 
-// Reads still report an undecryptable row as missing so credential resolution
-// can fall through to other scopes; the warning keeps the cause visible.
+// Do not include the scope id, ciphertext, or secret value in this warning.
 function warnUndecryptableSecret(ref: SecretRef): void {
   const id = secretCacheKey(ref);
   if (_warnedUndecryptableSecrets.has(id)) return;
   _warnedUndecryptableSecrets.add(id);
   console.warn(
-    `[agent-native/secrets] Stored secret "${ref.key}" (${ref.scope} scope) cannot be decrypted with this process's encryption key material and is treated as missing. It was likely written by a process with different key material.`,
+    `[agent-native/secrets] Stored secret "${ref.key}" (${ref.scope} scope) cannot be decrypted with this process's encryption key material.`,
   );
 }
 
@@ -440,10 +440,8 @@ async function readAppSecretUncached(
       updatedAt: Number(rows[0].updated_at ?? 0),
     };
   } catch {
-    // Decryption failure — key rotated, tampered row, etc. Don't throw up the
-    // stack in a way that could leak the ciphertext; just report missing.
     warnUndecryptableSecret(ref);
-    return null;
+    throw new AppSecretDecryptionError();
   }
 }
 
@@ -478,12 +476,6 @@ export async function readAppSecrets(args: {
     sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
-  for (const key of keys) {
-    cache?.set(
-      secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
-      null,
-    );
-  }
   for (const row of rows) {
     const key = String(row.key ?? "");
     if (!key) continue;
@@ -506,18 +498,20 @@ export async function readAppSecrets(args: {
         updatedAt: Number(row.updated_at ?? 0),
       };
       results.set(key, result);
-      cache?.set(
-        secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
-        result,
-      );
     } catch {
-      // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
       warnUndecryptableSecret({
         key,
         scope: args.scope,
         scopeId: args.scopeId,
       });
+      throw new AppSecretDecryptionError();
     }
+  }
+  for (const key of keys) {
+    cache?.set(
+      secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
+      results.get(key) ?? null,
+    );
   }
   return results;
 }

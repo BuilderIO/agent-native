@@ -710,7 +710,7 @@ describe("secrets storage CRUD (real pglite)", () => {
     expect(await mod.readAppSecretMeta(userRef)).toBeNull();
   });
 
-  it("returns null (never throws or leaks) when the stored ciphertext is corrupt", async () => {
+  it("keeps an undecryptable row distinct from an absent secret and doesn't cache it as missing", async () => {
     await mod.writeAppSecret({ ...userRef, value: "tamperable" });
     await pglite
       .prepare(
@@ -718,7 +718,24 @@ describe("secrets storage CRUD (real pglite)", () => {
       )
       .run("v1:dead:beef:cafe", "v1:dead:beef:cafe");
 
-    await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    await runWithRequestContext({}, async () => {
+      const batchRead = () =>
+        mod.readAppSecrets({
+          keys: [userRef.key],
+          scope: userRef.scope,
+          scopeId: userRef.scopeId,
+        });
+      await expect(batchRead()).rejects.toMatchObject({
+        name: "AppSecretDecryptionError",
+        errorCode: "app_secret_unreadable",
+      });
+      await expect(mod.readAppSecret(userRef)).rejects.toMatchObject({
+        name: "AppSecretDecryptionError",
+        errorCode: "app_secret_unreadable",
+      });
+    });
 
     const meta = await mod.readAppSecretMeta(userRef);
     expect(meta).not.toBeNull();
@@ -1212,14 +1229,20 @@ describe("development process on a shared database", () => {
     await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
 
     useDevelopmentKeys();
-    await expect(mod.readAppSecret(orgRef)).resolves.toBeNull();
+    await expect(mod.readAppSecret(orgRef)).rejects.toMatchObject({
+      name: "AppSecretDecryptionError",
+      errorCode: "app_secret_unreadable",
+    });
     await expect(
       mod.readAppSecrets({
         keys: [orgRef.key],
         scope: orgRef.scope,
         scopeId: orgRef.scopeId,
       }),
-    ).resolves.toEqual(new Map());
+    ).rejects.toMatchObject({
+      name: "AppSecretDecryptionError",
+      errorCode: "app_secret_unreadable",
+    });
 
     expect(warn).toHaveBeenCalledTimes(1);
     const message = String(warn.mock.calls[0]?.[0]);

@@ -26,9 +26,16 @@ grant may cover exact held roots or a bounded sweep; record every exact root in
 the inventory and confirmation. Every `👀`, `✅`, or `🎫` root owned by this actor
 needs current same-thread status after the latest human reply, including
 duplicates, assignments, and administrative notices. “All Slack items replied
-to” means every bounded-inventory `👀` root has that status; reconcile `✅` and
-`🎫` separately and report gated skips. Emoji meanings and stale-mark handling
-are in [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+to” means every bounded-inventory root with a root-level `👀`, regardless of
+who added it, has that status; reconcile `✅` and `🎫` separately and report
+gated skips. A direct user grant for the active bounded sweep overrides the
+default foreign-mark, assignment, duplicate, and `:mag:` write holds for the
+exact covered roots. Record those exact roots and the grant in both
+`scope.authorizedRoots` and the separate confirmation; add this actor's `👀`
+where needed, then post or reuse the current status. Do not create skip records
+for covered roots. The grant applies only to this sweep's fixed channels and
+window. Emoji meanings and stale-mark handling are in
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels and ownership
 
@@ -55,10 +62,12 @@ sweep start; do not chase newer arrivals or widen a finite scan to history.
 `slack_read_channel` is not an inventory. Resolve rows to roots and read root
 reactions before opening threads. Another actor's workflow mark or this actor's
 `:mag:` holds a root unless a direct grant authorizes full follow-up and
-reaction work for an exact root or bounded sweep. Record exact roots and the
-request in both `scope.authorizedRoots` and the separate confirmation. Without
-that match, do not read, react, or reply. Read unheld threads before
-classification. See [`channel-inventory.md`](references/channel-inventory.md)
+reaction work for an exact root or bounded sweep. A direct bounded grant also
+overrides person-assignment and duplicate holds for its explicitly listed
+roots. Record exact roots and the request in both `scope.authorizedRoots` and
+the separate confirmation. Without that match, do not read, react, or reply.
+Read unheld threads before classification. See
+[`channel-inventory.md`](references/channel-inventory.md)
 for query arguments, receipts, recovery, classification, ownership searches,
 and checker rules. Search `hasmy::eyes:`, `hasmy::white_check_mark:`, and
 `hasmy::ticket:` with the same channel and cutoffs. An older root is in scope
@@ -73,40 +82,45 @@ or verified scopes without `✅`.
 (`foreign_workflow_mark` or `mag_opt_out`) in `ownershipSkip` as `Skipped`. If
 this actor owns both `:mag:` and a workflow mark, use `mag_opt_out`. Without
 authorization, do not read the thread or reply reactions, change marks, or post.
-For authorized roots, preserve existing reactions, read the thread, claim it,
-and post or reuse its current status. Skip reply rows linked to an unauthorized
-held root. A source-less pre-window root remains `unclassified`; a foreign `👀`
-without status stays held unless explicitly authorized.
+For authorized roots, preserve other participants' reactions, read the thread,
+add this actor's `👀` when absent, and post or reuse its current status. Skip
+reply rows linked to an unauthorized held root. A source-less pre-window root
+remains `unclassified`; a foreign `👀` without status stays held unless
+explicitly authorized.
 
 Only Steve's `:mag:` and `:yes-party:` count (`U0GCV21HC`). When Steve invokes,
 exhaust `hasmy::mag:` and `hasmy::yes-party:` searches within each channel's
 same inclusive cutoff; otherwise inspect root reactions in the requested
-window. `:mag:` opts out and wins over `:yes-party:`. The latter authorizes only
-an otherwise review-only item; it never overrides an assignment or another
-task's claim.
+window. `:mag:` opts out and wins over `:yes-party:` by default. The latter
+authorizes only an otherwise review-only item. A direct user grant for full
+follow-up and reaction work overrides either hold for the exact roots it
+covers.
 
 ## Phase 0: claim and reconcile
 
-Resolve known duplicates and person assignments before claiming. Do not claim
-or reply on a person-assigned root; record `personAssignedSkip` with the exact
-assignee Slack ID and assignment message timestamp, and let the checker verify
-it from the complete thread read-back. Do not claim or reply on an unowned
-`Clustered` root; link it to its canonical report. Keep existing marks in the
-status gate. Check root reactions, then add and read back this task's `👀`
-before investigating an eligible unowned report. An explicitly authorized
-held root is eligible only when its exact root is listed in both
-`scope.authorizedRoots` and the separate confirmation. Authorization must be a
-direct, unconditional grant for full follow-up work. Exact-root requests name
-the channel and timestamp/permalink; bounded grants expand covered roots in
-both records. Otherwise use
-`ownershipSkip` and do not read or reply. Read-only, no-write, claim-only, and
-reply-only grants do not qualify.
+Resolve known duplicates and person assignments before claiming. Without a
+direct user grant covering the root, do not claim or reply on a person-assigned
+root; record `personAssignedSkip` with the exact assignee Slack ID and
+assignment message timestamp, and let the checker verify it from the complete
+thread read-back. Do not claim or reply on an unowned `Clustered` root unless
+the direct grant covers it. Keep existing marks in the status gate. Check root
+reactions, then add and read back this task's `👀` before investigating an
+eligible report. A directly authorized held, assigned, or duplicate root is
+eligible only when its exact channel and root are listed in both
+`scope.authorizedRoots` and the separate confirmation; do not record a skip
+for it. Authorization must be a direct, unconditional grant for full follow-up
+work. Exact-root requests name the channel and timestamp/permalink; bounded
+grants expand covered roots in both records. Otherwise use `ownershipSkip` and
+do not read or reply. Read-only, no-write, claim-only, and reply-only grants do
+not qualify.
 
 Reconcile only roots inside this invocation's fixed window and older roots
 explicitly linked by an in-window reply. Include every root with this actor's
-`👀`, `✅`, or `🎫` in the exit inventory. Each owned root needs a current
-status after the latest human message. Unowned held skips, duplicates, and
-person-assigned roots remain no-reply exceptions unless explicitly authorized.
+`👀`, `✅`, or `🎫` in the exit inventory. When a direct bounded grant is
+active, include every root-level `👀` from any participant in the reply count,
+and require a same-thread status after the latest human message. Unowned held
+skips, duplicates, and person-assigned roots remain no-reply exceptions only
+when outside that authorization.
 Never expand a finite sweep to all historical roots just because this actor
 owns an old mark; widen only when the invocation requests it. Finish this bounded
 reconciliation before discovering new questions. Read back the visible reply

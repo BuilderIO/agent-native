@@ -91,12 +91,14 @@ import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
+  assertCredentialStoreReadable,
   getBuilderCredentialAuthFailure,
   getBuilderKeyConnections,
   gatewayLaneUnavailableMessage,
@@ -1440,6 +1442,23 @@ describe("resolveBuilderCredentialsDetailed", () => {
     expect(result.source).toBeNull();
   });
 
+  it("preserves an undecryptable row as a failed Builder lookup", async () => {
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    const error = new AppSecretDecryptionError();
+    mockReadAppSecrets.mockRejectedValue(error);
+
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({
+      lookupFailed: true,
+      privateKey: null,
+      publicKey: null,
+      source: null,
+    });
+    expect(result.cause).toBe(error);
+  });
+
   it("sets lookupFailed=false when the row is simply absent", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
@@ -2505,6 +2524,15 @@ describe("unreadable credential store is not 'not configured'", () => {
     await expect(
       resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
     ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+  });
+
+  it("reports an undecryptable saved secret as unavailable instead of missing", () => {
+    expect(() =>
+      assertCredentialStoreReadable({
+        lookupFailed: true,
+        cause: new AppSecretDecryptionError(),
+      }),
+    ).toThrow(CredentialStoreUnavailableError);
   });
 
   it("does not report the retryable error as a missing-LLM-credential error", () => {

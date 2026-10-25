@@ -10,6 +10,7 @@ import {
   isLocalDatabase,
   isTransientDatabaseError,
 } from "../db/client.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
@@ -143,7 +144,7 @@ export class CredentialStoreUnavailableError extends Error {
 
   constructor(cause?: unknown) {
     super(
-      "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+      "Could not read your saved connections. Try again, or reconnect the connection if the issue continues.",
       { cause },
     );
     this.name = "CredentialStoreUnavailableError";
@@ -154,7 +155,11 @@ export function assertCredentialStoreReadable(result: {
   lookupFailed: boolean;
   cause?: unknown;
 }): void {
-  if (result.lookupFailed && isTransientDatabaseError(result.cause)) {
+  if (
+    result.lookupFailed &&
+    (isTransientDatabaseError(result.cause) ||
+      result.cause instanceof AppSecretDecryptionError)
+  ) {
     throw new CredentialStoreUnavailableError(result.cause);
   }
 }
@@ -722,11 +727,7 @@ async function resolveScopedBuilderCredential(
 interface ScopedBuilderCredentialsResult {
   creds: BuilderResolvedCredentials | null;
   cause?: unknown;
-  /**
-   * True when reading the credential store itself threw (db timeout, etc),
-   * as opposed to the store answering cleanly with "no row". Callers must
-   * report this as retryable rather than "not configured".
-   */
+  /** True when a lookup failed, rather than answering cleanly with "no row". */
   lookupFailed: boolean;
 }
 
@@ -969,10 +970,7 @@ export interface BuilderCredentialsDetailed {
   isEnterprise: boolean | null;
   isFreeAccount: boolean | null;
   source: BuilderCredentialSource | null;
-  /**
-   * True when reading the credential store itself failed (db timeout, etc).
-   * Callers must report this as retryable rather than "not configured".
-   */
+  /** True when a lookup failed, rather than answering cleanly with "no row". */
   lookupFailed: boolean;
   cause?: unknown;
 }
