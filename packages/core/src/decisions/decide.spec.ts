@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { JevContextCredentials } from "../agent/production-agent.js";
+
 const mocks = vi.hoisted(() => ({
   getJevContextCredentials: vi.fn(),
   getOwnerApiKeyForEngine: vi.fn(),
@@ -507,14 +509,51 @@ describe("decide", () => {
     });
     await lookupStarted;
     controller.abort();
-    resolveLookup({ apiKey: "openai-test-key" });
 
     await expect(pending).resolves.toEqual({
       status: "failed",
       reason: "aborted",
       provider: "openai",
     });
+    resolveLookup({ apiKey: "openai-test-key" });
     expect(mocks.requestOpenAiDecision).toHaveBeenCalledOnce();
+  });
+
+  it("returns aborted when cancellation arrives during Jev credential lookup", async () => {
+    let beginLookup!: () => void;
+    let resolveLookup!: (value: JevContextCredentials) => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      beginLookup = resolve;
+    });
+    const lookup = new Promise<JevContextCredentials>((resolve) => {
+      resolveLookup = resolve;
+    });
+    mocks.getJevContextCredentials.mockImplementation(async () => {
+      beginLookup();
+      return lookup;
+    });
+
+    const controller = new AbortController();
+    const pending = decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [choiceQuestion],
+      options: { providers: ["jev"], signal: controller.signal },
+    });
+    await lookupStarted;
+    controller.abort();
+
+    await expect(pending).resolves.toEqual({
+      status: "failed",
+      reason: "aborted",
+      provider: "jev",
+    });
+    resolveLookup({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: null,
+    });
+    expect(mocks.requestJev).not.toHaveBeenCalled();
   });
 
   it("preserves typed Jev timeout errors", async () => {

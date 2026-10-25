@@ -152,6 +152,30 @@ function toJevRequest(
   };
 }
 
+type LookupResult<T> = { aborted: true } | { aborted: false; value: T };
+
+function waitForLookup<T>(
+  lookup: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<LookupResult<T>> {
+  if (!signal) {
+    return lookup.then((value) => ({ aborted: false, value }));
+  }
+  if (signal.aborted) return Promise.resolve({ aborted: true });
+
+  let removeAbortListener = () => {};
+  const aborted = new Promise<{ aborted: true }>((resolve) => {
+    const onAbort = () => resolve({ aborted: true });
+    signal.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    if (signal.aborted) onAbort();
+  });
+  return Promise.race([
+    lookup.then((value) => ({ aborted: false as const, value })),
+    aborted,
+  ]).finally(removeAbortListener);
+}
+
 function validateOptions(options: DecideOptions | undefined): boolean {
   if (!options) return true;
   if (
@@ -250,20 +274,30 @@ export async function decide(input: {
     let lookupFailed = false;
 
     if (provider === "openai") {
-      const resolved = await getOwnerApiKeyForEngine(
-        "ai-sdk:openai",
-        input.ownerEmail,
-        {
+      const lookup = await waitForLookup(
+        getOwnerApiKeyForEngine("ai-sdk:openai", input.ownerEmail, {
           allowDeploymentFallback: false,
           onLookupFailure: () => (lookupFailed = true),
-        },
+        }),
+        input.options?.signal,
       );
+      if (lookup.aborted) {
+        return { status: "failed", reason: "aborted", provider };
+      }
+      const resolved = lookup.value;
       apiKey =
         resolved.credentialProvenance?.scope === "deployment"
           ? undefined
           : resolved.apiKey;
     } else {
-      jevCredentials = await getJevContextCredentials(input.ownerEmail);
+      const lookup = await waitForLookup(
+        getJevContextCredentials(input.ownerEmail),
+        input.options?.signal,
+      );
+      if (lookup.aborted) {
+        return { status: "failed", reason: "aborted", provider };
+      }
+      jevCredentials = lookup.value;
       apiKey = jevCredentials.directApiKey ?? jevCredentials.personalApiKey;
       lookupFailed = Boolean(
         jevCredentials.apiKeyLookupFailed ||
