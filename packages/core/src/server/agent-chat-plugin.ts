@@ -114,6 +114,8 @@ import {
   type AgentActionSurfaceDetails,
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
+  mergeAgentLoopUsage,
+  type AgentLoopUsage,
   type ResolvedOwnerApiKey,
   type PreparedAgentRequest,
 } from "../agent/production-agent.js";
@@ -1023,6 +1025,75 @@ export async function runA2AAgentLoopWithRunManager(
   return result;
 }
 
+export async function runA2AWithUsageLedger<T>(
+  run: Promise<T>,
+  input: {
+    usage: AgentLoopUsage;
+    ownerEmail: string;
+    orgId: string | null;
+    appId?: string;
+    taskId: string;
+    processingAttemptId?: string;
+    persistUsage?: (
+      record: import("../usage/store.js").UsageRecord,
+    ) => Promise<void>;
+  },
+): Promise<T> {
+  const outcome = await run.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+
+  let usageError: unknown;
+  let usageFailed = false;
+  if (input.usage.usageReported) {
+    try {
+      const record = {
+        ownerEmail: input.ownerEmail,
+        inputTokens: input.usage.inputTokens,
+        outputTokens: input.usage.outputTokens,
+        cacheReadTokens: input.usage.cacheReadTokens,
+        cacheWriteTokens: input.usage.cacheWriteTokens,
+        builderCreditsUsed: input.usage.builderCreditsUsed,
+        engineName: input.usage.engineName,
+        model: input.usage.model,
+        app: input.appId,
+        orgId: input.orgId ?? undefined,
+        label: "a2a",
+        // A replay in the same lease replaces its receipt; later leases
+        // retain their own usage segments under a different ref.
+        refId: input.processingAttemptId
+          ? `${input.taskId}:${input.processingAttemptId}`
+          : input.taskId,
+        runId: input.taskId,
+        threadId: input.taskId,
+        taskId: input.taskId,
+      };
+      if (input.persistUsage) {
+        await input.persistUsage(record);
+      } else {
+        const { recordUsage } = await import("../usage/store.js");
+        await recordUsage(record);
+      }
+    } catch (error) {
+      usageFailed = true;
+      usageError = error;
+    }
+  }
+
+  if (!outcome.ok) {
+    if (usageFailed) {
+      throw new AggregateError(
+        [outcome.error, usageError],
+        "A2A run and usage persistence both failed.",
+      );
+    }
+    throw outcome.error;
+  }
+  if (usageFailed) throw usageError;
+  return outcome.value;
+}
+
 const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
 
 export async function resolveA2ARecoverableArtifactSecret(
@@ -1442,13 +1513,13 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      const appProfileAppId =
+      const runtimeAppId =
         options?.appId ??
         getAppConfig().app.id ??
         getAppConfig().app.template ??
         getAppConfig().app.workspaceId ??
-        getAppConfig().app.packageName ??
-        "app";
+        getAppConfig().app.packageName;
+      const appProfileAppId = runtimeAppId ?? "app";
 
       // Never make route readiness wait on an org-global stale-run sweep.
       // `/runs/active` reaps the requested run on demand, and the periodic
@@ -3027,6 +3098,14 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let a2aOutcome: AgentLoopOutcome | undefined;
+          const a2aUsage: AgentLoopUsage = {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            engineName: a2aEngine.name,
+            model,
+          };
           let lastRecoverableArtifactText = "";
           let activityState = createA2AAgentActivityState();
           let lastActivityCheckpointAt = 0;
@@ -3081,7 +3160,7 @@ export function createAgentChatPlugin(
             `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
           );
 
-          await runA2AAgentLoopWithRunManager(
+          const a2aRun = runA2AAgentLoopWithRunManager(
             {
               engine: a2aEngine,
               model,
@@ -3098,7 +3177,7 @@ export function createAgentChatPlugin(
               orgId: getRequestOrgId() ?? null,
               // Without it, every action with an `access` policy is refused
               // for lack of an application identity.
-              appId: options?.appId,
+              appId: runtimeAppId,
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -3112,6 +3191,12 @@ export function createAgentChatPlugin(
               turnId: context.taskId,
               onOutcome: (outcome) => {
                 a2aOutcome = outcome;
+              },
+              onUsage: (usage) => {
+                mergeAgentLoopUsage(a2aUsage, {
+                  ...usage,
+                  usageReported: true,
+                });
               },
               send: (event) => {
                 a2aEvents.push(event);
@@ -3207,6 +3292,14 @@ export function createAgentChatPlugin(
             },
             context.signal,
           );
+          await runA2AWithUsageLedger(a2aRun, {
+            usage: a2aUsage,
+            ownerEmail: userEmail,
+            orgId: getRequestOrgId() ?? null,
+            appId: runtimeAppId,
+            taskId: context.taskId,
+            processingAttemptId: context.processingAttemptId,
+          });
 
           // The continuation can observe terminal output immediately, so make
           // its latest mutation checkpoint durable first.
@@ -10117,6 +10210,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               staleRunsReaped === null ||
               staleRunsReaped.failed > 0 ||
               staleRunsReaped.truncated;
+            const { sweepExpiredAgentHarnessFollowUps } =
+              await import("../agent/harness/lifecycle.js");
+            const expiredAgentHarnessFollowUps =
+              await sweepExpiredAgentHarnessFollowUps().catch(
+                (error: unknown) => {
+                  console.error(
+                    "[agent-chat] durable AgentHarness follow-up recovery failed:",
+                    error,
+                  );
+                  return null;
+                },
+              );
+            const agentHarnessFollowUpRecoveryIncomplete =
+              expiredAgentHarnessFollowUps === null ||
+              expiredAgentHarnessFollowUps.truncated;
+            const { sweepExpiredAgentHarnessApprovalResolutions } =
+              await import("../agent/harness/lifecycle.js");
+            const expiredAgentHarnessApprovals =
+              await sweepExpiredAgentHarnessApprovalResolutions().catch(
+                (error: unknown) => {
+                  console.error(
+                    "[agent-chat] durable AgentHarness approval recovery failed:",
+                    error,
+                  );
+                  return null;
+                },
+              );
+            const agentHarnessApprovalRecoveryIncomplete =
+              expiredAgentHarnessApprovals === null ||
+              expiredAgentHarnessApprovals.truncated;
             const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
               event,
             ).catch((error: unknown) => {
@@ -10178,6 +10301,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: false,
                 staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10191,6 +10316,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (
                 staleRunReapIncomplete ||
+                agentHarnessFollowUpRecoveryIncomplete ||
+                agentHarnessApprovalRecoveryIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10203,6 +10330,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok:
                   !staleRunReapIncomplete &&
+                  !agentHarnessFollowUpRecoveryIncomplete &&
+                  !agentHarnessApprovalRecoveryIncomplete &&
                   appSweepHandlers.failed.length === 0 &&
                   automationFailureAlerts !== null &&
                   queuedSubmissionDrain !== null &&
@@ -10210,6 +10339,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   staleAgentTeamRuns !== null &&
                   staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10224,6 +10355,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await processRecurringJobs(schedulerDeps);
               if (
                 staleRunReapIncomplete ||
+                agentHarnessFollowUpRecoveryIncomplete ||
+                agentHarnessApprovalRecoveryIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10235,6 +10368,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return {
                   ok: false,
                   staleRunsReaped,
+                  expiredAgentHarnessFollowUps,
+                  expiredAgentHarnessApprovals,
                   staleAgentTeamRuns,
                   queuedSubmissionDrain,
                   chatHealth,
@@ -10246,6 +10381,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10259,6 +10396,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10472,6 +10610,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     error,
                   );
                 });
+                const { sweepExpiredAgentHarnessFollowUps } =
+                  await import("../agent/harness/lifecycle.js");
+                await sweepExpiredAgentHarnessFollowUps().catch(
+                  (error: unknown) => {
+                    console.error(
+                      "[agent-chat] in-process AgentHarness follow-up recovery failed:",
+                      error,
+                    );
+                  },
+                );
+                const { sweepExpiredAgentHarnessApprovalResolutions } =
+                  await import("../agent/harness/lifecycle.js");
+                await sweepExpiredAgentHarnessApprovalResolutions().catch(
+                  (error: unknown) => {
+                    console.error(
+                      "[agent-chat] in-process AgentHarness approval recovery failed:",
+                      error,
+                    );
+                  },
+                );
                 const { sweepUnclaimedBackgroundRuns } =
                   await import("./unclaimed-background-runs.js");
                 await sweepUnclaimedBackgroundRuns({

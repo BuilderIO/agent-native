@@ -123,6 +123,25 @@ let cachedSessionFromFirstRead = false;
 let sessionInvalidationListenersInstalled = false;
 let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 let signingOut = false;
+const beforeSignOutCleanups = new Set<() => Promise<void>>();
+
+export function registerBeforeSignOutCleanup(
+  cleanup: () => Promise<void>,
+): () => void {
+  beforeSignOutCleanups.add(cleanup);
+  return () => beforeSignOutCleanups.delete(cleanup);
+}
+
+export function runBeforeSignOutCleanups(): Promise<unknown[]> | undefined {
+  if (beforeSignOutCleanups.size === 0) return undefined;
+  return Promise.allSettled(
+    Array.from(beforeSignOutCleanups, (cleanup) => cleanup()),
+  ).then((results) =>
+    results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    ),
+  );
+}
 
 /**
  * "Is this visitor signed in" is one page-wide fact, not a per-component

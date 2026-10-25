@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
+import { runBeforeSignOutCleanups } from "../client/use-session.js";
 import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
@@ -432,6 +433,296 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(b?.isSynced).toBe(true);
   });
 
+  it("keeps the cold-load connection when the authenticated user resolves", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe docId="cold-load-identity" onResult={(next) => (result = next)} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    const initialYdoc = result?.ydoc;
+    expect(initialYdoc).toBeTruthy();
+    expect(stateFetches).toHaveLength(1);
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="cold-load-identity"
+          user={{
+            name: "Ada",
+            email: "ada@example.test",
+            color: "blue",
+          }}
+          onResult={(next) => (result = next)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    expect(result?.ydoc).toBe(initialYdoc);
+    expect(stateFetches).toHaveLength(1);
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("reuses a cold-load connection after identity resolution", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "Ada",
+      email: "ada@example.test",
+      color: "blue",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const firstRoot = mount(
+      <Probe
+        docId="resolved-registry-identity"
+        onResult={(r) => (first = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+    const coldLoadYdoc = first?.ydoc;
+
+    act(() => {
+      firstRoot.render(
+        <Probe
+          docId="resolved-registry-identity"
+          user={user}
+          onResult={(r) => (first = r)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="resolved-registry-identity"
+        user={user}
+        onResult={(r) => (second = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    expect(first?.ydoc).toBe(coldLoadYdoc);
+    expect(second?.ydoc).toBe(coldLoadYdoc);
+    expect(stateFetches).toHaveLength(1);
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("clears local presence and stops polling before sign-out", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    mount(
+      <Probe
+        docId="sign-out-presence"
+        user={{
+          name: "Ada",
+          email: "ada@example.test",
+          color: "blue",
+        }}
+        onResult={() => {}}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const awarenessRequests = () =>
+      mock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/sign-out-presence/awareness") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+    expect(awarenessRequests()).toHaveLength(1);
+    await act(async () => {
+      await runBeforeSignOutCleanups();
+    });
+
+    expect(awarenessRequests()).toHaveLength(2);
+    expect(JSON.parse(String(awarenessRequests()[1]![1]?.body)).state).toBe(
+      null,
+    );
+    const pollCount = mock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/poll"),
+    ).length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(pollCount);
+  });
+
+  it("retires the authenticated connection when its user signs out", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="signed-out-presence"
+        user={{
+          name: "Ada",
+          email: "ada@example.test",
+          color: "blue",
+        }}
+        onResult={(r) => (result = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result?.ydoc).toBeTruthy();
+    expect(stateFetches).toHaveLength(1);
+
+    const pollCount = mock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/poll"),
+    ).length;
+    act(() => {
+      root.render(
+        <Probe docId="signed-out-presence" onResult={(r) => (result = r)} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const clearPosts = mock.mock.calls.filter(([input, init]) => {
+      if (
+        !String(input).endsWith("/signed-out-presence/awareness") ||
+        (init as RequestInit | undefined)?.method !== "POST"
+      ) {
+        return false;
+      }
+      return JSON.parse(String(init?.body)).state === null;
+    });
+    expect(clearPosts).toHaveLength(1);
+    expect(result?.ydoc).toBeNull();
+    expect(stateFetches).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(pollCount);
+    expect(_collabDocRegistrySizeForTests()).toBe(0);
+  });
+
+  it("creates a new awareness client identity when the authenticated user changes", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    const firstUser = {
+      name: "First editor",
+      email: "first@example.test",
+      color: "blue",
+    };
+    const secondUser = {
+      name: "Second editor",
+      email: "second@example.test",
+      color: "green",
+    };
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="account-switch"
+        user={firstUser}
+        onResult={(next) => (result = next)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const firstClientId = result!.ydoc!.clientID;
+    const awarenessPosts = () =>
+      mock.mock.calls
+        .filter(
+          ([input, init]) =>
+            String(input).includes("/account-switch/awareness") &&
+            (init as RequestInit | undefined)?.method === "POST",
+        )
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init?.body)) as {
+              clientId: number;
+              clearToken: string;
+              state: string | null;
+            },
+        );
+    expect(awarenessPosts()).toHaveLength(1);
+    expect(awarenessPosts()[0]).toMatchObject({ clientId: firstClientId });
+    expect(JSON.parse(awarenessPosts()[0]!.state!).user.email).toBe(
+      firstUser.email,
+    );
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="account-switch"
+          user={secondUser}
+          onResult={(next) => (result = next)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const secondClientId = result!.ydoc!.clientID;
+    expect(secondClientId).not.toBe(firstClientId);
+    expect(awarenessPosts()).toHaveLength(2);
+    expect(awarenessPosts()[1]).toMatchObject({ clientId: secondClientId });
+    expect(JSON.parse(awarenessPosts()[1]!.state!).user.email).toBe(
+      secondUser.email,
+    );
+    expect(awarenessPosts()[0]!.clearToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(awarenessPosts()[1]!.clearToken).not.toBe(
+      awarenessPosts()[0]!.clearToken,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(awarenessPosts()).toHaveLength(3);
+    expect(awarenessPosts()[2]).toMatchObject({
+      clientId: firstClientId,
+      clearToken: awarenessPosts()[0]!.clearToken,
+      state: null,
+    });
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
   it("reconciles state before accepting the first poll watermark without a baseline", async () => {
     const server = new Y.Doc();
     server.getText("content").insert(0, "seed");
@@ -825,6 +1116,87 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(second?.ydoc).toBeTruthy();
     expect(second?.ydoc).not.toBe(firstYdoc);
     expect(stateFetches).toHaveLength(2);
+  });
+
+  it("removes a departed editor from the awareness snapshot", async () => {
+    const awarenessByClient = new Map<number, string>();
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        return new Response(JSON.stringify({ version: 1, events: [] }));
+      }
+      if (url.endsWith("/awareness")) {
+        const body = JSON.parse(String(init?.body)) as {
+          clientId: number;
+          state: string | null;
+        };
+        if (body.state === null) {
+          awarenessByClient.delete(body.clientId);
+        } else {
+          awarenessByClient.set(body.clientId, body.state);
+        }
+        return new Response(
+          JSON.stringify({
+            states: Array.from(awarenessByClient, ([clientId, state]) => ({
+              clientId,
+              state,
+            })).filter(({ clientId }) => clientId !== body.clientId),
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "First editor",
+      email: "first@example.test",
+      color: "#111",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="awareness-unmount"
+        user={user}
+        onResult={(r) => (first = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(awarenessByClient.size).toBe(1);
+
+    act(() => root.unmount());
+    roots = roots.filter((candidate) => candidate !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(awarenessByClient.size).toBe(0);
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="awareness-unmount"
+        user={{
+          name: "Second editor",
+          email: "second@example.test",
+          color: "#222",
+        }}
+        onResult={(r) => (second = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(second?.activeUsers).not.toContainEqual(
+      expect.objectContaining({ email: "first@example.test" }),
+    );
+    expect(first?.ydoc?.isDestroyed).toBe(true);
   });
 
   it("survives unmount→remount within the linger window without teardown or refetch", async () => {

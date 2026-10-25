@@ -44,6 +44,11 @@
       "config": "mutations/e-fence-check-then-act.cfg",
       "invariant": "P1",
       "breaks": "a fenced write whose lease check commits before the write"
+    },
+    {
+      "config": "mutations/g-reset-without-successor-fence.cfg",
+      "invariant": "P1",
+      "breaks": "reset fallback writing to a successor without checking its current lease"
     }
   ],
   "findings": [
@@ -59,7 +64,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "53ff201fe9cf8f12a9e380fff0a415d9bb277afa",
+    "syncCommit": "987a1891f8b2df71f827f7d5f89bfbe870b7384d",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -90,6 +95,11 @@
         "file": "packages/core/src/agent/run-store.ts",
         "name": "markAgentExecutionStepDispatched",
         "sha256": "a66d7733297b7c79d99b0e744b6333d123b6909ef8d96b868d6cd33b92a8f436"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "resetAgentExecutionStepBeforeInvocation",
+        "sha256": "77980f0770a6141e7a354e693f09ba7b643b6d7c8c2b7d061dd1ba3d0cd8d56a"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -194,7 +204,7 @@
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "name": "invokeAction",
-        "sha256": "d88f213168df7062ed52a3dbb57336836221677bbee9a1ac257aec965f3f86fd"
+        "sha256": "bfc83261e844b305d3be51f0fd85368f593aeb43091805e1811e12a616c9f45a"
       },
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",

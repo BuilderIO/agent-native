@@ -390,6 +390,7 @@ export async function processA2ATaskFromQueue(
           config,
           workerAbort.signal,
           event,
+          fence.generation,
         );
       } finally {
         clearInterval(heartbeat);
@@ -412,6 +413,7 @@ async function processClaimedA2ATask(
   config: A2AConfig,
   signal: AbortSignal,
   event?: any,
+  processingAttemptId?: string,
 ): Promise<void> {
   const message = claimed.history?.[0];
   if (!message) {
@@ -528,6 +530,7 @@ async function processClaimedA2ATask(
           sourceContext,
           verifiedEmail,
           signal,
+          processingAttemptId,
         ),
     );
   } catch (err: any) {
@@ -654,6 +657,7 @@ function makeHandlerContext(
   sourceContext?: A2ASourceContext,
   ownerEmail?: string,
   signal?: AbortSignal,
+  processingAttemptId?: string,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -668,6 +672,7 @@ function makeHandlerContext(
   }> = [];
   const context: A2AHandlerContext = {
     taskId,
+    processingAttemptId,
     contextId,
     metadata,
     event,
@@ -795,6 +800,7 @@ async function runHandlerAndPersist(
   sourceContext?: A2ASourceContext,
   ownerEmail?: string,
   signal?: AbortSignal,
+  processingAttemptId?: string,
 ): Promise<void> {
   const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
     taskId,
@@ -804,6 +810,7 @@ async function runHandlerAndPersist(
     sourceContext,
     ownerEmail,
     signal,
+    processingAttemptId,
   );
   try {
     signal?.throwIfAborted();

@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.57
 
 ### Patch Changes
@@ -651,11 +657,5 @@
 
 - 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
   The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
-
-## 0.5.4
-
-### Patch Changes
-
-- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
