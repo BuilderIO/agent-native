@@ -640,6 +640,36 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
     }
   });
 
+  it.each(["prefer-live", "conflict"] as const)(
+    "keeps a server edit to the closing paragraph above a typed empty line (%s)",
+    (overlapPolicy) => {
+      const editor = makeEditor("# Title\n\nLast line.");
+      try {
+        editor.commands.insertContentAt(editor.state.doc.content.size, {
+          type: "paragraph",
+        });
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "# Title\n\nLast line."),
+          parse(editor, "# Title\n\nLast line, revised."),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "heading",
+          "paragraph",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.child(1).textContent).toBe(
+          "Last line, revised.",
+        );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it("leaves a base that really ends in an empty paragraph alone", () => {
     const editor = openPage("## Heading");
     try {
@@ -787,6 +817,50 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
       editor.destroy();
     }
   });
+
+  // Once it follows a paragraph, the kept line is saved like a typed one, so it
+  // stays whether or not the editor still has focus.
+  it.each([true, false])(
+    "keeps a later server edit to a paragraph added beside a kept empty line (focused: %s)",
+    (focused) => {
+      const base = "Intro.\n\n- One\n- Two";
+      const added = `${base}\n\n## Added\n\nNew paragraph.`;
+      const editor = openPage(base);
+      try {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+        editor.isFocused = true;
+        expect(
+          reconcileDocAgainstBase(
+            editor,
+            parse(editor, base),
+            parse(editor, added),
+            { overlapPolicy: "prefer-live" },
+          ),
+        ).toMatchObject({ status: "applied", setAside: 0 });
+        expect(editor.state.doc.lastChild?.content.size).toBe(0);
+
+        editor.isFocused = focused;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, added),
+          parse(editor, `${base}\n\n## Added\n\nNew paragraph, revised.`),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc).slice(2)).toEqual([
+          "heading",
+          "paragraph",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.child(3).textContent).toBe(
+          "New paragraph, revised.",
+        );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 
   it("still sets aside a server change to a closing block the tab edited", () => {
     const base = "Intro.\n\n- One\n- Two";

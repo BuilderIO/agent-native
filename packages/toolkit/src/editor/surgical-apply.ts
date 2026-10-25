@@ -217,11 +217,14 @@ export function planDocReconcile(
   ) {
     return { status: "failed", reason: "schema" };
   }
-  // The editor's filler line is not a local edit: comparing it would make it
-  // overlap every server change to the base's last block, or after it.
-  const liveHasFiller =
-    endsInEditorFiller(liveDoc) && !isEmptyParagraph(baseDoc.lastChild);
-  const comparedLive = liveHasFiller ? withoutLastChild(liveDoc) : liveDoc;
+  // An empty closing line holds nothing to protect: comparing it would make it
+  // overlap every server change to the base's last block, or after it. That
+  // covers the editor's filler, and a filler kept under the cursor that now
+  // follows a paragraph.
+  const liveHasBlankEnd =
+    endsInBlankLine(liveDoc) && !isEmptyParagraph(baseDoc.lastChild);
+  const liveHasFiller = liveHasBlankEnd && endsInEditorFiller(liveDoc);
+  const comparedLive = liveHasBlankEnd ? withoutLastChild(liveDoc) : liveDoc;
   const localDiff = diffTopLevelHunks(baseDoc, comparedLive);
   const serverDiff = diffTopLevelHunks(baseDoc, serverDoc);
   if (!localDiff || !serverDiff) {
@@ -407,12 +410,15 @@ function isEmptyParagraph(node: ProseMirrorNode | null): boolean {
  * An empty line someone styled, by indenting or coloring it, is content.
  */
 function endsInEditorFiller(doc: ProseMirrorNode): boolean {
-  const count = doc.childCount;
   return (
-    count > 1 &&
-    isEditorFiller(doc.child(count - 1)) &&
-    doc.child(count - 2).type.name !== "paragraph"
+    endsInBlankLine(doc) &&
+    doc.child(doc.childCount - 2).type.name !== "paragraph"
   );
+}
+
+/** An unstyled empty line after the page's last block, filler or typed. */
+function endsInBlankLine(doc: ProseMirrorNode): boolean {
+  return doc.childCount > 1 && isEditorFiller(doc.lastChild);
 }
 
 function isEditorFiller(node: ProseMirrorNode | null): node is ProseMirrorNode {
