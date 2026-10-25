@@ -23,6 +23,13 @@ export const RESOLVED_APPROVAL_LIMIT = 32;
 const DATABASE_NOW_MS_SQL =
   "CAST(FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) AS BIGINT)";
 
+function requirePositiveDurationMs(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer.`);
+  }
+  return value;
+}
+
 export type AgentHarnessSessionStatus =
   | "running"
   | "idle"
@@ -125,8 +132,8 @@ export interface AgentHarnessFollowUpIntent {
   followUpId: string;
   prompt: string;
   metadata?: Record<string, unknown>;
-  claimExpiresAt: number;
-  deadlineAt: number;
+  claimLeaseMs: number;
+  deadlineDurationMs: number;
 }
 
 export interface StoredAgentHarnessSessionEvent {
@@ -590,12 +597,13 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
       !existing ||
       existing.status !== "running" ||
       existing.followUpClaimId !== claimId ||
-      existing.followUpClaimExpiresAt == null ||
-      existing.followUpClaimExpiresAt <= Date.now() ||
-      existing.followUpDeadlineAt == null ||
-      existing.followUpDeadlineAt <= Date.now() ||
       (options.requiresNoApprovalResolution && existing.approvalResolutionId) ||
       existing.approvalResolutionId !== expectedApprovalResolutionId
+    ) {
+      return null;
+    }
+    if (
+      !(await hasActiveFollowUpClaim(id, claimId, expectedApprovalResolutionId))
     ) {
       return null;
     }
@@ -694,27 +702,39 @@ export async function claimAgentHarnessSessionFollowUp(
       "Agent harness follow-up admission requires a transaction.",
     );
   }
-  const now = Date.now();
+  const claimLeaseMs = requirePositiveDurationMs(
+    intent.claimLeaseMs,
+    "claimLeaseMs",
+  );
+  const deadlineDurationMs = requirePositiveDurationMs(
+    intent.deadlineDurationMs,
+    "deadlineDurationMs",
+  );
+  const claimLeaseDurationMs = Math.min(claimLeaseMs, deadlineDurationMs);
   const claimed = await client.transaction(async (tx) => {
     const { rows } = await tx.execute({
-      sql: `UPDATE agent_harness_sessions
+      sql: `WITH claim_clock AS MATERIALIZED (
+              SELECT ${DATABASE_NOW_MS_SQL} AS now_ms
+            )
+            UPDATE agent_harness_sessions AS session
             SET status = 'running', follow_up_claim_id = ?, follow_up_id = ?,
                 follow_up_prompt = ?, follow_up_metadata = ?,
-                follow_up_claim_expires_at = ?, follow_up_deadline_at = ?,
+                follow_up_claim_expires_at = claim_clock.now_ms + CAST(? AS BIGINT),
+                follow_up_deadline_at = claim_clock.now_ms + CAST(? AS BIGINT),
                 follow_up_dispatched_at = NULL, follow_up_outcome = NULL,
-                generation = generation + 1, updated_at = ?
-            WHERE id = ? AND generation = ? AND status = 'idle'
-              AND pending_approval IS NULL
-              AND expiry_cleanup_id IS NULL
-            RETURNING *`,
+                generation = generation + 1, updated_at = claim_clock.now_ms
+            FROM claim_clock
+            WHERE session.id = ? AND session.generation = ? AND session.status = 'idle'
+              AND session.pending_approval IS NULL
+              AND session.expiry_cleanup_id IS NULL
+            RETURNING session.*`,
       args: [
         claimId,
         intent.followUpId,
         FOLLOW_UP_PROMPT_PRESENT,
         serializeJson(redactArgsToValue(intent.metadata)),
-        intent.claimExpiresAt,
-        intent.deadlineAt,
-        now,
+        claimLeaseDurationMs,
+        deadlineDurationMs,
         id,
         expectedGeneration,
       ],
@@ -724,7 +744,7 @@ export async function claimAgentHarnessSessionFollowUp(
     await appendAgentHarnessSessionEventInTransaction(tx, {
       sessionId: id,
       operationId: followUpOperationId(intent.followUpId),
-      eventAt: now,
+      eventAt: session.updatedAt,
       event: { type: "user_input", text: intent.prompt },
     });
     return session;
@@ -741,21 +761,20 @@ export async function markAgentHarnessSessionFollowUpDispatched(
   id: string,
   expectedGeneration: number,
   claimId: string,
-  now = Date.now(),
 ): Promise<StoredAgentHarnessSession | null> {
   await ensureAgentHarnessSessionTables();
   const { rows } = await getDbExec().execute({
     sql: `UPDATE agent_harness_sessions
-          SET follow_up_dispatched_at = ?, generation = generation + 1,
-              updated_at = ?
+          SET follow_up_dispatched_at = ${DATABASE_NOW_MS_SQL},
+              generation = generation + 1,
+              updated_at = ${DATABASE_NOW_MS_SQL}
           WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
             AND generation = ? AND follow_up_dispatched_at IS NULL
-            AND follow_up_deadline_at > ?
             AND follow_up_claim_expires_at > ${DATABASE_NOW_MS_SQL}
             AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
             AND expiry_cleanup_id IS NULL
           RETURNING *`,
-    args: [now, now, id, claimId, expectedGeneration, now],
+    args: [id, claimId, expectedGeneration],
   });
   return rowToHarnessSession(rows[0]);
 }
@@ -763,30 +782,23 @@ export async function markAgentHarnessSessionFollowUpDispatched(
 export async function renewAgentHarnessSessionFollowUpClaim(
   id: string,
   claimId: string,
-  now: number,
-  leaseExpiresAt: number,
+  leaseMs: number,
 ): Promise<boolean> {
   await ensureAgentHarnessSessionTables();
+  const durationMs = requirePositiveDurationMs(leaseMs, "leaseMs");
   const { rowsAffected } = await getDbExec().execute({
     sql: `UPDATE agent_harness_sessions
-          SET follow_up_claim_expires_at = ?
+          SET follow_up_claim_expires_at = LEAST(
+            follow_up_deadline_at,
+            ${DATABASE_NOW_MS_SQL} + CAST(? AS BIGINT)
+          )
           WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
-            AND follow_up_deadline_at > ?
+            AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
             AND follow_up_claim_expires_at > ${DATABASE_NOW_MS_SQL}
             AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
             AND follow_up_claim_expires_at < follow_up_deadline_at
-            AND ? > ?
-            AND ? <= follow_up_deadline_at
             AND expiry_cleanup_id IS NULL`,
-    args: [
-      leaseExpiresAt,
-      id,
-      claimId,
-      now,
-      leaseExpiresAt,
-      now,
-      leaseExpiresAt,
-    ],
+    args: [durationMs, id, claimId],
   });
   return rowsAffected === 1;
 }
@@ -1440,7 +1452,6 @@ export async function reconcileExpiredAgentHarnessFollowUp(
   sessionId: string,
   claimId: string,
   expectedGeneration: number,
-  now: number,
 ): Promise<StoredAgentHarnessSession | null> {
   await ensureAgentHarnessSessionTables();
   const client = getDbExec();
@@ -1453,15 +1464,12 @@ export async function reconcileExpiredAgentHarnessFollowUp(
             WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
               AND generation = ?
               AND (
-                (COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ?
-                  AND COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL})
-                OR (follow_up_deadline_at <= ?
-                  AND follow_up_deadline_at <= ${DATABASE_NOW_MS_SQL})
+                COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL}
+                OR follow_up_deadline_at <= ${DATABASE_NOW_MS_SQL}
               )
               AND (
                 approval_resolution_id IS NULL
-                OR (COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ?
-                  AND COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL})
+                OR COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL}
               )
             FOR UPDATE`,
       args: [
@@ -1469,16 +1477,17 @@ export async function reconcileExpiredAgentHarnessFollowUp(
         claimId,
         expectedGeneration,
         LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-        now,
-        LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-        now,
-        LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-        now,
         LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
       ],
     });
     const current = rowToHarnessSession(rows[0]);
     if (!current) return null;
+    const { rows: clockRows } = await tx.execute({
+      sql: `SELECT ${DATABASE_NOW_MS_SQL} AS now_ms`,
+    });
+    const eventAt = numberValue(
+      (clockRows[0] as { now_ms?: unknown } | undefined)?.now_ms,
+    );
 
     const followUpId = current.followUpId ?? `recovered:${claimId}`;
     const notDispatched =
@@ -1519,7 +1528,7 @@ export async function reconcileExpiredAgentHarnessFollowUp(
         await appendAgentHarnessSessionEventInTransaction(tx, {
           sessionId,
           operationId: approvalOperation,
-          eventAt: now,
+          eventAt,
           event: {
             type: "error",
             error:
@@ -1549,7 +1558,7 @@ export async function reconcileExpiredAgentHarnessFollowUp(
       await appendAgentHarnessSessionEventInTransaction(tx, {
         sessionId,
         operationId: followUpOperationId(followUpId),
-        eventAt: now,
+        eventAt,
         event,
       });
     }
@@ -1562,14 +1571,17 @@ export async function reconcileExpiredAgentHarnessFollowUp(
                 resolved_approval_ids = ?,
                 follow_up_id = ?,
                 follow_up_outcome = ?, generation = generation + 1,
-                updated_at = ?
+                updated_at = ${DATABASE_NOW_MS_SQL}
             WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
               AND generation = ?
               AND approval_resolution_id IS NOT DISTINCT FROM ?
               AND (
+                COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL}
+                OR follow_up_deadline_at <= ${DATABASE_NOW_MS_SQL}
+              )
+              AND (
                 approval_resolution_id IS NULL
-                OR (COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ?
-                  AND COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL})
+                OR COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL}
               )
             RETURNING *`,
       args: [
@@ -1577,13 +1589,11 @@ export async function reconcileExpiredAgentHarnessFollowUp(
         serializeJson(resolvedApprovalIds),
         followUpId,
         completed ? "completed" : notDispatched ? "not_dispatched" : "unknown",
-        now,
         sessionId,
         claimId,
         expectedGeneration,
         approvalId,
         LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-        now,
         LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
       ],
     });
@@ -1594,7 +1604,6 @@ export async function reconcileExpiredAgentHarnessFollowUp(
 }
 
 export async function listExpiredAgentHarnessFollowUps(
-  now: number,
   limit = 50,
 ): Promise<StoredAgentHarnessSession[]> {
   await ensureAgentHarnessSessionTables();
@@ -1603,25 +1612,17 @@ export async function listExpiredAgentHarnessFollowUps(
     sql: `SELECT * FROM agent_harness_sessions
           WHERE status = 'running' AND follow_up_claim_id IS NOT NULL
             AND (
-              (COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ?
-                AND COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL})
-              OR (follow_up_deadline_at <= ?
-                AND follow_up_deadline_at <= ${DATABASE_NOW_MS_SQL})
+              COALESCE(follow_up_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL}
+              OR follow_up_deadline_at <= ${DATABASE_NOW_MS_SQL}
             )
             AND (
               approval_resolution_id IS NULL
-              OR (COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ?
-                AND COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL})
+              OR COALESCE(approval_resolution_claim_expires_at, updated_at + ?) <= ${DATABASE_NOW_MS_SQL}
             )
           ORDER BY follow_up_claim_expires_at, updated_at
           LIMIT ?`,
     args: [
       LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-      now,
-      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-      now,
-      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
-      now,
       LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
       boundedLimit,
     ],
@@ -1821,15 +1822,15 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
   return client.transaction(async (tx) => {
     const { rows } = await tx.execute({
       sql: `UPDATE agent_harness_sessions
-            SET generation = generation + 1, updated_at = ?
+            SET generation = generation + 1,
+                updated_at = ${DATABASE_NOW_MS_SQL}
             WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
               AND generation = ?
               AND follow_up_claim_expires_at > ${DATABASE_NOW_MS_SQL}
               AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
-              AND follow_up_deadline_at > ?
               AND expiry_cleanup_id IS NULL
             RETURNING *`,
-      args: [Date.now(), id, claimId, expectedGeneration, Date.now()],
+      args: [id, claimId, expectedGeneration],
     });
     const session = rowToHarnessSession(rows[0]);
     if (!session) return null;
@@ -2244,6 +2245,31 @@ function parseJson(value: unknown): unknown {
   } catch {
     return undefined;
   }
+}
+
+async function hasActiveFollowUpClaim(
+  id: string,
+  claimId: string,
+  expectedApprovalResolutionId: string | null,
+): Promise<boolean> {
+  const approvalCondition =
+    expectedApprovalResolutionId === null
+      ? "approval_resolution_id IS NULL"
+      : "approval_resolution_id = ?";
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1
+          FROM agent_harness_sessions
+          WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
+            AND follow_up_claim_expires_at > ${DATABASE_NOW_MS_SQL}
+            AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
+            AND expiry_cleanup_id IS NULL
+            AND ${approvalCondition}`,
+    args:
+      expectedApprovalResolutionId === null
+        ? [id, claimId]
+        : [id, claimId, expectedApprovalResolutionId],
+  });
+  return rows.length === 1;
 }
 
 function stringArray(value: unknown): string[] {

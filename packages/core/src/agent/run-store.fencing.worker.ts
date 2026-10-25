@@ -218,7 +218,6 @@ async function main(): Promise<void> {
           claimId: string;
         };
         await announceDatabaseBackend(sql);
-        const now = Date.now();
         const claimed = await claimAgentHarnessSessionFollowUp(
           threadId,
           Number(expectedGeneration),
@@ -226,8 +225,8 @@ async function main(): Promise<void> {
           {
             followUpId: claimId,
             prompt: `Follow-up ${claimId}`,
-            claimExpiresAt: now + 60_000,
-            deadlineAt: now + 24 * 60 * 60 * 1_000,
+            claimLeaseMs: 60_000,
+            deadlineDurationMs: 24 * 60 * 60 * 1_000,
           },
         );
         writeSync(
@@ -250,7 +249,6 @@ async function main(): Promise<void> {
           prompt: string;
           effectId: string;
         };
-        const now = Date.now();
         const claimed = await claimAgentHarnessSessionFollowUp(
           threadId,
           input.expectedGeneration,
@@ -258,8 +256,8 @@ async function main(): Promise<void> {
           {
             followUpId: input.followUpId,
             prompt: input.prompt,
-            claimExpiresAt: now + 60_000,
-            deadlineAt: now + 24 * 60 * 60 * 1_000,
+            claimLeaseMs: 60_000,
+            deadlineDurationMs: 24 * 60 * 60 * 1_000,
           },
         );
         if (!claimed) throw new Error("Follow-up claim was not admitted");
