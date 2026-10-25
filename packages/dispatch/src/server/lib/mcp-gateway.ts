@@ -3,6 +3,7 @@ import {
   canonicalA2AAudience,
   extractA2APersistedMutationReceipts,
   getGlobalA2ASecret,
+  signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
   signA2AToken,
   stripA2APersistedArtifactMarkers,
@@ -1169,14 +1170,16 @@ function isRetryableTargetMcpError(error: unknown): boolean {
 }
 
 function targetMcpErrorStatus(error: unknown): number | undefined {
+  const status = httpStatusFromError(error);
+  if (status !== undefined) return status;
   const message =
     error instanceof Error
       ? error.message
       : typeof error === "string"
         ? error
         : safeJson(error);
-  const status = message.match(/\b([45]\d{2})\b/)?.[1];
-  return status ? Number(status) : undefined;
+  const matchedStatus = message.match(/\b([45]\d{2})\b/)?.[1];
+  return matchedStatus ? Number(matchedStatus) : undefined;
 }
 
 function targetMcpRequestDetails(input: {
@@ -1195,6 +1198,22 @@ function targetMcpConnectTimeout(deadline: number): number {
   const remaining = deadline - Date.now();
   const budget = Math.min(TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS, remaining);
   return Math.max(1000, budget);
+}
+
+class TargetMcpAuthenticationRejectedError extends Error {
+  readonly status?: number;
+
+  constructor(cause: unknown) {
+    super("Target MCP authentication was rejected", { cause });
+    this.name = "TargetMcpAuthenticationRejectedError";
+    const status = httpStatusFromError(cause) ?? targetMcpErrorStatus(cause);
+    if (status !== undefined) this.status = status;
+  }
+}
+
+function isTargetMcpAuthenticationRejected(error: unknown): boolean {
+  const status = httpStatusFromError(error) ?? targetMcpErrorStatus(error);
+  return status === 401 || status === 403;
 }
 
 function targetMcpRetryDelay(attempt: number): number {
@@ -1226,8 +1245,17 @@ async function callTargetCreateEmbedSession(input: {
       },
       { connectTimeoutMs: targetMcpConnectTimeout(deadline) },
     );
+    let connected = false;
     try {
       await manager.start();
+      const connectErrorStatus = manager.getConnectErrorStatus(serverId);
+      if (connectErrorStatus === 401 || connectErrorStatus === 403) {
+        const error = Object.assign(new Error(`HTTP ${connectErrorStatus}`), {
+          status: connectErrorStatus,
+        });
+        throw new TargetMcpAuthenticationRejectedError(error);
+      }
+      connected = true;
       return await manager.callTool(
         buildMcpToolName(serverId, "create_embed_session"),
         {
@@ -1236,6 +1264,13 @@ async function callTargetCreateEmbedSession(input: {
         },
       );
     } catch (error) {
+      if (
+        !connected &&
+        !(error instanceof TargetMcpAuthenticationRejectedError) &&
+        isTargetMcpAuthenticationRejected(error)
+      ) {
+        throw new TargetMcpAuthenticationRejectedError(error);
+      }
       if (
         attempt >= TARGET_EMBED_SESSION_ATTEMPTS ||
         !isRetryableTargetMcpError(error) ||
@@ -1252,23 +1287,62 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
-async function createTargetMcpUserToken(input: {
+type TargetMcpCredential = {
+  strategy: "deployment-user" | "org-member-delegation";
+  token: string;
+};
+
+async function createTargetMcpUserCredentials(input: {
   ownerEmail: string;
   orgId?: string;
   target: DispatchMcpAccessibleApp;
-}): Promise<string> {
-  if (!getGlobalA2ASecret()) {
+}): Promise<{
+  credentials: TargetMcpCredential[];
+  loadOrgMemberCredential: () => Promise<TargetMcpCredential | undefined>;
+}> {
+  const audience = canonicalA2AAudience(appMcpUrl(input.target));
+  const orgDomain = input.orgId
+    ? (await getOrgDomain(input.orgId))?.trim().toLowerCase() || undefined
+    : undefined;
+  const credentials: TargetMcpCredential[] = [];
+  if (getGlobalA2ASecret()) {
+    credentials.push({
+      strategy: "deployment-user",
+      token: await signA2AToken(input.ownerEmail, orgDomain, undefined, {
+        expiresIn: "5m",
+        audience,
+        preferGlobalSecret: true,
+      }),
+    });
+  }
+
+  const loadOrgMemberCredential = async () => {
+    if (!input.orgId || !orgDomain) return undefined;
+    const orgSecret = await getOrgA2ASecret(input.orgId);
+    if (!orgSecret || orgSecret.trim() === getGlobalA2ASecret()) {
+      return undefined;
+    }
+    return {
+      strategy: "org-member-delegation" as const,
+      token: await signA2AOrgMemberDelegationToken(
+        input.ownerEmail,
+        orgDomain,
+        orgSecret,
+        audience,
+      ),
+    };
+  };
+
+  if (credentials.length === 0) {
+    const orgMemberCredential = await loadOrgMemberCredential();
+    if (orgMemberCredential) credentials.push(orgMemberCredential);
+  }
+  if (credentials.length === 0) {
     throw new Error(
-      "Cross-app embed sessions require A2A_SECRET to preserve the authenticated user identity; an organization-only A2A credential cannot create a user-owned session.",
+      "Cross-app embed sessions require a deployment A2A secret or an organization secret with member delegation enabled on the target.",
     );
   }
-  const audience = canonicalA2AAudience(appMcpUrl(input.target));
-  return signA2AToken(input.ownerEmail, undefined, undefined, {
-    expiresIn: "5m",
-    audience,
-    preferGlobalSecret: true,
-    ...(input.orgId ? { extraClaims: { org_id: input.orgId } } : {}),
-  });
+  return { credentials, loadOrgMemberCredential };
 }
 
 async function resolveEmbedTarget(
@@ -1428,45 +1502,72 @@ async function createEmbedSessionForResolvedApp(input: {
     });
   }
 
-  const targetToken = await createTargetMcpUserToken({
+  const targetCredentials = await createTargetMcpUserCredentials({
     ownerEmail,
-    orgId,
+    ...(orgId !== undefined ? { orgId } : {}),
     target: target.app,
   });
   const targetDetails = targetMcpRequestDetails({
     app: target.app,
     url: target.url,
   });
-  let parsed: {
-    startUrl?: string;
-    targetPath?: string;
-    expiresAt?: number;
-  };
-  console.info("[dispatch] workspace embed target request", {
-    ...targetDetails,
-    authStrategy: "user-identity",
-  });
-  try {
-    const result = await callTargetCreateEmbedSession({
-      app: target.app,
-      token: targetToken,
-      url: target.url,
-      chrome,
-    });
-    parsed = parseMcpToolTextResult(result) as {
-      startUrl?: string;
-      targetPath?: string;
-      expiresAt?: number;
-    };
-  } catch (error) {
-    console.warn("[dispatch] workspace embed target response", {
+  let parsed:
+    | {
+        startUrl?: string;
+        targetPath?: string;
+        expiresAt?: number;
+      }
+    | undefined;
+  const credentials = [...targetCredentials.credentials];
+  for (const [index, credential] of credentials.entries()) {
+    console.info("[dispatch] workspace embed target request", {
       ...targetDetails,
-      authStrategy: "user-identity",
-      status: targetMcpErrorStatus(error),
-      category: isRetryableTargetMcpError(error) ? "transient" : "permanent",
+      authStrategy: credential.strategy,
     });
-    throw error;
+    try {
+      const result = await callTargetCreateEmbedSession({
+        app: target.app,
+        token: credential.token,
+        url: target.url,
+        ...(chrome !== undefined ? { chrome } : {}),
+      });
+      parsed = parseMcpToolTextResult(result) as {
+        startUrl?: string;
+        targetPath?: string;
+        expiresAt?: number;
+      };
+      break;
+    } catch (error) {
+      if (
+        error instanceof TargetMcpAuthenticationRejectedError &&
+        credential.strategy === "deployment-user" &&
+        index === credentials.length - 1
+      ) {
+        const orgMemberCredential =
+          await targetCredentials.loadOrgMemberCredential();
+        if (orgMemberCredential) credentials.push(orgMemberCredential);
+      }
+      if (
+        error instanceof TargetMcpAuthenticationRejectedError &&
+        index < credentials.length - 1
+      ) {
+        console.warn("[dispatch] workspace embed auth candidate rejected", {
+          ...targetDetails,
+          authStrategy: credential.strategy,
+          status: targetMcpErrorStatus(error),
+        });
+        continue;
+      }
+      console.warn("[dispatch] workspace embed target response", {
+        ...targetDetails,
+        authStrategy: credential.strategy,
+        status: targetMcpErrorStatus(error),
+        category: isRetryableTargetMcpError(error) ? "transient" : "permanent",
+      });
+      throw error;
+    }
   }
+  if (!parsed) throw new Error("Target app did not return an embed session.");
   if (!parsed.startUrl) {
     throw new Error("Target app did not return an embed start URL.");
   }

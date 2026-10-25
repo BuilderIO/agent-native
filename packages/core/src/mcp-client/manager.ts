@@ -39,6 +39,7 @@ interface ServerEntry {
   transport: any;
   tools: McpTool[];
   error?: string;
+  connectErrorStatus?: number;
   /** Why each listed tool left out of `tools` cannot be offered. */
   unusableTools?: string[];
   pendingRequests: number;
@@ -428,6 +429,8 @@ export class McpClientManager {
       );
     } catch (err: any) {
       entry.error = formatMcpConnectError(err);
+      const status = httpStatusFromError(err);
+      if (status !== undefined) entry.connectErrorStatus = status;
       console.warn(`[mcp-client] failed to connect to ${id}: ${entry.error}`);
     }
   }
@@ -1021,6 +1024,10 @@ export class McpClientManager {
       tools,
       errors,
     };
+  }
+
+  getConnectErrorStatus(serverId: string): number | undefined {
+    return this.servers.get(serverId)?.connectErrorStatus;
   }
 
   private shouldInjectFirstPartyIdentity(entry: ServerEntry): boolean {

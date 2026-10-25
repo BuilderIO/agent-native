@@ -281,8 +281,10 @@ export function workspaceAppRouteForChildPath(
       ? parsed.pathname.slice(mountPath.length) || "/"
       : parsed.pathname;
   const routePath = workspaceAppRoute(app.id);
-  const suffix = relativePathname === "/" ? "" : relativePathname;
-  return `${routePath}${suffix}${parsed.search}${parsed.hash}`;
+  const childRoute = `${relativePathname}${parsed.search}${parsed.hash}`;
+  if (childRoute === "/") return routePath;
+  const search = new URLSearchParams([["__workspace_app_path", childRoute]]);
+  return `${routePath}?${search}`;
 }
 
 export function workspaceAppInitialPathFromSplat(
@@ -290,6 +292,14 @@ export function workspaceAppInitialPathFromSplat(
   search: string,
   hash: string,
 ): string | undefined {
+  const appPath = new URLSearchParams(search).get("__workspace_app_path");
+  if (appPath !== null) {
+    const parsed = normalizeWorkspaceAppRoutePath(appPath);
+    if (!parsed) return undefined;
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return path === "/" ? undefined : path;
+  }
+
   const pathname = routeSplat?.trim()
     ? `/${routeSplat.trim().replace(/^[/\\]+/, "")}`
     : "/";

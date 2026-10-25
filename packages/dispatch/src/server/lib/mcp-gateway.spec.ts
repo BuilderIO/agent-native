@@ -18,12 +18,14 @@ const mocks = vi.hoisted(() => ({
     return `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`;
   }),
   managerStart: vi.fn(),
+  managerGetConnectErrorStatus: vi.fn(),
   managerStop: vi.fn(),
   managerCallTool: vi.fn(),
   managerConstructor: vi.fn(),
   a2aConstructor: vi.fn(),
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
+  signA2AOrgMemberDelegationToken: vi.fn(),
   signA2AOrganizationToken: vi.fn(),
   signA2AToken: vi.fn(),
   canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
@@ -88,6 +90,7 @@ vi.mock("@agent-native/core/a2a", async (importOriginal) => {
       }
     },
     signA2AOrganizationToken: mocks.signA2AOrganizationToken,
+    signA2AOrgMemberDelegationToken: mocks.signA2AOrgMemberDelegationToken,
     signA2AToken: mocks.signA2AToken,
     getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
     canonicalA2AAudience: mocks.canonicalA2AAudience,
@@ -109,6 +112,10 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 
     start() {
       return mocks.managerStart();
+    }
+
+    getConnectErrorStatus(serverId: string) {
+      return mocks.managerGetConnectErrorStatus(serverId);
     }
 
     stop() {
@@ -165,6 +172,7 @@ beforeEach(() => {
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
   mocks.signA2AOrganizationToken.mockReset();
+  mocks.signA2AOrgMemberDelegationToken.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
   mocks.getBuiltinAgents.mockReturnValue([]);
@@ -177,6 +185,7 @@ beforeEach(() => {
     expiresAt: 12345,
   });
   mocks.managerStart.mockResolvedValue(undefined);
+  mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
   mocks.managerStop.mockResolvedValue(undefined);
   mocks.managerCallTool.mockResolvedValue({
     structuredContent: {
@@ -194,9 +203,11 @@ beforeEach(() => {
     },
   });
   mocks.signA2AToken.mockResolvedValue("signed-token");
+  mocks.signA2AOrgMemberDelegationToken.mockResolvedValue("org-member-token");
   mocks.signA2AOrganizationToken.mockResolvedValue("signed-token");
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
+  vi.stubEnv("A2A_SECRET", "");
   mocks.isFeatureFlagEnabled.mockResolvedValue(true);
 });
 
@@ -2237,7 +2248,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
-  it("binds the authenticated MCP caller token to the org ID", async () => {
+  it("does not send the source app's local org ID to the target", async () => {
     await runWithRequestContext(
       {
         userEmail: "owner@example.test",
@@ -2259,11 +2270,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         expiresIn: "5m",
         audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
-        extraClaims: { org_id: "org-1" },
       },
     );
     expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
-    expect(mocks.getOrgDomain).not.toHaveBeenCalled();
+    expect(mocks.getOrgDomain).toHaveBeenCalledWith("org-1");
     expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
     expect(mocks.managerConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2276,10 +2286,103 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
   });
 
-  it("requires A2A_SECRET when an organization-only credential cannot assert user identity", async () => {
+  it("uses a user delegation token when only the org secret is configured", async () => {
     vi.stubEnv("A2A_SECRET", "");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      "org-specific-secret",
+      "http://localhost:8086/mcp",
+    );
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-member-token" },
+          }),
+        },
+      }),
+    );
+  });
+
+  it("tries org-member delegation after a deployment-token auth rejection", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.signA2AToken.mockResolvedValue("deployment-user-token");
+    mocks.signA2AOrgMemberDelegationToken.mockResolvedValue("org-member-token");
+    mocks.managerGetConnectErrorStatus.mockReturnValueOnce(401);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    );
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer deployment-user-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-member-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      "org-specific-secret",
+      "http://localhost:8086/mcp",
+    );
+  });
+
+  it("does not retry with an org secret that matches the deployment secret", async () => {
+    vi.stubEnv("A2A_SECRET", "source-deployment-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("source-deployment-secret");
+    mocks.managerGetConnectErrorStatus.mockReturnValueOnce(401);
 
     await expect(
       runWithRequestContext(
@@ -2294,13 +2397,37 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
             path: "/dashboards",
           }),
       ),
-    ).rejects.toThrow(
-      /require A2A_SECRET to preserve the authenticated user identity/,
+    ).rejects.toThrow("Target MCP authentication was rejected");
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrgMemberDelegationToken).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an action-level authorization error with member delegation", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
     );
 
-    expect(mocks.signA2AToken).not.toHaveBeenCalled();
-    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
-    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow("Forbidden");
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrgMemberDelegationToken).not.toHaveBeenCalled();
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
   });
 
   it("does not retry an authenticated-caller error with an org principal", async () => {
