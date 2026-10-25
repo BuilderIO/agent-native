@@ -417,6 +417,65 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
 });
 
 describe("MCP server routes", () => {
+  it("returns actionable saved-header errors from the existing-server test", async () => {
+    const userEmail = "alice@example.com";
+    getSessionMock.mockResolvedValue({ email: userEmail });
+    getOrgContextMock.mockResolvedValue({
+      email: userEmail,
+      orgId: null,
+      role: null,
+    });
+    mockedSettings.all[`u:${userEmail}:mcp-servers-remote`] = {
+      servers: [
+        {
+          id: "broken",
+          name: "Broken server",
+          url: "https://broken.example.test/mcp",
+          headerSecretKey: "mcp_headers:broken",
+          createdAt: 1,
+        },
+      ],
+    };
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    const nitroApp = createNitroApp();
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    appSecretMocks.read.mockResolvedValueOnce({ value: "not-json" });
+    const invalidJson = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/broken/test?scope=user",
+      "POST",
+    );
+    expect(invalidJson.status).toBe(400);
+    expect(invalidJson.body).toEqual({
+      ok: false,
+      error:
+        "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+    });
+
+    appSecretMocks.read.mockRejectedValueOnce(
+      new AppSecretDecryptionError({ scope: "user", scopeId: userEmail }),
+    );
+    const unreadable = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/broken/test?scope=user",
+      "POST",
+    );
+    expect(unreadable.status).toBe(400);
+    expect(unreadable.body).toEqual({
+      ok: false,
+      error: "A saved connection could not be decrypted.",
+    });
+  });
+
   it("invalidates same-scope managers when built-in MCP settings change", async () => {
     vi.stubEnv("NODE_ENV", "development");
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });

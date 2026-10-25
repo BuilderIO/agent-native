@@ -675,13 +675,19 @@ function parseAllowlist(raw: string | null): string[] | null {
   }
 }
 
-export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
+export async function deleteAppSecret(
+  ref: SecretRef,
+  expectedUpdatedAt?: number,
+): Promise<boolean> {
   await ensureTable();
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
-    sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?`,
-    args: [scope, scopeId, key],
+    sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?${expectedUpdatedAt === undefined ? "" : " AND updated_at = ?"}`,
+    args:
+      expectedUpdatedAt === undefined
+        ? [scope, scopeId, key]
+        : [scope, scopeId, key, expectedUpdatedAt],
   });
   invalidateRequestSecret(ref);
   invalidateOptionalKeyCache();
