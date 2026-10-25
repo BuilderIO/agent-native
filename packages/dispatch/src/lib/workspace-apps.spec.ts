@@ -155,13 +155,39 @@ describe("workspace app routes", () => {
     expect(workspaceAppInitialPathFromSplat(undefined, "", "")).toBeUndefined();
   });
 
-  it("maps child routes to shareable Dispatch app routes", () => {
+  it("restores a child route from the flat Workspace app shell query", () => {
     expect(
-      workspaceAppRouteForChildPath(
-        { id: "design", path: "/", url: "https://design.example.test" },
-        "/foobar?mode=edit#canvas",
+      workspaceAppInitialPathFromSplat(
+        undefined,
+        "?__workspace_app_path=%2Ftriage%3Fview%3Dopen%23latest",
+        "",
       ),
-    ).toBe("/apps/design/foobar?mode=edit#canvas");
+    ).toBe("/triage?view=open#latest");
+    expect(
+      workspaceAppInitialPathFromSplat(
+        undefined,
+        "?__workspace_app_path=%2F%2Fevil.example",
+        "",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("maps child routes to shareable Dispatch app routes", () => {
+    const childPath = "/foobar?mode=edit#canvas";
+    const route = workspaceAppRouteForChildPath(
+      { id: "design", path: "/", url: "https://design.example.test" },
+      childPath,
+    );
+    expect(route).toBe(
+      "/apps/design?__workspace_app_path=%2Ffoobar%3Fmode%3Dedit%23canvas",
+    );
+    expect(
+      workspaceAppInitialPathFromSplat(
+        undefined,
+        new URL(route!, "https://dispatch.example.test").search,
+        "",
+      ),
+    ).toBe(childPath);
     expect(
       workspaceAppRouteForChildPath(
         {
@@ -171,7 +197,7 @@ describe("workspace app routes", () => {
         },
         "/design/foobar",
       ),
-    ).toBe("/apps/internal-design/foobar");
+    ).toBe("/apps/internal-design?__workspace_app_path=%2Ffoobar");
     expect(
       workspaceAppRouteForChildPath(
         { id: "design", path: "/", url: "https://design.example.test" },
