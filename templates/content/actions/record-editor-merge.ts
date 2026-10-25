@@ -27,12 +27,7 @@ export default defineAction({
     // timer runs. countOutcome only bumps an in-memory window, and the editor
     // never waits for this answer.
     try {
-      const delivery: unknown = countOutcome("content_editor_merge_counts", {
-        outcome: args.outcome,
-      });
-      void Promise.resolve(delivery).catch(() => {
-        // coercion-ok: delivery cannot change the merge acknowledgement.
-      });
+      countOutcome("content_editor_merge_counts", { outcome: args.outcome });
     } catch {
       // coercion-ok: delivery cannot change the merge acknowledgement.
     }
