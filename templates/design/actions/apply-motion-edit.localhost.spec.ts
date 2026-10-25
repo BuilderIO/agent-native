@@ -741,6 +741,59 @@ describe("apply-motion-edit localhost React source", () => {
     });
   });
 
+  it("clears an empty managed React Motion style without optional metadata", async () => {
+    const emptyTrackSource = applyMotionReactSourceEdit({
+      currentSource: managedTrackSource,
+      expectedSource: managedTrackSource,
+      preview: { sourceHash: managedTrackVersionHash },
+      modulePath: "app/routes/home.tsx",
+      timeline: {
+        id: "timeline-1",
+        designId: "design-1",
+        sourceRef: "screen-1",
+        filePath: "app/routes/home.tsx",
+        tracks: [],
+        durationMs: 800,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: "2026-10-11T00:00:00.000Z",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+      },
+      easingVariables: [],
+    }).source;
+    const emptyTrackVersionHash = createHash("sha256")
+      .update(emptyTrackSource)
+      .digest("hex");
+    mocks.readLocal.mockResolvedValueOnce({
+      content: emptyTrackSource,
+      versionHash: emptyTrackVersionHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: emptyTrackVersionHash,
+        timelineVersionHash: emptyTrackVersionHash,
+        renderedNodeIds: [],
+      },
+      tracks: [],
+    });
+
+    expect(result).toMatchObject({
+      trackCount: 0,
+      persisted: true,
+      sourcePatched: true,
+    });
+    expect(
+      readMotionReactSource(mocks.writeLocal.mock.calls[0]![0].content),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { tracks: [] },
+    });
+  });
+
   it("requires the rendered module hash to match the current bridge SHA-256", async () => {
     await expect(
       action.run({

@@ -1322,7 +1322,8 @@ export default defineAction({
       !textDocument &&
       audioClips.length === 0 &&
       animationStyles.length === 0 &&
-      nativeStyles.length === 0
+      nativeStyles.length === 0 &&
+      !existingMotionDocument
     ) {
       fail(
         "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native style instance.",

@@ -657,9 +657,11 @@ export function inspectMotionReactSourceWriteCapability(args: {
       );
     }
     if (targetNodeIds.length === 0) {
+      const managedStyles = findManagedStyles(sourceFile);
       const canEditWithoutTarget =
         read.status === "valid" &&
-        ((read.document?.tracks.length ?? 0) > 0 ||
+        (managedStyles.length === 1 ||
+          (read.document?.tracks.length ?? 0) > 0 ||
           (read.document?.animationStyles?.length ?? 0) > 0 ||
           (read.document?.easingVariables?.length ?? 0) > 0 ||
           read.document?.audioClips !== undefined);
@@ -669,7 +671,6 @@ export function inspectMotionReactSourceWriteCapability(args: {
           "React Motion source capability requires a target, saved style library, or source-backed audio clip.",
         );
       }
-      const managedStyles = findManagedStyles(sourceFile);
       if (managedStyles.length > 1) {
         throw new MotionReactSourceError(
           "invalid-managed-style",
