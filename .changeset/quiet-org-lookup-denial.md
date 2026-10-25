@@ -13,3 +13,7 @@ Keep the engine catalog available when current-engine discovery cannot read a pr
 Record a scoped failed background automation attempt when creator-membership or organization-admin alert lookup is unreadable. Preserve the typed failure and original cause, stop before credential or agent execution, and keep a proven former creator's same-organization admin fallback.
 
 Preserve session membership failures through core HTTP consumers as retryable unavailability, keeping missing sessions and definitive delegated access refusals distinct. Key-save route wrappers preserve those HTTP failures instead of replacing them with a generic server error. Framework route errors forward declared headers and redact unclassified server failures. Keep recipient lookup failures fatal when recording their failed automation history also fails, preserving both causes while retaining execution during history-only outages.
+
+Fail closed at the shared integration organization lookup boundary when membership cannot be read, returning retryable unavailability before config mutations or scope-dependent operations. Preserve definitive authorization refusals and healthy Personal, owner, admin, and member policy.
+
+Expose known credential-store unavailability through framework HTTP routes as 503 with its typed code and retry headers, preserving the original cause while keeping unexpected errors redacted and Forbidden responses distinct.

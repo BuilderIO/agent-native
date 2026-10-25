@@ -345,9 +345,11 @@ describe("onboarding plugin routes", () => {
       "/_agent-native/onboarding/dismissed",
     );
 
-    expect(result.status).toBe(500);
+    expect(result.status).toBe(503);
+    expect(result.headers.get("retry-after")).toBe("5");
     expect(result.body).toEqual({
-      error: "Internal server error",
+      error: new CredentialStoreUnavailableError().message,
+      code: "credential_store_unavailable",
     });
   });
 
@@ -413,9 +415,11 @@ describe("onboarding plugin routes", () => {
       "/_agent-native/onboarding/summary",
     );
 
-    expect(result.status).toBe(500);
+    expect(result.status).toBe(503);
+    expect(result.headers.get("retry-after")).toBe("5");
     expect(result.body).toEqual({
-      error: "Internal server error",
+      error: new CredentialStoreUnavailableError().message,
+      code: "credential_store_unavailable",
     });
   });
 

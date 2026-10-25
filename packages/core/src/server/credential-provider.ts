@@ -135,6 +135,9 @@ export class FeatureNotConfiguredError extends Error {
  * nothing to configure, they have something to retry.
  */
 export class CredentialStoreUnavailableError extends Error {
+  readonly statusCode = 503;
+  readonly headers = { "Retry-After": "5" };
+  readonly data = { code: CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE };
   readonly errorCode = CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE;
   readonly retryable = true;
 
