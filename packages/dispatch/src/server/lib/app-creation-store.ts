@@ -156,6 +156,15 @@ class WorkspaceAppOrgRequiredError extends Error {
   }
 }
 
+class WorkspaceGatewayConfigurationError extends Error {
+  constructor(cause?: unknown) {
+    super("WORKSPACE_GATEWAY_URL must be a valid absolute HTTP(S) URL.", {
+      cause,
+    });
+    this.name = "WorkspaceGatewayConfigurationError";
+  }
+}
+
 function requireWorkspaceAppOrgId(): string {
   const orgId = currentOrgId();
   if (!orgId) throw new WorkspaceAppOrgRequiredError();
@@ -658,11 +667,16 @@ function appendWorkspaceAppPath(baseUrl: URL, appPath: string): string {
 function workspaceGatewayBaseUrl(): URL | null {
   const configured = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configured) return null;
-  const url = new URL(projectEnvironmentUrl(configured));
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
+  let url: URL;
+  try {
+    url = new URL(projectEnvironmentUrl(configured));
+  } catch (error) {
+    throw new WorkspaceGatewayConfigurationError(error);
   }
-  return url;
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new WorkspaceGatewayConfigurationError();
+  }
+  return new URL(addBasePath(url.toString(), getConfiguredAppBasePath()));
 }
 
 function workspaceGatewayAppUrl(appPath: string): string | null {
@@ -898,6 +912,17 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
       });
       if (!profile) return null;
       const metadata = workspaceAppMetadataFromRecord(entry);
+      let url: string | null;
+      try {
+        url = workspaceAppLink(pathValue, entry.url);
+      } catch (error) {
+        if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+        console.warn(
+          `[dispatch] Could not resolve Workspace app ${id}; skipping app`,
+          error,
+        );
+        return null;
+      }
       return {
         id,
         name:
@@ -909,7 +934,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         ...(profile.whenToUse ? { whenToUse: profile.whenToUse } : {}),
         path: pathValue,
         homePath: normalizeWorkspaceAppHomePath(entry.homePath),
-        url: workspaceAppLink(pathValue, entry.url),
+        url,
         isDispatch:
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
@@ -1920,7 +1945,8 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
   if (!raw) return null;
   try {
     return parseWorkspaceAppsManifest(JSON.parse(raw));
-  } catch {
+  } catch (error) {
+    if (error instanceof WorkspaceGatewayConfigurationError) throw error;
     return null;
   }
 }

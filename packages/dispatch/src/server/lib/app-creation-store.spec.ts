@@ -472,41 +472,50 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
-  it("keeps mounted Workspace prefixes on gateway app URLs", async () => {
-    const fetchMock = vi.fn(async () => {
-      return new Response(
-        JSON.stringify({
-          apps: [
-            {
-              id: "customer-ticket-triage",
-              name: "Customer Ticket Triage",
-              path: "/customer-ticket-triage",
-              url: "https://beta.agent-workspace.builder.io/customer-ticket-triage",
-            },
-          ],
-        }),
-        { headers: { "content-type": "application/json" } },
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-    vi.stubEnv(
-      "WORKSPACE_GATEWAY_URL",
+  it.each([
+    [
+      "gateway mount path",
       "https://beta.agent-workspace.builder.io/dispatch",
-    );
+      "",
+    ],
+    ["APP_BASE_PATH", "https://beta.agent-workspace.builder.io", "/dispatch"],
+  ] as const)(
+    "keeps mounted Workspace prefixes on gateway app URLs with %s",
+    async (_mountConfig, gatewayUrl, appBasePath) => {
+      const fetchMock = vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            apps: [
+              {
+                id: "customer-ticket-triage",
+                name: "Customer Ticket Triage",
+                path: "/customer-ticket-triage",
+                url: "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", gatewayUrl);
+      vi.stubEnv("APP_BASE_PATH", appBasePath);
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
 
-    const apps = await runWithRequestContext(
-      {
-        userEmail: "dev@example.test",
-        requestOrigin: "https://beta.dispatch.agent-native.com",
-      },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
+      const apps = await runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
 
-    expect(apps.find((app) => app.id === "customer-ticket-triage")?.url).toBe(
-      "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
-    );
-  });
+      expect(apps.find((app) => app.id === "customer-ticket-triage")?.url).toBe(
+        "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+      );
+    },
+  );
 
   it("applies APP_BASE_PATH to locally resolved workspace app URLs", async () => {
     stubNoPendingContext();
@@ -1295,19 +1304,19 @@ describe("listWorkspaceApps", () => {
     expect(tokenPayload).not.toHaveProperty("org_id");
   });
 
-  it("falls back to local discovery when the gateway URL is malformed", async () => {
+  it("surfaces malformed gateway config while resolving manifest app URLs", async () => {
     stubManifest();
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const apps = await runWithRequestContext(
-      { userEmail: "dev@example.test" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({ name: "WorkspaceGatewayConfigurationError" });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
   it("surfaces malformed gateway config when normalizing absolute app URLs", async () => {
@@ -1338,6 +1347,64 @@ describe("listWorkspaceApps", () => {
         ),
       ).rejects.toThrow();
     } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips an invalid absolute app URL without discarding healthy manifest apps", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io",
+      );
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("not found", { status: 404 })),
+      );
+      const manifestDirectory = path.join(workspaceRoot, ".agent-native");
+      fs.mkdirSync(manifestDirectory, { recursive: true });
+      fs.writeFileSync(
+        path.join(manifestDirectory, "workspace-apps.json"),
+        JSON.stringify([
+          {
+            id: "invalid-url",
+            name: "Invalid URL",
+            path: "/invalid-url",
+            url: "not-a-url",
+          },
+          {
+            id: "healthy-app",
+            name: "Healthy App",
+            path: "/healthy-app",
+            url: "https://apps.example.test/healthy-app",
+          },
+        ]),
+      );
+
+      const apps = await runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toContain("healthy-app");
+      expect(apps.map((app) => app.id)).not.toContain("invalid-url");
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[dispatch] Could not resolve Workspace app invalid-url; skipping app",
+        expect.any(Error),
+      );
+    } finally {
+      warnSpy.mockRestore();
       cwdSpy.mockRestore();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
