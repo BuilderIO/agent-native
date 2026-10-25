@@ -3173,8 +3173,9 @@ export function easingPreviewPath(value: string): string {
   if (linearPoints) {
     const previewPoints = linearPreviewPoints(linearPoints);
     if (!previewPoints?.length) return "";
-    const [firstPoint, ...remainingPoints] = previewPoints;
+    const firstPoint = arrayValueAt(previewPoints, 0);
     if (!firstPoint) return "";
+    const remainingPoints = previewPoints.slice(1);
     const toPreviewPoint = ({ position, output }: LinearStopPoint) =>
       `${formatEasingNumber(1 + (position / 100) * 14)} ${formatEasingNumber(14 - output * 12)}`;
     const path = remainingPoints.map(toPreviewPoint).join(" L");
@@ -3218,7 +3219,7 @@ function isCustomBezier(value: string): boolean {
 
 function parseBezier(value: string): [number, number, number, number] | null {
   const normalized = value.trim().toLowerCase();
-  const aliases: Record<string, [number, number, number, number]> = {
+  const aliases: Partial<Record<string, [number, number, number, number]>> = {
     ease: [0.25, 0.1, 0.25, 1],
     "ease-in": [0.42, 0, 1, 1],
     "ease-out": [0, 0, 0.58, 1],
@@ -3231,25 +3232,26 @@ function parseBezier(value: string): [number, number, number, number] | null {
       normalized,
     );
   if (!match) return null;
-  const rawPoints = match.slice(1, 5);
+  const rawX1 = matchCaptureAt(match, 1);
+  const rawY1 = matchCaptureAt(match, 2);
+  const rawX2 = matchCaptureAt(match, 3);
+  const rawY2 = matchCaptureAt(match, 4);
   if (
-    rawPoints.length !== 4 ||
-    rawPoints.some((point) => point === undefined)
+    rawX1 === undefined ||
+    rawY1 === undefined ||
+    rawX2 === undefined ||
+    rawY2 === undefined
   ) {
     return null;
   }
-  const points = rawPoints.map(Number);
-  const [x1, y1, x2, y2] = points;
-  if (
-    x1 === undefined ||
-    y1 === undefined ||
-    x2 === undefined ||
-    y2 === undefined ||
-    !points.every(Number.isFinite)
-  ) {
-    return null;
-  }
-  return [x1, y1, x2, y2];
+  const points: [number, number, number, number] = [
+    Number(rawX1),
+    Number(rawY1),
+    Number(rawX2),
+    Number(rawY2),
+  ];
+  if (!points.every(Number.isFinite)) return null;
+  return points;
 }
 
 function parseStepsPath(value: string): string | null {
@@ -3262,10 +3264,8 @@ function parseStepsPath(value: string): string | null {
     );
   if (!match) return null;
 
-  const countText = match[1];
-  if (countText === undefined) return null;
-  const requestedCount = Number(countText);
-  const position = (match[2] ?? "end")
+  const requestedCount = Number(match[1]);
+  const position = (matchCaptureAt(match, 2) ?? "end")
     .replace(/^start$/, "jump-start")
     .replace(/^end$/, "jump-end");
   if (
@@ -3323,10 +3323,23 @@ function parseStepsPath(value: string): string | null {
 
 type LinearStopPoint = { position: number; output: number };
 
+function arrayValueAt<T>(values: readonly T[], index: number): T | undefined {
+  const targetIndex = index < 0 ? values.length + index : index;
+  return values.find((_, currentIndex) => currentIndex === targetIndex);
+}
+
+function matchCaptureAt(
+  match: RegExpExecArray,
+  index: number,
+): string | undefined {
+  const capture: unknown = match[index];
+  return typeof capture === "string" ? capture : undefined;
+}
+
 function parseLinearStops(value: string): LinearStopPoint[] | null {
   const match = /^linear\((.*)\)$/i.exec(value.trim());
   if (!match) return null;
-  const body = match[1];
+  const body = matchCaptureAt(match, 1);
   if (body === undefined) return null;
   const number = String.raw`[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?`;
   const stopPattern = new RegExp(
@@ -3336,10 +3349,8 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
   const parsedStops = body.split(",").map((entry) => {
     const parsed = stopPattern.exec(entry.trim());
     if (!parsed) return null;
-    const outputText = parsed[1];
-    if (outputText === undefined) return null;
-    const output = Number(outputText);
-    const positions = [parsed[2], parsed[3]]
+    const output = Number(parsed[1]);
+    const positions = [matchCaptureAt(parsed, 2), matchCaptureAt(parsed, 3)]
       .filter((position): position is string => position !== undefined)
       .map(Number);
     return Number.isFinite(output) && positions.every(Number.isFinite)
@@ -3356,7 +3367,8 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
   const expanded: Array<{ position: number | null; output: number }> = [];
   for (const stop of stops) {
     if (stop.positions.length === 2) {
-      const [firstPosition, secondPosition] = stop.positions;
+      const firstPosition = arrayValueAt(stop.positions, 0);
+      const secondPosition = arrayValueAt(stop.positions, 1);
       if (firstPosition === undefined || secondPosition === undefined) {
         return null;
       }
@@ -3371,16 +3383,16 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
       });
     }
   }
-  const firstExpandedStop = expanded[0];
-  const lastExpandedStop = expanded[expanded.length - 1];
+  const firstExpandedStop = arrayValueAt(expanded, 0);
+  const lastExpandedStop = arrayValueAt(expanded, -1);
   if (!firstExpandedStop || !lastExpandedStop) return null;
   if (firstExpandedStop.position === null) firstExpandedStop.position = 0;
   if (lastExpandedStop.position === null) lastExpandedStop.position = 100;
 
   let previousKnown = 0;
   for (let index = 1; index < expanded.length; index += 1) {
-    const currentStop = expanded[index];
-    const previousKnownStop = expanded[previousKnown];
+    const currentStop = arrayValueAt(expanded, index);
+    const previousKnownStop = arrayValueAt(expanded, previousKnown);
     if (!currentStop || !previousKnownStop) return null;
     if (currentStop.position === null) continue;
     const start = previousKnownStop.position;
@@ -3389,7 +3401,7 @@ function parseLinearStops(value: string): LinearStopPoint[] | null {
     const end = currentStop.position;
     const gap = index - previousKnown;
     for (let offset = 1; offset < gap; offset += 1) {
-      const interpolatedStop = expanded[previousKnown + offset];
+      const interpolatedStop = arrayValueAt(expanded, previousKnown + offset);
       if (!interpolatedStop) return null;
       interpolatedStop.position = start + ((end - start) * offset) / gap;
     }
@@ -3410,8 +3422,8 @@ function linearPreviewPoints(
   if (!points) return null;
   if (points.length < 2) return [...points];
 
-  const first = points[0];
-  const second = points[1];
+  const first = arrayValueAt(points, 0);
+  const second = arrayValueAt(points, 1);
   if (!first || !second) return null;
   let preview = [...points];
 
@@ -3419,7 +3431,7 @@ function linearPreviewPoints(
     if (first.position === second.position) {
       let firstRunEnd = 1;
       while (firstRunEnd + 1 < points.length) {
-        const next = points[firstRunEnd + 1];
+        const next = arrayValueAt(points, firstRunEnd + 1);
         if (!next || next.position !== first.position) break;
         firstRunEnd += 1;
       }
@@ -3437,17 +3449,17 @@ function linearPreviewPoints(
   } else if (first.position === 0 && first.position === second.position) {
     let firstRunEnd = 1;
     while (firstRunEnd + 1 < points.length) {
-      const next = points[firstRunEnd + 1];
+      const next = arrayValueAt(points, firstRunEnd + 1);
       if (!next || next.position !== first.position) break;
       firstRunEnd += 1;
     }
     preview = points.slice(firstRunEnd);
   }
 
-  const last = points[points.length - 1];
+  const last = arrayValueAt(points, -1);
   if (!last) return null;
   if (last.position < 100) {
-    const penultimate = points[points.length - 2];
+    const penultimate = arrayValueAt(points, -2);
     if (!penultimate) return null;
     preview.push({
       position: 100,
@@ -3458,11 +3470,11 @@ function linearPreviewPoints(
   const curve: LinearStopPoint[] = [];
   for (let index = 0; index < preview.length; ) {
     let lastIndex = index;
-    const firstPoint = preview[index];
+    const firstPoint = arrayValueAt(preview, index);
     if (!firstPoint) return null;
     let lastPoint = firstPoint;
     while (lastIndex + 1 < preview.length) {
-      const next = preview[lastIndex + 1];
+      const next = arrayValueAt(preview, lastIndex + 1);
       if (!next) return null;
       if (next.position !== firstPoint.position) break;
       lastIndex += 1;

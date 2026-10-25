@@ -821,7 +821,7 @@ describe("MotionNativeStyleEditor", () => {
         document.body.querySelectorAll<HTMLElement>('[role="option"]'),
       ).find(
         (candidate) =>
-          candidate.textContent?.trim() ===
+          String(candidate.textContent).trim() ===
           `designEditor.motion.animationStyles.axis${axis}`,
       );
       if (!option) throw new Error(`Missing Size axis option ${axis}`);
@@ -1160,7 +1160,7 @@ describe("MotionNativeStyleEditor", () => {
         currentStyles[selectedStyle?.index ?? -1]?.props.distance ?? "none";
       const renderedDistance =
         typeof selectedDistance === "object"
-          ? (JSON.stringify(selectedDistance) ?? "none")
+          ? JSON.stringify(selectedDistance)
           : String(selectedDistance);
 
       return (
@@ -2096,7 +2096,7 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
@@ -2381,7 +2381,7 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
@@ -2407,7 +2407,7 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
@@ -2434,7 +2434,7 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
@@ -2490,30 +2490,28 @@ describe("MotionNativeStyleEditor", () => {
     const bounceLabel = Array.from(
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     ).find((label) =>
-      label.textContent?.includes("designEditor.motion.bounce"),
+      String(label.textContent).includes("designEditor.motion.bounce"),
     );
     const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
-    expect(bounceInput).not.toBeNull();
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
     expect(
       Array.from(document.body.querySelectorAll("label")).some((label) =>
-        label.textContent?.includes(
+        String(label.textContent).includes(
           "designEditor.motion.animationStyles.settle",
         ),
       ),
     ).toBe(false);
 
     onChange.mockClear();
-    await act(async () => bounceInput?.focus());
+    await act(async () => bounceInput.focus());
     expect(onChange).not.toHaveBeenCalled();
-    await setInputValue(bounceInput!, "0.");
-    expect(bounceInput?.value).toBe("0.");
+    await setInputValue(bounceInput, "0.");
+    expect(bounceInput.value).toBe("0.");
     expect(onChange).not.toHaveBeenCalled();
-    await setInputValue(bounceInput!, "0.45");
-    expect(bounceInput?.value).toBe("0.45");
+    await setInputValue(bounceInput, "0.45");
+    expect(bounceInput.value).toBe("0.45");
     expect(onChange).not.toHaveBeenCalled();
-    await act(async () => {
-      bounceInput?.blur();
-    });
+    await act(async () => bounceInput.blur());
     expect(onChange).toHaveBeenLastCalledWith(
       {
         ...styleWithSpring,
@@ -2537,7 +2535,7 @@ describe("MotionNativeStyleEditor", () => {
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     )
       .find((label) =>
-        label.textContent?.includes("designEditor.motion.bounce"),
+        String(label.textContent).includes("designEditor.motion.bounce"),
       )
       ?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");
@@ -2602,7 +2600,7 @@ describe("MotionNativeStyleEditor", () => {
       document.body.querySelectorAll<HTMLLabelElement>("label"),
     )
       .find((label) =>
-        label.textContent?.includes("designEditor.motion.bounce"),
+        String(label.textContent).includes("designEditor.motion.bounce"),
       )
       ?.querySelector<HTMLInputElement>("input");
     if (!bounceInput) throw new Error("Missing spring Bounce input");

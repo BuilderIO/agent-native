@@ -2671,8 +2671,7 @@ export const EditPanel = memo(function EditPanel({
     (viewMode === "overview" && fileId && breakpointContext
       ? getActiveScreenIframeId({
           id: fileId,
-          ...(breakpointContext.activeWidthPx !== null &&
-          breakpointContext.activeWidthPx !== undefined
+          ...(breakpointContext.activeWidthPx !== null
             ? { activeBreakpointWidth: breakpointContext.activeWidthPx }
             : {}),
           breakpointWidths: [...breakpointContext.breakpointWidths],
@@ -3020,7 +3019,9 @@ export const EditPanel = memo(function EditPanel({
                           ? { requestLocalhostWrite }
                           : {})}
                         hasLocalOverrides={componentInstanceHasLocalOverrides}
-                        swapPickerRequest={componentSwapPickerRequest}
+                        {...(componentSwapPickerRequest !== undefined
+                          ? { swapPickerRequest: componentSwapPickerRequest }
+                          : {})}
                         {...(onResetComponentInstanceOverrides !== undefined
                           ? {
                               onResetOverrides: () =>
@@ -3095,7 +3096,9 @@ export const EditPanel = memo(function EditPanel({
                           {...(selectedScreenSource !== undefined
                             ? { selectedScreenSource }
                             : {})}
-                          localhostConnections={localhostConnections}
+                          {...(localhostConnections !== undefined
+                            ? { localhostConnections }
+                            : {})}
                           {...(!readOnly && onScreenSourceChange !== undefined
                             ? { onScreenSourceChange }
                             : {})}
@@ -3108,7 +3111,9 @@ export const EditPanel = memo(function EditPanel({
                           {...(!readOnly && onRemoveScreen !== undefined
                             ? { onRemoveScreen }
                             : {})}
-                          screenSourcePending={screenSourcePending}
+                          {...(screenSourcePending !== undefined
+                            ? { screenSourcePending }
+                            : {})}
                           screenBreakpointControls={screenBreakpointControls}
                         />
                         {onLayoutGridChange ? (
@@ -3225,9 +3230,7 @@ export const EditPanel = memo(function EditPanel({
                                       onSelectionColorPickerOpenChange,
                                   }
                                 : {})}
-                              {...(!readOnly &&
-                              !interactionState &&
-                              onSelectionColorChange !== undefined
+                              {...(!readOnly && !interactionState
                                 ? { onColorChange: onSelectionColorChange }
                                 : {})}
                             />
@@ -3257,9 +3260,7 @@ export const EditPanel = memo(function EditPanel({
                                 onSelectionColorPickerOpenChange,
                             }
                           : {})}
-                        {...(!readOnly &&
-                        !interactionState &&
-                        onSelectionColorChange !== undefined
+                        {...(!readOnly && !interactionState
                           ? { onColorChange: onSelectionColorChange }
                           : {})}
                       />
@@ -3449,13 +3450,19 @@ export const EditPanel = memo(function EditPanel({
                                             onSelectMotionNativeStyle,
                                         }
                                       : {})}
-                                    isText={
-                                      motionSelectedTarget?.nodeId ===
-                                      inspectorMotionTargetNodeId
-                                        ? motionSelectedTarget.isText
-                                        : inspectorMotionStyle?.styleKey ===
-                                          "TextStagger"
-                                    }
+                                    {...(motionSelectedTarget?.nodeId ===
+                                    inspectorMotionTargetNodeId
+                                      ? motionSelectedTarget.isText !==
+                                        undefined
+                                        ? {
+                                            isText: motionSelectedTarget.isText,
+                                          }
+                                        : {}
+                                      : {
+                                          isText:
+                                            inspectorMotionStyle?.styleKey ===
+                                            "TextStagger",
+                                        })}
                                     disabled={motionWriteUnavailable}
                                     easingVariables={motionEasingVariables}
                                     {...(onMotionEasingVariablesChange !==
@@ -3498,22 +3505,34 @@ export const EditPanel = memo(function EditPanel({
                           element={
                             stateResolvedInspectorElement ?? inspectorElement
                           }
-                          sharedRotation={sharedSelectionRotation}
+                          {...(sharedSelectionRotation !== undefined
+                            ? { sharedRotation: sharedSelectionRotation }
+                            : {})}
                           onStyleChange={onStyleChange}
                           onStylesChange={onStylesChange}
-                          onAlignSelection={onAlignSelection}
+                          {...(onAlignSelection !== undefined
+                            ? { onAlignSelection }
+                            : {})}
                           alignSelectionDisabled={alignSelectionDisabled}
-                          alignSelectionDisabledReason={
-                            alignSelectionDisabledReason
-                          }
-                          motionKeyframeContext={motionKeyframeFieldContext}
-                          breakpointOverrideContext={
-                            breakpointOverrideFieldContext
-                          }
+                          {...(alignSelectionDisabledReason !== undefined
+                            ? { alignSelectionDisabledReason }
+                            : {})}
+                          {...(motionKeyframeFieldContext !== undefined
+                            ? {
+                                motionKeyframeContext:
+                                  motionKeyframeFieldContext,
+                              }
+                            : {})}
+                          {...(breakpointOverrideFieldContext !== undefined
+                            ? {
+                                breakpointOverrideContext:
+                                  breakpointOverrideFieldContext,
+                              }
+                            : {})}
                           motionInspector={motionInspector}
-                          onMotionOriginEditingChange={
-                            onMotionOriginEditingChange
-                          }
+                          {...(onMotionOriginEditingChange !== undefined
+                            ? { onMotionOriginEditingChange }
+                            : {})}
                         />
                         {!motionInspector &&
                         activeTool === "scale" &&
@@ -3535,10 +3554,18 @@ export const EditPanel = memo(function EditPanel({
                             }
                             onStyleChange={onStyleChange}
                             onStylesChange={onStylesChange}
-                            motionKeyframeContext={motionKeyframeFieldContext}
-                            breakpointOverrideContext={
-                              breakpointOverrideFieldContext
-                            }
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
                           >
                             <LayoutContextProperties
                               key={`motion-auto-layout:${inspectorElementSectionKey}`}
@@ -3548,11 +3575,20 @@ export const EditPanel = memo(function EditPanel({
                               }
                               onStyleChange={onStyleChange}
                               onStylesChange={onStylesChange}
-                              onDisableAutoLayout={onDisableAutoLayout}
-                              onApplyLayoutFlow={onApplyLayoutFlow}
+                              {...(onDisableAutoLayout !== undefined
+                                ? { onDisableAutoLayout }
+                                : {})}
+                              {...(onApplyLayoutFlow !== undefined
+                                ? { onApplyLayoutFlow }
+                                : {})}
                               showContainerSizing={false}
                               motionInspector
-                              motionKeyframeContext={motionKeyframeFieldContext}
+                              {...(motionKeyframeFieldContext !== undefined
+                                ? {
+                                    motionKeyframeContext:
+                                      motionKeyframeFieldContext,
+                                  }
+                                : {})}
                             />
                           </MotionDimensionsProperties>
                         ) : (
@@ -3563,12 +3599,24 @@ export const EditPanel = memo(function EditPanel({
                             }
                             onStyleChange={onStyleChange}
                             onStylesChange={onStylesChange}
-                            onDisableAutoLayout={onDisableAutoLayout}
-                            onApplyLayoutFlow={onApplyLayoutFlow}
-                            motionKeyframeContext={motionKeyframeFieldContext}
-                            breakpointOverrideContext={
-                              breakpointOverrideFieldContext
-                            }
+                            {...(onDisableAutoLayout !== undefined
+                              ? { onDisableAutoLayout }
+                              : {})}
+                            {...(onApplyLayoutFlow !== undefined
+                              ? { onApplyLayoutFlow }
+                              : {})}
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
                           />
                         )}
                         {interactionStatePinned ? null : interactionStatePanel}
@@ -3578,19 +3626,35 @@ export const EditPanel = memo(function EditPanel({
                             stateResolvedInspectorElement ?? inspectorElement
                           }
                           onStyleChange={onStyleChange}
-                          onStylesChange={
-                            onStylesChangeProp ? onStylesChange : undefined
-                          }
+                          {...(onStylesChangeProp !== undefined
+                            ? { onStylesChange }
+                            : {})}
                           hidden={selectionHidden}
-                          onToggleHidden={onToggleSelectionHidden}
-                          motionKeyframeContext={motionKeyframeFieldContext}
-                          breakpointOverrideContext={
-                            breakpointOverrideFieldContext
-                          }
-                          vectorPointRadius={vectorPointRadius}
-                          vectorPointSelected={vectorPointSelected}
+                          {...(onToggleSelectionHidden !== undefined
+                            ? { onToggleHidden: onToggleSelectionHidden }
+                            : {})}
+                          {...(motionKeyframeFieldContext !== undefined
+                            ? {
+                                motionKeyframeContext:
+                                  motionKeyframeFieldContext,
+                              }
+                            : {})}
+                          {...(breakpointOverrideFieldContext !== undefined
+                            ? {
+                                breakpointOverrideContext:
+                                  breakpointOverrideFieldContext,
+                              }
+                            : {})}
+                          {...(vectorPointRadius !== undefined
+                            ? { vectorPointRadius }
+                            : {})}
+                          {...(vectorPointSelected !== undefined
+                            ? { vectorPointSelected }
+                            : {})}
                           showCornerRadius={!selectionHidesCornerRadius}
-                          onVectorPointRadiusChange={onVectorPointRadiusChange}
+                          {...(onVectorPointRadiusChange !== undefined
+                            ? { onVectorPointRadiusChange }
+                            : {})}
                         />
                         {!motionInspector && selectionHasTextElement ? (
                           <TypographyProperties
@@ -3599,11 +3663,13 @@ export const EditPanel = memo(function EditPanel({
                               stateResolvedInspectorElement ?? inspectorElement
                             }
                             onStyleChange={onStyleChange}
-                            onStylesChange={
-                              onStylesChangeProp ? onStylesChange : undefined
-                            }
-                            designId={designId}
-                            onFontUploaded={onFontUploaded}
+                            {...(onStylesChangeProp !== undefined
+                              ? { onStylesChange }
+                              : {})}
+                            {...(designId !== undefined ? { designId } : {})}
+                            {...(onFontUploaded !== undefined
+                              ? { onFontUploaded }
+                              : {})}
                           />
                         ) : null}
                         {selectionIsGroup || selectionIsLineOnly ? null : (
@@ -3616,14 +3682,28 @@ export const EditPanel = memo(function EditPanel({
                             onStylesChange={onStylesChange}
                             capturedStyleTargets={capturedStyleTargets}
                             documentColorPalette={documentColorPalette}
-                            shaderContext={shaderContext}
-                            contrastContext={textContrastContext}
-                            motionKeyframeContext={motionKeyframeFieldContext}
-                            breakpointOverrideContext={
-                              breakpointOverrideFieldContext
-                            }
+                            {...(shaderContext !== undefined
+                              ? { shaderContext }
+                              : {})}
+                            {...(textContrastContext !== undefined
+                              ? { contrastContext: textContrastContext }
+                              : {})}
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
                             hideAddFill={selectionIsTextOnly}
-                            readSubtreeColorStyles={readSubtreeColorStyles}
+                            {...(readSubtreeColorStyles !== undefined
+                              ? { readSubtreeColorStyles }
+                              : {})}
                           />
                         )}
                         {selectionIsGroup ? null : (
@@ -3634,10 +3714,18 @@ export const EditPanel = memo(function EditPanel({
                             }
                             onStyleChange={onStyleChange}
                             onStylesChange={onStylesChange}
-                            motionKeyframeContext={motionKeyframeFieldContext}
-                            breakpointOverrideContext={
-                              breakpointOverrideFieldContext
-                            }
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
                           />
                         )}
                         <EffectsProperties
@@ -3647,8 +3735,15 @@ export const EditPanel = memo(function EditPanel({
                           }
                           onStyleChange={onStyleChange}
                           onStylesChange={onStylesChange}
-                          shaderContext={shaderContext}
-                          motionKeyframeContext={motionKeyframeFieldContext}
+                          {...(shaderContext !== undefined
+                            ? { shaderContext }
+                            : {})}
+                          {...(motionKeyframeFieldContext !== undefined
+                            ? {
+                                motionKeyframeContext:
+                                  motionKeyframeFieldContext,
+                              }
+                            : {})}
                         />
                         {/* The breakpoint control also sits in the Screen section; an
                       element's responsive edits need it within reach too. */}
@@ -3697,9 +3792,7 @@ export const EditPanel = memo(function EditPanel({
                                     onSelectionColorPickerOpenChange,
                                 }
                               : {})}
-                            {...(!readOnly &&
-                            !interactionState &&
-                            onSelectionColorChange !== undefined
+                            {...(!readOnly && !interactionState
                               ? { onColorChange: onSelectionColorChange }
                               : {})}
                           />
@@ -3753,7 +3846,9 @@ export const EditPanel = memo(function EditPanel({
                         <ExportPreviewDisclosure
                           key={`${selectedElementKey}:preview`}
                           element={inspectorElement}
-                          onRender={onRenderExportPreview}
+                          {...(onRenderExportPreview !== undefined
+                            ? { onRender: onRenderExportPreview }
+                            : {})}
                         />
                       </PanelSection>
                     ) : null}
