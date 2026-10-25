@@ -2744,6 +2744,20 @@ function shortenLinkText(value: string, max = 500): string {
   return `${cut.shown}… [URL shortened: showing the first ${max} of ${cut.total} characters.]`;
 }
 
+// The first of `keys` holding a value, as a `??` chain picks it, except that a
+// value the embed redaction hid counts as absent. A one-line summary then falls
+// back to the next field rather than reading only the placeholder.
+function firstShownField(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  for (const key of keys) {
+    const value = record[key];
+    if (value != null && value !== HIDDEN_EMBED_URL) return value;
+  }
+  return undefined;
+}
+
 export function conciseMcpAppToolText(
   name: string,
   result: unknown,
@@ -2751,15 +2765,15 @@ export function conciseMcpAppToolText(
   paging?: readonly string[],
 ): string {
   if (typeof result === "string") return truncateToolText(result, 2000, paging);
-  const message = structuredContent.message;
+  const message = firstShownField(structuredContent, "message");
   if (typeof message === "string" && message.trim()) {
     return truncateToolText(message.trim(), 2000, paging);
   }
-  const title = structuredContent.title ?? structuredContent.name;
+  const title = firstShownField(structuredContent, "title", "name");
   if (typeof title === "string" && title.trim()) {
     return `${title.trim()} is ready.`;
   }
-  const id = structuredContent.id;
+  const id = firstShownField(structuredContent, "id");
   if (typeof id === "string" && id.trim()) {
     return `${name} completed for ${id.trim()}.`;
   }
@@ -2771,6 +2785,7 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   if (keys.length === 0) return true;
   return keys.every((key) => {
     const item = value[key];
+    if (item === HIDDEN_EMBED_URL) return true;
     if (key === "ok" || key === "success") return item === true;
     if (key === "status") {
       return item === "ok" || item === "success" || item === "completed";
@@ -2800,19 +2815,19 @@ export function conciseToolResultText(
   if (result === true || result == null) return `${name} completed.`;
   if (result && typeof result === "object" && !Array.isArray(result)) {
     const record = result as Record<string, unknown>;
-    const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
+    const link = firstShownField(record, "url", "webUrl", "urlPath", "path");
+    const nextAction = firstShownField(record, "nextRequiredAction");
     const next =
-      typeof record.nextRequiredAction === "string" &&
-      record.nextRequiredAction.trim()
-        ? ` Next: ${record.nextRequiredAction.trim()}`
+      typeof nextAction === "string" && nextAction.trim()
+        ? ` Next: ${nextAction.trim()}`
         : "";
     const tail = `${typeof link === "string" && link.trim() ? ` ${shortenLinkText(link.trim())}` : ""}${next}`;
-    const message = record.message ?? record.summary;
+    const message = firstShownField(record, "message", "summary");
     if (typeof message === "string" && message.trim()) {
       return `${truncateToolText(message.trim(), maxTextLength, paging)}${tail}`;
     }
-    const id = record.id ?? record.planId ?? record.commentId;
-    const title = record.title ?? record.name;
+    const id = firstShownField(record, "id", "planId", "commentId");
+    const title = firstShownField(record, "title", "name");
     if (typeof title === "string" && title.trim()) {
       const titleText = title.trim();
       return typeof id === "string" && id.trim()

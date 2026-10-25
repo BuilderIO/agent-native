@@ -9746,6 +9746,42 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
   });
 
+  it("writes the tool text from the next field when a message is hidden", async () => {
+    const saveConfig = {
+      ...config,
+      actions: {
+        "save-row": {
+          tool: { description: "Save a collection row" },
+          run: async () => ({
+            id: "row-1",
+            title: "Row",
+            message: "Saved the note about the embed start URL.",
+            url: "/rows/row-1",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "save-row", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: saveConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content[0].text).toBe(
+      "Row (row-1) is ready. /rows/row-1",
+    );
+    expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
+  });
+
   it("leaves out an open link whose URL is hidden, rather than pointing it at the placeholder", () => {
     const start =
       "https://mail.agent-native.com/_agent-native/embed/start?ticket=link-ticket";

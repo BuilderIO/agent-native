@@ -2174,7 +2174,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
           },
           "content": [
             {
-              "text": "{"startUrl":"[hidden embed URL]","ok":true}",
+              "text": "app-only completed.",
               "type": "text",
             },
           ],
