@@ -7528,6 +7528,71 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("restores a queued image turn kept only at the top level when the snapshot merges root messages", async () => {
+    const threadId = "thread-queued-image-root";
+    const uploadUrl =
+      "https://cdn.example.com/objects/7d3f1a2b-4c5d-4e6f-8a9b-0c1d2e3f4a5b";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active"))
+          return json({ active: false, status: "idle" });
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "user-first",
+                  role: "user",
+                  content: [{ type: "text", text: "First image" }],
+                },
+              },
+              {
+                message: {
+                  id: "user-queued-image",
+                  role: "user",
+                  content: [{ type: "text", text: "Queued image" }],
+                  attachments: [
+                    {
+                      type: "image",
+                      name: "queued.png",
+                      contentType: "image/png",
+                      status: { type: "complete" },
+                      content: [{ type: "image", image: uploadUrl }],
+                    },
+                  ],
+                },
+              },
+            ],
+            agentKit: {
+              _mergeRootMessages: true,
+              messages: [
+                {
+                  id: "user-first",
+                  role: "user",
+                  parts: [{ type: "text", text: "First image" }],
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+    try {
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      const queued = snapshot?.messages.find(
+        (message) => message.id === "user-queued-image",
+      );
+      expect(queued?.parts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "file", url: uploadUrl }),
+        ]),
+      );
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("drops an exact same-run server mirror without collapsing AgentKit messages", async () => {
     const threadId = "thread-server-reply-mirror";
     const runId = "run-server-reply-mirror";

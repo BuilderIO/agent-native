@@ -2272,26 +2272,61 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
 
   // Absent is not clean: each image turn must be persisted with its stored upload.
   const persistedImageTurnUrls = async () => {
+    type StoredPart = { type: string; text?: string; url?: string };
     const [thread] = (await readChatRows(test.info(), marker)).threads;
     const snapshot = JSON.parse(thread?.thread_data ?? "{}") as {
+      messages?: Array<{
+        message?: {
+          role?: string;
+          content?: string | StoredPart[];
+          attachments?: Array<{
+            metadata?: { uploadUrl?: string };
+            content?: Array<{ type: string; url?: string; image?: string }>;
+          }>;
+        };
+      }>;
       agentKit?: {
-        messages: Array<{
-          role: string;
-          parts: Array<{ type: string; text?: string; url?: string }>;
-        }>;
+        messages: Array<{ role: string; parts: StoredPart[] }>;
       };
     };
-    return (snapshot.agentKit?.messages ?? [])
-      .filter(
-        (message) =>
-          message.role === "user" &&
-          message.parts.some((part) => part.text?.includes(IMAGE_PROMPT)),
-      )
-      .map((message) =>
-        message.parts.flatMap((part) =>
-          part.type === "file" ? [part.url] : [],
-        ),
-      );
+    // A client save can leave a turn out of agentKit when the server already
+    // stored it at the top level (under its own id), and loading merges both;
+    // which save lands first decides where it lives. Each image turn here has
+    // its own prompt text, so key turns by it and keep any stored file URL.
+    const urlsByPrompt = new Map<string, Set<string>>();
+    const addTurn = (role: string | undefined, parts: StoredPart[]) => {
+      const prompt = parts.find((part) => part.text?.includes(IMAGE_PROMPT));
+      if (role !== "user" || !prompt?.text) return;
+      const urls = urlsByPrompt.get(prompt.text) ?? new Set<string>();
+      for (const part of parts) {
+        if (part.type === "file" && part.url) urls.add(part.url);
+      }
+      urlsByPrompt.set(prompt.text, urls);
+    };
+    for (const { message } of snapshot.messages ?? []) {
+      if (!message) continue;
+      const content =
+        typeof message.content === "string"
+          ? [{ type: "text", text: message.content }]
+          : (message.content ?? []);
+      const attachments = (message.attachments ?? []).map((attachment) => {
+        const reference = attachment.content?.find(
+          (part) => part.url || part.image,
+        );
+        return {
+          type: "file",
+          url:
+            attachment.metadata?.uploadUrl ??
+            reference?.url ??
+            reference?.image,
+        };
+      });
+      addTurn(message.role, [...content, ...attachments]);
+    }
+    for (const message of snapshot.agentKit?.messages ?? []) {
+      addTurn(message.role, message.parts);
+    }
+    return [...urlsByPrompt.values()].map((urls) => [...urls]);
   };
   const storedUpload = expect.arrayContaining([
     expect.stringMatching(/^https:\/\/[^/]+\/objects\/[a-f0-9-]{36}$/),
