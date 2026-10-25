@@ -100,7 +100,7 @@ async function runCreateDecks(opts: {
   threadId: string;
   turnId: string;
   runId: string;
-  titles: string[];
+  titles: (string | { title: string; theme?: string })[];
   messages: EngineMessage[];
   internalContinuation?: boolean;
   retrySafe?: boolean;
@@ -127,7 +127,7 @@ async function runCreateDecks(opts: {
           type: "tool-call" as const,
           id: `${opts.runId}-call-${index}`,
           name: "create-deck",
-          input: { title },
+          input: typeof title === "string" ? { title } : title,
         })),
         [{ type: "text", text: "The deck is ready." }],
       ]),
@@ -141,7 +141,10 @@ async function runCreateDecks(opts: {
             description: "Create a deck",
             parameters: {
               type: "object",
-              properties: { title: { type: "string" } },
+              properties: {
+                title: { type: "string" },
+                theme: { type: "string" },
+              },
               required: ["title"],
             },
           },
@@ -162,7 +165,8 @@ async function runCreateDecks(opts: {
 
 /**
  * Rewrites a prior run's step as the release before call-derived IDs left it:
- * under the slot-only ID, with the ledger holding its start but not its result.
+ * under the slot-only ID, with the ledger holding its start and, when asked,
+ * its result.
  */
 async function recordUnderSlotOnlyId(opts: {
   threadId: string;
@@ -170,6 +174,7 @@ async function recordUnderSlotOnlyId(opts: {
   priorEvents: AgentChatEvent[];
   slot: number;
   dispatchedOnly?: boolean;
+  withResult?: boolean;
 }): Promise<string> {
   const priorStart = opts.priorEvents.find(
     (event) =>
@@ -195,15 +200,33 @@ async function recordUnderSlotOnlyId(opts: {
       WHERE thread_id = ? AND step_id = ?`,
     [slotOnlyStepId, slotOnlyStepId, opts.threadId, priorStart.executionStepId],
   );
+  const priorDone = opts.priorEvents.find(
+    (event) => event.type === "tool_done" && event.id === priorStart.id,
+  );
+  if (opts.withResult && !priorDone) {
+    throw new Error("The prior run did not finish its durable step");
+  }
   await insertRunEvents(opts.priorRunId, [
     {
-      seq: opts.slot,
+      seq: opts.slot * 2,
       eventAt: Date.now(),
       eventData: JSON.stringify({
         ...priorStart,
         executionStepId: slotOnlyStepId,
       }),
     },
+    ...(opts.withResult && priorDone
+      ? [
+          {
+            seq: opts.slot * 2 + 1,
+            eventAt: Date.now(),
+            eventData: JSON.stringify({
+              ...priorDone,
+              executionStepId: slotOnlyStepId,
+            }),
+          },
+        ]
+      : []),
   ]);
   return slotOnlyStepId;
 }
@@ -339,6 +362,43 @@ describe("durable execution step identity", () => {
     expect(await stepRows(threadId)).toHaveLength(4);
   });
 
+  it("replays the same call when a continuation reorders its argument keys", async () => {
+    const threadId = "thread-resume-reordered-keys";
+    const turnId = "turn-resume-reordered-keys";
+    const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
+
+    await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-before-reorder",
+      titles: [{ title: "Q3 plan", theme: "dark" }],
+      messages: [request],
+      run,
+    });
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-reorder",
+      titles: [{ theme: "dark", title: "Q3 plan" }],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      run,
+    });
+
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-reorder-call-0",
+        result: expect.stringContaining("Saved Q3 plan"),
+      }),
+    );
+    expect(await stepRows(threadId)).toHaveLength(1);
+  });
+
   it("replays a step recorded under the slot-only ID before this release", async () => {
     const threadId = "thread-resume-slot-only-step";
     const turnId = "turn-resume-slot-only-step";
@@ -421,6 +481,51 @@ describe("durable execution step identity", () => {
       expect.objectContaining({
         type: "tool_done",
         id: "run-after-release-move-call-0",
+        executionStepId: slotOnlyStepId,
+        result: expect.stringContaining("Saved Q3 plan"),
+      }),
+    );
+  });
+
+  it("replays a finished slot-only step from before this release when its call moves", async () => {
+    const threadId = "thread-resume-moved-finished-slot-only-step";
+    const turnId = "turn-resume-moved-finished-slot-only-step";
+    const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-before-release-finished",
+      titles: ["Q4 plan", "Q3 plan"],
+      messages: [request],
+      run,
+    });
+    const slotOnlyStepId = await recordUnderSlotOnlyId({
+      threadId,
+      priorRunId: "run-before-release-finished",
+      priorEvents,
+      slot: 1,
+      withResult: true,
+    });
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-finished",
+      titles: ["Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      run,
+    });
+
+    expect(run.mock.calls.map(([args]) => args.title)).toEqual([
+      "Q4 plan",
+      "Q3 plan",
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-finished-call-0",
         executionStepId: slotOnlyStepId,
         result: expect.stringContaining("Saved Q3 plan"),
       }),

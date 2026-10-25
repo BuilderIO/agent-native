@@ -441,6 +441,7 @@ import {
   ambiguousLegacyCallEffectKey,
   findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
+  findJournalStepEntryForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
   isUnavailableToolCallInput,
@@ -7591,6 +7592,11 @@ export async function runAgentLoop(opts: {
   const journalEntriesAmbiguous = toolCallJournal
     ? journalEntriesAmbiguousInHistory(toolCallJournal, journalHistory)
     : new Set<string>();
+  const unseenFinishedJournalSteps = (toolCallJournal?.completed ?? []).filter(
+    (entry) =>
+      !journalEntriesAlreadyRepresented.has(entry.key) &&
+      !journalEntriesAmbiguous.has(entry.key),
+  );
   const journaledPriorToolCalls =
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
@@ -9619,8 +9625,23 @@ export async function runAgentLoop(opts: {
               consumedInterruptedJournalKeys,
             )
           : undefined;
-      const legacyInterruptedStep =
+      // A step the ledger finished but the model never saw belongs to this
+      // call too, whichever scheme named it.
+      const unseenFinishedStep =
         executionFence && toolCallJournal && !interruptedStep
+          ? findJournalStepEntryForCall(
+              unseenFinishedJournalSteps,
+              toolCall.name,
+              argumentsHash,
+              toolCall.input,
+              consumedInterruptedJournalKeys,
+            )
+          : undefined;
+      const legacyInterruptedStep =
+        executionFence &&
+        toolCallJournal &&
+        !interruptedStep &&
+        !unseenFinishedStep
           ? findInterruptedLegacyJournalEntryForCall(
               toolCallJournal,
               toolCall.name,
@@ -9636,7 +9657,9 @@ export async function runAgentLoop(opts: {
           ? legacyInterruptedStep.stepId
           : undefined;
       const interruptedStepId =
-        interruptedStep?.executionStepId ?? legacyInterruptedStepId;
+        interruptedStep?.executionStepId ??
+        unseenFinishedStep?.executionStepId ??
+        legacyInterruptedStepId;
       const ambiguousLegacyInterruptedWrite =
         !actionIsReadOnly && legacyInterruptedStep.status === "ambiguous";
       executionStepId = executionFence

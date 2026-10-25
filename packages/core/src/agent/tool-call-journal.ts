@@ -926,8 +926,25 @@ export function findInterruptedJournalEntryForCall(
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
+  return findJournalStepEntryForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+}
+
+/** The one entry with a durable step that this call's identity matches. */
+export function findJournalStepEntryForCall(
+  entries: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
   const inputFingerprint = toolCallInputFingerprint(input);
-  const matches = journal.interrupted.filter((entry) => {
+  const matches = entries.filter((entry) => {
     if (
       entry.tool !== toolName ||
       !entry.executionStepId ||
