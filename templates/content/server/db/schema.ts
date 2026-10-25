@@ -1053,7 +1053,7 @@ export const documentPropertyValues = table("document_property_values", {
    * shared sequence; NULL until the value first changes. Read it through
    * _property-generations.ts, which treats NULL as 0.
    */
-  generation: integer("generation"),
+  generation: bigint("generation", { mode: "number" }),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -1069,7 +1069,7 @@ export const documentPropertyValueTombstones = table(
   {
     documentId: text("document_id").notNull(),
     propertyId: text("property_id").notNull(),
-    generation: integer("generation").notNull(),
+    generation: bigint("generation", { mode: "number" }).notNull(),
   },
 );
 
