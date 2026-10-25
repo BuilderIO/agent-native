@@ -791,7 +791,6 @@ export function MotionDock({
       for (let index = 0; index < ordered.length - 1; index += 1) {
         const fromT = ordered[index];
         const toT = ordered[index + 1];
-        if (fromT === undefined || toT === undefined) continue;
         if (
           easingSegmentSelectionKey(id, fromT, toT) !== selectedEasingSegmentKey
         ) {

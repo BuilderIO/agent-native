@@ -2170,9 +2170,8 @@ describe("MotionDock keyframe selection and deletion", () => {
   it("does not insert a keyframe when double-clicking an easing segment", async () => {
     const onTracksChange = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onTracksChange });
-    const row = container.querySelector<HTMLElement>(
-      "[data-motion-track-row]",
-    )!;
+    const row = container.querySelector<HTMLElement>("[data-motion-track-row]");
+    if (!row) throw new Error("Motion track row was not rendered");
     setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
     const segment = container.querySelector<HTMLButtonElement>(
       "[data-motion-easing-segment]",

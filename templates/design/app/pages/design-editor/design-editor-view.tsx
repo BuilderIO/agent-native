@@ -546,6 +546,7 @@ export function renderDesignEditorView({
     );
     if (fromIndex < 0) return null;
     const from = orderedKeyframes[fromIndex];
+    if (!from) return null;
     return {
       ...motionEasingSelection,
       targetNodeId: track.targetNodeId,
@@ -570,14 +571,16 @@ export function renderDesignEditorView({
     if (!canWriteMotion || !activeMotionEasingSegment) return;
     const nextTracks = motionDockTracksForInspector.map((track) => {
       if (track.id !== activeMotionEasingSegment.trackId) return track;
-      let trackChanged = false;
       const keyframes = track.keyframes.map((keyframe) => {
         if (keyframe.t !== activeMotionEasingSegment.fromT) return keyframe;
         if (keyframe.ease === ease) return keyframe;
-        trackChanged = true;
         return { ...keyframe, ease };
       });
-      return trackChanged ? { ...track, keyframes } : track;
+      return keyframes.some(
+        (keyframe, index) => keyframe !== track.keyframes[index],
+      )
+        ? { ...track, keyframes }
+        : track;
     });
     if (
       nextTracks.some(
