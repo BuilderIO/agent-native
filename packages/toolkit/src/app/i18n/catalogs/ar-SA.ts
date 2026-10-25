@@ -3663,6 +3663,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "المحادثة الصوتية",
   "settingsShell.account.voiceChatLoadError": "تعذّر تحميل إعدادات المحادثة الصوتية.",
   "settingsShell.account.voiceChatSaveError": "تعذّر حفظ إعدادات المحادثة الصوتية.",
+  "voice.dictation.cancelTranscription": "إلغاء التفريغ النصي",
 };
 
 export default messages;

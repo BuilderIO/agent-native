@@ -3747,6 +3747,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "Chat vocal",
   "settingsShell.account.voiceChatLoadError": "Impossible de charger les paramètres du chat vocal.",
   "settingsShell.account.voiceChatSaveError": "Impossible d’enregistrer les paramètres du chat vocal.",
+  "voice.dictation.cancelTranscription": "Annuler la transcription",
 };
 
 export default messages;

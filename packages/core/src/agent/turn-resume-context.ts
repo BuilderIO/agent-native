@@ -1,4 +1,4 @@
-import type { EngineMessage } from "./engine/types.js";
+import type { EngineContentPart, EngineMessage } from "./engine/types.js";
 import {
   buildAssistantTurnSegments,
   lastUserPromptIndex,
@@ -8,14 +8,24 @@ import {
   buildResumeJournalNote,
   type ToolCallJournal,
 } from "./tool-call-journal.js";
-import type { AgentChatEvent } from "./types.js";
+import type { AgentChatEvent, AgentChatSteeredUserMessage } from "./types.js";
 
 /** Reaper recovery uses ledger events because a hard kill cannot save thread history. */
-export function buildTurnResumeContext(options: {
-  messages: EngineMessage[];
-  journal: ToolCallJournal | null;
-  events?: AgentChatEvent[];
-}): { messages: EngineMessage[]; journalNote: string | null } {
+export function buildTurnResumeContext(
+  options: {
+    messages: EngineMessage[];
+    journal: ToolCallJournal | null;
+  } & (
+    | {
+        events: AgentChatEvent[];
+        /** The content the run delivered a Send now message as, attachments included. */
+        steeredUserContent: (
+          message: AgentChatSteeredUserMessage,
+        ) => EngineContentPart[];
+      }
+    | { events?: undefined }
+  ),
+): { messages: EngineMessage[]; journalNote: string | null } {
   let messages = [...options.messages];
   if (options.events) {
     const { assistant, steered } = buildAssistantTurnSegments(
@@ -33,12 +43,10 @@ export function buildTurnResumeContext(options: {
       // it, so the resumed model sees it in the same place.
       const ledgerMessages: EngineMessage[] = [
         ...(assistant ? replay(assistant) : []),
-        ...steered.flatMap(({ user, assistant: reply }) => [
+        ...steered.flatMap(({ delivered, assistant: reply }) => [
           {
             role: "user" as const,
-            content: [
-              { type: "text" as const, text: user.content[0]?.text ?? "" },
-            ],
+            content: options.steeredUserContent(delivered),
           },
           ...(reply ? replay(reply) : []),
         ]),

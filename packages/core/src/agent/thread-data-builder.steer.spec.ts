@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildUserContentWithAttachments } from "./production-agent.js";
 import {
   buildAssistantMessage,
   buildAssistantTurnSegments,
@@ -259,6 +260,8 @@ describe("messages sent into a running turn", () => {
       ],
       journal: null,
       events: steeredEvents().map(({ event }) => event),
+      steeredUserContent: (message) =>
+        buildUserContentWithAttachments({ text: message.text }),
     });
 
     const texts = resumed.messages.map((message) =>
@@ -272,5 +275,55 @@ describe("messages sent into a running turn", () => {
     expect(texts.slice(steerIndex + 1).join("")).toContain(
       "Switching to blue.",
     );
+  });
+
+  it("replays a delivered message's attachments when the run resumes", () => {
+    const attachments = [
+      {
+        type: "image" as const,
+        name: "blue.png",
+        url: "https://cdn.example.com/blue.png",
+        mediaType: "image/png",
+        contentType: "image/png",
+      },
+    ];
+    const events = steeredEvents().map(({ event }) =>
+      event.type === "user_message"
+        ? { ...event, message: { ...event.message, attachments } }
+        : event,
+    );
+    const steeredUserContent = (message: {
+      text: string;
+      attachments?: typeof attachments;
+    }) =>
+      buildUserContentWithAttachments({
+        text: message.text,
+        attachments: message.attachments,
+        vision: true,
+      });
+
+    const resumed = buildTurnResumeContext({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Make the deck better" }],
+        },
+      ],
+      journal: null,
+      events,
+      steeredUserContent,
+    });
+
+    const expected = steeredUserContent({
+      text: "Use the blue theme",
+      attachments,
+    });
+    expect(JSON.stringify(expected)).toContain(
+      "https://cdn.example.com/blue.png",
+    );
+    expect(resumed.messages).toContainEqual({
+      role: "user",
+      content: expected,
+    });
   });
 });

@@ -3718,6 +3718,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "Chat de voz",
   "settingsShell.account.voiceChatLoadError": "No se pudo cargar la configuración del chat de voz.",
   "settingsShell.account.voiceChatSaveError": "No se pudo guardar la configuración del chat de voz.",
+  "voice.dictation.cancelTranscription": "Cancelar transcripción",
 };
 
 export default messages;

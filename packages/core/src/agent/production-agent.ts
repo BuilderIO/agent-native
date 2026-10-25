@@ -15587,17 +15587,26 @@ export function createProductionAgentHandler(
               ),
             },
           );
-          const context = buildTurnResumeContext({
-            messages: resumed,
-            journal:
-              journalRead.status === "read"
-                ? journalRead.toolCallJournal
-                : null,
-            ...(shouldRecoverCompletedExecutionSteps &&
+          const journal =
+            journalRead.status === "read" ? journalRead.toolCallJournal : null;
+          const context =
+            shouldRecoverCompletedExecutionSteps &&
             journalRead.status === "read"
-              ? { events: journalRead.events }
-              : {}),
-          });
+              ? buildTurnResumeContext({
+                  messages: resumed,
+                  journal,
+                  events: journalRead.events,
+                  steeredUserContent: (message) =>
+                    buildUserContentWithAttachments({
+                      text: message.text,
+                      attachments: message.attachments,
+                      vision: isAgentModelVisionCapable(
+                        effectiveModel,
+                        engine.capabilities.vision === true,
+                      ),
+                    }),
+                })
+              : buildTurnResumeContext({ messages: resumed, journal });
           appendAgentLoopContinuation(context.messages, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
             ...(context.journalNote

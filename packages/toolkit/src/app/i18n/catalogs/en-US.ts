@@ -3531,6 +3531,7 @@ const messages = {
   "settingsShell.account.voiceChat": "Voice chat",
   "settingsShell.account.voiceChatLoadError": "Could not load your voice chat settings.",
   "settingsShell.account.voiceChatSaveError": "Could not save your voice chat settings.",
+  "voice.dictation.cancelTranscription": "Cancel transcription",
 } as const;
 
 export default messages;

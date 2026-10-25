@@ -3696,6 +3696,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "Sprachchat",
   "settingsShell.account.voiceChatLoadError": "Deine Sprachchat-Einstellungen konnten nicht geladen werden.",
   "settingsShell.account.voiceChatSaveError": "Deine Sprachchat-Einstellungen konnten nicht gespeichert werden.",
+  "voice.dictation.cancelTranscription": "Transkription abbrechen",
 };
 
 export default messages;

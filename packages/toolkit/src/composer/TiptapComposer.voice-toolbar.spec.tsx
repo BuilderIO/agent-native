@@ -245,16 +245,22 @@ describe("TiptapComposer dictation", () => {
       expect(pill.className).toContain(
         "starting:w-[var(--agentkit-composer-toolbar-control-size,1.5rem)]",
       );
-      expect(pill.querySelectorAll("[data-voice-waveform-bar]")).toHaveLength(
-        9,
-      );
       const stop = pill.querySelector<HTMLButtonElement>(
         '[data-agent-composer-slot="voice-stop"]',
       );
       if (state === "transcribing") {
-        expect(stop?.getAttribute("aria-label")).toBe("Transcribing…");
-        expect(stop?.disabled).toBe(true);
+        expect(
+          pill.querySelector('[role="status"]')?.getAttribute("aria-label"),
+        ).toBe("Transcribing…");
+        expect(stop?.getAttribute("aria-label")).toBe("Cancel transcription");
+        expect(stop?.disabled).toBe(false);
+        act(() => stop?.click());
+        expect(voice.cancel).toHaveBeenCalledTimes(1);
+        expect(voice.stop).not.toHaveBeenCalled();
       } else {
+        expect(pill.querySelectorAll("[data-voice-waveform-bar]")).toHaveLength(
+          9,
+        );
         expect(stop?.getAttribute("aria-label")).toBe("Stop recording");
         expect(
           stop?.querySelector("svg.tabler-icon-player-stop-filled"),

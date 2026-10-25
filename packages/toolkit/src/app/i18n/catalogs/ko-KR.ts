@@ -3469,6 +3469,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "음성 채팅",
   "settingsShell.account.voiceChatLoadError": "음성 채팅 설정을 불러올 수 없습니다.",
   "settingsShell.account.voiceChatSaveError": "음성 채팅 설정을 저장할 수 없습니다.",
+  "voice.dictation.cancelTranscription": "받아쓰기 취소",
 };
 
 export default messages;

@@ -3531,6 +3531,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "音声チャット",
   "settingsShell.account.voiceChatLoadError": "音声チャットの設定を読み込めませんでした。",
   "settingsShell.account.voiceChatSaveError": "音声チャットの設定を保存できませんでした。",
+  "voice.dictation.cancelTranscription": "文字起こしをキャンセル",
 };
 
 export default messages;

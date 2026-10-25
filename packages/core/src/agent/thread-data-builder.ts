@@ -641,6 +641,8 @@ export function buildAssistantMessage(
 
 export interface SteeredRunSegment {
   user: UserMessage;
+  /** The message as the run received it, attachments included. */
+  delivered: AgentChatSteeredUserMessage;
   assistant: AssistantMessage | null;
 }
 
@@ -677,6 +679,7 @@ export function buildAssistantTurnSegments(
     );
     steered.push({
       user: buildSteeredUserMessage(event.message, runId),
+      delivered: event.message,
       assistant: assistant
         ? { ...assistant, id: event.continuationMessageId }
         : null,
@@ -5071,6 +5074,7 @@ export function foldAssistantTurnWithSteers(
       )
       .map((record) => ({
         user: buildSteeredUserMessage(record.message, options.runId),
+        delivered: record.message,
         assistant: null,
       })),
   ];

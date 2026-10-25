@@ -3224,6 +3224,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "语音对话",
   "settingsShell.account.voiceChatLoadError": "无法加载你的语音对话设置。",
   "settingsShell.account.voiceChatSaveError": "无法保存你的语音对话设置。",
+  "voice.dictation.cancelTranscription": "取消转写",
 };
 
 export default messages;

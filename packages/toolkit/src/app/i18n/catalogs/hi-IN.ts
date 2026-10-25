@@ -3451,6 +3451,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChat": "वॉइस चैट",
   "settingsShell.account.voiceChatLoadError": "आपकी वॉइस चैट सेटिंग लोड नहीं हो सकीं।",
   "settingsShell.account.voiceChatSaveError": "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
+  "voice.dictation.cancelTranscription": "ट्रांसक्रिप्शन रद्द करें",
 };
 
 export default messages;

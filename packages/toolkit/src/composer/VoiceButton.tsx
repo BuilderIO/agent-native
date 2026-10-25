@@ -149,15 +149,16 @@ export function isVoiceRecordingActive(state: VoiceDictationApi["state"]) {
 
 /**
  * The mic's recording state: a live waveform and a stop control in a pill that
- * grows out of the mic's slot. Stop inserts the transcript; Escape cancels.
+ * grows out of the mic's slot. Stop inserts the transcript; Escape, or the
+ * control while the recording transcribes, cancels it.
  */
 export function VoiceDictationPill({ voice }: VoiceRecordingOverlayProps) {
   const { state, levels, stop, cancel } = voice;
   const t = useComposerRuntimeAdapters().translate!;
   const transcribing = state === "transcribing";
-  const stopLabel = transcribing
-    ? t("agentChat.voice.dictation.transcribing", {
-        defaultValue: "Transcribing…",
+  const controlLabel = transcribing
+    ? t("agentChat.voice.dictation.cancelTranscription", {
+        defaultValue: "Cancel transcription",
       })
     : t("agentChat.voice.dictation.stopRecording", {
         defaultValue: "Stop recording",
@@ -173,31 +174,42 @@ export function VoiceDictationPill({ voice }: VoiceRecordingOverlayProps) {
       })}
       className="flex h-[var(--agentkit-composer-toolbar-control-size,1.5rem)] w-[4.5rem] shrink-0 items-center justify-between gap-1.5 overflow-hidden rounded-full bg-muted ps-2.5 pe-0.5 text-foreground transition-[width,background-color] duration-150 ease-out starting:w-[var(--agentkit-composer-toolbar-control-size,1.5rem)] starting:bg-transparent motion-reduce:transition-none"
     >
-      <VoiceLevelWaveform
-        read={() => levels.getSnapshot().input}
-        live={state === "recording"}
-      />
+      {transcribing ? (
+        <span
+          role="status"
+          aria-label={t("agentChat.voice.dictation.transcribing", {
+            defaultValue: "Transcribing…",
+          })}
+          className="flex flex-1 items-center justify-center text-muted-foreground"
+        >
+          <IconLoader2
+            aria-hidden="true"
+            className="size-4 animate-spin motion-reduce:animate-none"
+          />
+        </span>
+      ) : (
+        <VoiceLevelWaveform
+          read={() => levels.getSnapshot().input}
+          live={state === "recording"}
+        />
+      )}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
             data-agent-composer-slot="voice-stop"
             onClick={state === "recording" ? stop : cancel}
-            disabled={transcribing}
-            aria-label={stopLabel}
-            className="flex size-[calc(var(--agentkit-composer-toolbar-control-size,1.5rem)-0.25rem)] shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors duration-150 hover:bg-foreground/80 disabled:cursor-default disabled:bg-transparent disabled:text-muted-foreground"
+            aria-label={controlLabel}
+            className="flex size-[calc(var(--agentkit-composer-toolbar-control-size,1.5rem)-0.25rem)] shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors duration-150 hover:bg-foreground/80"
           >
             {transcribing ? (
-              <IconLoader2
-                aria-hidden="true"
-                className="size-4 animate-spin motion-reduce:animate-none"
-              />
+              <IconX aria-hidden="true" className="size-3" />
             ) : (
               <IconPlayerStopFilled aria-hidden="true" className="size-2.5" />
             )}
           </button>
         </TooltipTrigger>
-        <TooltipContent>{stopLabel}</TooltipContent>
+        <TooltipContent>{controlLabel}</TooltipContent>
       </Tooltip>
     </div>
   );
