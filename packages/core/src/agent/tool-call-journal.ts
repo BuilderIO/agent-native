@@ -939,29 +939,45 @@ export function findInterruptedJournalEntryForCall(
 }
 
 /**
- * The earliest-started unclaimed finished entry with a durable step that this
- * call's identity matches. Each finished entry carries its own result, so
- * identical calls pair with identical entries in the order they started;
- * entries are listed in the order they finished.
+ * The entry with a durable step that this call's identity claims: the
+ * earliest-started unclaimed match among the interrupted entries and the
+ * finished ones the model never saw. A finished entry carries its own result,
+ * so identical calls pair with identical entries in the order they started;
+ * an interrupted one binds only when no other interrupted entry matches.
  */
-export function findFinishedJournalStepForCall(
-  entries: readonly ToolCallJournalEntry[],
+export function findUnresolvedJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
   toolName: string,
   argumentsHash: string | undefined,
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
-  const match = journalStepEntriesForCall(
-    entries,
+  const interrupted = journalStepEntriesForCall(
+    journal.interrupted,
     toolName,
     argumentsHash,
     input,
     consumedKeys,
-  ).reduce<ToolCallJournalEntry | undefined>(
-    (earliest, entry) =>
-      earliest === undefined || entry.order < earliest.order ? entry : earliest,
+  );
+  const finished = journalStepEntriesForCall(
+    unseenFinished,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const earliest = [...interrupted, ...finished].reduce<
+    ToolCallJournalEntry | undefined
+  >(
+    (first, entry) =>
+      first === undefined || entry.order < first.order ? entry : first,
     undefined,
   );
+  const match =
+    earliest && (finished.includes(earliest) || interrupted.length === 1)
+      ? earliest
+      : undefined;
   if (match) consumedKeys?.add(match.key);
   return match;
 }

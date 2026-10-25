@@ -656,6 +656,69 @@ describe("durable execution step identity", () => {
     }
   });
 
+  it("pairs a finished and an interrupted slot-only step from before this release by start order", async () => {
+    const threadId = "thread-resume-mixed-slot-only-steps";
+    const turnId = "turn-resume-mixed-slot-only-steps";
+    const priorRunId = "run-before-release-mixed";
+    let saves = 0;
+    const run = vi.fn(
+      async ({ title }: { title: string }) => `Saved ${title} as #${++saves}`,
+    );
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: priorRunId,
+      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      messages: [request],
+      retrySafe: false,
+      run,
+    });
+    const finishedStepId = await recordUnderSlotOnlyId({
+      threadId,
+      priorRunId,
+      priorEvents,
+      slot: 1,
+      withResult: true,
+    });
+    const interruptedStepId = await recordUnderSlotOnlyId({
+      threadId,
+      priorRunId,
+      priorEvents,
+      slot: 2,
+      dispatchedOnly: true,
+    });
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-mixed",
+      titles: ["Q3 plan", "Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      retrySafe: false,
+      run,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-mixed-call-0",
+        executionStepId: finishedStepId,
+        result: expect.stringContaining("Saved Q3 plan as #2"),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-mixed-call-1",
+        executionStepId: interruptedStepId,
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+  });
+
   it("holds a moved write whose slot-only step from before this release may have run", async () => {
     const threadId = "thread-resume-moved-dispatched-step";
     const turnId = "turn-resume-moved-dispatched-step";
