@@ -2367,6 +2367,9 @@ function NumberField({
   );
 }
 
+type SpringDraftCommit = (persist?: boolean) => string | undefined;
+type SpringDraftCommitRef = { current: SpringDraftCommit | null };
+
 function NativeEasingCurveEditor({
   value,
   disabled,
@@ -2382,6 +2385,20 @@ function NativeEasingCurveEditor({
   const [tab, setTab] = useState<"curve" | "spring">(
     spring ? "spring" : "curve",
   );
+  const previousSpring = useRef(
+    spring
+      ? value
+      : springToken({ bounce: MOTION_SPRING_DEFAULT_BOUNCE, settle: 1 }),
+  );
+  const lastSeenSpringValueRef = useRef(spring ? value : undefined);
+  const springDraftCommitRef = useRef<SpringDraftCommit | null>(null);
+
+  useEffect(() => {
+    if (spring && value !== lastSeenSpringValueRef.current) {
+      previousSpring.current = value;
+      lastSeenSpringValueRef.current = value;
+    }
+  }, [spring, value]);
 
   return (
     <Tabs
@@ -2390,13 +2407,10 @@ function NativeEasingCurveEditor({
         if (next !== "curve" && next !== "spring") return;
         setTab(next);
         if (next === "spring" && !parseSpringToken(value)) {
-          onChange(
-            springToken({
-              bounce: MOTION_SPRING_DEFAULT_BOUNCE,
-              settle: 1,
-            }),
-          );
-        } else if (next === "curve" && parseSpringToken(value)) {
+          onChange(previousSpring.current);
+        } else if (next === "curve" && spring) {
+          previousSpring.current =
+            springDraftCommitRef.current?.(false) ?? value;
           onChange(DEFAULT_EASING);
         }
       }}
@@ -2437,6 +2451,7 @@ function NativeEasingCurveEditor({
           disabled={disabled}
           onChange={onChange}
           t={t}
+          draftCommitRef={springDraftCommitRef}
         />
       </TabsContent>
     </Tabs>
@@ -2780,23 +2795,76 @@ export function MotionSpringEditor({
   disabled,
   onChange,
   t,
+  draftCommitRef,
 }: {
   value: string;
   disabled: boolean;
   onChange: (value: string) => void;
   t: (key: string) => string;
+  draftCommitRef?: SpringDraftCommitRef;
 }) {
   const spring = parseSpringToken(value);
   const springGeometry = spring ? createSpringCurveGeometry(spring) : null;
   const [bounceDraft, setBounceDraft] = useState(() =>
     spring ? springBounceDraft(value, spring.bounce) : "",
   );
-  const [bounceDraftEdited, setBounceDraftEdited] = useState(false);
+  const bounceDraftRef = useRef(bounceDraft);
+  const bounceDraftEditedRef = useRef(false);
+  const lastSpringValueRef = useRef(spring ? value : undefined);
+  const currentValueRef = useRef({ value, onChange });
+  currentValueRef.current = { value, onChange };
+  const commitBounceDraftRef = useRef<SpringDraftCommit | null>(null);
+  commitBounceDraftRef.current = (persist = true) => {
+    const currentValue = currentValueRef.current.value;
+    const currentSpring = parseSpringToken(currentValue);
+    if (!currentSpring) return undefined;
+    if (!bounceDraftEditedRef.current) {
+      return lastSpringValueRef.current ?? currentValue;
+    }
+
+    const trimmed = bounceDraftRef.current.trim();
+    const bounce = Number(trimmed);
+    if (
+      !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed) ||
+      !Number.isFinite(bounce)
+    ) {
+      bounceDraftEditedRef.current = false;
+      return lastSpringValueRef.current ?? currentValue;
+    }
+
+    const next = springToken({ bounce, settle: currentSpring.settle });
+    bounceDraftEditedRef.current = false;
+    if (parseSpringToken(next)?.bounce === currentSpring.bounce) {
+      const reset = springBounceDraft(currentValue, currentSpring.bounce);
+      bounceDraftRef.current = reset;
+      setBounceDraft(reset);
+      lastSpringValueRef.current = currentValue;
+      return currentValue;
+    }
+    lastSpringValueRef.current = next;
+    if (persist) currentValueRef.current.onChange(next);
+    return next;
+  };
+  if (draftCommitRef) {
+    draftCommitRef.current = commitBounceDraftRef.current;
+  }
 
   useEffect(() => {
-    setBounceDraft(spring ? springBounceDraft(value, spring.bounce) : "");
-    setBounceDraftEdited(false);
+    const next = spring ? springBounceDraft(value, spring.bounce) : "";
+    bounceDraftRef.current = next;
+    bounceDraftEditedRef.current = false;
+    if (spring) lastSpringValueRef.current = value;
+    setBounceDraft(next);
   }, [spring?.bounce, value]);
+
+  useEffect(() => {
+    return () => {
+      if (draftCommitRef?.current === commitBounceDraftRef.current) {
+        draftCommitRef.current = null;
+      }
+      commitBounceDraftRef.current?.();
+    };
+  }, [draftCommitRef]);
 
   return (
     <div className="space-y-2">
@@ -2827,33 +2895,26 @@ export function MotionSpringEditor({
             value={bounceDraft}
             disabled={disabled}
             onChange={(draft) => {
+              bounceDraftRef.current = draft;
+              bounceDraftEditedRef.current = true;
               setBounceDraft(draft);
-              setBounceDraftEdited(true);
             }}
             onBlur={(draft) => {
-              if (!bounceDraftEdited) return;
-              const trimmed = draft.trim();
-              const bounce = Number(trimmed);
-              if (
-                !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(
-                  trimmed,
-                ) ||
-                !Number.isFinite(bounce)
-              ) {
-                setBounceDraft(springBounceDraft(value, spring.bounce));
-                setBounceDraftEdited(false);
-                return;
+              if (!bounceDraftEditedRef.current) return;
+              bounceDraftRef.current = draft;
+              const committed = commitBounceDraftRef.current?.();
+              if (committed === undefined) {
+                const currentValue = currentValueRef.current.value;
+                const currentSpring = parseSpringToken(currentValue);
+                if (currentSpring) {
+                  const reset = springBounceDraft(
+                    currentValue,
+                    currentSpring.bounce,
+                  );
+                  bounceDraftRef.current = reset;
+                  setBounceDraft(reset);
+                }
               }
-              setBounceDraftEdited(false);
-              const nextEase = springToken({
-                bounce,
-                settle: spring.settle,
-              });
-              if (parseSpringToken(nextEase)?.bounce === spring.bounce) {
-                setBounceDraft(springBounceDraft(value, spring.bounce));
-                return;
-              }
-              onChange(nextEase);
             }}
           />
         </>
