@@ -2046,6 +2046,9 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudieron comprobar algunos ajustes de almacenamiento guardados. Vuelve a intentarlo o sustituye los valores obligatorios ilegibles antes de guardar.",
   "settings.storage.unreadableField":
     "No se puede leer este valor guardado. Introdúcelo de nuevo.",
+  "settings.storage.clearUnreadableField": "Borrar el campo ilegible {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "Este valor guardado se eliminará al guardar.",
   "settings.storage.adminOnly":
     "Solo los propietarios y administradores de la organización pueden cambiar el almacenamiento de archivos.",
   "settings.audit.action": "Acción",
@@ -2491,9 +2494,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "Quitar las credenciales de {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "El agente deja de responder en {{platform}} para todos, salvo que el entorno de despliegue también defina estas claves.",
+    "Al quitar estas credenciales del espacio de trabajo, el agente podría dejar de responder en {{platform}} a todos, salvo que el entorno de despliegue también defina estas claves.",
   "settingsShell.channels.removeCredentials.personalBody":
-    "Esto solo elimina tus credenciales personales de {{platform}}. No afectará a las credenciales ni a las respuestas de otros usuarios.",
+    "Esto solo quita tus credenciales personales de {{platform}}. Las credenciales de otras personas y del espacio de trabajo no cambian.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Esto elimina las credenciales guardadas seleccionadas de {{platform}}. Las demás credenciales guardadas no cambian.",
   "settingsShell.channels.removeCredentials.confirm": "Quitar",
   "settingsShell.channels.removeCredentials.failed":
     "No se pudieron quitar las credenciales.",
@@ -2840,6 +2845,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Acceso a modelos, automatización del navegador, almacenamiento de archivos e identidad del espacio de trabajo. Hay un plan gratuito.",
   "settingsShell.integrations.builderStatusFailed":
     "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "No se pudieron leer algunos datos guardados de la cuenta de Builder.",
   "settingsShell.integrations.category.analytics": "Analítica",
   "settingsShell.integrations.category.design": "Diseño",
   "settingsShell.integrations.category.engineering": "Ingeniería",

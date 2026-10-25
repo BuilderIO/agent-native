@@ -1792,6 +1792,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.unreadable":
     "部分已儲存的儲存空間設定無法檢查。請重試，或在儲存前取代無法讀取的必填值。",
   "settings.storage.unreadableField": "無法讀取此已儲存的值。請重新輸入。",
+  "settings.storage.clearUnreadableField": "清除無法讀取的{{field}}",
+  "settings.storage.unreadableFieldCleared": "儲存時會移除此已儲存的值。",
   "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
   "settings.audit.action": "操作",
   "settings.audit.agentVia": "透過 {{protocol}} 的代理",
@@ -2177,9 +2179,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.action": "移除",
   "settingsShell.channels.removeCredentials.aria": "移除 {{platform}} 憑證",
   "settingsShell.channels.removeCredentials.body":
-    "除非部署環境也設定了這些金鑰，否則代理將不再為任何人在 {{platform}} 中回覆。",
+    "移除這些工作區憑證後，代理可能無法在 {{platform}} 中回覆任何人，除非部署環境也設定了這些金鑰。",
   "settingsShell.channels.removeCredentials.personalBody":
-    "這只會移除你在 {{platform}} 的個人憑證，不會影響其他使用者的憑證或回覆。",
+    "這只會移除你在 {{platform}} 中的個人憑證。其他使用者和工作區的憑證維持不變。",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "這會移除 {{platform}} 的選取已儲存憑證。其他已儲存憑證不會變更。",
   "settingsShell.channels.removeCredentials.confirm": "移除",
   "settingsShell.channels.removeCredentials.failed": "無法移除憑證。",
   "settingsShell.channels.removeCredentials.removing": "正在移除…",
@@ -2452,6 +2456,8 @@ const messages: ToolkitAgentChatTranslation = {
     "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
   "settingsShell.integrations.builderStatusFailed":
     "連線狀態目前無法確認。請重試以再次檢查。",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "無法讀取部分已儲存的 Builder 帳戶資訊。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "設計",
   "settingsShell.integrations.category.engineering": "工程",

@@ -78,6 +78,10 @@ export interface BuilderStatus {
   branchProjectId?: string;
   publicKeyConfigured: boolean;
   privateKeyConfigured: boolean;
+  /** A credential lookup failed while determining Builder connection status. */
+  keyLookupFailed?: boolean;
+  /** Optional Builder profile metadata could not be read from its saved row. */
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   userId?: string;
   orgName?: string;
   spaces?: Array<{ id: string; name: string }>;
@@ -87,10 +91,6 @@ export interface BuilderStatus {
   subscriptionName?: string;
   isEnterprise?: boolean;
   isFreeAccount?: boolean;
-  /** A saved Builder credential lookup failed; the result may use a fallback. */
-  credentialLookupFailed?: boolean;
-  /** Optional account details could not be decrypted from saved credentials. */
-  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   connectError?: { message: string; at: number; code?: string };
   authError?: { message: string; at: number };
 }

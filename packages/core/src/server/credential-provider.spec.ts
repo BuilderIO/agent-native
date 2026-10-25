@@ -1504,10 +1504,10 @@ describe("resolveBuilderCredentialsDetailed", () => {
     });
   });
 
-  it("propagates transient optional metadata read failures", async () => {
+  it("preserves transient optional metadata read failures", async () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
-    const storeError = new Error("database unavailable");
+    const transient = new Error("temporary metadata store failure");
     mockReadAppSecrets.mockImplementation(
       async ({ keys, scope, scopeId }: any) => {
         if (keys.length > 2) {
@@ -1526,19 +1526,16 @@ describe("resolveBuilderCredentialsDetailed", () => {
           scopeId === "builder_io" &&
           keys[0] === "BUILDER_USER_ID"
         ) {
-          throw storeError;
+          throw transient;
         }
         return new Map();
       },
     );
 
-    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-      lookupFailed: true,
-      cause: storeError,
-      privateKey: null,
-      publicKey: null,
-      source: null,
-    });
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({ lookupFailed: true, source: null });
+    expect(result.cause).toBe(transient);
     await expect(resolveBuilderCredentials()).resolves.toMatchObject({
       lookupFailed: true,
     });

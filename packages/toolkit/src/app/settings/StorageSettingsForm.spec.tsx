@@ -232,15 +232,36 @@ describe("StorageSettingsForm", () => {
     );
   });
 
-  it("replaces unreadable credentials without clearing untouched optional values", () => {
+  it("preserves unreadable optional values when saving an unrelated field", () => {
+    queryState.data = {
+      ...savedStatus,
+      configurationUnavailable: true,
+      unreadableFields: ["region", "publicBaseUrl"],
+      region: null,
+      publicBaseUrl: null,
+      publicUrlRequired: false,
+    };
+    render();
+    typeInto(inputByLabel("Bucket"), "renamed-bucket");
+    act(() => buttonByText("Save").click());
+    const [input] = mutateMock.mock.calls[0]!;
+    expect(input).toMatchObject({
+      operation: "save",
+      bucket: "renamed-bucket",
+    });
+    expect(input).not.toHaveProperty("region");
+    expect(input).not.toHaveProperty("publicBaseUrl");
+  });
+
+  it("requires unreadable credentials to be replaced and clears unreadable optional values only when requested", () => {
     queryState.data = {
       ...savedStatus,
       configured: false,
       configurationUnavailable: true,
       unreadableFields: ["accessKeyId", "region", "publicBaseUrl"],
-      publicUrlRequired: false,
       region: null,
       publicBaseUrl: null,
+      publicUrlRequired: false,
       saved: { ...savedStatus.saved, accessKeyId: true },
     };
     render();
@@ -248,6 +269,8 @@ describe("StorageSettingsForm", () => {
       "Some saved storage settings could not be checked.",
     );
     expect(buttonByText("Save").disabled).toBe(true);
+    act(() => buttonByText("Clear unreadable Public URL").click());
+    act(() => buttonByText("Clear unreadable Region").click());
     typeInto(inputByLabel("Access key ID"), "replacement-key");
     expect(buttonByText("Save").disabled).toBe(false);
     act(() => buttonByText("Save").click());
@@ -256,26 +279,7 @@ describe("StorageSettingsForm", () => {
       operation: "save",
       accessKeyId: "replacement-key",
     });
-    expect(input).not.toHaveProperty("region");
-    expect(input).not.toHaveProperty("publicBaseUrl");
-  });
-
-  it("preserves an unreadable optional region during an unrelated save", () => {
-    queryState.data = {
-      ...savedStatus,
-      unreadableFields: ["region"],
-    };
-    render();
-
-    typeInto(inputByLabel("Bucket"), "renamed-bucket");
-    act(() => buttonByText("Save").click());
-
-    const [input] = mutateMock.mock.calls[0]!;
-    expect(input).toMatchObject({
-      operation: "save",
-      bucket: "renamed-bucket",
-    });
-    expect(input).not.toHaveProperty("region");
+    expect(input).toMatchObject({ region: "", publicBaseUrl: "" });
   });
 
   it("keeps saved keys by leaving them out of the save", () => {

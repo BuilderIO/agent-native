@@ -1892,6 +1892,9 @@ const messages: ToolkitAgentChatTranslation = {
     "저장된 스토리지 설정 일부를 확인할 수 없습니다. 다시 시도하거나 저장하기 전에 읽을 수 없는 필수 값을 교체하세요.",
   "settings.storage.unreadableField":
     "저장된 값을 읽을 수 없습니다. 다시 입력하세요.",
+  "settings.storage.clearUnreadableField": "읽을 수 없는 {{field}} 지우기",
+  "settings.storage.unreadableFieldCleared":
+    "저장하면 이 저장된 값이 삭제됩니다.",
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
@@ -2305,9 +2308,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "{{platform}} 자격 증명 제거",
   "settingsShell.channels.removeCredentials.body":
-    "배포 환경에서도 이 키를 설정하지 않는 한, 에이전트가 모든 사용자에게 {{platform}}에서 더 이상 응답하지 않습니다.",
+    "이 워크스페이스 자격 증명을 제거하면 배포 환경에도 같은 키가 설정되어 있지 않은 한 에이전트가 {{platform}}에서 모든 사용자에게 답변하지 못할 수 있습니다.",
   "settingsShell.channels.removeCredentials.personalBody":
-    "{{platform}}의 개인 자격 증명만 제거됩니다. 다른 사용자의 자격 증명과 응답에는 영향을 주지 않습니다.",
+    "이 작업은 {{platform}}용 개인 자격 증명만 제거합니다. 다른 사용자와 워크스페이스의 자격 증명은 그대로 유지됩니다.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "{{platform}}의 선택한 저장된 자격 증명을 제거합니다. 다른 저장된 자격 증명은 변경되지 않습니다.",
   "settingsShell.channels.removeCredentials.confirm": "제거",
   "settingsShell.channels.removeCredentials.failed":
     "자격 증명을 제거하지 못했습니다.",
@@ -2633,6 +2638,8 @@ const messages: ToolkitAgentChatTranslation = {
     "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
   "settingsShell.integrations.builderStatusFailed":
     "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "저장된 Builder 계정 정보 일부를 읽을 수 없습니다.",
   "settingsShell.integrations.category.analytics": "분석",
   "settingsShell.integrations.category.design": "디자인",
   "settingsShell.integrations.category.engineering": "엔지니어링",

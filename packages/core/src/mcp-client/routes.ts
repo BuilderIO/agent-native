@@ -1204,9 +1204,24 @@ async function handleTestExisting(
   try {
     config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
   } catch (error) {
-    if (!(error instanceof InvalidMcpHeaderConfigurationError)) throw error;
-    setResponseStatus(event, 400);
-    return { ok: false, error: error.message };
+    if (error instanceof InvalidMcpHeaderConfigurationError) {
+      setResponseStatus(event, 400);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    if (error instanceof AppSecretDecryptionError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error:
+          "A saved MCP server credential could not be read. Retry or replace it before testing.",
+        errorCode: error.errorCode,
+      };
+    }
+    throw error;
   }
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {

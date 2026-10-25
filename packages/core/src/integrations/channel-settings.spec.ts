@@ -3,8 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EnvKeyConfig } from "../server/create-server.js";
 
 const store = vi.hoisted(() => new Map<string, string>());
-const versions = vi.hoisted(() => new Map<string, number>());
-const nextVersion = vi.hoisted(() => ({ value: 2 }));
 const env = vi.hoisted(() => new Map<string, string>());
 const configs = vi.hoisted(() => new Map<string, boolean>());
 const unreadable = vi.hoisted(() => new Set<string>());
@@ -69,12 +67,8 @@ vi.mock("../secrets/storage.js", () => ({
     },
   ),
   readAppSecretVersion: vi.fn(
-    async (args: { key: string; scope: string; scopeId: string }) => {
-      if (readErrorRef.error) throw readErrorRef.error;
-      const storageKey = `${args.scope}:${args.scopeId}:${args.key}`;
-      if (!store.has(storageKey)) return null;
-      return String(versions.get(storageKey) ?? 1);
-    },
+    async (args: { key: string; scope: string; scopeId: string }) =>
+      store.get(`${args.scope}:${args.scopeId}:${args.key}`) ?? null,
   ),
   writeAppSecret: vi.fn(
     async (args: {
@@ -83,18 +77,23 @@ vi.mock("../secrets/storage.js", () => ({
       scope: string;
       scopeId: string;
     }) => {
-      const storageKey = `${args.scope}:${args.scopeId}:${args.key}`;
-      store.set(storageKey, args.value);
-      versions.set(storageKey, nextVersion.value++);
+      store.set(`${args.scope}:${args.scopeId}:${args.key}`, args.value);
       unreadable.delete(args.key);
       unreadable.delete(`${args.scope}:${args.scopeId}:${args.key}`);
       return "id";
     },
   ),
   deleteAppSecret: vi.fn(
-    async (ref: { key: string; scope: string; scopeId: string }) => {
+    async (ref: { key: string; scope: string; scopeId: string }) =>
+      store.delete(`${ref.scope}:${ref.scopeId}:${ref.key}`),
+  ),
+  deleteAppSecretIfVersion: vi.fn(
+    async (
+      ref: { key: string; scope: string; scopeId: string },
+      expectedVersion: string,
+    ) => {
       const storageKey = `${ref.scope}:${ref.scopeId}:${ref.key}`;
-      versions.delete(storageKey);
+      if (store.get(storageKey) !== expectedVersion) return false;
       return store.delete(storageKey);
     },
   ),
@@ -236,8 +235,6 @@ describe("channel settings", () => {
 
   beforeEach(() => {
     store.clear();
-    versions.clear();
-    nextVersion.value = 2;
     env.clear();
     configs.clear();
     unreadable.clear();
@@ -643,27 +640,6 @@ describe("channel settings", () => {
     );
   });
 
-  it("rejects a stale removal confirmation after the saved credential rotates", async () => {
-    const storageKey = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
-    store.set(storageKey, "fake-original-token");
-    versions.set(storageKey, 1);
-    const confirmed = await confirmedRemovals("telegram", [
-      "TELEGRAM_BOT_TOKEN",
-    ]);
-
-    await saveMessagingChannelCredentials(OWNER, "telegram", {
-      TELEGRAM_BOT_TOKEN: "fake-rotated-token",
-    });
-
-    await expect(
-      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
-    ).rejects.toMatchObject({
-      statusCode: 409,
-      errorCode: "channel_removal_confirmation_stale",
-    });
-    expect(store.get(storageKey)).toBe("fake-rotated-token");
-  });
-
   it("rejects a stale removal confirmation when the unreadable scope changes", async () => {
     const userRef = `user:${OWNER.userEmail}:TELEGRAM_BOT_TOKEN`;
     const orgRef = `org:${ORG}:TELEGRAM_BOT_TOKEN`;
@@ -683,6 +659,23 @@ describe("channel settings", () => {
       errorCode: "channel_removal_confirmation_stale",
     });
     expect(store.get(orgRef)).toBe("corrupted-org-token");
+  });
+
+  it("rejects a stale removal confirmation after the credential is rotated", async () => {
+    const ref = `workspace:${ORG}:TELEGRAM_BOT_TOKEN`;
+    store.set(ref, "fake-original-bot-token");
+    const confirmed = await confirmedRemovals("telegram", [
+      "TELEGRAM_BOT_TOKEN",
+    ]);
+
+    store.set(ref, "fake-rotated-bot-token");
+    await expect(
+      removeMessagingChannelCredentials(OWNER, "telegram", confirmed),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "channel_removal_confirmation_stale",
+    });
+    expect(store.get(ref)).toBe("fake-rotated-bot-token");
   });
 
   it("removes known channel credentials when one saved value is unreadable", async () => {

@@ -2060,6 +2060,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Certains paramètres de stockage enregistrés n’ont pas pu être vérifiés. Réessayez ou remplacez les valeurs obligatoires illisibles avant d’enregistrer.",
   "settings.storage.unreadableField":
     "Cette valeur enregistrée est illisible. Saisissez-la à nouveau.",
+  "settings.storage.clearUnreadableField":
+    "Effacer le champ illisible {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "Cette valeur enregistrée sera supprimée lors de l’enregistrement.",
   "settings.storage.adminOnly":
     "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier le stockage des fichiers.",
   "settings.audit.action": "Action",
@@ -2509,9 +2513,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "Supprimer les identifiants {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "L'agent cesse de répondre dans {{platform}} pour tout le monde, sauf si l'environnement de déploiement définit aussi ces clés.",
+    "La suppression de ces identifiants d’espace de travail peut empêcher l’agent de répondre à tout le monde dans {{platform}}, sauf si l’environnement de déploiement définit aussi ces clés.",
   "settingsShell.channels.removeCredentials.personalBody":
-    "Cela supprime uniquement vos identifiants personnels pour {{platform}}. Les identifiants et les réponses des autres utilisateurs ne seront pas affectés.",
+    "Cela supprime uniquement vos identifiants personnels pour {{platform}}. Ceux des autres utilisateurs et de l’espace de travail restent inchangés.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Cela supprime les identifiants enregistrés sélectionnés pour {{platform}}. Les autres identifiants enregistrés restent inchangés.",
   "settingsShell.channels.removeCredentials.confirm": "Supprimer",
   "settingsShell.channels.removeCredentials.failed":
     "Impossible de supprimer les identifiants.",
@@ -2862,6 +2868,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Accès aux modèles, automatisation du navigateur, stockage de fichiers et identité de l’espace de travail. Offre gratuite disponible.",
   "settingsShell.integrations.builderStatusFailed":
     "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Certaines informations enregistrées du compte Builder n’ont pas pu être lues.",
   "settingsShell.integrations.category.analytics": "Analytique",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Ingénierie",

@@ -1925,6 +1925,9 @@ const messages: ToolkitAgentChatTranslation = {
     "保存されたストレージ設定の一部を確認できませんでした。再試行するか、保存する前に読み取れない必須値を置き換えてください。",
   "settings.storage.unreadableField":
     "保存された値を読み取れませんでした。もう一度入力してください。",
+  "settings.storage.clearUnreadableField": "読み取れない{{field}}を消去",
+  "settings.storage.unreadableFieldCleared":
+    "保存すると、この保存済みの値は削除されます。",
   "settings.storage.adminOnly":
     "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
   "settings.audit.action": "アクション",
@@ -2346,9 +2349,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "{{platform}} の認証情報を削除",
   "settingsShell.channels.removeCredentials.body":
-    "デプロイ環境でもこれらのキーが設定されていない限り、エージェントは全員に対して {{platform}} で返信しなくなります。",
+    "これらのワークスペース認証情報を削除すると、デプロイ環境にも同じキーが設定されていない限り、エージェントは{{platform}}で全員に返信できなくなる可能性があります。",
   "settingsShell.channels.removeCredentials.personalBody":
-    "{{platform}} のあなた個人の認証情報のみが削除されます。他のユーザーの認証情報や返信には影響しません。",
+    "これにより削除されるのは、{{platform}}用のあなた個人の認証情報だけです。他のユーザーやワークスペースの認証情報は変わりません。",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "{{platform}}の選択した保存済み認証情報を削除します。その他の保存済み認証情報は変更されません。",
   "settingsShell.channels.removeCredentials.confirm": "削除",
   "settingsShell.channels.removeCredentials.failed":
     "認証情報を削除できませんでした。",
@@ -2679,6 +2684,8 @@ const messages: ToolkitAgentChatTranslation = {
     "モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID。無料プランがあります。",
   "settingsShell.integrations.builderStatusFailed":
     "接続状態を確認できません。もう一度お試しください。",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "保存されたBuilderアカウント情報の一部を読み取れませんでした。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "デザイン",
   "settingsShell.integrations.category.engineering": "エンジニアリング",

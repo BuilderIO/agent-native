@@ -2831,6 +2831,7 @@ export interface OAuthCustodyBuilderKeyStatus {
    * read downstream as "the user never connected Builder keys".
    */
   keyLookupFailed: boolean;
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
 }
 
 /**
@@ -2847,6 +2848,7 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
       publicKey: string | null;
       orgName: string | null;
       lookupFailed: boolean;
+      optionalMetadataLookupFailure?: "unreadable" | "unavailable";
     }>;
   } = {
     resolveCredentialsDetailed: async () => {
@@ -2866,6 +2868,11 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
           ? creds.orgName
           : "Builder OAuth",
       keyLookupFailed: creds.lookupFailed,
+      ...(creds.optionalMetadataLookupFailure
+        ? {
+            optionalMetadataLookupFailure: creds.optionalMetadataLookupFailure,
+          }
+        : {}),
     };
   } catch {
     // OAuth already proves the chat gateway, so a thrown key-pair lookup
@@ -4283,6 +4290,8 @@ export function createCoreRoutesPlugin(
                       privateKeyConfigured: keyStatus.privateKeyConfigured,
                       publicKeyConfigured: keyStatus.publicKeyConfigured,
                       keyLookupFailed: keyStatus.keyLookupFailed,
+                      optionalMetadataLookupFailure:
+                        keyStatus.optionalMetadataLookupFailure,
                       orgName: keyStatus.orgName,
                       spaces: [],
                     },
@@ -4331,14 +4340,39 @@ export function createCoreRoutesPlugin(
             // blocking a user from connecting their own Builder account.
             try {
               const {
-                resolveBuilderCredentials,
-                resolveBuilderCredentialSource,
+                resolveBuilderCredentialsDetailed,
                 getBuilderCredentialAuthFailure,
               } = await import("./credential-provider.js");
-              const [creds, credentialSource] = await Promise.all([
-                resolveBuilderCredentials(),
-                resolveBuilderCredentialSource(),
-              ]);
+              const creds = await resolveBuilderCredentialsDetailed();
+              const credentialSource = creds.source;
+              if (
+                creds.lookupFailed &&
+                !(creds.privateKey && creds.publicKey)
+              ) {
+                return withConnectToken({
+                  ...requestStatus,
+                  configured: false,
+                  privateKeyConfigured: false,
+                  publicKeyConfigured: false,
+                  userId: undefined,
+                  orgName: undefined,
+                  orgKind: undefined,
+                  subscription: undefined,
+                  subscriptionLevel: undefined,
+                  subscriptionName: undefined,
+                  isEnterprise: undefined,
+                  isFreeAccount: undefined,
+                  credentialSource: credentialSource ?? undefined,
+                  canDisconnect: false,
+                  keyLookupFailed: true,
+                  ...(creds.optionalMetadataLookupFailure
+                    ? {
+                        optionalMetadataLookupFailure:
+                          creds.optionalMetadataLookupFailure,
+                      }
+                    : {}),
+                });
+              }
               const authFailure = await getBuilderCredentialAuthFailure(creds);
               if (authFailure) {
                 return withConnectToken({
@@ -4414,10 +4448,10 @@ export function createCoreRoutesPlugin(
                       creds.isFreeAccount ??
                       envStatus.isFreeAccount ??
                       undefined,
+                    credentialSource: credentialSource ?? undefined,
+                    keyLookupFailed: creds.lookupFailed,
                     optionalMetadataLookupFailure:
                       creds.optionalMetadataLookupFailure,
-                    credentialLookupFailed: creds.lookupFailed,
-                    credentialSource: credentialSource ?? undefined,
                     canDisconnect:
                       credentialSource === "user" ||
                       (credentialSource === "org" &&
@@ -4427,7 +4461,24 @@ export function createCoreRoutesPlugin(
                 );
               }
             } catch {
-              // Secrets table not ready — fall through to env status
+              // A failed credential lookup is not proof that no connection
+              // exists, so never replace it with an environment-only status.
+              return withConnectToken({
+                ...requestStatus,
+                configured: false,
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
+                subscription: undefined,
+                subscriptionLevel: undefined,
+                subscriptionName: undefined,
+                isEnterprise: undefined,
+                isFreeAccount: undefined,
+                canDisconnect: false,
+                keyLookupFailed: true,
+              });
             }
 
             // Honor legacy disconnect flag for existing deployments.

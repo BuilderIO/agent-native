@@ -454,8 +454,7 @@ async function readBuilderCredentialScope(
           if (!(metadataError instanceof AppSecretDecryptionError)) {
             throw metadataError;
           }
-          optionalMetadataLookupFailure =
-            optionalMetadataLookupFailure ?? "unreadable";
+          optionalMetadataLookupFailure ??= "unreadable";
           return new Map<string, ReadSecretResult>();
         }
       }),

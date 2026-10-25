@@ -22,7 +22,7 @@ import {
 } from "../secrets/managed-keys.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
-  deleteAppSecret,
+  deleteAppSecretIfVersion,
   readAppSecretVersion,
   writeAppSecret,
 } from "../secrets/storage.js";
@@ -77,6 +77,8 @@ export interface ChannelCredentialStatus {
   repairScope?: SecretScope;
   /** Opaque exact-ref confirmation required by `remove-credentials`. */
   removalConfirmation?: string;
+  /** Exact scope the removal confirmation is bound to. */
+  removalScope?: SecretScope;
 }
 
 export interface MessagingChannelStatus {
@@ -373,7 +375,7 @@ async function readCredentialStatus(
       source = "unreadable";
     }
   }
-  const removalRef =
+  const candidateRemovalRef =
     source === "saved"
       ? { key: item.key, scope: "workspace" as const, scopeId: access.scopeId }
       : unreadableRef;
@@ -383,14 +385,11 @@ async function readCredentialStatus(
       ? "saved"
       : undefined;
   const removalVersion =
-    removalRef && isChannelsManaged(item.key)
-      ? await readAppSecretVersion(removalRef)
+    candidateRemovalRef && removalKind && isChannelsManaged(item.key)
+      ? await readAppSecretVersion(candidateRemovalRef)
       : null;
-  const removable =
-    removalRef !== undefined &&
-    isChannelsManaged(item.key) &&
-    typeof removalVersion === "string" &&
-    removalVersion.length > 0;
+  const removalRef = removalVersion ? candidateRemovalRef : undefined;
+  const removable = removalRef !== undefined && isChannelsManaged(item.key);
   return {
     status: {
       key: item.key,
@@ -404,6 +403,7 @@ async function readCredentialStatus(
       ...(repairRef ? { repairScope: repairRef.scope } : {}),
       ...(removable && removalRef
         ? {
+            removalScope: removalRef.scope,
             removalConfirmation: removalConfirmation(
               removalRef,
               access.email,
@@ -415,7 +415,7 @@ async function readCredentialStatus(
     },
     ...(removalRef ? { removalRef } : {}),
     ...(removalKind ? { removalKind } : {}),
-    ...(removable ? { removalVersion } : {}),
+    ...(removalVersion ? { removalVersion } : {}),
   };
 }
 
@@ -692,7 +692,10 @@ export async function removeMessagingChannelCredentials(
       readCredentialStatus(keys.get(key)!, access),
     ),
   );
-  const refsToRemove: ChannelCredentialRef[] = [];
+  const refsToRemove: Array<{
+    ref: ChannelCredentialRef;
+    version: string;
+  }> = [];
   for (const {
     status,
     removalRef,
@@ -704,8 +707,7 @@ export async function removeMessagingChannelCredentials(
       !status.removable ||
       !removalRef ||
       !removalKind ||
-      typeof removalVersion !== "string" ||
-      removalVersion.length === 0 ||
+      !removalVersion ||
       !confirmation ||
       !confirmsRemoval(
         removalRef,
@@ -724,14 +726,22 @@ export async function removeMessagingChannelCredentials(
         },
       );
     }
-    refsToRemove.push(removalRef);
+    refsToRemove.push({ ref: removalRef, version: removalVersion });
   }
 
   const removedKeys: string[] = [];
-  for (const ref of refsToRemove) {
-    if ((await deleteAppSecret(ref)) && !removedKeys.includes(ref.key)) {
-      removedKeys.push(ref.key);
+  for (const { ref, version } of refsToRemove) {
+    if (!(await deleteAppSecretIfVersion(ref, version))) {
+      fail(
+        "The channel credentials changed. Refresh and confirm removal again.",
+        {
+          statusCode: 409,
+          errorCode: "channel_removal_confirmation_stale",
+          details: { key: ref.key },
+        },
+      );
     }
+    if (!removedKeys.includes(ref.key)) removedKeys.push(ref.key);
   }
   const channel = await readChannelStatus(
     mounted,

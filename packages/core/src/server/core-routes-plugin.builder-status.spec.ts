@@ -137,6 +137,21 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
     });
     expect(softFailure).toMatchObject({ keyLookupFailed: true });
 
+    const unreadableMetadata = await resolveOAuthCustodyBuilderKeyStatus({
+      resolveCredentialsDetailed: async () => ({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        orgName: null,
+        lookupFailed: false,
+        optionalMetadataLookupFailure: "unreadable",
+      }),
+    });
+    expect(unreadableMetadata).toMatchObject({
+      privateKeyConfigured: true,
+      publicKeyConfigured: true,
+      optionalMetadataLookupFailure: "unreadable",
+    });
+
     const thrown = await resolveOAuthCustodyBuilderKeyStatus({
       resolveCredentialsDetailed: async () => {
         throw new Error("credential store unavailable");

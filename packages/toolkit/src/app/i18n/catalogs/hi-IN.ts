@@ -1895,6 +1895,9 @@ const messages: ToolkitAgentChatTranslation = {
     "सेव की गई कुछ स्टोरेज सेटिंग की जाँच नहीं हो सकी। फिर कोशिश करें या सेव करने से पहले न पढ़े जा सकने वाले ज़रूरी मान बदलें।",
   "settings.storage.unreadableField":
     "यह सेव किया गया मान पढ़ा नहीं जा सका। इसे फिर से दर्ज करें।",
+  "settings.storage.clearUnreadableField": "न पढ़ा जा सकने वाला {{field}} हटाएँ",
+  "settings.storage.unreadableFieldCleared":
+    "सेव करने पर यह सेव किया गया मान हटा दिया जाएगा।",
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
   "settings.audit.action": "कार्रवाई",
@@ -2305,9 +2308,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.action": "हटाएं",
   "settingsShell.channels.removeCredentials.aria": "{{platform}} क्रेडेंशियल हटाएं",
   "settingsShell.channels.removeCredentials.body":
-    "जब तक डिप्लॉयमेंट एनवायरनमेंट भी ये कुंजियां सेट नहीं करता, एजेंट सभी के लिए {{platform}} में जवाब देना बंद कर देगा।",
+    "इन वर्कस्पेस क्रेडेंशियल को हटाने से एजेंट {{platform}} में सभी को जवाब देना बंद कर सकता है, जब तक डिप्लॉयमेंट एनवायरनमेंट भी ये कुंजियां सेट न करे।",
   "settingsShell.channels.removeCredentials.personalBody":
-    "इससे {{platform}} के लिए सिर्फ़ आपकी व्यक्तिगत क्रेडेंशियल हटेंगी। अन्य उपयोगकर्ताओं की क्रेडेंशियल और जवाब प्रभावित नहीं होंगे।",
+    "इससे केवल {{platform}} के लिए आपकी निजी क्रेडेंशियल हटती हैं। अन्य उपयोगकर्ताओं और वर्कस्पेस के क्रेडेंशियल अपरिवर्तित रहते हैं।",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "इससे {{platform}} के लिए चुने गए सहेजे गए क्रेडेंशियल हटेंगे। अन्य सहेजे गए क्रेडेंशियल अपरिवर्तित रहेंगे।",
   "settingsShell.channels.removeCredentials.confirm": "हटाएं",
   "settingsShell.channels.removeCredentials.failed": "क्रेडेंशियल हटाए नहीं जा सके।",
   "settingsShell.channels.removeCredentials.removing": "हटाया जा रहा है…",
@@ -2625,6 +2630,8 @@ const messages: ToolkitAgentChatTranslation = {
     "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
   "settingsShell.integrations.builderStatusFailed":
     "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Builder खाते की कुछ सहेजी गई जानकारी पढ़ी नहीं जा सकी।",
   "settingsShell.integrations.category.analytics": "एनालिटिक्स",
   "settingsShell.integrations.category.design": "डिज़ाइन",
   "settingsShell.integrations.category.engineering": "इंजीनियरिंग",

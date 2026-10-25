@@ -616,7 +616,6 @@ describe("secrets storage CRUD (real pglite)", () => {
       value: "first-value",
       description: "initial",
     });
-    const firstVersion = await mod.readAppSecretVersion(userRef);
     const secondId = await mod.writeAppSecret({
       ...userRef,
       value: "second-value-9999",
@@ -625,7 +624,6 @@ describe("secrets storage CRUD (real pglite)", () => {
     });
 
     expect(secondId).toBe(firstId);
-    expect(await mod.readAppSecretVersion(userRef)).not.toBe(firstVersion);
 
     const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
@@ -822,6 +820,27 @@ describe("secrets storage CRUD (real pglite)", () => {
     expect(await mod.deleteAppSecret(userRef)).toBe(true);
     expect(await mod.readAppSecret(userRef)).toBeNull();
     expect(await mod.deleteAppSecret(userRef)).toBe(false);
+  });
+
+  it("deletes a secret only while its ciphertext version is unchanged", async () => {
+    await mod.writeAppSecret({ ...userRef, value: "original-value" });
+    const originalVersion = await mod.readAppSecretVersion(userRef);
+    expect(originalVersion).toBeTruthy();
+
+    await mod.writeAppSecret({ ...userRef, value: "rotated-value" });
+    await expect(
+      mod.deleteAppSecretIfVersion(userRef, originalVersion!),
+    ).resolves.toBe(false);
+    await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
+      value: "rotated-value",
+    });
+
+    const currentVersion = await mod.readAppSecretVersion(userRef);
+    expect(currentVersion).toBeTruthy();
+    await expect(
+      mod.deleteAppSecretIfVersion(userRef, currentVersion!),
+    ).resolves.toBe(true);
+    await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
   });
 });
 

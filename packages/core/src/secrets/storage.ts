@@ -548,27 +548,32 @@ export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
   return rows.length > 0;
 }
 
+function appSecretRowVersion(
+  encryptedValue: unknown,
+  sharedEncryptedValue: unknown,
+): string {
+  return createHash("sha256")
+    .update(String(encryptedValue ?? ""))
+    .update("\u0000")
+    .update(String(sharedEncryptedValue ?? ""))
+    .digest("base64url");
+}
+
 /**
- * Read an opaque version for a secret row without decrypting or returning its
- * value. The ciphertext changes on every write, including same-millisecond
- * rotations, so consumers can bind confirmations to the exact saved row.
+ * Read an opaque version marker for a secret without decrypting its value.
+ * The marker changes whenever either saved ciphertext is replaced.
  */
 export async function readAppSecretVersion(
   ref: SecretRef,
 ): Promise<string | null> {
-  await ensureTable();
-  const { key, scope, scopeId } = ref;
-  const { rows } = await getDbExec().execute({
+  const { rows } = await executeAppSecretsRead({
     sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
-    args: [scope, scopeId, key],
+    args: [ref.scope, ref.scopeId, ref.key],
   });
-  if (rows.length === 0) return null;
   const row = rows[0];
-  return createHash("sha256")
-    .update(String(row.encrypted_value ?? ""))
-    .update("\u0000")
-    .update(String(row.shared_encrypted_value ?? ""))
-    .digest("base64url");
+  return row
+    ? appSecretRowVersion(row.encrypted_value, row.shared_encrypted_value)
+    : null;
 }
 
 export async function readAppSecretMeta(
@@ -687,4 +692,46 @@ export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   invalidateOptionalKeyCache();
   invalidateAgentEngineStatusCache();
   return rowsAffected > 0;
+}
+
+/**
+ * Delete only if the stored ciphertext is still the version the caller read.
+ * The ciphertext comparison in the DELETE closes the race between checking
+ * the opaque version and removing the row.
+ */
+export async function deleteAppSecretIfVersion(
+  ref: SecretRef,
+  expectedVersion: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [ref.scope, ref.scopeId, ref.key],
+  });
+  const row = rows[0];
+  if (
+    !row ||
+    appSecretRowVersion(row.encrypted_value, row.shared_encrypted_value) !==
+      expectedVersion
+  ) {
+    return false;
+  }
+  const { rowsAffected } = await client.execute({
+    sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? AND encrypted_value = ? AND shared_encrypted_value IS NOT DISTINCT FROM ?`,
+    args: [
+      ref.scope,
+      ref.scopeId,
+      ref.key,
+      row.encrypted_value,
+      row.shared_encrypted_value ?? null,
+    ],
+  });
+  if (rowsAffected > 0) {
+    invalidateRequestSecret(ref);
+    invalidateOptionalKeyCache();
+    invalidateAgentEngineStatusCache();
+    return true;
+  }
+  return false;
 }
