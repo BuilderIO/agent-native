@@ -311,7 +311,31 @@ export async function runAgentLoopDirectWithSoftTimeout(
     const reason = control.chunkBoundaryReason();
     return reason === "no_progress" || reason === "run_timeout" ? reason : null;
   };
-  if (timeoutMs <= 0) {
+  const localTurnEvents: AgentChatEvent[] = [];
+  const continueFromChunkBoundary = async (
+    reason: AgentLoopContinuationReason,
+    attemptEvents: readonly AgentChatEvent[],
+  ): Promise<void> => {
+    if (
+      (await completedSideEffectInCurrentTurn(
+        opts.threadId,
+        opts.turnId,
+        localTurnEvents,
+      )) === "none"
+    ) {
+      opts.send({ type: "clear" });
+    }
+    await appendContinuationAndJournal(
+      opts.messages,
+      reason,
+      opts.threadId,
+      opts.turnId,
+      localTurnEvents,
+      [...attemptEvents],
+    );
+    chunkSignal = control?.beginChunk() ?? chunkSignal;
+  };
+  if (timeoutMs <= 0 && !control) {
     const directEvents: AgentChatEvent[] = [];
     let directOutcome: AgentLoopOutcome | undefined;
     try {
@@ -376,30 +400,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
     onUsage?.({ ...usage });
   };
 
-  const localTurnEvents: AgentChatEvent[] = [];
-  const continueFromChunkBoundary = async (
-    reason: AgentLoopContinuationReason,
-    attemptEvents: readonly AgentChatEvent[],
-  ): Promise<void> => {
-    if (
-      (await completedSideEffectInCurrentTurn(
-        opts.threadId,
-        opts.turnId,
-        localTurnEvents,
-      )) === "none"
-    ) {
-      opts.send({ type: "clear" });
-    }
-    await appendContinuationAndJournal(
-      opts.messages,
-      reason,
-      opts.threadId,
-      opts.turnId,
-      localTurnEvents,
-      [...attemptEvents],
-    );
-    chunkSignal = control?.beginChunk() ?? chunkSignal;
-  };
   let attempts = 0;
   const loopEntryAt = Date.now();
   const maxRunLoopContinuations =
@@ -410,8 +410,13 @@ export async function runAgentLoopDirectWithSoftTimeout(
   let lastAttemptWasUnfinishedContinuation = false;
   while (!turnSignal.aborted && attempts < maxRunLoopContinuations) {
     const roundTimeoutMs =
-      attempts === 0 ? timeoutMs : timeoutMs - (Date.now() - loopEntryAt);
+      timeoutMs <= 0
+        ? 0
+        : attempts === 0
+          ? timeoutMs
+          : timeoutMs - (Date.now() - loopEntryAt);
     if (
+      timeoutMs > 0 &&
       attempts > 0 &&
       roundTimeoutMs < SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
     ) {
@@ -431,11 +436,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
 
     let softTimedOut = false;
-    const timer = setTimeout(() => {
-      if (controller.signal.aborted) return;
-      softTimedOut = true;
-      controller.abort();
-    }, roundTimeoutMs);
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            if (controller.signal.aborted) return;
+            softTimedOut = true;
+            controller.abort();
+          }, roundTimeoutMs)
+        : undefined;
 
     const attemptStartIndex = localTurnEvents.length;
     const send = (event: AgentChatEvent) => {
@@ -447,7 +455,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       let attemptOutcome: AgentLoopOutcome | undefined;
       const nextUsage = await runAgentLoop({
         ...stableOpts,
-        runSoftTimeoutMs: roundTimeoutMs,
+        ...(timeoutMs > 0 ? { runSoftTimeoutMs: roundTimeoutMs } : {}),
         send,
         signal: controller.signal,
         onOutcome: (outcome) => {
@@ -461,6 +469,23 @@ export async function runAgentLoopDirectWithSoftTimeout(
         lastAttemptWasUnfinishedContinuation = true;
         await continueFromChunkBoundary(chunkBoundaryReason, attemptEvents);
         continue;
+      }
+      if (timeoutMs <= 0) {
+        const unfinishedReason =
+          internalContinuationReasonForAttempt(attemptEvents);
+        if (turnSignal.aborted) {
+          reportFinalOutcome(turnAbortOutcome());
+        } else if (unfinishedReason) {
+          reportFinalOutcome({
+            state: "failed",
+            code: unfinishedReason,
+            retryable: false,
+            message: `Agent stopped before finishing (${unfinishedReason}).`,
+          });
+        } else {
+          reportFinalOutcome(attemptOutcome ?? { state: "completed" });
+        }
+        return usage;
       }
       const internalContinuationReason =
         internalContinuationReasonForAttempt(attemptEvents);
@@ -513,6 +538,27 @@ export async function runAgentLoopDirectWithSoftTimeout(
           localTurnEvents.slice(attemptStartIndex),
         );
         continue;
+      }
+      if (timeoutMs <= 0) {
+        const candidate = err as { errorCode?: unknown; message?: unknown };
+        reportFinalOutcome(
+          turnSignal.aborted
+            ? turnAbortOutcome()
+            : {
+                state: "failed",
+                code:
+                  typeof candidate?.errorCode === "string" &&
+                  candidate.errorCode
+                    ? candidate.errorCode
+                    : "internal_error",
+                retryable: isResumableEngineError(err),
+                message:
+                  typeof candidate?.message === "string"
+                    ? candidate.message
+                    : String(err),
+              },
+        );
+        throw err;
       }
       if (softTimedOut && !turnSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
@@ -653,7 +699,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       });
       throw err;
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       roundChunkSignal.removeEventListener("abort", abortFromUpstream);
     }
   }

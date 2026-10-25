@@ -423,6 +423,11 @@ export interface TrafficEntry {
   failure?: string;
   /** From the request body of a turn POST. */
   threadId?: string;
+  messageId?: string;
+  queuedState?: string;
+  queuedMessageId?: string;
+  queuedThreadId?: string;
+  responseError?: string;
 }
 
 /**

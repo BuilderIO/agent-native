@@ -532,6 +532,7 @@ async function assertNoForeignCollaborators(
   }
 
   for (const row of rows.flat()) {
+    if (row.cleared) continue;
     if (row.clientId === AGENT_CLIENT_ID) continue;
     const email = parseAwarenessUserEmail(row.state);
     if (!email || !currentEmail || email !== currentEmail) {

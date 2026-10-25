@@ -84,6 +84,23 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   validates consistency but cannot authenticate the original user message;
   creating this separate record is an explicit operator verification step. A
   partial default scan or IDs that differ from the inventory also fail.
+- For any held-root authorization, including on the default channel set, record
+  the exact user request in `scope.userRequest` and list each authorized root
+  as `{ "channelId": "C...", "rootTs": "..." }` in
+  `scope.authorizedRoots`. Repeat that exact request, the requested channel IDs,
+  and the same root list in the separate orchestrator confirmation file. A
+  direct bounded grant may cover roots without naming their individual
+  timestamps in the user message; the inventory and confirmation must still
+  list every covered root exactly. A channel or time-window selection alone
+  does not authorize writes. The unquoted request must be a direct,
+  unconditional grant for both follow-up and reaction work. Read-only,
+  claim-only, or reply-only permission does not cover the full operation. Pass
+  this confirmation as the checker's fourth input; without it, held roots stay
+  skipped. Generic permission does not qualify. The checker verifies every
+  listed root is classified, in the requested window or linked by an in-window
+  reply, and has this actor's claim and current status. Direct grants can cover
+  foreign workflow marks, person assignments, and canonical-linked duplicates;
+  do not record skip evidence for a root being actively reconciled.
 - Record the actual canonical Slack `channelName` in every channel row. Use
   that name only when validating Slack's echoed channel search query; the
   checker also accepts the exact channel ID and rejects any other name. Never
@@ -230,9 +247,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   its presence does not make the older report a new in-scope claim. Read its
   exact root reactions, then apply the ownership gate before opening the thread.
   Do not add `👀`, `✅`, or `🎫`, or post a status, just because
-  an unowned older root appears as context. If this actor already owns a mark
-  on that older root, reconcile its current status and scopes as usual; record
-  another actor's marks as ownership evidence and leave them untouched. Their
+  an unowned older root appears as context unless a direct grant covers that
+  exact root. If this actor already owns a mark on that older root, reconcile
+  its current status and scopes as usual; record another actor's marks as
+  ownership evidence unless authorization covers it. Their
   `👀` is active ownership only while their latest same-thread human status
   shows an open disposition; a later closed status makes that eye historical.
   Keep
@@ -241,20 +259,33 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   complete, oldest-first `threadSnapshot`, so a reply cannot predate or
   otherwise contradict its reported root.
 - **Held thread:** If the exact root reaction read shows another actor owns any
-  workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, do not open or
-  read the thread, inspect reply reactions, react, or reply. Record an
-  `ownershipSkip` with the root timestamp and `foreign_workflow_mark` or
-  `mag_opt_out`; use `Skipped` and leave thread-derived fields empty. If this
-  actor also owns a workflow mark, use `mag_opt_out` and preserve the exact
-  direct root reaction-owner record as history. The checker treats it as held
-  and requires no thread snapshot or status. Mark every
+  workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, hold the root
+  by default. A direct user instruction may authorize full follow-up and
+  reaction work for exact roots or a bounded sweep; the unquoted request must
+  be a direct, unconditional grant covering both operations. Read-only,
+  claim-only, or reply-only permission is insufficient. For a bounded grant,
+  the user message need not name every timestamp; record the exact user request
+  and every covered root in `scope.userRequest` and `scope.authorizedRoots`,
+  then repeat the same request, channel IDs, and root list in the separate
+  orchestrator confirmation file. The checker matches both records, verifies
+  that each target is a classified root in the fixed window or linked from it,
+  and requires the normal exact-root, thread, reaction, claim, and
+  current-status evidence. The checker
+  cannot independently recover the original prompt; keep the copied request
+  exact. Without such authorization, record an `ownershipSkip` with the root timestamp and
+  `foreign_workflow_mark` or `mag_opt_out`; use `Skipped` and leave
+  thread-derived fields empty. If this actor also owns a workflow mark, use
+  `mag_opt_out` and preserve the exact direct root reaction-owner record as
+  history. The checker treats an unauthorized root as held and requires no
+  thread snapshot or status. Mark every
   channel reply linked to that root with the same skip reference. The checker
   requires direct root reaction evidence and the matching skip reason, but no
   full-thread snapshot. For a linked pre-window root without source text, use
   `unclassified`; do not guess from its in-window reply. This boundary also
   applies when the other actor's eye has no visible status reply: ownership is
-  not permission to inspect. The direct root-reaction read must still be fresh
-  and after the final source page; it is the only read allowed for a held root.
+  not permission to inspect without user authorization. The direct root-reaction
+  read must still be fresh and after the final source page; it is the only read
+  allowed for a held root without user authorization.
   Preserve the source's exact file ID, name, and MIME type when its raw search
   result includes `Files:`. If that result omits file metadata, leave the held
   root's `files` field absent to represent unknown; do not record `[]`. For an
@@ -317,17 +348,31 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   requested `cursor`, raw response, and `readAt`; the raw response must
   explicitly report cursor exhaustion. The checker compares every page and
   reply against the complete `threadSnapshot`.
-- For every in-scope root classified as a report, pass the ownership gate. If
-  it is still open and no other actor owns it, claim it with this actor's root
-  `👀` and post a current status in its root thread. The checker rejects an
-  eligible open report without this claim and status. For every root already
-  owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current status
-  after the latest human reply; update it only when new human input, proof,
-  disposition, or next action changes. For **Owned elsewhere**, record another
+- For every in-scope report, pass the ownership gate. Claim eligible unowned
+  reports with this actor's root `👀` before investigating. Do not claim or
+  reply on an unowned `Clustered` duplicate or a person-assigned root unless a
+  direct full-follow-up grant covers it. For an unauthorized assignment,
+  record `personAssignedSkip.assigneeId` and the exact `assignmentTs`; the
+  checker verifies that the complete thread read-back assigns the work to that
+  Slack user and that this actor has no workflow claim or reply. A direct grant
+  can cover exact held, assigned, or duplicate roots, or the matching roots in
+  a bounded sweep. Expand every covered root in both authorization records; the
+  checker then requires normal exact-root, thread, reaction, claim, and
+  current-status evidence. The checker
+  rejects an eligible open report without this claim and status. For every root
+  already owned by this actor (`👀`, `✅`, or `🎫`), record or reuse a current
+  status after the latest human reply; update it only when new human input,
+  proof, disposition, or next action changes. For an unowned `Clustered` root,
+  keep `clusteredUnder` and do not add a status reply unless the exact root is
+  covered by direct user authorization; authorized duplicates get the normal
+  claim and current-status checks.
+  For **Owned elsewhere**, record another
   actor's root `👀` and their latest same-thread open status after the latest
-  human reply; do not claim or reply on that root. Do not reply on an
-  administrative post or duplicate; record the reason and link a duplicate to
-  its canonical report. Include
+  human reply. Leave it untouched by default; a user-authorized exact root or
+  bounded sweep proceeds through the normal claim and current-status checks.
+  Do not claim an unowned administrative post or duplicate; record the reason
+  and link a duplicate to its canonical report. If this actor already owns a
+  mark there, reconcile it with a same-thread status. Include
   the root `threadParentTs`, reply timestamp, author ID, matching disposition,
   evidence, and read-back text. Keep exact scope, proof, and handoff details in
   the ledger. For `Owned elsewhere`, keep the owner's full proof in
@@ -379,7 +424,7 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   status update that points to the existing ask, then wait silently. Record an
   explicit decision for both `✅` and `🎫`: `present` with its scope, or `none`
   with the reason no mark applies.
-  For every parent with this actor's `👀`, `✅`, or `🎫`, include
+  For every non-held root with this actor's `👀`, `✅`, or `🎫`, include
   `latestRelevantHumanReply`. Set it to `null` only when the root thread has no
   relevant non-sweep human reply. Otherwise record the reply's exact Slack
   timestamp (`ts`), `actorId`, and verbatim `text`; exclude this actor's status
@@ -430,8 +475,11 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   say merge is pending. `✅` and `👀` can coexist: the check marks the verified
   scope; the eye is permanent workflow history and does not say whether work
   remains open. After merge, record **Fixed** (or **Partially fixed** when
-  another scope remains). Never remove or clean up a reaction. Do not wait for
-  unrelated scopes to close. This actor's single root `✅` covers the
+  another scope remains). Keep marks as history while they still describe the
+  workflow. Remove this actor's stale or misapplied mark after a fresh direct
+  read and record the change; change another actor's mark only when the user
+  explicitly authorizes that exact reaction change. Do not wait for unrelated
+  scopes to close. This actor's single root `✅` covers the
   verified scopes listed in `fixedScopes[]`; every unfinished team handoff
   and active reporter request requires this actor's `🎫`. Handoffs track team
   actions, while reporter requests track input this workflow asked for. The
@@ -488,7 +536,8 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   the cutoff filters which messages count, but never ends the cursor chain.
 - Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [scope-confirmation.json]`
   before recapping. Supply `.tmp/feedback-scope-confirmation.json` as the
-  fourth input for narrowed scope; the first three inputs remain required. The
+  fourth input for narrowed scope or held-root authorization; the first three
+  inputs remain required. The
   checker compares the
   independent receipt's channel set, page chain, timestamps, message counts,
   and every source `{ ts, root }` row with the reviewed inventory and raw Slack
@@ -496,11 +545,13 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   rebuild the inventory from the captured Slack pages and rerun the check; never
   edit the receipt to fit the inventory. Source and ownership-search pages are
   immutable evidence for the fixed `after`/`before` interval; their age does not
-  restart the sweep. The 15-minute freshness window applies to current root and
+  restart the sweep. The 60-minute freshness window applies to current root and
   reply reaction reads and full-thread snapshots. If one expires, reread only
-  that exact state. After one targeted retry, if a required current-state read
-  is still stale or unavailable, mark the inventory incomplete and stop; do
-  not restart the channel-wide search or loop.
+  that exact state. On rate limits, honor `Retry-After` when available; otherwise
+  use exponential backoff and retry only that target while the task remains
+  active. Keep the inventory incomplete until all required reads succeed; never
+  restart the channel-wide search or abandon an authorized sweep after a failed
+  targeted read.
   It rejects any root mark this actor owns without a current same-actor
   status reply, a
   assigned-human handoff without that person's explicit acceptance, an
@@ -542,9 +593,11 @@ tracks requested input, not a team handoff. In the internal ledger, record the
 exact proof gap, blocker, and next owner/action. Keep the current status brief
 and plain-language. An
 eye-only root with unfinished work is pending; an eye-only root with a closed
-verified disposition may retain the eye as history. Never remove or clean up a
-reaction. Slack thread replies appear under the root's reply count, not as
-separate channel posts; do not broadcast routine status replies.
+verified disposition may retain the eye as history. Correct this actor's
+stale or misapplied mark after a fresh read and record the change. Change
+another actor's mark only with explicit authorization for that reaction. Slack
+thread replies appear under the root's reply count, not as separate channel
+posts; do not broadcast routine status replies.
 
 After a long investigation, CI/deploy wait, or handoff, do one final exhaustive
 pass of the exact original channel-wide query for every scoped channel, using
@@ -608,10 +661,12 @@ The inventory checker requires source pages to use one recorded inclusive
 upper bound with no `after`. Both page chains must remain in cursor order and
 have valid local ISO read times. Their age does not invalidate those fixed
 bounds. Current root and reply reaction reads and full-thread snapshots must be
-within 15 minutes, allow at most one minute of local clock skew, and follow the
+within 60 minutes, allow at most one minute of local clock skew, and follow the
 final source and ownership-search pages. Refresh only a stale current-state
-target; if one targeted reread is still stale or unavailable, mark coverage
-incomplete and stop instead of repeating the full sweep.
+target. Honor `Retry-After` or use exponential backoff for rate limits, and
+retry that exact target once. If that retry still cannot pass freshness, mark
+coverage incomplete and stop. Do not restart the full sweep or report complete
+until every required read is fresh.
 
 The inventory checker requires a complete `threadSnapshot` for every in-scope
 classified root and every supplemental root included to resolve an in-scope

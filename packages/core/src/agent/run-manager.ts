@@ -12,6 +12,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import { isNonProgressEventType } from "../shared/progress-events.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import {
   isLlmCredentialError,
@@ -214,6 +215,8 @@ export function resolveRunNoProgressTimeoutMs(params: {
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
 }
+
+const MAX_CONSECUTIVE_EMPTY_MODEL_CALLS = 3;
 
 function inFlightWorkDelta(event: AgentChatEvent): -1 | 0 | 1 {
   switch (event.type) {
@@ -901,6 +904,7 @@ export function startRun(
       chunkAbort = new AbortController();
       armChunkSoftTimeout();
       lastRealProgressAt = Date.now();
+      consecutiveEmptyModelCalls = 0;
       return chunkAbort.signal;
     },
   };
@@ -1002,6 +1006,13 @@ export function startRun(
     )
       throw error;
   });
+  const waitForRunInsert = async (): Promise<void> => {
+    try {
+      await insertRunPromise;
+    } catch (error) {
+      if (!servicePrincipalStartRefused) throw error;
+    }
+  };
 
   let executionLeaseClaimFailed = false;
   const executionFencePromise: Promise<ExecutionFence | undefined> =
@@ -1247,7 +1258,6 @@ export function startRun(
     scheduleProgressWrite();
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
-    if (event.type === "stream_keepalive") return false;
     if (event.type === "clear") {
       for (const [key, bytes] of preparingActivityBytes) {
         const toolKey = preparingActivityTools.get(key) ?? key;
@@ -1258,8 +1268,8 @@ export function startRun(
       }
       preparingActivityBytes.clear();
       preparingActivityTools.clear();
-      return false;
     }
+    if (isNonProgressEventType(event.type)) return false;
     if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
       const toolKey = event.tool?.trim() || event.label.trim();
       const activityKey = `${toolKey}:${event.id?.trim() || "no-id"}`;
@@ -1336,6 +1346,11 @@ export function startRun(
   };
 
   let lastRealProgressAt = Date.now();
+  // Every completed model call refreshes the silence clock (its result is still
+  // being processed), so a loop of calls that produce no text, tool call or
+  // result is caught by counting consecutive empty calls instead.
+  let consecutiveEmptyModelCalls = 0;
+  let modelCallHadProgress = false;
   let inFlightWorkCount = 0;
   let inFlightMarkerSince: number | null = null;
   let inFlightMarkerWrite = Promise.resolve();
@@ -1610,7 +1625,9 @@ export function startRun(
     if (run.status !== "running" || abort.signal.aborted) return;
     if (inFlightWorkCount > 0) return;
     const silentForMs = Date.now() - lastRealProgressAt;
-    if (silentForMs < noProgressTimeoutMs) return;
+    const emptyCallLoop =
+      consecutiveEmptyModelCalls > MAX_CONSECUTIVE_EMPTY_MODEL_CALLS;
+    if (!emptyCallLoop && silentForMs < noProgressTimeoutMs) return;
     const lastEventType = run.events.at(-1)?.event.type;
     if (!chunkAbort) {
       console.error(
@@ -1841,11 +1858,8 @@ export function startRun(
     eventData: string,
     eventAt: number,
   ): Promise<void> => {
-    const terminal = isTerminalRunEvent(runEvent.event);
-    const requireInserted =
-      runEvent.event.type === "tool_start" ||
-      (terminal && !servicePrincipalStartRefused);
-    if (requireInserted) await insertRunPromise;
+    await waitForRunInsert();
+    const requireInserted = !servicePrincipalStartRefused;
     const write = () =>
       insertRunEvent(runId, runEvent.seq, eventData, {
         eventAt,
@@ -1882,7 +1896,16 @@ export function startRun(
     trackInFlightWork(runEvent.event);
     if (shouldBumpProgressForEvent(runEvent.event)) {
       lastRealProgressAt = Date.now();
+      consecutiveEmptyModelCalls = 0;
+      modelCallHadProgress = true;
       bumpProgressIfDue();
+    } else if (runEvent.event.type === "model_stream") {
+      if (runEvent.event.status === "start") {
+        modelCallHadProgress = false;
+      } else {
+        lastRealProgressAt = Date.now();
+        if (!modelCallHadProgress) consecutiveEmptyModelCalls++;
+      }
     }
   };
 
@@ -1946,9 +1969,13 @@ export function startRun(
             publications: [],
             write: () => {
               if (openEventBatch === batch) openEventBatch = null;
-              return retryOnce(() =>
-                withWorkerFence(() => insertRunEvents(runId, batch.events)),
-              );
+              return (async () => {
+                await waitForRunInsert();
+                if (servicePrincipalStartRefused) return;
+                await retryOnce(() =>
+                  withWorkerFence(() => insertRunEvents(runId, batch.events)),
+                );
+              })();
             },
           },
         };

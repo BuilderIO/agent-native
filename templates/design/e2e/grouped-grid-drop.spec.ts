@@ -232,16 +232,51 @@ const TARGET_GRID_ITEMS = [
   "occupied-d",
 ];
 
+type GridBoxes = Record<
+  string,
+  { left: number; top: number; right: number; bottom: number }
+>;
+
 /** Rendered boxes of the target grid's items, in design pixels. */
 async function targetGridBoxes(app: App) {
-  const boxes: Record<
-    string,
-    { left: number; top: number; right: number; bottom: number }
-  > = {};
-  for (const id of TARGET_GRID_ITEMS) {
-    const { x, y, width, height } = await app.designRect(id);
-    boxes[id] = { left: x, top: y, right: x + width, bottom: y + height };
-  }
+  return preview(app.page)
+    .locator("body")
+    .evaluate((body, nodeIds) => {
+      const boxes: GridBoxes = {};
+      for (const id of nodeIds) {
+        const element = body.ownerDocument.querySelector<HTMLElement>(
+          `[data-agent-native-node-id="${id}"]`,
+        );
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        const x = Math.round(rect.x);
+        const y = Math.round(rect.y);
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        boxes[id] = {
+          left: x,
+          top: y,
+          right: x + width,
+          bottom: y + height,
+        };
+      }
+      return boxes;
+    }, TARGET_GRID_ITEMS);
+}
+
+async function waitForTargetGridBoxes(app: App): Promise<GridBoxes> {
+  let boxes: GridBoxes | null = null;
+  await expect
+    .poll(
+      async () => {
+        boxes = await targetGridBoxes(app);
+        return boxes !== null;
+      },
+      { timeout: 45_000 },
+    )
+    .toBe(true);
+  if (!boxes)
+    throw new Error("preview has not rendered every target grid item");
   return boxes;
 }
 
@@ -286,7 +321,7 @@ test("dropping a two-item group on an occupied grid cell keeps every item inside
   const dropped = await app.savedNodes(designId);
   expect(childrenOf(dropped, "target-grid")).toEqual(TARGET_GRID_ITEMS);
   expect(childrenOf(dropped, "source-group")).toEqual([]);
-  const boxes = await targetGridBoxes(app);
+  const boxes = await waitForTargetGridBoxes(app);
   const gridContent = { left: 516, top: 116, right: 964, bottom: 364 };
   const outside = Object.entries(boxes)
     .filter(

@@ -12,6 +12,10 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import {
+  hostedModelExperimentVariant,
+  singleNonHostedAssignment,
+} from "./hosted-model-experiment.js";
+import {
   MAX_AI_CONTENT_BYTES,
   MAX_AI_SPANS_PER_RUN,
   boundAiContent,
@@ -465,11 +469,15 @@ function emitLlmGenerationTrackingEvent(args: {
     properties.experiment_variants = args.experimentAssignments
       .map((assignment) => assignment.variantId)
       .join(",");
-    if (args.experimentAssignments.length === 1) {
-      properties.experiment_id = args.experimentAssignments[0].experimentId;
-      properties.experiment_variant = args.experimentAssignments[0].variantId;
+    const singular = singleNonHostedAssignment(args.experimentAssignments);
+    if (singular) {
+      properties.experiment_id = singular.experimentId;
+      properties.experiment_variant = singular.variantId;
     }
   }
+  properties.hosted_model_experiment_variant = hostedModelExperimentVariant(
+    args.experimentAssignments,
+  );
 
   for (const key of Object.keys(properties)) {
     if (properties[key] === undefined) delete properties[key];
@@ -657,14 +665,14 @@ export async function instrumentAgentLoop(opts: {
     "agent.run_id": runId,
     "agent.user_id": userId ?? undefined,
     "agent.model_selection_source": opts.modelSelectionSource,
-    "agent.experiment_id":
-      opts.experimentAssignments?.length === 1
-        ? opts.experimentAssignments[0].experimentId
-        : undefined,
-    "agent.experiment_variant":
-      opts.experimentAssignments?.length === 1
-        ? opts.experimentAssignments[0].variantId
-        : undefined,
+    "agent.experiment_id": singleNonHostedAssignment(opts.experimentAssignments)
+      ?.experimentId,
+    "agent.experiment_variant": singleNonHostedAssignment(
+      opts.experimentAssignments,
+    )?.variantId,
+    "agent.hosted_model_experiment_variant": hostedModelExperimentVariant(
+      opts.experimentAssignments,
+    ),
   });
   let otelRunSpan: AgentSpan | null = null;
 
