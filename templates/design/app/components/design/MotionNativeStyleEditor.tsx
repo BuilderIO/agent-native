@@ -1813,7 +1813,7 @@ export function MotionEasingPicker({
   function selectPreset(option: (typeof EASING_OPTIONS)[number]) {
     const next =
       option.value === "custom-bezier"
-        ? isCustomBezier(value)
+        ? isCustomBezier(value) || parseLinearStops(value) !== null
           ? value
           : MOTION_DEFAULT_CUSTOM_BEZIER
         : option.value === "custom-spring"

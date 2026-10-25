@@ -529,6 +529,25 @@ describe("MotionNativeStyleEditor", () => {
     );
   });
 
+  it("preserves a selected CSS linear() easing when activating its custom preset", async () => {
+    const value = "linear(0 20%, 1 80%)";
+    const onChange = vi.fn();
+    await renderPicker({ value, onChange });
+    await openEasingPicker("designEditor.motion.customBezier");
+
+    const customOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="designEditor.motion.customBezier"]',
+      ),
+    ).find((button) =>
+      button.querySelector('svg[data-motion-easing-preview="custom-bezier"]'),
+    );
+    if (!customOption) throw new Error("Missing custom easing option");
+    await act(async () => customOption.click());
+
+    expect(onChange).toHaveBeenCalledWith(value);
+  });
+
   it("orders easing presets with Hold first", async () => {
     await renderPicker();
     await openEasingPicker();
