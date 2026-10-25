@@ -128,6 +128,48 @@ describe("decide", () => {
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
+  it("times out when OpenAI credential lookup exceeds the decision budget", async () => {
+    vi.useFakeTimers();
+    mocks.getOwnerApiKeyForEngine.mockReturnValue(new Promise(() => {}));
+
+    const pending = decide({
+      ownerEmail,
+      input: "I was charged twice.",
+      questions: [choiceQuestion],
+      options: { providers: ["openai"], timeoutMs: 1_000 },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toEqual({
+      status: "failed",
+      reason: "timeout",
+      provider: "openai",
+    });
+    expect(mocks.requestOpenAiDecision).not.toHaveBeenCalled();
+  });
+
+  it("times out during Jev credential lookup before trying another provider", async () => {
+    vi.useFakeTimers();
+    mocks.getJevContextCredentials.mockReturnValue(
+      new Promise<JevContextCredentials>(() => {}),
+    );
+
+    const pending = decide({
+      ownerEmail,
+      input: "I was charged twice.",
+      questions: [choiceQuestion],
+      options: { providers: ["jev", "openai"], timeoutMs: 1_000 },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toEqual({
+      status: "failed",
+      reason: "timeout",
+      provider: "jev",
+    });
+    expect(mocks.getOwnerApiKeyForEngine).not.toHaveBeenCalled();
+  });
+
   it("maps predicate and choice questions for the Builder Jev proxy", async () => {
     mocks.getJevContextCredentials.mockResolvedValue({
       apiKey: undefined,

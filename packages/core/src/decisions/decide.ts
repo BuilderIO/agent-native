@@ -152,28 +152,48 @@ function toJevRequest(
   };
 }
 
-type LookupResult<T> = { aborted: true } | { aborted: false; value: T };
+type LookupResult<T> =
+  | { status: "aborted" }
+  | { status: "timeout" }
+  | { status: "resolved"; value: T };
 
 function waitForLookup<T>(
   lookup: Promise<T>,
   signal: AbortSignal | undefined,
+  timeoutMs: number,
 ): Promise<LookupResult<T>> {
-  if (!signal) {
-    return lookup.then((value) => ({ aborted: false, value }));
-  }
-  if (signal.aborted) return Promise.resolve({ aborted: true });
+  if (signal?.aborted) return Promise.resolve({ status: "aborted" });
+  if (timeoutMs <= 0) return Promise.resolve({ status: "timeout" });
 
-  let removeAbortListener = () => {};
-  const aborted = new Promise<{ aborted: true }>((resolve) => {
-    const onAbort = () => resolve({ aborted: true });
-    signal.addEventListener("abort", onAbort, { once: true });
-    removeAbortListener = () => signal.removeEventListener("abort", onAbort);
-    if (signal.aborted) onAbort();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (result: LookupResult<T>) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+    const onAbort = () => finish({ status: "aborted" });
+    const timeout = setTimeout(() => finish({ status: "timeout" }), timeoutMs);
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+
+    lookup.then(
+      (value) => finish({ status: "resolved", value }),
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
   });
-  return Promise.race([
-    lookup.then((value) => ({ aborted: false as const, value })),
-    aborted,
-  ]).finally(removeAbortListener);
 }
 
 function validateOptions(options: DecideOptions | undefined): boolean {
@@ -235,8 +255,8 @@ export async function decide(input: {
   const configured = getAppConfig().decisions;
   const providers = input.options?.providers ?? configured.providerOrder;
   const timeoutMs = input.options?.timeoutMs ?? configured.timeoutMs;
+  const providerDeadlineAt = Date.now() + timeoutMs;
   const missingProviders: DecisionProvider[] = [];
-  let providerDeadlineAt: number | undefined;
   let compatibleProviderCount = 0;
   let unverifiedCapability: {
     provider: DecisionProvider;
@@ -280,9 +300,13 @@ export async function decide(input: {
           onLookupFailure: () => (lookupFailed = true),
         }),
         input.options?.signal,
+        Math.max(0, providerDeadlineAt - Date.now()),
       );
-      if (lookup.aborted) {
+      if (lookup.status === "aborted") {
         return { status: "failed", reason: "aborted", provider };
+      }
+      if (lookup.status === "timeout") {
+        return { status: "failed", reason: "timeout", provider };
       }
       const resolved = lookup.value;
       apiKey =
@@ -293,9 +317,13 @@ export async function decide(input: {
       const lookup = await waitForLookup(
         getJevContextCredentials(input.ownerEmail),
         input.options?.signal,
+        Math.max(0, providerDeadlineAt - Date.now()),
       );
-      if (lookup.aborted) {
+      if (lookup.status === "aborted") {
         return { status: "failed", reason: "aborted", provider };
+      }
+      if (lookup.status === "timeout") {
+        return { status: "failed", reason: "timeout", provider };
       }
       jevCredentials = lookup.value;
       apiKey = jevCredentials.directApiKey ?? jevCredentials.personalApiKey;
@@ -304,12 +332,18 @@ export async function decide(input: {
         (!apiKey && jevCredentials.builderAuthLookupFailed),
       );
       if (!apiKey && jevCredentials.builderAuth) {
-        providerDeadlineAt ??= Date.now() + timeoutMs;
+        const entitlementTimeoutMs = Math.max(
+          0,
+          providerDeadlineAt - Date.now(),
+        );
+        if (entitlementTimeoutMs <= 0) {
+          return { status: "failed", reason: "timeout", provider };
+        }
         try {
           if (
             await isJevEnabled(jevCredentials, {
               signal: input.options?.signal,
-              timeoutMs: Math.max(0, providerDeadlineAt - Date.now()),
+              timeoutMs: entitlementTimeoutMs,
             })
           ) {
             apiKey = "builder-auth";
@@ -356,10 +390,7 @@ export async function decide(input: {
       input.input,
       input.questions,
     );
-    const providerTimeoutMs =
-      providerDeadlineAt === undefined
-        ? timeoutMs
-        : Math.max(0, providerDeadlineAt - Date.now());
+    const providerTimeoutMs = Math.max(0, providerDeadlineAt - Date.now());
     if (providerTimeoutMs <= 0) {
       return { status: "failed", reason: "timeout", provider };
     }

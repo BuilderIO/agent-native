@@ -5,6 +5,9 @@ export const decisionsConfig = z.object({
     .array(z.enum(["openai", "jev"]))
     .min(1)
     .max(2)
+    .refine((providers) => new Set(providers).size === providers.length, {
+      message: "Decision provider order cannot contain duplicates",
+    })
     .default(["jev", "openai"])
     .meta({
       env: "DECISIONS_PROVIDER_ORDER",
@@ -12,6 +15,6 @@ export const decisionsConfig = z.object({
     }),
   timeoutMs: z.number().int().min(1_000).max(60_000).default(10_000).meta({
     env: "DECISIONS_TIMEOUT_MS",
-    doc: "Maximum time for one decision provider request, in milliseconds.",
+    doc: "Maximum time for a decision, including credential resolution and provider requests, in milliseconds.",
   }),
 });

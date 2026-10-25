@@ -15,6 +15,12 @@ describe("decisionsConfig", () => {
     ).toEqual(["openai", "jev"]);
   });
 
+  it("rejects duplicate providers in the configured order", () => {
+    expect(
+      decisionsConfig.safeParse({ providerOrder: ["jev", "jev"] }).success,
+    ).toBe(false);
+  });
+
   it("parses a comma-separated provider order from the environment", () => {
     expect(
       readEnvConfigLayer(appConfigSchema, {
