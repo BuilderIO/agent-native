@@ -803,6 +803,66 @@ describe("durable execution step identity", () => {
     }
   });
 
+  it("holds each repeated write whose slot-only step from before this release may have run", async () => {
+    const threadId = "thread-resume-repeated-dispatched-steps";
+    const turnId = "turn-resume-repeated-dispatched-steps";
+    const priorRunId = "run-before-release-repeated-dispatch";
+    const run = vi.fn(async ({ title }: { title: string }) => `Saved ${title}`);
+
+    const priorEvents = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: priorRunId,
+      titles: ["Q4 plan", "Q3 plan", "Q3 plan"],
+      messages: [request],
+      retrySafe: false,
+      run,
+    });
+    for (const slot of [1, 2]) {
+      await recordUnderSlotOnlyId({
+        threadId,
+        priorRunId,
+        priorEvents,
+        slot,
+        dispatchedOnly: true,
+      });
+    }
+
+    const events = await runCreateDecks({
+      threadId,
+      turnId,
+      runId: "run-after-release-repeated-dispatch",
+      titles: ["Q3 plan", "Q3 plan"],
+      messages: [request, continuePrompt],
+      internalContinuation: true,
+      retrySafe: false,
+      run,
+    });
+
+    // Identical interrupted entries may be attempts of one call, so neither
+    // claims a step; the interruptions still hold the write.
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-repeated-dispatch-call-0",
+        isError: true,
+        result: expect.stringContaining("interrupted 2 time(s)"),
+      }),
+    );
+    // Holding the first write stops the turn before the second is tried.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "run-after-release-repeated-dispatch-call-1",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+    expect(
+      (await stepRows(threadId)).filter((row) => row.status !== "prepared"),
+    ).toHaveLength(3);
+  });
+
   it("holds a moved write whose slot-only step from before this release may have run", async () => {
     const threadId = "thread-resume-moved-dispatched-step";
     const turnId = "turn-resume-moved-dispatched-step";
