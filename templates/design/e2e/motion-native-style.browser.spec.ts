@@ -1,7 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_NATIVE_STYLE_INSTANCE_TYPE } from "../shared/motion-native-style";
@@ -9,10 +14,17 @@ import { injectMotionTextRuntime } from "../shared/motion-text-code";
 import type { MotionTextDocument } from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
-import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
+import {
+  designFrame,
+  enableLab,
+  gotoEditor,
+  selectByText,
+  waitForDesignPreviewReady,
+} from "./helpers";
 
 let designId: string;
 let fileId: string;
+let fileUrlPath: string;
 let baseURLForActions: string;
 let restoreMotionLab: (() => Promise<void>) | null = null;
 
@@ -140,8 +152,21 @@ test.beforeAll(async ({ request }, workerInfo) => {
   });
   fileId = file.id;
   if (!fileId) throw new Error("create-file did not return an id");
+  fileUrlPath = file.urlPath;
+  if (!fileUrlPath) throw new Error("create-file did not return a Screen URL");
   await postAction(request, "index-components", { designId });
 });
+
+async function gotoMotionStyleScreen(page: Page) {
+  await gotoEditor(page, designId);
+  await page.goto(new URL(fileUrlPath, baseURLForActions).toString(), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  await waitForDesignPreviewReady(page);
+}
 
 test.beforeEach(async ({ page }) => {
   restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
@@ -163,7 +188,7 @@ test("native style states persist with the Motion inspector and timeline", async
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
-  await gotoEditor(page, designId);
+  await gotoMotionStyleScreen(page);
   await selectByText(page, "Motion Rectangle", {
     screenId: fileId,
   });
@@ -752,7 +777,7 @@ test("native style states persist with the Motion inspector and timeline", async
     ),
   ).toBe(false);
 
-  await gotoEditor(page, designId);
+  await gotoMotionStyleScreen(page);
   await selectByText(page, "Second fixture paragraph for selection tests.", {
     screenId: fileId,
     clearPreviousSelection: true,
@@ -1037,4 +1062,169 @@ test("a new motion preset applies to every selected target", async ({
     "e2e-motion-style-rectangle",
     "e2e-motion-style-rectangle-2",
   ]);
+});
+
+test("custom Size axes round-trip through source, reopen, and reload", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  await gotoMotionStyleScreen(page);
+  await selectByText(page, "Motion Rectangle Two", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  await expect(dock).toBeVisible();
+
+  const applyEdit = async (edit: () => Promise<void>) => {
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await edit();
+    const response = await responsePromise;
+    expect(response.ok(), await response.text()).toBe(true);
+    expect(await response.json()).toMatchObject({ persisted: true });
+  };
+
+  const sourceBefore = await getAction(request, "read-source-file", {
+    designId,
+    path: "index.html",
+  });
+  const addAnimation = page
+    .getByRole("button", { name: "Add animation", exact: true })
+    .first();
+  await applyEdit(async () => {
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Size", exact: true }).click();
+  });
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  const animationSection = page.locator(
+    '[data-design-inspector-section][aria-label="Animations"]',
+  );
+  const sizeRow = animationSection.getByRole("button", {
+    name: "Size",
+    exact: true,
+  });
+  await expect(sizeRow).toHaveText("Size");
+  await sizeRow.click();
+
+  const choose = async (label: string, value: string) => {
+    await applyEdit(async () => {
+      await page.getByRole("combobox", { name: label, exact: true }).click();
+      await page.getByRole("option", { name: value, exact: true }).click();
+    });
+  };
+  await choose("Type", "Custom");
+  await expect(page.locator('input[aria-label="Start width"]')).toHaveValue(
+    "50",
+  );
+  await expect(page.locator('input[aria-label="End width"]')).toHaveValue(
+    "100",
+  );
+  await expect(page.locator('input[aria-label="Start height"]')).toHaveValue(
+    "50",
+  );
+  await expect(page.locator('input[aria-label="End height"]')).toHaveValue(
+    "100",
+  );
+
+  for (const [label, value] of [
+    ["Start width", "61"],
+    ["End width", "117"],
+    ["Start height", "72"],
+    ["End height", "128"],
+  ] as const) {
+    await applyEdit(async () => {
+      await page.locator(`input[aria-label="${label}"]`).fill(value);
+    });
+    await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
+      value,
+    );
+  }
+
+  await choose("Axis", "X");
+  await expect(page.locator('input[aria-label="Start width"]')).toHaveValue(
+    "61",
+  );
+  await expect(page.locator('input[aria-label="Start height"]')).toHaveCount(0);
+  await choose("Axis", "Y");
+  await expect(page.locator('input[aria-label="Start width"]')).toHaveCount(0);
+  await expect(page.locator('input[aria-label="Start height"]')).toHaveValue(
+    "72",
+  );
+  await choose("Axis", "Both");
+  for (const [label, value] of [
+    ["Start width", "61"],
+    ["End width", "117"],
+    ["Start height", "72"],
+    ["End height", "128"],
+  ] as const) {
+    await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
+      value,
+    );
+  }
+
+  const timeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  expect(timeline.timelines?.[0]?.nativeStyles).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        styleKey: "Size",
+        targetNodeId: "e2e-motion-style-rectangle-2",
+        props: expect.objectContaining({
+          type: "custom",
+          axis: "xy",
+          startWidth: 61,
+          endWidth: 117,
+          startHeight: 72,
+          endHeight: 128,
+        }),
+      }),
+    ]),
+  );
+  const sourceAfter = await getAction(request, "read-source-file", {
+    designId,
+    path: "index.html",
+  });
+  expect(sourceAfter.content).not.toBe(sourceBefore.content);
+
+  await page.keyboard.press("Escape");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
+  await selectByText(page, "Motion Rectangle Two", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+  const reloadedDock = page
+    .getByRole("region", { name: "Motion dock" })
+    .first();
+  await expect(reloadedDock).toBeVisible();
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  const reloadedAnimations = page.locator(
+    '[data-design-inspector-section][aria-label="Animations"]',
+  );
+  await reloadedAnimations
+    .getByRole("button", { name: "Size", exact: true })
+    .click();
+  await expect(page.getByRole("combobox", { name: "Axis" })).toHaveText("Both");
+  for (const [label, value] of [
+    ["Start width", "61"],
+    ["End width", "117"],
+    ["Start height", "72"],
+    ["End height", "128"],
+  ] as const) {
+    await expect(page.locator(`input[aria-label="${label}"]`)).toHaveValue(
+      value,
+    );
+  }
 });

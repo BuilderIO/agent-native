@@ -72,6 +72,7 @@ import {
 } from "../shared/motion-path-trim-source.js";
 import {
   applyMotionReactSourceEdit,
+  inspectMotionReactSourceWriteCapability,
   MotionReactSourceError,
   readMotionReactSource,
 } from "../shared/motion-react-source.js";
@@ -1321,7 +1322,8 @@ export default defineAction({
       !textDocument &&
       audioClips.length === 0 &&
       animationStyles.length === 0 &&
-      nativeStyles.length === 0
+      nativeStyles.length === 0 &&
+      !existingMotionDocument
     ) {
       fail(
         "A timeline with no CSS tracks must contain a Text animation, a saved Motion style, or a native style instance.",
@@ -1498,6 +1500,45 @@ export default defineAction({
             audioClips: sourceAudioClips,
           });
         } else {
+          const targetNodeIds = [
+            ...new Set([
+              ...typedTracks.map((track) => track.targetNodeId),
+              ...nativeStyles.map((style) => style.targetNodeId),
+              ...(runtimeTextDocument?.animations.map(
+                (animation) => animation.targetNodeId,
+              ) ?? []),
+            ]),
+          ];
+          const writeCapability = inspectMotionReactSourceWriteCapability({
+            source: currentContent,
+            targetNodeIds,
+            modulePath: localSourceLocation.filePath,
+            moduleVersionHash: localSourceInput.moduleVersionHash,
+          });
+          // The pre-edit probe cannot see metadata supplied by this write.
+          const incomingMetadataAuthorizesMetadataOnlyWrite =
+            (sourceAudioClips !== undefined ||
+              easingVariables.length > 0 ||
+              animationStyles.length > 0) &&
+            targetNodeIds.length === 0 &&
+            writeCapability.status === "unsupported" &&
+            writeCapability.code === "missing-node" &&
+            writeCapability.targetNodeIds.length === 0 &&
+            (sourceAudioClips !== undefined ||
+              easingVariables.length > 0 ||
+              animationStyles.length > 0 ||
+              (currentReactRead?.status === "valid" &&
+                (animationStylesInput !== undefined ||
+                  easingVariablesInput !== undefined)));
+          if (
+            writeCapability.status === "unsupported" &&
+            !incomingMetadataAuthorizesMetadataOnlyWrite
+          ) {
+            throw new MotionReactSourceError(
+              writeCapability.code,
+              writeCapability.reason,
+            );
+          }
           reactSourceEdit = applyMotionReactSourceEdit({
             currentSource: currentContent,
             expectedSource: currentContent,

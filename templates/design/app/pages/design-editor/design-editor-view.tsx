@@ -22,6 +22,7 @@ import {
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
   type MotionEase,
 } from "@shared/motion-timeline";
@@ -60,6 +61,7 @@ import {
   removeMotionNativeStyleAndReconcileSelection,
   type MotionNativeStyleIdentity,
 } from "@/components/design/motion-native-style-identity";
+import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -140,6 +142,7 @@ import {
   applyMotionBuiltInRecipeToTargets,
   applyMotionAnimationStyleToTargets,
   motionAnimationStyleDefinitionFromTracks,
+  motionTextDocumentAsDockTracks,
   resolveSelectedMotionTargets,
 } from "./motion-state";
 import { mergePresenceUsers } from "./presence-users";
@@ -398,6 +401,7 @@ export function renderDesignEditorView({
     motionPlayhead,
     motionDefaultEase,
     motionPlaybackMode,
+    motionDockLiveState,
     motionSelectedTarget,
     setMotionOriginEditing,
     motionKeyframeState,
@@ -416,6 +420,7 @@ export function renderDesignEditorView({
     defaultComponentName,
     handleToggleMotionKeyframe,
     handleMotionTracksChange,
+    handleMotionDockTracksChange,
     handleMotionAudioClipsChange,
     markMotionTracksDirty,
     handleMotionAnimationStyleSaved,
@@ -501,7 +506,7 @@ export function renderDesignEditorView({
   const hasCompleteSelectedMotionTargets =
     selectedInspectorElements.length > 0 &&
     uniqueSelectedMotionTargets.length === selectedInspectorElements.length;
-  const motionTargetForInspector = hasCompleteSelectedMotionTargets
+  const canvasMotionTargetForInspector = hasCompleteSelectedMotionTargets
     ? {
         nodeId: uniqueSelectedMotionTargets[0]!.nodeId,
         label: uniqueSelectedMotionTargets
@@ -515,6 +520,78 @@ export function renderDesignEditorView({
     : selectedInspectorElements.length <= 1
       ? motionSelectedTarget
       : null;
+  const motionDockTracksForInspector = withMotionTrackIdsFromExisting(
+    [
+      ...motionTracks,
+      ...motionTextDocumentAsDockTracks(
+        motionTextDocument,
+        activeCodeLayerProjection,
+      ),
+    ],
+    motionTracks,
+  );
+  const motionEasingSelection =
+    motionDockLiveState.selectedEasingSegment ?? null;
+  const motionEasingSegment: MotionDockEasingSegment | null = (() => {
+    if (!motionEasingSelection) return null;
+    const track = motionDockTracksForInspector.find(
+      (candidate) => candidate.id === motionEasingSelection.trackId,
+    );
+    if (!track) return null;
+    const orderedKeyframes = [...track.keyframes].sort((a, b) => a.t - b.t);
+    const fromIndex = orderedKeyframes.findIndex(
+      (keyframe, index) =>
+        keyframe.t === motionEasingSelection.fromT &&
+        orderedKeyframes[index + 1]?.t === motionEasingSelection.toT,
+    );
+    if (fromIndex < 0) return null;
+    const from = orderedKeyframes.find(
+      (_keyframe, index) => index === fromIndex,
+    );
+    if (!from) return null;
+    return {
+      ...motionEasingSelection,
+      targetNodeId: track.targetNodeId,
+      property: track.property,
+      label: track.label,
+      isTextAnimation: track.isTextAnimation ?? false,
+      ease: from.ease ?? motionDefaultEase,
+    };
+  })();
+  const activeMotionEasingSegment =
+    motionDockOpen && activeFile?.id ? motionEasingSegment : null;
+  const motionTargetForInspector = activeMotionEasingSegment
+    ? {
+        nodeId: activeMotionEasingSegment.targetNodeId,
+        label: activeMotionEasingSegment.label,
+        isText: activeMotionEasingSegment.isTextAnimation,
+        isPath: false,
+      }
+    : canvasMotionTargetForInspector;
+
+  const handleMotionEasingSegmentChange = (ease: MotionEase) => {
+    if (!canWriteMotion || !activeMotionEasingSegment) return;
+    const nextTracks = motionDockTracksForInspector.map((track) => {
+      if (track.id !== activeMotionEasingSegment.trackId) return track;
+      const keyframes = track.keyframes.map((keyframe) => {
+        if (keyframe.t !== activeMotionEasingSegment.fromT) return keyframe;
+        if (keyframe.ease === ease) return keyframe;
+        return { ...keyframe, ease };
+      });
+      return keyframes.some(
+        (keyframe, index) => keyframe !== track.keyframes[index],
+      )
+        ? { ...track, keyframes }
+        : track;
+    });
+    if (
+      nextTracks.some(
+        (track, index) => track !== motionDockTracksForInspector[index],
+      )
+    ) {
+      handleMotionDockTracksChange(nextTracks);
+    }
+  };
 
   const createMotionNativeStyle = (
     styleKey: MotionNativeStyleKey,
@@ -1485,6 +1562,7 @@ export function renderDesignEditorView({
     selectedElement,
     selectedLayerIds,
     selectedScreenGeometry,
+    motionEasingSegmentSelected: Boolean(activeMotionEasingSegment),
   });
   // Below md the docked inspector panel is display:none and the Sheet below
   // carries it, so the panel must neither inset the canvas nor displace the
@@ -1620,7 +1698,17 @@ export function renderDesignEditorView({
       editorLiveEditsAndPresence.motionLabEnabled &&
       motionDockOpen &&
       Boolean(activeFile?.id) &&
-      selectedInspectorElements.length > 0,
+      (selectedInspectorElements.length > 0 ||
+        Boolean(activeMotionEasingSegment)),
+    motionEasingSegment: editorLiveEditsAndPresence.motionLabEnabled
+      ? activeMotionEasingSegment
+      : null,
+    onMotionEasingSegmentChange:
+      editorLiveEditsAndPresence.motionLabEnabled && canWriteMotion
+        ? handleMotionEasingSegmentChange
+        : undefined,
+    onMotionEasingSegmentBack:
+      editorLiveEditsAndPresence.handleMotionEasingSegmentBack,
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
@@ -1660,9 +1748,11 @@ export function renderDesignEditorView({
               easingVariables: motionEasingVariables,
             },
             nodes: activeCodeLayerProjection.nodes,
-            targets: hasCompleteSelectedMotionTargets
-              ? uniqueSelectedMotionTargets
-              : [motionTargetForInspector],
+            targets: activeMotionEasingSegment
+              ? [motionTargetForInspector]
+              : hasCompleteSelectedMotionTargets
+                ? uniqueSelectedMotionTargets
+                : [motionTargetForInspector],
             onHoverLayer: editorLayerActions.layerPanelCallbacks.onHoverLayer,
             onOpenInTimeline: () => setMotionDockOpenAnimated(true),
           }
