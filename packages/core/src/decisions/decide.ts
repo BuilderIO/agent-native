@@ -212,6 +212,7 @@ export async function decide(input: {
   const providers = input.options?.providers ?? configured.providerOrder;
   const timeoutMs = input.options?.timeoutMs ?? configured.timeoutMs;
   const missingProviders: DecisionProvider[] = [];
+  let providerDeadlineAt: number | undefined;
   let compatibleProviderCount = 0;
   let unverifiedCapability: {
     provider: DecisionProvider;
@@ -246,7 +247,6 @@ export async function decide(input: {
     let jevCredentials:
       | Awaited<ReturnType<typeof getJevContextCredentials>>
       | undefined;
-    let jevDeadlineAt: number | undefined;
     let lookupFailed = false;
 
     if (provider === "openai") {
@@ -270,15 +270,16 @@ export async function decide(input: {
         (!apiKey && jevCredentials.builderAuthLookupFailed),
       );
       if (!apiKey && jevCredentials.builderAuth) {
-        jevDeadlineAt = Date.now() + timeoutMs;
+        providerDeadlineAt ??= Date.now() + timeoutMs;
         try {
           if (
             await isJevEnabled(jevCredentials, {
               signal: input.options?.signal,
-              timeoutMs: Math.max(0, jevDeadlineAt - Date.now()),
+              timeoutMs: Math.max(0, providerDeadlineAt - Date.now()),
             })
           ) {
             apiKey = "builder-auth";
+            lookupFailed = false;
           }
         } catch (error) {
           if (input.options?.signal?.aborted) {
@@ -322,9 +323,9 @@ export async function decide(input: {
       input.questions,
     );
     const providerTimeoutMs =
-      provider === "jev" && jevDeadlineAt !== undefined
-        ? Math.max(0, jevDeadlineAt - Date.now())
-        : timeoutMs;
+      providerDeadlineAt === undefined
+        ? timeoutMs
+        : Math.max(0, providerDeadlineAt - Date.now());
     if (providerTimeoutMs <= 0) {
       return { status: "failed", reason: "timeout", provider };
     }
@@ -339,7 +340,7 @@ export async function decide(input: {
               questions: input.questions,
               apiKey,
               signal: input.options?.signal,
-              timeoutMs,
+              timeoutMs: providerTimeoutMs,
             })
           : await requestJev({
               apiKey: jevCredentials?.apiKey,

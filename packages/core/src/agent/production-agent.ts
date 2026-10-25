@@ -793,10 +793,8 @@ async function getOwnerApiKeyDetailed(
     }
   } catch {
     lookupFailed = true;
-    if (syntheticTraffic) {
-      reportLookupFailure();
-      return undefined;
-    }
+    reportLookupFailure();
+    return undefined;
   }
   if (syntheticTraffic || personalRestricted) {
     reportLookupFailure();

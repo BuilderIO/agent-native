@@ -362,6 +362,42 @@ describe("decide", () => {
     expect(mocks.isJevEnabled).not.toHaveBeenCalled();
   });
 
+  it("uses a verified Builder gateway when the direct Jev key lookup fails", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      directApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+      apiKeyLookupFailed: true,
+    });
+    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.requestJev.mockResolvedValue({
+      answers: { urgent: { type: "noul", noul: 0.95 } },
+    });
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [
+        {
+          type: "predicate",
+          name: "urgent",
+          instructions: "Is this urgent?",
+        },
+      ],
+      options: { providers: ["jev"] },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "jev" });
+    expect(mocks.requestJev).toHaveBeenCalledWith(
+      expect.objectContaining({ builderAuth: expect.anything() }),
+    );
+  });
+
   it("skips Jev for image input and uses OpenAI when it is next", async () => {
     mocks.requestOpenAiDecision.mockResolvedValue({
       answers: [
@@ -557,6 +593,35 @@ describe("decide", () => {
     );
     expect(mocks.requestJev).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal, timeoutMs: 9_600 }),
+    );
+  });
+
+  it("passes the remaining decision deadline to OpenAI after Jev is disabled", async () => {
+    vi.useFakeTimers();
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+        userId: "user-test",
+      },
+    });
+    mocks.isJevEnabled.mockImplementation(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      return false;
+    });
+
+    const result = await decide({
+      ownerEmail,
+      input: "I was charged twice.",
+      questions: [choiceQuestion],
+      options: { providers: ["jev", "openai"], timeoutMs: 10_000 },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "openai" });
+    expect(mocks.requestOpenAiDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 6_000 }),
     );
   });
 
