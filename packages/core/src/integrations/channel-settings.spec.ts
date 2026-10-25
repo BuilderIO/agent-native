@@ -10,6 +10,9 @@ const vaultErrors = vi.hoisted(
   () => new Map<string, { scope: string; scopeId: string }>(),
 );
 const resolverActivity = vi.hoisted(() => ({ active: 0, maxActive: 0 }));
+const prefetchSecretsMock = vi.hoisted(() =>
+  vi.fn(async (_keys: readonly string[]) => {}),
+);
 const isUnreadable = (args: { key: string; scope: string; scopeId: string }) =>
   unreadable.has(args.key) ||
   unreadable.has(`${args.scope}:${args.scopeId}:${args.key}`);
@@ -117,6 +120,7 @@ vi.mock("../server/personal-provider-key-policy.js", () => ({
 
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError,
+  prefetchSecrets: (keys: readonly string[]) => prefetchSecretsMock(keys),
   resolveSecretDetailed: async (key: string) => {
     if (readErrorRef.error) throw readErrorRef.error;
     resolverActivity.active++;
@@ -265,6 +269,7 @@ describe("channel settings", () => {
     vaultErrors.clear();
     resolverActivity.active = 0;
     resolverActivity.maxActive = 0;
+    prefetchSecretsMock.mockReset().mockResolvedValue(undefined);
     readErrorRef.error = null;
     roleRef.role = "owner";
     mounted = {
@@ -358,6 +363,11 @@ describe("channel settings", () => {
     expect(JSON.stringify(result)).not.toContain("fake-");
     expect(readAppSecret).not.toHaveBeenCalled();
     expect(resolverActivity.maxActive).toBeGreaterThan(1);
+    expect(prefetchSecretsMock).toHaveBeenCalledWith([
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_WEBHOOK_SECRET",
+      "GOOGLE_SERVICE_ACCOUNT_KEY",
+    ]);
   });
 
   it("does not include removal authorizations in the read-only channel listing", async () => {

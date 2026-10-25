@@ -43,6 +43,7 @@ import {
   type StructuredToolMetadata,
 } from "../coding-tools/index.js";
 import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
+import type { McpConfig } from "../mcp-client/config.js";
 import {
   buildMergedConfig,
   McpClientManager,
@@ -693,15 +694,13 @@ async function executeClaudeCliRun(options: {
     // executeCodexCliRun), through a private file rather than argv because
     // the headers can carry session cookies or bearer tokens.
     const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
-    const mergedMcpConfig =
+    const mcpConfigSource =
       process.env.MCP_SERVERS === undefined && mcpPrincipal
         ? await buildMergedConfig(mcpPrincipal)
         : null;
-    const mcpPromptNotice = codeAgentMcpPromptNotice(
-      options.run.id,
-      mergedMcpConfig,
-    );
-    const mcpConfig = claudeMcpConfig(mergedMcpConfig);
+    const mcpPromptNotice = codeAgentMcpPromptNotice(mcpConfigSource);
+    appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfigSource);
+    const mcpConfig = claudeMcpConfig(mcpConfigSource);
     let mcpConfigPath: string | undefined;
     let result: Awaited<ReturnType<typeof runClaudeCodeParticipant>>;
     try {
@@ -888,18 +887,9 @@ async function executeClaudeCliRun(options: {
 }
 
 function codeAgentMcpPromptNotice(
-  runId: string,
-  config: Awaited<ReturnType<typeof buildMergedConfig>>,
+  config: McpConfig | null,
 ): string | undefined {
-  const serverIds = codeAgentMcpConfigurationErrors(config);
-  if (serverIds.length === 0) return undefined;
-  appendCodeAgentTranscriptEvent({
-    runId,
-    kind: "status",
-    message:
-      "Some saved MCP server configurations could not be read; those servers were omitted for this run.",
-    metadata: { type: "mcp-config-error", servers: serverIds },
-  });
+  if (codeAgentMcpConfigurationErrors(config).length === 0) return undefined;
   return "Some app-managed MCP servers are unavailable in this run because their saved configuration could not be read; the affected servers were omitted. Do not claim to have used them. If the task depends on them, ask the user to reconnect them.";
 }
 
@@ -1615,15 +1605,12 @@ async function executeCodexCliRun(options: {
   const additionalSkillsRoot =
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   const mcpPrincipal = resolveCodeAgentMcpPrincipal(options.run);
-  const mergedMcpConfig =
+  const mcpConfig =
     process.env.MCP_SERVERS === undefined && mcpPrincipal
       ? await buildMergedConfig(mcpPrincipal)
       : null;
-  const mcpPromptNotice = codeAgentMcpPromptNotice(
-    options.run.id,
-    mergedMcpConfig,
-  );
-  const mcpConfig = mergedMcpConfig;
+  const mcpPromptNotice = codeAgentMcpPromptNotice(mcpConfig);
+  appendCodeAgentMcpConfigurationErrors(options.run.id, mcpConfig);
   const args = [
     ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
@@ -2199,6 +2186,20 @@ function metadataString(
 ): string | undefined {
   const value = run.metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function appendCodeAgentMcpConfigurationErrors(
+  runId: string,
+  config: McpConfig | null,
+): void {
+  for (const { serverId, message } of codeAgentMcpConfigurationErrors(config)) {
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message: `MCP server ${serverId} is unavailable for this run: ${message}`,
+      metadata: { type: "mcp-config-error", serverId },
+    });
+  }
 }
 
 async function startCodeAgentMcpManager(

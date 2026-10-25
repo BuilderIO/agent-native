@@ -90,6 +90,9 @@ describe("generation deck refresh", () => {
       endedAt: 1000,
     });
     expect(refreshOpenDeck).toHaveBeenCalledTimes(1);
+    expect(refreshOpenDeck).toHaveBeenCalledWith("deck-1", {
+      signal: controller.signal,
+    });
   });
 
   it("discards an in-flight retry result after the caller cancels", async () => {

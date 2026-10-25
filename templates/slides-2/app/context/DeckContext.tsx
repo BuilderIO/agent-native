@@ -5414,10 +5414,10 @@ export function DeckProvider({
       const createPendingAtReadStart =
         pendingCreateIdsRef.current.has(currentOpenId);
       const read = await readDeckFromAPI(currentOpenId);
-      if (options?.signal?.aborted) {
-        return { read: "superseded", deck: null };
-      }
-      if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
+      if (
+        options?.signal?.aborted ||
+        openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId
+      ) {
         return { read: "superseded", deck: null };
       }
       if (

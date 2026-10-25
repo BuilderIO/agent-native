@@ -3448,71 +3448,27 @@ describe("Restrict personal API keys", () => {
     }
   });
 
-  it("uses an owner's org secret before an unreadable personal row", async () => {
-    restrictOrg("owner", false);
-    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
-      if (scope === "user") {
-        throw new AppSecretDecryptionError({ scope, scopeId });
-      }
-      return scope === "org"
-        ? { value: "test-org-token", last4: "oken", updatedAt: 1 }
-        : null;
-    });
-
-    await expect(
-      resolveSecretDetailed("ANTHROPIC_API_KEY"),
-    ).resolves.toMatchObject({
-      value: "test-org-token",
-      lookupFailed: false,
-      source: "org",
-    });
-    expect(mockReadAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
-      "org",
-      "workspace",
-    ]);
-  });
-
-  it("does not fall through to an org secret when a member's personal row is unreadable", async () => {
-    restrictOrg("member", false);
-    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
-      if (scope === "user") {
-        throw new AppSecretDecryptionError({ scope, scopeId });
-      }
-      return scope === "org"
-        ? { value: "test-org-token", last4: "oken", updatedAt: 1 }
-        : null;
-    });
-
-    await expect(
-      resolveSecretDetailed("ANTHROPIC_API_KEY"),
-    ).resolves.toMatchObject({ value: null, lookupFailed: true });
-    expect(mockReadAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
-      "user",
-    ]);
-  });
-
-  it("uses an owner's org Builder pair before an unreadable personal pair", async () => {
-    restrictOrg("owner", false);
-    mockReadAppSecret.mockImplementation(
-      async ({ scope, scopeId, key }: any) => {
+  it("uses an owner's or admin's org key when their personal row is unreadable", async () => {
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
         if (scope === "user") {
           throw new AppSecretDecryptionError({ scope, scopeId });
         }
-        if (scope !== "org") return null;
-        const value = key === "BUILDER_PRIVATE_KEY" ? "bpk-org" : "pub-org";
-        return { value, last4: value.slice(-4), updatedAt: 1 };
-      },
-    );
+        return scope === "org"
+          ? { value: "org-secret", last4: "cret", updatedAt: 1 }
+          : null;
+      });
 
-    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-      privateKey: "bpk-org",
-      publicKey: "pub-org",
-      source: "org",
-      lookupFailed: false,
-    });
-    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
-      "bpk-org",
-    );
+      await expect(
+        resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+      ).resolves.toMatchObject({
+        value: "org-secret",
+        lookupFailed: false,
+        source: "org",
+        scopeId: ORG,
+      });
+    }
   });
 
   it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {

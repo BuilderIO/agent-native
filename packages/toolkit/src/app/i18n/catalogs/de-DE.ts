@@ -2484,6 +2484,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein gespeicherter Zugangswert ist nicht lesbar. Gib einen Ersatzwert ein.",
   "settingsShell.channels.setup.personalCredentialOnly":
     "Dadurch wird nur dein persönlicher Zugangswert ersetzt; die Zugangsdaten anderer bleiben unverändert.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Diese Zugangsdaten werden in einem anderen Einstellungsbereich verwaltet. Aktualisiere sie dort, bevor du diesen Kanal einrichtest.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Einige gespeicherte Kanalzugangsdaten können nicht gelesen werden. Ersetze sie, bevor du diesen Kanal aktivierst.",
   "settingsShell.channels.setup.addToEnvironment":

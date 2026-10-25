@@ -729,6 +729,7 @@ describe("ChannelsPage", () => {
           enabled: true,
           configurationUnavailable: true,
           sources: { SLACK_SIGNING_SECRET: "unreadable" },
+          repairScopes: { SLACK_SIGNING_SECRET: "workspace" },
         },
       }),
     );

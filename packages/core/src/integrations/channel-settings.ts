@@ -30,6 +30,7 @@ import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { EnvKeyConfig } from "../server/create-server.js";
 import {
   CredentialStoreUnavailableError,
+  prefetchSecrets,
   resolveSecretDetailed,
 } from "../server/credential-provider.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
@@ -496,6 +497,16 @@ export async function listMessagingChannels(
   const access = await resolveChannelAccess(ctx);
   const mounted = getMountedChannels();
   if (!mounted) return { canManage: access.canManage, channels: [] };
+  if (access.canManage) {
+    const keys = [
+      ...new Set(
+        mounted.adapters.flatMap((adapter) =>
+          adapter.getRequiredEnvKeys().map((item) => item.key),
+        ),
+      ),
+    ];
+    await prefetchSecrets(keys);
+  }
   const baseUrl = channelBaseUrl(ctx);
   const channels = await Promise.all(
     mounted.adapters.map((adapter) =>

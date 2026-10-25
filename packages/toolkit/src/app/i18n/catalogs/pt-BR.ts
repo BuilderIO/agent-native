@@ -2498,6 +2498,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível ler uma credencial salva. Insira um valor substituto.",
   "settingsShell.channels.setup.personalCredentialOnly":
     "Isso substitui apenas sua credencial pessoal; as credenciais de outras pessoas permanecem iguais.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Esta credencial é gerenciada em outra área de configurações. Atualize-a lá antes de configurar este canal.",
   "settingsShell.channels.setup.configurationUnavailable":
     "Não foi possível ler algumas credenciais salvas do canal. Substitua-as antes de ativar este canal.",
   "settingsShell.channels.setup.addToEnvironment":

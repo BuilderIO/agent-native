@@ -68,6 +68,8 @@ import { currentRouteTemplate } from "./route-template.js";
 import { currentSessionIdentity } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
+export { actionErrorCode };
+
 function actionPrefix(): string {
   return agentNativePath("/_agent-native/actions");
 }

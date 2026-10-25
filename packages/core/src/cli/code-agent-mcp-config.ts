@@ -145,23 +145,6 @@ export function codexMcpConfigArgs(
   return args;
 }
 
-export function codeAgentMcpConfigurationErrors(
-  config: McpConfig | null,
-  environment: NodeJS.ProcessEnv = process.env,
-): string[] {
-  const servers =
-    restrictCodeAgentMcpConfig(
-      mergeCodeAgentMcpConfig(config, environment),
-      environment,
-    )?.servers ?? {};
-  return Object.entries(servers)
-    .filter(
-      ([, server]) =>
-        server.type === "http" && Boolean(server.configurationError),
-    )
-    .map(([id]) => id);
-}
-
 /**
  * Callers must also pass `--strict-mcp-config` (Claude's equivalent of
  * `--ignore-user-config`), or user-level MCP servers join this scoped set.
@@ -188,6 +171,22 @@ export function claudeMcpConfig(
     ]),
   );
   return Object.keys(mcpServers).length > 0 ? { mcpServers } : null;
+}
+
+export function codeAgentMcpConfigurationErrors(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv = process.env,
+): Array<{ serverId: string; message: string }> {
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
+  return Object.entries(servers).flatMap(([serverId, server]) =>
+    server.type === "http" && server.configurationError
+      ? [{ serverId, message: server.configurationError.message }]
+      : [],
+  );
 }
 
 function codeAgentHttpMcpServers(

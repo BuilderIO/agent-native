@@ -36,7 +36,7 @@ async function createPgliteExec() {
         const info = await pglite.prepare(sql).run(...args);
         return { rows: [], rowsAffected: info.changes };
       },
-      transaction: <T>(fn: (tx: any) => Promise<T>) => pglite.transaction(fn),
+      transaction: <T>(run: (tx: any) => Promise<T>) => pglite.transaction(run),
     },
   };
 }
@@ -49,7 +49,7 @@ async function loadStorageWithPglite() {
     isLocalDatabase: () => true,
   }));
   const mod = await import("./storage.js");
-  return { pglite, mod };
+  return { pglite, exec, mod };
 }
 
 const userRef = {
@@ -207,11 +207,13 @@ describe("secrets storage bootstrap", () => {
 
 describe("secrets storage CRUD (real pglite)", () => {
   let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+  let exec: Awaited<ReturnType<typeof createPgliteExec>>["exec"];
   let mod: typeof import("./storage.js");
 
   beforeEach(async () => {
     const loaded = await loadStorageWithPglite();
     pglite = loaded.pglite;
+    exec = loaded.exec;
     mod = loaded.mod;
   });
 
@@ -844,7 +846,47 @@ describe("secrets storage CRUD (real pglite)", () => {
     await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
   });
 
-  it("removes a confirmed credential set atomically when one row has rotated", async () => {
+  it("rolls back a batch when a later confirmed secret changes during deletion", async () => {
+    const secondRef = { ...userRef, key: "SLACK_BOT_TOKEN" };
+    await mod.writeAppSecret({ ...userRef, value: "original-first" });
+    await mod.writeAppSecret({ ...secondRef, value: "original-second" });
+    const firstVersion = await mod.readAppSecretVersion(userRef);
+    const secondVersion = await mod.readAppSecretVersion(secondRef);
+    expect(firstVersion).toBeTruthy();
+    expect(secondVersion).toBeTruthy();
+
+    exec.transaction = (run) =>
+      pglite.transaction(async (tx) => {
+        let deleteCount = 0;
+        return run({
+          execute: async (input: string | { sql: string; args?: any[] }) => {
+            const sql = typeof input === "string" ? input : input.sql;
+            if (sql.startsWith("DELETE FROM app_secrets")) {
+              deleteCount += 1;
+              if (deleteCount === 2) return { rows: [], rowsAffected: 0 };
+            }
+            return tx.execute(input);
+          },
+        });
+      });
+
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: userRef, expectedVersion: firstVersion! },
+        { ref: secondRef, expectedVersion: secondVersion! },
+      ]),
+    ).resolves.toBe(false);
+    const remaining = await pglite.query(
+      "SELECT key FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY key",
+      [userRef.scope, userRef.scopeId],
+    );
+    expect(remaining.rows.map((row) => row.key)).toEqual([
+      "OPENAI_API_KEY",
+      "SLACK_BOT_TOKEN",
+    ]);
+  });
+
+  it("keeps a confirmed batch intact when one secret has rotated", async () => {
     const first = { ...userRef, key: "FIRST_KEY" };
     const second = { ...userRef, key: "SECOND_KEY" };
     await mod.writeAppSecret({ ...first, value: "first-original-value" });
@@ -861,7 +903,6 @@ describe("secrets storage CRUD (real pglite)", () => {
         { ref: second, expectedVersion: secondVersion! },
       ]),
     ).resolves.toBe(false);
-
     await expect(mod.readAppSecret(first)).resolves.toMatchObject({
       value: "first-original-value",
     });

@@ -7,6 +7,7 @@ import {
 import { isNonPublicWebhookUrl } from "@agent-native/core/client/integrations/webhook-url";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import {
+  actionErrorCode,
   actionErrorMessage,
   useActionMutation,
   useActionQuery,
@@ -489,6 +490,16 @@ function CredentialValue({
           : credential.source === "saved"
             ? t(`${K}.setup.saved`)
             : t(`${K}.setup.unreadable`);
+    if (!credential.repairScope) {
+      return (
+        <div className="grid gap-1">
+          <p className="text-xs text-muted-foreground">{statusLabel}</p>
+          <p className="text-xs text-muted-foreground">
+            {t(`${K}.setup.repairUnavailable`)}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
@@ -526,14 +537,9 @@ function CredentialValue({
   }
   if (credential.source === "unreadable") {
     return (
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          {t(`${K}.setup.unreadable`)}
-        </p>
-        <Button type="button" variant="secondary" size="xs" onClick={onReplace}>
-          {t(`${K}.setup.replace`)}
-        </Button>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        {t(`${K}.setup.repairUnavailable`)}
+      </p>
     );
   }
   return (
@@ -571,10 +577,11 @@ function ChannelSetupDialog({
   const isEditing = (item: ChannelCredentialStatus) =>
     item.saveable &&
     (item.source === null ||
-      ((item.source === "saved" || item.source === "unreadable") &&
-        replacing.has(item.key)) ||
-      item.source === "unreadable" ||
-      (item.unreadableScope !== undefined && replacing.has(item.key)));
+      (item.source === "saved" && replacing.has(item.key)) ||
+      (item.source === "unreadable" && item.repairScope !== undefined) ||
+      (item.unreadableScope !== undefined &&
+        item.repairScope !== undefined &&
+        replacing.has(item.key)));
   const filled = credentials
     .filter(isEditing)
     .map((item) => [item.key, values[item.key]?.trim() ?? ""] as const)
@@ -594,8 +601,8 @@ function ChannelSetupDialog({
       item.saveable &&
       (item.source === null ||
         item.source === "saved" ||
-        item.source === "unreadable" ||
-        item.unreadableScope !== undefined),
+        ((item.source === "unreadable" || item.unreadableScope !== undefined) &&
+          item.repairScope !== undefined)),
   );
   const readOnly = !canSaveHere && state !== "off";
   const nothingToDo =
@@ -635,7 +642,11 @@ function ChannelSetupDialog({
       onOpenChange(false);
     },
     onError: (err) =>
-      setError(actionErrorMessage(err) ?? t(`${K}.setup.failed`)),
+      setError(
+        actionErrorCode(err) === "credential_repair_unavailable"
+          ? t(`${K}.setup.repairUnavailable`)
+          : (actionErrorMessage(err) ?? t(`${K}.setup.failed`)),
+      ),
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: LIST_QUERY_KEY }),
   });
@@ -889,9 +900,25 @@ function RemoveCredentialsDialog({
             })}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <ul className="flex flex-col gap-1 font-mono text-xs text-foreground">
-          {credentials.map(({ key }) => (
-            <li key={key}>{key}</li>
+        <ul className="flex flex-col gap-1 text-xs text-foreground">
+          {credentials.map(({ key, removalScope }) => (
+            <li
+              key={key}
+              className="flex min-w-0 items-baseline justify-between gap-4"
+            >
+              <code className="min-w-0 break-all font-mono">{key}</code>
+              {removalScope ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {t(
+                    removalScope === "user"
+                      ? "agentPanel.personalKeyScope"
+                      : removalScope === "org"
+                        ? "agentPanel.organizationKeyScope"
+                        : "secrets.sourceWorkspace",
+                  )}
+                </span>
+              ) : null}
+            </li>
           ))}
         </ul>
         {actionError || prepare.isError || confirm.isError || remove.isError ? (
@@ -1344,8 +1371,7 @@ export interface ChannelsPageProps {
  * {App} › Channels (spec §5.19): everywhere people can message this app's
  * agent, from the channel catalog, with each adapter's own required
  * variables. Reads and changes go through `list-messaging-channels` and
- * `manage-messaging-channel`, the actions the agent calls too; the second
- * allows owners and admins only.
+ * `manage-messaging-channel`, a signed-in UI action for owners and admins.
  */
 export function ChannelsPage({ sub, context, appName }: ChannelsPageProps) {
   if (!sub) return <ChannelList appName={appName} />;

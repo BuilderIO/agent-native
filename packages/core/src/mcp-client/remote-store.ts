@@ -22,6 +22,7 @@
 
 import { createHash } from "node:crypto";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
   writeAppSecret,
@@ -55,22 +56,21 @@ export class InvalidMcpHeaderConfigurationError extends Error {
     readonly reason: "invalid-json" | "invalid-shape" | "missing-secret",
   ) {
     super(
-      reason === "missing-secret"
-        ? "Saved MCP server headers could not be found. Re-save the server's headers before reconnecting."
-        : "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+      "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
     );
     this.name = "InvalidMcpHeaderConfigurationError";
   }
 }
 
-export class RemoteMcpConfigurationUnavailableError extends Error {
-  readonly code = "mcp_server_configuration_unavailable";
+export class McpHeaderSecretUnavailableError extends Error {
+  readonly code = "mcp_header_secret_unavailable";
 
-  constructor() {
+  constructor(cause: unknown) {
     super(
-      "Could not read this MCP server's saved configuration. Retry before reconnecting.",
+      "Could not read the saved MCP header credential. Retry after the settings store is available.",
+      { cause },
     );
-    this.name = "RemoteMcpConfigurationUnavailableError";
+    this.name = "McpHeaderSecretUnavailableError";
   }
 }
 
@@ -650,11 +650,17 @@ export async function materializeHeaders(
 ): Promise<Record<string, string> | undefined> {
   const merged: Record<string, string> = { ...(stored.headers ?? {}) };
   if (stored.headerSecretKey) {
-    const secret = await readAppSecret({
-      key: stored.headerSecretKey,
-      scope: toSecretScope(scope),
-      scopeId,
-    });
+    let secret: Awaited<ReturnType<typeof readAppSecret>>;
+    try {
+      secret = await readAppSecret({
+        key: stored.headerSecretKey,
+        scope: toSecretScope(scope),
+        scopeId,
+      });
+    } catch (error) {
+      if (error instanceof AppSecretDecryptionError) throw error;
+      throw new McpHeaderSecretUnavailableError(error);
+    }
     if (!secret) {
       throw new InvalidMcpHeaderConfigurationError("missing-secret");
     }

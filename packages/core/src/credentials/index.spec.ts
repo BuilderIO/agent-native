@@ -666,23 +666,19 @@ describe("credentials encryption at rest", () => {
     );
   });
 
-  it("uses the org credential before an unreadable owner's personal key", async () => {
-    const error = new AppSecretDecryptionError({
-      scope: "user",
-      scopeId: "boss@example.test",
-    });
+  it("does not let an unreadable personal key block an owner or admin's org credential", async () => {
+    readOrgMemberRole.mockResolvedValue("admin");
     readAppSecret.mockImplementation(async (ref: any) => {
-      if (ref.scope === "user") throw error;
+      if (ref.scope === "user") throw new AppSecretDecryptionError(ref);
       return ref.scope === "org"
         ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
         : null;
     });
-    readOrgMemberRole.mockResolvedValue("owner");
     const { resolveCredentialDetailed } = await import("./index.js");
 
     await expect(
       resolveCredentialDetailed("STRIPE_KEY", {
-        userEmail: "boss@example.test",
+        userEmail: "owner@example.test",
         orgId: "org-1",
       }),
     ).resolves.toMatchObject({ value: "shared-org-token", scope: "org" });
@@ -692,18 +688,14 @@ describe("credentials encryption at rest", () => {
     ]);
   });
 
-  it("does not use a shared org key when a member's personal key is unreadable", async () => {
-    const error = new AppSecretDecryptionError({
-      scope: "user",
-      scopeId: "member@example.test",
-    });
+  it("does not fall through to an org key when a member's personal key is unreadable", async () => {
+    readOrgMemberRole.mockResolvedValue("member");
     readAppSecret.mockImplementation(async (ref: any) => {
-      if (ref.scope === "user") throw error;
+      if (ref.scope === "user") throw new AppSecretDecryptionError(ref);
       return ref.scope === "org"
         ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
         : null;
     });
-    readOrgMemberRole.mockResolvedValue("member");
     const { resolveCredentialDetailed } = await import("./index.js");
 
     await expect(
@@ -711,7 +703,7 @@ describe("credentials encryption at rest", () => {
         userEmail: "member@example.test",
         orgId: "org-1",
       }),
-    ).rejects.toBe(error);
+    ).rejects.toBeInstanceOf(AppSecretDecryptionError);
     expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
       "user",
     ]);

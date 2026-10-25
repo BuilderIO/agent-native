@@ -154,6 +154,46 @@ describe("code-agent MCP config", () => {
     });
   });
 
+  it("excludes servers with configuration errors and exposes their failure", () => {
+    const unavailable = new Error("Saved MCP headers could not be read.");
+    const config: McpConfig = {
+      servers: {
+        healthy: {
+          type: "http",
+          url: "https://healthy.example/mcp",
+          headers: { Authorization: "Bearer healthy-placeholder" },
+        },
+        unavailable: {
+          type: "http",
+          url: "https://unavailable.example/mcp",
+          configurationError: unavailable,
+        },
+      },
+    };
+
+    expect(claudeMcpConfig(config, {})).toEqual({
+      mcpServers: {
+        healthy: {
+          type: "http",
+          url: "https://healthy.example/mcp",
+          headers: { Authorization: "Bearer healthy-placeholder" },
+        },
+      },
+    });
+    expect(codexMcpConfigArgs(config, {})).toEqual([
+      "-c",
+      'mcp_servers.healthy.url="https://healthy.example/mcp"',
+      "-c",
+      'mcp_servers.healthy.http_headers={"Authorization"="Bearer healthy-placeholder"}',
+    ]);
+    expect(codeAgentMcpConfigurationErrors(config, {})).toEqual([
+      {
+        serverId: "unavailable",
+        message: "Saved MCP headers could not be read.",
+      },
+    ]);
+  });
+
   it("delivers nothing to Claude when no HTTP server is scoped in", () => {
     const environment = {
       MCP_SERVERS: JSON.stringify({
@@ -182,7 +222,10 @@ describe("code-agent MCP config", () => {
     };
 
     expect(codeAgentMcpConfigurationErrors(config, {})).toEqual([
-      "unavailable",
+      {
+        serverId: "unavailable",
+        message: "saved credential unavailable",
+      },
     ]);
     expect(claudeMcpConfig(config, {})).toEqual({
       mcpServers: {

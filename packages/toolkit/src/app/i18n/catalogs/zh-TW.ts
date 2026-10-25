@@ -2194,6 +2194,8 @@ const messages: ToolkitAgentChatTranslation = {
     "無法讀取已儲存的憑證。請輸入替代值。",
   "settingsShell.channels.setup.personalCredentialOnly":
     "這只會取代你的個人憑證；其他使用者的憑證不會變更。",
+  "settingsShell.channels.setup.repairUnavailable":
+    "這項憑證由其他設定區域管理。請先在該處更新，再設定此頻道。",
   "settingsShell.channels.setup.configurationUnavailable":
     "部分已儲存的頻道憑證無法讀取。請在啟用此頻道前取代它們。",
   "settingsShell.channels.setup.addToEnvironment": "請新增到部署環境中",

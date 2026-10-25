@@ -21,6 +21,7 @@ import {
   getBuilderConnectErrorDisposition,
   getBuilderConnectErrorKey,
   hasUsableBuilderCredentialPair,
+  hasUnavailableBuilderCredentialPair,
   mountBuilderStatusRouteAliases,
   resolveBuilderConnectionsStatus,
   resolveOAuthCustodyBuilderKeyStatus,
@@ -115,6 +116,51 @@ describe("Builder connect error correlation", () => {
 });
 
 describe("resolveOAuthCustodyBuilderKeyStatus", () => {
+  it("uses the org pair before a manager's unreadable personal pair", async () => {
+    const resolveCredentialsDetailed = vi.fn(async () => {
+      throw new Error("personal Builder credentials are unreadable");
+    });
+    const resolveOrgCredentialPair = vi.fn(
+      async () => ["org-private-key", "org-public-key"] as [string, string],
+    );
+
+    await expect(
+      resolveOAuthCustodyBuilderKeyStatus({
+        role: "admin",
+        resolveOrgCredentialPair,
+        resolveCredentialsDetailed,
+      }),
+    ).resolves.toEqual({
+      privateKeyConfigured: true,
+      publicKeyConfigured: true,
+      orgName: "Builder OAuth",
+      keyLookupFailed: false,
+    });
+    expect(resolveOrgCredentialPair).toHaveBeenCalledOnce();
+    expect(resolveCredentialsDetailed).not.toHaveBeenCalled();
+  });
+
+  it("retains an unreadable personal pair when no org pair is available", async () => {
+    await expect(
+      resolveOAuthCustodyBuilderKeyStatus({
+        role: "owner",
+        resolveOrgCredentialPair: async () => null,
+        resolveCredentialsDetailed: async () => {
+          return {
+            privateKey: "deploy-private-key",
+            publicKey: "deploy-public-key",
+            orgName: null,
+            lookupFailed: true,
+          };
+        },
+      }),
+    ).resolves.toMatchObject({
+      privateKeyConfigured: true,
+      publicKeyConfigured: true,
+      keyLookupFailed: true,
+    });
+  });
+
   it("reports confirmed-absent keys distinctly from a failed key lookup", async () => {
     const confirmedAbsent = await resolveOAuthCustodyBuilderKeyStatus({
       resolveCredentialsDetailed: async () => ({
@@ -164,7 +210,7 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
   });
 });
 
-describe("Builder credential pair status", () => {
+describe("Builder credential pair availability", () => {
   it("does not treat an env pair as usable after a saved-credential lookup fails", () => {
     expect(
       hasUsableBuilderCredentialPair({
@@ -180,6 +226,30 @@ describe("Builder credential pair status", () => {
         lookupFailed: false,
       }),
     ).toBe(true);
+  });
+
+  it("keeps an unreadable absent key pair distinct from confirmed absence", () => {
+    expect(
+      hasUnavailableBuilderCredentialPair({
+        privateKey: null,
+        publicKey: null,
+        lookupFailed: true,
+      }),
+    ).toBe(true);
+    expect(
+      hasUnavailableBuilderCredentialPair({
+        privateKey: null,
+        publicKey: null,
+        lookupFailed: false,
+      }),
+    ).toBe(false);
+    expect(
+      hasUnavailableBuilderCredentialPair({
+        privateKey: "private-key",
+        publicKey: "public-key",
+        lookupFailed: true,
+      }),
+    ).toBe(false);
   });
 });
 

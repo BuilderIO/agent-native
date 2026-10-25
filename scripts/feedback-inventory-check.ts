@@ -5727,12 +5727,12 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
     `\\b(?:skip|leave|avoid|ignore|exclude|omit)\\b${populationInSentence}[^.!?;\\n]{0,60}\\b(?:alone|untouched|out of scope|off limits)\\b`,
     "i",
   );
-  const populationDeclaredOutOfScope = new RegExp(
-    `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:(?:is|are|remain|stays?)\\s+)?(?:off limits|out of scope|excluded|not included|not in scope|not to be (?:handled|processed|worked on|reconciled|replied to|followed up on))\\b`,
+  const populationMustRemainUntouched = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,80}\\b(?:must|should|need to|needs to|have to|has to|are to|is to)\\s+(?:(?:remain|stay)\\s+untouched|be\\s+(?:left\\s+)?(?:untouched|alone))\\b`,
     "i",
   );
-  const populationMustRemainUntouched = new RegExp(
-    `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:must|should)\\s+(?:(?:remain|stay)\\s+untouched|be\\s+left\\s+(?:untouched|alone))\\b`,
+  const populationDeclaredOutOfScope = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:(?:is|are|remain|stays?)\\s+)?(?:off limits|out of scope|excluded|not included|not in scope|not to be (?:handled|processed|worked on|reconciled|replied to|followed up on))\\b`,
     "i",
   );
   return sentences.some(
@@ -5749,27 +5749,34 @@ function hasRootPopulationRestriction(userRequest: string): boolean {
       negatedPopulationAction.test(sentence) ||
       passiveNegatedPopulationAction.test(sentence) ||
       exclusionLeavesPopulationAlone.test(sentence) ||
-      populationDeclaredOutOfScope.test(sentence) ||
-      populationMustRemainUntouched.test(sentence),
+      populationMustRemainUntouched.test(sentence) ||
+      populationDeclaredOutOfScope.test(sentence),
   );
 }
 
 function hasBoundedWorkflowWriteAuthorization(userRequest: string): boolean {
-  const requestText = withoutQuotedScopeContext(userRequest);
   return (
-    !hasRootPopulationRestriction(requestText) &&
-    hasExplicitWorkflowWriteAuthorization(requestText, [])
+    !hasRootPopulationRestriction(userRequest) &&
+    hasExplicitWorkflowWriteAuthorization(userRequest, [])
   );
 }
 
 function hasBoundedAdministrativeWorkflowWriteAuthorization(
   userRequest: string,
 ): boolean {
-  if (!hasBoundedWorkflowWriteAuthorization(userRequest)) return false;
+  const requestText = withoutQuotedScopeContext(userRequest);
+  if (!hasBoundedWorkflowWriteAuthorization(requestText)) return false;
+  const unrestrictedFollowupAndReactionGrant =
+    /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+follow[ -]?ups?\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?(?:emojis?|reactions?)\b/i.test(
+      requestText,
+    ) ||
+    /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+(?:emojis?|reactions?)\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?follow[ -]?ups?\b/i.test(
+      requestText,
+    );
+  if (unrestrictedFollowupAndReactionGrant) return true;
   const administrativePopulation =
     "(?:administrative|admin)\\s+(?:posts?|roots?|messages?)";
-  const statements =
-    withoutQuotedScopeContext(userRequest).split(/(?:[.!?;]\s+|\n+)/);
+  const statements = requestText.split(/(?:[.!?;]\s+|\n+)/);
   const inclusionBeforePopulation = new RegExp(
     "\\b(?:all|any|every|including|include|includes|cover(?:s|ed|ing)?|extend(?:s|ed|ing)?\\s+to|appl(?:y|ies|ied)\\s+to|in[ -]scope|authoriz(?:e|es|ed)|permit(?:s|ted)?)\\b[^.!?;\\n]{0,160}\\b" +
       administrativePopulation +
@@ -18227,16 +18234,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         "scope.userRequest",
       ],
       [
-        "You should not handle assigned reports.",
-        "should not handle assigned reports",
-        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
-      ],
-      [
-        "You must not handle assigned reports.",
-        "must not handle assigned reports",
-        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
-      ],
-      [
         "Assigned reports must remain untouched.",
         "assigned reports must remain untouched",
         "scope.userRequest must explicitly authorize work on exact root",
@@ -18255,6 +18252,16 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Assigned reports must be left alone.",
         "assigned reports must be left alone",
         "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "You should not handle assigned reports.",
+        "should not handle assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      ],
+      [
+        "You must not handle assigned reports.",
+        "must not handle assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
       ],
     ] as const) {
       const excludedPopulationRoot = structuredClone(assignedForeignEyeRoot);
@@ -18537,15 +18544,17 @@ if (args[0] === "--self-test" && args.length === 1) {
       () => validateTestInventory(administrativeBoundedAuthorization),
       "a bounded report-wide grant does not authorize administrative roots",
     );
-    const quotedBroadGrantForAdministrativeRoot = structuredClone(
+    const quotedAdministrativeExampleAuthorization = structuredClone(
       administrativeBoundedAuthorization,
     );
-    quotedBroadGrantForAdministrativeRoot.scope.userRequest = `${boundedAuthorization.scope.userRequest} Example quote: “You can do any followups and emojis you like.”`;
-    quotedBroadGrantForAdministrativeRoot.scope.narrowingJudgment!.instruction =
-      quotedBroadGrantForAdministrativeRoot.scope.userRequest;
+    const quotedAdministrativeExampleRequest = `${administrativeBoundedAuthorization.scope.userRequest} The quoted example is "You can do any followups and emojis you like for all administrative posts."`;
+    quotedAdministrativeExampleAuthorization.scope.userRequest =
+      quotedAdministrativeExampleRequest;
+    quotedAdministrativeExampleAuthorization.scope.narrowingJudgment!.instruction =
+      quotedAdministrativeExampleRequest;
     expectFocusedFailure(
-      "a quoted broad grant cannot authorize an administrative root",
-      () => validateTestInventory(quotedBroadGrantForAdministrativeRoot),
+      "quoted example text cannot authorize an administrative root",
+      () => validateTestInventory(quotedAdministrativeExampleAuthorization),
       "a bounded report-wide grant does not authorize administrative roots",
     );
     const administrativePostsIncludedRequest =
@@ -21693,6 +21702,20 @@ if (args[0] === "--self-test" && args.length === 1) {
       rootTs: "11.000000",
     });
     validateTestInventory(includedAuthorizedAdministrativeRoot);
+    const unrestrictedAdministrativeGrant = structuredClone(
+      currentAdministrativeStatus,
+    );
+    const unrestrictedWorkflowRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Anything that says you can't is wrong; please correct it.";
+    unrestrictedAdministrativeGrant.scope.userRequest =
+      unrestrictedWorkflowRequest;
+    unrestrictedAdministrativeGrant.scope.narrowingJudgment!.instruction =
+      unrestrictedWorkflowRequest;
+    unrestrictedAdministrativeGrant.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+      { channelId: "C_TEST", rootTs: "11.000000" },
+    ];
+    validateTestInventory(unrestrictedAdministrativeGrant);
 
     const preservedStatusVariants = [
       preservedAdministrativeStatus,

@@ -1248,19 +1248,27 @@ describe("DeckContext fallback polling", () => {
     expect(getDeckSaveError(created.id)).toBeUndefined();
   });
 
-  it("does not apply an open-deck read after its signal is aborted", async () => {
+  it("does not apply an open-deck read after its refresh signal is aborted", async () => {
     const initial = openDeck();
-    const remote = { ...initial, title: "Remote deck update" };
     const { api, result } = await renderOpenDeck({ decks: [initial] });
-    api.setServerDecks([remote]);
+    api.setServerDecks([
+      {
+        ...initial,
+        title: "Remote title",
+        updatedAt: "2026-07-26T00:00:00.000Z",
+      },
+    ]);
     const real = api.fetchMock.getMockImplementation()!;
     let releaseRead = () => {};
     const readGate = new Promise<void>((resolve) => (releaseRead = resolve));
-    api.fetchMock.mockImplementationOnce((url) => {
+    let held = false;
+    api.fetchMock.mockImplementation((url) => {
       const response = real(url);
-      return requestString(url).includes("get-deck?id=open-deck")
-        ? response.then((r) => readGate.then(() => r))
-        : response;
+      if (!held && requestString(url).includes(`get-deck?id=${initial.id}`)) {
+        held = true;
+        return response.then((value) => readGate.then(() => value));
+      }
+      return response;
     });
     const controller = new AbortController();
     let read: Promise<Deck | null> = Promise.resolve(null);
@@ -1270,20 +1278,15 @@ describe("DeckContext fallback polling", () => {
         signal: controller.signal,
       });
     });
-    await waitFor(() =>
-      expect(
-        api.fetchMock.mock.calls.some((call) =>
-          requestString(call[0]).includes("get-deck?id=open-deck"),
-        ),
-      ).toBe(true),
-    );
-
+    await waitFor(() => expect(held).toBe(true));
     controller.abort();
+
     await act(async () => {
       releaseRead();
-      await expect(read).resolves.toBeNull();
+      await read;
     });
 
+    await expect(read).resolves.toBeNull();
     expect(result.current.getDeck(initial.id)?.title).toBe(initial.title);
   });
 

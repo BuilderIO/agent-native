@@ -237,6 +237,7 @@ export async function resolveCredentialDetailed(
 ): Promise<ResolvedCredential | undefined> {
   if (!ctx?.userEmail) return undefined;
 
+  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   // Stored but unused while the org restricts a member's provider keys.
   const personalRestricted =
     ctx.credentialScope !== "org" &&
@@ -261,17 +262,21 @@ export async function resolveCredentialDetailed(
     }
   }
 
-  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
-  // Before the personal answer: without the org, an owner's role is unknown.
+  // Without the org, an owner's precedence cannot be determined safely.
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
+  // Usually role lookup is needed only when a personal value is available.
+  // An unreadable personal row also needs this check so it cannot mask an org
+  // credential that takes precedence for an owner or admin.
   const orgCredentialFirst =
+    ctx.credentialScope !== "org" &&
     Boolean(personal || personalReadError) &&
     (await readsOrgCredentialFirst(orgId, ctx.userEmail));
-  // An owner or admin runs on the organization's credential ahead of their own.
-  if (personal && !orgCredentialFirst) return personal;
+  // A member's own credential has precedence. If it cannot be read, do not
+  // silently run the request with a shared org credential instead.
   if (personalReadError && !orgCredentialFirst) throw personalReadError;
+  if (personal && !orgCredentialFirst) return personal;
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);
