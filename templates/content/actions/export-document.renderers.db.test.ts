@@ -30,7 +30,7 @@ beforeAll(async () => {
   const { getDb, schema } = await import("../server/db/index.js");
   exportDocumentAction = (await import("./export-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
   updatedAt = new Date().toISOString();
   await getDb().insert(schema.documents).values({
     id: "renderers-page",
