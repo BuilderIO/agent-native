@@ -1197,7 +1197,7 @@ test("Motion inspector states match the editable timeline", async ({
   await captureReferenceState(page, "motion-controls-cross-layer-selection");
 });
 
-test("spring precision persists and easing-segment double-click adds a keyframe", async ({
+test("spring precision persists and easing-segment double-click preserves Motion state", async ({
   page,
   request,
 }) => {
@@ -1544,21 +1544,35 @@ test("spring precision persists and easing-segment double-click adds a keyframe"
     );
     await expect(easingSegment).toHaveCount(1);
     await expect(easingSegment).toBeVisible();
-    const addEasingSegmentKeyframe = page.waitForResponse(
-      (response) =>
-        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-        response.request().method() === "POST",
-      { timeout: 20_000 },
-    );
-    await easingSegment.dblclick();
-    const savedEasingSegmentKeyframe = await addEasingSegmentKeyframe;
-    expect(
-      savedEasingSegmentKeyframe.ok(),
-      await savedEasingSegmentKeyframe.text(),
-    ).toBe(true);
-    expect(await savedEasingSegmentKeyframe.json()).toMatchObject({
-      persisted: true,
-    });
+    const keyframeMarkers = timelineTrackRow.locator("[data-motion-keyframe]");
+    const keyframeCountBeforeDoubleClick = await keyframeMarkers.count();
+    expect(keyframeCountBeforeDoubleClick).toBe(2);
+    let keyframeMotionEditRequests = 0;
+    const countKeyframeMotionEditRequests = (request: {
+      method(): string;
+      url(): string;
+    }) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/_agent-native/actions/apply-motion-edit")
+      ) {
+        keyframeMotionEditRequests += 1;
+      }
+    };
+    page.on("request", countKeyframeMotionEditRequests);
+    try {
+      await easingSegment.dblclick();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      await expect(keyframeMarkers).toHaveCount(keyframeCountBeforeDoubleClick);
+      expect(keyframeMotionEditRequests).toBe(0);
+    } finally {
+      page.off("request", countKeyframeMotionEditRequests);
+    }
     const timelineAfterDoubleClick = await getAction(
       request,
       "get-motion-timeline",
@@ -1570,13 +1584,11 @@ test("spring precision persists and easing-segment double-click adds a keyframe"
           track.property === "opacity" &&
           track.targetNodeId === "e2e-motion-reference-rectangle-2",
       );
-    const keyframeTimes = trackAfterDoubleClick?.keyframes?.map(
-      (keyframe: { t: number }) => keyframe.t,
-    );
-    expect(keyframeTimes).toHaveLength(3);
-    expect(keyframeTimes?.[0]).toBe(0);
-    expect(keyframeTimes?.[1]).toBeCloseTo(0.25, 2);
-    expect(keyframeTimes?.[2]).toBe(0.5);
+    expect(
+      trackAfterDoubleClick?.keyframes?.map(
+        (keyframe: { t: number }) => keyframe.t,
+      ),
+    ).toEqual([0, 0.5]);
   } finally {
     if (regressionDesignId) {
       await postAction(request, "delete-design", { id: regressionDesignId });

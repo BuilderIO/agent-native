@@ -4286,7 +4286,7 @@ function TrackRow({
         if (
           readOnly ||
           target.closest(
-            "[data-motion-keyframe], [role=slider], [data-motion-marquee-ignore]",
+            "[data-motion-keyframe], [data-motion-easing-segment], [role=slider], [data-motion-marquee-ignore]",
           )
         ) {
           return;

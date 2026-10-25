@@ -2164,7 +2164,7 @@ describe("MotionDock keyframe selection and deletion", () => {
     );
   });
 
-  it("double-clicks an easing segment to insert a keyframe at that time", async () => {
+  it("does not insert a keyframe when double-clicking an easing segment", async () => {
     const onTracksChange = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onTracksChange });
     const row = container.querySelector<HTMLElement>(
@@ -2174,6 +2174,7 @@ describe("MotionDock keyframe selection and deletion", () => {
     const segment = container.querySelector<HTMLButtonElement>(
       "[data-motion-easing-segment]",
     )!;
+    onTracksChange.mockClear();
 
     await act(async () => {
       segment.dispatchEvent(
@@ -2184,10 +2185,7 @@ describe("MotionDock keyframe selection and deletion", () => {
       );
     });
 
-    expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes).toHaveLength(4);
-    expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes).toContainEqual(
-      expect.objectContaining({ t: 0.75, value: "0px 2px" }),
-    );
+    expect(onTracksChange).not.toHaveBeenCalled();
   });
 
   it("double-clicks a keyframe to move the playhead to its timeline time", async () => {

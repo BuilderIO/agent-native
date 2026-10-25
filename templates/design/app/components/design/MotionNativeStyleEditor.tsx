@@ -2829,7 +2829,7 @@ export function MotionSpringEditor({
       !Number.isFinite(bounce)
     ) {
       bounceDraftEditedRef.current = false;
-      return lastSpringValueRef.current ?? currentValue;
+      return undefined;
     }
 
     const next = springToken({ bounce, settle: currentSpring.settle });
