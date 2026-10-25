@@ -179,14 +179,16 @@ vi.mock("./task-store.js", () => {
             (task.ownerScope ?? "").toLowerCase() !==
               (accessScope.ownerScope ?? "").toLowerCase()))
       )
-        return null;
+        return { status: "not_found" };
+      if (["completed", "failed", "canceled"].includes(task.status.state))
+        return { status: "not_cancelable", state: task.status.state };
       task.status = {
         state: "canceled",
         message: task.status.message,
         timestamp: new Date().toISOString(),
       };
       task.updatedAt = Date.now();
-      return task;
+      return { status: "canceled", task };
     },
     async settleProcessingA2ATask(id: string, update: any) {
       const task = tasks[id];
@@ -1390,6 +1392,73 @@ describe("handleJsonRpc", () => {
         metadata: { agentNativeErrorCode: "missing_credentials" },
       },
     });
+  });
+
+  it("maps tasks/cancel on a final task to -32002 and leaves it completed", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aOrgDomain: "shared.test",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 70,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "finish first" }],
+          },
+        },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(created.result.status.state).toBe("completed");
+
+    const canceled = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 71,
+        method: "tasks/cancel",
+        params: { id: created.result.id },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(canceled.error).toMatchObject({
+      code: -32002,
+      message: 'Task cannot be canceled from state "completed"',
+    });
+
+    const missing = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 73,
+        method: "tasks/cancel",
+        params: { id: "no-such-task" },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(missing.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+
+    const read = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 72,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    expect(read.result.status.state).toBe("completed");
   });
 
   it("does not expose a task to the same user in another org scope", async () => {

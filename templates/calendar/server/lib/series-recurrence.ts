@@ -88,10 +88,54 @@ function alignWeeklyRecurrenceDay(
   );
 }
 
+// Whole-second offsets only, so the instant's milliseconds carry through.
+function zoneOffsetMs(instant: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  }).formatToParts(new Date(instant));
+  const field = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  const wallSeconds = Date.UTC(
+    field("year"),
+    field("month") - 1,
+    field("day"),
+    field("hour"),
+    field("minute"),
+    field("second"),
+  );
+  return wallSeconds - Math.floor(instant / 1000) * 1000;
+}
+
+function instantFromZoneWall(wall: number, timeZone: string): number {
+  const guess = wall - zoneOffsetMs(wall, timeZone);
+  return wall - zoneOffsetMs(guess, timeZone);
+}
+
+function shiftedZoneWallInstant(
+  master: number,
+  next: number,
+  instance: number,
+  timeZone: string,
+): number {
+  const wall = (instant: number) => instant + zoneOffsetMs(instant, timeZone);
+  return instantFromZoneWall(
+    wall(master) + (wall(next) - wall(instance)),
+    timeZone,
+  );
+}
+
 export function shiftSeriesDateValue(
   nextValue: string | undefined,
   instanceValue: string | undefined,
   masterValue: string | undefined,
+  timeZone?: string,
 ): string | undefined {
   if (!nextValue || !instanceValue || !masterValue) return nextValue;
   const next = parseGoogleDateValue(nextValue);
@@ -105,11 +149,23 @@ export function shiftSeriesDateValue(
     return nextValue;
   }
 
-  const shifted = new Date(
-    master.getTime() + (next.getTime() - instance.getTime()),
-  );
-  if (isDateOnlyValue(nextValue)) return shifted.toISOString().split("T")[0];
-  return shifted.toISOString().replace(/\.000Z$/, "Z");
+  if (isDateOnlyValue(nextValue)) {
+    const shifted = new Date(
+      master.getTime() + (next.getTime() - instance.getTime()),
+    );
+    return shifted.toISOString().split("T")[0];
+  }
+  // Without a zone the delta is absolute time, which moves wall-clock time by
+  // an hour across a DST change. Shifting wall-clock time needs the zone.
+  const shiftedMs = timeZone
+    ? shiftedZoneWallInstant(
+        master.getTime(),
+        next.getTime(),
+        instance.getTime(),
+        timeZone,
+      )
+    : master.getTime() + (next.getTime() - instance.getTime());
+  return new Date(shiftedMs).toISOString().replace(/\.000Z$/, "Z");
 }
 
 export function alignSeriesRecurrenceToStart(
@@ -124,7 +180,10 @@ export function alignSeriesRecurrenceToStart(
   if (!master.recurrence?.length) return event;
 
   const timeZone = event.startTimeZone || master.startTimeZone;
-  const oldDay = googleDateWeekdayCode(master.startValue, timeZone);
+  const oldDay = googleDateWeekdayCode(
+    master.startValue,
+    master.startTimeZone || timeZone,
+  );
   const newDay = googleDateWeekdayCode(event.start, timeZone);
   if (!oldDay || !newDay || oldDay === newDay) return event;
 

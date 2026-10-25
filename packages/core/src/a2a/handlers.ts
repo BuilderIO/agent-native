@@ -1555,11 +1555,20 @@ async function handleCancel(
   );
   if (denied) return denied;
 
-  const task = await cancelA2ATask(id, taskAccessScope(ownership, event));
-  if (!task) {
-    return jsonRpcError(0, -32001, "Task not found");
+  const outcome = await cancelA2ATask(id, taskAccessScope(ownership, event));
+  switch (outcome.status) {
+    case "not_found":
+      return jsonRpcError(0, -32001, "Task not found");
+    // A2A TaskNotCancelableError.
+    case "not_cancelable":
+      return jsonRpcError(
+        0,
+        -32002,
+        `Task cannot be canceled from state "${outcome.state}"`,
+      );
+    case "canceled":
+      return jsonRpcResult(0, sanitizeTaskForResponse(outcome.task));
   }
-  return jsonRpcResult(0, sanitizeTaskForResponse(task));
 }
 
 async function handleInvokeReadOnlyAction(

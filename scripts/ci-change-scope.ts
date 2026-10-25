@@ -3,7 +3,12 @@ import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isMutationScopePath } from "./lib/mutation-scope.ts";
 import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
+
+const EXECUTION_LEASE_MODEL_PREFIX = "verification/execution-lease/";
+const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
+const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -576,6 +581,8 @@ const CHECK_NAMES = [
   "slides_authoring_e2e",
   "slides_oracle",
   "changeset",
+  "verify_execution_lease",
+  "core_mutation",
 ] as const;
 
 const SLOW_APP_CHECKS = [
@@ -2363,6 +2370,7 @@ function buildChecks(
   const contentDbCoreChanged = changedPaths.some(isContentDbCoreRuntimePath);
   const contentDbChanged =
     contentDbCoreChanged || changedPaths.some(isContentDbRuntimePath);
+  const executionLeaseCovered = executionLeaseCoveredFiles();
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -2442,7 +2450,47 @@ function buildChecks(
     slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
+    verify_execution_lease: changedPaths.some((path) =>
+      isExecutionLeasePath(path, executionLeaseCovered),
+    ),
+    core_mutation: changedPaths.some(isMutationScopePath),
   };
+}
+
+// The model is checked against the code its manifest records as covered, so
+// the manifest is read here rather than copied into this file. It is read from
+// this script's own checkout, not the classified repositoryRoot, because the
+// model belongs to the classifier. A missing or malformed manifest throws: the
+// classifier must not quietly drop the lane.
+function executionLeaseCoveredFiles(): Set<string> {
+  const manifest = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL(`../${EXECUTION_LEASE_MANIFEST}`, import.meta.url)),
+      "utf8",
+    ),
+  ) as { coverage?: { code?: { file: string }[] } };
+  const covered = manifest.coverage?.code;
+  if (
+    !Array.isArray(covered) ||
+    covered.some((entry) => typeof entry?.file !== "string")
+  ) {
+    throw new Error(
+      `${EXECUTION_LEASE_MANIFEST} has no coverage.code file list`,
+    );
+  }
+  return new Set(covered.map((entry) => normalizeChangedPath(entry.file)));
+}
+
+export function isExecutionLeasePath(
+  path: string,
+  coveredFiles: ReadonlySet<string>,
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized.startsWith(EXECUTION_LEASE_MODEL_PREFIX) ||
+    normalized === EXECUTION_LEASE_CHECK_SCRIPT ||
+    coveredFiles.has(normalized)
+  );
 }
 
 export function classifyChangedPaths(

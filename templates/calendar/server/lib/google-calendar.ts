@@ -348,6 +348,7 @@ function alignSeriesUpdateToMaster(
       event.start,
       googleEventStartValue(instance),
       googleEventStartValue(master),
+      master.start?.timeZone,
     );
     if (event.startTimeZone === undefined && master.start?.timeZone) {
       aligned.startTimeZone = master.start.timeZone;
@@ -358,6 +359,7 @@ function alignSeriesUpdateToMaster(
       event.end,
       googleEventEndValue(instance),
       googleEventEndValue(master),
+      master.end?.timeZone,
     );
     if (event.endTimeZone === undefined && master.end?.timeZone) {
       aligned.endTimeZone = master.end.timeZone;

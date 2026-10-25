@@ -137,8 +137,9 @@ exist, and both are narrow on purpose.
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
-`no-bare-error-in-actions`, `external-result-contract`, and
-`no-source-reading-tests` check only lines this branch added, so the
+`no-bare-error-in-actions`, `external-result-contract`,
+`no-source-reading-tests`, and `no-oracle-loosening` check only lines this
+branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
 `no-new-legacy-mcp-hints` has none: the MCP `destructiveHint` baseline only

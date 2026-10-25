@@ -7,9 +7,14 @@ import {
 
 describe("series date alignment", () => {
   it("preserves all-day date formatting when shifting an occurrence update to the master", () => {
-    expect(shiftSeriesDateValue("2026-05-08", "2026-05-06", "2026-05-01")).toBe(
-      "2026-05-03",
-    );
+    expect(
+      shiftSeriesDateValue(
+        "2026-05-08",
+        "2026-05-06",
+        "2026-05-01",
+        "America/New_York",
+      ),
+    ).toBe("2026-05-03");
   });
 
   it("preserves non-zero milliseconds for timed event shifts", () => {
@@ -18,6 +23,7 @@ describe("series date alignment", () => {
         "2026-05-08T09:00:00.123Z",
         "2026-05-06T09:00:00.123Z",
         "2026-05-01T09:00:00.123Z",
+        "Asia/Tokyo",
       ),
     ).toBe("2026-05-03T09:00:00.123Z");
   });

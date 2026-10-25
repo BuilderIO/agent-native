@@ -43,6 +43,80 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
 }
 
 /**
+ * Lines this branch removed, keyed by native absolute path like `addedLines`.
+ * `path` is the post-change repo path (the pre-change path for a deleted file)
+ * and `oldPath` the pre-change path, so a rename's removals and additions meet
+ * under one key. Each removed line records the new-file line it sat before.
+ */
+export function removedLines(cwd, { includeWorkingTree = true } = {}) {
+  const base = resolveDiffBase(cwd);
+  if (!base) return null;
+  const mergeBase = git(["merge-base", base, "HEAD"], cwd);
+  if (mergeBase === null) return null;
+
+  const args = ["diff", "--unified=0", "--no-color"];
+  if (!includeWorkingTree) args.push(mergeBase.trim(), "HEAD");
+  else args.push(mergeBase.trim());
+
+  const diff = git(args, cwd);
+  if (diff === null) return null;
+  return parseRemovedLines(diff, cwd);
+}
+
+export function parseRemovedLines(diff, cwd, pathApi = path) {
+  if (parseUnifiedDiff(diff, cwd, pathApi) === null) return null;
+  const result = new Map();
+  let entry = null;
+  let oldPath = null;
+  let removeLeft = 0;
+  let addLeft = 0;
+  let newLine = 0;
+  for (const raw of diff.split("\n")) {
+    // Hunk counts, not prefixes, say what is body: a removed line may itself
+    // start with "--" and must not be read as a file header.
+    if (removeLeft > 0 || addLeft > 0) {
+      if (raw.startsWith("-")) {
+        removeLeft -= 1;
+        entry?.lines.push({ line: Math.max(newLine, 1), text: raw.slice(1) });
+      } else if (raw.startsWith("+")) {
+        addLeft -= 1;
+        newLine += 1;
+      }
+      continue;
+    }
+    if (raw.startsWith("diff --git ")) {
+      entry = null;
+      oldPath = null;
+      continue;
+    }
+    if (raw.startsWith("--- ")) {
+      oldPath = stripDiffPrefix(raw.slice(4));
+      continue;
+    }
+    if (raw.startsWith("+++ ")) {
+      const newPath = stripDiffPrefix(raw.slice(4));
+      const deleted = newPath === "/dev/null";
+      const repoPath = deleted ? oldPath : newPath;
+      const before = oldPath === "/dev/null" ? repoPath : oldPath;
+      entry = { path: repoPath, oldPath: before, deleted, lines: [] };
+      result.set(pathApi.resolve(cwd, repoPath), entry);
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
+    if (hunk) {
+      removeLeft = hunk[1] === undefined ? 1 : Number(hunk[1]);
+      newLine = Number(hunk[2]);
+      addLeft = hunk[3] === undefined ? 1 : Number(hunk[3]);
+    }
+  }
+  return result;
+}
+
+function stripDiffPrefix(value) {
+  return value.trim().replace(/^[ab]\//, "");
+}
+
+/**
  * `addedLines`, but a guard that cannot scope itself exits instead of
  * continuing. Every diff-scoped guard used to hand-roll this and every one of
  * them printed a paragraph saying "this is NOT a pass" and then exited 0 —

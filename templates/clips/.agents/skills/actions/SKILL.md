@@ -107,6 +107,8 @@ An action that hands control back to the user (question form, intake dialog) set
 
 Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 
+To test an action, start with `checkActionProperties(action, { context })` from `@agent-native/core/action-properties`. It generates inputs from the zod `schema`, and fails on any throw that is not an action contract error, on a return its `outputSchema` rejects, and on an invalid input that reaches `run`. It needs `fast-check` as a devDependency, and it throws `UnsupportedSchemaError` for a schema shape it cannot generate unless you pass an override.
+
 ### Write receipts
 
 A write action that can check its own effect returns a plain-object result with a reserved `_receipt`, so the final answer is reconciled with what the write did, not with the model's reading of a JSON string that may be truncated:
