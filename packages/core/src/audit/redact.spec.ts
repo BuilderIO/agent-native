@@ -50,6 +50,26 @@ describe("redactArgsToJson", () => {
     });
   });
 
+  it("redacts embedded credentials before truncating oversized strings", () => {
+    const googleApiKey = ["AI", "za", "Sy"].join("") + "x".repeat(33);
+    const text = `request failed with ${googleApiKey}; ${"safe output ".repeat(80)}`;
+    const json = redactArgsToJson(
+      { text },
+      {
+        maxJson: 256,
+        maxString: 128,
+        redactEmbeddedSecrets: true,
+        redactGenericOpaqueStrings: false,
+      },
+    )!;
+    const output = JSON.parse(json) as { text: string };
+
+    expect(output.text).not.toContain(googleApiKey);
+    expect(output.text).toContain("[redacted]");
+    expect(output.text).toContain("more chars");
+    expect(json.length).toBeLessThanOrEqual(256);
+  });
+
   it("redacts webhook URLs under a generic field, regardless of key", () => {
     expect(
       __test.looksSecret(

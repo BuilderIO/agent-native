@@ -58,13 +58,16 @@ function redactString(
   ) {
     return REDACTED;
   }
-  if (value.length > limits.maxString) {
-    if (limits.overflow === "throw") {
-      throw new Error("Redacted value exceeds the configured string limit.");
-    }
-    return `${value.slice(0, limits.maxString)}…(${value.length - limits.maxString} more chars)`;
+  if (value.length > limits.maxString && limits.overflow === "throw") {
+    throw new Error("Redacted value exceeds the configured string limit.");
   }
-  return limits.redactEmbeddedSecrets ? redactEmbeddedSecrets(value) : value;
+  const redactedValue = limits.redactEmbeddedSecrets
+    ? redactEmbeddedSecrets(value)
+    : value;
+  if (redactedValue.length > limits.maxString) {
+    return `${redactedValue.slice(0, limits.maxString)}…(${redactedValue.length - limits.maxString} more chars)`;
+  }
+  return redactedValue;
 }
 
 function redactEmbeddedSecrets(value: string): string {
