@@ -66,7 +66,6 @@ function claimAgentHarnessSessionFollowUp(
   expectedGeneration: number,
   claimId: string,
 ) {
-  const now = Date.now();
   return claimAgentHarnessSessionFollowUpInStore(
     id,
     expectedGeneration,
@@ -74,8 +73,8 @@ function claimAgentHarnessSessionFollowUp(
     {
       followUpId: claimId,
       prompt: `Follow-up ${claimId}`,
-      claimExpiresAt: now + 60_000,
-      deadlineAt: now + 24 * 60 * 60 * 1_000,
+      claimLeaseMs: 60_000,
+      deadlineDurationMs: 24 * 60 * 60 * 1_000,
     },
   );
 }
@@ -211,8 +210,8 @@ describe("agent harness session store", () => {
         followUpId: "follow-up-dispatched",
         prompt:
           "/workspace/project/packages/core/src/agent/harness/store.ts 123e4567-e89b-12d3-a456-426614174000",
-        claimExpiresAt: now + 60_000,
-        deadlineAt: now + 24 * 60 * 60 * 1_000,
+        claimLeaseMs: 60_000,
+        deadlineDurationMs: 24 * 60 * 60 * 1_000,
       },
     );
 
@@ -242,9 +241,12 @@ describe("agent harness session store", () => {
       id,
       claim!.generation,
       "claim-dispatched",
-      now + 1,
+      now + 24 * 60 * 60 * 1_000,
     );
-    expect(dispatched?.followUpDispatchedAt).toBe(now + 1);
+    expect(dispatched?.followUpDispatchedAt).toBeGreaterThan(now);
+    expect(dispatched?.followUpDispatchedAt).toBeLessThan(
+      now + 24 * 60 * 60 * 1_000,
+    );
     await persistAgentHarnessFollowUpEvent(
       id,
       "follow-up-dispatched",
@@ -347,8 +349,8 @@ describe("agent harness session store", () => {
       {
         followUpId,
         prompt: "continue",
-        claimExpiresAt: Date.now() + 60_000,
-        deadlineAt: Date.now() + 60_000,
+        claimLeaseMs: 60_000,
+        deadlineDurationMs: 60_000,
       },
     );
     await persistAgentHarnessFollowUpEvent(
@@ -433,8 +435,8 @@ describe("agent harness session store", () => {
       {
         followUpId: "follow-up-oversized-tool-payload",
         prompt: "continue",
-        claimExpiresAt: Date.now() + 60_000,
-        deadlineAt: Date.now() + 60_000,
+        claimLeaseMs: 60_000,
+        deadlineDurationMs: 60_000,
       },
     );
 
@@ -536,7 +538,6 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const now = Date.now();
     const claim = await claimAgentHarnessSessionFollowUpInStore(
       id,
       initial!.generation,
@@ -544,8 +545,8 @@ describe("agent harness session store", () => {
       {
         followUpId: "follow-up-completed",
         prompt: "Finish the action",
-        claimExpiresAt: now + 10_000,
-        deadlineAt: now + 24 * 60 * 60 * 1_000,
+        claimLeaseMs: 10_000,
+        deadlineDurationMs: 24 * 60 * 60 * 1_000,
       },
     );
     const dispatched = await markAgentHarnessSessionFollowUpDispatched(
@@ -598,7 +599,6 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const now = Date.now();
     const claim = await claimAgentHarnessSessionFollowUpInStore(
       id,
       initial!.generation,
@@ -606,8 +606,8 @@ describe("agent harness session store", () => {
       {
         followUpId: "follow-up-undispatched",
         prompt: "No action was dispatched",
-        claimExpiresAt: now + 10_000,
-        deadlineAt: now + 24 * 60 * 60 * 1_000,
+        claimLeaseMs: 10_000,
+        deadlineDurationMs: 24 * 60 * 60 * 1_000,
       },
     );
     const expiredAt = Date.now() - 1;

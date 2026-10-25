@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 
 import type { AgentChatEvent } from "../types.js";
 import { resolveAgentHarness } from "./registry.js";
@@ -671,8 +672,6 @@ export async function sendAgentHarnessFollowUp(input: {
 
     const claimId = randomUUID();
     const followUpId = randomUUID();
-    const claimedAt = Date.now();
-    const deadlineAt = claimedAt + FOLLOW_UP_DEADLINE_MS;
     const claimed = await claimAgentHarnessSessionFollowUp(
       session.id,
       session.generation,
@@ -681,11 +680,8 @@ export async function sendAgentHarnessFollowUp(input: {
         followUpId,
         prompt,
         metadata: input.metadata,
-        claimExpiresAt: Math.min(
-          claimedAt + FOLLOW_UP_CLAIM_LEASE_MS,
-          deadlineAt,
-        ),
-        deadlineAt,
+        claimLeaseMs: FOLLOW_UP_CLAIM_LEASE_MS,
+        deadlineDurationMs: FOLLOW_UP_DEADLINE_MS,
       },
     );
     if (!claimed) {
@@ -700,6 +696,14 @@ export async function sendAgentHarnessFollowUp(input: {
       );
     }
 
+    const deadlineDurationMs =
+      (claimed.followUpDeadlineAt ?? 0) - claimed.updatedAt;
+    if (!Number.isSafeInteger(deadlineDurationMs) || deadlineDurationMs <= 0) {
+      throw new Error(
+        "The AgentHarness follow-up claim has no database deadline.",
+      );
+    }
+
     const followUpAbort = new AbortController();
     let finalizing = false;
     const stopWatchingClaim = watchFollowUpClaim(
@@ -707,7 +711,7 @@ export async function sendAgentHarnessFollowUp(input: {
       claimId,
       followUpAbort,
       () => finalizing,
-      deadlineAt,
+      deadlineDurationMs,
     );
     let acquired: Awaited<ReturnType<typeof acquireSession>>;
     try {
@@ -1400,10 +1404,9 @@ export async function sweepExpiredAgentHarnessSessions(
 }
 
 export async function sweepExpiredAgentHarnessFollowUps(
-  now = Date.now(),
   limit = 50,
 ): Promise<{ recovered: number; truncated: boolean }> {
-  const candidates = await listExpiredAgentHarnessFollowUps(now, limit);
+  const candidates = await listExpiredAgentHarnessFollowUps(limit);
   let recovered = 0;
   const failures: unknown[] = [];
   for (const session of candidates) {
@@ -1413,7 +1416,6 @@ export async function sweepExpiredAgentHarnessFollowUps(
         session.id,
         session.followUpClaimId,
         session.generation,
-        now,
       );
       if (reconciled) recovered += 1;
     } catch (error) {
@@ -1688,12 +1690,13 @@ function watchFollowUpClaim(
   claimId: string,
   controller: AbortController,
   isFinalizing: () => boolean,
-  deadlineAt: number,
+  deadlineDurationMs: number,
 ): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const readErrors: unknown[] = [];
-  let renewAt = Date.now() + FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS;
+  const deadlineAt = performance.now() + deadlineDurationMs;
+  let renewAt = performance.now() + FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS;
   const schedule = () => {
     if (!stopped && !controller.signal.aborted) {
       timer = setTimeout(() => void check(), FOLLOW_UP_CLAIM_POLL_INTERVAL_MS);
@@ -1708,7 +1711,7 @@ function watchFollowUpClaim(
       const current = await getAgentHarnessSession(sessionId);
       if (stopped) return;
       readErrors.length = 0;
-      const now = Date.now();
+      const now = performance.now();
       if (now >= deadlineAt) {
         controller.abort(
           new Error(
@@ -1736,14 +1739,13 @@ function watchFollowUpClaim(
         const renewed = await renewAgentHarnessSessionFollowUpClaim(
           sessionId,
           claimId,
-          now,
-          Math.min(now + FOLLOW_UP_CLAIM_LEASE_MS, deadlineAt),
+          FOLLOW_UP_CLAIM_LEASE_MS,
         );
         if (!renewed) {
           controller.abort(new AgentHarnessSessionConflictError(sessionId));
           return;
         }
-        renewAt = now + FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS;
+        renewAt = performance.now() + FOLLOW_UP_CLAIM_RENEW_INTERVAL_MS;
       }
     } catch (error) {
       if (stopped) return;

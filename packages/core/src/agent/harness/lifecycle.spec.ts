@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StoredAgentHarnessSession } from "./store.js";
@@ -254,6 +256,7 @@ describe("agent harness lifecycle", () => {
         ) {
           return null;
         }
+        const databaseNow = Date.now();
         stored = {
           ...stored,
           status: "running",
@@ -261,12 +264,14 @@ describe("agent harness lifecycle", () => {
           followUpId: intent.followUpId,
           followUpPromptPresent: true,
           followUpMetadata: intent.metadata,
-          followUpClaimExpiresAt: intent.claimExpiresAt,
-          followUpDeadlineAt: intent.deadlineAt,
+          followUpClaimExpiresAt:
+            databaseNow +
+            Math.min(intent.claimLeaseMs, intent.deadlineDurationMs),
+          followUpDeadlineAt: databaseNow + intent.deadlineDurationMs,
           followUpDispatchedAt: null,
           followUpOutcome: null,
           generation: stored.generation + 1,
-          updatedAt: Date.now(),
+          updatedAt: databaseNow,
         };
         return stored;
       },
@@ -361,17 +366,18 @@ describe("agent harness lifecycle", () => {
     mocks.listExpiredApprovals.mockResolvedValue([]);
     mocks.reconcileExpiredApproval.mockResolvedValue(null);
     mocks.renewFollowUpClaim.mockImplementation(
-      async (_id, claimId, now, expiresAt) => {
+      async (_id, claimId, leaseDurationMs) => {
+        const databaseNow = Date.now();
         if (
           stored.followUpClaimId !== claimId ||
-          (stored.followUpClaimExpiresAt ?? 0) <= now
+          (stored.followUpClaimExpiresAt ?? 0) <= databaseNow
         ) {
           return false;
         }
         stored = {
           ...stored,
-          followUpClaimExpiresAt: expiresAt,
-          updatedAt: now,
+          followUpClaimExpiresAt: databaseNow + leaseDurationMs,
+          updatedAt: databaseNow,
         };
         return true;
       },
@@ -513,6 +519,7 @@ describe("agent harness lifecycle", () => {
   afterEach(() => {
     releaseLiveAgentHarnessSession(stored.id);
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -2433,6 +2440,7 @@ describe("agent harness lifecycle", () => {
 
   it("renews the claim while a resumable adapter is being acquired", async () => {
     vi.useFakeTimers();
+    vi.spyOn(performance, "now").mockImplementation(() => Date.now());
     stored.resumeState = { token: "saved" };
     releaseLiveAgentHarnessSession(stored.id);
     let finishCreateSession!: () => void;
@@ -2451,7 +2459,14 @@ describe("agent harness lifecycle", () => {
       prompt: "resume",
       scope: ownerScope(),
     });
+    await vi.waitFor(() =>
+      expect(adapter.createSession).toHaveBeenCalledOnce(),
+    );
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    const renewalWindowStartedAt = Date.now();
     await vi.advanceTimersByTimeAsync(75_000);
+    expect(Date.now()).toBe(renewalWindowStartedAt + 75_000);
+    expect(mocks.getById).toHaveBeenCalled();
     expect(mocks.renewFollowUpClaim).toHaveBeenCalledTimes(3);
 
     finishCreateSession();
