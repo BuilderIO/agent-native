@@ -1606,6 +1606,48 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("reports a malformed env manifest and continues to a file manifest", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{");
+      const manifestPath = path.join(
+        workspaceRoot,
+        ".agent-native",
+        "workspace-apps.json",
+      );
+      fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+      fs.writeFileSync(
+        manifestPath,
+        JSON.stringify([
+          {
+            id: "healthy-app",
+            name: "Healthy App",
+            path: "/healthy-app",
+          },
+        ]),
+      );
+
+      const apps = await runWithRequestContext(
+        { userEmail: "dev@example.test" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toContain("healthy-app");
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[dispatch] Could not read Workspace app manifest from AGENT_NATIVE_WORKSPACE_APPS_JSON; skipping source",
+      );
+    } finally {
+      warnSpy.mockRestore();
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips a malformed manifest file and continues to the next candidate", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "dispatch-workspace-"),
@@ -1640,7 +1682,6 @@ describe("listWorkspaceApps", () => {
       expect(apps.map((app) => app.id)).toContain("healthy-app");
       expect(warnSpy).toHaveBeenCalledWith(
         `[dispatch] Could not read Workspace app manifest ${malformedManifest}; skipping source`,
-        expect.any(Error),
       );
     } finally {
       warnSpy.mockRestore();

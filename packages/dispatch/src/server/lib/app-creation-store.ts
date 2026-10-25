@@ -1974,11 +1974,18 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
   const raw = process.env[WORKSPACE_APPS_ENV_KEY];
   if (!raw) return null;
   try {
-    return parseWorkspaceAppsManifest(JSON.parse(raw));
+    const apps = parseWorkspaceAppsManifest(JSON.parse(raw));
+    if (apps) return apps;
+    console.warn(
+      `[dispatch] Could not parse Workspace app manifest from ${WORKSPACE_APPS_ENV_KEY}; skipping source`,
+    );
   } catch (error) {
     if (error instanceof WorkspaceGatewayConfigurationError) throw error;
-    return null;
+    console.warn(
+      `[dispatch] Could not read Workspace app manifest from ${WORKSPACE_APPS_ENV_KEY}; skipping source`,
+    );
   }
+  return null;
 }
 
 async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | null> {
@@ -2233,7 +2240,6 @@ function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
       if (error instanceof WorkspaceGatewayConfigurationError) throw error;
       console.warn(
         `[dispatch] Could not read Workspace app manifest ${file}; skipping source`,
-        error,
       );
     }
   }
