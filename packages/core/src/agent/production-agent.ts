@@ -13357,17 +13357,7 @@ export function createProductionAgentHandler(
       if (earlyClaim.setupDeadlineExceeded()) {
         return { ok: true, skipped: "setup-deadline" };
       }
-      const response = event.node?.res;
-      const stopOnResponseFinish = () => {
-        if (earlyClaim.setupDeadlineExceeded()) return;
-        earlyClaim.stopSetupHeartbeat();
-        response?.removeListener("finish", stopOnResponseFinish);
-        if (stopBackgroundSetupHeartbeat === stopOnResponseFinish) {
-          stopBackgroundSetupHeartbeat = undefined;
-        }
-      };
-      stopBackgroundSetupHeartbeat = stopOnResponseFinish;
-      response?.once("finish", stopOnResponseFinish);
+      stopBackgroundSetupHeartbeat = earlyClaim.stopSetupHeartbeat;
     }
     let dispatchToBackground =
       !isBackgroundWorker &&

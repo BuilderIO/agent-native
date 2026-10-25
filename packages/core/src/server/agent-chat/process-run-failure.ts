@@ -26,7 +26,7 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
 
   await record(runId, RUN_DIAG_STAGE.routeThrew, message).catch(() => {});
 
-  const claim = await readClaim(runId).catch(() => null);
+  const claim = await readClaim(runId);
   if (
     claim?.status !== "running" ||
     claim.dispatchMode !== "background-processing"

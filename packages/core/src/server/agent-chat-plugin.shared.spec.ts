@@ -851,11 +851,10 @@ describe("agent chat process-run failure finalization", () => {
     expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
 
-  it("leaves the run untouched when the claim read fails transiently", async () => {
+  it("propagates transient claim read failures to the caller", async () => {
     const d = deps("background-processing");
-    d.readBackgroundRunClaim.mockRejectedValueOnce(
-      new Error("database connection reset"),
-    );
+    const readError = new Error("database connection reset");
+    d.readBackgroundRunClaim.mockRejectedValueOnce(readError);
 
     await expect(
       finalizeClaimedAgentChatProcessRunFailure(
@@ -863,7 +862,7 @@ describe("agent chat process-run failure finalization", () => {
         new Error("payload read failed"),
         d,
       ),
-    ).resolves.toBe(false);
+    ).rejects.toBe(readError);
 
     expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });

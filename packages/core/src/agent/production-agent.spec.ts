@@ -5747,7 +5747,7 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
-  it("keeps setup liveness through response close and fails it at the deadline", async () => {
+  it("keeps setup liveness through response finish and close until the deadline", async () => {
     vi.useFakeTimers();
     const claimBackgroundRun = vi
       .spyOn(runStore, "claimBackgroundRun")
@@ -5826,9 +5826,10 @@ describe("createProductionAgentHandler", () => {
       );
       await ownerEmailEntered;
 
-      expect(response.listenerCount("finish")).toBe(1);
+      expect(response.listenerCount("finish")).toBe(0);
       expect(response.listenerCount("close")).toBe(0);
       const heartbeatCount = updateRunHeartbeat.mock.calls.length;
+      response.emit("finish");
       response.emit("close");
       await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
       expect(updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
