@@ -214,6 +214,10 @@ function motionDimensionValue(
   return `${Number.isInteger(size) ? size : Number(size.toFixed(2))}px`;
 }
 
+function getActiveFileId(file: { id: string } | undefined): string | undefined {
+  return file?.id;
+}
+
 export function renderDesignEditorView({
   editorCore,
   editorHistory,
@@ -558,8 +562,9 @@ export function renderDesignEditorView({
       ease: from.ease ?? motionDefaultEase,
     };
   })();
+  const activeFileId = getActiveFileId(activeFile);
   const activeMotionEasingSegment =
-    motionDockOpen && activeFile?.id ? motionEasingSegment : null;
+    motionDockOpen && activeFileId ? motionEasingSegment : null;
   const motionTargetForInspector = activeMotionEasingSegment
     ? {
         nodeId: activeMotionEasingSegment.targetNodeId,
@@ -809,7 +814,8 @@ export function renderDesignEditorView({
   });
   const activeRuntimeSourceLocationSnapshotFailed =
     activeRuntimeProjectionEligible &&
-    runtimeLayerSnapshotReadiness?.screenId === activeFile?.id &&
+    runtimeLayerSnapshotReadiness !== null &&
+    runtimeLayerSnapshotReadiness.screenId === activeFileId &&
     runtimeLayerSnapshotReadiness.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";

@@ -1379,7 +1379,7 @@ export function useEditorActiveScreenAndGeometry({
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename),
     ) ??
-    files.find((_file, index) => index === 0);
+    files[0];
 
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
