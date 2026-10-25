@@ -893,7 +893,10 @@ function workspaceAppRouteAccessFromPackageJson(pkg: unknown): {
   };
 }
 
-function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
+function parseWorkspaceAppsManifest(
+  parsed: any,
+  onInvalidAppUrl?: () => void,
+): WorkspaceAppSummary[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
     : Array.isArray(parsed)
@@ -917,6 +920,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         url = workspaceAppLink(pathValue, entry.url);
       } catch (error) {
         if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+        onInvalidAppUrl?.();
         console.warn(
           `[dispatch] Could not resolve Workspace app ${id}; skipping app`,
           error,
@@ -970,8 +974,11 @@ function parseWorkspaceAppsGatewayResponse(
       : parsed;
   if (!Array.isArray(rawApps)) return null;
   if (rawApps.length === 0) return [];
-  const apps = parseWorkspaceAppsManifest(parsed);
-  if (!apps || apps.length !== rawApps.length) return null;
+  let invalidUrlCount = 0;
+  const apps = parseWorkspaceAppsManifest(parsed, () => {
+    invalidUrlCount += 1;
+  });
+  if (!apps || apps.length + invalidUrlCount !== rawApps.length) return null;
   const ids = new Set(apps.map((app) => app.id.toLowerCase()));
   return ids.size === apps.length ? apps : null;
 }

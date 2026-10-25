@@ -472,6 +472,53 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("keeps healthy gateway registry apps when one app URL is malformed", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          apps: [
+            {
+              id: "invalid-url",
+              name: "Invalid URL",
+              path: "/invalid-url",
+              url: "not-a-url",
+            },
+            {
+              id: "healthy-app",
+              name: "Healthy App",
+              path: "/healthy-app",
+              url: "https://agent-workspace.builder.io/healthy-app",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+      const apps = await runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["healthy-app"]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[dispatch] Could not resolve Workspace app invalid-url; skipping app",
+        expect.any(Error),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it.each([
     [
       "gateway mount path",
