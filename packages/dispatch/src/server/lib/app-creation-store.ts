@@ -13,6 +13,7 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
+import { getAppConfig } from "@agent-native/core/app-config";
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray } from "@agent-native/core/db/schema";
 import {
@@ -152,6 +153,15 @@ class WorkspaceAppOrgRequiredError extends Error {
       "Select or join an organization before creating a workspace app. Apps are owned by the organization of the signed-in session.",
     );
     this.name = "WorkspaceAppOrgRequiredError";
+  }
+}
+
+class WorkspaceGatewayConfigurationError extends Error {
+  constructor(cause?: unknown) {
+    super("WORKSPACE_GATEWAY_URL must be a valid absolute HTTP(S) URL.", {
+      cause,
+    });
+    this.name = "WorkspaceGatewayConfigurationError";
   }
 }
 
@@ -295,17 +305,22 @@ interface WorkspaceAppMetadataSettings {
 }
 
 function readJson(file: string): any {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return null;
-  }
+  if (!fs.existsSync(file)) return null;
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function findWorkspaceRoot(startDir = process.cwd()): string | null {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 20; i++) {
-    const pkg = readJson(path.join(dir, "package.json"));
+    let pkg: any;
+    try {
+      pkg = readJson(path.join(dir, "package.json"));
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not read workspace package metadata in ${dir}; continuing parent search`,
+        error,
+      );
+    }
     if (typeof pkg?.["agent-native"]?.workspaceCore === "string") {
       return dir;
     }
@@ -627,16 +642,85 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
+  const gateway = workspaceGatewayBaseUrl();
+  if (gateway) return appendWorkspaceAppPath(gateway, appPath);
+
   const base = resolveAppRuntimeUrl();
   if (!base) return null;
   try {
-    return new URL(
-      appPath,
-      `${projectEnvironmentUrl(base).replace(/\/$/, "")}/`,
-    ).toString();
+    const baseUrl = new URL(
+      addBasePath(projectEnvironmentUrl(base), getConfiguredAppBasePath()),
+    );
+    return appendWorkspaceAppPath(baseUrl, appPath);
   } catch {
     return null;
   }
+}
+
+function appendWorkspaceAppPath(baseUrl: URL, appPath: string): string {
+  const parsedPath = new URL(appPath, "http://agent-native.invalid");
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  let appPathname = parsedPath.pathname;
+  if (
+    basePath &&
+    (appPathname === basePath || appPathname.startsWith(`${basePath}/`))
+  ) {
+    appPathname = appPathname.slice(basePath.length) || "/";
+  }
+  baseUrl.pathname =
+    `${basePath}${appPathname.startsWith("/") ? appPathname : `/${appPathname}`}` ||
+    "/";
+  baseUrl.search = parsedPath.search;
+  baseUrl.hash = parsedPath.hash;
+  return baseUrl.toString().replace(/\/$/, "");
+}
+
+function workspaceGatewayBaseUrl(): URL | null {
+  const configured = getAppConfig().workspace.gatewayUrl?.trim();
+  if (!configured) return null;
+  let configuredUrl: URL;
+  try {
+    configuredUrl = new URL(configured);
+  } catch (error) {
+    throw new WorkspaceGatewayConfigurationError(error);
+  }
+  if (
+    configuredUrl.protocol !== "http:" &&
+    configuredUrl.protocol !== "https:"
+  ) {
+    throw new WorkspaceGatewayConfigurationError();
+  }
+  let url: URL;
+  try {
+    url = new URL(projectEnvironmentUrl(configuredUrl.toString()));
+  } catch (error) {
+    throw new WorkspaceGatewayConfigurationError(error);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new WorkspaceGatewayConfigurationError();
+  }
+  return new URL(addBasePath(url.toString(), getConfiguredAppBasePath()));
+}
+
+function workspaceGatewayAppUrl(appPath: string): string | null {
+  const baseUrl = workspaceGatewayBaseUrl();
+  if (!baseUrl) return null;
+  const requestOrigin = getRequestContext()?.requestOrigin;
+  if (requestOrigin && new URL(requestOrigin).origin === baseUrl.origin) {
+    return null;
+  }
+  return appendWorkspaceAppPath(baseUrl, appPath);
+}
+
+function addBasePath(urlValue: string, basePath: string): string {
+  if (!basePath) return urlValue;
+  const url = new URL(urlValue);
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
+    return url.toString();
+  }
+  url.pathname = `${basePath}${pathname === "/" ? "" : pathname}` || "/";
+  return url.toString();
 }
 
 function isLocalWorkspaceGateway(url: URL): boolean {
@@ -654,13 +738,24 @@ function workspaceAppLink(
   explicitUrl?: unknown,
 ): string | null {
   const urlValue = typeof explicitUrl === "string" ? explicitUrl.trim() : "";
-  if (!urlValue) return workspaceAppUrl(appPath);
-  if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
-  try {
-    return projectEnvironmentUrl(new URL(urlValue).toString());
-  } catch {
-    return urlValue;
+  if (!urlValue) {
+    return workspaceGatewayAppUrl(appPath) ?? workspaceAppUrl(appPath);
   }
+  if (urlValue.startsWith("/")) {
+    return (
+      workspaceGatewayAppUrl(urlValue) ?? workspaceAppUrl(urlValue) ?? urlValue
+    );
+  }
+  const resolved = projectEnvironmentUrl(new URL(urlValue).toString());
+  const gateway = workspaceGatewayBaseUrl();
+  if (gateway && new URL(resolved).origin === gateway.origin) {
+    return addBasePath(resolved, gateway.pathname.replace(/\/+$/, ""));
+  }
+  const runtimeBase = resolveAppRuntimeUrl();
+  if (runtimeBase && new URL(resolved).origin === new URL(runtimeBase).origin) {
+    return addBasePath(resolved, getConfiguredAppBasePath());
+  }
+  return resolved;
 }
 
 function normalizeWorkspaceAppAudience(value: unknown): WorkspaceAppAudience {
@@ -821,7 +916,10 @@ function workspaceAppRouteAccessFromPackageJson(pkg: unknown): {
   };
 }
 
-function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
+function parseWorkspaceAppsManifest(
+  parsed: any,
+  onInvalidAppUrl?: () => void,
+): WorkspaceAppSummary[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
     : Array.isArray(parsed)
@@ -840,6 +938,18 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
       });
       if (!profile) return null;
       const metadata = workspaceAppMetadataFromRecord(entry);
+      let url: string | null;
+      try {
+        url = workspaceAppLink(pathValue, entry.url);
+      } catch (error) {
+        if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+        onInvalidAppUrl?.();
+        console.warn(
+          `[dispatch] Could not resolve Workspace app ${id}; skipping app`,
+          error,
+        );
+        return null;
+      }
       return {
         id,
         name:
@@ -851,7 +961,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         ...(profile.whenToUse ? { whenToUse: profile.whenToUse } : {}),
         path: pathValue,
         homePath: normalizeWorkspaceAppHomePath(entry.homePath),
-        url: workspaceAppLink(pathValue, entry.url),
+        url,
         isDispatch:
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
@@ -887,8 +997,11 @@ function parseWorkspaceAppsGatewayResponse(
       : parsed;
   if (!Array.isArray(rawApps)) return null;
   if (rawApps.length === 0) return [];
-  const apps = parseWorkspaceAppsManifest(parsed);
-  if (!apps || apps.length !== rawApps.length) return null;
+  let invalidUrlCount = 0;
+  const apps = parseWorkspaceAppsManifest(parsed, () => {
+    invalidUrlCount += 1;
+  });
+  if (!apps || apps.length + invalidUrlCount !== rawApps.length) return null;
   const ids = new Set(apps.map((app) => app.id.toLowerCase()));
   return ids.size === apps.length ? apps : null;
 }
@@ -1861,28 +1974,25 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
   const raw = process.env[WORKSPACE_APPS_ENV_KEY];
   if (!raw) return null;
   try {
-    return parseWorkspaceAppsManifest(JSON.parse(raw));
-  } catch {
-    return null;
+    const apps = parseWorkspaceAppsManifest(JSON.parse(raw));
+    if (apps) return apps;
+    console.warn(
+      `[dispatch] Could not parse Workspace app manifest from ${WORKSPACE_APPS_ENV_KEY}; skipping source`,
+    );
+  } catch (error) {
+    if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+    console.warn(
+      `[dispatch] Could not read Workspace app manifest from ${WORKSPACE_APPS_ENV_KEY}; skipping source`,
+    );
   }
+  return null;
 }
 
 async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | null> {
-  const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
+  const configuredBase = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configuredBase) return null;
-  const base = projectEnvironmentUrl(configuredBase);
-
-  let baseUrl: URL;
-  try {
-    baseUrl = new URL(base);
-  } catch {
-    // coercion-ok: malformed gateway configuration is an unavailable registry
-    // and falls back to local sources.
-    return null;
-  }
-  if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
-    return null;
-  }
+  const baseUrl = workspaceGatewayBaseUrl();
+  if (!baseUrl) return null;
 
   const requestContext = getRequestContext();
   const isLocalGateway = isLocalWorkspaceGateway(baseUrl);
@@ -2123,8 +2233,15 @@ function workspaceAppsManifestCandidates(): string[] {
 function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   for (const file of workspaceAppsManifestCandidates()) {
     if (!fs.existsSync(file)) continue;
-    const apps = parseWorkspaceAppsManifest(readJson(file));
-    if (apps) return apps;
+    try {
+      const apps = parseWorkspaceAppsManifest(readJson(file));
+      if (apps) return apps;
+    } catch (error) {
+      if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+      console.warn(
+        `[dispatch] Could not read Workspace app manifest ${file}; skipping source`,
+      );
+    }
   }
   return null;
 }
@@ -2140,7 +2257,16 @@ async function readWorkspaceAppsFromFilesystem(
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
     const appDir = path.join(appsDir, entry.name);
-    const pkg = readJson(path.join(appDir, "package.json"));
+    let pkg: any;
+    try {
+      pkg = readJson(path.join(appDir, "package.json"));
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not read workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     if (!pkg) continue;
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     const metadata = workspaceAppMetadataFromRecord(pkg);
