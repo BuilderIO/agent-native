@@ -2339,6 +2339,106 @@ describe.skipIf(!databaseUrl)(
       });
     }, 45_000);
 
+    it("returns the committed run receipt after the admitting process dies before acknowledgement", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:lost-ack-thread`;
+        const messageId = `${prefix}:lost-ack-message`;
+        const actor: QueuedSubmissionActor = {
+          email: "lost-ack-owner@example.com",
+          anonymous: false,
+        };
+        const message: QueuedMessage = {
+          id: messageId,
+          threadId,
+          text: "Persist this request once",
+        };
+        await createThread(actor.email, { id: threadId });
+        await mutateThreadQueuedMessages(
+          threadId,
+          { type: "append", message },
+          { actor },
+        );
+        const queuedReceipt = await getQueuedSubmissionReceipt(
+          threadId,
+          messageId,
+        );
+        if (!queuedReceipt)
+          throw new Error("Queued receipt disappeared before claim");
+        await mutateThreadQueuedMessages(threadId, {
+          type: "claimFromInbox",
+          receipt: queuedReceipt,
+          claimId: "lost-ack-promoter",
+        });
+
+        const submittedRunId = `${prefix}:lost-ack-run`;
+        const worker = startBarrierWorker(
+          "queue-submit-ack-barrier",
+          threadId,
+          `${prefix}:lost-ack-turn`,
+          submittedRunId,
+          messageId,
+          JSON.stringify({
+            message,
+            claimId: "lost-ack-promoter",
+            actor,
+          }),
+        );
+        try {
+          await expect(worker.ready).resolves.toMatchObject({
+            committed: true,
+          });
+          await expect(
+            getQueuedSubmissionReceipt(threadId, messageId),
+          ).resolves.toMatchObject({
+            state: "submitted",
+            submittedRunId,
+          });
+
+          worker.child.kill("SIGKILL");
+          const lostAcknowledgement = await worker.closed;
+          expect(lostAcknowledgement.signal).toBe("SIGKILL");
+        } finally {
+          await stopBarrierWorker(worker);
+        }
+
+        const retryRunId = `${prefix}:lost-ack-retry`;
+        expect(retryRunId).not.toBe(submittedRunId);
+        const committedThread = await getThread(threadId);
+        expect(committedThread).not.toBeNull();
+        const retryAdmission = applySubmittedUserMessage(
+          JSON.parse(committedThread!.threadData),
+          buildUserMessage({
+            text: message.text,
+            runId: retryRunId,
+            queuedMessageId: messageId,
+          }),
+          { id: messageId, claimId: "lost-ack-promoter" },
+        );
+        expect(retryAdmission).toMatchObject({ status: "already_claimed" });
+
+        const retryReceipt = await getQueuedSubmissionReceipt(
+          threadId,
+          messageId,
+        );
+        expect(retryReceipt).toMatchObject({
+          state: "submitted",
+          submittedRunId,
+        });
+        const finalThread = await getThread(threadId);
+        expect(finalThread).not.toBeNull();
+        const finalRepo = JSON.parse(finalThread!.threadData);
+        expect(
+          finalRepo.messages.filter((entry: any) => {
+            const stored = entry?.message ?? entry;
+            return (
+              stored?.role === "user" &&
+              stored.metadata?.custom?.agentNativeQueuedMessageId === messageId
+            );
+          }),
+        ).toHaveLength(1);
+      });
+    }, 45_000);
+
     it("rejects a stale queued-message promoter after cross-process claim takeover", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:queue-thread`;
