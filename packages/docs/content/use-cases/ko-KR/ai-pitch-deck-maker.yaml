@@ -1,0 +1,108 @@
+template: v2
+slug: ai-pitch-deck-maker
+app: slides
+title: AI 피치덱 메이커
+seo_title: 내 메모에서 시작하는 AI 피치덱 메이커
+meta_description: "Agent-Native Slides는 창업자를 위한 무료 AI 피치덱 메이커예요. 메모, 문서, 웹사이트를 덱으로 만들어 주고, 직접 또는 에이전트에게 요청해 편집할 수 있어요."
+updated: 2026-10-23
+hero:
+  body: "Agent-Native Slides는 메모, 문서, PDF, 웹사이트를 스타트업 창업자를 위한 피치덱으로 만들어 줘요. 에이전트가 슬라이드를 한 장씩 만들고, 어떤 슬라이드든 직접 고치거나 요청해서 바꿀 수 있어요."
+  button:
+    label: 덱 만들기
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: "Slides 편집기에서 절반쯤 만들어진 피치덱. 에이전트 패널에는 창업자의 회의 메모로 계획한 개요가 보이고, 새 슬라이드가 한 장씩 채워지고 있어요."
+how_to:
+  heading: AI로 피치덱 만드는 방법
+  steps:
+    - title: 내 자료에서 시작하기
+      body: "Slides 홈 화면에서 원하는 덱을 설명하세요. 회사 소개, 대상, 분량을 적고 가지고 있는 메모, 문서, 참고 자료를 첨부한 뒤 덱을 만들면 돼요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: "Slides 프롬프트 입력창 확대 화면. 창업자가 입력한 피치 설명과 첨부된 메모 파일, 그 아래 추천 칩이 보여요."
+    - title: 에이전트가 슬라이드를 만드는 과정 보기
+      body: "Slides 에이전트는 먼저 피치덱 개요를 계획해요. 그다음 편집기에서 슬라이드를 한 장씩 만들고, 그 과정을 직접 볼 수 있어요. PDF나 웹사이트를 읽지 못하면 그렇다고 알려 줘요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: "슬라이드 1, 2가 완성되고 솔루션을 다루는 슬라이드 3이 캔버스에서 생성되는 Slides 편집기. 에이전트 채팅에 개요와 “슬라이드 3 추가 중 · 솔루션”이 보여요."
+    - title: 완성된 덱 발표하거나 내보내기
+      body: "Slides에서 피치덱을 전체 화면으로 발표하거나 내보낼 수 있어요. 편집 가능한 PowerPoint 파일, Google Slides로 가져올 파일, 또는 HTML 파일 하나로 내보낼 수 있어요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: "완성된 표지 슬라이드 위에 열린 Slides 내보내기 메뉴 확대 화면. HTML, PDF, PowerPoint, Google Slides 옵션이 보여요."
+features:
+  heading: 덱을 만들고 피칭하는 데 필요한 모든 것
+  items:
+    - title: 메모로 만드는 피치덱
+      body: "프롬프트, 메모, 문서, 지난번 덱에서 시작하세요. 에이전트에게 회사와 투자 라운드를 알려 주면 덱을 만들어 줘요."
+    - title: AI 편집과 직접 편집
+      body: "슬라이드의 텍스트와 레이아웃을 직접 고치거나, 한 줄을 선택해 에이전트에게 요청하세요. 요청한 부분만 바뀌어요."
+    - title: 모든 슬라이드에 우리 브랜드
+      body: "색상, 글꼴, 로고를 디자인 시스템으로 저장하면 만드는 모든 덱이 우리 회사다운 모습이 돼요."
+    - title: 이미지와 로고
+      body: "에이전트에게 이미지 생성, 스톡 사진 검색, 트랙션 슬라이드에 넣을 고객사와 파트너 로고 가져오기를 요청하세요."
+    - title: 공동 창업자와 협업
+      body: "공동 창업자, 에이전트와 같은 덱을 함께 편집하고, 어떤 슬라이드에든 댓글을 달고, 이전 버전으로 복원할 수 있어요."
+    - title: 피칭, 공유, 내보내기
+      body: "발표자 노트와 함께 발표하고, 투자자에게 보기 전용 링크를 공유하거나, 편집 가능한 PowerPoint 파일로 내보내세요."
+integrations:
+  heading: 이미 쓰는 도구와 Slides 연결하기
+  cards:
+    - title: 메모와 문서 가져오기
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: "이미 가지고 있는 메모와 문서로 덱을 시작하면, 에이전트가 편집 가능한 슬라이드로 만들어 줘요."
+    - title: 투자자가 원하는 형식으로 보내기
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: "편집 가능한 PowerPoint 파일로 내보내거나, Google Slides에서 열거나, PDF로 보내세요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Slides로 만들 수 있는 다른 덱
+  cards:
+    - title: AI 이사회 보고 덱 메이커
+      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
+      body: "지표와 메모를 분기마다 새로 고칠 수 있는 이사회 보고 덱으로 만들어 보세요."
+    - title: AI 세일즈 덱 메이커
+      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
+      body: "제품 메모와 웹사이트로 우리 브랜드에 맞는 세일즈 덱을 만들어 보세요."
+    - title: AI 투자자 업데이트 메이커
+      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
+      body: "이번 달 수치와 성과를 투자자에게 보낼 짧은 업데이트로 만들어 보세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Slides는 무료인가요?
+      a: "네, Agent-Native Slides는 무료 오픈 소스예요. 덱을 만들려면 Builder.io 또는 내 AI 키를 통한 AI 연결이 필요하고, 이미지를 만들려면 내 Gemini 또는 OpenAI 키가 필요해요. Slides는 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
+    - q: 피치덱을 PowerPoint나 Google Slides로 내보낼 수 있나요?
+      a: "Slides는 편집 가능한 PowerPoint(PPTX) 파일로 내보내요. Google Slides의 경우 가져오기 링크가 포함된 PPTX 파일을 제공하니, Google Slides에서 직접 열면 돼요. 덱을 HTML 파일 하나로 내보낼 수도 있어요."
+    - q: Slides는 내 메모, 문서, 웹사이트에서 시작할 수 있나요?
+      a: "Slides 홈 화면에서 피치를 설명하고 메모나 문서를 첨부하거나 웹사이트 링크를 추가하세요. Google Doc, Word 파일, PowerPoint를 가져올 수도 있어요. 에이전트가 PDF나 웹사이트를 읽지 못하면 추측하지 않고 알려 줘요."
+    - q: 챗봇에게 슬라이드를 써 달라고 하는 것과 Slides는 무엇이 다른가요?
+      a: "챗봇은 슬라이드에 직접 옮겨야 할 텍스트를 줘요. Slides에서는 에이전트가 눈에 보이는 편집기에서 실제 덱을 만들어요. 같은 덱에서 어떤 슬라이드든 직접 고치거나 에이전트에게 요청할 수 있고, 모든 변경은 되돌릴 수 있어요. 그래서 Slides는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."
+    - q: 공동 창업자와 함께 피치덱을 편집할 수 있나요?
+      a: "나, 공동 창업자, 에이전트가 같은 덱을 동시에 편집할 수 있어요. 슬라이드 전체나 특정 부분에 댓글을 달 수 있어요. Slides는 의미 있는 변경이 있을 때마다 버전을 저장하므로 언제든 이전 버전으로 복원할 수 있어요."
+    - q: 피치덱은 몇 장이 적당한가요?
+      a: "첫 피칭이라면 10장 안팎이 적당해요([피치덱에 들어갈 내용](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)). Slides도 “이 문서로 10장짜리 피치 만들기”를 추천해요. 다른 분량을 원하면 에이전트에게 알려 주세요. 그에 맞게 개요를 계획해요."

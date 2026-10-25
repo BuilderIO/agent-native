@@ -1,0 +1,108 @@
+template: v2
+slug: ai-pitch-deck-maker
+app: slides
+title: AI 融资路演 PPT 生成器
+seo_title: 从你的笔记出发的 AI 融资路演 PPT 生成器
+meta_description: Agent-Native Slides 是一款面向创始人的免费 AI 路演 PPT 生成器。它能把你的笔记、文档或官网变成一份 PPT，你可以手动编辑，也可以让 agent 来改。
+updated: 2026-10-23
+hero:
+  body: Agent-Native Slides 能把你的笔记、文档、PDF 或官网，变成一份给创业公司创始人用的融资路演 PPT。agent 逐页搭建，任何一页你都可以手动修改，或者直接提要求让它改。
+  button:
+    label: 开始制作 PPT
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: Slides 编辑器中一份制作到一半的路演 PPT。agent 面板显示它根据创始人的会议笔记规划的大纲，新的幻灯片正一页页生成。
+how_to:
+  heading: 如何用 AI 制作融资路演 PPT
+  steps:
+    - title: 从你自己的材料开始
+      body: 在 Slides 首页描述你想要的 PPT：你的公司、给谁看、需要多长。附上你手头的笔记、文档或参考资料，然后创建 PPT。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: Slides 输入框特写：已输入创始人的路演说明，附上了一份笔记文件，下方是推荐提示。
+    - title: 看着 agent 搭好每一页
+      body: Slides agent 会先为你的路演 PPT 规划大纲，然后在编辑器里逐页搭建，你可以全程看着。如果它读不了某个 PDF 或网站，会直接告诉你。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: Slides 编辑器中第 1、2 页已完成，第 3 页“解决方案”正在画布上生成。agent 对话框显示大纲和“正在添加第 3 页 · 解决方案”。
+    - title: 演示或导出成品 PPT
+      body: 在 Slides 里全屏演示你的路演 PPT，或者导出。你可以导出可编辑的 PowerPoint 文件、可导入 Google Slides 的文件，或单个 HTML 文件。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: Slides 导出菜单特写，展开在已完成的标题页上方，提供 HTML、PDF、PowerPoint 和 Google Slides 选项。
+features:
+  heading: 制作和演示路演 PPT 所需的一切
+  items:
+    - title: 用笔记生成路演 PPT
+      body: 从一句提示、你的笔记、一份文档或上一版 PPT 开始。告诉 agent 你的公司和这轮融资的情况，它就会做出 PPT。
+    - title: AI 编辑与可视化编辑
+      body: 直接在页面上修改文字和排版，或者选中一行让 agent 来改。只有你指定的内容会变。
+    - title: 每一页都是你的品牌
+      body: 把你的配色、字体和 logo 保存为设计系统，之后做的每份 PPT 都有你公司的风格。
+    - title: 图片与 logo
+      body: 让 agent 生成图片、查找图库照片，或为你的业务进展页加入客户和合作伙伴的 logo。
+    - title: 与联合创始人协作
+      body: 和联合创始人、agent 一起编辑同一份 PPT，可在任意页面评论，并恢复任一历史版本。
+    - title: 演示、分享和导出
+      body: 带演讲者备注进行演示，给投资人分享只读链接，或导出可编辑的 PowerPoint 文件。
+integrations:
+  heading: 把 Slides 连接到你已经在用的工具
+  cards:
+    - title: 导入你的笔记和文档
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: 用你现有的笔记和文档开始制作 PPT，agent 会把它们变成可编辑的幻灯片。
+    - title: 按投资人需要的格式发送
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: 导出可编辑的 PowerPoint 文件、在 Google Slides 中打开，或发送 PDF。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 在 Slides 中还能制作的其他 PPT
+  cards:
+    - title: AI 董事会汇报 PPT 生成器
+      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
+      body: 把你的指标和笔记变成一份每季度都能更新的董事会汇报 PPT。
+    - title: AI 销售 PPT 生成器
+      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
+      body: 根据产品笔记和官网，做出一份符合品牌风格的销售 PPT。
+    - title: AI 投资人月报生成器
+      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
+      body: 把本月的数据和成绩整理成一份简短的投资人更新。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Slides 免费吗？
+      a: 是的，Agent-Native Slides 免费且开源。制作 PPT 需要连接 AI，可以通过 Builder.io 或你自己的 AI 密钥；生成图片需要你自己的 Gemini 或 OpenAI 密钥。Slides 目前处于 alpha 阶段，后续还会有变化。
+    - q: 我能把路演 PPT 导出为 PowerPoint 或 Google Slides 吗？
+      a: Slides 可导出可编辑的 PowerPoint（PPTX）文件。对于 Google Slides，它会给你一个 PPTX 文件和导入链接，由你自己在 Google Slides 中打开。你也可以把 PPT 导出为单个 HTML 文件。
+    - q: Slides 能从我的笔记、文档或官网开始吗？
+      a: 在 Slides 首页描述你的路演内容，附上笔记或文档，或者添加官网链接。你也可以导入 Google Doc、Word 文件或 PowerPoint。如果 agent 读不了某个 PDF 或网站，它会直接告诉你，而不是凭空猜测。
+    - q: Slides 和让聊天机器人帮我写幻灯片有什么不同？
+      a: 聊天机器人给你的是文字，你还得自己复制到幻灯片里。在 Slides 中，agent 会在你看得到的编辑器里做出真正的 PPT。任何一页你都可以手动修改或让 agent 改，改的是同一份 PPT，而且每次修改都可以撤销。这正是 Slides 成为[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)的原因：既有 agent 的智能，又有应用的直观易用。
+    - q: 联合创始人能和我一起编辑路演 PPT 吗？
+      a: 你、你的联合创始人和 agent 可以同时编辑同一份 PPT。你可以对整页或页面中的某一部分发表评论。每次重要修改前 Slides 都会保存一个版本，你随时可以恢复到之前的版本。
+    - q: 一份路演 PPT 应该有多少页？
+      a: 首次路演大约十页比较合适（[路演 PPT 应该包含什么](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)），Slides 也会推荐“用这份文档做一份 10 页的路演 PPT”。如果你想要其他页数，告诉 agent 即可，它会按页数规划大纲。

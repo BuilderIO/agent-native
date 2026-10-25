@@ -1,0 +1,108 @@
+template: v2
+slug: ai-pitch-deck-maker
+app: slides
+title: "AI 募資簡報產生器"
+seo_title: "從你的筆記開始的 AI 募資簡報產生器"
+meta_description: "Agent-Native Slides 是為創辦人打造的免費 AI 募資簡報產生器。它能把你的筆記、文件或網站變成簡報，你可以手動編輯，也可以交給 agent 修改。"
+updated: 2026-10-23
+hero:
+  body: "Agent-Native Slides 能把你的筆記、文件、PDF 或網站，變成新創創辦人的募資簡報。agent 會一頁一頁製作，任何一頁你都能手動編輯，或直接開口請它修改。"
+  button:
+    label: "製作你的簡報"
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: "Slides 編輯器中做到一半的募資簡報。agent 面板顯示它根據創辦人會議筆記規劃的大綱，新的投影片正一頁頁完成。"
+how_to:
+  heading: "如何用 AI 製作募資簡報"
+  steps:
+    - title: "從你自己的素材開始"
+      body: "在 Slides 首頁描述你想要的簡報：你的公司、給誰看、要多長。附上你手邊的筆記、文件或參考資料，然後建立簡報。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: "Slides 提示框特寫：已輸入創辦人的募資說明、附上一份筆記檔案，下方是建議選項。"
+    - title: "看 agent 製作每一頁"
+      body: "Slides agent 會先為你的募資簡報規劃大綱，接著在編輯器裡逐頁製作，你可以在一旁看著。如果它讀不到某個 PDF 或網站，會直接告訴你。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: "Slides 編輯器中第 1、2 頁已完成，第 3 頁「解決方案」正在畫布上產生。agent 對話顯示大綱與「正在新增第 3 頁 · 解決方案」。"
+    - title: "簡報或匯出完成的簡報"
+      body: "直接在 Slides 全螢幕播放你的募資簡報，或將它匯出。你可以匯出可編輯的 PowerPoint 檔案、可匯入 Google Slides 的檔案，或單一 HTML 檔案。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: "Slides 匯出選單特寫，開在完成的標題頁上方，有 HTML、PDF、PowerPoint 和 Google Slides 選項。"
+features:
+  heading: "製作與發表簡報所需的一切"
+  items:
+    - title: "從筆記產生募資簡報"
+      body: "從一段提示、你的筆記、一份文件或上一份簡報開始。告訴 agent 你的公司和這輪募資，它就會做出簡報。"
+    - title: "AI 與視覺化編輯"
+      body: "你可以自己在投影片上修改文字和版面，也可以選取一行請 agent 處理。只有你指定的部分會變動。"
+    - title: "每一頁都是你的品牌"
+      body: "把你的顏色、字型和標誌存成設計系統，之後做的每份簡報都會有你公司的樣子。"
+    - title: "圖片與標誌"
+      body: "請 agent 產生圖片、找圖庫照片，或為你的成長數據頁放入客戶和合作夥伴的標誌。"
+    - title: "與共同創辦人協作"
+      body: "和共同創辦人與 agent 一起編輯同一份簡報，在任何一頁留言，也能還原任何先前的版本。"
+    - title: "發表、分享與匯出"
+      body: "搭配講者備忘稿進行簡報、分享唯讀連結給投資人，或匯出可編輯的 PowerPoint 檔案。"
+integrations:
+  heading: "將 Slides 連接到你已在用的工具"
+  cards:
+    - title: "帶入你的筆記和文件"
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: "從你手邊現有的筆記和文件開始做簡報，agent 會把它們變成可編輯的投影片。"
+    - title: "用投資人要的格式寄出"
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: "匯出可編輯的 PowerPoint 檔案、在 Google Slides 中開啟，或寄出 PDF。"
+    - title: "透過 MCP 連接任何工具"
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: "透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。"
+other_uses:
+  heading: "你還能用 Slides 製作的其他簡報"
+  cards:
+    - title: "AI 董事會簡報產生器"
+      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
+      body: "把你的指標和筆記變成每季都能更新的董事會簡報。"
+    - title: "AI 業務簡報產生器"
+      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
+      body: "根據你的產品筆記和網站，做出符合品牌的業務簡報。"
+    - title: "AI 投資人近況更新產生器"
+      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
+      body: "把這個月的數字和成果，整理成給投資人的簡短近況更新。"
+faqs:
+  heading: "有問題？我們來解答"
+  items:
+    - q: "Slides 是免費的嗎？"
+      a: "是的，Agent-Native Slides 免費且開源。製作簡報需要連接 AI，可以透過 Builder.io 或你自己的 AI 金鑰；產生圖片則需要你自己的 Gemini 或 OpenAI 金鑰。Slides 目前是 alpha 版，功能會隨著發展持續調整。"
+    - q: "我可以把募資簡報匯出成 PowerPoint 或 Google Slides 嗎？"
+      a: "Slides 可以匯出可編輯的 PowerPoint（PPTX）檔案。若要用 Google Slides，它會給你一個 PPTX 檔案和匯入連結，由你自己在 Google Slides 中開啟。你也可以把簡報匯出成單一 HTML 檔案。"
+    - q: "Slides 可以從我的筆記、文件或網站開始嗎？"
+      a: "在 Slides 首頁描述你的募資內容，並附上筆記或文件，或加入你網站的連結。你也可以匯入 Google Doc、Word 檔案或 PowerPoint。如果 agent 讀不到某個 PDF 或網站，它會直接告訴你，而不是自己猜。"
+    - q: "Slides 和請聊天機器人幫我寫投影片有什麼不同？"
+      a: "聊天機器人給你的是文字，你得自己複製到投影片裡。在 Slides 中，agent 會在你看得到的編輯器裡做出真正的簡報。任何一頁你都能手動修改或請 agent 處理，都在同一份簡報上進行，而且每次變更都能復原。這就是 Slides 之所以是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/) 的原因：擁有 agent 的智慧，也有應用程式的直覺易用。"
+    - q: "我的共同創辦人可以和我一起編輯募資簡報嗎？"
+      a: "你、你的共同創辦人和 agent 可以同時編輯同一份簡報。你可以針對某一頁或其中某個部分留言。每次有實質變更前，Slides 都會先儲存一個版本，所以你隨時都能還原先前的版本。"
+    - q: "一份募資簡報應該有幾頁？"
+      a: "第一次提案大約十頁是不錯的長度（[募資簡報該放哪些內容](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)），Slides 也會建議「根據這份文件做一份 10 頁的募資簡報」。如果你想要不同的長度，告訴 agent 即可，它會依此規劃大綱。"

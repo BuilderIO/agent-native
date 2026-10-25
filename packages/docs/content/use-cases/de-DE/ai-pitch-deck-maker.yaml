@@ -1,0 +1,108 @@
+template: v2
+slug: ai-pitch-deck-maker
+app: slides
+title: KI-Pitch-Deck-Generator
+seo_title: "KI-Pitch-Deck-Generator: Ihr Deck aus Ihren Notizen"
+meta_description: Agent-Native Slides ist ein kostenloser KI-Pitch-Deck-Generator für Gründer. Er macht aus Notizen, Dokumenten oder Ihrer Website ein Deck, das Sie selbst oder mit dem Agenten bearbeiten.
+updated: 2026-10-23
+hero:
+  body: Agent-Native Slides macht aus Notizen, einem Dokument, einem PDF oder Ihrer Website ein Pitch Deck für Gründer. Der Agent baut es Folie für Folie, Sie ändern jede Folie von Hand oder per Anfrage.
+  button:
+    label: Deck erstellen
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: Ein halb fertiges Pitch Deck im Slides-Editor. Das Agenten-Panel zeigt die Gliederung, die der Agent aus den Meeting-Notizen des Gründers geplant hat, und neue Folien entstehen nacheinander.
+how_to:
+  heading: So erstellen Sie ein Pitch Deck mit KI
+  steps:
+    - title: Mit Ihrem eigenen Material starten
+      body: "Beschreiben Sie auf dem Startbildschirm von Slides das gewünschte Deck: Ihr Unternehmen, die Zielgruppe und die Länge. Hängen Sie Notizen, Dokumente oder Referenzmaterial an und erstellen Sie das Deck."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: "Nahaufnahme des Eingabefelds in Slides: eine eingetippte Pitch-Beschreibung, eine angehängte Notizdatei und darunter die Vorschläge."
+    - title: Zusehen, wie der Agent jede Folie baut
+      body: Der Slides-Agent plant zuerst eine Gliederung für Ihr Pitch Deck. Dann baut er jede Folie im Editor, während Sie zusehen. Kann er ein PDF oder eine Website nicht lesen, sagt er es.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: Der Slides-Editor mit fertigen Folien 1 und 2, während Folie 3, die Lösung, auf der Arbeitsfläche entsteht. Der Agenten-Chat zeigt die Gliederung und „Folie 3 wird hinzugefügt · Die Lösung“.
+    - title: Das fertige Deck präsentieren oder exportieren
+      body: Präsentieren Sie Ihr Pitch Deck im Vollbild aus Slides oder exportieren Sie es – als bearbeitbare PowerPoint-Datei, als Datei für den Import in Google Slides oder als eine HTML-Datei.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: Nahaufnahme des geöffneten Export-Menüs in Slides über der fertigen Titelfolie, mit den Optionen HTML, PDF, PowerPoint und Google Slides.
+features:
+  heading: Alles, was Sie zum Erstellen und Pitchen Ihres Decks brauchen
+  items:
+    - title: Pitch Decks aus Ihren Notizen
+      body: Starten Sie mit einem Prompt, Ihren Notizen, einem Dokument oder Ihrem letzten Deck. Erzählen Sie dem Agenten von Ihrem Unternehmen und Ihrer Runde, und er baut das Deck.
+    - title: Bearbeiten mit KI und visuell
+      body: Ändern Sie Text und Layout direkt auf der Folie oder markieren Sie eine Zeile und fragen Sie den Agenten. Nur das Angefragte ändert sich.
+    - title: Ihre Marke auf jeder Folie
+      body: Speichern Sie Farben, Schriften und Logo als Designsystem, und jedes Deck sieht nach Ihrem Unternehmen aus.
+    - title: Bilder und Logos
+      body: Lassen Sie den Agenten Bilder generieren, Stockfotos finden oder Kunden- und Partnerlogos für Ihre Traction-Folien einfügen.
+    - title: Zusammenarbeit mit Mitgründern
+      body: Bearbeiten Sie dasselbe Deck mit Ihrem Mitgründer und dem Agenten, kommentieren Sie jede Folie und stellen Sie frühere Versionen wieder her.
+    - title: Pitchen, teilen und exportieren
+      body: Präsentieren Sie mit Sprechernotizen, teilen Sie einen Nur-Lese-Link mit Investoren oder exportieren Sie eine bearbeitbare PowerPoint-Datei.
+integrations:
+  heading: Verbinden Sie Slides mit den Tools, die Sie schon nutzen
+  cards:
+    - title: Notizen und Dokumente mitbringen
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: Starten Sie das Deck mit Ihren vorhandenen Notizen und Dokumenten, und der Agent macht daraus bearbeitbare Folien.
+    - title: So senden, wie Investoren es wollen
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: Exportieren Sie eine bearbeitbare PowerPoint-Datei, öffnen Sie sie in Google Slides oder senden Sie ein PDF.
+    - title: Alles über MCP verbinden
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: Verbinden Sie die Tools Ihres Teams über MCP oder fügen Sie einen beliebigen MCP-Server per URL hinzu.
+other_uses:
+  heading: Weitere Decks, die Sie in Slides erstellen können
+  cards:
+    - title: KI-Board-Deck-Generator
+      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
+      body: Machen Sie aus Kennzahlen und Notizen ein Board-Deck, das Sie jedes Quartal aktualisieren können.
+    - title: KI-Sales-Deck-Generator
+      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
+      body: Erstellen Sie aus Produktnotizen und Website ein Sales-Deck in Ihrem Branding.
+    - title: KI-Generator für Investoren-Updates
+      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
+      body: Machen Sie aus den Zahlen und Erfolgen des Monats ein kurzes Update für Ihre Investoren.
+faqs:
+  heading: Fragen? Wir haben Antworten
+  items:
+    - q: Ist Slides kostenlos?
+      a: Ja, Agent-Native Slides ist kostenlos und Open Source. Zum Erstellen eines Decks brauchen Sie eine KI-Verbindung, entweder über Builder.io oder Ihren eigenen KI-Schlüssel, und für Bilder Ihren eigenen Gemini- oder OpenAI-Schlüssel. Slides ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
+    - q: Kann ich mein Pitch Deck nach PowerPoint oder Google Slides exportieren?
+      a: Slides exportiert eine bearbeitbare PowerPoint-Datei (PPTX). Für Google Slides erhalten Sie eine PPTX-Datei mit Import-Link, die Sie selbst in Google Slides öffnen. Sie können das Deck auch als eine HTML-Datei exportieren.
+    - q: Kann Slides mit meinen Notizen, einem Dokument oder meiner Website starten?
+      a: Beschreiben Sie Ihren Pitch auf dem Startbildschirm von Slides und hängen Sie Notizen oder ein Dokument an, oder fügen Sie den Link Ihrer Website hinzu. Sie können auch ein Google Doc, eine Word-Datei oder eine PowerPoint importieren. Kann der Agent ein PDF oder eine Website nicht lesen, sagt er es Ihnen, statt zu raten.
+    - q: Was unterscheidet Slides davon, einen Chatbot meine Folien schreiben zu lassen?
+      a: "Ein Chatbot liefert Ihnen Text, den Sie selbst in Folien kopieren. In Slides baut der Agent das echte Deck in einem Editor, den Sie sehen. Sie ändern jede Folie von Hand oder per Anfrage an den Agenten, im selben Deck, und jede Änderung lässt sich rückgängig machen. Das macht Slides zu einer [agentischen App](https://www.agent-native.com/articles/what-is-an-agent-native-app/): die Intelligenz eines Agenten, die Bedienbarkeit einer App."
+    - q: Kann mein Mitgründer das Pitch Deck mit mir bearbeiten?
+      a: Sie, Ihr Mitgründer und der Agent können dasselbe Deck gleichzeitig bearbeiten. Sie können eine Folie oder einen Teil davon kommentieren. Slides speichert vor jeder größeren Änderung eine Version, sodass Sie jederzeit eine frühere Version wiederherstellen können.
+    - q: Wie viele Folien sollte ein Pitch Deck haben?
+      a: "Rund zehn Folien sind eine gute Länge für einen ersten Pitch ([was in ein Pitch Deck gehört](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), und Slides schlägt „Build a 10-slide pitch from this doc“ vor. Nennen Sie dem Agenten eine andere Länge, wenn Sie möchten, und er plant die Gliederung passend dazu."

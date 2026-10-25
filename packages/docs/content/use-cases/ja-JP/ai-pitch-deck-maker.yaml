@@ -1,0 +1,108 @@
+template: v2
+slug: ai-pitch-deck-maker
+app: slides
+title: AIピッチデッキメーカー
+seo_title: メモから作れるAIピッチデッキメーカー
+meta_description: Agent-Native Slidesは、創業者のための無料AIピッチデッキメーカーです。メモやドキュメント、ウェブサイトからデッキを作成し、手作業でもエージェントでも編集できます。
+updated: 2026-10-23
+hero:
+  body: Agent-Native Slidesは、メモやドキュメント、PDF、ウェブサイトから、スタートアップ創業者向けのピッチデッキを作成します。エージェントがスライドを1枚ずつ作成し、どのスライドも手作業または指示ひとつで編集できます。
+  button:
+    label: デッキを作成する
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: Slidesエディターで作成途中のピッチデッキ。エージェントパネルには創業者の会議メモから組み立てた構成案が表示され、新しいスライドが1枚ずつ追加されています。
+how_to:
+  heading: AIでピッチデッキを作る方法
+  steps:
+    - title: 手持ちの資料から始める
+      body: Slidesのホーム画面で、作りたいデッキの内容を入力します。会社のこと、誰に向けたものか、どのくらいの長さにするかを伝えましょう。手元のメモやドキュメント、参考資料を添付して、デッキを作成します。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: Slidesのプロンプト入力欄の拡大図。創業者のピッチの説明が入力され、メモファイルが添付され、その下に候補チップが並んでいます。
+    - title: エージェントがスライドを作る様子を確認
+      body: Slidesのエージェントは、まずピッチデッキの構成案を作成します。その後、エディター上でスライドを1枚ずつ作成していく様子を確認できます。PDFやウェブサイトを読み取れない場合は、その旨を伝えます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: "Slidesエディターで、スライド1と2が完成し、ソリューションを示すスライド3がキャンバス上で生成中の様子。エージェントのチャットには構成案と「スライド3を追加中 · ソリューション」が表示されています。"
+    - title: 完成したデッキを発表・エクスポート
+      body: 完成したピッチデッキは、Slidesからフルスクリーンで発表することも、エクスポートすることもできます。編集可能なPowerPointファイル、Google Slidesに取り込めるファイル、または1つのHTMLファイルとして書き出せます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: 完成したタイトルスライドの上に開いたSlidesのエクスポートメニューの拡大図。HTML、PDF、PowerPoint、Google Slidesの選択肢があります。
+features:
+  heading: デッキ作成からピッチまで、必要な機能がすべて揃っています
+  items:
+    - title: メモからピッチデッキを作成
+      body: プロンプト、メモ、ドキュメント、前回のデッキから始められます。会社や資金調達ラウンドについてエージェントに伝えれば、デッキを作成します。
+    - title: AIとビジュアル編集
+      body: スライド上のテキストやレイアウトを自分で編集することも、行を選んでエージェントに頼むこともできます。変わるのは依頼した部分だけです。
+    - title: すべてのスライドに自社ブランドを
+      body: カラー、フォント、ロゴをデザインシステムとして保存すれば、作成するすべてのデッキが自社らしい見た目になります。
+    - title: 画像とロゴ
+      body: エージェントに画像の生成やストック写真の検索を頼んだり、トラクションのスライド用に顧客やパートナーのロゴを取り込んだりできます。
+    - title: 共同創業者とのコラボレーション
+      body: 共同創業者やエージェントと同じデッキを編集し、どのスライドにもコメントでき、以前のバージョンにいつでも戻せます。
+    - title: ピッチ、共有、エクスポート
+      body: スピーカーノートを見ながら発表したり、投資家に閲覧専用リンクを共有したり、編集可能なPowerPointファイルとして書き出したりできます。
+integrations:
+  heading: いつものツールとSlidesを連携
+  cards:
+    - title: メモやドキュメントを取り込む
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: 手持ちのメモやドキュメントからデッキ作成を始めると、エージェントが編集可能なスライドに仕上げます。
+    - title: 投資家が求める形式で送る
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: 編集可能なPowerPointファイルとして書き出したり、Google Slidesで開いたり、PDFで送ったりできます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Slidesで作れるその他のデッキ
+  cards:
+    - title: AI取締役会資料メーカー
+      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
+      body: 指標やメモから、四半期ごとに更新できる取締役会資料を作成します。
+    - title: AI営業資料メーカー
+      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
+      body: 製品メモやウェブサイトから、自社ブランドの営業資料を作成します。
+    - title: AI投資家向けアップデートメーカー
+      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
+      body: 今月の数字や成果を、投資家向けの短いアップデートにまとめます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Slidesは無料ですか？
+      a: はい、Agent-Native Slidesは無料のオープンソースです。デッキの作成にはAIとの接続が必要で、Builder.ioを経由するか、ご自身のAIキーを使用します。画像の生成には、ご自身のGeminiまたはOpenAIのキーが必要です。Slidesはアルファ版のため、今後変更が加わる可能性があります。
+    - q: ピッチデッキをPowerPointやGoogle Slidesにエクスポートできますか？
+      a: Slidesは編集可能なPowerPoint（PPTX）ファイルを書き出せます。Google Slides向けには、インポート用リンク付きのPPTXファイルが用意されるので、ご自身でGoogle Slidesで開いてください。デッキを1つのHTMLファイルとして書き出すこともできます。
+    - q: メモやドキュメント、ウェブサイトから作成を始められますか？
+      a: Slidesのホーム画面でピッチの内容を入力し、メモやドキュメントを添付するか、ウェブサイトのリンクを追加してください。Google Doc、Wordファイル、PowerPointをインポートすることもできます。エージェントがPDFやウェブサイトを読み取れない場合は、推測せずにその旨をお知らせします。
+    - q: チャットボットにスライドを書いてもらうのと何が違いますか？
+      a: "チャットボットが返すのはテキストだけで、スライドへの貼り付けはご自身で行う必要があります。Slidesでは、エージェントが目に見えるエディター上で実際のデッキを作成します。同じデッキ上で、どのスライドも手作業またはエージェントへの指示で変更でき、すべての変更は元に戻せます。これこそがSlidesを[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)たらしめる点です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。"
+    - q: 共同創業者と一緒にピッチデッキを編集できますか？
+      a: あなたと共同創業者、そしてエージェントが、同じデッキを同時に編集できます。スライド全体にも、スライドの一部にもコメントできます。Slidesは大きな変更の前にバージョンを保存するため、いつでも以前のバージョンに戻せます。
+    - q: ピッチデッキは何枚のスライドにすべきですか？
+      a: "最初のピッチなら10枚前後がちょうどよい長さです（[ピッチデッキに入れるべき内容](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)）。Slidesでも「このドキュメントから10枚のピッチを作成」という候補が表示されます。別の長さにしたい場合はエージェントに伝えれば、それに合わせて構成案を作成します。"
