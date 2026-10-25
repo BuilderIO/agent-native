@@ -3044,7 +3044,7 @@ export default function RecordingPage() {
         <div className="contents">
           <div
             className={cn(
-              "flex min-w-0 flex-col bg-background lg:col-start-1 lg:row-start-1",
+              "clips-recording-player-column flex min-w-0 flex-col bg-background lg:col-start-1 lg:row-start-1",
               editing && canUseNativeEditor
                 ? "min-h-0 flex-1 overflow-hidden"
                 : "gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
@@ -3059,7 +3059,10 @@ export default function RecordingPage() {
                 />
               </RecordingEditorBoundary>
             ) : (
-              <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]">
+              <div
+                data-clips-scroll-content
+                className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]"
+              >
                 <div className="flex w-full shrink-0 justify-center">
                   {/* Let the viewer grow on wide displays without pushing the
                     discussion below the first scrollable viewport. The comments
