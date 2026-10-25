@@ -472,6 +472,72 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("keeps mounted Workspace prefixes on gateway app URLs", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          apps: [
+            {
+              id: "customer-ticket-triage",
+              name: "Customer Ticket Triage",
+              path: "/customer-ticket-triage",
+              url: "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "https://beta.agent-workspace.builder.io/dispatch",
+    );
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "customer-ticket-triage")?.url).toBe(
+      "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+    );
+  });
+
+  it("applies APP_BASE_PATH to locally resolved workspace app URLs", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        path: "/customer-ticket-triage",
+      },
+    ]);
+    vi.stubEnv("APP_URL", "https://beta.agent-workspace.builder.io");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "https://beta.agent-workspace.builder.io",
+    );
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://beta.agent-workspace.builder.io",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "customer-ticket-triage")?.url).toBe(
+      "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+    );
+  });
+
   it("lists only ready org-visible apps for an organization principal", async () => {
     stubNoPendingContext();
     stubManifest([

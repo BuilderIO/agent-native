@@ -36,6 +36,7 @@ import {
   resolveVercelDeploymentProtectionHeaders,
   normalizeBuilderAgentAttachments,
   runBuilderAgent,
+  withConfiguredAppBasePath,
   type BuilderAgentAttachment,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
@@ -298,6 +299,7 @@ function readJson(file: string): any {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
+    // coercion-ok: malformed app routes cannot produce a URL.
     return null;
   }
 }
@@ -630,13 +632,69 @@ function workspaceAppUrl(appPath: string): string | null {
   const base = resolveAppRuntimeUrl();
   if (!base) return null;
   try {
-    return new URL(
-      appPath,
-      `${projectEnvironmentUrl(base).replace(/\/$/, "")}/`,
-    ).toString();
+    const baseUrl = new URL(
+      withConfiguredAppBasePath(projectEnvironmentUrl(base)),
+    );
+    return appendWorkspaceAppPath(baseUrl, appPath);
   } catch {
+    // coercion-ok: invalid runtime URL cannot produce a workspace app link.
     return null;
   }
+}
+
+function appendWorkspaceAppPath(baseUrl: URL, appPath: string): string {
+  const parsedPath = new URL(appPath, "http://agent-native.invalid");
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  let appPathname = parsedPath.pathname;
+  if (
+    basePath &&
+    (appPathname === basePath || appPathname.startsWith(`${basePath}/`))
+  ) {
+    appPathname = appPathname.slice(basePath.length) || "/";
+  }
+  baseUrl.pathname =
+    `${basePath}${appPathname.startsWith("/") ? appPathname : `/${appPathname}`}` ||
+    "/";
+  baseUrl.search = parsedPath.search;
+  baseUrl.hash = parsedPath.hash;
+  return baseUrl.toString().replace(/\/$/, "");
+}
+
+function workspaceGatewayBaseUrl(): URL | null {
+  const configured = process.env.WORKSPACE_GATEWAY_URL?.trim();
+  if (!configured) return null;
+  try {
+    const url = new URL(projectEnvironmentUrl(configured));
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    // coercion-ok: invalid gateway config cannot provide a route base.
+    return null;
+  }
+}
+
+function workspaceGatewayAppUrl(appPath: string): string | null {
+  const baseUrl = workspaceGatewayBaseUrl();
+  if (!baseUrl) return null;
+  const requestOrigin = getRequestContext()?.requestOrigin;
+  if (requestOrigin) {
+    try {
+      if (new URL(requestOrigin).origin === baseUrl.origin) return null;
+    } catch {
+      // coercion-ok: an invalid origin cannot identify the local deployment.
+    }
+  }
+  return appendWorkspaceAppPath(baseUrl, appPath);
+}
+
+function addBasePath(urlValue: string, basePath: string): string {
+  if (!basePath) return urlValue;
+  const url = new URL(urlValue);
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
+    return url.toString();
+  }
+  url.pathname = `${basePath}${pathname === "/" ? "" : pathname}` || "/";
+  return url.toString();
 }
 
 function isLocalWorkspaceGateway(url: URL): boolean {
@@ -654,10 +712,28 @@ function workspaceAppLink(
   explicitUrl?: unknown,
 ): string | null {
   const urlValue = typeof explicitUrl === "string" ? explicitUrl.trim() : "";
-  if (!urlValue) return workspaceAppUrl(appPath);
-  if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
+  if (!urlValue) {
+    return workspaceGatewayAppUrl(appPath) ?? workspaceAppUrl(appPath);
+  }
+  if (urlValue.startsWith("/")) {
+    return (
+      workspaceGatewayAppUrl(urlValue) ?? workspaceAppUrl(urlValue) ?? urlValue
+    );
+  }
   try {
-    return projectEnvironmentUrl(new URL(urlValue).toString());
+    const resolved = projectEnvironmentUrl(new URL(urlValue).toString());
+    const gateway = workspaceGatewayBaseUrl();
+    if (gateway && new URL(resolved).origin === gateway.origin) {
+      return addBasePath(resolved, gateway.pathname.replace(/\/+$/, ""));
+    }
+    const runtimeBase = resolveAppRuntimeUrl();
+    if (
+      runtimeBase &&
+      new URL(resolved).origin === new URL(runtimeBase).origin
+    ) {
+      return addBasePath(resolved, getConfiguredAppBasePath());
+    }
+    return resolved;
   } catch {
     return urlValue;
   }

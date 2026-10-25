@@ -79,6 +79,7 @@ export interface DispatchMcpAccessibleApp {
   description: string;
   url: string;
   homeUrl?: string;
+  mcpUrl?: string;
   color: string;
   granted: boolean;
 }
@@ -581,14 +582,58 @@ function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
   return appBaseUrl(app);
 }
 
+function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
+  const configuredGateway = process.env.WORKSPACE_GATEWAY_URL?.trim();
+  if (configuredGateway) {
+    try {
+      const gateway = new URL(projectEnvironmentUrl(configuredGateway));
+      const target = new URL(appUrl);
+      const gatewayPath = gateway.pathname.replace(/\/+$/, "");
+      if (gateway.origin === target.origin) {
+        gateway.pathname = `${gatewayPath}/mcp` || "/mcp";
+        gateway.search = "";
+        gateway.hash = "";
+        return gateway.toString().replace(/\/$/, "");
+      }
+    } catch {
+      // coercion-ok: invalid gateway metadata cannot define an MCP endpoint.
+    }
+  }
+  return undefined;
+}
+
+function appMcpUrl(app: DispatchMcpAccessibleApp): string {
+  const explicit = app.mcpUrl?.trim();
+  return (
+    explicit?.replace(/\/+$/, "") ??
+    workspaceGatewayMcpUrl(app.url) ??
+    `${appHomeBaseUrl(app)}/mcp`
+  );
+}
+
+function appMcpBaseUrl(app: DispatchMcpAccessibleApp): string {
+  const url = new URL(appMcpUrl(app));
+  url.pathname = url.pathname.replace(/\/mcp\/?$/, "") || "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 function resolveGrantedAppEmbedStartUrl(
   app: DispatchMcpAccessibleApp,
   startUrl: string,
 ): string {
   try {
-    const baseUrl = appHomeBaseUrl(app);
+    const baseUrl = appMcpBaseUrl(app);
     const resolved = new URL(startUrl, `${baseUrl}/`);
-    if (!appMatchesUrlPath(app, resolved)) {
+    const base = new URL(baseUrl);
+    const basePath = base.pathname.replace(/\/+$/, "");
+    if (
+      resolved.origin !== base.origin ||
+      (basePath &&
+        resolved.pathname !== basePath &&
+        !resolved.pathname.startsWith(`${basePath}/`))
+    ) {
       throw new Error(
         "Target app returned an embed start URL outside the granted app.",
       );
@@ -763,11 +808,13 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
   }
   for (const app of mountedApps) {
     if (app.isDispatch || !app.url) continue;
+    const mcpUrl = workspaceGatewayMcpUrl(app.url);
     candidatesById.set(app.id, {
       id: app.id,
       name: app.name,
       description: app.description,
       url: app.url,
+      ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
     });
@@ -1152,7 +1199,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: `${appHomeBaseUrl(input.app)}/mcp`,
+            url: appMcpUrl(input.app),
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1197,7 +1244,7 @@ async function createTargetMcpUserToken(input: {
       "Cross-app embed sessions require A2A_SECRET to preserve the authenticated user identity; an organization-only A2A credential cannot create a user-owned session.",
     );
   }
-  const audience = canonicalA2AAudience(`${appHomeBaseUrl(input.target)}/mcp`);
+  const audience = canonicalA2AAudience(appMcpUrl(input.target));
   return signA2AToken(input.ownerEmail, undefined, undefined, {
     expiresIn: "5m",
     audience,
