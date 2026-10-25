@@ -11,12 +11,9 @@
  * keep it from changing the response:
  *
  *   try {
- *     const delivery: unknown = countOutcome("<thing>_counts", dimensions);
- *     void Promise.resolve(delivery).catch(() => {
- *       // coercion-ok: delivery cannot change the response.
- *     });
+ *     countOutcome("<thing>_counts", dimensions);
  *   } catch {
- *     // coercion-ok: delivery cannot change the response.
+ *     // coercion-ok: a count cannot change the response.
  *   }
  *
  * The guard scans every server source file (actions and server directories)
@@ -184,12 +181,9 @@ function main() {
       "scheduled on a timer may never run. Count inside the request, and keep\n" +
       "it from changing the response:\n\n" +
       "  try {\n" +
-      '    const delivery: unknown = countOutcome("<thing>_counts", dimensions);\n' +
-      "    void Promise.resolve(delivery).catch(() => {\n" +
-      "      // coercion-ok: delivery cannot change the response.\n" +
-      "    });\n" +
+      '    countOutcome("<thing>_counts", dimensions);\n' +
       "  } catch {\n" +
-      "    // coercion-ok: delivery cannot change the response.\n" +
+      "    // coercion-ok: a count cannot change the response.\n" +
       "  }\n",
   );
   for (const finding of findings) {

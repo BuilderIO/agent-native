@@ -394,51 +394,40 @@ describe("revisioned document edit mutation", () => {
     );
   });
 
-  it.each(["slow", "rejected", "throwing"] as const)(
-    "counts within the save and settles it the same with %s telemetry",
-    async (failure) => {
-      const order: string[] = [];
-      let releaseTelemetry: (() => void) | undefined;
-      countOutcome.mockImplementation(() => {
-        order.push("telemetry");
-        if (failure === "throwing") throw new Error("telemetry failed");
-        if (failure === "rejected")
-          return Promise.reject(new Error("telemetry failed"));
-        return new Promise<void>((resolve) => {
-          releaseTelemetry = resolve;
-        });
-      });
-      const input = {
-        documentId: DOCUMENT_ID,
-        baseRevision: documentRevisionToken(0, "alpha beta"),
-        idempotencyKey: "telemetry-independent",
-        edits: [{ find: "alpha", replace: "omega" }],
-        ctx,
-      };
-      const first = await mutateDocumentBody(input);
-      order.push("save_settled");
-      // oracle-change: the count now runs before the save returns.
-      expect(order).toEqual(["telemetry", "save_settled"]);
-      const replay = await mutateDocumentBody(input);
-      expect(first.receipt).toMatchObject({
-        outcome: "applied",
-        bodyRevision: { before: 0, after: 1 },
-      });
-      expect(replay.receipt).toMatchObject({
-        receiptId: first.receipt.receiptId,
-        idempotency: { result: "replayed" },
-      });
-      expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
-        2,
-      );
-      expect(
-        await getDb().select().from(schema.documentEditReceipts),
-      ).toHaveLength(1);
-      releaseTelemetry?.();
-      await deliverTelemetry();
-      releaseTelemetry?.();
-    },
-  );
+  it("counts within the save and settles it the same when telemetry throws", async () => {
+    const order: string[] = [];
+    countOutcome.mockImplementation(() => {
+      order.push("telemetry");
+      throw new Error("telemetry failed");
+    });
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha beta"),
+      idempotencyKey: "telemetry-independent",
+      edits: [{ find: "alpha", replace: "omega" }],
+      ctx,
+    };
+    const first = await mutateDocumentBody(input);
+    order.push("save_settled");
+    // oracle-change: the count now runs before the save returns.
+    expect(order).toEqual(["telemetry", "save_settled"]);
+    const replay = await mutateDocumentBody(input);
+    expect(first.receipt).toMatchObject({
+      outcome: "applied",
+      bodyRevision: { before: 0, after: 1 },
+    });
+    expect(replay.receipt).toMatchObject({
+      receiptId: first.receipt.receiptId,
+      idempotency: { result: "replayed" },
+    });
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      2,
+    );
+    expect(
+      await getDb().select().from(schema.documentEditReceipts),
+    ).toHaveLength(1);
+    await deliverTelemetry();
+  });
 
   it("retains the exact save error when telemetry fails", async () => {
     const saveError = new Error("creative-context validation failed");

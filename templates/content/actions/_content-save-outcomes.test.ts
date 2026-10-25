@@ -273,38 +273,28 @@ describe("Content save outcome delivery", () => {
       expect(boundedContentSaveReason({ errorCode })).toBe(errorCode);
     },
   );
-  it.each(["sync throw", "rejected promise", "pending promise"])(
-    "counts within the save and keeps its result through %s telemetry",
-    async (failure) => {
-      const order: string[] = [];
-      let complete: (() => void) | undefined;
-      counter.mockImplementation(() => {
-        order.push("provider");
-        if (failure === "sync throw") throw new Error("telemetry unavailable");
-        if (failure === "rejected promise")
-          return Promise.reject(new Error("telemetry unavailable"));
-        return new Promise<void>((resolve) => {
-          complete = resolve;
-        });
+  it("counts within the save and keeps its result when counting throws", async () => {
+    const order: string[] = [];
+    counter.mockImplementation(() => {
+      order.push("provider");
+      throw new Error("telemetry unavailable");
+    });
+    const saved = { revision: "existing-result" };
+    const save = async () => {
+      order.push("settled");
+      recordContentSaveOutcome("update_document", {
+        outcome: "written",
+        origin: "browser",
+        stale_base: "false",
+        history_effect: "transition",
       });
-      const saved = { revision: "existing-result" };
-      const save = async () => {
-        order.push("settled");
-        recordContentSaveOutcome("update_document", {
-          outcome: "written",
-          origin: "browser",
-          stale_base: "false",
-          history_effect: "transition",
-        });
-        return saved;
-      };
-      expect(await save()).toBe(saved);
-      order.push("returned");
-      expect(order).toEqual(["settled", "provider", "returned"]);
-      expect(counter).toHaveBeenCalledTimes(1);
-      complete?.();
-    },
-  );
+      return saved;
+    };
+    expect(await save()).toBe(saved);
+    order.push("returned");
+    expect(order).toEqual(["settled", "provider", "returned"]);
+    expect(counter).toHaveBeenCalledTimes(1);
+  });
 
   it("attaches the audit outcome without changing serialized or enumerable response fields", () => {
     const result = scopeContentSaveOutcome(

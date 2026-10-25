@@ -120,14 +120,9 @@ export function recordContentSaveOutcome(
   };
   // Count inside the request: a serverless instance can freeze before a
   // timer runs. countOutcome only bumps an in-memory window, the save never
-  // waits for delivery, and a throw or rejection cannot replace its result.
+  // waits for delivery, and a throw cannot replace its result.
   try {
-    const delivery: unknown = countOutcome(
-      "content_save_outcome_counts",
-      bounded,
-    );
-    // coercion-ok: telemetry delivery never changes the save's outcome.
-    void Promise.resolve(delivery).catch(() => {});
+    countOutcome("content_save_outcome_counts", bounded);
   } catch {
     // coercion-ok: a failed provider cannot invalidate a persisted save.
   }

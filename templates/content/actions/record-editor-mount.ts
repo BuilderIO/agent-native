@@ -34,12 +34,9 @@ export default defineAction({
     // timer runs. countOutcome only bumps an in-memory window, and the editor
     // never waits for this answer.
     try {
-      const delivery: unknown = countOutcome("content_editor_mount_counts", {
+      countOutcome("content_editor_mount_counts", {
         outcome: args.outcome,
         mode: args.mode,
-      });
-      void Promise.resolve(delivery).catch(() => {
-        // coercion-ok: delivery cannot change the mount acknowledgement.
       });
     } catch {
       // coercion-ok: delivery cannot change the mount acknowledgement.

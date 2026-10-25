@@ -31,9 +31,10 @@ describe("deferred server counts guard", () => {
   it("allows counts inside the request and timers that do not count", () => {
     const source = [
       "try {",
-      '  const delivery: unknown = countOutcome("content_editor_merge_counts", {});',
-      "  void Promise.resolve(delivery).catch(() => {});",
-      "} catch {}",
+      '  countOutcome("content_editor_mount_counts", {});',
+      "} catch {",
+      "  // coercion-ok: a count cannot change the response.",
+      "}",
       "const timer = setTimeout(() => controller.abort(), 5_000);",
       "setTimeout(resolve, 0);",
     ].join("\n");
