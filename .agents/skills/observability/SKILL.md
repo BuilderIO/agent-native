@@ -269,11 +269,15 @@ Compute results with `POST /_agent-native/observability/experiments/:id/results`
 
 `observability/hosted-model-experiment.ts` runs one cross-app A/B on first-party
 hosted domains with no DB row: users on the default Builder model at default
-effort are split by a stable hash of their email. The arm is recorded as
-`experiment_id` / `experiment_variant` on agent run traces. The DB path above
-skips requests that pin a model; this one does not, because chat clients always
-send the default model, so it keys off the resolved default. Other model or
-effort choices are left alone. Emergency off: `AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT=off`.
+effort are split by a stable hash of their email. Each run carries the arm in
+`experiment_ids` / `experiment_variants`, and in `hosted_model_experiment_variant`
+regardless of other experiments on the turn. The singular `experiment_id` /
+`experiment_variant` tags only cover a turn with exactly one assignment. The DB
+path above skips requests that pin a model; this one does not, because chat
+clients always send the default model, so it keys off the resolved default.
+Other model or effort choices are left alone. The kill switch is the declared
+`observability.hostedModelExperiment` config (`auto` | `on` | `off`), env alias
+`AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT`.
 
 In production, experiment management routes require the caller's email in the
 comma-separated `AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS` allowlist. This gate is

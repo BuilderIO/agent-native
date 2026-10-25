@@ -11,6 +11,7 @@ import {
   getRequestContext,
   getRequestOrgId,
 } from "../server/request-context.js";
+import { hostedModelExperimentVariant } from "./hosted-model-experiment.js";
 import {
   MAX_AI_CONTENT_BYTES,
   MAX_AI_SPANS_PER_RUN,
@@ -470,6 +471,9 @@ function emitLlmGenerationTrackingEvent(args: {
       properties.experiment_variant = args.experimentAssignments[0].variantId;
     }
   }
+  properties.hosted_model_experiment_variant = hostedModelExperimentVariant(
+    args.experimentAssignments,
+  );
 
   for (const key of Object.keys(properties)) {
     if (properties[key] === undefined) delete properties[key];
@@ -665,6 +669,9 @@ export async function instrumentAgentLoop(opts: {
       opts.experimentAssignments?.length === 1
         ? opts.experimentAssignments[0].variantId
         : undefined,
+    "agent.hosted_model_experiment_variant": hostedModelExperimentVariant(
+      opts.experimentAssignments,
+    ),
   });
   let otelRunSpan: AgentSpan | null = null;
 

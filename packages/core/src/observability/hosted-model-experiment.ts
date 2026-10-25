@@ -39,52 +39,17 @@ export interface HostedModelExperimentResolution {
   assignment: HostedModelExperimentAssignment;
 }
 
-type HostedExperimentEnv = Record<string, string | undefined>;
-
-const FIRST_PARTY_HOST_SUFFIX = ".agent-native.com";
-const ENABLED_VALUES = new Set(["1", "true", "on", "yes"]);
-const DISABLED_VALUES = new Set(["0", "false", "off", "no"]);
-
-function hostnameFromUrl(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
-  // An unparseable host names no first-party domain, so it cannot enable the test.
-  return URL.canParse(candidate)
-    ? new URL(candidate).hostname.toLowerCase()
-    : null;
-}
-
 /**
- * Automatic only on first-party hosted domains. `AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT`
- * forces it on for preview or off as the emergency rollback.
+ * `setting` is `observability.hostedModelExperiment` from app config. `auto`
+ * follows the caller's first-party hosted check; `on` forces it for preview;
+ * `off` is the emergency rollback.
  */
-export function isHostedModelExperimentEnabled(
-  env: HostedExperimentEnv = process.env,
-): boolean {
-  const override =
-    env.AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT?.trim().toLowerCase();
-  if (override && DISABLED_VALUES.has(override)) return false;
-  if (override && ENABLED_VALUES.has(override)) return true;
-
-  const hostnames = [
-    env.APP_URL,
-    env.BETTER_AUTH_URL,
-    env.URL,
-    env.DEPLOY_URL,
-    env.VERCEL_PROJECT_PRODUCTION_URL,
-    env.VERCEL_URL,
-  ]
-    .map(hostnameFromUrl)
-    .filter((hostname): hostname is string => Boolean(hostname));
-
-  return hostnames.some(
-    (hostname) =>
-      hostname === "agent-native.com" ||
-      hostname.endsWith(FIRST_PARTY_HOST_SUFFIX),
-  );
+export function isHostedModelExperimentEnabled(args: {
+  setting: "auto" | "on" | "off";
+  firstParty: boolean;
+}): boolean {
+  if (args.setting === "off") return false;
+  return args.setting === "on" || args.firstParty;
 }
 
 /**
@@ -102,16 +67,17 @@ export function hostedModelExperimentBucket(userEmail: string): number {
 }
 
 export function resolveHostedModelExperiment(args: {
+  enabled: boolean;
   userEmail: string | null | undefined;
   engineName: string;
   defaultModel: string;
   model: string;
   /** The request's effort as submitted; anything but default means a choice. */
   effort: unknown;
-  env?: HostedExperimentEnv;
 }): HostedModelExperimentResolution | null {
   const userEmail = args.userEmail?.trim();
   if (!userEmail) return null;
+  if (!args.enabled) return null;
   if (args.engineName !== "builder") return null;
   if (args.model !== args.defaultModel) return null;
   if (
@@ -121,7 +87,6 @@ export function resolveHostedModelExperiment(args: {
   ) {
     return null;
   }
-  if (!isHostedModelExperimentEnabled(args.env)) return null;
 
   if (hostedModelExperimentBucket(userEmail) >= TREATMENT_PERCENT) {
     return {
@@ -142,4 +107,17 @@ export function resolveHostedModelExperiment(args: {
       variantId: HOSTED_MODEL_EXPERIMENT_TREATMENT.id,
     },
   };
+}
+
+/**
+ * The hosted arm's variant, found by id so it is reported even when the turn
+ * is also in another experiment. The singular experiment tags only cover a
+ * turn with exactly one assignment.
+ */
+export function hostedModelExperimentVariant(
+  assignments: readonly HostedModelExperimentAssignment[] | undefined,
+): string | undefined {
+  return assignments?.find(
+    (assignment) => assignment.experimentId === HOSTED_MODEL_EXPERIMENT_ID,
+  )?.variantId;
 }

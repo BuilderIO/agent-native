@@ -5,17 +5,17 @@ import {
   HOSTED_MODEL_EXPERIMENT_ID,
   HOSTED_MODEL_EXPERIMENT_TREATMENT,
   hostedModelExperimentBucket,
+  hostedModelExperimentVariant,
   isHostedModelExperimentEnabled,
   resolveHostedModelExperiment,
 } from "./hosted-model-experiment.js";
 
-const ON = { AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT: "true" };
 const base = {
+  enabled: true,
   engineName: "builder",
   defaultModel: "gpt-6-luna",
   model: "gpt-6-luna",
   effort: "high",
-  env: ON,
 };
 
 function userInArm(treatment: boolean): string {
@@ -27,29 +27,19 @@ function userInArm(treatment: boolean): string {
 }
 
 describe("hosted model experiment", () => {
-  it("enables only for first-party hosted domains unless overridden", () => {
+  it("auto follows the first-party check; on forces it; off always disables", () => {
     expect(
-      isHostedModelExperimentEnabled({
-        URL: "https://slides.agent-native.com",
-      }),
+      isHostedModelExperimentEnabled({ setting: "auto", firstParty: true }),
     ).toBe(true);
     expect(
-      isHostedModelExperimentEnabled({
-        URL: "https://agent-native.com.example.test",
-      }),
+      isHostedModelExperimentEnabled({ setting: "auto", firstParty: false }),
     ).toBe(false);
     expect(
-      isHostedModelExperimentEnabled({
-        AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT: "off",
-        URL: "https://slides.agent-native.com",
-      }),
+      isHostedModelExperimentEnabled({ setting: "on", firstParty: false }),
+    ).toBe(true);
+    expect(
+      isHostedModelExperimentEnabled({ setting: "off", firstParty: true }),
     ).toBe(false);
-  });
-
-  it("treats an unparseable host as not first-party instead of throwing", () => {
-    expect(isHostedModelExperimentEnabled({ URL: "https://[not a host" })).toBe(
-      false,
-    );
   });
 
   it("buckets case-insensitively and splits roughly evenly", () => {
@@ -68,10 +58,7 @@ describe("hosted model experiment", () => {
 
   it("gives treatment Haiku 5.5 at medium and control the untouched default", () => {
     expect(
-      resolveHostedModelExperiment({
-        ...base,
-        userEmail: userInArm(true),
-      }),
+      resolveHostedModelExperiment({ ...base, userEmail: userInArm(true) }),
     ).toEqual({
       treatment: true,
       model: HOSTED_MODEL_EXPERIMENT_TREATMENT.model,
@@ -82,10 +69,7 @@ describe("hosted model experiment", () => {
       },
     });
     expect(
-      resolveHostedModelExperiment({
-        ...base,
-        userEmail: userInArm(false),
-      }),
+      resolveHostedModelExperiment({ ...base, userEmail: userInArm(false) }),
     ).toEqual({
       treatment: false,
       model: "gpt-6-luna",
@@ -96,7 +80,7 @@ describe("hosted model experiment", () => {
     });
   });
 
-  it("leaves deliberate choices and other engines alone", () => {
+  it("leaves deliberate choices, other engines, and disabled runs alone", () => {
     const userEmail = userInArm(true);
     expect(
       resolveHostedModelExperiment({
@@ -116,7 +100,27 @@ describe("hosted model experiment", () => {
       }),
     ).toBeNull();
     expect(
+      resolveHostedModelExperiment({ ...base, userEmail, enabled: false }),
+    ).toBeNull();
+    expect(
       resolveHostedModelExperiment({ ...base, userEmail: undefined }),
     ).toBeNull();
+  });
+
+  it("finds the hosted variant even when other experiments share the turn", () => {
+    expect(
+      hostedModelExperimentVariant([
+        { experimentId: "other-exp", variantId: "a" },
+        {
+          experimentId: HOSTED_MODEL_EXPERIMENT_ID,
+          variantId: HOSTED_MODEL_EXPERIMENT_TREATMENT.id,
+        },
+      ]),
+    ).toBe(HOSTED_MODEL_EXPERIMENT_TREATMENT.id);
+    expect(
+      hostedModelExperimentVariant([
+        { experimentId: "other-exp", variantId: "a" },
+      ]),
+    ).toBeUndefined();
   });
 });

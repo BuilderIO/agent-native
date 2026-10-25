@@ -128,8 +128,14 @@ import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
-import { resolveHostedModelExperiment } from "../observability/hosted-model-experiment.js";
-import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import {
+  isHostedModelExperimentEnabled,
+  resolveHostedModelExperiment,
+} from "../observability/hosted-model-experiment.js";
+import {
+  isFirstPartyHostedAgentNative,
+  shouldInferSentimentForTurn,
+} from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -14431,6 +14437,10 @@ export function createProductionAgentHandler(
     const hostedModelExperiment =
       modelSelectionSource !== "experiment"
         ? resolveHostedModelExperiment({
+            enabled: isHostedModelExperimentEnabled({
+              setting: getAppConfig().observability.hostedModelExperiment,
+              firstParty: isFirstPartyHostedAgentNative(),
+            }),
             userEmail: ownerEmail,
             engineName: engine.name,
             defaultModel: engine.defaultModel,
