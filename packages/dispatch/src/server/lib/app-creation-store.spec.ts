@@ -1353,13 +1353,42 @@ describe("listWorkspaceApps", () => {
 
   it("surfaces malformed gateway config while resolving manifest app URLs", async () => {
     stubManifest();
-    vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+    const fetchMock = vi.fn(async () => {
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          requestOrigin: "http://127.0.0.1:8080",
+        },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({ name: "WorkspaceGatewayConfigurationError" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects unsupported gateway schemes before beta environment rewriting", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "ftp://agent-workspace.builder.io/dispatch",
+    );
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
-        listWorkspaceApps({ includeAgentCards: false }),
+      runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listWorkspaceApps({ includeAgentCards: false }),
       ),
     ).rejects.toMatchObject({ name: "WorkspaceGatewayConfigurationError" });
 
@@ -1372,8 +1401,13 @@ describe("listWorkspaceApps", () => {
     );
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
     try {
-      vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      const fetchMock = vi.fn(async () => {
+        vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+        return new Response("not found", { status: 404 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
       const manifestDirectory = path.join(workspaceRoot, ".agent-native");
       fs.mkdirSync(manifestDirectory, { recursive: true });
       fs.writeFileSync(
@@ -1389,10 +1423,15 @@ describe("listWorkspaceApps", () => {
       );
 
       await expect(
-        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
-          listWorkspaceApps({ includeAgentCards: false }),
+        runWithRequestContext(
+          {
+            userEmail: "dev@example.test",
+            requestOrigin: "http://127.0.0.1:8080",
+          },
+          () => listWorkspaceApps({ includeAgentCards: false }),
         ),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ name: "WorkspaceGatewayConfigurationError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       cwdSpy.mockRestore();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
@@ -1406,8 +1445,13 @@ describe("listWorkspaceApps", () => {
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
     try {
       stubNoPendingContext();
-      vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+      const fetchMock = vi.fn(async () => {
+        vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+        return new Response("not found", { status: 404 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
       fs.writeFileSync(
         path.join(workspaceRoot, "package.json"),
         JSON.stringify({
@@ -1423,10 +1467,15 @@ describe("listWorkspaceApps", () => {
       );
 
       await expect(
-        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
-          listWorkspaceApps({ includeAgentCards: false }),
+        runWithRequestContext(
+          {
+            userEmail: "dev@example.test",
+            requestOrigin: "http://127.0.0.1:8080",
+          },
+          () => listWorkspaceApps({ includeAgentCards: false }),
         ),
       ).rejects.toMatchObject({ name: "WorkspaceGatewayConfigurationError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       cwdSpy.mockRestore();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });

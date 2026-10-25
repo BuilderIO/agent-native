@@ -588,7 +588,23 @@ function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
 function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
   const configuredGateway = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configuredGateway) return undefined;
-  const gateway = new URL(projectEnvironmentUrl(configuredGateway));
+
+  let configuredUrl: URL;
+  try {
+    configuredUrl = new URL(configuredGateway);
+  } catch {
+    throw new Error(
+      "WORKSPACE_GATEWAY_URL must be a valid absolute HTTP(S) URL.",
+    );
+  }
+  if (
+    configuredUrl.protocol !== "http:" &&
+    configuredUrl.protocol !== "https:"
+  ) {
+    throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
+  }
+
+  const gateway = new URL(projectEnvironmentUrl(configuredUrl.toString()));
   if (gateway.protocol !== "http:" && gateway.protocol !== "https:") {
     throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
   }

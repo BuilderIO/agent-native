@@ -678,9 +678,21 @@ function appendWorkspaceAppPath(baseUrl: URL, appPath: string): string {
 function workspaceGatewayBaseUrl(): URL | null {
   const configured = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configured) return null;
+  let configuredUrl: URL;
+  try {
+    configuredUrl = new URL(configured);
+  } catch (error) {
+    throw new WorkspaceGatewayConfigurationError(error);
+  }
+  if (
+    configuredUrl.protocol !== "http:" &&
+    configuredUrl.protocol !== "https:"
+  ) {
+    throw new WorkspaceGatewayConfigurationError();
+  }
   let url: URL;
   try {
-    url = new URL(projectEnvironmentUrl(configured));
+    url = new URL(projectEnvironmentUrl(configuredUrl.toString()));
   } catch (error) {
     throw new WorkspaceGatewayConfigurationError(error);
   }
@@ -1970,21 +1982,10 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
 }
 
 async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | null> {
-  const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
+  const configuredBase = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configuredBase) return null;
-  const base = projectEnvironmentUrl(configuredBase);
-
-  let baseUrl: URL;
-  try {
-    baseUrl = new URL(base);
-  } catch {
-    // coercion-ok: malformed gateway configuration is an unavailable registry
-    // and falls back to local sources.
-    return null;
-  }
-  if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
-    return null;
-  }
+  const baseUrl = workspaceGatewayBaseUrl();
+  if (!baseUrl) return null;
 
   const requestContext = getRequestContext();
   const isLocalGateway = isLocalWorkspaceGateway(baseUrl);

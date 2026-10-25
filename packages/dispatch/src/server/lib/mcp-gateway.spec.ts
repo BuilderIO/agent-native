@@ -1752,6 +1752,51 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).not.toHaveBeenCalled();
   });
 
+  it("rejects unsupported Workspace gateway schemes before beta projection", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "ftp://agent-workspace.builder.io/dispatch",
+    );
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    const workspaceApp = {
+      id: "customer-ticket-triage",
+      name: "Customer Ticket Triage",
+      description: "Triage customer tickets",
+      path: "/customer-ticket-triage",
+      url: "https://beta.agent-workspace.builder.io/dispatch/customer-ticket-triage",
+      isDispatch: false,
+    };
+    mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: workspaceApp.id,
+        name: workspaceApp.name,
+        description: workspaceApp.description,
+        url: workspaceApp.url,
+        color: "#14B8A6",
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: workspaceApp.id,
+            path: "/",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow("WORKSPACE_GATEWAY_URL must use http or https.");
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
   it("rejects beta workspace SSO apps on the production lane", async () => {
     mocks.discoverAgents.mockResolvedValue([]);
     mocks.listWorkspaceApps.mockResolvedValue([
