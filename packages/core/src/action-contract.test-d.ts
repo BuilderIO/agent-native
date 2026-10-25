@@ -63,3 +63,27 @@ defineAction({
   errors,
   run: async () => ({ ok: true as const }),
 });
+
+const warned = defineAction({
+  description: "Pass mismatches through.",
+  schema: z.object({}),
+  outputSchema: z.object({ count: z.string().transform(Number) }),
+  outputErrorStrategy: "warn",
+  run: async () => ({ count: "3" }),
+});
+assertType<
+  Equal<
+    Awaited<ReturnType<typeof warned.run>>,
+    { count: number } | { count: string }
+  >
+>(true);
+
+const withParams = defineAction({
+  description: "Legacy parameters with a result contract.",
+  parameters: { id: { type: "string", description: "Thread id" } },
+  outputSchema: z.object({ id: z.string() }),
+  run: async (args) => ({ id: args.id ?? "" }),
+});
+assertType<Equal<Awaited<ReturnType<typeof withParams.run>>, { id: string }>>(
+  true,
+);

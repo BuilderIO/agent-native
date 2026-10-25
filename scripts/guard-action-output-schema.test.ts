@@ -30,18 +30,32 @@ describe("action outputSchema guard", () => {
     assert.deepEqual(flagged(source), ["1: missing-output-schema"]);
   });
 
-  it("accepts an outputSchema, a spread, or the pragma", () => {
+  it("accepts an outputSchema or the pragma", () => {
     const source = [
       "export const a = defineAction({",
       "  schema,",
       "  outputSchema: z.object({ ok: z.boolean() }),",
       "  run: async () => ({ ok: true }),",
       "});",
-      "export const b = defineAction({ ...shared, run: async () => 1 });",
       "// guard:allow-no-output-schema — raw provider passthrough",
       "export const c = defineAction({ schema, run: async () => raw });",
     ].join("\n");
     assert.deepEqual(flagged(source), []);
+  });
+
+  it("fails closed on options it cannot read", () => {
+    const source = [
+      "export const a = defineAction({ ...shared, run: async () => 1 });",
+      "export const b = defineAction(options);",
+      "export const c = core.defineAction({ schema, run: async () => 1 });",
+      "export const d = defineAction({ outputSchema: undefined, run });",
+    ].join("\n");
+    assert.deepEqual(flagged(source), [
+      "1: missing-output-schema",
+      "2: missing-output-schema",
+      "3: missing-output-schema",
+      "4: missing-output-schema",
+    ]);
   });
 
   it("ignores an existing action whose body this branch edited", () => {

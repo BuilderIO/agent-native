@@ -927,6 +927,16 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
  */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
 
+/** What an action with `outputSchema` returns under `TStrategy`. */
+export type ActionOutputResult<
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy,
+> = TStrategy extends "strict"
+  ? StandardSchemaV1.InferOutput<TOutputSchema>
+  :
+      | StandardSchemaV1.InferOutput<TOutputSchema>
+      | StandardSchemaV1.InferInput<TOutputSchema>;
+
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
@@ -938,6 +948,7 @@ interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
@@ -945,7 +956,7 @@ interface DefineActionWithSchema<
   parameters?: never;
   agentInputSchema?: StandardSchemaV1;
   outputSchema?: TOutputSchema;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputErrorStrategy?: TStrategy;
   /** @deprecated `outputErrorStrategy: "fallback"` hides a broken result
    *  behind a plausible one. Fix the result or use `"strict"`. */
   outputFallback?: TReturn;
@@ -1087,14 +1098,18 @@ interface DefineActionWithParams<
     | Record<string, ParameterSchema>
     | undefined,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined =
+    | StandardSchemaV1
+    | undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
   parameters?: TParams;
   schema?: never;
   agentInputSchema?: never;
-  outputSchema?: StandardSchemaV1;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputSchema?: TOutputSchema;
+  outputErrorStrategy?: TStrategy;
   /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   outputFallback?: TReturn;
   errors?: ActionErrors<string>;
@@ -1206,23 +1221,42 @@ export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
   TReturn,
 >(
-  options: DefineActionWithParams<TParams, TReturn>,
+  options: DefineActionWithParams<TParams, TReturn, undefined>,
 ): ActionDefinition<InferParams<TParams>, TReturn>;
-// Last, so a `run` whose result does not match is reported against this
-// overload. With an `outputSchema`, `run` must return the schema's input and the action
-// returns the schema's output: the validated value is what callers receive.
+// With an `outputSchema`, `run` must return the schema's input. Under the
+// default strict strategy the action returns the schema's output; `"warn"`
+// can pass `run`'s value through and `"fallback"` returns `outputFallback`,
+// so those also admit the input shape. These come last, so a `run` whose
+// result does not match is reported against them.
+export function defineAction<
+  TParams extends Record<string, ParameterSchema> | undefined,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithParams<
+    TParams,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  InferParams<TParams>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
 export function defineAction<
   TSchema extends StandardSchemaV1,
   TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
 >(
   options: DefineActionWithSchema<
     TSchema,
     StandardSchemaV1.InferInput<TOutputSchema>,
-    TOutputSchema
+    TOutputSchema,
+    TStrategy
   > & { outputSchema: TOutputSchema },
 ): ActionDefinition<
   StandardSchemaV1.InferInput<TSchema>,
-  StandardSchemaV1.InferOutput<TOutputSchema>
+  ActionOutputResult<TOutputSchema, TStrategy>
 >;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;

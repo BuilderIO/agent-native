@@ -15,10 +15,12 @@
  * `outputErrorStrategy: "fallback"` added to any action: a fallback hides a
  * broken result behind a plausible one, which is the coercion CLAUDE.md bans.
  *
- * An object spread in the options counts as declaring it, because the guard
- * cannot see through it. An action whose result genuinely has no stable shape
- * (a raw provider passthrough) says so on the `defineAction(` line or the
- * line above it:
+ * The guard fails closed: options it cannot read as an object literal
+ * declaring `outputSchema` with a real value (a spread, a variable, a
+ * namespaced `core.defineAction(...)`, `outputSchema: undefined`) count as
+ * missing. An action whose result genuinely has no stable shape (a raw
+ * provider passthrough), or whose schema comes from a spread the guard cannot
+ * see through, says so on the `defineAction(` line or the line above it:
  *
  *   // guard:allow-no-output-schema — <why the result has no fixed shape>
  *
@@ -50,6 +52,26 @@ export interface OutputSchemaFinding {
   file: string;
   line: number;
   problem: "missing-output-schema" | "fallback-strategy";
+}
+
+function isDefineActionCallee(callee: ts.Expression): boolean {
+  return ts.isIdentifier(callee)
+    ? callee.text === "defineAction"
+    : ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === "defineAction";
+}
+
+/** Whether a literal option declares an `outputSchema` that is not `undefined`. */
+function declaresOutputSchema(options: ts.ObjectLiteralExpression): boolean {
+  return options.properties.some((property) => {
+    if (propertyName(property) !== "outputSchema") return false;
+    if (!ts.isPropertyAssignment(property)) return true;
+    const value = property.initializer;
+    return !(
+      (ts.isIdentifier(value) && value.text === "undefined") ||
+      ts.isVoidExpression(value)
+    );
+  });
 }
 
 export function isCheckedSourcePath(relPath: string): boolean {
@@ -92,29 +114,22 @@ export function findOutputSchemaProblems(
   const findings: OutputSchemaFinding[] = [];
 
   const visit = (node: ts.Node) => {
-    const options = ts.isCallExpression(node) ? node.arguments[0] : undefined;
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "defineAction" &&
-      options &&
-      ts.isObjectLiteralExpression(options)
-    ) {
+    if (ts.isCallExpression(node) && isDefineActionCallee(node.expression)) {
+      const options = node.arguments[0];
+      const literal =
+        options && ts.isObjectLiteralExpression(options) ? options : undefined;
       const line = lineOf(node);
-      const names = new Set(options.properties.map(propertyName));
-      const spreads = options.properties.some(ts.isSpreadAssignment);
       const opted =
         PRAGMA.test(lines[line - 1] ?? "") ||
         PRAGMA.test(lines[line - 2] ?? "");
       if (
         addedLines.has(line) &&
-        !names.has("outputSchema") &&
-        !spreads &&
+        !(literal && declaresOutputSchema(literal)) &&
         !opted
       ) {
         findings.push({ file, line, problem: "missing-output-schema" });
       }
-      for (const property of options.properties) {
+      for (const property of literal?.properties ?? []) {
         if (
           ts.isPropertyAssignment(property) &&
           propertyName(property) === "outputErrorStrategy" &&
@@ -171,7 +186,7 @@ function main() {
     console.error(
       `  ${finding.file}:${finding.line} — ${
         finding.problem === "missing-output-schema"
-          ? "new defineAction() has no outputSchema"
+          ? "new defineAction() has no readable outputSchema"
           : 'outputErrorStrategy: "fallback" is deprecated'
       }`,
     );

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
-  findAddedOptOuts,
+  findWeakenedOptions,
   flagCausedDiagnostics,
   parseTscOutput,
 } from "./guard-compiler-strictness.js";
@@ -46,21 +46,43 @@ describe("compiler strictness guard", () => {
     );
   });
 
-  it("flags an added opt-out, and only an added one", () => {
-    const source = [
-      "{",
-      '  "compilerOptions": {',
-      '    "noUncheckedIndexedAccess": false,',
-      '    "strict": false,',
-      '    "noImplicitOverride": true',
-      "  }",
-      "}",
-    ].join("\n");
+  it("flags every way a tsconfig change weakens a ratcheted option", () => {
+    const base = `{
+      // comments are allowed
+      "compilerOptions": {
+        "strict": true,
+        "noImplicitOverride": true,
+        "noUncheckedIndexedAccess": false
+      }
+    }`;
+    const head = `{
+      "compilerOptions": {
+        "noImplicitOverride":
+          false,
+        "exactOptionalPropertyTypes": false
+      }
+    }`;
+    assert.deepEqual(findWeakenedOptions("tsconfig.json", base, head), [
+      "exactOptionalPropertyTypes: null -> false",
+      "noImplicitOverride: true -> false",
+      "strict: true -> null",
+    ]);
+  });
+
+  it("allows removing an opt-out or turning a flag on", () => {
+    const base = '{ "compilerOptions": { "noUncheckedIndexedAccess": false } }';
+    const head = '{ "compilerOptions": { "noImplicitOverride": true } }';
+    assert.deepEqual(findWeakenedOptions("tsconfig.json", base, head), []);
+  });
+
+  it("treats an explicit false in a new tsconfig as an opt-out", () => {
     assert.deepEqual(
-      findAddedOptOuts("tsconfig.json", source, new Set([4, 5])).map(
-        (finding) => finding.line,
+      findWeakenedOptions(
+        "tsconfig.json",
+        null,
+        '{ "compilerOptions": { "strict": false } }',
       ),
-      [4],
+      ["strict: null -> false"],
     );
   });
 });

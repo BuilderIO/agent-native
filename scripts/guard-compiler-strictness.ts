@@ -12,8 +12,12 @@
  * out in its own tsconfig, so the backlog does not block CI. This guard is the
  * ratchet on those opt-outs:
  *
- * - a line this branch adds to a tsconfig may not set one of the four flags,
- *   or `strict`, to `false`: the opt-out list only shrinks;
+ * - a tsconfig this branch changes may not turn one of the four flags, or
+ *   `strict`, from on to off, or add an explicit `false` for one: the
+ *   opt-out list only shrinks. Each changed tsconfig is parsed at the
+ *   merge-base and at HEAD and compared value by value, so a removed `true`
+ *   or a `false` split across lines is caught too. Deleting a `true` a
+ *   project inherits anyway also fails: say so by leaving it in place;
  * - in a project that still opts out, every flag-caused error on a line this
  *   branch added fails. The guard runs `tsc` with and without the opted-out
  *   flags and reports only errors the flags add, so a missing generated file
@@ -37,6 +41,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import ts from "typescript";
+
 import {
   GUARD_EXIT_COULD_NOT_RUN,
   requireAddedLines,
@@ -55,11 +61,18 @@ export const RATCHETED_FLAGS = [
 ] as const;
 export type RatchetedFlag = (typeof RATCHETED_FLAGS)[number];
 
-/** Configs `tsc` checks that are not a workspace's own `tsconfig.json`. */
-const EXTRA_PROJECTS = ["packages/core/tsconfig.cli.json"];
-const OPT_OUT = new RegExp(
-  `"(${[...RATCHETED_FLAGS, "strict"].join("|")})"\\s*:\\s*false`,
-);
+/**
+ * Configs `tsc` checks that are not a workspace's own `tsconfig.json`, with
+ * the files each owns: they share a directory with a config that excludes
+ * those files, so the directory alone cannot pick them.
+ */
+const EXTRA_PROJECTS = [
+  {
+    config: "packages/core/tsconfig.cli.json",
+    owns: /^packages\/core\/src\/(?:cli\/|testing\.ts$)/,
+  },
+];
+const WATCHED_OPTIONS = [...RATCHETED_FLAGS, "strict"] as const;
 const TS_SOURCE = /\.[cm]?tsx?$/;
 
 export interface Diagnostic {
@@ -97,16 +110,40 @@ export function flagCausedDiagnostics(
   return withFlags.filter((d) => !before.has(diagnosticKey(d)));
 }
 
-/** Added tsconfig lines that switch a ratcheted flag or `strict` off. */
-export function findAddedOptOuts(
+function compilerOptionsOf(
   file: string,
-  source: string,
-  addedLines: ReadonlySet<number>,
-): { file: string; line: number; text: string }[] {
-  return source
-    .split(/\r?\n/)
-    .map((text, index) => ({ file, line: index + 1, text: text.trim() }))
-    .filter(({ line, text }) => addedLines.has(line) && OPT_OUT.test(text));
+  text: string,
+): Record<string, unknown> {
+  const { config, error } = ts.parseConfigFileTextToJson(file, text);
+  if (error || !config || typeof config !== "object") {
+    throw new CouldNotRun(`could not parse ${file}`);
+  }
+  const options = (config as { compilerOptions?: unknown }).compilerOptions;
+  return options && typeof options === "object"
+    ? (options as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * The ratcheted options a tsconfig change weakens: an explicit `false` that
+ * was not `false` before, or a `true` that is gone. `base` is null for a new
+ * file.
+ */
+export function findWeakenedOptions(
+  file: string,
+  base: string | null,
+  head: string,
+): string[] {
+  const before = base === null ? {} : compilerOptionsOf(file, base);
+  const after = compilerOptionsOf(file, head);
+  return WATCHED_OPTIONS.filter(
+    (option) =>
+      (after[option] === false && before[option] !== false) ||
+      (before[option] === true && after[option] !== true),
+  ).map(
+    (option) =>
+      `${option}: ${JSON.stringify(before[option] ?? null)} -> ${JSON.stringify(after[option] ?? null)}`,
+  );
 }
 
 type Outcome = { code: 0 | 1 | 2; message: string };
@@ -205,58 +242,84 @@ export function listProjects(): string[] {
       .scripts as Record<string, string> | undefined;
     return scripts?.typecheck ? [tsconfig] : [];
   });
-  projects.push(...EXTRA_PROJECTS.map((rel) => path.join(rootDir, rel)));
+  projects.push(
+    ...EXTRA_PROJECTS.map((extra) => path.join(rootDir, extra.config)),
+  );
   return projects.sort(
     (a, b) => path.dirname(b).length - path.dirname(a).length,
   );
 }
 
-function guardExistedAtMergeBase(): boolean {
-  const base = resolveDiffBase(rootDir);
-  if (!base) throw new CouldNotRun("could not resolve a base ref");
+function git(args: string[]): string {
   try {
-    const mergeBase = execFileSync("git", ["merge-base", base, "HEAD"], {
+    return execFileSync("git", args, {
       cwd: rootDir,
       encoding: "utf8",
-    }).trim();
-    return (
-      execFileSync("git", ["ls-tree", "--name-only", mergeBase, GUARD_PATH], {
-        cwd: rootDir,
-        encoding: "utf8",
-      }).trim() !== ""
-    );
+      maxBuffer: 64 * 1024 * 1024,
+    });
   } catch {
-    throw new CouldNotRun("could not inspect the merge-base");
+    throw new CouldNotRun(`git ${args.join(" ")} failed`);
   }
+}
+
+function resolveMergeBase(): string {
+  const base = resolveDiffBase(rootDir);
+  if (!base) throw new CouldNotRun("could not resolve a base ref");
+  return git(["merge-base", base, "HEAD"]).trim();
+}
+
+const existsAt = (mergeBase: string, rel: string) =>
+  git(["ls-tree", "--name-only", mergeBase, "--", rel]).trim() !== "";
+
+/** Every tsconfig weakened since the merge-base, working tree included. */
+function findWeakenedTsconfigs(mergeBase: string): string[] {
+  const changed = git([
+    "diff",
+    "--name-only",
+    "--diff-filter=ACMR",
+    mergeBase,
+    "--",
+    "*tsconfig*.json",
+  ])
+    .split("\n")
+    .filter(Boolean);
+  return changed.flatMap((rel) => {
+    const base = existsAt(mergeBase, rel)
+      ? git(["show", `${mergeBase}:${rel}`])
+      : null;
+    return findWeakenedOptions(
+      rel,
+      base,
+      readFileSync(path.join(rootDir, rel), "utf8"),
+    ).map((change) => `${rel} weakens ${change}`);
+  });
+}
+
+function projectFor(absPath: string, projects: readonly string[]) {
+  const rel = path.relative(rootDir, absPath).replace(/\\/g, "/");
+  const extra = EXTRA_PROJECTS.find((entry) => entry.owns.test(rel));
+  if (extra) return path.join(rootDir, extra.config);
+  return projects.find(
+    (p) =>
+      !EXTRA_PROJECTS.some((entry) => p === path.join(rootDir, entry.config)) &&
+      absPath.startsWith(path.dirname(p) + path.sep),
+  );
 }
 
 export function runCompilerStrictnessGuard(): Outcome {
   const added = requireAddedLines(rootDir, GUARD_NAME);
   const findings: string[] = [];
 
-  if (guardExistedAtMergeBase()) {
-    for (const [absPath, lines] of added) {
-      if (!/tsconfig[^/]*\.json$/.test(absPath)) continue;
-      const rel = path.relative(rootDir, absPath);
-      for (const optOut of findAddedOptOuts(
-        rel,
-        readFileSync(absPath, "utf8"),
-        lines,
-      )) {
-        findings.push(
-          `${optOut.file}:${optOut.line} adds the opt-out ${optOut.text}`,
-        );
-      }
-    }
+  const mergeBase = resolveMergeBase();
+  if (existsAt(mergeBase, GUARD_PATH)) {
+    findings.push(...findWeakenedTsconfigs(mergeBase));
   }
 
   const projects = listProjects();
   const changedByProject = new Map<string, string[]>();
   for (const absPath of added.keys()) {
     if (!TS_SOURCE.test(absPath) || absPath.endsWith(".d.ts")) continue;
-    const project = projects.find((p) =>
-      absPath.startsWith(path.dirname(p) + path.sep),
-    );
+    const project = projectFor(absPath, projects);
     if (!project) continue;
     changedByProject.set(project, [
       ...(changedByProject.get(project) ?? []),
