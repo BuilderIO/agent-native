@@ -136,25 +136,15 @@ function ThemedImage({
   );
 }
 
-// Tools the in-app logo set doesn't cover, served from public/integration-logos.
-const SITE_LOGOS: Record<string, string> = {
-  "google-docs": "/integration-logos/google-docs.png",
-  "google-drive": "/integration-logos/google-drive.png",
-  "google-slides": "/integration-logos/google-slides.png",
-  word: "/integration-logos/word.png",
-  powerpoint: "/integration-logos/powerpoint.png",
-  pdf: "/integration-logos/pdf.svg",
-};
-
 // Logos run one after another; the product name is the alt text. A tool the
 // logo set doesn't have yet shows its name instead, so a missing logo is
 // visible rather than an empty gap.
-function ToolLogo({ name }: { name: string }) {
+function ToolLogo({ name, src: link }: { name: string; src?: string }) {
   const id = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-  const src = SITE_LOGOS[id] ?? mcpIntegrationLogo(id);
+  const src = link ?? mcpIntegrationLogo(id);
   if (!src) {
     return (
       <span className="font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-label-1)] font-medium text-[var(--b-text-primary)]">
@@ -321,8 +311,8 @@ export function UseCasePageV2({ page }: { page: Page }) {
                 key={card.title}
                 eyebrow={
                   <div className="mb-[var(--spacing-6)] flex min-h-7 flex-wrap items-center gap-[var(--spacing-4)]">
-                    {card.logos.map((name) => (
-                      <ToolLogo key={name} name={name} />
+                    {card.logos.map((logo) => (
+                      <ToolLogo key={logo.name} {...logo} />
                     ))}
                     {card.more ? (
                       <span

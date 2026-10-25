@@ -203,7 +203,12 @@ const useCasePageSchema = z.object({
       .array(
         z.object({
           title: text,
-          logos: z.array(text).min(2).max(6),
+          // A logo's src is its CDN link; without one the page uses the
+          // apps' built-in logo for that tool.
+          logos: z
+            .array(z.object({ name: text, src: safeUrl.optional() }))
+            .min(2)
+            .max(6),
           // The MCP card: its logos are examples, and the page adds a "+".
           more: z.boolean().optional(),
           body: text,

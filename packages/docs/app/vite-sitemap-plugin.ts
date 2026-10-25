@@ -194,7 +194,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
 }
 
 export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
-  const { useCases, articles } = content;
+  const { useCases, useCasePages, articles } = content;
   const latestDate = (dates: string[]): Date | undefined => {
     const latest = dates.sort().at(-1);
     return latest ? new Date(`${latest}T00:00:00Z`) : undefined;
@@ -225,8 +225,10 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
     {
       path: `${USE_CASES_BASE}/`,
       title: "Use cases",
-      markdown: `# Use cases\n\n${useCases.map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
-      lastmod: latestDate(useCases.map((item) => item.updated)),
+      markdown: `# Use cases\n\n${[...useCases, ...useCasePages].map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
+      lastmod: latestDate(
+        [...useCases, ...useCasePages].map((item) => item.updated),
+      ),
     },
     ...useCases.map((item) => ({
       path: `${USE_CASES_BASE}/${item.slug}/`,
@@ -242,6 +244,32 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
           `## ${item.new_way.heading}`,
           ...item.new_way.steps.map((step) => `- ${step}`),
           ...item.faqs.flatMap((faq) => [`## ${faq.q}`, faq.a]),
+        ].join("\n\n") + "\n",
+    })),
+    ...useCasePages.map((page) => ({
+      path: `${USE_CASES_BASE}/${page.slug}/`,
+      title: page.seo_title,
+      description: page.meta_description,
+      lastmod: new Date(`${page.updated}T00:00:00Z`),
+      markdown:
+        [
+          `# ${page.title}`,
+          page.hero.body,
+          `## ${page.how_to.heading}`,
+          ...page.how_to.steps.map(
+            (step, index) => `${index + 1}. **${step.title}.** ${step.body}`,
+          ),
+          `## ${page.features.heading}`,
+          ...page.features.items.map(
+            (item) => `- **${item.title}.** ${item.body}`,
+          ),
+          `## ${page.integrations.heading}`,
+          ...page.integrations.cards.map(
+            (card) =>
+              `- **${card.title}** (${card.logos.map((logo) => logo.name).join(", ")}). ${card.body}`,
+          ),
+          `## ${page.faqs.heading}`,
+          ...page.faqs.items.flatMap((faq) => [`### ${faq.q}`, faq.a]),
         ].join("\n\n") + "\n",
     })),
     ...articleIndex(ARTICLES_BASE, "Articles", articles),

@@ -19,7 +19,18 @@ export const meta = ({ params }: { params?: { locale?: string } } = {}) =>
     params?.locale,
   );
 export function loader() {
-  return { items: loadCampaignContent().useCases.map(publicUseCase) };
+  const { useCases, useCasePages } = loadCampaignContent();
+  return {
+    items: [
+      ...useCases.map(publicUseCase),
+      ...useCasePages.map((page) => ({
+        slug: page.slug,
+        app: page.app,
+        title: page.title,
+        subhead: page.hero.body,
+      })),
+    ],
+  };
 }
 export default function UseCasesRoute() {
   const { items } = useLoaderData<typeof loader>();

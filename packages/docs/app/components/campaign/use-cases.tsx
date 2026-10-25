@@ -52,7 +52,15 @@ const oftenFilters = [
   ["occasional", "campaign.filterOccasional"],
 ] as const;
 
-export function UseCasesIndex({ items }: { items: UseCase[] }) {
+// The index lists both original pages and new-style (template v2) pages, so it
+// reads only what both have.
+type IndexRequired = Pick<UseCase, "slug" | "app" | "title" | "subhead">;
+type IndexOptional = Partial<
+  Pick<UseCase, "how_often_label" | "roles" | "frequency">
+>;
+export type UseCaseIndexItem = IndexRequired & IndexOptional;
+
+export function UseCasesIndex({ items }: { items: UseCaseIndexItem[] }) {
   const t = useT();
   const { locale } = useLocale();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -65,7 +73,7 @@ export function UseCasesIndex({ items }: { items: UseCase[] }) {
   const often =
     oftenFilters.find(([value]) => value === searchParams.get("often"))?.[0] ??
     "";
-  const matches = (item: UseCase) =>
+  const matches = (item: UseCaseIndexItem) =>
     !hydrated ||
     ((!role ||
       item.roles?.includes("everyone") ||

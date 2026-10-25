@@ -58,13 +58,23 @@ integrations:
   heading: "Connect Slides to the tools you already use"
   cards:
     - title: "Bring your notes and docs"
-      logos: [Google Docs, Google Drive, Word]
+      logos:
+        - name: Google Docs
+        - name: Google Drive
+        - name: Word
       body: "Start the deck from the notes and docs you already have, and the agent turns them into editable slides."
     - title: "Send it how investors want it"
-      logos: [PowerPoint, Google Slides, PDF]
+      logos:
+        - name: PowerPoint
+        - name: Google Slides
+        - name: PDF
       body: "Export an editable PowerPoint file, open it in Google Slides, or send a PDF."
     - title: "Connect anything through MCP"
-      logos: [Notion, Granola, Stripe, Amplitude]
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
       more: true
       body: "Connect the tools your team uses through MCP, or add any MCP server by its URL."
 
