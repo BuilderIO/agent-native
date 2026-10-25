@@ -8234,11 +8234,14 @@ export async function ensureDatabaseSourceProperty(args: {
   // sources, links and memberships as they are now. So a row moved to another
   // source, or one whose source was attached, since the scan isn't set back,
   // and every Source value has its option. A row the scan found correct can
-  // still move before the lock, so the scan runs again after each locked pass
-  // that wrote, until one finds nothing to change. A move after the last scan
-  // waits for the next fill, like one made after this fill returns.
-  let scanSources: Array<{ id: string }> = sources;
+  // still move before the lock, so the scan runs again after each locked pass,
+  // until one finds nothing to change. The options are set first, under the
+  // lock, so a fill always ends on such a scan, and a move after it waits for
+  // the next fill, like one made after this fill returns.
+  if (!(await lockedSourcePropertyPass(args, propertyId, []))) return;
   for (let pass = 0; pass < SOURCE_FILL_MAX_PASSES; pass += 1) {
+    const scanSources = await readDatabaseSourceNames(db, args.database.id);
+    if (scanSources.length < 2) return;
     const candidates = await sourcePropertyWrites(
       db,
       args,
@@ -8246,36 +8249,53 @@ export async function ensureDatabaseSourceProperty(args: {
       scanSources,
       null,
     );
-    // The first pass takes the lock even with nothing to write, to set the
-    // options.
-    if (pass > 0 && candidates.length === 0) return;
-    const wrote = await db.transaction(async (transaction) => {
-      const tx = transaction as unknown as ReturnType<typeof getDb>;
-      await lockContentDatabaseMutation(tx, args.database.id);
-      const currentSources = await readDatabaseSourceNames(
-        tx,
-        args.database.id,
-      );
-      if (currentSources.length < 2) return false;
-      const definitions = schema.documentPropertyDefinitions;
-      const [definition] = await tx
-        .select({ optionsJson: definitions.optionsJson })
-        .from(definitions)
-        .where(eq(definitions.id, propertyId));
-      if (!definition) return false;
-      await tx
-        .update(definitions)
-        .set({
-          optionsJson: serializePropertyOptions({
-            options: sourcePropertyOptionsForSources(
-              currentSources,
-              parsePropertyOptions(definition.optionsJson).options ?? [],
-            ),
-          }),
-          updatedAt: args.now,
-        })
-        .where(eq(definitions.id, propertyId));
-      if (candidates.length === 0) return false;
+    if (candidates.length === 0) return;
+    const stillFilled = await lockedSourcePropertyPass(
+      args,
+      propertyId,
+      candidates.map((write) => write.documentId),
+    );
+    if (!stillFilled) return;
+  }
+}
+
+/** Scans the Source fill makes before it leaves later moves to the next fill. */
+const SOURCE_FILL_MAX_PASSES = 3;
+
+/**
+ * Under the collection's lock, sets the Source column's options and these
+ * rows' Source from the sources as they are now. False when the collection
+ * no longer has two sources or the column is gone, so nothing was written.
+ */
+async function lockedSourcePropertyPass(
+  args: { database: ContentDatabaseRow; now: string },
+  propertyId: string,
+  documentIds: string[],
+): Promise<boolean> {
+  return getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(tx, args.database.id);
+    const currentSources = await readDatabaseSourceNames(tx, args.database.id);
+    if (currentSources.length < 2) return false;
+    const definitions = schema.documentPropertyDefinitions;
+    const [definition] = await tx
+      .select({ optionsJson: definitions.optionsJson })
+      .from(definitions)
+      .where(eq(definitions.id, propertyId));
+    if (!definition) return false;
+    await tx
+      .update(definitions)
+      .set({
+        optionsJson: serializePropertyOptions({
+          options: sourcePropertyOptionsForSources(
+            currentSources,
+            parsePropertyOptions(definition.optionsJson).options ?? [],
+          ),
+        }),
+        updatedAt: args.now,
+      })
+      .where(eq(definitions.id, propertyId));
+    if (documentIds.length > 0) {
       await upsertSourcePropertyValues(
         tx,
         await sourcePropertyWrites(
@@ -8283,18 +8303,13 @@ export async function ensureDatabaseSourceProperty(args: {
           args,
           propertyId,
           currentSources,
-          candidates.map((write) => write.documentId),
+          documentIds,
         ),
       );
-      return true;
-    });
-    if (!wrote) return;
-    scanSources = await readDatabaseSourceNames(db, args.database.id);
-  }
+    }
+    return true;
+  });
 }
-
-/** Scans the Source fill makes before it leaves later moves to the next fill. */
-const SOURCE_FILL_MAX_PASSES = 3;
 
 /** A collection's sources, oldest first, as the Source column lists them. */
 function readDatabaseSourceNames(

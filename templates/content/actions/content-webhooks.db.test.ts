@@ -2347,13 +2347,17 @@ describe("property generations", () => {
 
     // The second row joins the second source, so the next fill's scan finds
     // it. The first row, which that scan finds correct, moves to the second
-    // source before the lock. The scan after the locked pass catches it.
+    // source just before the lock that writes the second row. (The fill's
+    // first lock sets the options; the hook waits for the next one.) The scan
+    // after that locked pass catches the move.
     await getDb().insert(links).values(link(1, 1));
-    lockHook.beforeNext = (tx) =>
-      tx
-        .update(links)
-        .set({ sourceId: sources[1].id })
-        .where(eq(links.documentId, ids.rows[0].documentId));
+    lockHook.beforeNext = async () => {
+      lockHook.beforeNext = (tx) =>
+        tx
+          .update(links)
+          .set({ sourceId: sources[1].id })
+          .where(eq(links.documentId, ids.rows[0].documentId));
+    };
     await ensureDatabaseSourceProperty({
       database,
       now: new Date().toISOString(),
@@ -2363,6 +2367,22 @@ describe("property generations", () => {
       expect(await storedValue(row.documentId, sourceColumn.id)).toBe(
         sources[1].id,
       );
+
+    // With nothing to change, a fill still scans after its lock: the first row
+    // moves back while the options are set, and the fill's scan catches it.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceId: sources[0].id })
+        .where(eq(links.documentId, ids.rows[0].documentId));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    expect(await storedValue(ids.rows[0].documentId, sourceColumn.id)).toBe(
+      sources[0].id,
+    );
   });
 
   it("the source writers read bindings and sources again under the lock", async () => {
@@ -2435,10 +2455,13 @@ describe("property generations", () => {
 
     // A third source, holding the second row, is attached between the Source
     // column's scan and its lock. That row's Source is the new source, not
-    // Local, and the column lists it as an option.
-    lockHook.beforeNext = async (tx) => {
-      await tx.insert(schema.contentDatabaseSources).values(sources[2]);
-      await tx.insert(links).values(link(1, 2));
+    // Local, and the column lists it as an option. (The fill's first lock
+    // sets the options; the hook waits for the lock that writes the rows.)
+    lockHook.beforeNext = async () => {
+      lockHook.beforeNext = async (tx) => {
+        await tx.insert(schema.contentDatabaseSources).values(sources[2]);
+        await tx.insert(links).values(link(1, 2));
+      };
     };
     await ensureDatabaseSourceProperty({
       database,
