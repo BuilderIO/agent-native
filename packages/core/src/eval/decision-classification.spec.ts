@@ -156,6 +156,31 @@ describe("thresholdSweep", () => {
       /equal lengths/,
     );
   });
+
+  it("does not rescan probabilities for every generated threshold", () => {
+    const size = 64;
+    const values = Array.from(
+      { length: size },
+      (_, index) => index / (size - 1),
+    );
+    let probabilityReads = 0;
+    const probabilities = new Proxy(values, {
+      get(target, property, receiver) {
+        if (typeof property === "string" && /^\d+$/.test(property)) {
+          probabilityReads += 1;
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const result = thresholdSweep({
+      gold: values.map((_, index) => index % 2 === 0),
+      probabilities,
+    });
+
+    expect(result.points).toHaveLength(size);
+    expect(probabilityReads).toBeLessThanOrEqual(size * 4);
+  });
 });
 
 describe("expectedCalibrationError", () => {

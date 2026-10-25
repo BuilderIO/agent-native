@@ -191,11 +191,12 @@ function buildParsedAnswers(
     if (!values.has(question.name)) {
       throw new DecisionResponseError("invalid_response");
     }
-    answers[question.name] = answerForQuestion(
-      provider,
-      question,
-      values.get(question.name),
-    );
+    Object.defineProperty(answers, question.name, {
+      configurable: true,
+      enumerable: true,
+      value: answerForQuestion(provider, question, values.get(question.name)),
+      writable: true,
+    });
   }
 
   let usage: { inputTokens?: number; outputTokens?: number } | undefined;

@@ -267,7 +267,7 @@ export async function decide(input: {
       apiKey = jevCredentials.directApiKey ?? jevCredentials.personalApiKey;
       lookupFailed = Boolean(
         jevCredentials.apiKeyLookupFailed ||
-        jevCredentials.builderAuthLookupFailed,
+        (!apiKey && jevCredentials.builderAuthLookupFailed),
       );
       if (!apiKey && jevCredentials.builderAuth) {
         jevDeadlineAt = Date.now() + timeoutMs;

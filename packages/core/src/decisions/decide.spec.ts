@@ -330,6 +330,38 @@ describe("decide", () => {
     expect(mocks.requestJev).toHaveBeenCalledOnce();
   });
 
+  it("uses a scoped Jev key when Builder auth lookup fails", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: "org-jev-test-key",
+      personalApiKey: undefined,
+      directApiKey: "org-jev-test-key",
+      builderAuth: null,
+      builderAuthLookupFailed: true,
+    });
+    mocks.requestJev.mockResolvedValue({
+      answers: { urgent: { type: "noul", noul: 0.95 } },
+    });
+
+    const result = await decide({
+      ownerEmail,
+      input: "A ticket",
+      questions: [
+        {
+          type: "predicate",
+          name: "urgent",
+          instructions: "Is this urgent?",
+        },
+      ],
+      options: { providers: ["jev"] },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "jev" });
+    expect(mocks.requestJev).toHaveBeenCalledWith(
+      expect.objectContaining({ directApiKey: "org-jev-test-key" }),
+    );
+    expect(mocks.isJevEnabled).not.toHaveBeenCalled();
+  });
+
   it("skips Jev for image input and uses OpenAI when it is next", async () => {
     mocks.requestOpenAiDecision.mockResolvedValue({
       answers: [

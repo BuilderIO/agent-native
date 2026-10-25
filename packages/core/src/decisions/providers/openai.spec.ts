@@ -51,6 +51,7 @@ const documentedScoreResponseFixture = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -154,5 +155,84 @@ describe("requestOpenAiDecision", () => {
         },
       },
     });
+  });
+
+  it("maps a response body read timeout to timeout", async () => {
+    vi.useFakeTimers();
+    let beginBodyRead!: () => void;
+    const bodyReadStarted = new Promise<void>((resolve) => {
+      beginBodyRead = resolve;
+    });
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        ({
+          ok: true,
+          json: () => {
+            beginBodyRead();
+            return new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            });
+          },
+        }) as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = requestOpenAiDecision({
+      input: "A ticket",
+      questions: documentedScoreRequestFixture.questions,
+      apiKey: "fake-openai-key",
+      timeoutMs: 1_000,
+    });
+    const expectedTimeout = expect(pending).rejects.toMatchObject({
+      reason: "timeout",
+    });
+    await bodyReadStarted;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expectedTimeout;
+  });
+
+  it("preserves caller cancellation while reading the response body", async () => {
+    let beginBodyRead!: () => void;
+    const bodyReadStarted = new Promise<void>((resolve) => {
+      beginBodyRead = resolve;
+    });
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        ({
+          ok: true,
+          json: () => {
+            beginBodyRead();
+            return new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            });
+          },
+        }) as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    const pending = requestOpenAiDecision({
+      input: "A ticket",
+      questions: documentedScoreRequestFixture.questions,
+      apiKey: "fake-openai-key",
+      signal: controller.signal,
+      timeoutMs: 10_000,
+    });
+    const expectedAbort = expect(pending).rejects.toMatchObject({
+      reason: "aborted",
+    });
+    await bodyReadStarted;
+    controller.abort();
+
+    await expectedAbort;
   });
 });

@@ -265,42 +265,57 @@ export function thresholdSweep({
   });
 
   const goldPositive = gold.filter(Boolean).length;
-  const points = thresholdValues.map((threshold): ThresholdPoint => {
-    let truePositives = 0;
-    let predictedPositive = 0;
-    for (let index = 0; index < probabilities.length; index += 1) {
-      if (probabilities[index] >= threshold) {
-        predictedPositive += 1;
-        if (gold[index]) truePositives += 1;
-      }
+  const sortedExamples = probabilities
+    .map((probability, index) => ({ probability, positive: gold[index] }))
+    .sort((left, right) => right.probability - left.probability);
+  const sortedThresholds = thresholdValues
+    .map((threshold, index) => ({ threshold, index }))
+    .sort(
+      (left, right) =>
+        right.threshold - left.threshold || left.index - right.index,
+    );
+  const points: ThresholdPoint[] = Array.from({
+    length: thresholdValues.length,
+  });
+  let exampleIndex = 0;
+  let truePositives = 0;
+  let predictedPositive = 0;
+  let smallestThresholdMeetingTargetRecall: number | null = null;
+
+  for (const { threshold, index } of sortedThresholds) {
+    while (
+      exampleIndex < sortedExamples.length &&
+      sortedExamples[exampleIndex].probability >= threshold
+    ) {
+      predictedPositive += 1;
+      if (sortedExamples[exampleIndex].positive) truePositives += 1;
+      exampleIndex += 1;
     }
 
-    return {
+    const recall = goldPositive === 0 ? null : truePositives / goldPositive;
+    points[index] = {
       threshold,
       truePositives,
       predictedPositive,
       goldPositive,
       precision:
         predictedPositive === 0 ? null : truePositives / predictedPositive,
-      recall: goldPositive === 0 ? null : truePositives / goldPositive,
+      recall,
     };
-  });
-
-  const qualifyingThresholds =
-    targetRecall === undefined
-      ? []
-      : points
-          .filter(
-            (point) => point.recall !== null && point.recall >= targetRecall,
-          )
-          .map((point) => point.threshold);
+    if (
+      targetRecall !== undefined &&
+      recall !== null &&
+      recall >= targetRecall &&
+      (smallestThresholdMeetingTargetRecall === null ||
+        threshold < smallestThresholdMeetingTargetRecall)
+    ) {
+      smallestThresholdMeetingTargetRecall = threshold;
+    }
+  }
 
   return {
     points,
-    smallestThresholdMeetingTargetRecall:
-      qualifyingThresholds.length === 0
-        ? null
-        : Math.min(...qualifyingThresholds),
+    smallestThresholdMeetingTargetRecall,
   };
 }
 

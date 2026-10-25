@@ -120,6 +120,10 @@ export async function requestOpenAiDecision({
     try {
       return await response.json();
     } catch {
+      if (signal?.aborted) throw new DecisionProviderRequestError("aborted");
+      if (controller.signal.aborted) {
+        throw new DecisionProviderRequestError("timeout");
+      }
       throw new DecisionProviderRequestError("invalid_response");
     }
   } catch (error) {

@@ -81,4 +81,23 @@ describe("parseDecisionAnswers", () => {
         .route,
     ).toEqual({ type: "choice", name: "route", choice: "billing" });
   });
+
+  it("preserves answers with prototype-like question names", () => {
+    const question: DecisionQuestion = {
+      type: "predicate",
+      name: "__proto__",
+      instructions: "Does this request qualify?",
+    };
+    const result = parseDecisionAnswers("openai", [question], {
+      answers: [{ name: "__proto__", type: "predicate", probability: 0.8 }],
+    });
+
+    expect(Object.hasOwn(result.answers, "__proto__")).toBe(true);
+    expect(result.answers["__proto__"]).toEqual({
+      type: "predicate",
+      name: "__proto__",
+      probability: 0.8,
+    });
+    expect(Object.getPrototypeOf(result.answers)).toBe(Object.prototype);
+  });
 });
