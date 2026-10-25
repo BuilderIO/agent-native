@@ -965,7 +965,7 @@ describe("LayersPanel collapse layers", () => {
         });
         onExpandedIdsChange.mockClear();
         const button = host.querySelector<HTMLButtonElement>(
-          'button[aria-label="layersPanel.collapse"]',
+          'button[aria-label="layersPanel.collapseAll"]',
         );
         expect(button?.disabled).toBe(false);
         await act(async () => button!.click());

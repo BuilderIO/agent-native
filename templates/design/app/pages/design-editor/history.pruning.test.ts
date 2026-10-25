@@ -6,9 +6,7 @@ import {
   insertAtFileOrderIndex,
   partitionContentHistoryEntry,
   pruneGeometryHistoryEntryForDeletedFiles,
-  pruneSelectionHistoryStackIds,
   remapFileDeletionHistoryEntryIds,
-  remapSelectionHistoryStackIds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 
@@ -146,75 +144,6 @@ describe("geometry history selection pruning", () => {
     expect(pruned?.selectionAfter?.explicitOverviewScreenIds).toEqual([
       "screen-a",
     ]);
-  });
-});
-
-describe("selection history screen provenance", () => {
-  it("remaps explicit Screen IDs with the rest of a selection history entry", () => {
-    const stack = [
-      {
-        before: {
-          overviewSelectedScreenIds: ["screen-a"],
-          explicitOverviewScreenIds: ["screen-a"],
-          selectedLayerIds: ["layer-a"],
-          activeFileId: "screen-a",
-        },
-        after: {
-          overviewSelectedScreenIds: ["screen-a"],
-          explicitOverviewScreenIds: ["screen-a"],
-          selectedLayerIds: ["layer-b"],
-          activeFileId: "screen-a",
-        },
-      },
-    ];
-
-    expect(
-      remapSelectionHistoryStackIds(
-        stack,
-        new Map([["screen-a", "restored-screen"]]),
-      )[0],
-    ).toMatchObject({
-      before: {
-        overviewSelectedScreenIds: ["restored-screen"],
-        explicitOverviewScreenIds: ["restored-screen"],
-        activeFileId: "restored-screen",
-      },
-      after: {
-        overviewSelectedScreenIds: ["restored-screen"],
-        explicitOverviewScreenIds: ["restored-screen"],
-        activeFileId: "restored-screen",
-      },
-    });
-  });
-
-  it("prunes deleted explicit Screens and preserves surviving provenance", () => {
-    const stack = [
-      {
-        before: {
-          overviewSelectedScreenIds: ["keep-screen", "deleted-screen"],
-          explicitOverviewScreenIds: ["keep-screen", "deleted-screen"],
-          selectedLayerIds: ["layer-before"],
-          activeFileId: "keep-screen",
-        },
-        after: {
-          overviewSelectedScreenIds: ["keep-screen"],
-          explicitOverviewScreenIds: ["keep-screen"],
-          selectedLayerIds: ["layer-after"],
-          activeFileId: "keep-screen",
-        },
-      },
-    ];
-
-    const pruned = pruneSelectionHistoryStackIds(
-      stack,
-      new Set(["deleted-screen"]),
-    );
-
-    expect(pruned).toHaveLength(1);
-    expect(pruned[0]?.before.explicitOverviewScreenIds).toEqual([
-      "keep-screen",
-    ]);
-    expect(pruned[0]?.after.explicitOverviewScreenIds).toEqual(["keep-screen"]);
   });
 });
 

@@ -105,6 +105,10 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   test.setTimeout(360_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
+  const consentBanner = page.locator("[data-agent-native-consent-banner]");
+  if (await consentBanner.isVisible()) {
+    await consentBanner.getByRole("button", { name: "Reject all" }).click();
+  }
   await selectByText(page, "Alpha Button", { screenId: fileId });
 
   const launchMotion = page.getByRole("button", {

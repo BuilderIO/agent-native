@@ -214,6 +214,7 @@ import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import {
+  isWaitingOnApprovalRequest,
   isWaitingOnConnectionRequest,
   reconcileSettledRun,
 } from "./reconcile-settled-run.js";
@@ -5019,7 +5020,9 @@ const AgentKitAssistantChatBody = forwardRef<
           )
         }
         isAwaitingResponse={() =>
-          isRunning && !isWaitingOnConnectionRequest(thread)
+          isRunning &&
+          !isWaitingOnConnectionRequest(thread) &&
+          !isWaitingOnApprovalRequest(thread)
         }
         onServerSettled={reconcileServerSettled}
         onRetry={(runId) => {

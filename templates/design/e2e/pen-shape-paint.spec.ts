@@ -447,7 +447,10 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
   await expect(vector).toBeVisible({ timeout: 40_000 });
   await page.keyboard.press("v");
   const bounds = (await vector.boundingBox())!;
+  // Cmd+click reaches the vector inside <main>; a plain click takes main.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(bounds.x + 50, bounds.y + 50);
+  await page.keyboard.up("ControlOrMeta");
   const strokeSection = inspectorSection(page, /^Stroke$/i);
   await addStrokeButton(strokeSection).click();
   const position = strokeSection.getByRole("combobox", {
@@ -569,10 +572,13 @@ test("closed SVG shapes enable Position while open vectors keep it disabled", as
     const vector = frame.locator(`svg[data-agent-native-node-id="${item.id}"]`);
     await expect(vector).toBeVisible({ timeout: 40_000 });
     const bounds = (await vector.boundingBox())!;
+    // Cmd+click reaches the vector inside <main>; a plain click takes main.
+    await page.keyboard.down("ControlOrMeta");
     await page.mouse.click(
       bounds.x + bounds.width / 2,
       bounds.y + bounds.height / 2,
     );
+    await page.keyboard.up("ControlOrMeta");
     const strokeSection = inspectorSection(page, /^Stroke$/i);
     const addStroke = addStrokeButton(strokeSection);
     await expect(addStroke).toBeVisible();

@@ -1017,8 +1017,13 @@ export default defineAction({
       throw error;
     }
   },
-  changeResource: (_input, result) =>
-    designChangeResource((result as { designId?: string }).designId, result),
+  // A failed replace still names the design it was given, so collaborators
+  // refresh whatever it wrote before failing.
+  changeResource: (input, result) =>
+    designChangeResource(
+      (result as { designId?: string } | undefined)?.designId ?? input.designId,
+      result,
+    ),
   link: ({ result }) => {
     const { url } = (result ?? {}) as { url?: string };
     return url

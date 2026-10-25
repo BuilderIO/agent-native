@@ -1366,14 +1366,14 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(first?.completedSideEffect).toBeUndefined();
     expect(notify).toHaveBeenCalledTimes(1);
     // Neither reused nor run again later in the turn.
-    expect(second?.result).toContain("could not recover its result");
+    expect(second?.result).toContain("could not confirm what it changed");
     expect(runs).toBe(1);
     const done = toolDone(
       await withJournal(prior, () =>
         runOneCall(actions, "read-draft", { internalContinuation: true }),
       ),
     );
-    expect(done?.result).toContain("could not recover its result");
+    expect(done?.result).toContain("could not confirm what it changed");
     expect(runs).toBe(1);
   });
 
@@ -1663,7 +1663,9 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     ).filter((event) => event.type === "tool_done");
     expect(saves).toBe(1);
     expect(dones[0]).toMatchObject({ outcomeUnknown: true });
-    expect(dones[1]?.result).toContain("could not recover its result");
+    expect(dones[1]?.result).toContain(
+      "without confirming whether it saved changes",
+    );
   });
 
   it("runs a read whose action left an unknown write for other arguments", async () => {
@@ -1761,7 +1763,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(reads).toBe(1);
   });
 
-  it("holds back every write of an action whose read left an unknown outcome, and no read of other arguments", async () => {
+  it("declines every write of an action whose read left an unknown outcome, and no read of other arguments", async () => {
     const runs = { check: 0, preview: 0, apply: 0 };
     const save = defineAction({
       description: "Save the draft.",
@@ -1791,7 +1793,9 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     ).filter((event) => event.type === "tool_done");
     expect(dones[0]).toMatchObject({ outcomeUnknown: true });
     expect(runs).toEqual({ check: 1, preview: 1, apply: 0 });
-    expect(dones[2]?.result).toContain("could not recover its result");
+    expect(dones[2]?.result).toContain(
+      "Not run: an earlier publish-draft call in this turn may have already applied",
+    );
   });
 
   describe("a read that timed out having changed nothing, its stored input no longer valid", () => {

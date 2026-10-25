@@ -5296,6 +5296,11 @@ export function createAgentNativeChatRuntime(
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
       const continuationMetadata = { ...continuation.metadata };
+      const continuationTurnId =
+        metadataString(
+          previousTurn?.metadata,
+          AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
+        ) ?? continuation.turnId;
       delete continuationMetadata[
         AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY
       ];
@@ -5330,7 +5335,7 @@ export function createAgentNativeChatRuntime(
             ...previousMetadata,
             ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
-              continuation.turnId,
+              continuationTurnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
           },
           abortSignal: continuation.abortSignal,
@@ -5351,19 +5356,53 @@ export function createAgentNativeChatRuntime(
             ...previousMetadata,
             ...continuationMetadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
-              continuation.turnId,
+              continuationTurnId,
             [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
           },
           abortSignal: continuation.abortSignal,
         });
       }
       if (!approval.approved) {
-        messageStates.delete(messageStateKey);
-        return terminalRuntimeTurn({
-          sessionId: session.id,
-          turnId: continuation.turnId,
-          reason: "complete",
-        });
+        return (async () => {
+          const threadId = session.threadId ?? options.threadId ?? session.id;
+          const headers = await resolveHeaders(options.headers, {
+            sessionId: session.id,
+            turnId: continuation.turnId,
+          });
+          if (!headers.has("Content-Type")) {
+            headers.set("Content-Type", "application/json");
+          }
+          const response = await fetchImpl(
+            `${apiUrl.replace(/\/+$/, "")}/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+            {
+              method: "POST",
+              headers,
+              credentials: "same-origin",
+              body: JSON.stringify({
+                approvalId: approval.id,
+                decision: "deny",
+              }),
+            },
+          );
+          let denialResolved = response.ok;
+          if (!denialResolved && response.status === 409) {
+            try {
+              const body = asRecord(await response.clone().json());
+              denialResolved = body?.code === "approval_not_pending";
+            } catch {
+              // coercion-ok: Preserve the original HTTP failure when conflict details are unreadable.
+            }
+          }
+          if (!denialResolved) {
+            throw new Error(await readErrorText(response));
+          }
+          messageStates.delete(messageStateKey);
+          return terminalRuntimeTurn({
+            sessionId: session.id,
+            turnId: continuation.turnId,
+            reason: "complete",
+          });
+        })();
       }
       const messageState = messageStates.get(messageStateKey);
       const approvalParts = [
@@ -5403,7 +5442,7 @@ export function createAgentNativeChatRuntime(
         ...continuationTurn,
         prompt:
           continuation.prompt ??
-          "Approved. Go ahead and run the requested action.",
+          "The approved action has run. Do not repeat it; use its result in your reply.",
         metadata: {
           ...previousMetadata,
           ...continuationMetadata,
@@ -5415,7 +5454,7 @@ export function createAgentNativeChatRuntime(
                 ],
               }
             : {}),
-          [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
+          [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuationTurnId,
           [AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY]: true,
         },
         abortSignal: continuation.abortSignal,

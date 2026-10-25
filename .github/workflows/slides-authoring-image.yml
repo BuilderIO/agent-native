@@ -1,0 +1,39 @@
+name: Slides authoring image
+
+# The only workflow that can write the CI image the Slides authoring jobs run
+# in. PR and nightly runs read it; publishing runs from main alone, so
+# unreviewed code never holds a registry write token.
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/ci-slides-authoring/**
+  workflow_dispatch:
+
+concurrency:
+  group: slides-authoring-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish Slides authoring image
+    # workflow_dispatch can name any ref, and only main has been reviewed.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            .github/actions/slides-authoring-image
+            docker/ci-slides-authoring
+
+      - uses: ./.github/actions/slides-authoring-image
+        with:
+          publish: "true"

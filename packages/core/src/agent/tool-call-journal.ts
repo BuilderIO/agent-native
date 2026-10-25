@@ -13,10 +13,12 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { toolCallInputSignature as inputSignature } from "./tool-call-input-signature.js";
+import { isUnknownWriteCause } from "./types.js";
 import type {
   AgentChatEvent,
   AgentFileMutationProof,
   AgentToolInput,
+  UnknownWriteCause,
 } from "./types.js";
 
 export interface ToolCallJournalEntry {
@@ -38,6 +40,8 @@ export interface ToolCallJournalEntry {
   argumentsHash?: string;
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
+  /** Why such a call's outcome is unknown, when its event recorded it. */
+  unknownCause?: UnknownWriteCause;
   artifacts?: ArtifactReceipt[];
   fileMutation?: AgentFileMutationProof;
   mcpApp?: AgentMcpAppPayload;
@@ -477,6 +481,9 @@ export function classifyToolCallJournal(
       if (entry) {
         if (event.outcomeUnknown === true) {
           entry.outcomeUnknown = true;
+          if (isUnknownWriteCause(event.unknownCause)) {
+            entry.unknownCause = event.unknownCause;
+          }
           if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
           queue!.push(entry);
           continue;

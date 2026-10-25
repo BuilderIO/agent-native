@@ -39,6 +39,7 @@ import {
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -72,6 +73,11 @@ import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { ORIGIN_ANCHORS } from "./edit-panel/motion-inspector-properties";
+import {
+  createMotionNativeStyleIdentity,
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 
 const STYLE_LABEL_KEYS: Record<MotionNativeStyleKey, string> = {
   TextStagger: "text",
@@ -356,17 +362,11 @@ interface BezierHandleDrag {
   viewBox: BezierViewBox;
 }
 
-export interface MotionNativeStyleIdentity {
-  key: string;
-  styleKey: MotionNativeStyleKey;
-  targetNodeId: string;
-  index: number;
-  sourceInstanceId?: string;
-}
-
 export interface MotionNativeStyleEditorProps {
   styles: MotionNativeStyleInstance[];
   targetNodeId: string;
+  selectedStyle?: MotionNativeStyleIdentity | null;
+  onSelectedStyleChange?: (identity: MotionNativeStyleIdentity | null) => void;
   /** Text stagger is only offered in the style switcher for text layers. */
   isText?: boolean;
   disabled?: boolean;
@@ -383,6 +383,8 @@ export interface MotionNativeStyleEditorProps {
 export function MotionNativeStyleEditor({
   styles,
   targetNodeId,
+  selectedStyle,
+  onSelectedStyleChange,
   isText = false,
   disabled = false,
   easingVariables = [],
@@ -394,15 +396,47 @@ export function MotionNativeStyleEditor({
   const id = useId();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const targetStyles = styles
-    .map((instance, index) => ({
-      instance,
-      identity: createIdentity(instance, index),
-    }))
-    .filter(({ instance }) => instance.targetNodeId === targetNodeId);
-  const selected =
-    targetStyles.find(({ identity }) => identity.key === selectedKey) ??
-    targetStyles[0];
+  const targetStyles = useMemo(
+    () =>
+      styles
+        .map((instance, index) => ({
+          instance,
+          identity: createMotionNativeStyleIdentity(instance, index),
+        }))
+        .filter(({ instance }) => instance.targetNodeId === targetNodeId),
+    [styles, targetNodeId],
+  );
+  const resolvedSelectedStyle = onSelectedStyleChange
+    ? resolveMotionNativeStyleIdentity(styles, targetNodeId, selectedStyle)
+    : null;
+  const selected = onSelectedStyleChange
+    ? targetStyles.find(
+        ({ identity }) =>
+          identity.key === resolvedSelectedStyle?.key &&
+          identity.index === resolvedSelectedStyle.index &&
+          identity.sourceInstanceId === resolvedSelectedStyle.sourceInstanceId,
+      )
+    : (targetStyles.find(({ identity }) => identity.key === selectedKey) ??
+      targetStyles[targetStyles.length - 1]);
+  const selectedIdentity = selected?.identity ?? null;
+  const selectedIdentityKey = selectedIdentity?.key ?? null;
+  const previousSelectedIdentityKeyRef = useRef(selectedIdentityKey);
+  const pendingInspectorSelectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onSelectedStyleChange) return;
+    setSelectedKey(selectedIdentityKey);
+    if (previousSelectedIdentityKeyRef.current !== selectedIdentityKey) {
+      previousSelectedIdentityKeyRef.current = selectedIdentityKey;
+      if (pendingInspectorSelectionRef.current !== selectedIdentityKey) {
+        setOpenKey(null);
+      }
+      pendingInspectorSelectionRef.current = null;
+    }
+  }, [
+    onSelectedStyleChange,
+    selectedIdentityKey,
+    selectedIdentity?.sourceInstanceId,
+  ]);
 
   function changeInstance(
     instance: MotionNativeStyleInstance,
@@ -463,14 +497,16 @@ export function MotionNativeStyleEditor({
     );
     if (existing) {
       setSelectedKey(existing.identity.key);
+      onSelectedStyleChange?.(existing.identity);
       setOpenKey(existing.identity.key);
       return;
     }
 
     const next = switchMotionNativeStyleKey(instance, styleKey);
-    const nextIdentity = createIdentity(next, identity.index);
+    const nextIdentity = createMotionNativeStyleIdentity(next, identity.index);
     changeInstance(next, identity);
     setSelectedKey(nextIdentity.key);
+    onSelectedStyleChange?.(nextIdentity);
     setOpenKey(nextIdentity.key);
   }
 
@@ -485,7 +521,7 @@ export function MotionNativeStyleEditor({
   return (
     <div
       aria-label={t("designEditor.motion.animationStyles.title")}
-      className="space-y-0.5"
+      className="-ml-[calc(var(--design-inspector-section-padding-inline)_+_1px)] -mr-[calc(var(--design-inspector-section-padding-inline)_-_1px)] space-y-0.5 pt-2"
       data-design-inspector-section
     >
       {targetStyles.length > 0 ? (
@@ -507,14 +543,22 @@ export function MotionNativeStyleEditor({
                 key={identity.key}
                 open={openKey === identity.key}
                 onOpenChange={(open) => {
-                  setOpenKey(open ? identity.key : null);
-                  if (open) setSelectedKey(identity.key);
+                  setOpenKey((current) => {
+                    if (open) return identity.key;
+                    return current === identity.key ? null : current;
+                  });
+                  if (open) {
+                    pendingInspectorSelectionRef.current = identity.key;
+                    setSelectedKey(identity.key);
+                    onSelectedStyleChange?.(identity);
+                  }
                 }}
               >
-                <li className="flex min-w-0 items-center gap-0.5 rounded-sm">
+                <li className="flex h-8 min-w-0 items-center gap-1 rounded-sm pl-4 pr-1">
                   <PopoverTrigger asChild>
                     <button
                       type="button"
+                      data-motion-native-style-trigger
                       aria-pressed={selectedRow}
                       disabled={disabled}
                       className={`flex h-6 min-w-0 flex-1 items-center rounded-sm px-2 text-start text-[11px] outline-none transition-colors hover:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 ${selectedRow ? "bg-accent/50" : ""}`}
@@ -562,8 +606,19 @@ export function MotionNativeStyleEditor({
                       align="start"
                       alignOffset={-4}
                       side="left"
-                      sideOffset={10}
+                      sideOffset={16}
                       className="w-60 p-0"
+                      data-motion-native-style-settings={instance.styleKey}
+                      onInteractOutside={(event) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest(
+                            "[data-motion-native-style-trigger], [data-motion-select-native-style]",
+                          )
+                        ) {
+                          event.preventDefault();
+                        }
+                      }}
                     >
                       <div>
                         <div className="flex h-10 items-center justify-between border-b border-border px-4">
@@ -2705,21 +2760,6 @@ function isRunnableStyle(styleKey: MotionNativeStyleKey): boolean {
     styleKey === "TextStagger" ||
     styleKey === "Path"
   );
-}
-
-function createIdentity(
-  instance: MotionNativeStyleInstance,
-  index: number,
-): MotionNativeStyleIdentity {
-  return {
-    key: JSON.stringify([instance.styleKey, instance.targetNodeId, index]),
-    styleKey: instance.styleKey,
-    targetNodeId: instance.targetNodeId,
-    index,
-    ...(instance.sourceInstanceId
-      ? { sourceInstanceId: instance.sourceInstanceId }
-      : {}),
-  };
 }
 
 function stringValue(

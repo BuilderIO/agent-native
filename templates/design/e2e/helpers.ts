@@ -534,10 +534,10 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
   );
   await expect(designMode).toBeVisible({ timeout: 30_000 });
   await expect(designMode).toHaveAttribute("aria-pressed", "true");
-  await waitForDesignBridgeReady(page);
+  await waitForDesignPreviewReady(page);
 }
 
-async function waitForDesignBridgeReady(page: Page): Promise<void> {
+export async function waitForDesignPreviewReady(page: Page): Promise<void> {
   await expect(
     page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first(),
   ).toBeVisible();
@@ -602,7 +602,7 @@ export async function enterDirectMode(
     await allScreens.click();
     await expect(allScreens).toHaveAttribute("aria-current", "page");
   }
-  await waitForDesignBridgeReady(page);
+  await waitForDesignPreviewReady(page);
   // The board surface iframe carries no data-screen-iframe-id, so a `screen=`
   // URL that targets the board never matches a Screen iframe.
   const targetsBoard =

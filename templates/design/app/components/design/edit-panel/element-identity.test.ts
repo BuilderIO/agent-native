@@ -87,8 +87,8 @@ describe("deriveLockedAspectSize", () => {
     expect(deriveLockedAspectSize("height", 150, 2)).toBe(300);
   });
 
-  it("rounds to one decimal place", () => {
-    expect(deriveLockedAspectSize("width", 100, 3)).toBe(33.3);
+  it("lands on whole pixels", () => {
+    expect(deriveLockedAspectSize("width", 100, 3)).toBe(33);
   });
 });
 

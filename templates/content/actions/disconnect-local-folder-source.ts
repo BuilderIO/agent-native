@@ -1,9 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
@@ -12,6 +13,7 @@ import {
 } from "./_builder-cms-blob-custody.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export default defineAction({
   description:
@@ -47,6 +49,27 @@ export default defineAction({
     const deletedBlobReferences = new Set<string>();
 
     await db.transaction(async (tx: any) => {
+      // The folder's source first, as its sync and conflict resolution claim
+      // it: a sync that holds it may still add rows this has to read.
+      const [locked] = await tx
+        .select({ id: schema.contentDatabaseSources.id })
+        .from(schema.contentDatabaseSources)
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, sourceId),
+            eq(
+              schema.contentDatabaseSources.sourceType,
+              LOCAL_FOLDER_SOURCE_TYPE,
+            ),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        throw new ActionContractError(
+          `Local folder source "${sourceId}" was disconnected while this disconnect waited for it.`,
+          { errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED", statusCode: 409 },
+        );
+      }
       const rows = await tx
         .select({ documentId: schema.contentDatabaseSourceRows.documentId })
         .from(schema.contentDatabaseSourceRows)
@@ -101,6 +124,9 @@ export default defineAction({
       await tx
         .delete(schema.contentDatabaseSources)
         .where(eq(schema.contentDatabaseSources.id, sourceId));
+      // The pages in id order, as a sync takes them: the updates below would
+      // lock them in scan order.
+      await lockDocumentRows(tx, documentIds);
       type RemainingLocalRow = {
         documentId: string;
         sourceDisplayKey: string | null;
@@ -138,10 +164,16 @@ export default defineAction({
                 ),
               ),
             )
+            .orderBy(schema.contentDatabaseSources.id)
         : [];
-      const remainingLocalRowByDocument = new Map<string, RemainingLocalRow>(
-        remainingLocalRows.map((row) => [row.documentId, row]),
-      );
+      // A page in several remaining folders relinks to the first by id, the
+      // one conflict resolution relinks it to.
+      const remainingLocalRowByDocument = new Map<string, RemainingLocalRow>();
+      for (const row of remainingLocalRows) {
+        if (!remainingLocalRowByDocument.has(row.documentId)) {
+          remainingLocalRowByDocument.set(row.documentId, row);
+        }
+      }
       const documentsToClear = documentIds.filter(
         (documentId) => !remainingLocalRowByDocument.has(documentId),
       );
@@ -171,6 +203,9 @@ export default defineAction({
           typeof sourceValues.relativePath === "string"
             ? sourceValues.relativePath
             : remaining.sourceDisplayKey;
+        // Another folder's row doesn't mean the page is still linked: a
+        // Builder pull resets its source mode and leaves the rows.
+        await assertLocalFileLinkable(documentId, { transaction: tx });
         await tx
           .update(schema.documents)
           .set({

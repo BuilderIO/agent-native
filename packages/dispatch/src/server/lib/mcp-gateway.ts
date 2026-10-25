@@ -9,6 +9,7 @@ import {
   type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
+import { getAppConfig } from "@agent-native/core/app-config";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
@@ -19,6 +20,7 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
@@ -28,6 +30,7 @@ import {
   getBuiltinAgents,
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
+import { EMBED_START_PATH } from "@agent-native/core/shared";
 
 import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
@@ -79,6 +82,7 @@ export interface DispatchMcpAccessibleApp {
   description: string;
   url: string;
   homeUrl?: string;
+  mcpUrl?: string;
   color: string;
   granted: boolean;
 }
@@ -581,14 +585,73 @@ function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
   return appBaseUrl(app);
 }
 
+function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
+  const configuredGateway = getAppConfig().workspace.gatewayUrl?.trim();
+  if (!configuredGateway) return undefined;
+
+  let configuredUrl: URL;
+  try {
+    configuredUrl = new URL(configuredGateway);
+  } catch {
+    throw new Error(
+      "WORKSPACE_GATEWAY_URL must be a valid absolute HTTP(S) URL.",
+    );
+  }
+  if (
+    configuredUrl.protocol !== "http:" &&
+    configuredUrl.protocol !== "https:"
+  ) {
+    throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
+  }
+
+  const gateway = new URL(projectEnvironmentUrl(configuredUrl.toString()));
+  if (gateway.protocol !== "http:" && gateway.protocol !== "https:") {
+    throw new Error("WORKSPACE_GATEWAY_URL must use http or https.");
+  }
+  const target = new URL(appUrl);
+  if (gateway.origin !== target.origin) return undefined;
+  const configuredBasePath = getConfiguredAppBasePath();
+  const gatewayPath = gateway.pathname.replace(/\/+$/, "");
+  const basePath =
+    configuredBasePath &&
+    gatewayPath !== configuredBasePath &&
+    !gatewayPath.startsWith(`${configuredBasePath}/`)
+      ? `${configuredBasePath}${gatewayPath}`
+      : gatewayPath;
+  gateway.pathname = `${basePath}/mcp` || "/mcp";
+  gateway.search = "";
+  gateway.hash = "";
+  return gateway.toString().replace(/\/$/, "");
+}
+
+function appMcpUrl(app: DispatchMcpAccessibleApp): string {
+  const explicit = app.mcpUrl?.trim();
+  return (
+    explicit?.replace(/\/+$/, "") ??
+    workspaceGatewayMcpUrl(app.url) ??
+    `${appHomeBaseUrl(app)}/mcp`
+  );
+}
+
+function appMcpBaseUrl(app: DispatchMcpAccessibleApp): string {
+  const url = new URL(appMcpUrl(app));
+  url.pathname = url.pathname.replace(/\/mcp\/?$/, "") || "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 function resolveGrantedAppEmbedStartUrl(
   app: DispatchMcpAccessibleApp,
   startUrl: string,
 ): string {
   try {
-    const baseUrl = appHomeBaseUrl(app);
+    const baseUrl = appMcpBaseUrl(app);
     const resolved = new URL(startUrl, `${baseUrl}/`);
-    if (!appMatchesUrlPath(app, resolved)) {
+    const base = new URL(baseUrl);
+    const basePath = base.pathname.replace(/\/+$/, "");
+    const expectedPath = `${basePath}${EMBED_START_PATH}`;
+    if (resolved.origin !== base.origin || resolved.pathname !== expectedPath) {
       throw new Error(
         "Target app returned an embed start URL outside the granted app.",
       );
@@ -763,11 +826,13 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
   }
   for (const app of mountedApps) {
     if (app.isDispatch || !app.url) continue;
+    const mcpUrl = workspaceGatewayMcpUrl(app.url);
     candidatesById.set(app.id, {
       id: app.id,
       name: app.name,
       description: app.description,
       url: app.url,
+      ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
     });
@@ -1152,7 +1217,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: `${appHomeBaseUrl(input.app)}/mcp`,
+            url: appMcpUrl(input.app),
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1197,7 +1262,7 @@ async function createTargetMcpUserToken(input: {
       "Cross-app embed sessions require A2A_SECRET to preserve the authenticated user identity; an organization-only A2A credential cannot create a user-owned session.",
     );
   }
-  const audience = canonicalA2AAudience(`${appHomeBaseUrl(input.target)}/mcp`);
+  const audience = canonicalA2AAudience(appMcpUrl(input.target));
   return signA2AToken(input.ownerEmail, undefined, undefined, {
     expiresIn: "5m",
     audience,

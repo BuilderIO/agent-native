@@ -17,8 +17,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   QUERY_BUDGET_APPS,
+  SLIDES_AUTHORING_SHARDS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
+  designCanvasE2eDiagnosticShardsFor,
   shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
@@ -27,6 +29,7 @@ import {
   normalizeChangedPath,
   runtimeSourceChangesInTestTitledPr,
   scriptTestsForPaths,
+  slidesAuthoringMatrix,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
 import {
@@ -592,8 +595,139 @@ test("keeps slow app lanes scoped on full CI tooling changes", () => {
   assert.equal(classifyChangedPaths([]).checks.slides_authoring_e2e, true);
 });
 
+test("the nightly run and the shard action cover every Slides authoring shard", () => {
+  const nightly = readFileSync(
+    ".github/workflows/slides-authoring-nightly.yml",
+    "utf8",
+  );
+  const action = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
+
+  assert.match(nightly, /^\s+schedule:/mu);
+  assert.doesNotMatch(nightly, /^\s+pull_request:/mu);
+  const nightlyShards = /shard:\s*\[([^\]]+)\]/u
+    .exec(nightly)?.[1]
+    .split(",")
+    .map((shard) => shard.trim())
+    .filter(Boolean);
+  assert.deepEqual(nightlyShards, [...SLIDES_AUTHORING_SHARDS]);
+  for (const shard of SLIDES_AUTHORING_SHARDS) {
+    assert.match(
+      action,
+      new RegExp(`inputs\\.shard == '${shard}'`, "u"),
+      shard,
+    );
+  }
+  // A step guarded by a shard the matrix never produces would never run.
+  for (const [, shard] of action.matchAll(/inputs\.shard == '([^']+)'/gu)) {
+    assert.ok(
+      (SLIDES_AUTHORING_SHARDS as readonly string[]).includes(shard),
+      `unknown shard ${shard}`,
+    );
+  }
+  assert.match(nightly, /uses: \.\/\.github\/actions\/slides-authoring-shard/u);
+  assert.doesNotMatch(
+    readFileSync(".github/workflows/ci.yml", "utf8"),
+    /slides-authoring-shard/u,
+    "PRs must not run the authoring matrix; the nightly is its only run",
+  );
+});
+
+test("every browser runs each slice of the authoring parity suite exactly once", () => {
+  const action = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
+  const slices = new Map<string, string[]>();
+  for (const [, slice, total, browser = "chromium"] of action.matchAll(
+    /run\.ts --authoring(?: --authoring-shard (\d+)\/(\d+))?(?: --browser (\w+))?$/gmu,
+  )) {
+    // A run without --authoring-shard would repeat every slice.
+    assert.ok(slice, "an unsharded --authoring run");
+    slices.set(browser, [...(slices.get(browser) ?? []), `${slice}/${total}`]);
+  }
+  assert.deepEqual(Object.fromEntries(slices), {
+    chromium: ["1/3", "2/3", "3/3"],
+    webkit: ["1/3", "2/3", "3/3"],
+  });
+});
+
+test("Slides authoring jobs run in the image keyed on its Dockerfile", () => {
+  const nightly = readFileSync(
+    ".github/workflows/slides-authoring-nightly.yml",
+    "utf8",
+  );
+  assert.match(nightly, /uses: \.\/\.github\/actions\/slides-authoring-image/u);
+  assert.match(
+    nightly,
+    /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
+  );
+  // A job that can write the registry would let a run overwrite the image.
+  assert.doesNotMatch(nightly, /packages: write/u);
+  assert.match(nightly, /packages: read/u);
+
+  const publisher = readFileSync(
+    ".github/workflows/slides-authoring-image.yml",
+    "utf8",
+  );
+  assert.match(publisher, /packages: write/u);
+  assert.match(publisher, /publish: "true"/u);
+  assert.match(publisher, /if: github\.ref == 'refs\/heads\/main'/u);
+  assert.match(publisher, /branches: \[main\]/u);
+  assert.doesNotMatch(publisher, /^\s+pull_request(_target)?:/mu);
+
+  // The nightly is the backstop for shared-package PRs, so its failures email.
+  const notifier = readFileSync(
+    ".github/workflows/email-workflow-failures.yml",
+    "utf8",
+  );
+  const nightlyName = /^name: (.+)$/mu.exec(nightly)?.[1];
+  assert.ok(nightlyName);
+  assert.match(notifier, new RegExp(`^\\s+- ${nightlyName}$`, "mu"));
+  assert.match(nightly, /cancel-in-progress: false/u);
+  assert.match(
+    readFileSync(".github/actions/slides-authoring-image/action.yml", "utf8"),
+    /hashFiles\('docker\/ci-slides-authoring\/Dockerfile'\)/u,
+  );
+
+  // The browsers in the image are the ones the pinned Playwright expects.
+  const imageVersion = /playwright:v(\d+\.\d+\.\d+)-/u.exec(
+    readFileSync("docker/ci-slides-authoring/Dockerfile", "utf8"),
+  )?.[1];
+  const pinnedVersion = /^ {2}playwright: (\d+\.\d+\.\d+)$/mu.exec(
+    readFileSync("pnpm-workspace.yaml", "utf8"),
+  )?.[1];
+  assert.ok(imageVersion, "no Playwright tag in the Dockerfile");
+  assert.equal(imageVersion, pinnedVersion);
+
+  // What the job executes: the image and the actions that run the shards.
+  for (const path of [
+    "docker/ci-slides-authoring/Dockerfile",
+    ".github/actions/slides-authoring-image/action.yml",
+    ".github/actions/slides-authoring-shard/action.yml",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.slides_authoring_e2e,
+      true,
+      path,
+    );
+  }
+});
+
+test("a selected Slides authoring run includes every job", () => {
+  assert.deepEqual(
+    slidesAuthoringMatrix().include.map((entry) => entry.shard),
+    [...SLIDES_AUTHORING_SHARDS],
+  );
+});
+
 test("retains Slides parity and corpus gates while keeping the full soak manual", () => {
-  const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const ciWorkflow = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
   const soakWorkflow = readFileSync(
     ".github/workflows/slides-authoring-fuzz-soak.yml",
     "utf8",
@@ -601,9 +735,12 @@ test("retains Slides parity and corpus gates while keeping the full soak manual"
 
   assert.match(
     ciWorkflow,
-    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring\n/u,
+    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring --authoring-shard 1\/3\n/u,
   );
-  assert.match(ciWorkflow, /--authoring --browser webkit/u);
+  assert.match(
+    ciWorkflow,
+    /--authoring --authoring-shard 1\/3 --browser webkit/u,
+  );
   assert.match(ciWorkflow, /--authoring-corpus/u);
 
   for (const browser of ["chromium", "webkit", "firefox"]) {
@@ -2174,8 +2311,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
-    /--shard="\$\{changed_shard\}\/48"/,
-    "changed-spec diagnostics must retain full coverage across 48 shards",
+    /--shard="\$\{changed_shard\}\/\$\{\{ strategy\.job-total \}\}"/,
+    "changed-spec diagnostics must shard across the whole sized matrix",
   );
   assert.ok(
     changedSpecRegressions.includes(
@@ -2406,11 +2543,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Screen-history regressions must stay balanced across the three shards",
   );
   const screenHistoryCases = [
-    "undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id",
+    "undo of a screen deletion selects the recreated screen under its new id",
     "deleting a selected child layer keeps its owning Screen",
-    "undo restores a child layer with its additive Screen selection",
+    "selection changes are not undo steps, and Delete removes an additive Screen selection",
     "marquee-selecting child elements after a Screen pick deletes only the elements",
-    "undoing a canvas element click restores its explicit Screen target for Delete",
+    "Undo after a canvas element click keeps the element selected for Delete",
     "failed Screen deletion keeps the explicit Screen target for retry",
     "a newer layer selection survives failed Screen deletion settlement",
     "Shift-picking a Screen extends the Delete selection in All screens",
@@ -2662,19 +2799,16 @@ test("keeps every changed Design E2E spec in visible diagnostic shards", () => {
     diagnosticJobStart,
     diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
   );
-  const changedShardNumbers = [
-    ...diagnosticJob.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
-  ].map(([, shard]) => Number(shard));
-
-  assert.deepEqual(
-    changedShardNumbers,
-    Array.from({ length: 48 }, (_, index) => index + 1),
-    "all changed-spec shards must remain present and sequential",
+  assert.ok(
+    diagnosticJob.includes(
+      "shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}",
+    ),
+    "the changed-spec matrix must come from the sized shard list",
   );
   assert.match(
     diagnosticJob,
-    /--shard="\$\{changed_shard\}\/48"/,
-    "changed specs must be fully covered across the same 48 shards",
+    /--shard="\$\{changed_shard\}\/\$\{\{ strategy\.job-total \}\}"/,
+    "changed specs must be covered across every shard in the matrix",
   );
   const fastTestsStart = workflow.indexOf("  fast-tests:\n");
   assert.notEqual(fastTestsStart, -1);
@@ -4516,6 +4650,14 @@ test(
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",
         ".github/workflows/ci.yml",
+        ".github/workflows/slides-authoring-nightly.yml",
+        ".github/workflows/slides-authoring-image.yml",
+        ".github/workflows/email-workflow-failures.yml",
+        ".github/actions/slides-authoring-shard/action.yml",
+        ".github/actions/slides-authoring-image/action.yml",
+        "docker/ci-slides-authoring/Dockerfile",
+        "pnpm-workspace.yaml",
+
         ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
         "templates/design/e2e/global-setup.ts",
@@ -4583,3 +4725,42 @@ test(
     }
   },
 );
+
+test("sizes changed-spec diagnostic shards to the selected tests", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-diagnostic-shards-"));
+  try {
+    mkdirSync(join(root, "e2e"));
+    const spec = (name: string, tests: number) => {
+      writeFileSync(
+        join(root, "e2e", name),
+        Array.from(
+          { length: tests },
+          (_, i) => `test("t${i}", () => {});`,
+        ).join("\n"),
+      );
+      return `e2e/${name}`;
+    };
+    assert.deepEqual(designCanvasE2eDiagnosticShardsFor([], root), []);
+    assert.deepEqual(
+      designCanvasE2eDiagnosticShardsFor([spec("small.spec.ts", 3)], root),
+      ["changed-1"],
+    );
+    assert.deepEqual(
+      designCanvasE2eDiagnosticShardsFor(["e2e/deleted.spec.ts"], root),
+      ["changed-1"],
+    );
+    assert.equal(
+      designCanvasE2eDiagnosticShardsFor([spec("medium.spec.ts", 40)], root)
+        .length,
+      4,
+    );
+    const all = designCanvasE2eDiagnosticShardsFor(
+      [spec("all.spec.ts", 1038)],
+      root,
+    );
+    assert.equal(all.length, 48);
+    assert.equal(all.at(-1), "changed-48");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

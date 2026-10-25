@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.219.0",
+  "version": "0.220.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -781,7 +781,7 @@
     "@types/turndown": "5.0.6",
     "@types/ws": "^8.18.1",
     "@typesafe-ai/sdk": "0.6.0",
-    "@vitejs/plugin-react-swc": "^4.0.0",
+    "@vitejs/plugin-react-swc": "^4.3.3",
     "@vitest/coverage-v8": "4.1.5",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

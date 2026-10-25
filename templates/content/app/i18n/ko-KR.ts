@@ -134,6 +134,8 @@ const database = {
     "변경 사항을 가져오는 중: 파일 {{total}}개 중 {{done}}개",
   githubPicturesWaiting:
     "일부 이미지는 워크스페이스 관리자가 파일 저장소를 설정해야 표시됩니다.",
+  githubPicturesNotSaved:
+    "일부 이미지를 파일 저장소에 저장하지 못했습니다. 동기화할 때마다 다시 시도합니다.",
   githubReconnect: "GitHub 다시 연동",
   githubProblemConnection: "업데이트 중지됨: GitHub에 다시 로그인해야 합니다.",
   githubProblemForbidden:
@@ -1238,6 +1240,10 @@ const comments = {
   proposalEditCount_other: "편집 {{count}}개",
   acceptRemaining: "나머지 수락",
   rejectRemaining: "나머지 거절",
+  acceptAll: "모두 수락",
+  rejectAll: "모두 거절",
+  suggestionReviewReadOnly:
+    "이 페이지를 편집할 수 있는 사용자만 제안을 수락하거나 거절할 수 있습니다.",
   typeFilter: "유형",
   statusFilter: "상태",
   authorFilter: "사용자",
@@ -1676,6 +1682,13 @@ const overrides = {
   comments: {
     add: "댓글 추가...",
     cancel: "취소",
+    discardCommentQuestion: "작성 중인 댓글을 버릴까요?",
+    discardReplyQuestion: "작성 중인 답글을 버릴까요?",
+    discardEditQuestion: "변경 사항을 버릴까요?",
+    discardDescription: "작성한 내용이 사라집니다.",
+    discardEditDescription: "댓글은 원래대로 유지됩니다.",
+    discard: "버리기",
+    keepEditing: "계속 편집",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",

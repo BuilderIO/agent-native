@@ -2899,22 +2899,26 @@ describe("handleJsonRpc", () => {
 
   it("passes the processor H3 event through async handler context", async () => {
     let processorEvent: any;
+    let processingAttemptId: string | undefined;
     const eventAwareConfig: A2AConfig = {
       ...customHandler,
-      handler: async (_message, context) => ({
-        message: {
-          role: "agent",
-          parts: [
-            {
-              type: "text",
-              text:
-                context.event === processorEvent
-                  ? "event-present"
-                  : "event-missing",
-            },
-          ],
-        },
-      }),
+      handler: async (_message, context) => {
+        processingAttemptId = context.processingAttemptId;
+        return {
+          message: {
+            role: "agent",
+            parts: [
+              {
+                type: "text",
+                text:
+                  context.event === processorEvent
+                    ? "event-present"
+                    : "event-missing",
+              },
+            ],
+          },
+        };
+      },
     };
     const event = mockEvent();
     const result = await handleJsonRpc(
@@ -2939,6 +2943,7 @@ describe("handleJsonRpc", () => {
     processorEvent = mockEvent();
     const { processA2ATaskFromQueue } = await import("./handlers.js");
     await processA2ATaskFromQueue(taskId, eventAwareConfig, processorEvent);
+    expect(processingAttemptId).toBe("1");
 
     const followup = await handleJsonRpc(
       {

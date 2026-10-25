@@ -22,11 +22,15 @@ import {
   isAlreadyStaged,
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
+import {
+  stableChangesetConfig,
+  withStableChangesetConfig,
+} from "./changeset-version-stable.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   RELEASE_COORDINATOR_STEP_NAME,
-  assertReleaseCoordinatorStepActive,
+  assertReleaseCoordinatorPrepareStepActive,
   selectActiveReleaseCoordinator,
 } from "./release-coordinator.ts";
 import {
@@ -43,14 +47,10 @@ import {
   waitForRequiredChecks,
 } from "./release-required-checks.ts";
 import {
-  gitBlobSha,
-  syncCommunityQrBlobPins,
-  syncCommunityQrCoreLock,
-} from "./sync-community-qr-core-lock.ts";
-import {
   assertCompletePullRequestFiles,
   assertCommunityQrFilePinsSynced,
   decodeGitHubContentResponse,
+  gitBlobSha,
   parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
 import {
@@ -75,8 +75,8 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
-const releaseEverythingWorkflowSource = readFileSync(
-  ".github/workflows/release-everything.yml",
+const releasePhaseWorkflowSource = readFileSync(
+  ".github/workflows/release-everything-phase.yml",
   "utf8",
 );
 const ciLintJob = (
@@ -234,8 +234,8 @@ describe("npm package release workflow", () => {
 
   it("caps delayed required-check polling at the coordinator merge window", async () => {
     assert.match(
-      releaseEverythingWorkflowSource,
-      /phaseDeadline\(210 \* 60_000\),\s*coordinatorDeadline - postMergeReserveMs/,
+      releasePhaseWorkflowSource,
+      /const deadline = phaseDeadline\(210 \* 60_000\);/,
     );
     assert.equal(
       requiredCheckTimeoutForEvent("pull_request"),
@@ -336,12 +336,12 @@ describe("npm package release workflow", () => {
     );
   });
 
-  it("requires the coordinator release step to remain active", () => {
-    const activePages = [
+  it("requires the release coordinator prepare phase to remain active", () => {
+    const activePreparePages = [
       {
         jobs: [
           {
-            name: "Release packages, desktop apps, and production sites",
+            name: "Run the prepare release phase",
             status: "in_progress",
             steps: [
               {
@@ -355,11 +355,172 @@ describe("npm package release workflow", () => {
       },
     ];
     assert.doesNotThrow(() =>
-      assertReleaseCoordinatorStepActive(activePages, 123),
+      assertReleaseCoordinatorPrepareStepActive(activePreparePages, 123),
+    );
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorPrepareStepActive(
+        [
+          {
+            jobs: [
+              {
+                name: "Run the prepare release phase",
+                status: "in_progress",
+                steps: [],
+              },
+            ],
+          },
+        ],
+        123,
+      ),
     );
     assert.throws(
       () =>
-        assertReleaseCoordinatorStepActive(
+        assertReleaseCoordinatorPrepareStepActive(
+          [
+            {
+              jobs: [
+                {
+                  name: "Run the prepare release phase",
+                  status: "queued",
+                  steps: [],
+                },
+              ],
+            },
+          ],
+          123,
+        ),
+      /Expected one active prepare release step/,
+    );
+    const preparePhaseJob = {
+      name: "Run the prepare release phase",
+      status: "completed",
+      conclusion: "success",
+      steps: [
+        {
+          name: RELEASE_COORDINATOR_STEP_NAME,
+          status: "completed",
+          conclusion: "success",
+        },
+      ],
+    };
+    const postMergePhaseJob = {
+      name: "Run the post-merge release phase",
+      status: "in_progress",
+      steps: [
+        {
+          name: RELEASE_COORDINATOR_STEP_NAME,
+          status: "in_progress",
+          conclusion: null,
+        },
+      ],
+    };
+    const sequentialPhasePages = [
+      { jobs: [preparePhaseJob, postMergePhaseJob] },
+    ];
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorPrepareStepActive(
+        [
+          {
+            jobs: [
+              {
+                name: "Run the prepare release phase",
+                status: "in_progress",
+                steps: [
+                  {
+                    name: RELEASE_COORDINATOR_STEP_NAME,
+                    status: "in_progress",
+                    conclusion: null,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        123,
+      ),
+    );
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorPrepareStepActive(
+        [
+          {
+            jobs: [
+              {
+                name: "Run the prepare release phase",
+                status: "in_progress",
+                steps: [],
+              },
+              {
+                ...postMergePhaseJob,
+                status: "queued",
+                steps: [],
+              },
+            ],
+          },
+        ],
+        123,
+      ),
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(sequentialPhasePages, 123),
+      /no longer performing the prepare release step/,
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(
+          [
+            {
+              jobs: [
+                preparePhaseJob,
+                { ...postMergePhaseJob, status: "queued", steps: [] },
+              ],
+            },
+          ],
+          123,
+        ),
+      /no longer performing the prepare release step/,
+    );
+    for (const conclusion of ["failure", "cancelled"]) {
+      assert.throws(
+        () =>
+          assertReleaseCoordinatorPrepareStepActive(
+            [
+              {
+                jobs: [
+                  preparePhaseJob,
+                  {
+                    ...postMergePhaseJob,
+                    steps: [
+                      {
+                        name: RELEASE_COORDINATOR_STEP_NAME,
+                        status: "completed",
+                        conclusion,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            123,
+          ),
+        /no longer performing the prepare release step/,
+      );
+    }
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(
+          [
+            {
+              jobs: [postMergePhaseJob, postMergePhaseJob],
+            },
+          ],
+          123,
+        ),
+      /not in the prepare release phase/,
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(
           [
             {
               jobs: [
@@ -379,11 +540,37 @@ describe("npm package release workflow", () => {
           ],
           123,
         ),
-      /no longer performing the release step/,
+      /not in the prepare release phase/,
     );
+    for (const conclusion of ["failure", "cancelled"]) {
+      assert.throws(
+        () =>
+          assertReleaseCoordinatorPrepareStepActive(
+            [
+              {
+                jobs: [
+                  {
+                    name: "Run the prepare release phase",
+                    status: "in_progress",
+                    steps: [
+                      {
+                        name: RELEASE_COORDINATOR_STEP_NAME,
+                        status: "completed",
+                        conclusion,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            123,
+          ),
+        /no longer performing the prepare release step/,
+      );
+    }
     assert.throws(
-      () => assertReleaseCoordinatorStepActive([{ jobs: [] }], 123),
-      /Expected one active release step/,
+      () => assertReleaseCoordinatorPrepareStepActive([{ jobs: [] }], 123),
+      /Expected one active prepare release step/,
     );
   });
 
@@ -517,7 +704,7 @@ esac
     }
   });
 
-  it("waits only while the matching coordinator release step is active", () => {
+  it("waits only while the matching coordinator prepare phase is active", () => {
     const tempRoot = mkdtempSync(
       path.join(tmpdir(), "release-coordinator-wait-"),
     );
@@ -549,7 +736,7 @@ esac
     };
     const jobs = [
       {
-        name: "Release packages, desktop apps, and production sites",
+        name: "Run the prepare release phase",
         status: "in_progress",
         steps: [
           {
@@ -606,6 +793,66 @@ esac
         "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
         "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
         "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.GH_JOB_PAGES = JSON.stringify([
+        {
+          jobs: [
+            {
+              name: "Prepare and merge the stable package release",
+              status: "completed",
+              conclusion: "success",
+              steps: [
+                {
+                  name: RELEASE_COORDINATOR_STEP_NAME,
+                  status: "completed",
+                  conclusion: "success",
+                },
+              ],
+            },
+            {
+              name: "Publish and deploy the merged stable release",
+              status: "in_progress",
+              steps: [
+                {
+                  name: RELEASE_COORDINATOR_STEP_NAME,
+                  status: "in_progress",
+                  conclusion: null,
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      env.RELEASE_EVENT_NAME = "pull_request";
+      env.EXPECTED_COORDINATOR_RUN_ID = "123";
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            { cwd: process.cwd(), encoding: "utf8", env },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(
+            String(commandError.stderr),
+            /no longer performing the prepare release step/,
+          );
+          return true;
+        },
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100",
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
       ]);
 
       writeFileSync(callsPath, "");
@@ -1233,7 +1480,11 @@ esac
       .scripts as Record<string, string>;
     assert.equal(
       packageScripts["changeset:release-version"],
-      "pnpm changeset:version && pnpm exec tsx scripts/sync-community-qr-core-lock.ts && pnpm changelog:compact",
+      "pnpm changeset:version && pnpm changelog:compact && pnpm install --frozen-lockfile --lockfile-only --ignore-scripts",
+    );
+    assert.equal(
+      packageScripts["changeset:version"],
+      "pnpm exec tsx scripts/changeset-version-stable.ts",
     );
 
     const consume = releaseSteps.find(
@@ -1276,102 +1527,85 @@ esac
     assert(changesetsIndex < restoreIndex);
   });
 
-  it("syncs the community QR release importer to the in-repo Core package", () => {
-    const lockfile = `lockfileVersion: '9.0'
-importers:
-  templates/community/qr:
-    dependencies:
-      '@agent-native/core':
-        specifier: ^0.212.0
-        version: 0.212.0(425ad63e441766c7cc702a9e78bce500)
-      postgres:
-        specifier: ^3.4.9
-        version: 3.4.9
+  it("keeps plain internal ranges like the QR template's Core out of stable releases", async () => {
+    const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
+      getPackages: (cwd: string) => Promise<unknown>;
+    };
+    const { parse: parseChangesetConfig } = changesetsRequire(
+      "@changesets/config",
+    ) as { parse: (json: unknown, packages: unknown) => unknown };
+    const assembleReleasePlan = (
+      changesetsRequire("@changesets/assemble-release-plan") as {
+        default: (
+          changesets: unknown[],
+          packages: unknown,
+          config: unknown,
+          preState: undefined,
+        ) => { releases: Array<{ name: string; type: string }> };
+      }
+    ).default;
 
-  templates/analytics:
-    dependencies: {}
-`;
+    const packages = await getPackages(process.cwd());
+    const sharedConfig = readFileSync(".changeset/config.json", "utf8");
+    const corePatch = [
+      {
+        id: "core-patch",
+        summary: "Core patch",
+        releases: [{ name: "@agent-native/core", type: "patch" }],
+      },
+    ];
+    const releasesWith = (configSource: string) =>
+      assembleReleasePlan(
+        corePatch,
+        packages,
+        parseChangesetConfig(JSON.parse(configSource), packages),
+        undefined,
+      ).releases;
 
-    const updated = syncCommunityQrCoreLock(lockfile, "^0.213.0");
-
-    assert.match(
-      updated,
-      /specifier: \^0\.213\.0\n        version: link:\.\.\/\.\.\/\.\.\/packages\/core/,
+    const stable = releasesWith(stableChangesetConfig(sharedConfig)).map(
+      (release) => release.name,
     );
-    assert.match(updated, /specifier: \^3\.4\.9\n        version: 3\.4\.9/);
-    assert.match(updated, /  templates\/analytics:\n    dependencies: \{\}/);
-    assert.equal(syncCommunityQrCoreLock(updated, "^0.213.0"), updated);
-    assert.throws(
-      () => syncCommunityQrCoreLock("importers: {}\n", "^0.213.0"),
-      /Missing templates\/community\/qr importer/,
+    const fixedGroup = (JSON.parse(sharedConfig) as { fixed: string[][] })
+      .fixed[0];
+    for (const name of fixedGroup) assert(stable.includes(name), name);
+    assert(!stable.includes("qr"));
+
+    // Without the stable override, Changesets rewrites QR's Core range in a
+    // `none` release, which breaks the lockfile and Dispatch's QR blob pins.
+    assert.equal(
+      releasesWith(sharedConfig).find((release) => release.name === "qr")?.type,
+      "none",
     );
   });
 
-  it("keeps the committed community QR importer synced with its manifest", () => {
-    const templatePackage = JSON.parse(
-      readFileSync("templates/community/qr/package.json", "utf8"),
-    ) as { dependencies?: Record<string, unknown> };
-    const coreSpecifier = templatePackage.dependencies?.["@agent-native/core"];
-    assert(typeof coreSpecifier === "string");
-
-    const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
-    assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  it("leaves the shared Changesets config moving snapshot peer ranges", () => {
+    // Nightly and dev snapshots rewrite peers such as Dispatch's
+    // `>=0.209.1` Core range to the exact snapshot, which the range rejects.
+    const config = JSON.parse(
+      readFileSync(".changeset/config.json", "utf8"),
+    ) as Record<string, unknown>;
+    assert.notEqual(config.bumpVersionsWithWorkspaceProtocolOnly, true);
   });
 
-  it("rewrites the QR template blob pins from the files on disk", () => {
-    const source = `templatePath: "templates/other-first",
-      files: [
-        {
-          path: "package.json",
-          blobSha: "${"d".repeat(40)}",
-        },
-      ],
-    },
-    {
-      templatePath: "templates/community/qr",
-      files: [
-        {
-          path: "package.json",
-          blobSha: "${"a".repeat(40)}",
-        },
-        {
-          path: "README.md",
-          blobSha: "${"b".repeat(40)}",
-        },
-      ],
-    },
-    {
-      templatePath: "templates/other",
-      files: [
-        {
-          path: "package.json",
-          blobSha: "${"c".repeat(40)}",
-        },
-      ],
-    },`;
+  it("restores the shared Changesets config when a stable version run fails", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "changeset-config-"));
+    const configPath = path.join(dir, "config.json");
+    const original = '{\n  "baseBranch": "main"\n}\n';
+    writeFileSync(configPath, original);
 
-    const updated = syncCommunityQrBlobPins(source, (file) =>
-      file === "package.json" ? "1".repeat(40) : "2".repeat(40),
-    );
-
-    assert.match(updated, /package\.json",\n\s+blobSha: "1{40}"/);
-    assert.match(updated, /README\.md",\n\s+blobSha: "2{40}"/);
-    assert.match(updated, /blobSha: "c{40}"/);
-    assert.match(updated, /blobSha: "d{40}"/);
-    assert.equal(
-      syncCommunityQrBlobPins(updated, (file) =>
-        file === "package.json" ? "1".repeat(40) : "2".repeat(40),
-      ),
-      updated,
-    );
-    assert.throws(
-      () => syncCommunityQrBlobPins("export {};\n", () => "x"),
-      /Missing templates\/community\/qr source/,
-    );
-    assert.equal(
-      gitBlobSha(Buffer.from("hello\n")),
-      "ce013625030ba8dba906f756967f9e9ca394464a",
-    );
+    try {
+      await assert.rejects(
+        withStableChangesetConfig(() => {
+          const during = JSON.parse(readFileSync(configPath, "utf8"));
+          assert.equal(during.bumpVersionsWithWorkspaceProtocolOnly, true);
+          throw new Error("version failed");
+        }, configPath),
+        /version failed/,
+      );
+      assert.equal(readFileSync(configPath, "utf8"), original);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {

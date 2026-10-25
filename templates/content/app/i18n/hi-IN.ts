@@ -128,6 +128,8 @@ const database = {
   githubSyncingProgress: "बदलाव लाए जा रहे हैं: {{total}} में से {{done}} फ़ाइलें",
   githubPicturesWaiting:
     "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक कुछ इमेज नहीं दिखेंगी।",
+  githubPicturesNotSaved:
+    "कुछ इमेज फ़ाइल स्टोरेज में सेव नहीं हो सकीं। हर सिंक इन्हें फिर से सेव करने की कोशिश करता है।",
   githubReconnect: "GitHub फिर से कनेक्ट करें",
   githubProblemConnection: "अपडेट रुक गए: GitHub चाहता है कि आप फिर से साइन इन करें।",
   githubProblemForbidden:
@@ -1223,6 +1225,10 @@ const comments = {
   proposalEditCount_other: "{{count}} संपादन",
   acceptRemaining: "शेष स्वीकार करें",
   rejectRemaining: "शेष अस्वीकार करें",
+  acceptAll: "सभी स्वीकार करें",
+  rejectAll: "सभी अस्वीकार करें",
+  suggestionReviewReadOnly:
+    "इस पेज के सुझाव केवल वही लोग स्वीकार या अस्वीकार कर सकते हैं जो इसे संपादित कर सकते हैं।",
   typeFilter: "प्रकार",
   statusFilter: "स्थिति",
   authorFilter: "व्यक्ति",
@@ -1657,6 +1663,13 @@ const overrides = {
   comments: {
     add: "टिप्पणी जोड़ें...",
     cancel: "रद्द करें",
+    discardCommentQuestion: "टिप्पणी छोड़ें?",
+    discardReplyQuestion: "जवाब छोड़ें?",
+    discardEditQuestion: "बदलाव छोड़ें?",
+    discardDescription: "आपने जो लिखा है वह खो जाएगा।",
+    discardEditDescription: "आपकी टिप्पणी पहले जैसी रहेगी।",
+    discard: "छोड़ें",
+    keepEditing: "संपादन जारी रखें",
     submit: "टिप्पणी करें",
     askAi: "AI से पूछें",
     aiBadge: "AI",

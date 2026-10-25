@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+import { ForbiddenError } from "../sharing/access.js";
 
 const executeMock = vi.hoisted(() => vi.fn());
 const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
@@ -28,6 +29,9 @@ vi.mock("../agent/run-slot-lock.js", () => ({
 // The store's widen-bigint migration reads the catalog; a recorded migration
 // surfaces that read's failure instead of swallowing it.
 function storeBootstrapResult(sql: string) {
+  if (/CREATE TABLE IF NOT EXISTS chat_thread_viewer_state/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/FROM information_schema\.columns/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
@@ -859,6 +863,76 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("preserves an owner's latest title and override across a shared save CAS retry", async () => {
+    row!.title = "Original title";
+    row!.thread_data = JSON.stringify({
+      _titleOverride: "Original title",
+      messages: [],
+    });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        title: "Owner renamed title",
+        thread_data: JSON.stringify({
+          _titleOverride: "Owner renamed title",
+          messages: [],
+        }),
+        updated_at: 2,
+      };
+    };
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          _titleOverride: "Original title",
+          messages: [userMessage],
+        }),
+        "Original title",
+        "Shared reply",
+        1,
+        { preserveCurrentTitle: true },
+      ),
+    ).resolves.toBe(true);
+    expect(row!.title).toBe("Owner renamed title");
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo._titleOverride).toBe("Owner renamed title");
+    expect(repo.messages[0].message.id).toBe(userMessage.id);
+    expect(row!.message_count).toBe(1);
+  });
+
+  it.each([
+    { preserveCurrentTitle: true },
+    { preserveCurrentTitle: true, preserveCurrentTitleAndPreview: true },
+  ])(
+    "fills a blank title from the first visible prompt on a shared save: %j",
+    async (options) => {
+      row!.title = "";
+      row!.thread_data = JSON.stringify({ messages: [] });
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          _titleOverride: "Editor title",
+          messages: [
+            {
+              message: {
+                id: "shared-first-prompt",
+                role: "user",
+                content: [{ type: "text", text: "Plan the launch review" }],
+              },
+              parentId: null,
+            },
+          ],
+        }),
+        "Editor title",
+        "Plan the launch review",
+        1,
+        options,
+      );
+      expect(row!.title).toBe("Plan the launch review");
+      expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
+    },
+  );
+
   describe("inline attachment bytes", () => {
     const pixels = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
     const uploaded =
@@ -1305,7 +1379,9 @@ describe("chat thread store", () => {
     expect(row!.title).toBe("Plan next week");
     await updateThreadData("thread-1", "{}", "", "", 1);
     expect(row!.title).toBe("Plan next week");
-    await renameThread("thread-1", "My renamed thread");
+    await renameThread("thread-1", "My renamed thread", {
+      ownerEmail: "user@example.com",
+    });
     await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
     expect(row!.title).toBe("My renamed thread");
   });
@@ -4407,30 +4483,31 @@ describe("chat thread store", () => {
   });
 
   it("pins and archives threads as lightweight metadata", async () => {
-    await setThreadPinned("thread-1", true);
+    await setThreadPinned("thread-1", true, { ownerEmail: "user@example.com" });
     expect(row!.pinned_at).toEqual(expect.any(Number));
     expect(row!.updated_at).toBe(1);
 
-    await setThreadPinned("thread-1", false);
+    await setThreadPinned("thread-1", false, {
+      ownerEmail: "user@example.com",
+    });
     expect(row!.pinned_at).toBeNull();
     expect(row!.updated_at).toBe(1);
 
-    await setThreadArchived("thread-1", true);
+    await setThreadArchived("thread-1", true, {
+      ownerEmail: "user@example.com",
+    });
     expect(row!.archived_at).toEqual(expect.any(Number));
     expect(row!.updated_at).toBe(1);
     expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
   });
 
-  it("refuses to pin or archive a thread for a different owner", async () => {
-    const pinned = await setThreadPinned("thread-1", true, {
-      ownerEmail: "other@example.com",
-    });
-    const archived = await setThreadArchived("thread-1", true, {
-      ownerEmail: "other@example.com",
-    });
+  it("refuses to archive a thread for a different owner", async () => {
+    await expect(
+      setThreadArchived("thread-1", true, {
+        ownerEmail: "other@example.com",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
 
-    expect(pinned).toBe(false);
-    expect(archived).toBe(false);
     expect(row!.pinned_at).toBeUndefined();
     expect(row!.archived_at).toBeUndefined();
     expect(row!.updated_at).toBe(1);
@@ -4679,7 +4756,9 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    const unarchived = await setThreadArchived("thread-archived", false);
+    const unarchived = await setThreadArchived("thread-archived", false, {
+      ownerEmail: "user@example.com",
+    });
     expect(unarchived).toBe(true);
     expect(archivedRow.archived_at).toBeNull();
     const afterUnarchive = await listThreads("user@example.com", {
@@ -4753,7 +4832,9 @@ describe("chat thread store", () => {
   });
 
   it("renames threads with a durable title override", async () => {
-    await renameThread("thread-1", "  Better   title  ");
+    await renameThread("thread-1", "  Better   title  ", {
+      ownerEmail: "user@example.com",
+    });
 
     expect(row!.title).toBe("Better title");
     expect(JSON.parse(row!.thread_data)._titleOverride).toBe("Better title");
@@ -4761,11 +4842,12 @@ describe("chat thread store", () => {
   });
 
   it("refuses to rename a thread for a different owner", async () => {
-    const renamed = await renameThread("thread-1", "Other title", {
-      ownerEmail: "other@example.com",
-    });
+    await expect(
+      renameThread("thread-1", "Other title", {
+        ownerEmail: "other@example.com",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
 
-    expect(renamed).toBe(false);
     expect(row!.title).toBe("Thread");
     expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
