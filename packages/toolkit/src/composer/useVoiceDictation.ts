@@ -452,6 +452,10 @@ export function useVoiceDictation(
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number>(0);
   const cancelledRef = useRef(false);
+  // Cancel bumps this. A recording's late continuations (a transcription
+  // response, a socket close) share refs with any newer recording, so one from
+  // an earlier session must return without touching them.
+  const sessionRef = useRef(0);
   const speechRef = useRef<any>(null);
   const speechTranscriptRef = useRef<string>("");
   const activeProviderRef = useRef<VoiceProvider>("browser");
@@ -593,6 +597,7 @@ export function useVoiceDictation(
 
   const startOpenAi = useCallback(
     async (providerPref: VoiceProvider, instructions?: string) => {
+      const session = sessionRef.current;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (cancelledRef.current) {
         for (const track of stream.getTracks()) track.stop();
@@ -610,6 +615,7 @@ export function useVoiceDictation(
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = async () => {
+        if (session !== sessionRef.current) return;
         const localChunks = chunksRef.current.slice();
         const localMime = recorder.mimeType || mimeType;
         const liveSnapshot = liveTextRef.current;
@@ -642,6 +648,7 @@ export function useVoiceDictation(
             method: "POST",
             body: form,
           });
+          if (session !== sessionRef.current) return;
           if (!res.ok) {
             // coercion-ok: an unreadable error body still fails with the status-coded message below.
             const body = (await res.json().catch(() => ({}))) as {
@@ -672,6 +679,7 @@ export function useVoiceDictation(
           }
           setState("idle");
         } catch (err) {
+          if (session !== sessionRef.current) return;
           if (cancelledRef.current) {
             cancelledRef.current = false;
             setState("idle");
@@ -756,6 +764,7 @@ export function useVoiceDictation(
       prefs: VoicePrefs,
       onUnavailable?: (error: string | undefined) => boolean,
     ) => {
+      const session = sessionRef.current;
       const Ctor = getSpeechRecognitionCtor();
       if (!Ctor) {
         throw new Error(
@@ -822,6 +831,7 @@ export function useVoiceDictation(
         fatal = true;
       };
       recognition.onend = () => {
+        if (session !== sessionRef.current) return;
         const text = speechTranscriptRef.current.trim();
         const wasCancelled = cancelledRef.current;
         cancelledRef.current = false;
@@ -856,6 +866,7 @@ export function useVoiceDictation(
               finalText = text;
             }
           }
+          if (session !== sessionRef.current) return;
           if (!cancelledRef.current && finalText) {
             onTranscriptRef.current?.(finalText);
           }
@@ -882,6 +893,7 @@ export function useVoiceDictation(
 
   const startGoogleRealtime = useCallback(
     async (prefs: VoicePrefs) => {
+      const session = sessionRef.current;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (cancelledRef.current) {
         for (const track of stream.getTracks()) track.stop();
@@ -939,6 +951,7 @@ export function useVoiceDictation(
         if (finalized) return;
         finalized = true;
         void (async () => {
+          if (session !== sessionRef.current) return;
           const finalText = realtimeFinalRef.current.trim();
           const interimText = realtimeInterimRef.current.trim();
           const text = [finalText, interimText]
@@ -968,6 +981,7 @@ export function useVoiceDictation(
                 cleanedText = text;
               }
             }
+            if (session !== sessionRef.current) return;
             if (!cancelledRef.current && cleanedText) {
               onTranscriptRef.current?.(cleanedText);
             }
@@ -1268,6 +1282,7 @@ export function useVoiceDictation(
     )
       return;
     cancelledRef.current = true;
+    sessionRef.current += 1;
     if (
       (activeProviderRef.current === "openai" ||
         activeProviderRef.current === "google-realtime") &&

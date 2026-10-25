@@ -1908,11 +1908,29 @@ function queuedAttachmentsForSteer(
 
 export function steeredQueuedMessageRecords(
   runId: string,
-  queued: ReadonlyArray<{ id: string; text: string; attachments?: unknown[] }>,
+  queued: ReadonlyArray<{
+    id: string;
+    text: string;
+    attachments?: unknown[];
+    requestAttachments?: unknown[];
+  }>,
   deliveredAt: number,
 ): SteeredQueuedMessageRecord[] {
   return queued.map((message) => {
-    const attachments = queuedAttachmentsForSteer(message.attachments);
+    // Delivery also reads uploads held in requestAttachments; a resumed run
+    // replays only what this record keeps.
+    const attachments = queuedAttachmentsForSteer([
+      ...(message.attachments ?? []),
+      ...(message.requestAttachments ?? []).map((value) => {
+        const file = value as Record<string, unknown> | null;
+        return file && typeof file === "object" && file.url === undefined
+          ? { ...file, url: file.referenceUrl }
+          : value;
+      }),
+    ]).filter(
+      (attachment, index, all) =>
+        all.findIndex((other) => other.url === attachment.url) === index,
+    );
     return {
       runId,
       message: {

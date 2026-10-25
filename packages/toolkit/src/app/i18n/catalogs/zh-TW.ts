@@ -3213,25 +3213,39 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "正在處理 · {{title}}",
   "documentTitle.replyReady": "回覆已就緒 · {{title}}",
   "voice.dictation.recording": "正在聽寫",
-  "voice.dictation.errors.permissionsPolicy": "此應用程式透過瀏覽器權限政策封鎖了麥克風存取。請重新載入應用程式，或直接在瀏覽器分頁中開啟。",
-  "voice.dictation.errors.microphoneBlocked": "麥克風存取已被封鎖。按一下網址列中的網站控制圖示，將此應用程式的麥克風設為允許，然後再試一次。",
-  "voice.dictation.errors.microphoneBlockedBySystem": "你的電腦封鎖了此瀏覽器存取麥克風。請在系統隱私權設定中允許存取，然後再試一次。",
-  "voice.dictation.errors.noMicrophone": "找不到麥克風。請連接麥克風或選擇其他輸入裝置，然後再試一次。",
-  "voice.dictation.errors.microphoneBusy": "你的麥克風正被其他應用程式使用。請關閉該應用程式或選擇其他輸入裝置，然後再試一次。",
+  "voice.dictation.errors.permissionsPolicy":
+    "此應用程式透過瀏覽器權限政策封鎖了麥克風存取。請重新載入應用程式，或直接在瀏覽器分頁中開啟。",
+  "voice.dictation.errors.microphoneBlocked":
+    "麥克風存取已被封鎖。按一下網址列中的網站控制圖示，將此應用程式的麥克風設為允許，然後再試一次。",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "你的電腦封鎖了此瀏覽器存取麥克風。請在系統隱私權設定中允許存取，然後再試一次。",
+  "voice.dictation.errors.noMicrophone":
+    "找不到麥克風。請連接麥克風或選擇其他輸入裝置，然後再試一次。",
+  "voice.dictation.errors.microphoneBusy":
+    "你的麥克風正被其他應用程式使用。請關閉該應用程式或選擇其他輸入裝置，然後再試一次。",
   "voice.dictation.errors.startFailed": "無法開始聽寫。請再試一次。",
-  "voice.dictation.errors.speechServiceUnreachable": "語音辨識無法連線到其服務。請檢查網路連線，或在設定的「語音轉寫」中選擇其他來源。",
-  "voice.dictation.errors.noAudioCaptured": "聽寫在擷取任何音訊之前就停止了。其他應用程式或分頁可能正在使用麥克風。請將其關閉，或在設定的「語音轉寫」中選擇其他來源。",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "語音辨識無法連線到其服務。請檢查網路連線，或在設定的「語音轉寫」中選擇其他來源。",
+  "voice.dictation.errors.noAudioCaptured":
+    "聽寫在擷取任何音訊之前就停止了。其他應用程式或分頁可能正在使用麥克風。請將其關閉，或在設定的「語音轉寫」中選擇其他來源。",
   "voice.dictation.errors.speechRecognitionFailed": "語音辨識失敗：{{error}}",
-  "voice.dictation.errors.recordingUnsupported": "你的瀏覽器不支援錄音。請在設定的「語音轉寫」中選擇瀏覽器選項。",
-  "voice.dictation.errors.transcriptionFailedStatus": "轉錄失敗（{{status}}）。請再試一次。",
-  "voice.dictation.errors.transcriptionFailed": "轉錄失敗。請在設定的「語音轉寫」中檢查你的服務供應商。",
-  "voice.dictation.errors.speechRecognitionUnsupported": "你的瀏覽器不支援語音辨識。請在設定中新增 OpenAI API 金鑰以使用 Whisper 轉錄。",
-  "voice.dictation.errors.googleRealtimeStartFailed": "無法啟動 Google 即時轉錄（{{status}}）。",
+  "voice.dictation.errors.recordingUnsupported":
+    "你的瀏覽器不支援錄音。請在設定的「語音轉寫」中選擇瀏覽器選項。",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "轉錄失敗（{{status}}）。請再試一次。",
+  "voice.dictation.errors.transcriptionFailed":
+    "轉錄失敗。請在設定的「語音轉寫」中檢查你的服務供應商。",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "你的瀏覽器不支援語音辨識。請在設定中新增 OpenAI API 金鑰以使用 Whisper 轉錄。",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "無法啟動 Google 即時轉錄（{{status}}）。",
   "voice.dictation.errors.googleRealtimeUploadFailed": "即時音訊上傳失敗。",
   "voice.dictation.errors.googleRealtimeFailed": "Google 即時轉錄失敗。",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Google 即時轉錄連線已中斷。",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Google 即時轉錄連線已中斷。",
   "voice.dictation.errors.googleRealtimeStreamFailed": "無法啟動即時串流。",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "你的瀏覽器不支援錄音，因此無法啟動 Google 即時轉錄。",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "你的瀏覽器不支援錄音，因此無法啟動 Google 即時轉錄。",
   "voiceMode.endVoiceChat": "結束語音對話",
   "voiceMode.placeholder": "正在聆聽…",
   "voiceMode.muteMicrophone": "將麥克風靜音",

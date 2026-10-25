@@ -3679,25 +3679,44 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "Trabalhando · {{title}}",
   "documentTitle.replyReady": "Resposta pronta · {{title}}",
   "voice.dictation.recording": "Ditando",
-  "voice.dictation.errors.permissionsPolicy": "Este app está bloqueando o acesso ao microfone pela política de permissões do navegador. Recarregue o app ou abra-o diretamente em uma aba do navegador.",
-  "voice.dictation.errors.microphoneBlocked": "O acesso ao microfone está bloqueado. Clique no ícone de controles do site na barra de endereço, permita o microfone para este app e tente novamente.",
-  "voice.dictation.errors.microphoneBlockedBySystem": "Seu computador está bloqueando o acesso ao microfone para este navegador. Permita nas configurações de privacidade do sistema e tente novamente.",
-  "voice.dictation.errors.noMicrophone": "Nenhum microfone foi encontrado. Conecte um ou escolha outra entrada e tente novamente.",
-  "voice.dictation.errors.microphoneBusy": "Seu microfone está em uso por outro app. Feche o outro app ou escolha outra entrada e tente novamente.",
-  "voice.dictation.errors.startFailed": "Não foi possível iniciar o ditado. Tente novamente.",
-  "voice.dictation.errors.speechServiceUnreachable": "O reconhecimento de voz não conseguiu acessar o serviço. Verifique sua conexão ou escolha outra fonte em Transcrição de voz, nas Configurações.",
-  "voice.dictation.errors.noAudioCaptured": "O ditado parou antes de captar qualquer áudio. Outro app ou aba pode estar usando o microfone. Feche-o ou escolha outra fonte em Transcrição de voz, nas Configurações.",
-  "voice.dictation.errors.speechRecognitionFailed": "Falha no reconhecimento de voz: {{error}}",
-  "voice.dictation.errors.recordingUnsupported": "Seu navegador não oferece suporte à gravação de áudio. Escolha a opção do navegador em Transcrição de voz, nas Configurações.",
-  "voice.dictation.errors.transcriptionFailedStatus": "A transcrição falhou ({{status}}). Tente novamente.",
-  "voice.dictation.errors.transcriptionFailed": "A transcrição falhou. Verifique seu provedor em Transcrição de voz, nas Configurações.",
-  "voice.dictation.errors.speechRecognitionUnsupported": "Seu navegador não oferece suporte ao reconhecimento de voz. Adicione uma chave de API da OpenAI nas Configurações para usar a transcrição do Whisper.",
-  "voice.dictation.errors.googleRealtimeStartFailed": "Não foi possível iniciar a transcrição em tempo real do Google ({{status}}).",
-  "voice.dictation.errors.googleRealtimeUploadFailed": "O envio de áudio em tempo real falhou.",
-  "voice.dictation.errors.googleRealtimeFailed": "A transcrição em tempo real do Google falhou.",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "A transcrição em tempo real do Google perdeu a conexão.",
-  "voice.dictation.errors.googleRealtimeStreamFailed": "Não foi possível iniciar a transmissão em tempo real.",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "Seu navegador não oferece suporte à gravação de áudio, por isso a transcrição em tempo real do Google não pode começar.",
+  "voice.dictation.errors.permissionsPolicy":
+    "Este app está bloqueando o acesso ao microfone pela política de permissões do navegador. Recarregue o app ou abra-o diretamente em uma aba do navegador.",
+  "voice.dictation.errors.microphoneBlocked":
+    "O acesso ao microfone está bloqueado. Clique no ícone de controles do site na barra de endereço, permita o microfone para este app e tente novamente.",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "Seu computador está bloqueando o acesso ao microfone para este navegador. Permita nas configurações de privacidade do sistema e tente novamente.",
+  "voice.dictation.errors.noMicrophone":
+    "Nenhum microfone foi encontrado. Conecte um ou escolha outra entrada e tente novamente.",
+  "voice.dictation.errors.microphoneBusy":
+    "Seu microfone está em uso por outro app. Feche o outro app ou escolha outra entrada e tente novamente.",
+  "voice.dictation.errors.startFailed":
+    "Não foi possível iniciar o ditado. Tente novamente.",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "O reconhecimento de voz não conseguiu acessar o serviço. Verifique sua conexão ou escolha outra fonte em Transcrição de voz, nas Configurações.",
+  "voice.dictation.errors.noAudioCaptured":
+    "O ditado parou antes de captar qualquer áudio. Outro app ou aba pode estar usando o microfone. Feche-o ou escolha outra fonte em Transcrição de voz, nas Configurações.",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "Falha no reconhecimento de voz: {{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "Seu navegador não oferece suporte à gravação de áudio. Escolha a opção do navegador em Transcrição de voz, nas Configurações.",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "A transcrição falhou ({{status}}). Tente novamente.",
+  "voice.dictation.errors.transcriptionFailed":
+    "A transcrição falhou. Verifique seu provedor em Transcrição de voz, nas Configurações.",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "Seu navegador não oferece suporte ao reconhecimento de voz. Adicione uma chave de API da OpenAI nas Configurações para usar a transcrição do Whisper.",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Não foi possível iniciar a transcrição em tempo real do Google ({{status}}).",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "O envio de áudio em tempo real falhou.",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "A transcrição em tempo real do Google falhou.",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "A transcrição em tempo real do Google perdeu a conexão.",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "Não foi possível iniciar a transmissão em tempo real.",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "Seu navegador não oferece suporte à gravação de áudio, por isso a transcrição em tempo real do Google não pode começar.",
   "voiceMode.endVoiceChat": "Encerrar conversa por voz",
   "voiceMode.placeholder": "Ouvindo…",
   "voiceMode.muteMicrophone": "Silenciar microfone",
@@ -3705,8 +3724,10 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.muteSpeaker": "Silenciar alto-falante",
   "voiceMode.unmuteSpeaker": "Ativar alto-falante",
   "settingsShell.account.voiceChat": "Conversa por voz",
-  "settingsShell.account.voiceChatLoadError": "Não foi possível carregar as configurações da conversa por voz.",
-  "settingsShell.account.voiceChatSaveError": "Não foi possível salvar as configurações da conversa por voz.",
+  "settingsShell.account.voiceChatLoadError":
+    "Não foi possível carregar as configurações da conversa por voz.",
+  "settingsShell.account.voiceChatSaveError":
+    "Não foi possível salvar as configurações da conversa por voz.",
   "voice.dictation.cancelTranscription": "Cancelar transcrição",
 };
 

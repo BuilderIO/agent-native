@@ -326,3 +326,67 @@ describe("useVoiceDictation — microphone access", () => {
     await probe.cleanup();
   });
 });
+
+describe("useVoiceDictation — cancelled transcription", () => {
+  it("drops a cancelled transcription that returns after a new recording starts", async () => {
+    stubSpeechEnvironment(vi.fn().mockResolvedValue({ getTracks: () => [] }));
+    vi.stubGlobal("SpeechRecognition", undefined);
+    vi.stubGlobal("webkitSpeechRecognition", undefined);
+    vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+    let respond: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/transcribe-voice")
+          ? new Promise<Response>((resolve) => {
+              respond = resolve;
+            })
+          : Promise.resolve(new Response("{}", { status: 404 })),
+      ),
+    );
+    const onTranscript = vi.fn();
+    const seen: VoiceDictationApi[] = [];
+    function Probe() {
+      seen.push(useVoiceDictation({ onTranscript }));
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<Probe />));
+    const latest = () => seen[seen.length - 1]!;
+
+    await act(async () => {
+      await latest().start();
+    });
+    const first = FakeMediaRecorder.last!;
+    await act(async () => {
+      first.ondataavailable?.({ data: new Blob(["audio"]) });
+      void first.onstop?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(latest().state).toBe("transcribing");
+
+    act(() => latest().cancel());
+    expect(latest().state).toBe("idle");
+    await act(async () => {
+      await latest().start();
+    });
+    expect(FakeMediaRecorder.last).not.toBe(first);
+    expect(latest().state).toBe("recording");
+
+    await act(async () => {
+      respond(
+        new Response(JSON.stringify({ text: "the cancelled words" }), {
+          status: 200,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(latest().state).toBe("recording");
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});

@@ -3503,25 +3503,43 @@ const messages = {
   "documentTitle.running": "Working · {{title}}",
   "documentTitle.replyReady": "Reply ready · {{title}}",
   "voice.dictation.recording": "Dictating",
-  "voice.dictation.errors.permissionsPolicy": "This app is blocking microphone access through its browser permissions policy. Reload the app, or open it directly in a browser tab.",
-  "voice.dictation.errors.microphoneBlocked": "Microphone access is blocked. Click the site controls icon in the address bar, set Microphone to Allow for this app, then try again.",
-  "voice.dictation.errors.microphoneBlockedBySystem": "Your computer is blocking microphone access for this browser. Allow it in your system privacy settings, then try again.",
-  "voice.dictation.errors.noMicrophone": "No microphone was found. Plug one in or choose a different input, then try again.",
-  "voice.dictation.errors.microphoneBusy": "Your microphone is busy in another app. Close the other app or choose a different input, then try again.",
+  "voice.dictation.errors.permissionsPolicy":
+    "This app is blocking microphone access through its browser permissions policy. Reload the app, or open it directly in a browser tab.",
+  "voice.dictation.errors.microphoneBlocked":
+    "Microphone access is blocked. Click the site controls icon in the address bar, set Microphone to Allow for this app, then try again.",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "Your computer is blocking microphone access for this browser. Allow it in your system privacy settings, then try again.",
+  "voice.dictation.errors.noMicrophone":
+    "No microphone was found. Plug one in or choose a different input, then try again.",
+  "voice.dictation.errors.microphoneBusy":
+    "Your microphone is busy in another app. Close the other app or choose a different input, then try again.",
   "voice.dictation.errors.startFailed": "Could not start dictation. Try again.",
-  "voice.dictation.errors.speechServiceUnreachable": "Speech recognition couldn't reach its service. Check your connection, or pick a different source under Voice transcription in Settings.",
-  "voice.dictation.errors.noAudioCaptured": "Dictation stopped before it captured any audio. Another app or tab may be using the microphone. Close it, or pick a different source under Voice transcription in Settings.",
-  "voice.dictation.errors.speechRecognitionFailed": "Speech recognition failed: {{error}}",
-  "voice.dictation.errors.recordingUnsupported": "Your browser doesn't support audio recording. Pick the browser option under Voice transcription in Settings.",
-  "voice.dictation.errors.transcriptionFailedStatus": "Transcription failed ({{status}}). Try again.",
-  "voice.dictation.errors.transcriptionFailed": "Transcription failed. Check your provider under Voice transcription in Settings.",
-  "voice.dictation.errors.speechRecognitionUnsupported": "Your browser doesn't support speech recognition. Add an OpenAI API key in Settings to use Whisper transcription.",
-  "voice.dictation.errors.googleRealtimeStartFailed": "Could not start Google realtime transcription ({{status}}).",
-  "voice.dictation.errors.googleRealtimeUploadFailed": "Realtime audio upload failed.",
-  "voice.dictation.errors.googleRealtimeFailed": "Google realtime transcription failed.",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Google realtime transcription lost its connection.",
-  "voice.dictation.errors.googleRealtimeStreamFailed": "Could not start the realtime stream.",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "Your browser doesn't support audio recording, so Google realtime transcription can't start.",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "Speech recognition couldn't reach its service. Check your connection, or pick a different source under Voice transcription in Settings.",
+  "voice.dictation.errors.noAudioCaptured":
+    "Dictation stopped before it captured any audio. Another app or tab may be using the microphone. Close it, or pick a different source under Voice transcription in Settings.",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "Speech recognition failed: {{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "Your browser doesn't support audio recording. Pick the browser option under Voice transcription in Settings.",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "Transcription failed ({{status}}). Try again.",
+  "voice.dictation.errors.transcriptionFailed":
+    "Transcription failed. Check your provider under Voice transcription in Settings.",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "Your browser doesn't support speech recognition. Add an OpenAI API key in Settings to use Whisper transcription.",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Could not start Google realtime transcription ({{status}}).",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "Realtime audio upload failed.",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "Google realtime transcription failed.",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Google realtime transcription lost its connection.",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "Could not start the realtime stream.",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "Your browser doesn't support audio recording, so Google realtime transcription can't start.",
   "voiceMode.endVoiceChat": "End voice chat",
   "voiceMode.placeholder": "Listening…",
   "voiceMode.muteMicrophone": "Mute microphone",
@@ -3529,8 +3547,10 @@ const messages = {
   "voiceMode.muteSpeaker": "Mute speaker",
   "voiceMode.unmuteSpeaker": "Unmute speaker",
   "settingsShell.account.voiceChat": "Voice chat",
-  "settingsShell.account.voiceChatLoadError": "Could not load your voice chat settings.",
-  "settingsShell.account.voiceChatSaveError": "Could not save your voice chat settings.",
+  "settingsShell.account.voiceChatLoadError":
+    "Could not load your voice chat settings.",
+  "settingsShell.account.voiceChatSaveError":
+    "Could not save your voice chat settings.",
   "voice.dictation.cancelTranscription": "Cancel transcription",
 } as const;
 

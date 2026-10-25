@@ -3503,25 +3503,44 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "処理中 · {{title}}",
   "documentTitle.replyReady": "返信の準備完了 · {{title}}",
   "voice.dictation.recording": "音声入力中",
-  "voice.dictation.errors.permissionsPolicy": "このアプリはブラウザの権限ポリシーでマイクへのアクセスをブロックしています。アプリを再読み込みするか、ブラウザのタブで直接開いてください。",
-  "voice.dictation.errors.microphoneBlocked": "マイクへのアクセスがブロックされています。アドレスバーのサイト設定アイコンをクリックし、このアプリのマイクを「許可」にしてから、もう一度お試しください。",
-  "voice.dictation.errors.microphoneBlockedBySystem": "このブラウザのマイクへのアクセスがコンピュータでブロックされています。システムのプライバシー設定で許可してから、もう一度お試しください。",
-  "voice.dictation.errors.noMicrophone": "マイクが見つかりません。マイクを接続するか別の入力を選んでから、もう一度お試しください。",
-  "voice.dictation.errors.microphoneBusy": "マイクが別のアプリで使用中です。そのアプリを閉じるか別の入力を選んでから、もう一度お試しください。",
-  "voice.dictation.errors.startFailed": "音声入力を開始できませんでした。もう一度お試しください。",
-  "voice.dictation.errors.speechServiceUnreachable": "音声認識がサービスに接続できませんでした。接続を確認するか、設定の「音声の文字起こし」で別のソースを選んでください。",
-  "voice.dictation.errors.noAudioCaptured": "音声を取り込む前に音声入力が停止しました。別のアプリやタブがマイクを使用している可能性があります。それを閉じるか、設定の「音声の文字起こし」で別のソースを選んでください。",
-  "voice.dictation.errors.speechRecognitionFailed": "音声認識に失敗しました：{{error}}",
-  "voice.dictation.errors.recordingUnsupported": "お使いのブラウザは録音に対応していません。設定の「音声の文字起こし」でブラウザのオプションを選んでください。",
-  "voice.dictation.errors.transcriptionFailedStatus": "文字起こしに失敗しました（{{status}}）。もう一度お試しください。",
-  "voice.dictation.errors.transcriptionFailed": "文字起こしに失敗しました。設定の「音声の文字起こし」でプロバイダを確認してください。",
-  "voice.dictation.errors.speechRecognitionUnsupported": "お使いのブラウザは音声認識に対応していません。Whisper の文字起こしを使うには、設定で OpenAI API キーを追加してください。",
-  "voice.dictation.errors.googleRealtimeStartFailed": "Google のリアルタイム文字起こしを開始できませんでした（{{status}}）。",
-  "voice.dictation.errors.googleRealtimeUploadFailed": "リアルタイム音声のアップロードに失敗しました。",
-  "voice.dictation.errors.googleRealtimeFailed": "Google のリアルタイム文字起こしに失敗しました。",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Google のリアルタイム文字起こしの接続が切れました。",
-  "voice.dictation.errors.googleRealtimeStreamFailed": "リアルタイムストリームを開始できませんでした。",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "お使いのブラウザは録音に対応していないため、Google のリアルタイム文字起こしを開始できません。",
+  "voice.dictation.errors.permissionsPolicy":
+    "このアプリはブラウザの権限ポリシーでマイクへのアクセスをブロックしています。アプリを再読み込みするか、ブラウザのタブで直接開いてください。",
+  "voice.dictation.errors.microphoneBlocked":
+    "マイクへのアクセスがブロックされています。アドレスバーのサイト設定アイコンをクリックし、このアプリのマイクを「許可」にしてから、もう一度お試しください。",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "このブラウザのマイクへのアクセスがコンピュータでブロックされています。システムのプライバシー設定で許可してから、もう一度お試しください。",
+  "voice.dictation.errors.noMicrophone":
+    "マイクが見つかりません。マイクを接続するか別の入力を選んでから、もう一度お試しください。",
+  "voice.dictation.errors.microphoneBusy":
+    "マイクが別のアプリで使用中です。そのアプリを閉じるか別の入力を選んでから、もう一度お試しください。",
+  "voice.dictation.errors.startFailed":
+    "音声入力を開始できませんでした。もう一度お試しください。",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "音声認識がサービスに接続できませんでした。接続を確認するか、設定の「音声の文字起こし」で別のソースを選んでください。",
+  "voice.dictation.errors.noAudioCaptured":
+    "音声を取り込む前に音声入力が停止しました。別のアプリやタブがマイクを使用している可能性があります。それを閉じるか、設定の「音声の文字起こし」で別のソースを選んでください。",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "音声認識に失敗しました：{{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "お使いのブラウザは録音に対応していません。設定の「音声の文字起こし」でブラウザのオプションを選んでください。",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "文字起こしに失敗しました（{{status}}）。もう一度お試しください。",
+  "voice.dictation.errors.transcriptionFailed":
+    "文字起こしに失敗しました。設定の「音声の文字起こし」でプロバイダを確認してください。",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "お使いのブラウザは音声認識に対応していません。Whisper の文字起こしを使うには、設定で OpenAI API キーを追加してください。",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Google のリアルタイム文字起こしを開始できませんでした（{{status}}）。",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "リアルタイム音声のアップロードに失敗しました。",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "Google のリアルタイム文字起こしに失敗しました。",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Google のリアルタイム文字起こしの接続が切れました。",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "リアルタイムストリームを開始できませんでした。",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "お使いのブラウザは録音に対応していないため、Google のリアルタイム文字起こしを開始できません。",
   "voiceMode.endVoiceChat": "音声チャットを終了",
   "voiceMode.placeholder": "聞き取り中…",
   "voiceMode.muteMicrophone": "マイクをミュート",
@@ -3529,8 +3548,10 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.muteSpeaker": "スピーカーをミュート",
   "voiceMode.unmuteSpeaker": "スピーカーのミュートを解除",
   "settingsShell.account.voiceChat": "音声チャット",
-  "settingsShell.account.voiceChatLoadError": "音声チャットの設定を読み込めませんでした。",
-  "settingsShell.account.voiceChatSaveError": "音声チャットの設定を保存できませんでした。",
+  "settingsShell.account.voiceChatLoadError":
+    "音声チャットの設定を読み込めませんでした。",
+  "settingsShell.account.voiceChatSaveError":
+    "音声チャットの設定を保存できませんでした。",
   "voice.dictation.cancelTranscription": "文字起こしをキャンセル",
 };
 

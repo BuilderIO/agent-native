@@ -3196,25 +3196,39 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "正在处理 · {{title}}",
   "documentTitle.replyReady": "回复已就绪 · {{title}}",
   "voice.dictation.recording": "正在听写",
-  "voice.dictation.errors.permissionsPolicy": "此应用通过浏览器权限策略阻止了麦克风访问。请重新加载应用，或直接在浏览器标签页中打开。",
-  "voice.dictation.errors.microphoneBlocked": "麦克风访问已被阻止。点击地址栏中的网站控制图标，将此应用的麦克风设为允许，然后重试。",
-  "voice.dictation.errors.microphoneBlockedBySystem": "你的电脑阻止了此浏览器访问麦克风。请在系统隐私设置中允许访问，然后重试。",
-  "voice.dictation.errors.noMicrophone": "未找到麦克风。请连接麦克风或选择其他输入设备，然后重试。",
-  "voice.dictation.errors.microphoneBusy": "你的麦克风正被其他应用占用。请关闭该应用或选择其他输入设备，然后重试。",
+  "voice.dictation.errors.permissionsPolicy":
+    "此应用通过浏览器权限策略阻止了麦克风访问。请重新加载应用，或直接在浏览器标签页中打开。",
+  "voice.dictation.errors.microphoneBlocked":
+    "麦克风访问已被阻止。点击地址栏中的网站控制图标，将此应用的麦克风设为允许，然后重试。",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "你的电脑阻止了此浏览器访问麦克风。请在系统隐私设置中允许访问，然后重试。",
+  "voice.dictation.errors.noMicrophone":
+    "未找到麦克风。请连接麦克风或选择其他输入设备，然后重试。",
+  "voice.dictation.errors.microphoneBusy":
+    "你的麦克风正被其他应用占用。请关闭该应用或选择其他输入设备，然后重试。",
   "voice.dictation.errors.startFailed": "无法开始听写。请重试。",
-  "voice.dictation.errors.speechServiceUnreachable": "语音识别无法连接到其服务。请检查网络连接，或在设置的“语音转写”中选择其他来源。",
-  "voice.dictation.errors.noAudioCaptured": "听写在捕获任何音频之前就停止了。其他应用或标签页可能正在使用麦克风。请将其关闭，或在设置的“语音转写”中选择其他来源。",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "语音识别无法连接到其服务。请检查网络连接，或在设置的“语音转写”中选择其他来源。",
+  "voice.dictation.errors.noAudioCaptured":
+    "听写在捕获任何音频之前就停止了。其他应用或标签页可能正在使用麦克风。请将其关闭，或在设置的“语音转写”中选择其他来源。",
   "voice.dictation.errors.speechRecognitionFailed": "语音识别失败：{{error}}",
-  "voice.dictation.errors.recordingUnsupported": "你的浏览器不支持录音。请在设置的“语音转写”中选择浏览器选项。",
-  "voice.dictation.errors.transcriptionFailedStatus": "转写失败（{{status}}）。请重试。",
-  "voice.dictation.errors.transcriptionFailed": "转写失败。请在设置的“语音转写”中检查你的服务提供方。",
-  "voice.dictation.errors.speechRecognitionUnsupported": "你的浏览器不支持语音识别。请在设置中添加 OpenAI API 密钥以使用 Whisper 转写。",
-  "voice.dictation.errors.googleRealtimeStartFailed": "无法启动 Google 实时转写（{{status}}）。",
+  "voice.dictation.errors.recordingUnsupported":
+    "你的浏览器不支持录音。请在设置的“语音转写”中选择浏览器选项。",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "转写失败（{{status}}）。请重试。",
+  "voice.dictation.errors.transcriptionFailed":
+    "转写失败。请在设置的“语音转写”中检查你的服务提供方。",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "你的浏览器不支持语音识别。请在设置中添加 OpenAI API 密钥以使用 Whisper 转写。",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "无法启动 Google 实时转写（{{status}}）。",
   "voice.dictation.errors.googleRealtimeUploadFailed": "实时音频上传失败。",
   "voice.dictation.errors.googleRealtimeFailed": "Google 实时转写失败。",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Google 实时转写连接已断开。",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Google 实时转写连接已断开。",
   "voice.dictation.errors.googleRealtimeStreamFailed": "无法启动实时流。",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "你的浏览器不支持录音，因此无法启动 Google 实时转写。",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "你的浏览器不支持录音，因此无法启动 Google 实时转写。",
   "voiceMode.endVoiceChat": "结束语音对话",
   "voiceMode.placeholder": "正在聆听…",
   "voiceMode.muteMicrophone": "将麦克风静音",

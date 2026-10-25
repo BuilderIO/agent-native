@@ -3441,25 +3441,43 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "작업 중 · {{title}}",
   "documentTitle.replyReady": "답변 준비됨 · {{title}}",
   "voice.dictation.recording": "받아쓰는 중",
-  "voice.dictation.errors.permissionsPolicy": "이 앱이 브라우저 권한 정책으로 마이크 접근을 차단하고 있습니다. 앱을 새로고침하거나 브라우저 탭에서 직접 여세요.",
-  "voice.dictation.errors.microphoneBlocked": "마이크 접근이 차단되었습니다. 주소 표시줄의 사이트 설정 아이콘을 클릭해 이 앱의 마이크를 허용으로 설정한 다음 다시 시도하세요.",
-  "voice.dictation.errors.microphoneBlockedBySystem": "컴퓨터에서 이 브라우저의 마이크 접근을 차단하고 있습니다. 시스템 개인정보 보호 설정에서 허용한 다음 다시 시도하세요.",
-  "voice.dictation.errors.noMicrophone": "마이크를 찾을 수 없습니다. 마이크를 연결하거나 다른 입력을 선택한 다음 다시 시도하세요.",
-  "voice.dictation.errors.microphoneBusy": "다른 앱에서 마이크를 사용 중입니다. 다른 앱을 닫거나 다른 입력을 선택한 다음 다시 시도하세요.",
-  "voice.dictation.errors.startFailed": "받아쓰기를 시작할 수 없습니다. 다시 시도하세요.",
-  "voice.dictation.errors.speechServiceUnreachable": "음성 인식이 서비스에 연결하지 못했습니다. 연결을 확인하거나 설정의 음성 전사에서 다른 소스를 선택하세요.",
-  "voice.dictation.errors.noAudioCaptured": "오디오를 캡처하기 전에 받아쓰기가 중지되었습니다. 다른 앱이나 탭에서 마이크를 사용 중일 수 있습니다. 해당 앱이나 탭을 닫거나 설정의 음성 전사에서 다른 소스를 선택하세요.",
+  "voice.dictation.errors.permissionsPolicy":
+    "이 앱이 브라우저 권한 정책으로 마이크 접근을 차단하고 있습니다. 앱을 새로고침하거나 브라우저 탭에서 직접 여세요.",
+  "voice.dictation.errors.microphoneBlocked":
+    "마이크 접근이 차단되었습니다. 주소 표시줄의 사이트 설정 아이콘을 클릭해 이 앱의 마이크를 허용으로 설정한 다음 다시 시도하세요.",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "컴퓨터에서 이 브라우저의 마이크 접근을 차단하고 있습니다. 시스템 개인정보 보호 설정에서 허용한 다음 다시 시도하세요.",
+  "voice.dictation.errors.noMicrophone":
+    "마이크를 찾을 수 없습니다. 마이크를 연결하거나 다른 입력을 선택한 다음 다시 시도하세요.",
+  "voice.dictation.errors.microphoneBusy":
+    "다른 앱에서 마이크를 사용 중입니다. 다른 앱을 닫거나 다른 입력을 선택한 다음 다시 시도하세요.",
+  "voice.dictation.errors.startFailed":
+    "받아쓰기를 시작할 수 없습니다. 다시 시도하세요.",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "음성 인식이 서비스에 연결하지 못했습니다. 연결을 확인하거나 설정의 음성 전사에서 다른 소스를 선택하세요.",
+  "voice.dictation.errors.noAudioCaptured":
+    "오디오를 캡처하기 전에 받아쓰기가 중지되었습니다. 다른 앱이나 탭에서 마이크를 사용 중일 수 있습니다. 해당 앱이나 탭을 닫거나 설정의 음성 전사에서 다른 소스를 선택하세요.",
   "voice.dictation.errors.speechRecognitionFailed": "음성 인식 실패: {{error}}",
-  "voice.dictation.errors.recordingUnsupported": "브라우저가 오디오 녹음을 지원하지 않습니다. 설정의 음성 전사에서 브라우저 옵션을 선택하세요.",
-  "voice.dictation.errors.transcriptionFailedStatus": "전사에 실패했습니다({{status}}). 다시 시도하세요.",
-  "voice.dictation.errors.transcriptionFailed": "전사에 실패했습니다. 설정의 음성 전사에서 제공업체를 확인하세요.",
-  "voice.dictation.errors.speechRecognitionUnsupported": "브라우저가 음성 인식을 지원하지 않습니다. Whisper 전사를 사용하려면 설정에서 OpenAI API 키를 추가하세요.",
-  "voice.dictation.errors.googleRealtimeStartFailed": "Google 실시간 전사를 시작할 수 없습니다({{status}}).",
-  "voice.dictation.errors.googleRealtimeUploadFailed": "실시간 오디오 업로드에 실패했습니다.",
-  "voice.dictation.errors.googleRealtimeFailed": "Google 실시간 전사에 실패했습니다.",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Google 실시간 전사의 연결이 끊어졌습니다.",
-  "voice.dictation.errors.googleRealtimeStreamFailed": "실시간 스트림을 시작할 수 없습니다.",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "브라우저가 오디오 녹음을 지원하지 않아 Google 실시간 전사를 시작할 수 없습니다.",
+  "voice.dictation.errors.recordingUnsupported":
+    "브라우저가 오디오 녹음을 지원하지 않습니다. 설정의 음성 전사에서 브라우저 옵션을 선택하세요.",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "전사에 실패했습니다({{status}}). 다시 시도하세요.",
+  "voice.dictation.errors.transcriptionFailed":
+    "전사에 실패했습니다. 설정의 음성 전사에서 제공업체를 확인하세요.",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "브라우저가 음성 인식을 지원하지 않습니다. Whisper 전사를 사용하려면 설정에서 OpenAI API 키를 추가하세요.",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Google 실시간 전사를 시작할 수 없습니다({{status}}).",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "실시간 오디오 업로드에 실패했습니다.",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "Google 실시간 전사에 실패했습니다.",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Google 실시간 전사의 연결이 끊어졌습니다.",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "실시간 스트림을 시작할 수 없습니다.",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "브라우저가 오디오 녹음을 지원하지 않아 Google 실시간 전사를 시작할 수 없습니다.",
   "voiceMode.endVoiceChat": "음성 채팅 종료",
   "voiceMode.placeholder": "듣는 중…",
   "voiceMode.muteMicrophone": "마이크 음소거",
@@ -3467,8 +3485,10 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.muteSpeaker": "스피커 음소거",
   "voiceMode.unmuteSpeaker": "스피커 음소거 해제",
   "settingsShell.account.voiceChat": "음성 채팅",
-  "settingsShell.account.voiceChatLoadError": "음성 채팅 설정을 불러올 수 없습니다.",
-  "settingsShell.account.voiceChatSaveError": "음성 채팅 설정을 저장할 수 없습니다.",
+  "settingsShell.account.voiceChatLoadError":
+    "음성 채팅 설정을 불러올 수 없습니다.",
+  "settingsShell.account.voiceChatSaveError":
+    "음성 채팅 설정을 저장할 수 없습니다.",
   "voice.dictation.cancelTranscription": "받아쓰기 취소",
 };
 

@@ -3635,25 +3635,40 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "جارٍ العمل · {{title}}",
   "documentTitle.replyReady": "الرد جاهز · {{title}}",
   "voice.dictation.recording": "جارٍ الإملاء",
-  "voice.dictation.errors.permissionsPolicy": "يحظر هذا التطبيق الوصول إلى الميكروفون عبر سياسة أذونات المتصفح. أعد تحميل التطبيق، أو افتحه مباشرة في علامة تبويب في المتصفح.",
-  "voice.dictation.errors.microphoneBlocked": "الوصول إلى الميكروفون محظور. انقر على أيقونة عناصر التحكم في الموقع في شريط العنوان، واسمح بالميكروفون لهذا التطبيق، ثم حاول مرة أخرى.",
-  "voice.dictation.errors.microphoneBlockedBySystem": "يحظر جهاز الكمبيوتر الوصول إلى الميكروفون لهذا المتصفح. اسمح به في إعدادات الخصوصية في النظام، ثم حاول مرة أخرى.",
-  "voice.dictation.errors.noMicrophone": "لم يتم العثور على ميكروفون. وصّل ميكروفونًا أو اختر إدخالًا آخر، ثم حاول مرة أخرى.",
-  "voice.dictation.errors.microphoneBusy": "الميكروفون مشغول في تطبيق آخر. أغلق التطبيق الآخر أو اختر إدخالًا آخر، ثم حاول مرة أخرى.",
+  "voice.dictation.errors.permissionsPolicy":
+    "يحظر هذا التطبيق الوصول إلى الميكروفون عبر سياسة أذونات المتصفح. أعد تحميل التطبيق، أو افتحه مباشرة في علامة تبويب في المتصفح.",
+  "voice.dictation.errors.microphoneBlocked":
+    "الوصول إلى الميكروفون محظور. انقر على أيقونة عناصر التحكم في الموقع في شريط العنوان، واسمح بالميكروفون لهذا التطبيق، ثم حاول مرة أخرى.",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "يحظر جهاز الكمبيوتر الوصول إلى الميكروفون لهذا المتصفح. اسمح به في إعدادات الخصوصية في النظام، ثم حاول مرة أخرى.",
+  "voice.dictation.errors.noMicrophone":
+    "لم يتم العثور على ميكروفون. وصّل ميكروفونًا أو اختر إدخالًا آخر، ثم حاول مرة أخرى.",
+  "voice.dictation.errors.microphoneBusy":
+    "الميكروفون مشغول في تطبيق آخر. أغلق التطبيق الآخر أو اختر إدخالًا آخر، ثم حاول مرة أخرى.",
   "voice.dictation.errors.startFailed": "تعذّر بدء الإملاء. حاول مرة أخرى.",
-  "voice.dictation.errors.speechServiceUnreachable": "تعذّر على التعرّف على الكلام الوصول إلى خدمته. تحقّق من اتصالك، أو اختر مصدرًا آخر ضمن تحويل الصوت إلى نص في الإعدادات.",
-  "voice.dictation.errors.noAudioCaptured": "توقف الإملاء قبل التقاط أي صوت. ربما يستخدم تطبيق أو علامة تبويب أخرى الميكروفون. أغلقه، أو اختر مصدرًا آخر ضمن تحويل الصوت إلى نص في الإعدادات.",
-  "voice.dictation.errors.speechRecognitionFailed": "فشل التعرّف على الكلام: {{error}}",
-  "voice.dictation.errors.recordingUnsupported": "لا يدعم متصفحك تسجيل الصوت. اختر خيار المتصفح ضمن تحويل الصوت إلى نص في الإعدادات.",
-  "voice.dictation.errors.transcriptionFailedStatus": "فشل النسخ ({{status}}). حاول مرة أخرى.",
-  "voice.dictation.errors.transcriptionFailed": "فشل النسخ. تحقّق من مزوّد الخدمة ضمن تحويل الصوت إلى نص في الإعدادات.",
-  "voice.dictation.errors.speechRecognitionUnsupported": "لا يدعم متصفحك التعرّف على الكلام. أضف مفتاح OpenAI API في الإعدادات لاستخدام نسخ Whisper.",
-  "voice.dictation.errors.googleRealtimeStartFailed": "تعذّر بدء النسخ الفوري من Google ({{status}}).",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "تعذّر على التعرّف على الكلام الوصول إلى خدمته. تحقّق من اتصالك، أو اختر مصدرًا آخر ضمن تحويل الصوت إلى نص في الإعدادات.",
+  "voice.dictation.errors.noAudioCaptured":
+    "توقف الإملاء قبل التقاط أي صوت. ربما يستخدم تطبيق أو علامة تبويب أخرى الميكروفون. أغلقه، أو اختر مصدرًا آخر ضمن تحويل الصوت إلى نص في الإعدادات.",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "فشل التعرّف على الكلام: {{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "لا يدعم متصفحك تسجيل الصوت. اختر خيار المتصفح ضمن تحويل الصوت إلى نص في الإعدادات.",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "فشل النسخ ({{status}}). حاول مرة أخرى.",
+  "voice.dictation.errors.transcriptionFailed":
+    "فشل النسخ. تحقّق من مزوّد الخدمة ضمن تحويل الصوت إلى نص في الإعدادات.",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "لا يدعم متصفحك التعرّف على الكلام. أضف مفتاح OpenAI API في الإعدادات لاستخدام نسخ Whisper.",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "تعذّر بدء النسخ الفوري من Google ({{status}}).",
   "voice.dictation.errors.googleRealtimeUploadFailed": "فشل رفع الصوت الفوري.",
   "voice.dictation.errors.googleRealtimeFailed": "فشل النسخ الفوري من Google.",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "فقد النسخ الفوري من Google الاتصال.",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "فقد النسخ الفوري من Google الاتصال.",
   "voice.dictation.errors.googleRealtimeStreamFailed": "تعذّر بدء البث الفوري.",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "لا يدعم متصفحك تسجيل الصوت، لذا لا يمكن بدء النسخ الفوري من Google.",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "لا يدعم متصفحك تسجيل الصوت، لذا لا يمكن بدء النسخ الفوري من Google.",
   "voiceMode.endVoiceChat": "إنهاء المحادثة الصوتية",
   "voiceMode.placeholder": "جارٍ الاستماع…",
   "voiceMode.muteMicrophone": "كتم الميكروفون",
@@ -3661,8 +3676,10 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.muteSpeaker": "كتم السماعة",
   "voiceMode.unmuteSpeaker": "إلغاء كتم السماعة",
   "settingsShell.account.voiceChat": "المحادثة الصوتية",
-  "settingsShell.account.voiceChatLoadError": "تعذّر تحميل إعدادات المحادثة الصوتية.",
-  "settingsShell.account.voiceChatSaveError": "تعذّر حفظ إعدادات المحادثة الصوتية.",
+  "settingsShell.account.voiceChatLoadError":
+    "تعذّر تحميل إعدادات المحادثة الصوتية.",
+  "settingsShell.account.voiceChatSaveError":
+    "تعذّر حفظ إعدادات المحادثة الصوتية.",
   "voice.dictation.cancelTranscription": "إلغاء التفريغ النصي",
 };
 

@@ -3423,25 +3423,43 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "काम जारी है · {{title}}",
   "documentTitle.replyReady": "जवाब तैयार है · {{title}}",
   "voice.dictation.recording": "डिक्टेट किया जा रहा है",
-  "voice.dictation.errors.permissionsPolicy": "यह ऐप ब्राउज़र अनुमति नीति के ज़रिए माइक्रोफ़ोन एक्सेस ब्लॉक कर रहा है। ऐप को फिर से लोड करें, या उसे सीधे ब्राउज़र टैब में खोलें।",
-  "voice.dictation.errors.microphoneBlocked": "माइक्रोफ़ोन एक्सेस ब्लॉक है। एड्रेस बार में साइट कंट्रोल आइकन पर क्लिक करें, इस ऐप के लिए माइक्रोफ़ोन को अनुमति दें, फिर से कोशिश करें।",
-  "voice.dictation.errors.microphoneBlockedBySystem": "आपका कंप्यूटर इस ब्राउज़र के लिए माइक्रोफ़ोन एक्सेस ब्लॉक कर रहा है। सिस्टम की गोपनीयता सेटिंग में इसकी अनुमति दें, फिर से कोशिश करें।",
-  "voice.dictation.errors.noMicrophone": "कोई माइक्रोफ़ोन नहीं मिला। एक माइक्रोफ़ोन लगाएं या कोई दूसरा इनपुट चुनें, फिर से कोशिश करें।",
-  "voice.dictation.errors.microphoneBusy": "आपका माइक्रोफ़ोन किसी दूसरे ऐप में इस्तेमाल हो रहा है। दूसरा ऐप बंद करें या कोई दूसरा इनपुट चुनें, फिर से कोशिश करें।",
+  "voice.dictation.errors.permissionsPolicy":
+    "यह ऐप ब्राउज़र अनुमति नीति के ज़रिए माइक्रोफ़ोन एक्सेस ब्लॉक कर रहा है। ऐप को फिर से लोड करें, या उसे सीधे ब्राउज़र टैब में खोलें।",
+  "voice.dictation.errors.microphoneBlocked":
+    "माइक्रोफ़ोन एक्सेस ब्लॉक है। एड्रेस बार में साइट कंट्रोल आइकन पर क्लिक करें, इस ऐप के लिए माइक्रोफ़ोन को अनुमति दें, फिर से कोशिश करें।",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "आपका कंप्यूटर इस ब्राउज़र के लिए माइक्रोफ़ोन एक्सेस ब्लॉक कर रहा है। सिस्टम की गोपनीयता सेटिंग में इसकी अनुमति दें, फिर से कोशिश करें।",
+  "voice.dictation.errors.noMicrophone":
+    "कोई माइक्रोफ़ोन नहीं मिला। एक माइक्रोफ़ोन लगाएं या कोई दूसरा इनपुट चुनें, फिर से कोशिश करें।",
+  "voice.dictation.errors.microphoneBusy":
+    "आपका माइक्रोफ़ोन किसी दूसरे ऐप में इस्तेमाल हो रहा है। दूसरा ऐप बंद करें या कोई दूसरा इनपुट चुनें, फिर से कोशिश करें।",
   "voice.dictation.errors.startFailed": "डिक्टेशन शुरू नहीं हो सका। फिर से कोशिश करें।",
-  "voice.dictation.errors.speechServiceUnreachable": "स्पीच रिकग्निशन अपनी सेवा तक नहीं पहुंच सका। अपना कनेक्शन जांचें, या सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत कोई दूसरा स्रोत चुनें।",
-  "voice.dictation.errors.noAudioCaptured": "कोई ऑडियो कैप्चर होने से पहले डिक्टेशन रुक गया। हो सकता है कोई दूसरा ऐप या टैब माइक्रोफ़ोन इस्तेमाल कर रहा हो। उसे बंद करें, या सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत कोई दूसरा स्रोत चुनें।",
-  "voice.dictation.errors.speechRecognitionFailed": "स्पीच रिकग्निशन विफल हुआ: {{error}}",
-  "voice.dictation.errors.recordingUnsupported": "आपका ब्राउज़र ऑडियो रिकॉर्डिंग का समर्थन नहीं करता। सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत ब्राउज़र विकल्प चुनें।",
-  "voice.dictation.errors.transcriptionFailedStatus": "ट्रांसक्रिप्शन विफल हुआ ({{status}})। फिर से कोशिश करें।",
-  "voice.dictation.errors.transcriptionFailed": "ट्रांसक्रिप्शन विफल हुआ। सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत अपना प्रदाता जांचें।",
-  "voice.dictation.errors.speechRecognitionUnsupported": "आपका ब्राउज़र स्पीच रिकग्निशन का समर्थन नहीं करता। Whisper ट्रांसक्रिप्शन इस्तेमाल करने के लिए सेटिंग में OpenAI API कुंजी जोड़ें।",
-  "voice.dictation.errors.googleRealtimeStartFailed": "Google रीयल-टाइम ट्रांसक्रिप्शन शुरू नहीं हो सका ({{status}})।",
-  "voice.dictation.errors.googleRealtimeUploadFailed": "रीयल-टाइम ऑडियो अपलोड विफल हुआ।",
-  "voice.dictation.errors.googleRealtimeFailed": "Google रीयल-टाइम ट्रांसक्रिप्शन विफल हुआ।",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Google रीयल-टाइम ट्रांसक्रिप्शन का कनेक्शन टूट गया।",
-  "voice.dictation.errors.googleRealtimeStreamFailed": "रीयल-टाइम स्ट्रीम शुरू नहीं हो सकी।",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "आपका ब्राउज़र ऑडियो रिकॉर्डिंग का समर्थन नहीं करता, इसलिए Google रीयल-टाइम ट्रांसक्रिप्शन शुरू नहीं हो सकता।",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "स्पीच रिकग्निशन अपनी सेवा तक नहीं पहुंच सका। अपना कनेक्शन जांचें, या सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत कोई दूसरा स्रोत चुनें।",
+  "voice.dictation.errors.noAudioCaptured":
+    "कोई ऑडियो कैप्चर होने से पहले डिक्टेशन रुक गया। हो सकता है कोई दूसरा ऐप या टैब माइक्रोफ़ोन इस्तेमाल कर रहा हो। उसे बंद करें, या सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत कोई दूसरा स्रोत चुनें।",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "स्पीच रिकग्निशन विफल हुआ: {{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "आपका ब्राउज़र ऑडियो रिकॉर्डिंग का समर्थन नहीं करता। सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत ब्राउज़र विकल्प चुनें।",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "ट्रांसक्रिप्शन विफल हुआ ({{status}})। फिर से कोशिश करें।",
+  "voice.dictation.errors.transcriptionFailed":
+    "ट्रांसक्रिप्शन विफल हुआ। सेटिंग में वॉइस ट्रांसक्रिप्शन के तहत अपना प्रदाता जांचें।",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "आपका ब्राउज़र स्पीच रिकग्निशन का समर्थन नहीं करता। Whisper ट्रांसक्रिप्शन इस्तेमाल करने के लिए सेटिंग में OpenAI API कुंजी जोड़ें।",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Google रीयल-टाइम ट्रांसक्रिप्शन शुरू नहीं हो सका ({{status}})।",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "रीयल-टाइम ऑडियो अपलोड विफल हुआ।",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "Google रीयल-टाइम ट्रांसक्रिप्शन विफल हुआ।",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Google रीयल-टाइम ट्रांसक्रिप्शन का कनेक्शन टूट गया।",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "रीयल-टाइम स्ट्रीम शुरू नहीं हो सकी।",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "आपका ब्राउज़र ऑडियो रिकॉर्डिंग का समर्थन नहीं करता, इसलिए Google रीयल-टाइम ट्रांसक्रिप्शन शुरू नहीं हो सकता।",
   "voiceMode.endVoiceChat": "वॉइस चैट खत्म करें",
   "voiceMode.placeholder": "सुना जा रहा है…",
   "voiceMode.muteMicrophone": "माइक्रोफ़ोन म्यूट करें",
@@ -3449,8 +3467,10 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.muteSpeaker": "स्पीकर म्यूट करें",
   "voiceMode.unmuteSpeaker": "स्पीकर अनम्यूट करें",
   "settingsShell.account.voiceChat": "वॉइस चैट",
-  "settingsShell.account.voiceChatLoadError": "आपकी वॉइस चैट सेटिंग लोड नहीं हो सकीं।",
-  "settingsShell.account.voiceChatSaveError": "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
+  "settingsShell.account.voiceChatLoadError":
+    "आपकी वॉइस चैट सेटिंग लोड नहीं हो सकीं।",
+  "settingsShell.account.voiceChatSaveError":
+    "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
   "voice.dictation.cancelTranscription": "ट्रांसक्रिप्शन रद्द करें",
 };
 

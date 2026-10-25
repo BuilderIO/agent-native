@@ -3668,25 +3668,44 @@ const messages: ToolkitAgentChatTranslation = {
   "documentTitle.running": "Arbeitet · {{title}}",
   "documentTitle.replyReady": "Antwort bereit · {{title}}",
   "voice.dictation.recording": "Diktat läuft",
-  "voice.dictation.errors.permissionsPolicy": "Diese App blockiert den Mikrofonzugriff über ihre Browser-Berechtigungsrichtlinie. Lade die App neu oder öffne sie direkt in einem Browser-Tab.",
-  "voice.dictation.errors.microphoneBlocked": "Der Mikrofonzugriff ist blockiert. Klicke in der Adressleiste auf das Symbol für die Website-Einstellungen, erlaube das Mikrofon für diese App und versuche es erneut.",
-  "voice.dictation.errors.microphoneBlockedBySystem": "Dein Computer blockiert den Mikrofonzugriff für diesen Browser. Erlaube ihn in den Datenschutzeinstellungen des Systems und versuche es erneut.",
-  "voice.dictation.errors.noMicrophone": "Kein Mikrofon gefunden. Schließe eines an oder wähle einen anderen Eingang und versuche es erneut.",
-  "voice.dictation.errors.microphoneBusy": "Dein Mikrofon wird von einer anderen App verwendet. Schließe die andere App oder wähle einen anderen Eingang und versuche es erneut.",
-  "voice.dictation.errors.startFailed": "Diktat konnte nicht gestartet werden. Versuche es erneut.",
-  "voice.dictation.errors.speechServiceUnreachable": "Die Spracherkennung konnte ihren Dienst nicht erreichen. Prüfe deine Verbindung oder wähle unter Sprachtranskription in den Einstellungen eine andere Quelle.",
-  "voice.dictation.errors.noAudioCaptured": "Das Diktat wurde beendet, bevor Audio aufgenommen wurde. Eine andere App oder ein anderer Tab verwendet möglicherweise das Mikrofon. Schließe sie oder wähle unter Sprachtranskription in den Einstellungen eine andere Quelle.",
-  "voice.dictation.errors.speechRecognitionFailed": "Spracherkennung fehlgeschlagen: {{error}}",
-  "voice.dictation.errors.recordingUnsupported": "Dein Browser unterstützt keine Audioaufnahme. Wähle unter Sprachtranskription in den Einstellungen die Browser-Option.",
-  "voice.dictation.errors.transcriptionFailedStatus": "Transkription fehlgeschlagen ({{status}}). Versuche es erneut.",
-  "voice.dictation.errors.transcriptionFailed": "Transkription fehlgeschlagen. Prüfe deinen Anbieter unter Sprachtranskription in den Einstellungen.",
-  "voice.dictation.errors.speechRecognitionUnsupported": "Dein Browser unterstützt keine Spracherkennung. Füge in den Einstellungen einen OpenAI-API-Schlüssel hinzu, um die Whisper-Transkription zu nutzen.",
-  "voice.dictation.errors.googleRealtimeStartFailed": "Google-Echtzeittranskription konnte nicht gestartet werden ({{status}}).",
-  "voice.dictation.errors.googleRealtimeUploadFailed": "Echtzeit-Audio-Upload fehlgeschlagen.",
-  "voice.dictation.errors.googleRealtimeFailed": "Google-Echtzeittranskription fehlgeschlagen.",
-  "voice.dictation.errors.googleRealtimeConnectionFailed": "Die Google-Echtzeittranskription hat die Verbindung verloren.",
-  "voice.dictation.errors.googleRealtimeStreamFailed": "Der Echtzeit-Stream konnte nicht gestartet werden.",
-  "voice.dictation.errors.googleRealtimeRecordingUnsupported": "Dein Browser unterstützt keine Audioaufnahme, daher kann die Google-Echtzeittranskription nicht starten.",
+  "voice.dictation.errors.permissionsPolicy":
+    "Diese App blockiert den Mikrofonzugriff über ihre Browser-Berechtigungsrichtlinie. Lade die App neu oder öffne sie direkt in einem Browser-Tab.",
+  "voice.dictation.errors.microphoneBlocked":
+    "Der Mikrofonzugriff ist blockiert. Klicke in der Adressleiste auf das Symbol für die Website-Einstellungen, erlaube das Mikrofon für diese App und versuche es erneut.",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "Dein Computer blockiert den Mikrofonzugriff für diesen Browser. Erlaube ihn in den Datenschutzeinstellungen des Systems und versuche es erneut.",
+  "voice.dictation.errors.noMicrophone":
+    "Kein Mikrofon gefunden. Schließe eines an oder wähle einen anderen Eingang und versuche es erneut.",
+  "voice.dictation.errors.microphoneBusy":
+    "Dein Mikrofon wird von einer anderen App verwendet. Schließe die andere App oder wähle einen anderen Eingang und versuche es erneut.",
+  "voice.dictation.errors.startFailed":
+    "Diktat konnte nicht gestartet werden. Versuche es erneut.",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "Die Spracherkennung konnte ihren Dienst nicht erreichen. Prüfe deine Verbindung oder wähle unter Sprachtranskription in den Einstellungen eine andere Quelle.",
+  "voice.dictation.errors.noAudioCaptured":
+    "Das Diktat wurde beendet, bevor Audio aufgenommen wurde. Eine andere App oder ein anderer Tab verwendet möglicherweise das Mikrofon. Schließe sie oder wähle unter Sprachtranskription in den Einstellungen eine andere Quelle.",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "Spracherkennung fehlgeschlagen: {{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "Dein Browser unterstützt keine Audioaufnahme. Wähle unter Sprachtranskription in den Einstellungen die Browser-Option.",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "Transkription fehlgeschlagen ({{status}}). Versuche es erneut.",
+  "voice.dictation.errors.transcriptionFailed":
+    "Transkription fehlgeschlagen. Prüfe deinen Anbieter unter Sprachtranskription in den Einstellungen.",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "Dein Browser unterstützt keine Spracherkennung. Füge in den Einstellungen einen OpenAI-API-Schlüssel hinzu, um die Whisper-Transkription zu nutzen.",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Google-Echtzeittranskription konnte nicht gestartet werden ({{status}}).",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "Echtzeit-Audio-Upload fehlgeschlagen.",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "Google-Echtzeittranskription fehlgeschlagen.",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Die Google-Echtzeittranskription hat die Verbindung verloren.",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "Der Echtzeit-Stream konnte nicht gestartet werden.",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "Dein Browser unterstützt keine Audioaufnahme, daher kann die Google-Echtzeittranskription nicht starten.",
   "voiceMode.endVoiceChat": "Sprachchat beenden",
   "voiceMode.placeholder": "Hört zu…",
   "voiceMode.muteMicrophone": "Mikrofon stummschalten",
@@ -3694,8 +3713,10 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.muteSpeaker": "Lautsprecher stummschalten",
   "voiceMode.unmuteSpeaker": "Lautsprecher einschalten",
   "settingsShell.account.voiceChat": "Sprachchat",
-  "settingsShell.account.voiceChatLoadError": "Deine Sprachchat-Einstellungen konnten nicht geladen werden.",
-  "settingsShell.account.voiceChatSaveError": "Deine Sprachchat-Einstellungen konnten nicht gespeichert werden.",
+  "settingsShell.account.voiceChatLoadError":
+    "Deine Sprachchat-Einstellungen konnten nicht geladen werden.",
+  "settingsShell.account.voiceChatSaveError":
+    "Deine Sprachchat-Einstellungen konnten nicht gespeichert werden.",
   "voice.dictation.cancelTranscription": "Transkription abbrechen",
 };
 

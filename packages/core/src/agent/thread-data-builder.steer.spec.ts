@@ -221,6 +221,52 @@ describe("messages sent into a running turn", () => {
     expect(folded._steeredQueuedMessages).toEqual([]);
   });
 
+  it("keeps uploaded request attachments on the delivery record", () => {
+    const [record] = steeredQueuedMessageRecords(
+      "run-1",
+      [
+        {
+          id: "queued-1",
+          text: "Use this logo",
+          attachments: [
+            {
+              name: "brief.pdf",
+              url: "https://cdn.example.com/brief.pdf",
+              mediaType: "application/pdf",
+            },
+          ],
+          requestAttachments: [
+            {
+              name: "logo.png",
+              url: "https://cdn.example.com/logo.png",
+              mediaType: "image/png",
+            },
+            {
+              name: "brief.pdf",
+              url: "https://cdn.example.com/brief.pdf",
+            },
+            {
+              name: "inline.png",
+              data: "data:image/png;base64,AAAA",
+            },
+          ],
+        },
+      ],
+      Date.parse(steerAt),
+    );
+
+    expect(record!.message.attachments).toEqual([
+      expect.objectContaining({
+        type: "file",
+        url: "https://cdn.example.com/brief.pdf",
+      }),
+      expect.objectContaining({
+        type: "image",
+        url: "https://cdn.example.com/logo.png",
+      }),
+    ]);
+  });
+
   it("replays the delivered message to the model after the tool results it followed", () => {
     const { repo, prompt } = promptRepo();
     const turn = buildAssistantTurnSegments(steeredEvents(), "run-1", {

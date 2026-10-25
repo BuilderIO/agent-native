@@ -279,8 +279,7 @@ describe("AgentPanelThreadTabStrip", () => {
       clientWidth: { value: 300 },
       scrollLeft: { value: 0, writable: true },
     });
-    scroller.getBoundingClientRect = () =>
-      ({ left: 0, right: 300 }) as DOMRect;
+    scroller.getBoundingClientRect = () => ({ left: 0, right: 300 }) as DOMRect;
     [0, 120, 240, 360].forEach((left) => {
       const tab = document.createElement("div");
       tab.setAttribute("data-agent-tab-item", "");
