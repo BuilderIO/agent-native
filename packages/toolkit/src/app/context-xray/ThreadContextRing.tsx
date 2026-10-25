@@ -37,9 +37,9 @@ export function ThreadContextRing({
   model,
   enabled = true,
 }: {
-  threadId?: string | null;
+  threadId?: string | null | undefined;
   /** The composer's selected model; its window is the denominator. */
-  model?: string;
+  model?: string | undefined;
   /** False while the thread is a draft the server has not saved yet. */
   enabled?: boolean;
 }) {

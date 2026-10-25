@@ -74,10 +74,29 @@ export const MAIN_MODEL_ROW_LIMIT = 4;
 export interface CuratableModelRow {
   /** Dedupe key: one model offered by two engines is one short-list row. */
   identity: string;
-  recommendedRank?: number;
+  recommendedRank?: number | undefined;
   /** Position in the catalog's fixed root list. */
-  rootRank?: number;
-  provider?: string;
+  rootRank?: number | undefined;
+  provider?: string | undefined;
+}
+
+/** The rows that carry a rank, in rank order, keeping the first per identity. */
+function rankedRows<T extends CuratableModelRow>(
+  rows: readonly T[],
+  rankOf: (row: T) => number | undefined,
+): T[] {
+  const seen = new Set<string>();
+  return rows
+    .flatMap((row) => {
+      const rank = rankOf(row);
+      return rank === undefined ? [] : [{ row, rank }];
+    })
+    .sort((a, b) => a.rank - b.rank)
+    .flatMap(({ row }) => {
+      if (seen.has(row.identity)) return [];
+      seen.add(row.identity);
+      return [row];
+    });
 }
 
 /**
@@ -93,27 +112,11 @@ export function curateModelPickerRows<T extends CuratableModelRow>(
   limit = MAIN_MODEL_ROW_LIMIT,
 ): { main: T[]; more: T[] } {
   if (rows.length <= limit) return { main: [...rows], more: [] };
-  const rootSeen = new Set<string>();
-  const root = rows
-    .filter((row) => row.rootRank !== undefined)
-    .sort((a, b) => a.rootRank! - b.rootRank!)
-    .filter((row) => {
-      if (rootSeen.has(row.identity)) return false;
-      rootSeen.add(row.identity);
-      return true;
-    });
+  const root = rankedRows(rows, (row) => row.rootRank);
   if (root.length > 0) {
     return { main: root, more: rows.filter((row) => !root.includes(row)) };
   }
-  const seen = new Set<string>();
-  const ranked = rows
-    .filter((row) => row.recommendedRank !== undefined)
-    .sort((a, b) => a.recommendedRank! - b.recommendedRank!)
-    .filter((row) => {
-      if (seen.has(row.identity)) return false;
-      seen.add(row.identity);
-      return true;
-    });
+  const ranked = rankedRows(rows, (row) => row.recommendedRank);
   const picked: T[] = [];
   const providers = new Set<string>();
   for (const row of ranked) {

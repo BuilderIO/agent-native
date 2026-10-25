@@ -19,10 +19,10 @@ export type AgentKitPendingSubmissionFile = Extract<
 
 export interface AgentKitPendingSubmissionDraft {
   text: string;
-  attachments?: readonly AgentKitPendingSubmissionFile[];
-  references?: readonly unknown[];
+  attachments?: readonly AgentKitPendingSubmissionFile[] | undefined;
+  references?: readonly unknown[] | undefined;
   /** The send's own message metadata, so message slots render it alike. */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export interface AgentKitPendingSubmission {
@@ -35,7 +35,7 @@ export interface AgentKitPendingSubmission {
 interface PendingEntry {
   threadId: ThreadId;
   message: AgentMessage;
-  release?: () => void;
+  release?: (() => void) | undefined;
   adoptable: boolean;
   /** The copy's send reached the controller, past any preflight. */
   accepted: boolean;
@@ -51,7 +51,10 @@ function noop() {}
 let fallbackRequestCount = 0;
 
 function createClientRequestId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return `client-request-${crypto.randomUUID()}`;
   }
   fallbackRequestCount += 1;
@@ -114,7 +117,7 @@ export class AgentKitPendingSubmissionStore {
    */
   public settled(
     threadId: ThreadId,
-    options: { ownId?: string; queued?: boolean } = {},
+    options: { ownId?: string | undefined; queued?: boolean } = {},
   ): Promise<void> {
     const pending = this.ahead({ threadId, ...options }).map(
       (entry) => entry.settled,
@@ -125,14 +128,14 @@ export class AgentKitPendingSubmissionStore {
   /** Whether `settled` with the same options would wait. */
   public hasAhead(
     threadId: ThreadId,
-    options: { ownId?: string; queued?: boolean } = {},
+    options: { ownId?: string | undefined; queued?: boolean } = {},
   ): boolean {
     return this.ahead({ threadId, ...options }).length > 0;
   }
 
   private ahead(options: {
     threadId: ThreadId;
-    ownId?: string;
+    ownId?: string | undefined;
     queued?: boolean;
   }): PendingEntry[] {
     const ahead: PendingEntry[] = [];

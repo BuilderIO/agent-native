@@ -3741,7 +3741,7 @@ interface AgentNativeMessageProjectionState {
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
-    pendingApprovalToolCallId?: string;
+    pendingApprovalToolCallId?: string | undefined;
     connectionPending: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
@@ -4102,7 +4102,7 @@ function mapAgentNativeEvent(
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
-      pendingApprovalToolCallId?: string;
+      pendingApprovalToolCallId?: string | undefined;
       connectionPending: boolean;
       activityParticipants?: Set<string>;
     };
@@ -5331,7 +5331,7 @@ export function createAgentNativeChatRuntime(
       if (steered) {
         const base = {
           sessionId: context.sessionId,
-          turnId: context.turnId,
+          ...(context.turnId === undefined ? {} : { turnId: context.turnId }),
           ...(steered.seq !== undefined
             ? { metadata: { seq: steered.seq } }
             : {}),
@@ -5343,7 +5343,9 @@ export function createAgentNativeChatRuntime(
             { type: "text", text: steered.message.text },
             ...steered.attachments,
           ],
-          createdAt: steered.message.createdAt,
+          ...(steered.message.createdAt === undefined
+            ? {}
+            : { createdAt: steered.message.createdAt }),
           status: "complete",
         };
         const mappedSteer: AgentChatRuntimeKnownEvent[] = [

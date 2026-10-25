@@ -109,25 +109,27 @@ export function AgentApprovalCard({
   return (
     <ApprovalCard
       title={question}
-      detail={toolName || undefined}
+      {...(toolName ? { detail: toolName } : {})}
       status={statusLabel ?? t("agentChat.approval.pending")}
       className="agent-approval-card mt-2 mb-0 w-full max-w-[30rem]"
       actions={actions}
-      menu={
-        onApprove && onAlwaysAllow
-          ? {
+      {...(onApprove && onAlwaysAllow
+        ? {
+            menu: {
               label: moreOptionsLabel,
               items: [
                 {
                   id: "always-allow",
                   label: alwaysAllowLabel,
-                  hint: alwaysAllowHint,
+                  ...(alwaysAllowHint === undefined
+                    ? {}
+                    : { hint: alwaysAllowHint }),
                 },
               ],
               onAction: () => void onAlwaysAllow(),
-            }
-          : undefined
-      }
+            },
+          }
+        : {})}
       busy={isAlwaysAllowing}
       error={saveFailedLabel}
     />

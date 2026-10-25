@@ -155,7 +155,7 @@ export function CodeRequiredDialog({
               className={OPTION_ROW_CLASS}
               disabled={submitting}
               aria-busy={submitting || undefined}
-              onClick={handleBuilderAgent}
+              onClick={() => void handleBuilderAgent()}
             >
               <OptionRowContent
                 icon={

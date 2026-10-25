@@ -1636,7 +1636,7 @@ export function createRealtimeVoiceModeCopy(
 
 export function useRealtimeVoiceModeCopy(): RealtimeVoiceModeCopy {
   const { translate: t } = useComposerRuntimeAdapters();
-  return useMemo(() => createRealtimeVoiceModeCopy(t!), [t]);
+  return useMemo(() => createRealtimeVoiceModeCopy(t), [t]);
 }
 
 function useRealtimeVoiceModeController(
@@ -1958,7 +1958,7 @@ function useRealtimeVoiceModeController(
           currentStream: streamRef.current,
           deviceId,
         });
-        const replacementTrack = replacementStream.getAudioTracks()[0];
+        const replacementTrack = replacementStream.getAudioTracks().at(0);
         streamRef.current = replacementStream;
         if (replacementTrack) replacementTrack.enabled = !inputMutedRef.current;
         if (replacementTrack) {
@@ -2753,7 +2753,7 @@ export function buildRealtimeVoiceSettings({
       value: preferences.voice,
       options: REALTIME_VOICES.map((voiceName) => ({
         value: voiceName,
-        label: `${voiceName[0]!.toUpperCase()}${voiceName.slice(1)}`,
+        label: `${voiceName.charAt(0).toUpperCase()}${voiceName.slice(1)}`,
         description: copy.settings.voiceDescriptions[voiceName],
       })),
       onValueChange: (value: string) => {

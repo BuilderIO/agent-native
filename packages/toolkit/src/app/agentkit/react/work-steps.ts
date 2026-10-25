@@ -19,10 +19,13 @@ const REASONING_HEADING = /(^|\n|[.!?:]["'”)]?[ \t]+)\*\*([^*\n]+?)\*\*/g;
 export function agentReasoningSections(text: string): AgentReasoningSection[] {
   const starts: { index: number; heading: string; bodyStart: number }[] = [];
   for (const match of text.matchAll(REASONING_HEADING)) {
-    const index = match.index + match[1]!.length;
+    // Both groups always take part in a match.
+    const lead = match.at(1);
+    const heading = match.at(2);
+    if (lead === undefined || heading === undefined) continue;
     starts.push({
-      index,
-      heading: match[2]!.trim(),
+      index: match.index + lead.length,
+      heading: heading.trim(),
       bodyStart: match.index + match[0].length,
     });
   }
@@ -68,12 +71,12 @@ export interface AgentWorkTimelineInput {
   /** The reasoning message an event streamed or carried, at its latest state. */
   reasoningOf: (event: AgentEvent) => AgentMessage | undefined;
   /** Which first events belong to this segment; work before it only counts. */
-  includes?: (event: AgentEvent) => boolean;
+  includes?: ((event: AgentEvent) => boolean) | undefined;
   /**
    * Saved reasoning whose stream events are gone. Each part lands before the
    * first call it names in `toolCallIds`, or with the part after it.
    */
-  folded?: AgentMessage;
+  folded?: AgentMessage | undefined;
 }
 
 type TimelineToken =
@@ -159,7 +162,8 @@ export function agentWorkTimeline({
       ordered.push({ type: "call", id: token.id, event: token.event });
       continue;
     }
-    const message = messages.get(token.messageId)!;
+    const message = messages.get(token.messageId);
+    if (!message) continue;
     const full = message.parts
       .filter(isVisibleReasoning)
       .map((part) => part.text)
@@ -182,28 +186,24 @@ export function agentWorkTimeline({
 
   // Reasoning its deltas cannot place, such as a saved reply that arrived
   // whole, lands by the calls each part names, as folded reasoning does.
-  const anchored = new Set(
-    [...messages.values()]
-      .filter(
-        (message) =>
-          !splittable.has(message.id) &&
-          message.parts.some(
-            (part) => isVisibleReasoning(part) && part.toolCallIds?.length,
-          ),
-      )
-      .map((message) => message.id),
+  const anchored = [...messages.values()].filter(
+    (message) =>
+      !splittable.has(message.id) &&
+      message.parts.some(
+        (part) => isVisibleReasoning(part) && part.toolCallIds?.length,
+      ),
   );
   let timeline: TimelineEntry[] = ordered.filter(
     (entry) => !includes || !entry.event || includes(entry.event),
   );
-  for (const id of anchored) {
+  for (const message of anchored) {
     const at = timeline.findIndex(
-      (entry) => entry.type === "reasoning" && entry.messageId === id,
+      (entry) => entry.type === "reasoning" && entry.messageId === message.id,
     );
     if (at < 0) continue;
     timeline = placeByCalls(
       timeline.filter((_, index) => index !== at),
-      messages.get(id)!,
+      message,
       at,
     );
   }
@@ -229,34 +229,35 @@ function placeByCalls(
   timeline.forEach((entry, index) => {
     if (entry.type === "call") callIndex.set(entry.id, index);
   });
-  const positions: number[] = [];
+  // Parts that land before the timeline entry at each position, in order.
+  const before = new Map<number, TimelineEntry[]>();
   let nextPosition = fallback;
-  for (let index = parts.length - 1; index >= 0; index--) {
-    const anchors = (parts[index]!.toolCallIds ?? [])
+  for (const [partIndex, part] of [...parts.entries()].reverse()) {
+    const anchors = (part.toolCallIds ?? [])
       .map((id) => callIndex.get(id))
       .filter((position): position is number => position !== undefined);
     const position = anchors.length
       ? Math.min(...anchors, nextPosition)
       : nextPosition;
-    positions[index] = position;
-    nextPosition = position;
-  }
-  const result: TimelineEntry[] = [];
-  let partIndex = 0;
-  for (let index = 0; index <= timeline.length; index++) {
-    while (partIndex < parts.length && positions[partIndex] === index) {
-      result.push({
+    before.set(position, [
+      {
         type: "reasoning",
         key: `reasoning:${message.id}:part:${partIndex}`,
         messageId: message.id,
-        text: parts[partIndex]!.text,
+        text: part.text,
         active: false,
-      });
-      partIndex += 1;
-    }
-    if (index < timeline.length) result.push(timeline[index]!);
+      },
+      ...(before.get(position) ?? []),
+    ]);
+    nextPosition = position;
   }
-  return result;
+  return [
+    ...timeline.flatMap((entry, index) => [
+      ...(before.get(index) ?? []),
+      entry,
+    ]),
+    ...(before.get(timeline.length) ?? []),
+  ];
 }
 
 /** How a step names a run of calls: what they did, not which tool did it. */
@@ -288,7 +289,7 @@ export interface AgentWorkCall {
 export interface AgentWorkGroup {
   key: string;
   verb: AgentWorkVerb;
-  calls: AgentWorkCall[];
+  calls: [AgentWorkCall, ...AgentWorkCall[]];
   /** Distinct objects in call order: queries, page domains, file names. */
   objects: AgentWorkObject[];
   /** Calls that failed the same way; `reason` is the shared short reason. */
@@ -301,7 +302,7 @@ export interface AgentWorkGroup {
 export interface AgentWorkStep {
   key: string;
   /** The heading the agent wrote, or its first sentence; none before any reasoning. */
-  title?: string;
+  title?: string | undefined;
   /** Reasoning markdown behind the title; empty when the title is all of it. */
   body: string;
   /** The section's reasoning as written, heading included, for host renderers. */
@@ -417,7 +418,7 @@ export function agentWorkCallVerb(call: AgentWorkCall): AgentWorkVerb {
   const object = agentWorkCallObject(call);
   if (kind === "search" || object?.kind === "query") return "searched";
   if (object?.kind === "url") {
-    const input = inputRecord(call.tool?.input);
+    const input = inputRecord(call.tool.input);
     const method = firstString(input, ["method"])?.toUpperCase();
     const mode = firstString(input, ["responseMode", "format"])?.toLowerCase();
     return (method && method !== "GET" && method !== "HEAD") || mode === "json"
@@ -444,7 +445,7 @@ export function agentWorkFailureReason(
       part.type === "text" && Boolean(part.text.trim()),
   )?.text;
   const source =
-    tool?.error?.message?.trim() ||
+    tool?.error?.message.trim() ||
     (typeof tool?.output === "string" ? tool.output.trim() : undefined) ||
     (summary && !/^\s*[[{]/.test(summary) ? summary.trim() : undefined) ||
     call.activity.detail?.trim();
@@ -452,7 +453,7 @@ export function agentWorkFailureReason(
   const status = /\bHTTP\s+\d{3}\b[^\n]*/i.exec(source)?.[0];
   const line =
     status ?? source.split("\n").find((candidate) => candidate.trim()) ?? "";
-  const sentence = (status ? line : line.split(/(?<=[.!?])\s/)[0]!)
+  const sentence = (status ? line : (line.split(/(?<=[.!?])\s/)[0] ?? line))
     .replace(/^error:\s*/i, "")
     .replace(/[.:;,]\s*$/, "")
     .replace(/\s*\((?:error)?code:[^)]*\)\s*$/i, "")
@@ -577,11 +578,13 @@ export function agentWorkSteps(
       groupsByStep.set(step, groups);
     }
     let group = groups.get(identity);
-    if (!group) {
+    if (group) {
+      group.calls.push(call);
+    } else {
       group = {
         key: `${step.key}:${call.id}`,
         verb,
-        calls: [],
+        calls: [call],
         objects: [],
         failed,
         ...(reason ? { reason } : {}),
@@ -591,7 +594,6 @@ export function agentWorkSteps(
       groups.set(identity, group);
       step.groups.push(group);
     }
-    group.calls.push(call);
     const object = agentWorkCallObject(call);
     if (
       object &&
@@ -617,9 +619,11 @@ export function agentWorkSteps(
       );
     }
     let dominant: AgentWorkVerb | undefined;
+    let dominantCount = 0;
     for (const [verb, count] of counts) {
-      if (dominant === undefined || count > counts.get(dominant)!) {
+      if (dominant === undefined || count > dominantCount) {
         dominant = verb;
+        dominantCount = count;
       }
     }
     if (dominant) step.dominantVerb = dominant;

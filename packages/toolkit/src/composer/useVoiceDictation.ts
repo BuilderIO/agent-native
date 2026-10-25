@@ -424,7 +424,7 @@ export function useVoiceDictation(
 ): VoiceDictationApi {
   const adapters = useComposerRuntimeAdapters();
   const resolvePath = adapters.resolvePath!;
-  const t = adapters.translate!;
+  const t = adapters.translate;
   const replaceContext =
     adapters.voice!.applyContextReplacements ?? applyVoiceContextReplacements;
   const { onTranscript, onError, onLiveUpdate, contextPack } = options;
@@ -552,10 +552,16 @@ export function useVoiceDictation(
   const startMeter = useCallback(
     (stream: MediaStream) => {
       try {
-        const AudioCtor =
+        // Older Safari has only the prefixed constructor.
+        const audioWindow =
           typeof window !== "undefined"
-            ? window.AudioContext || (window as any).webkitAudioContext || null
-            : null;
+            ? (window as {
+                AudioContext?: typeof AudioContext;
+                webkitAudioContext?: typeof AudioContext;
+              })
+            : undefined;
+        const AudioCtor =
+          audioWindow?.AudioContext || audioWindow?.webkitAudioContext || null;
         if (!AudioCtor) return;
         const ctx: AudioContext = new AudioCtor();
         const source = ctx.createMediaStreamSource(stream);
@@ -849,7 +855,7 @@ export function useVoiceDictation(
             }
           }
           if (session !== sessionRef.current) return;
-          if (finalText) onTranscriptRef.current?.(finalText);
+          if (finalText) onTranscriptRef.current(finalText);
           setState("idle");
         })();
       };
@@ -951,7 +957,7 @@ export function useVoiceDictation(
               }
             }
             if (session !== sessionRef.current) return;
-            if (cleanedText) onTranscriptRef.current?.(cleanedText);
+            if (cleanedText) onTranscriptRef.current(cleanedText);
             setState("idle");
             return;
           }
@@ -972,7 +978,7 @@ export function useVoiceDictation(
           socket.send(await event.data.arrayBuffer());
         } catch (err) {
           finish(
-            (err as Error)?.message ??
+            (err as Partial<Error> | null | undefined)?.message ??
               t("agentChat.voice.dictation.errors.googleRealtimeUploadFailed", {
                 defaultValue: "Realtime audio upload failed.",
               }),
@@ -1107,7 +1113,7 @@ export function useVoiceDictation(
           );
         } catch (err) {
           finish(
-            (err as Error)?.message ??
+            (err as Partial<Error> | null | undefined)?.message ??
               t("agentChat.voice.dictation.errors.googleRealtimeStreamFailed", {
                 defaultValue: "Could not start the realtime stream.",
               }),

@@ -139,12 +139,13 @@ export async function buildAssistantTurnFromRunJournal(input: {
             turnId: input.turnId,
           },
     );
+    const lastSteered = segments.steered.at(-1);
     if (runId === input.runId) {
       steered = segments.steered;
-    } else if (segments.steered.length > 0) {
+    } else if (lastSteered) {
       // That run's fold saved everything up to its last delivered message;
       // only the reply after it continues into this run's output.
-      const last = segments.steered.at(-1)!;
+      const last = lastSteered;
       repo = { messages: [] };
       parentId = last.user.id;
       if (last.assistant) {

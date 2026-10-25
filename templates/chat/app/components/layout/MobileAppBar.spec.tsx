@@ -76,6 +76,12 @@ describe("MobileAppBar", () => {
     return container.querySelectorAll<HTMLElement>("[data-mobile-app-bar]");
   }
 
+  function firstBar(): HTMLElement {
+    const bar = bars()[0];
+    if (!bar) throw new Error("No mobile app bar rendered");
+    return bar;
+  }
+
   it("is one 48px bar with a 32px menu button, the title and the actions", () => {
     const onOpenNavigation = vi.fn();
     act(() =>
@@ -88,7 +94,7 @@ describe("MobileAppBar", () => {
       ),
     );
 
-    const bar = bars()[0];
+    const bar = firstBar();
     expect(bar.classList.contains("h-12")).toBe(true);
     const menu = bar.querySelector<HTMLButtonElement>(
       '[aria-label="navigation.openNavigation"]',
@@ -105,7 +111,7 @@ describe("MobileAppBar", () => {
 
   it("renders no empty actions group", () => {
     act(() => root.render(<MobileAppBar onOpenNavigation={() => {}} />));
-    expect(bars()[0].children).toHaveLength(2);
+    expect(firstBar().children).toHaveLength(2);
   });
 
   function renderLayout(pathname: string) {
@@ -124,7 +130,7 @@ describe("MobileAppBar", () => {
     renderLayout("/chat/thread-1");
 
     expect(bars()).toHaveLength(1);
-    expect(bars()[0].textContent).toBe("Chat");
+    expect(firstBar().textContent).toBe("Chat");
     expect(
       container
         .querySelector("[data-agent-chat-canvas]")
@@ -138,8 +144,8 @@ describe("MobileAppBar", () => {
     renderLayout("/chat/thread-1");
 
     expect(bars()).toHaveLength(1);
-    expect(bars()[0].textContent).toContain("Quarterly plan");
-    expect(bars()[0].textContent).toContain("Workspace");
+    expect(firstBar().textContent).toContain("Quarterly plan");
+    expect(firstBar().textContent).toContain("Workspace");
     expect(
       container
         .querySelector("[data-agent-chat-canvas]")
@@ -151,8 +157,8 @@ describe("MobileAppBar", () => {
     renderLayout("/home");
 
     expect(bars()).toHaveLength(1);
-    expect(bars()[0].textContent).toBe("");
-    expect(bars()[0].classList.contains("md:hidden")).toBe(true);
+    expect(firstBar().textContent).toBe("");
+    expect(firstBar().classList.contains("md:hidden")).toBe(true);
   });
 
   it("does not repeat the nav label as a page heading", () => {
@@ -166,6 +172,6 @@ describe("MobileAppBar", () => {
 
     expect(bars()).toHaveLength(1);
     expect(container.querySelector("h1")).toBeNull();
-    expect(bars()[0].textContent).toBe("Agent");
+    expect(firstBar().textContent).toBe("Agent");
   });
 });

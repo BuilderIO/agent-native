@@ -25,7 +25,7 @@ export interface ThreadContextUsage {
   windowTokens?: number;
   segments: ThreadContextUsageSegment[];
   tokenMethod?: ContextManifest["tokenCountMethod"];
-  manifest?: ContextManifest;
+  manifest?: ContextManifest | undefined;
   error?: unknown;
   refresh: () => void;
 }
@@ -115,8 +115,8 @@ export function useThreadContextUsage({
   model,
   enabled = true,
 }: {
-  threadId?: string | null;
-  model?: string;
+  threadId?: string | null | undefined;
+  model?: string | undefined;
   enabled?: boolean;
 }): ThreadContextUsage {
   const active = Boolean(threadId && enabled);

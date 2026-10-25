@@ -112,6 +112,16 @@ export interface AgentKitRootBaseProps {
 
 export type AgentKitRootProps = AgentKitRootBaseProps & AgentKitClientSource;
 
+/** A host callback the client was built around, read at call time. */
+function latestCallback<T>(callback: T | undefined, name: string): T {
+  if (callback === undefined) {
+    throw new Error(
+      `AgentKitRoot ${name} was removed after the client was created.`,
+    );
+  }
+  return callback;
+}
+
 export function AgentKitRoot({
   controller,
   transport,
@@ -164,7 +174,11 @@ export function AgentKitRoot({
         ? createAgentKitHttpTransport({
             baseUrl: endpoint,
             fetch: hasHttpFetch
-              ? (input, init) => latest.current.http!.fetch!(input, init)
+              ? (input, init) =>
+                  latestCallback(latest.current.http?.fetch, "http.fetch")(
+                    input,
+                    init,
+                  )
               : undefined,
             headers: hasHttpHeaders
               ? () => {
@@ -173,7 +187,11 @@ export function AgentKitRoot({
                 }
               : undefined,
             createCorrelationId: hasHttpCorrelationId
-              ? () => latest.current.http!.createCorrelationId!()
+              ? () =>
+                  latestCallback(
+                    latest.current.http?.createCorrelationId,
+                    "http.createCorrelationId",
+                  )()
               : undefined,
             signal: httpSignal,
           })
@@ -202,29 +220,61 @@ export function AgentKitRoot({
     clientOptions?.retainActiveRunsOnThreadRelease;
   const managedClient = useMemo(() => {
     if (controller) return undefined;
-    const options = () => latest.current.clientOptions!;
+    const options = () => latest.current.clientOptions;
     return createAgentKitClient({
       transport: resolvedTransport as AgentTransport,
-      aiSetupReadiness,
-      transportOwnership,
-      createId: hasCreateId
-        ? (prefix) => options().createId!(prefix)
-        : undefined,
-      now: hasNow ? () => options().now!() : undefined,
+      ...(aiSetupReadiness === undefined ? {} : { aiSetupReadiness }),
+      ...(transportOwnership === undefined ? {} : { transportOwnership }),
+      ...(hasCreateId
+        ? {
+            createId: (prefix) =>
+              latestCallback(
+                options()?.createId,
+                "clientOptions.createId",
+              )(prefix),
+          }
+        : {}),
+      ...(hasNow
+        ? {
+            now: () => latestCallback(options()?.now, "clientOptions.now")(),
+          }
+        : {}),
       reconnect: {
-        attempts: reconnectAttempts,
-        delayMs: hasReconnectDelay
-          ? (attempt) => options().reconnect!.delayMs!(attempt)
-          : undefined,
+        ...(reconnectAttempts === undefined
+          ? {}
+          : { attempts: reconnectAttempts }),
+        ...(hasReconnectDelay
+          ? {
+              delayMs: (attempt) =>
+                latestCallback(
+                  options()?.reconnect?.delayMs,
+                  "clientOptions.reconnect.delayMs",
+                )(attempt),
+            }
+          : {}),
       },
-      onError: hasOnError ? (error) => options().onError?.(error) : undefined,
-      onIntegrityReport: hasOnIntegrityReport
-        ? (report) => options().onIntegrityReport?.(report)
-        : undefined,
-      retainActiveRunsOnThreadRelease,
-      upload: hasUpload
-        ? (target, file, context) => options().upload!(target, file, context)
-        : undefined,
+      ...(hasOnError
+        ? { onError: (error) => options()?.onError?.(error) }
+        : {}),
+      ...(hasOnIntegrityReport
+        ? {
+            onIntegrityReport: (report) =>
+              options()?.onIntegrityReport?.(report),
+          }
+        : {}),
+      ...(retainActiveRunsOnThreadRelease === undefined
+        ? {}
+        : { retainActiveRunsOnThreadRelease }),
+      ...(hasUpload
+        ? {
+            upload: (target, file, context) =>
+              latestCallback(options()?.upload, "clientOptions.upload")(
+                target,
+                file,
+                context,
+              ),
+          }
+        : {}),
     });
   }, [
     controller,

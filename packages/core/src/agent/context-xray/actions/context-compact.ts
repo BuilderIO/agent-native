@@ -24,12 +24,22 @@ export interface ContextCompactResult {
   message: string;
 }
 
+const contextCompactResultSchema = z.object({
+  threadId: z.string(),
+  status: z.enum(["compacted", "nothing-to-compact"]),
+  compactedTokens: z.number(),
+  observationTokens: z.number(),
+  reflected: z.boolean(),
+  message: z.string(),
+});
+
 export default defineAction({
   description:
     "Compact a chat thread's context now: summarize every message not yet compacted into an observational-memory entry that future model calls read in place of those messages, instead of waiting for the automatic post-turn threshold. The transcript is not changed or deleted. Takes effect on the next model call. Only the thread owner can compact it.",
   schema: z.object({
     threadId: z.string().min(1).describe("Chat thread id to compact."),
   }),
+  outputSchema: contextCompactResultSchema,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,

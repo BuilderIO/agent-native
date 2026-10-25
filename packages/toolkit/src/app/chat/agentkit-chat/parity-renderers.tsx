@@ -73,7 +73,7 @@ export function agentKitFileChangeParts(
         args: Object.fromEntries(
           Object.entries(input).map(([key, value]) => [key, String(value)]),
         ),
-        result: typeof tool.output === "string" ? tool.output : undefined,
+        ...(typeof tool.output === "string" ? { result: tool.output } : {}),
         structuredMeta: metadata,
       };
     });

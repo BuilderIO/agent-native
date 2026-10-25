@@ -16,6 +16,7 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 vi.mock("./run-store.js", () => ({
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   writeLedgerEntry: vi.fn(),
   readLedgerEntry: vi.fn(async () => null),
   clearLedgerForThread: vi.fn(async () => undefined),

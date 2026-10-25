@@ -144,8 +144,7 @@ function moveId(
   to: number,
 ): readonly string[] {
   const next = [...ids];
-  const [moved] = next.splice(from, 1);
-  if (moved !== undefined) next.splice(to, 0, moved);
+  next.splice(to, 0, ...next.splice(from, 1));
   return next;
 }
 
@@ -185,7 +184,7 @@ export function MessageQueueDrawer({
   disabled = false,
   className,
 }: MessageQueueDrawerProps) {
-  const t = useComposerRuntimeAdapters().translate!;
+  const t = useComposerRuntimeAdapters().translate;
   const recessed = variant === "recessed";
   const sendNow = labels.sendNow ?? labels.steer;
   const sendNowHint = labels.sendNowHint ?? labels.steerHint;
@@ -324,7 +323,10 @@ export function MessageQueueDrawer({
     const startIndex = displayIds.indexOf(id);
     if (startIndex < 0) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const handle = event.currentTarget;
+    // jsdom and some older WebViews have no pointer capture.
+    if ("setPointerCapture" in handle)
+      handle.setPointerCapture(event.pointerId);
     dragOriginRef.current = {
       pointerId: event.pointerId,
       startY: event.clientY,
@@ -340,9 +342,10 @@ export function MessageQueueDrawer({
     const origin = dragOriginRef.current;
     if (!origin || origin.pointerId !== event.pointerId || !drag) return;
     const { rects } = origin;
-    const start = rects[drag.startIndex]!;
-    const first = rects[0]!;
-    const last = rects[rects.length - 1]!;
+    const start = rects.at(drag.startIndex);
+    const first = rects.at(0);
+    const last = rects.at(-1);
+    if (!start || !first || !last) return;
     const offset = Math.min(
       Math.max(event.clientY - origin.startY, first.top - start.top),
       last.top + last.height - (start.top + start.height),
@@ -492,7 +495,7 @@ export function MessageQueueDrawer({
             const actions = rowActions(item, index);
             const hasImages = Boolean(item.images && item.images.length > 0);
             const dragging = drag?.id === item.id;
-            const shift = dragging ? (drag?.offset ?? 0) : rowShift(index);
+            const shift = dragging ? drag.offset : rowShift(index);
 
             return (
               <li
@@ -567,7 +570,7 @@ export function MessageQueueDrawer({
                   </div>
                   {hasImages ? (
                     <div className="mt-0.5 flex gap-1">
-                      {item.images!.map((src, imageIndex) => (
+                      {item.images?.map((src, imageIndex) => (
                         <img
                           key={`${item.id}-image-${imageIndex}`}
                           src={src}

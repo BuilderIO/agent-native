@@ -31,6 +31,11 @@ interface SavedIcon {
 
 const ICON_ATTRIBUTES = ["href", "type", "sizes"] as const;
 
+/** lib.dom types `head` as always present; a document with no head element has none. */
+function documentHead(doc: Document): HTMLHeadElement | null {
+  return doc.head;
+}
+
 /**
  * Decorates `document.title` and the favicon with the tab's agent run status.
  * The app keeps owning its title: a title the app sets while decorated
@@ -78,11 +83,12 @@ export function createDocumentStatusController({
   };
 
   const observeTitle = () => {
-    if (observer || typeof MutationObserver === "undefined" || !doc.head) {
+    const head = documentHead(doc);
+    if (observer || typeof MutationObserver === "undefined" || !head) {
       return;
     }
     observer = new MutationObserver(onTitleMutation);
-    observer.observe(doc.head, {
+    observer.observe(head, {
       characterData: true,
       childList: true,
       subtree: true,
@@ -114,10 +120,11 @@ export function createDocumentStatusController({
   };
 
   const decorateFavicon = (next: ActiveTabRunStatus) => {
-    if (!renderFavicon || !doc.head) return;
+    const head = documentHead(doc);
+    if (!renderFavicon || !head) return;
     if (!savedIcons) {
       const links = Array.from(
-        doc.head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'),
+        head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'),
       );
       savedIcons = links.length
         ? links.map((link) => ({

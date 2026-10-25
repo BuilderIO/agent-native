@@ -3295,9 +3295,8 @@ const AgentKitAssistantChatBody = forwardRef<
       return;
     }
     let addedUserMessage = false;
-    for (let index = 0; index < thread.messages.length; index += 1) {
-      const message = thread.messages[index];
-      if (!message || isStreamingVoiceMessage(message)) continue;
+    for (const [index, message] of thread.messages.entries()) {
+      if (isStreamingVoiceMessage(message)) continue;
       if (observedMessagesRef.current.has(message.id)) continue;
       observedMessagesRef.current.add(message.id);
       if (message.role !== "user") continue;
@@ -5096,10 +5095,14 @@ const AgentKitAssistantChatBody = forwardRef<
           </ComposerNotice>
         ) : null}
         <AgentKitChat
-          className={props.className}
+          {...(props.className === undefined
+            ? {}
+            : { className: props.className })}
           composerProps={{ attachmentsEnabled: fileStorageConfigured }}
           hasRenderedMessages={hasRenderedMessages}
-          transcriptLayout={props.transcriptLayout}
+          {...(props.transcriptLayout === undefined
+            ? {}
+            : { transcriptLayout: props.transcriptLayout })}
           emptyComposerPlacement={
             props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
           }
@@ -6318,7 +6321,7 @@ function AgentKitUserMessage(props: AgentKitRenderProps<AgentMessage>) {
 }
 
 interface AgentKitSuggestionContext {
-  latestUser?: AgentMessage;
+  latestUser?: AgentMessage | undefined;
   runsActive: boolean;
 }
 
@@ -6329,10 +6332,9 @@ function latestUserMessageBefore(
   messageId: string,
 ): AgentMessage | undefined {
   const index = messages.findIndex((message) => message.id === messageId);
-  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-    if (messages[cursor]!.role === "user") return messages[cursor];
-  }
-  return undefined;
+  return messages
+    .slice(0, Math.max(0, index))
+    .findLast((message) => message.role === "user");
 }
 
 function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {

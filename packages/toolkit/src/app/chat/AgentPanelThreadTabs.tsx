@@ -172,11 +172,11 @@ export function AgentPanelTab({
 }: {
   label: string;
   active: boolean;
-  running?: boolean;
+  running?: boolean | undefined;
   onSelect: () => void;
-  onClose?: () => void;
+  onClose?: (() => void) | undefined;
   closeLabel: string;
-  tabRef?: (el: HTMLElement | null) => void;
+  tabRef?: ((el: HTMLElement | null) => void) | undefined;
   /** `strip` tabs never squeeze below 112px; the strip scrolls instead. */
   size?: "default" | "compact" | "strip";
 }) {
@@ -317,7 +317,7 @@ function AgentPanelThreadMenuContent({
 }
 
 export function AgentPanelThreadSwitcher(props: AgentPanelThreadNavProps) {
-  const active = props.items.find((item) => item.active) ?? props.items[0];
+  const active = props.items.find((item) => item.active) ?? props.items.at(0);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

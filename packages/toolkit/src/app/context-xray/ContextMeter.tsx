@@ -29,7 +29,7 @@ export function ContextXRayDetails({
   threadId,
   manifest,
 }: {
-  threadId?: string | null;
+  threadId?: string | null | undefined;
   manifest: ContextManifest;
 }) {
   const t = useT();

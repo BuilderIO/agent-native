@@ -27,7 +27,7 @@ export interface RunStuckBannerProps {
    */
   onServerSettled?: () => Promise<RunReconcileOutcome>;
   autoRetry?: boolean;
-  autoRetryOwnerId?: string;
+  autoRetryOwnerId?: string | undefined;
   className?: string;
 }
 
@@ -374,7 +374,7 @@ export function RunStuckBanner({
     return (
       <ComposerNotice
         noticeId="run-status"
-        className={className}
+        {...(className === undefined ? {} : { className })}
         actions={
           reconcile === "unsettled" ? (
             <Button
@@ -445,7 +445,7 @@ export function RunStuckBanner({
   return (
     <ComposerNotice
       noticeId="run-stuck"
-      className={className}
+      {...(className === undefined ? {} : { className })}
       title={t("agentChat.recovery.stuckTitle")}
       actions={
         <>

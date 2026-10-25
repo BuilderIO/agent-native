@@ -354,7 +354,7 @@ export function AgentKitDevCheckpointRestore({
         if (!open) setError(null);
       }}
       phase={state === "idle" ? "confirming" : state}
-      disabled={checkpoint?.isBusy}
+      disabled={checkpoint.isBusy}
       error={error}
       onCancel={() => setState("idle")}
       onConfirm={() => void restore()}

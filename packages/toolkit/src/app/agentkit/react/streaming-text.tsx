@@ -189,7 +189,10 @@ export function useBufferedAgentText(
 
   stepRef.current = (time) => {
     const current = pacerRef.current;
-    if (!current || current.settled) return;
+    // step() can settle the pacer, so this check must not leave
+    // `current.settled` narrowed to false for the one after it.
+    const settledBefore = current?.settled ?? true;
+    if (!current || settledBefore) return;
     const lastCommitAt = lastCommitAtRef.current;
     if (lastCommitAt !== null && time - lastCommitAt < frameMs - 1) {
       scheduleFrame();
@@ -225,11 +228,12 @@ export function useBufferedAgentText(
       return;
     }
 
-    const current = pacer();
+    let current = pacer();
     if (keyChanged || !text.startsWith(visibleRef.current)) {
-      pacerRef.current = new StreamingRevealPacer();
+      current = new StreamingRevealPacer();
+      pacerRef.current = current;
       lastCommitAtRef.current = null;
-      pacerRef.current.setTarget(text, { inputDone: shouldDrain });
+      current.setTarget(text, { inputDone: shouldDrain });
       commitVisible("");
     } else {
       const fresh = current.target === "" && visibleRef.current.length > 0;
@@ -239,7 +243,7 @@ export function useBufferedAgentText(
         commitVisible(current.visibleText);
       }
     }
-    if (!pacerRef.current!.settled) scheduleFrame();
+    if (!current.settled) scheduleFrame();
   }, [active, cancelFrame, commitVisible, resetKey, scheduleFrame, text]);
 
   useEffect(() => {

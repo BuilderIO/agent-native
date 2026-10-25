@@ -2309,18 +2309,18 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
         typeof message.content === "string"
           ? [{ type: "text", text: message.content }]
           : (message.content ?? []);
-      const attachments = (message.attachments ?? []).map((attachment) => {
-        const reference = attachment.content?.find(
-          (part) => part.url || part.image,
-        );
-        return {
-          type: "file",
-          url:
+      const attachments = (message.attachments ?? []).map(
+        (attachment): StoredPart => {
+          const reference = attachment.content?.find(
+            (part) => part.url || part.image,
+          );
+          const url =
             attachment.metadata?.uploadUrl ??
             reference?.url ??
-            reference?.image,
-        };
-      });
+            reference?.image;
+          return url === undefined ? { type: "file" } : { type: "file", url };
+        },
+      );
       addTurn(message.role, [...content, ...attachments]);
     }
     for (const message of snapshot.agentKit?.messages ?? []) {

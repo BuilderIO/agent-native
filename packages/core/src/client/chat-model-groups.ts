@@ -73,8 +73,8 @@ export function resolveDefaultModelSelection(
     : [];
   const group =
     offering.find((candidate) => candidate.engine === defaultEngine) ??
-    offering[0] ??
-    configured[0];
+    offering.at(0) ??
+    configured.at(0);
   if (!group) return null;
   const model =
     defaultModel && group.models.includes(defaultModel)

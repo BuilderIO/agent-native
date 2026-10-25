@@ -240,11 +240,10 @@ export function getReplyRequestMode<T extends { role: string }>(
 ): "act" | "plan" | null {
   const own = getRequestModeMetadata(reply);
   if (own || !reply) return own;
-  for (let index = messages.indexOf(reply) - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === "user") return getRequestModeMetadata(message);
-  }
-  return null;
+  const request = messages
+    .slice(0, Math.max(0, messages.indexOf(reply)))
+    .findLast((message) => message.role === "user");
+  return request ? getRequestModeMetadata(request) : null;
 }
 
 export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {

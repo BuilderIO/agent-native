@@ -424,7 +424,7 @@ export interface AgentKitLabels {
   loadingConversation: string;
 }
 
-export const defaultAgentKitLabels: AgentKitLabels = {
+export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   conversation: "Agent conversation",
   assistant: "Assistant",
   you: "You",
@@ -729,6 +729,8 @@ export interface AgentKitThreadLoadState {
 }
 
 interface ResolvedAgentKitLabels extends AgentKitLabels {
+  toolInput: string;
+  toolResult: string;
   queueSendNow: string;
   queueSendNowHint: string;
   queueSendNext: string;
@@ -903,6 +905,8 @@ export function AgentKitProvider({
     () => ({
       ...defaultAgentKitLabels,
       ...labels,
+      toolInput: labels?.toolInput ?? defaultAgentKitLabels.toolInput,
+      toolResult: labels?.toolResult ?? defaultAgentKitLabels.toolResult,
       queueSteer:
         labels?.queueSteer ??
         labels?.queueSendNow ??
@@ -918,23 +922,23 @@ export function AgentKitProvider({
       queueSendNow:
         labels?.queueSendNow ??
         labels?.queueSteer ??
-        defaultAgentKitLabels.queueSendNow!,
+        defaultAgentKitLabels.queueSendNow,
       queueSendNowHint:
         labels?.queueSendNowHint ??
         labels?.queueSteerHint ??
-        defaultAgentKitLabels.queueSendNowHint!,
+        defaultAgentKitLabels.queueSendNowHint,
       queueSendNext:
         labels?.queueSendNext ??
         labels?.queueMoveToTop ??
-        defaultAgentKitLabels.queueSendNext!,
+        defaultAgentKitLabels.queueSendNext,
       queueSendNextHint:
-        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint!,
+        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint,
       queueItemBusy:
-        labels?.queueItemBusy ?? defaultAgentKitLabels.queueItemBusy!,
+        labels?.queueItemBusy ?? defaultAgentKitLabels.queueItemBusy,
       queueItemBlocked:
-        labels?.queueItemBlocked ?? defaultAgentKitLabels.queueItemBlocked!,
+        labels?.queueItemBlocked ?? defaultAgentKitLabels.queueItemBlocked,
       queueOrderStale:
-        labels?.queueOrderStale ?? defaultAgentKitLabels.queueOrderStale!,
+        labels?.queueOrderStale ?? defaultAgentKitLabels.queueOrderStale,
     }),
     [labels],
   );
@@ -1009,7 +1013,9 @@ export function AgentKitProvider({
     const scope = seenEffects.current;
     const deliver = () => {
       if (seenEffects.current !== scope) return;
-      const thread = controller.getSnapshot().threads[threadId];
+      const thread = controller.getSnapshot().threads[threadId] as
+        | AgentThreadState
+        | undefined;
       const events = thread?.events ?? [];
       if (!scope.hydrated) {
         if (!thread || (events.length === 0 && thread.thread === undefined)) {
@@ -1038,7 +1044,7 @@ export function AgentKitProvider({
           onClientEffectRef.current?.({
             type: event.type,
             name: event.name,
-            data: event.data,
+            ...(event.data === undefined ? {} : { data: event.data }),
           });
         }
       }
@@ -1056,8 +1062,8 @@ export function AgentKitProvider({
 
 interface AgentKitUpdateChannel {
   listeners: Set<{ notify: () => void }>;
-  unsubscribe?: () => void;
-  timeout?: ReturnType<typeof setTimeout>;
+  unsubscribe?: (() => void) | undefined;
+  timeout?: ReturnType<typeof setTimeout> | undefined;
 }
 
 const agentKitUpdateChannels = new WeakMap<
@@ -1540,7 +1546,12 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       send: (
         text: string,
         options?: Parameters<AgentKitController["sendMessage"]>[0]["options"],
-      ) => sendWithPendingSubmission(controller, { threadId, text, options }),
+      ) =>
+        sendWithPendingSubmission(controller, {
+          threadId,
+          text,
+          ...(options === undefined ? {} : { options }),
+        }),
       sendMessage: (input: Omit<SendMessageInput, "threadId">) =>
         sendWithPendingSubmission(controller, { ...input, threadId }),
       load: () => controller.loadThread(threadId),

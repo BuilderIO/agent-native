@@ -16,17 +16,20 @@ export interface ModelRatings {
   speed: ModelRating;
 }
 
-export type ModelProvider =
-  | "anthropic"
-  | "openai"
-  | "google"
-  | "xai"
-  | "qwen"
-  | "moonshot"
-  | "deepseek"
-  | "zai"
-  | "meta"
-  | "inception";
+export const MODEL_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "google",
+  "xai",
+  "qwen",
+  "moonshot",
+  "deepseek",
+  "zai",
+  "meta",
+  "inception",
+] as const;
+
+export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 
 export interface ModelCatalogEntry {
   /** Canonical id: what `canonicalModelId` returns for every engine's id. */
@@ -407,9 +410,9 @@ const ENGINES_WITHOUT_EFFORT: ReadonlySet<string> = new Set([
 ]);
 
 /** The model each engine runs for `auto`, when the engine resolves it itself. */
-const AUTO_MODEL_BY_ENGINE: Readonly<Record<string, string>> = {
-  builder: BUILDER_MODEL_CONFIG.defaultModel,
-};
+const AUTO_MODEL_BY_ENGINE: ReadonlyMap<string, string> = new Map([
+  ["builder", BUILDER_MODEL_CONFIG.defaultModel],
+]);
 
 export interface ModelDescription {
   /** The id the engine was asked about, unchanged. */
@@ -461,9 +464,9 @@ export function describeModelForEngine(
 ): ModelDescription {
   const entry = findModelCatalogEntry(modelId);
   const resolvedModel =
-    modelId === "auto" && engine && Object.hasOwn(AUTO_MODEL_BY_ENGINE, engine)
-      ? AUTO_MODEL_BY_ENGINE[engine]
-      : modelId;
+    (modelId === "auto" && engine
+      ? AUTO_MODEL_BY_ENGINE.get(engine)
+      : undefined) ?? modelId;
   const efforts =
     engine && ENGINES_WITHOUT_EFFORT.has(engine)
       ? []
@@ -480,6 +483,10 @@ export function describeModelForEngine(
     providerDefault && efforts.includes(providerDefault)
       ? providerDefault
       : undefined;
+  const recommendedRank = entry?.recommended
+    ? RECOMMENDED_RANK.get(entry.id)
+    : undefined;
+  const rootRank = entry ? PICKER_ROOT_RANK.get(entry.id) : undefined;
   return {
     modelId,
     ...(engine ? { engine } : {}),
@@ -498,12 +505,8 @@ export function describeModelForEngine(
     ...(entry?.provider ? { provider: entry.provider } : {}),
     ...(entry?.ratings ? { ratings: entry.ratings } : {}),
     recommended: entry?.recommended === true,
-    ...(entry?.recommended
-      ? { recommendedRank: RECOMMENDED_RANK.get(entry.id) }
-      : {}),
-    ...(entry && PICKER_ROOT_RANK.has(entry.id)
-      ? { rootRank: PICKER_ROOT_RANK.get(entry.id) }
-      : {}),
+    ...(recommendedRank === undefined ? {} : { recommendedRank }),
+    ...(rootRank === undefined ? {} : { rootRank }),
     ...(providerDefaultEffort ? { providerDefaultEffort } : {}),
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     efforts: [...efforts],

@@ -101,13 +101,23 @@ export function quantizeToPolls(
   while (index < chunks.length) {
     pollAt += pollMs + random() * jitterMs;
     let text = "";
-    while (index < chunks.length && chunks[index]!.at <= pollAt) {
-      text += chunks[index]!.text;
+    for (
+      let chunk = chunks.at(index);
+      chunk && chunk.at <= pollAt;
+      chunk = chunks.at(index)
+    ) {
+      text += chunk.text;
       index += 1;
     }
     if (text) delivered.push({ at: Math.round(pollAt), text });
   }
   return delivered;
+}
+
+function lastArrival(chunks: readonly ReplayChunk[], name: string): number {
+  const last = chunks.at(-1);
+  if (!last) throw new Error(`Timeline ${name} has no chunks.`);
+  return last.at;
 }
 
 export function syntheticTimeline(
@@ -135,7 +145,7 @@ export function syntheticTimeline(
       const flood = tokens.slice(90, 240);
       const tail = tokens.slice(240);
       const headChunks = emitAtRate(head, 60, 300);
-      const floodAt = headChunks.at(-1)!.at + 2_500;
+      const floodAt = lastArrival(headChunks, kind) + 2_500;
       chunks = [
         ...quantizeToPolls(headChunks, SERVER_POLL_MS, 60),
         { at: floodAt, text: flood.join("") },
@@ -152,7 +162,7 @@ export function syntheticTimeline(
     name: kind,
     prompt: `Synthetic ${kind} stream`,
     chunks,
-    doneAt: chunks.at(-1)!.at + 40,
+    doneAt: lastArrival(chunks, kind) + 40,
   };
 }
 
@@ -203,30 +213,40 @@ export function recordedTimeline({
       event.type === "x-agent-native.persisted-event-omission-range" &&
       event.payload?.sourceType === "message.delta",
   );
-  if (!started || !completed || ranges.length === 0) {
+  if (!started || !completed) {
     throw new Error(`Run ${runId} has no recorded text delta ranges.`);
   }
   const origin = Date.parse(started.occurredAt);
-  const anchors = ranges.map((range) => ({
-    first: range.sequence,
-    last: range.payload!.lastSequence!,
-    at: Date.parse(range.occurredAt) - origin,
-  }));
+  const anchors = ranges.map((range) => {
+    const last = range.payload?.lastSequence;
+    if (last === undefined) {
+      throw new Error(`Run ${runId} has a delta range with no last sequence.`);
+    }
+    return {
+      first: range.sequence,
+      last,
+      at: Date.parse(range.occurredAt) - origin,
+    };
+  });
+  const firstAnchor = anchors.at(0);
+  const lastAnchor = anchors.at(-1);
+  if (!firstAnchor || !lastAnchor) {
+    throw new Error(`Run ${runId} has no recorded text delta ranges.`);
+  }
   const endAt = Date.parse(completed.occurredAt) - origin;
-  const firstSequence = anchors[0]!.first;
-  const lastSequence = anchors.at(-1)!.last;
+  const firstSequence = firstAnchor.first;
+  const lastSequence = lastAnchor.last;
   const texts = rawEvents.filter(
-    (event) => event.type === "text" && typeof event.text === "string",
+    (event): event is RawRunEvent & { text: string } =>
+      event.type === "text" && typeof event.text === "string",
   );
-  if (texts.length === 0) throw new Error(`Run ${runId} has no text deltas.`);
 
   // Raw and persisted sequences count different events, so a raw delta is
   // placed by its share of the text deltas.
   const timeAtSequence = (sequence: number): number => {
-    for (let index = 0; index < anchors.length; index += 1) {
-      const anchor = anchors[index]!;
+    for (const [index, anchor] of anchors.entries()) {
       if (sequence > anchor.last) continue;
-      const nextAt = anchors[index + 1]?.at ?? endAt;
+      const nextAt = anchors.at(index + 1)?.at ?? endAt;
       const progress =
         (sequence - anchor.first) / (anchor.last - anchor.first + 1);
       return anchor.at + progress * (nextAt - anchor.at);
@@ -238,17 +258,19 @@ export function recordedTimeline({
       firstSequence +
         (index / texts.length) * (lastSequence - firstSequence + 1),
     ),
-    text: event.text!,
+    text: event.text,
   }));
+  const firstPlaced = placed.at(0);
+  if (!firstPlaced) throw new Error(`Run ${runId} has no text deltas.`);
   // Reasoning and tools run before the text; the replay starts just before it.
-  const shift = placed[0]!.at - 300;
+  const shift = firstPlaced.at - 300;
   const model = placed.map((chunk) => ({ ...chunk, at: chunk.at - shift }));
   const chunks = quantizeToPolls(model, pollMs, pollJitterMs);
   return {
     name,
     prompt,
     chunks,
-    doneAt: Math.max(endAt - shift, chunks.at(-1)!.at + 40),
+    doneAt: Math.max(endAt - shift, lastArrival(chunks, name) + 40),
   };
 }
 

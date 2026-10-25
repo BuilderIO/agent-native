@@ -125,7 +125,7 @@ function readRenderedText(
   // per whitespace-separated word, the way the reveal paces it.
   if (counting === "units") {
     for (const code of root.querySelectorAll("pre")) {
-      words += countCodeUnits(code.textContent ?? "");
+      words += countCodeUnits(code.textContent);
     }
   }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -149,11 +149,23 @@ function readRenderedText(
 }
 
 function percentile(values: readonly number[], fraction: number): number {
-  if (values.length === 0) return 0;
   const sorted = [...values].sort((left, right) => left - right);
-  return sorted[
-    Math.min(sorted.length - 1, Math.floor(fraction * sorted.length))
-  ]!;
+  const value = sorted.at(
+    Math.min(sorted.length - 1, Math.floor(fraction * sorted.length)),
+  );
+  return value ?? 0;
+}
+
+function consecutivePairs<T>(
+  values: readonly T[],
+): Array<[previous: T, current: T]> {
+  const pairs: Array<[T, T]> = [];
+  let previous: { value: T } | null = null;
+  for (const value of values) {
+    if (previous) pairs.push([previous.value, value]);
+    previous = { value };
+  }
+  return pairs;
 }
 
 function round(value: number): number {
@@ -223,7 +235,7 @@ export function recordFrames({
   const trackBlocks = (root: Element, now: number) => {
     for (const element of root.querySelectorAll(blockSelector)) {
       if (element.parentElement?.closest("pre")) continue;
-      const length = element.textContent?.length ?? 0;
+      const length = element.textContent.length;
       const tracked = blocks.get(element);
       if (!tracked) {
         blocks.set(element, {
@@ -276,9 +288,10 @@ export function recordFrames({
     },
     metrics({ timeline, startedAt, firstChunkAt, doneAt }) {
       running = false;
-      const frameGaps = samples
-        .slice(1)
-        .map((sample, index) => sample.t - samples[index]!.t);
+      const pairs = consecutivePairs(samples);
+      const frameGaps = pairs.map(
+        ([previous, current]) => current.t - previous.t,
+      );
       const firstVisible = samples.findIndex(
         (sample) => sample.visibleWords > 0,
       );
@@ -286,28 +299,19 @@ export function recordFrames({
       const settledIndex = samples.findIndex(
         (sample) => sample.visibleWords === finalWords,
       );
-      const perFrame: number[] = [];
-      for (
-        let index = Math.max(1, firstVisible);
-        index <= settledIndex;
-        index += 1
-      ) {
-        perFrame.push(
-          Math.max(
-            0,
-            samples[index]!.visibleWords - samples[index - 1]!.visibleWords,
-          ),
+      // Pair n ends at sample n + 1.
+      const perFrame = pairs
+        .slice(Math.max(1, firstVisible) - 1, Math.max(0, settledIndex))
+        .map(([previous, current]) =>
+          Math.max(0, current.visibleWords - previous.visibleWords),
         );
-      }
 
       let longestStall = 0;
       let longestStallExcludingPauses = 0;
       let longestStallExcludingBlockPauses = 0;
       let stallsOver120 = 0;
       let stallStart: FrameSample | null = null;
-      for (let index = 1; index < samples.length; index += 1) {
-        const previous = samples[index - 1]!;
-        const current = samples[index]!;
+      for (const [previous, current] of pairs) {
         const pending = previous.receivedWords > previous.visibleWords + 1;
         const changed = current.visibleWords !== previous.visibleWords;
         if (pending && !changed) {
@@ -341,24 +345,23 @@ export function recordFrames({
         : Number.NaN;
       const line = Number.isFinite(parsedLine) ? parsedLine : 20;
       const pinnedDeltas: number[] = [];
-      for (let index = 1; index < samples.length; index += 1) {
-        const previous = samples[index - 1]!;
-        const current = samples[index]!;
+      for (const [previous, current] of pairs) {
         if (!previous.pinned || !current.pinned) continue;
         if (current.t < startedAt + firstChunkAt) continue;
         pinnedDeltas.push(Math.abs(current.scrollTop - previous.scrollTop));
       }
 
       const columnShifts: number[] = [];
-      for (let index = 1; index < samples.length; index += 1) {
-        const previous = samples[index - 1]!.columnEdges;
-        const current = samples[index]!.columnEdges;
+      for (const [previous, current] of pairs) {
         let shift = 0;
-        current.forEach((edges, table) => {
-          const before = previous[table];
+        current.columnEdges.forEach((edges, table) => {
+          const before = previous.columnEdges.at(table);
           if (!before || before.length !== edges.length) return;
           edges.forEach((edge, column) => {
-            shift = Math.max(shift, Math.abs(edge - before[column]!));
+            const prior = before.at(column);
+            if (prior !== undefined) {
+              shift = Math.max(shift, Math.abs(edge - prior));
+            }
           });
         });
         columnShifts.push(shift);
@@ -367,7 +370,7 @@ export function recordFrames({
 
       const blockPops: BlockPop[] = [];
       for (const block of blocks.values()) {
-        const characters = block.element.textContent?.length ?? 0;
+        const characters = block.element.textContent.length;
         if (characters < 12 || !block.element.isConnected) continue;
         const share = block.largestStep / characters;
         if (share >= 0.8) {

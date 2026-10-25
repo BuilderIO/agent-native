@@ -183,9 +183,9 @@ export function ContextUsagePanelView({
   windowTokens: number;
   segments: readonly ContextUsageSegmentView[];
   /** Omitted when no automatic threshold applies or it could not be read. */
-  tokensUntilAutoCompact?: number;
+  tokensUntilAutoCompact?: number | undefined;
   compact: ContextCompactState;
-  onCompact?: () => void;
+  onCompact?: (() => void) | undefined;
   translate?: ContextTranslate;
 }) {
   const [expanded, setExpanded] = useState(false);

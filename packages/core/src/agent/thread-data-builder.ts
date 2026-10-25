@@ -85,8 +85,8 @@ interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
   preserveUnknownToolOutcomes?: boolean;
   turnId?: string;
-  runDurationMs?: number;
-  scope?: { type: string; id: string } | null;
+  runDurationMs?: number | undefined;
+  scope?: { type: string; id: string } | null | undefined;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -657,7 +657,7 @@ export function buildAssistantTurnSegments(
   options: BuildAssistantMessageOptions = {},
 ): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
   const boundaries = events.flatMap((entry, index) =>
-    entry.event.type === "user_message" ? [index] : [],
+    entry.event.type === "user_message" ? [{ index, event: entry.event }] : [],
   );
   if (boundaries.length === 0) {
     return {
@@ -667,10 +667,8 @@ export function buildAssistantTurnSegments(
   }
   const { runDurationMs, ...segmentOptions } = options;
   const steered: SteeredRunSegment[] = [];
-  for (const [position, boundary] of boundaries.entries()) {
-    const event = events[boundary]!.event;
-    if (event.type !== "user_message") continue;
-    const end = boundaries[position + 1] ?? events.length;
+  for (const [position, { index: boundary, event }] of boundaries.entries()) {
+    const end = boundaries[position + 1]?.index ?? events.length;
     const last = position === boundaries.length - 1;
     const assistant = buildAssistantMessage(
       events.slice(boundary + 1, end),
@@ -687,7 +685,7 @@ export function buildAssistantTurnSegments(
   }
   return {
     assistant: buildAssistantMessage(
-      events.slice(0, boundaries[0]),
+      events.slice(0, boundaries[0]?.index),
       runId,
       runDurationMs === undefined ? options : segmentOptions,
     ),
@@ -1948,17 +1946,28 @@ export function steeredQueuedMessageRecords(
   });
 }
 
-function steeredRecords(repo: any): SteeredQueuedMessageRecord[] {
-  const value = repo?.[STEERED_QUEUED_MESSAGES_KEY];
-  return Array.isArray(value)
-    ? value.filter(
-        (record): record is SteeredQueuedMessageRecord =>
-          typeof record?.runId === "string" &&
-          typeof record.message?.id === "string" &&
-          typeof record.message.text === "string" &&
-          typeof record.continuationMessageId === "string",
-      )
-    : [];
+function isSteeredQueuedMessageRecord(
+  value: unknown,
+): value is SteeredQueuedMessageRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const message = record.message;
+  return (
+    typeof record.runId === "string" &&
+    !!message &&
+    typeof message === "object" &&
+    typeof (message as Record<string, unknown>).id === "string" &&
+    typeof (message as Record<string, unknown>).text === "string" &&
+    typeof record.continuationMessageId === "string"
+  );
+}
+
+function steeredRecords(repo: unknown): SteeredQueuedMessageRecord[] {
+  const value =
+    repo && typeof repo === "object"
+      ? (repo as Record<string, unknown>)[STEERED_QUEUED_MESSAGES_KEY]
+      : undefined;
+  return Array.isArray(value) ? value.filter(isSteeredQueuedMessageRecord) : [];
 }
 
 /**
@@ -1966,10 +1975,11 @@ function steeredRecords(repo: any): SteeredQueuedMessageRecord[] {
  * keeps each message until the run's fold places it in the transcript.
  */
 export function recordSteeredQueuedMessages(
-  repo: any,
+  repo: unknown,
   records: readonly SteeredQueuedMessageRecord[],
-): any {
-  let next = repo && typeof repo === "object" ? { ...repo } : {};
+): Record<string, unknown> {
+  let next: Record<string, unknown> =
+    repo && typeof repo === "object" ? { ...repo } : {};
   for (const { message } of records) {
     next = claimQueuedMessage(next, message.id);
   }
@@ -5033,9 +5043,12 @@ export function foldAssistantTurn(
   return nextRepo;
 }
 
-function repositoryIndexOf(repo: any, id: string): number {
+function repositoryIndexOf(
+  repo: { messages: readonly unknown[] },
+  id: string,
+): number {
   return repo.messages.findIndex(
-    (entry: any) => messageId(getStoredMessage(entry)) === id,
+    (entry) => messageId(getStoredMessage(entry)) === id,
   );
 }
 
@@ -5044,9 +5057,9 @@ function repositoryIndexOf(repo: any, id: string): number {
  * it, then the reply written after it. A refold updates them in place.
  */
 function foldSteeredSegments(
-  repo: any,
+  repo: unknown,
   steered: readonly SteeredRunSegment[],
-): any {
+) {
   const next = normalizeThreadRepository(repo);
   for (const { user, assistant } of steered) {
     if (repositoryIndexOf(next, user.id) < 0) {
@@ -5084,7 +5097,7 @@ export function foldAssistantTurnWithSteers(
   assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
   steered: readonly SteeredRunSegment[],
   options: Parameters<typeof foldAssistantTurn>[2] & { runId: string },
-): any {
+) {
   const records = steeredRecords(repo).filter(
     (record) => record.runId === options.runId,
   );
@@ -5101,8 +5114,10 @@ export function foldAssistantTurnWithSteers(
       })),
   ];
   const base = normalizeThreadRepository(repo);
+  const firstSegment = segments.at(0);
   const refold =
-    segments.length > 0 && repositoryIndexOf(base, segments[0]!.user.id) >= 0;
+    firstSegment !== undefined &&
+    repositoryIndexOf(base, firstSegment.user.id) >= 0;
   const folded =
     assistantMsg && !refold
       ? foldAssistantTurn(base, assistantMsg, options)
@@ -5130,7 +5145,7 @@ export function foldAgentChatRunCompletion(
   const folded = foldAssistantTurnWithSteers(repo, assistantMsg, steered, {
     runId: run.runId,
     turnId: run.turnId,
-    parentId: run.parentId,
+    ...(run.parentId === undefined ? {} : { parentId: run.parentId }),
     agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
   });
   return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);

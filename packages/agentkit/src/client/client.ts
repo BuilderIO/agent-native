@@ -4564,10 +4564,14 @@ export class AgentKitClient implements AgentKitController {
       const byId = new Map(
         previous.queuedMessages.map((message) => [message.id, message]),
       );
+      const queuedMessages = messageIds.flatMap((id) => {
+        const message = byId.get(id);
+        return message ? [message] : [];
+      });
       if (
         messageIds.length !== byId.size ||
         new Set(messageIds).size !== messageIds.length ||
-        messageIds.some((id) => !byId.has(id))
+        queuedMessages.length !== messageIds.length
       ) {
         throw new AgentKitQueueOrderStaleError(threadId);
       }
@@ -4579,7 +4583,6 @@ export class AgentKitClient implements AgentKitController {
         return;
       }
 
-      const queuedMessages = messageIds.map((id) => byId.get(id)!);
       const previousOverride = this.queuedMessageOverrides.get(threadId);
       this.setThread(threadId, { ...previous, queuedMessages });
       this.queuedMessageOverrides.set(threadId, {

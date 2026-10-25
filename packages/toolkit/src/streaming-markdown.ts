@@ -37,7 +37,7 @@ interface MarkdownTailScan {
   /** Emphasis and code spans still open at the end, innermost last. */
   open: { position: number; closer: string }[];
   /** A table header whose delimiter row has not arrived (or not finished). */
-  pendingTableHeader?: { start: number; end: number };
+  pendingTableHeader?: { start: number; end: number } | undefined;
 }
 
 function scanMarkdownTail(text: string): MarkdownTailScan {
@@ -73,7 +73,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
 
   const scanInline = (line: string, base: number, partialLine: boolean) => {
     for (let index = 0; index < line.length; index += 1) {
-      const character = line[index]!;
+      const character = line.charAt(index);
       const position = base + index;
       if (character === "\\" && !code) {
         index += 1;
@@ -108,7 +108,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
       if (character === "]") {
         const opener = brackets.pop();
         if (opener === undefined) continue;
-        const next = line[index + 1];
+        const next = line.at(index + 1);
         if (next === "(") {
           linkTarget = { position: opener, depth: 0 };
           index += 1;
@@ -137,7 +137,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
 
       let run = 1;
       while (line[index + run] === character) run += 1;
-      const previous = index > 0 ? line[index - 1]! : " ";
+      const previous = index > 0 ? line.charAt(index - 1) : " ";
       const next =
         index + run < line.length
           ? line[index + run]
@@ -155,21 +155,16 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
           : leftFlanking;
       const canClose =
         character === "_"
-          ? rightFlanking &&
-            !(leftFlanking && next !== undefined && alphanumeric.test(next))
+          ? rightFlanking && !(leftFlanking && alphanumeric.test(next))
           : rightFlanking;
 
       let remaining = run;
       while (canClose && remaining > 0) {
-        let openerIndex = delimiters.length - 1;
-        while (
-          openerIndex >= 0 &&
-          delimiters[openerIndex]!.character !== character
-        ) {
-          openerIndex -= 1;
-        }
-        if (openerIndex < 0) break;
-        const opener = delimiters[openerIndex]!;
+        const opener = delimiters.findLast(
+          (delimiter) => delimiter.character === character,
+        );
+        if (!opener) break;
+        const openerIndex = delimiters.lastIndexOf(opener);
         if (opener.length <= remaining) {
           remaining -= opener.length;
           recordUnmatched(delimiters.slice(openerIndex + 1));
@@ -190,7 +185,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
     }
   };
 
-  lines.forEach((line, lineIndex) => {
+  for (const [lineIndex, line] of lines.entries()) {
     const partialLine = lineIndex === lines.length - 1 && line.length > 0;
     const trimmed = line.trimStart();
     if (inFence) {
@@ -204,7 +199,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
         fenceMarker = "";
       }
       offset += line.length + 1;
-      return;
+      continue;
     }
 
     const fence = fenceOpen.exec(trimmed);
@@ -216,7 +211,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
       // The info string decides the language; wait for the whole opening line.
       if (partialLine) holds.push({ position: offset, limit: Infinity });
       offset += line.length + 1;
-      return;
+      continue;
     }
 
     if (trimmed === "") {
@@ -224,7 +219,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
       tableStart = null;
       tableConfirmed = false;
       offset += line.length + 1;
-      return;
+      continue;
     }
 
     if (trimmed.startsWith("|")) {
@@ -254,7 +249,7 @@ function scanMarkdownTail(text: string): MarkdownTailScan {
     }
     scanInline(line, offset, partialLine);
     offset += line.length + 1;
-  });
+  }
 
   // A header followed by nothing, or by the start of a delimiter row, streams
   // as a table; pipes followed by anything else are a paragraph until a

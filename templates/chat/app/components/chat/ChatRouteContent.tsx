@@ -1390,7 +1390,7 @@ function ChatCanvas({
         toolbar={toolbar}
         emptyComposerPlacement="center"
         expectExistingThread={!isDraftThread}
-        onStartNewChat={() => navigate(NEW_CHAT_PATH)}
+        onStartNewChat={() => void navigate(NEW_CHAT_PATH)}
         composerProps={{
           requireAgentEngine: true,
           contextUsageSlot: <ChatContextRing threadId={threadId} />,

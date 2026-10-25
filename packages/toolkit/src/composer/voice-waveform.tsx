@@ -7,15 +7,23 @@ const WAVEFORM_MIN_SCALE = 0.15;
 const WAVEFORM_STILL_SCALE = 0.4;
 const WAVEFORM_SAMPLE_MS = 70;
 
+type ReducedMotionQuery = Pick<MediaQueryList, "matches"> & // i18n-ignore -- type intersection, not UI text
+  Partial<Pick<MediaQueryList, "addEventListener" | "removeEventListener">>;
+
+/** jsdom and some WebViews have no matchMedia; Safari before 14 has no query events. */
+function reducedMotionQuery(): ReducedMotionQuery | undefined {
+  if (typeof window === "undefined") return undefined;
+  const { matchMedia } = window as Partial<Pick<Window, "matchMedia">>;
+  return matchMedia?.call(window, "(prefers-reduced-motion: reduce)");
+}
+
 export function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
+  const [reduced, setReduced] = useState(() =>
+    Boolean(reducedMotionQuery()?.matches),
   );
   useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const query = reducedMotionQuery();
+    if (!query) return;
     const update = () => setReduced(query.matches);
     update();
     query.addEventListener?.("change", update);

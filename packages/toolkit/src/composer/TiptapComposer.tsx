@@ -1812,11 +1812,11 @@ interface ModelPickerRow {
   cardName: string;
   /** Marked with the Recommended badge (Auto). */
   recommended?: boolean;
-  description?: ComposerModelDescription;
+  description?: ComposerModelDescription | undefined;
   identity: string;
-  recommendedRank?: number;
-  rootRank?: number;
-  provider?: string;
+  recommendedRank?: number | undefined;
+  rootRank?: number | undefined;
+  provider?: string | undefined;
 }
 
 function useNoLiveModelDescriptions(): undefined {
@@ -1877,8 +1877,8 @@ function ModelSelector({
   setupCardVisible?: boolean;
 }) {
   const adapters = useComposerRuntimeAdapters();
-  const t = adapters.translate!;
-  const formatNumber = adapters.formatNumber!;
+  const t = adapters.translate;
+  const formatNumber = adapters.formatNumber;
   const reasoning = adapters.models?.reasoning;
   const engineNames = useMemo(
     () => engines.map((group) => group.engine),
@@ -2066,40 +2066,42 @@ function ModelSelector({
     [modelProviderGroups],
   );
   const modelRows = useMemo(() => {
-    const rows: ModelPickerRow[] = availableGroups.flatMap((group) =>
-      group.models.map((candidate) => {
-        const description = describeModel?.(candidate, group.engine);
-        const label =
-          group.modelDisplayNames?.[candidate] ??
-          description?.shortName ??
-          friendlyModelName(candidate, t);
-        return {
-          key: `${group.engine}\u0000${candidate}`,
-          model: candidate,
-          engine: group.engine,
-          label,
-          cardName: label,
-          description,
-          identity: description?.catalogId ?? candidate,
-          recommendedRank: description?.recommended
-            ? description.recommendedRank
-            : undefined,
-          rootRank: description?.rootRank,
-          provider: description?.provider,
-        };
-      }),
+    const entries = availableGroups.flatMap((group) =>
+      group.models.map(
+        (candidate): { group: typeof group; row: ModelPickerRow } => {
+          const description = describeModel?.(candidate, group.engine);
+          const label =
+            group.modelDisplayNames?.[candidate] ??
+            description?.shortName ??
+            friendlyModelName(candidate, t);
+          return {
+            group,
+            row: {
+              key: `${group.engine}\u0000${candidate}`,
+              model: candidate,
+              engine: group.engine,
+              label,
+              cardName: label,
+              description,
+              identity: description?.catalogId ?? candidate,
+              recommendedRank: description?.recommended
+                ? description.recommendedRank
+                : undefined,
+              rootRank: description?.rootRank,
+              provider: description?.provider,
+            },
+          };
+        },
+      ),
     );
     // One model on two engines (Builder credits and a personal key) reads the
     // same; the provider suffix is what tells the rows apart.
     const labelCounts = new Map<string, number>();
-    for (const row of rows) {
+    for (const { row } of entries) {
       labelCounts.set(row.label, (labelCounts.get(row.label) ?? 0) + 1);
     }
-    return rows.map((row) => {
+    return entries.map(({ group, row }) => {
       if ((labelCounts.get(row.label) ?? 0) < 2) return row;
-      const group = availableGroups.find(
-        (candidate) => candidate.engine === row.engine,
-      )!;
       return {
         ...row,
         label: `${row.label} · ${modelProviderGroupLabel(group, availableGroups)}`,
@@ -2274,7 +2276,7 @@ function ModelSelector({
           setPickerOpen(false);
         }}
       >
-        {agents!.map((agent) => {
+        {agents?.map((agent) => {
           const isConfigured = agent.configured !== false;
           const canConnect = !isConfigured && Boolean(onConnectLocalRuntime);
           const statusLabel =
@@ -2496,9 +2498,7 @@ function ModelSelector({
     moreRows.length > 0 ? (
       <>
         {moreRows.map((row) =>
-          renderModelRow(row, moreSide, {
-            section: stacked ? undefined : "more",
-          }),
+          renderModelRow(row, moreSide, stacked ? {} : { section: "more" }),
         )}
       </>
     ) : null;
@@ -2579,7 +2579,7 @@ function ModelSelector({
   const sections: Array<{
     key: ModelPickerSection;
     label: string;
-    value?: string;
+    value?: string | undefined;
     content: React.ReactNode;
   }> = [];
   if (moreItems) {
@@ -2599,14 +2599,14 @@ function ModelSelector({
       content: effortItems,
     });
   }
-  if (imageItems) {
+  if (imageItems && imageModel) {
     sections.push({
       key: "image",
       label:
-        imageModel!.label ??
+        imageModel.label ??
         t("agentChat.composer.imageModel", { defaultValue: "Image model" }),
-      value: imageModel!.options.find(
-        (option) => option.value === imageModel!.value,
+      value: imageModel.options.find(
+        (option) => option.value === imageModel.value,
       )?.label,
       content: imageItems,
     });
@@ -2619,11 +2619,11 @@ function ModelSelector({
       content: agentItems,
     });
   }
-  if (modeItems) {
+  if (modeItems && terminalModeControl) {
     sections.push({
       key: "mode",
       label: t("agentPanel.mode", { defaultValue: "Mode" }),
-      value: terminalModeControl!.enabled
+      value: terminalModeControl.enabled
         ? t("agentPanel.cli", { defaultValue: "CLI" })
         : t("agentPanel.uiMode", { defaultValue: "UI" }),
       content: modeItems,
@@ -2768,7 +2768,7 @@ function ModelSelector({
           ) {
             return;
           }
-          const row = shortcutRows[Number(event.key) - 1];
+          const row = shortcutRows.at(Number(event.key) - 1);
           if (!row) return;
           event.preventDefault();
           selectModel(row.model, row.engine);
@@ -2841,7 +2841,7 @@ function popoverTokenRange(
   );
   for (let index = before.length - 1; index >= 0; index -= 1) {
     if (before[index] !== trigger) continue;
-    const previous = before[index - 1];
+    const previous = index === 0 ? undefined : before.charAt(index - 1);
     if (
       previous === undefined ||
       previous === POPOVER_TOKEN_LEAF ||
@@ -4382,7 +4382,7 @@ function TiptapComposerSurface({
           return;
         }
         const positions: number[] = [];
-        editor.state.doc.descendants((node: any, pos: number) => {
+        editor.state.doc.descendants((node, pos) => {
           if (
             node.type.name === "mentionReference" &&
             node.attrs.refType === refType
@@ -4390,15 +4390,15 @@ function TiptapComposerSurface({
             positions.push(pos);
           }
         });
-        if (positions.length === 0) {
+        const referencePosition = positions.at(0);
+        if (referencePosition === undefined) {
           if (ref) insertReference(ref);
           return;
         }
-        const referencePosition = positions[0]!;
         const node = editor.state.doc.nodeAt(referencePosition);
         if (!node) return;
         const normalized = ref
-          ? (adapters.agentChat!.normalizeReference!(
+          ? (adapters.agentChat.normalizeReference(
               ref,
             ) as AgentComposerReference)
           : null;

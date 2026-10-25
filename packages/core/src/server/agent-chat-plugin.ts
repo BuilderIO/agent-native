@@ -4097,7 +4097,7 @@ export function createAgentChatPlugin(
                 runEvents: run.events ?? [],
                 options: assistantOptions,
               })
-            : buildAssistantTurnSegments(run.events ?? [], run.runId, {
+            : buildAssistantTurnSegments(run.events, run.runId, {
                 ...assistantOptions,
                 turnId: run.turnId,
               });

@@ -11,12 +11,20 @@ import {
 } from "../../observational-memory/compactor.js";
 import { callerOwnsThread } from "../../run-ownership.js";
 
+const compactionStatusResultSchema = z.object({
+  threadId: z.string(),
+  unobservedTokens: z.number(),
+  observationTokenThreshold: z.number(),
+  tokensUntilAutoCompact: z.number().optional(),
+});
+
 export default defineAction({
   description:
     "Read how close a chat thread is to automatic context compaction: tokens not yet compacted, the threshold the post-turn pass compacts at, and tokens left until it does.",
   schema: z.object({
     threadId: z.string().min(1).describe("Chat thread id to inspect."),
   }),
+  outputSchema: compactionStatusResultSchema,
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,

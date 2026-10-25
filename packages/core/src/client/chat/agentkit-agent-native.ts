@@ -190,7 +190,7 @@ function mergeStoredReasoningParts(
     if (
       current.length !== storedReasoning.length ||
       current.some(
-        (part, index) => part.text !== storedReasoning[index]!.text,
+        (part, index) => part.text !== storedReasoning[index]?.text,
       ) ||
       !storedReasoning.some((part) => part.toolCallIds?.length)
     ) {

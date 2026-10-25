@@ -43,7 +43,7 @@ export function VoiceButton({
   disabled,
   className,
 }: VoiceButtonProps) {
-  const t = useComposerRuntimeAdapters().translate!;
+  const t = useComposerRuntimeAdapters().translate;
   const realtimeVoice = useRealtimeVoiceModeOptional();
 
   if (realtimeVoice?.active) {
@@ -154,7 +154,7 @@ export function isVoiceRecordingActive(state: VoiceDictationApi["state"]) {
  */
 export function VoiceDictationPill({ voice }: VoiceRecordingOverlayProps) {
   const { state, levels, stop, cancel } = voice;
-  const t = useComposerRuntimeAdapters().translate!;
+  const t = useComposerRuntimeAdapters().translate;
   const transcribing = state === "transcribing";
   const controlLabel = transcribing
     ? t("agentChat.voice.dictation.cancelTranscription", {
@@ -259,7 +259,7 @@ function VoiceChatSendButton({
   const adapters = useComposerRuntimeAdapters();
   const realtimeVoice = useRealtimeVoiceModeOptional();
   const copy = useRealtimeVoiceModeCopy();
-  const { status } = adapters.voice!.useProviderStatus!();
+  const { status } = adapters.voice.useProviderStatus();
   if (realtimeVoice?.active) {
     return <RealtimeVoiceEndButton voice={realtimeVoice} copy={copy} />;
   }
@@ -306,7 +306,7 @@ function ComposerPrimaryButton({
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled: boolean;
   label: string;
-  busy?: boolean;
+  busy?: boolean | undefined;
 }) {
   const iconClass =
     "size-[var(--agentkit-composer-primary-icon-size,0.875rem)]";

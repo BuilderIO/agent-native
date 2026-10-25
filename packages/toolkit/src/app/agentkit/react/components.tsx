@@ -363,15 +363,35 @@ function sameSurfaceBoundaryProps(
   );
 }
 
+type DefinedProps<T> = {
+  [K in keyof T as undefined extends T[K] ? never : K]: T[K];
+} & {
+  [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<
+    T[K],
+    undefined
+  >;
+};
+
+/** Leaves out props whose value is undefined, so optional props stay unset. */
+function definedProps<T extends Record<string, unknown>>(
+  props: T,
+): DefinedProps<T> {
+  return Object.fromEntries(
+    Object.entries(props).filter(([, value]) => value !== undefined),
+  ) as DefinedProps<T>;
+}
+
 function AgentKitRegionSlot({
   slot: Slot,
   threadId,
   children,
 }: {
-  slot?: ComponentType<{
-    children: ReactNode;
-    threadId: string;
-  }>;
+  slot?:
+    | ComponentType<{
+        children: ReactNode;
+        threadId: string;
+      }>
+    | undefined;
   threadId: string;
   children: ReactNode;
 }) {
@@ -422,7 +442,13 @@ function useHydratedOrigin(): string | undefined {
   );
 }
 
-function AgentLink({ href, children }: { href?: string; children: ReactNode }) {
+function AgentLink({
+  href,
+  children,
+}: {
+  href?: string | undefined;
+  children: ReactNode;
+}) {
   const origin = useHydratedOrigin();
   const safeHref = safeAgentHref(href);
   return safeHref ? (
@@ -679,23 +705,26 @@ function AgentMarkdown({
     () => splitMarkdownBlocks(text),
     [text],
   );
-  const blocks = useMemo(
-    () => (tail ? [...completedBlocks, tail] : completedBlocks),
-    [completedBlocks, tail],
-  );
-  const offsets = useMemo(
-    () => markdownBlockOffsets(text, blocks),
-    [blocks, text],
-  );
+  const blocks = useMemo(() => {
+    const texts = tail ? [...completedBlocks, tail] : completedBlocks;
+    const offsets = markdownBlockOffsets(text, texts);
+    return texts.map((block, index) => {
+      const offset = offsets.at(index);
+      if (offset === undefined) {
+        throw new Error("Missing offset for a Markdown block");
+      }
+      return { text: block, offset };
+    });
+  }, [completedBlocks, tail, text]);
 
   return (
     <div className="agentkit-markdown" data-format="markdown">
       {blocks.map((block, index) => (
         <AgentMarkdownBlock
           key={index}
-          text={block}
+          text={block.text}
           streaming={streaming && index === blocks.length - 1}
-          offset={offsets[index]!}
+          offset={block.offset}
           animateFrom={animateFrom}
         />
       ))}
@@ -765,13 +794,13 @@ export interface AgentKitDisclosureSummaryProps {
   /** A row with nothing to expand renders as text, not a disabled button. */
   as?: "button" | "static";
   /** Id of the mounted content the trigger reveals. */
-  controls?: string;
+  controls?: string | undefined;
   /** Trailing content beside the trigger, such as objects and details. */
   meta?: ReactNode;
-  className?: string;
-  rowClassName?: string;
-  style?: CSSProperties;
-  chevronStyle?: CSSProperties;
+  className?: string | undefined;
+  rowClassName?: string | undefined;
+  style?: CSSProperties | undefined;
+  chevronStyle?: CSSProperties | undefined;
   /** Replaces the default icon, label and chevron. */
   children?: ReactNode;
 }
@@ -856,9 +885,13 @@ export function AgentKitDisclosureSummary({
           ? (event) => {
               // The trigger and controls in the meta handle their own clicks;
               // a drag that selected text is not a toggle.
-              const target = event.target as Element | null;
-              if (target?.closest?.(DISCLOSURE_ROW_INTERACTIVE)) return;
-              if (globalThis.getSelection?.()?.toString()) return;
+              const target = event.target;
+              if (
+                target instanceof Element &&
+                target.closest(DISCLOSURE_ROW_INTERACTIVE)
+              )
+                return;
+              if (globalThis.getSelection()?.toString()) return;
               onToggle();
             }
           : undefined
@@ -884,9 +917,9 @@ export function AgentKitDisclosureContent({
   onReveal,
   children,
 }: {
-  id?: string;
+  id?: string | undefined;
   open: boolean;
-  onReveal?: () => void;
+  onReveal?: (() => void) | undefined;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -1627,7 +1660,7 @@ function activityErrorPreview(
     ?.text.trim();
   // Structured diagnostics read badly on one line; they stay in the details.
   const message =
-    tool?.error?.message?.trim() ||
+    tool?.error?.message.trim() ||
     (tool ? undefined : activity.detail?.trim()) ||
     (summaryText && !/^[[{]/.test(summaryText) ? summaryText : undefined);
   if (!message) return "";
@@ -1655,7 +1688,7 @@ export function AgentActivityItem({
     [activity.source, activity.object],
     labels.assistant,
   );
-  const tool = thread.tools[activity.id];
+  const tool = thread.tools[activity.id] as AgentToolCall | undefined;
   const toolInput = useMemo(
     () => (tool ? formatActivityToolValue(tool.input, labels) : undefined),
     [labels, tool],
@@ -1664,9 +1697,8 @@ export function AgentActivityItem({
     () => (tool ? formatActivityToolValue(tool.output, labels) : undefined),
     [labels, tool],
   );
-  const toolInputLabel = labels.toolInput ?? defaultAgentKitLabels.toolInput!;
-  const toolResultLabel =
-    labels.toolResult ?? defaultAgentKitLabels.toolResult!;
+  const toolInputLabel = labels.toolInput;
+  const toolResultLabel = labels.toolResult;
   const expandable = Boolean(
     activity.summary?.length || toolInput || toolResult,
   );
@@ -1884,9 +1916,9 @@ function toolToActivity(
 }
 
 interface AgentEventRange {
-  runId?: RunId;
-  afterSequence?: number;
-  throughSequence?: number;
+  runId?: RunId | undefined;
+  afterSequence?: number | undefined;
+  throughSequence?: number | undefined;
 }
 
 function sequenceInRange(
@@ -2457,7 +2489,8 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     const tool = toolMap.get(entry.id);
     return tool ? [toolToActivity(tool, labels)] : [];
   });
-  const toolFor = (id: string) => toolMap.get(id) ?? thread.tools[id];
+  const toolFor = (id: string): AgentToolCall | undefined =>
+    toolMap.get(id) ?? thread.tools[id];
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
     const Renderer = tool ? registry.tools?.[tool.name] : undefined;
@@ -2594,10 +2627,14 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       second: labels.durationSecondShort,
     });
   const failedCount = steps.reduce((sum, step) => sum + step.failedCount, 0);
+  const reasoningMessageIds = activityItems.flatMap((activity) => {
+    const entry = reasoningEntries.get(activity.id);
+    return entry ? [entry.messageId] : [];
+  });
   const reasoningOnly =
     activityItems.length > 0 &&
     durableToolResults.length === 0 &&
-    activityItems.every((activity) => reasoningEntries.has(activity.id));
+    reasoningMessageIds.length === activityItems.length;
   const baseSummaryLabel =
     activelyWorking ||
     (activityItems.length === 0 && durableToolResults.length > 0)
@@ -2608,15 +2645,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
           ? workedSummaryLabel(
               durationMs ??
                 (reasoningOnly
-                  ? reasoningDurationMs(
-                      runEvents,
-                      new Set(
-                        activityItems.map(
-                          (activity) =>
-                            reasoningEntries.get(activity.id)!.messageId,
-                        ),
-                      ),
-                    )
+                  ? reasoningDurationMs(runEvents, new Set(reasoningMessageIds))
                   : undefined),
               labels,
               formatDuration,
@@ -2795,6 +2824,8 @@ function workStepVerbTitle(
       return labels.workStepRunningCommands;
     case "ranActions":
       return labels.workStepRunningActions;
+    case "used":
+    case undefined:
     default:
       return labels.working;
   }
@@ -2817,6 +2848,7 @@ function workVerbIcon(verb: AgentWorkVerb): ReactNode {
       return <IconTerminal2 {...props} />;
     case "ranActions":
       return <IconBolt {...props} />;
+    case "used":
     default:
       return null;
   }
@@ -2880,7 +2912,7 @@ function AgentWorkGroupRow({
   const thread = useAgentThreadSlice(sameAgents);
   const [open, setOpen] = useState(false);
   const contentId = useId();
-  const first = group.calls[0]!;
+  const [first] = group.calls;
   const activity = first.activity;
   const count = group.calls.length;
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
@@ -3180,7 +3212,7 @@ function AgentWorkStepList({
   const { labels } = useAgentKit();
   const [expanded, setExpanded] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
-  const plain = steps.length === 1 && !steps[0]!.title;
+  const plain = steps.length === 1 && steps.every((step) => !step.title);
   // Past the preview, the running step and any step with a failure stay in
   // view after the Show more row.
   const kept = (step: AgentWorkStep, index: number) =>
@@ -3309,11 +3341,13 @@ function AgentWorkDisclosure({
   const summaryContent = Summary ? (
     <Summary
       label={fullLabel}
-      running={running}
+      {...(running === undefined ? {} : { running })}
       expandable={expandable}
       open={open}
       current={current}
-      layout={workedForRowLayout}
+      {...(workedForRowLayout === undefined
+        ? {}
+        : { layout: workedForRowLayout })}
     />
   ) : undefined;
   // The row stays one mounted trigger from "Thinking" through the first
@@ -3655,6 +3689,7 @@ function taskStatusPresentation(
       };
     case "cancelled":
       return { icon: <IconX {...props} />, label: labels.runStopped };
+    case "pending":
     default:
       return {
         icon: <IconCircle {...props} />,
@@ -3853,8 +3888,8 @@ export function AgentApprovalPrompt({
         ...(allowOther ? [APPROVAL_OTHER_OPTION_ID] : []),
       ]
     : [];
-  const checkedId = otherSelected ? APPROVAL_OTHER_OPTION_ID : selected[0];
-  const focusableId = checkedId ?? choiceIds[0];
+  const checkedId = otherSelected ? APPROVAL_OTHER_OPTION_ID : selected.at(0);
+  const focusableId = checkedId ?? choiceIds.at(0);
   // Arrows only move focus. Choosing stays an explicit press, so arrowing onto
   // Other never mounts its autofocused field and pulls focus out of the group.
   const moveChoice = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -3879,8 +3914,9 @@ export function AgentApprovalPrompt({
       0,
       choiceIds.indexOf(focusedId ?? focusableId ?? ""),
     );
-    const nextId =
-      choiceIds[(current + step + choiceIds.length) % choiceIds.length]!;
+    const nextId = choiceIds.at(
+      (current + step + choiceIds.length) % choiceIds.length,
+    );
     buttons.find((button) => button.dataset.optionId === nextId)?.focus();
   };
   const optionProps = (id: string, active: boolean) =>
@@ -3910,9 +3946,11 @@ export function AgentApprovalPrompt({
           onPress: () =>
             resolve("submit", {
               decision: "approve",
-              optionIds: selected.length ? selected : undefined,
-              other: otherSelected ? other.trim() : undefined,
-              input: request.input ? { [request.input.id]: input } : undefined,
+              ...(selected.length ? { optionIds: selected } : {}),
+              ...(otherSelected ? { other: other.trim() } : {}),
+              ...(request.input
+                ? { input: { [request.input.id]: input } }
+                : {}),
             }),
         },
       ]
@@ -3985,12 +4023,20 @@ export function AgentApprovalPrompt({
         {request.input ? (
           <TextField
             className="agentkit-approval-input gap-1"
-            label={request.input.label}
+            {...(request.input.label === undefined
+              ? {}
+              : { label: request.input.label })}
             type={request.input.type === "url" ? "url" : "text"}
-            inputMode={request.input.type === "number" ? "decimal" : undefined}
-            required={request.input.required}
+            {...(request.input.type === "number"
+              ? { inputMode: "decimal" as const }
+              : {})}
+            {...(request.input.required === undefined
+              ? {}
+              : { required: request.input.required })}
             disabled={resolution.pending}
-            placeholder={request.input.placeholder}
+            {...(request.input.placeholder === undefined
+              ? {}
+              : { placeholder: request.input.placeholder })}
             value={input}
             onChange={setInput}
           />
@@ -4948,7 +4994,7 @@ function AgentRunDetails({
   open,
 }: {
   runId: RunId;
-  messageId?: string;
+  messageId?: string | undefined;
   open: boolean;
 }) {
   const { controller, threadId, labels, formatModelName } = useAgentKit();
@@ -4973,7 +5019,7 @@ function AgentRunDetails({
           (event.type === "activity.started" ||
             event.type === "activity.updated" ||
             event.type === "activity.completed") &&
-          thread.tools[event.activity.id]
+          (thread.tools[event.activity.id] as AgentToolCall | undefined)
         ) {
           toolIds.add(event.activity.id);
         }
@@ -5165,7 +5211,7 @@ function AgentMessageTimestamp({
   format,
 }: {
   createdAt: string;
-  format?: (createdAt: string) => string;
+  format?: ((createdAt: string) => string) | undefined;
 }) {
   const fallback = formatAgentMessageTimestamp(createdAt);
   return (
@@ -5524,7 +5570,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                     disabled={
                       !feedbackCapability.enabled || feedbackAction.pending
                     }
-                    title={feedbackCapability.reason}
+                    {...(feedbackCapability.reason === undefined
+                      ? {}
+                      : { title: feedbackCapability.reason })}
                     onPress={() => void rateResponse(value)}
                   />
                 );
@@ -5568,7 +5616,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 data-message-action="fork"
                 pending={forkAction.pending}
                 disabled={!forkingCapability.enabled || forkAction.pending}
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 onPress={() => void forkAction.execute().catch(() => undefined)}
               />
             ) : null}
@@ -5792,9 +5842,7 @@ export const AgentMessageView = memo(function AgentMessageView({
     citationRun = [];
   };
   orderedContent.forEach((item, index) => {
-    const isWidget =
-      item.type === "widget" ||
-      (item.type === "part" && item.part.type === "widget");
+    const isWidget = item.type === "widget" || item.part.type === "widget";
     const followsWidget =
       message.role === "assistant" &&
       postWidgetText !== undefined &&
@@ -6716,7 +6764,7 @@ export function AgentKitComposer({
               threadId={threadId}
               active={active}
               pending={command.pending || send.pending || Boolean(disabled)}
-              onSteer={steerQueued}
+              {...(steerQueued ? { onSteer: steerQueued } : {})}
               onRemove={removeQueued}
             />
           ) : (
@@ -6736,25 +6784,28 @@ export function AgentKitComposer({
                     ? { status: "sending" as const }
                     : {}),
               }))}
-              onStopAndSend={stopAndSendQueued}
+              {...(stopAndSendQueued
+                ? { onStopAndSend: stopAndSendQueued }
+                : {})}
               disabled={command.pending || send.pending || Boolean(disabled)}
               // The drawer keeps the new order while this settles and rolls
               // back with its own notice when it rejects.
-              onReorder={
-                supportsQueueOrdering
-                  ? (messageIds) => control.reorderQueuedMessages(messageIds)
-                  : undefined
-              }
-              onSteer={
-                steerQueued
-                  ? (item) => {
+              {...(supportsQueueOrdering
+                ? {
+                    onReorder: (messageIds) =>
+                      control.reorderQueuedMessages(messageIds),
+                  }
+                : {})}
+              {...(steerQueued
+                ? {
+                    onSteer: (item) => {
                       const message = thread.queuedMessages.find(
                         (candidate) => candidate.id === item.id,
                       );
                       if (message) steerQueued(message);
-                    }
-                  : undefined
-              }
+                    },
+                  }
+                : {})}
               onRemove={(item) => {
                 const message = thread.queuedMessages.find(
                   (candidate) => candidate.id === item.id,
@@ -6770,9 +6821,9 @@ export function AgentKitComposer({
                 remove: labels.queueRemove,
                 moreActions: labels.queueMore,
               }}
-              getItemActions={
-                supportsQueueReordering
-                  ? (item) => {
+              {...(supportsQueueReordering
+                ? {
+                    getItemActions: (item) => {
                       if (item.id === thread.queuedMessages[0]?.id) return [];
 
                       return [
@@ -6789,9 +6840,9 @@ export function AgentKitComposer({
                               .catch(() => undefined),
                         },
                       ];
-                    }
-                  : undefined
-              }
+                    },
+                  }
+                : {})}
             />
           )
         ) : null}
@@ -6828,13 +6879,56 @@ export function AgentKitComposer({
           )
         ) : null}
         <PromptComposer
-          contextItems={contextItems}
-          onRemoveContextItem={onRemoveContextItem}
-          onInspectContextItem={onInspectContextItem}
-          onRetryContextItem={onRetryContextItem}
-          contextMenuItems={contextMenuItems}
+          {...definedProps({
+            contextItems,
+            onRemoveContextItem,
+            onInspectContextItem,
+            onRetryContextItem,
+            contextMenuItems,
+            inlineTextAttachments,
+            disabled,
+            isReferenceTarget,
+            onDisabledClick,
+            onConnectProvider,
+            onConnectLocalRuntime,
+            imageModelMenu,
+            autoFocus,
+            composerRef,
+            availableModels,
+            modelListLoading,
+            selectedModel,
+            selectedEngine,
+            selectedEffort,
+            onModelChange,
+            onEffortChange,
+            availableAgents,
+            selectedAgent,
+            agentOnly,
+            onAgentChange,
+            onModelSelectorOpenChange,
+            modelStatusChecksEnabled,
+            requireAgentEngine,
+            showMissingApiKeySetup,
+            setupCardVisible,
+            contextUsageSlot,
+            layoutVariant,
+            toolbarSlot,
+            onTextChange,
+            extraActionButton,
+            getSubmitFailureDraftScope,
+            interceptBuildRequestsForBuilder,
+            onAttachmentRequest,
+            contextButtonTooltipDisabled,
+            slashCommands,
+            slashSkills,
+            onSlashCommand,
+            voiceEnabled,
+            replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
+            onEscape: editingMessage ? cancelEditing : undefined,
+            initialText: composerInitialText,
+            initialTextKey: composerInitialTextKey,
+          })}
           attachmentAdapter={composerAttachmentAdapter}
-          inlineTextAttachments={inlineTextAttachments}
           rootClassName="agentkit-composer"
           className={
             queueCapability.visible && thread.queuedMessages.length > 0
@@ -6846,70 +6940,29 @@ export function AgentKitComposer({
           // A host placeholder (run state, setup) wins in both states; the
           // labels pick between a new chat and a reply.
           placeholder={placeholder ?? labels.composerPlaceholder}
-          replyPlaceholder={placeholder ?? labels.composerReplyPlaceholder}
           conversationStarted={thread.messages.length > 0}
           onRecallLastMessage={recallLastMessage}
-          disabled={disabled}
-          isReferenceTarget={isReferenceTarget}
           submissionDisabled={submissionBlocked}
-          onDisabledClick={onDisabledClick}
-          onConnectProvider={onConnectProvider}
-          onConnectLocalRuntime={onConnectLocalRuntime}
-          imageModelMenu={imageModelMenu}
-          autoFocus={autoFocus}
-          composerRef={composerRef}
           willQueue={active && queueWhileRunning && canQueue}
           queuesBehindSubmission={queueWhileRunning && canQueue}
           onEmptySubmit={() => {
-            const next = thread.queuedMessages[0];
+            const next = thread.queuedMessages.at(0);
             if (next) steerQueued?.(next);
           }}
           showModelSelector={showModelSelector && canSelectModel}
-          availableModels={availableModels}
-          modelListLoading={modelListLoading}
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          onModelChange={onModelChange}
-          onEffortChange={onEffortChange}
-          availableAgents={availableAgents}
-          selectedAgent={selectedAgent}
-          agentOnly={agentOnly}
-          onAgentChange={onAgentChange}
-          onModelSelectorOpenChange={onModelSelectorOpenChange}
-          modelStatusChecksEnabled={modelStatusChecksEnabled}
-          requireAgentEngine={requireAgentEngine}
-          showMissingApiKeySetup={showMissingApiKeySetup}
-          setupCardVisible={setupCardVisible}
-          contextUsageSlot={contextUsageSlot}
-          layoutVariant={layoutVariant}
-          toolbarSlot={toolbarSlot}
           headerSlot={editingRow}
-          onEscape={editingMessage ? cancelEditing : undefined}
-          initialText={composerInitialText}
-          initialTextKey={composerInitialTextKey}
-          onTextChange={onTextChange}
-          extraActionButton={extraActionButton}
           sendButtonDisabled={submissionPending && !active}
           onSubmissionPendingChange={handleSubmissionPendingChange}
           onSubmitStart={startPendingSubmission}
-          getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           clearOnSubmitImmediately
           onAttachmentError={reportAttachmentError}
-          interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           planCommand={!planModeDisabled}
           stopButton={stopButton === undefined ? defaultStopButton : stopButton}
           noticeOutlet
           attachmentsEnabled={canUpload}
-          onAttachmentRequest={onAttachmentRequest}
-          contextButtonTooltipDisabled={contextButtonTooltipDisabled}
-          slashCommands={slashCommands}
-          slashSkills={slashSkills}
           includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}
           includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}
-          onSlashCommand={onSlashCommand}
           plusMenuMode={plusMenuMode ?? "full"}
-          voiceEnabled={voiceEnabled}
           onSubmit={async (text, files, references, options) => {
             if (disabled) {
               onDisabledClick?.();
@@ -7000,17 +7053,19 @@ export interface AgentKitChatProps {
 }
 
 type AgentKitTranscriptContentStyle = CSSProperties & {
-  "--agentkit-transcript-top-inset"?: string;
-  "--agentkit-transcript-message-gap"?: string;
-  "--agentkit-transcript-message-line-height"?: string;
-  "--agentkit-transcript-font-family"?: string;
-  "--agentkit-transcript-post-widget-text-color"?: string;
-  "--agentkit-transcript-post-widget-paragraph-padding-block"?: string;
-  "--agentkit-user-bubble-line-height"?: string;
-  "--agentkit-user-bubble-max-width"?: string;
-  "--agentkit-user-bubble-offset-inline"?: string;
-  "--agentkit-user-bubble-padding-block"?: string;
-  "--agentkit-user-bubble-padding-inline"?: string;
+  "--agentkit-transcript-top-inset"?: string | undefined;
+  "--agentkit-transcript-message-gap"?: string | undefined;
+  "--agentkit-transcript-message-line-height"?: string | undefined;
+  "--agentkit-transcript-font-family"?: string | undefined;
+  "--agentkit-transcript-post-widget-text-color"?: string | undefined;
+  "--agentkit-transcript-post-widget-paragraph-padding-block"?:
+    | string
+    | undefined;
+  "--agentkit-user-bubble-line-height"?: string | undefined;
+  "--agentkit-user-bubble-max-width"?: string | undefined;
+  "--agentkit-user-bubble-offset-inline"?: string | undefined;
+  "--agentkit-user-bubble-padding-block"?: string | undefined;
+  "--agentkit-user-bubble-padding-inline"?: string | undefined;
 };
 
 type AgentKitChatLaneStyle = CSSProperties & {
@@ -7164,7 +7219,7 @@ export function AgentKitTranscriptSkeleton({
 function AgentThreadUnavailable({
   onStartNewChat,
 }: {
-  onStartNewChat?: () => void;
+  onStartNewChat?: (() => void) | undefined;
 }) {
   const { labels } = useAgentKit();
   return (
@@ -7190,7 +7245,7 @@ function AgentThreadLoadFailed({
 }: {
   retry: () => void;
   retrying: boolean;
-  retryError?: Error;
+  retryError?: Error | undefined;
 }) {
   const { labels } = useAgentKit();
   return (
@@ -7244,8 +7299,7 @@ function currentRunActivityLabel(
   labels: ReturnType<typeof useAgentKit>["labels"],
 ): string {
   const runEvents = agentRunEvents(thread, runId);
-  for (let index = runEvents.length - 1; index >= 0; index -= 1) {
-    const event = runEvents[index]!;
+  for (const event of [...runEvents].reverse()) {
     if (
       event.type === "activity.started" ||
       event.type === "activity.updated"
@@ -7286,7 +7340,10 @@ function AgentKitLiveStatus({ threadId }: { threadId: string }) {
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const observedRef = useRef<{ runId?: RunId; status?: string }>({});
+  const observedRef = useRef<{
+    runId?: RunId | undefined;
+    status?: string | undefined;
+  }>({});
   useEffect(
     () => () => {
       if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
@@ -7507,7 +7564,7 @@ export function AgentKitChat({
   // the next failure is a new error object, so it shows again.
   const [connectionNotice, setConnectionNotice] = useState<{
     threadId: string;
-    cleared?: AgentError;
+    cleared?: AgentError | undefined;
   }>({ threadId });
   if (connectionNotice.threadId !== threadId) {
     setConnectionNotice({ threadId, cleared: connectionError });
@@ -7923,15 +7980,16 @@ export function AgentKitChat({
   );
   const eventIndex = agentThreadEventIndex(thread.events);
   const messageRunIds = useMemo(() => {
-    const activeMessageRuns = Object.values(thread.runs).filter(
-      (run) =>
-        run.activeMessageId !== undefined &&
-        !eventIndex.messageRunIds.has(run.activeMessageId),
+    const activeMessageRuns = Object.values(thread.runs).flatMap((run) =>
+      run.activeMessageId !== undefined &&
+      !eventIndex.messageRunIds.has(run.activeMessageId)
+        ? [{ runId: run.id, messageId: run.activeMessageId }]
+        : [],
     );
     if (!activeMessageRuns.length) return eventIndex.messageRunIds;
     const result = new Map(eventIndex.messageRunIds);
-    for (const run of activeMessageRuns) {
-      result.set(run.activeMessageId!, run.id);
+    for (const { runId, messageId } of activeMessageRuns) {
+      result.set(messageId, runId);
     }
     return result;
   }, [eventIndex, thread.runs]);
@@ -7946,7 +8004,7 @@ export function AgentKitChat({
     for (const [widgetId, messageId] of Object.entries(
       thread.widgetMessageIds,
     )) {
-      const widget = thread.widgets[widgetId];
+      const widget = thread.widgets[widgetId] as AgentWidget | undefined;
       if (!widget) continue;
       const widgets = result.get(messageId) ?? [];
       widgets.push(widget);
@@ -8240,10 +8298,10 @@ export function AgentKitChat({
   }: {
     runId: RunId;
     anchor: string;
-    afterSequence?: number;
-    throughSequence?: number;
-    messageId?: string;
-    foldedReasoningMessageId?: string;
+    afterSequence?: number | undefined;
+    throughSequence?: number | undefined;
+    messageId?: string | undefined;
+    foldedReasoningMessageId?: string | undefined;
   }) => {
     const key = `run-work:${threadId}:${runId}:${anchor}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
@@ -8280,10 +8338,10 @@ export function AgentKitChat({
     key: string;
     resetKey: string;
     runId: RunId;
-    afterSequence?: number;
-    throughSequence?: number;
-    messageId?: string;
-    foldedReasoningMessageId?: string;
+    afterSequence?: number | undefined;
+    throughSequence?: number | undefined;
+    messageId?: string | undefined;
+    foldedReasoningMessageId?: string | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
       <AgentCollaborationFeed
@@ -8880,7 +8938,9 @@ export function AgentKitChat({
                           threadId={threadId}
                           recover={recovery.execute}
                           recovering={recovery.pending}
-                          recoveryError={recovery.error}
+                          {...(recovery.error === undefined
+                            ? {}
+                            : { recoveryError: recovery.error })}
                           dismiss={clearConnectionNotice}
                         />
                       </AgentKitSurfaceBoundary>

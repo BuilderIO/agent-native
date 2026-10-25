@@ -295,7 +295,7 @@ async function mount({
 function unmount(mounted: Mounted): void {
   mounted.root.unmount();
   mounted.host.remove();
-  void mounted.client.dispose?.();
+  void mounted.client.dispose();
 }
 
 /** Replays `timeline` and returns per-frame metrics. */
@@ -327,7 +327,7 @@ export async function runReplay({
     reply: () => {
       const replies = transcript.querySelectorAll(".agent-markdown");
       return replies.length > historyTurns
-        ? replies[replies.length - 1]!
+        ? replies.item(replies.length - 1)
         : null;
     },
     receivedWords: () => countMarkdownWords(delivered, codeWordCounting),
@@ -461,11 +461,12 @@ export async function measureHistoryLoad(
     }
   }
   const firstRendered = positions.findIndex((position) => position > 0);
-  const steps = positions
-    .slice(Math.max(1, firstRendered))
-    .map((position, index) =>
-      Math.abs(position - positions[Math.max(0, firstRendered) + index]!),
-    );
+  const steps: number[] = [];
+  let previous: number | null = null;
+  for (const position of positions.slice(Math.max(0, firstRendered))) {
+    if (previous !== null) steps.push(Math.abs(position - previous));
+    previous = position;
+  }
   const result = {
     framesToBottom: landedAt < 0 ? -1 : landedAt - Math.max(0, firstRendered),
     largestStepPx: Math.round(Math.max(0, ...steps)),

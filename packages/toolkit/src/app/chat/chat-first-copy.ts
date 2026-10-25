@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import type { ChatFirstCopy } from "./chat-first/types.js";
 
-const DEFAULT_COPY: Record<string, string> = {
+const DEFAULT_COPY: Partial<Record<string, string>> = {
   newChat: "New chat",
   search: "Search",
   workspaceApps: "Apps",
@@ -145,14 +145,18 @@ export function useChatFirstCopy(copy?: ChatFirstCopy): ChatFirstCopy {
   return useMemo(
     () =>
       copy ??
-      ((key, values) =>
-        Object.hasOwn(DEFAULT_COPY, key)
-          ? t(`agentChat.chatFirst.${key}`, {
+      ((key, values) => {
+        const english = Object.hasOwn(DEFAULT_COPY, key)
+          ? DEFAULT_COPY[key]
+          : undefined;
+        return english === undefined
+          ? defaultChatFirstCopy(key, values)
+          : t(`agentChat.chatFirst.${key}`, {
               ...values,
               // Hosts that never load the toolkit catalog keep English copy.
-              defaultValue: DEFAULT_COPY[key].replace(/\{(\w+)\}/g, "{{$1}}"),
-            })
-          : defaultChatFirstCopy(key, values)),
+              defaultValue: english.replace(/\{(\w+)\}/g, "{{$1}}"),
+            });
+      }),
     [copy, t],
   );
 }

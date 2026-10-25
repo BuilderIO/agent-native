@@ -1710,7 +1710,12 @@ export function MultiTabAssistantChat({
           current?.model === catalog.defaultModel &&
           current.engine === catalog.defaultEngine
             ? current
-            : { model: catalog.defaultModel, engine: catalog.defaultEngine },
+            : {
+                model: catalog.defaultModel,
+                ...(catalog.defaultEngine === undefined
+                  ? {}
+                  : { engine: catalog.defaultEngine }),
+              },
         );
         void catalog.loadLiveGroups().then((liveGroups) => {
           if (isCurrentRequest() && liveGroups) {

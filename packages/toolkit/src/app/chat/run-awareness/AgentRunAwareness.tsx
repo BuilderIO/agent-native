@@ -40,7 +40,7 @@ export interface AgentRunAwarenessProps {
    * Keep unread chats in the user's `application_state`. Off where there is no
    * signed-in user to own the row; the title and favicon still update.
    */
-  persistUnread?: boolean;
+  persistUnread?: boolean | undefined;
   /** Overrides the canvas favicon renderer; `null` leaves the favicon alone. */
   renderFavicon?: StatusFaviconRenderer | null;
 }

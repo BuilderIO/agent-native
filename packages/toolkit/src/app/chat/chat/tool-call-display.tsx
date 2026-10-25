@@ -1213,7 +1213,7 @@ function AgentCallCell({
   for (let index = 0; index < workItemCount; index++) {
     const reasoningText = activeReasoning[index];
     const segment = inlineSegments[index];
-    const tool = activity?.toolCalls?.[index];
+    const tool = activity?.toolCalls.at(index);
     if (reasoningText) {
       workItems.push({
         key: `reasoning-${index}`,

@@ -60,8 +60,7 @@ function getSegmenter(
 ): SegmenterInstance | null {
   const cached = segmenters[granularity];
   if (cached !== undefined) return cached;
-  const Segmenter = (Intl as typeof Intl & { Segmenter?: SegmenterConstructor })
-    .Segmenter;
+  const Segmenter = (Intl as { Segmenter?: SegmenterConstructor }).Segmenter;
   const created = Segmenter ? new Segmenter(undefined, { granularity }) : null;
   segmenters[granularity] = created;
   return created;
@@ -186,7 +185,7 @@ export function streamingRevealUnitEnds(text: string): number[] {
       unitHasWord &&
       !isWhitespace &&
       (unitHasWhitespace ||
-        (startsWord && unitHasWord && (unitWordIsNoSpace || segmentIsNoSpace)))
+        (startsWord && (unitWordIsNoSpace || segmentIsNoSpace)))
     ) {
       ends.push(offset);
       unitLength = 0;
@@ -224,13 +223,13 @@ function extendUnitEnds(
   // The last two units can still grow or re-split as text arrives; everything
   // before them ended at a whitespace or script boundary that later text
   // cannot move.
+  const restart = previousEnds.at(-3);
   if (
-    previousEnds.length > 2 &&
+    restart !== undefined &&
     text.length >= previousText.length &&
     text.startsWith(previousText)
   ) {
     const keep = previousEnds.length - 2;
-    const restart = previousEnds[keep - 1]!;
     const appended = streamingRevealUnitEnds(text.slice(restart));
     const ends = previousEnds.slice(0, keep);
     for (const end of appended) ends.push(end + restart);
@@ -249,7 +248,9 @@ const structuralLineStart = /^(?:[-*+] |\d{1,9}[.)] |#{1,6} |> |\|)/;
 /** The cadence pause after a unit that ends at `end`, before speed scaling. */
 export function streamingRevealPauseMs(text: string, end: number): number {
   let trimmedEnd = end;
-  while (trimmedEnd > 0 && /\s/.test(text[trimmedEnd - 1]!)) trimmedEnd -= 1;
+  while (trimmedEnd > 0 && /\s/.test(text.charAt(trimmedEnd - 1))) {
+    trimmedEnd -= 1;
+  }
   const trailing = text.slice(trimmedEnd, end);
   const newlines = trailing.split("\n").length - 1;
   if (newlines >= 2) return STREAMING_REVEAL_PAUSE_MS.paragraph;
@@ -442,7 +443,9 @@ export class StreamingRevealPacer {
       this.nextUnit < revealable &&
       revealed < STREAMING_REVEAL_MAX_UNITS_PER_FRAME
     ) {
-      this.visibleLength = this.unitEnds[this.nextUnit]!;
+      const end = this.unitEnds.at(this.nextUnit);
+      if (end === undefined) break;
+      this.visibleLength = end;
       this.nextUnit += 1;
       this.carry -= 1;
       revealed += 1;
@@ -501,9 +504,11 @@ export class StreamingRevealPacer {
     this.carry += (rate * elapsed) / 1000;
     const count = Math.min(units, frameCap, Math.floor(this.carry));
     if (count <= 0) return;
+    const end = this.unitEnds.at(this.nextUnit + count - 1);
+    if (end === undefined) return;
     this.carry = Math.min(this.carry - count, 1);
     this.nextUnit += count;
-    this.visibleLength = this.unitEnds[this.nextUnit - 1]!;
+    this.visibleLength = end;
   }
 
   private maxRate(unitsPerFrame: number): number {
@@ -530,7 +535,8 @@ export class StreamingRevealPacer {
     let high = this.unitEnds.length;
     while (low < high) {
       const middle = (low + high) >> 1;
-      if (this.unitEnds[middle]! <= this.visibleLength) low = middle + 1;
+      const end = this.unitEnds.at(middle);
+      if (end !== undefined && end <= this.visibleLength) low = middle + 1;
       else high = middle;
     }
     this.nextUnit = low;

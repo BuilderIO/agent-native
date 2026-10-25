@@ -2664,7 +2664,7 @@ export async function claimSteeredQueuedMessages(
   });
   const records = result?.steeredRecords ?? [];
   return (result?.steeredMessages ?? []).map((queued, index) => {
-    const record = records[index];
+    const record = records.at(index);
     if (record?.message.id !== queued.id) {
       throw new TypeError("Steered queue claim lost its delivery record.");
     }
@@ -2801,10 +2801,11 @@ export type ThreadQueuedMessageMutation =
 export interface ThreadQueuedMessageMutationResult {
   queuedMessages: QueuedMessage[];
   message?: QueuedMessage;
-  claimedMessage?: QueuedMessage;
+  /** A claim check that loses the claim clears this to undefined. */
+  claimedMessage?: QueuedMessage | undefined;
   alreadySubmitted?: boolean;
   submittedRunId?: string;
-  claimBusy?: boolean;
+  claimBusy?: boolean | undefined;
   submissionExpired?: boolean;
   promotionBusy?: boolean;
   /** A reorder named a different message set than the queue holds. */
@@ -3144,15 +3145,14 @@ export async function mutateThreadQueuedMessages(
               break;
             }
             case "steer": {
-              const index = current.findIndex(
+              const selected = current.find(
                 (message) => message.id === mutation.messageId,
               );
-              if (index < 0) {
+              if (!selected) {
                 throw new Error(
                   `Unknown queued message: ${mutation.messageId}`,
                 );
               }
-              const selected = current[index]!;
               const now = Date.now();
               if (queuedSubmissionExpired(selected, now)) {
                 queuedMessages = current.filter(
@@ -3230,31 +3230,33 @@ export async function mutateThreadQueuedMessages(
                 current.map((message) => [message.id, message]),
               );
               const ids = mutation.messageIds;
+              const ordered = ids.flatMap((id) => {
+                const message = byId.get(id);
+                return message ? [message] : [];
+              });
               if (
                 ids.length !== current.length ||
                 new Set(ids).size !== ids.length ||
-                ids.some((id) => !byId.has(id))
+                ordered.length !== ids.length
               ) {
                 response = { queueOrderStale: true };
                 break;
               }
               const now = Date.now();
-              const moving = ids.filter(
-                (id, index) => current[index]?.id !== id,
+              const moving = ordered.filter(
+                (message, index) => current[index]?.id !== message.id,
               );
               if (moving.length === 0) break;
               // A claimed message is already being promoted into a run, so its
               // position is no longer the queue's to change.
               if (
-                moving.some((id) =>
-                  queuedMessageClaimActive(byId.get(id)!, now),
-                )
+                moving.some((message) => queuedMessageClaimActive(message, now))
               ) {
                 response = { promotionBusy: true };
                 break;
               }
               reordered = true;
-              queuedMessages = ids.map((id) => byId.get(id)!);
+              queuedMessages = ordered;
               break;
             }
             case "claim": {

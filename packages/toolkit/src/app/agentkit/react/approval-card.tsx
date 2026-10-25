@@ -66,7 +66,7 @@ export interface ApprovalCardMenuItem {
 export interface ApprovalCardProps {
   title: string;
   status: string;
-  detail?: string;
+  detail?: string | undefined;
   icon?: ReactNode;
   actions: readonly ApprovalCardAction[];
   /** Extra choices split off the primary action. Items are text only. */
@@ -107,11 +107,11 @@ export function ApprovalCard({
                 ? "solid"
                 : "outline"
             }
-            className={
-              menu && action.intent === "primary" ? "rounded-e-none" : undefined
-            }
-            disabled={busy || action.disabled}
-            pending={action.pending}
+            {...(menu && action.intent === "primary"
+              ? { className: "rounded-e-none" }
+              : {})}
+            disabled={busy || action.disabled === true}
+            pending={action.pending === true}
             data-approval-action={action.id}
             onPress={action.onPress}
           >
@@ -161,9 +161,9 @@ export function ApprovalCard({
       <ActionCard
         icon={icon ?? <IconShieldCheck aria-hidden="true" className="size-4" />}
         title={title}
-        detail={detail}
+        {...(detail === undefined ? {} : { detail })}
         status={status}
-        action={children ? undefined : actionRow}
+        {...(children ? {} : { action: actionRow })}
         // Approval copy is the question being asked; it wraps rather than
         // truncating behind a hover title.
         className="rounded-none border-0 bg-transparent shadow-none [&_p]:whitespace-normal"

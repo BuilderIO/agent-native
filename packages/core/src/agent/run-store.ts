@@ -5761,7 +5761,7 @@ export async function markRunThreadProjectionPending(
           WHERE id = ? AND status <> 'running'`,
     args: [runId],
   });
-  if ((rowsAffected ?? 0) !== 1) {
+  if (rowsAffected !== 1) {
     throw new Error(
       `Run ${runId} did not retain its thread projection retry marker`,
     );

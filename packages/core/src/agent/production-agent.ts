@@ -7356,6 +7356,7 @@ export async function runAgentLoop(opts: {
   const deliverSteeredMessagesAtToolBoundary = async (
     toolResultParts: EngineContentPart[],
   ) => {
+    if (signal.aborted) return;
     const threadId = opts.threadId;
     const runId = opts.runId;
     if (!threadId || !runId) return;
@@ -8924,6 +8925,8 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    // Tool closures set the stop, so control flow still reads it as null here.
+    const actionStopRequested = () => requestedActionStop !== null;
     let requestedActionStopTranscriptSent = false;
     const approvalTranscriptCallIds = new Set<string>();
     const sentApprovalTranscriptTexts = new Set<string>();
@@ -11060,7 +11063,7 @@ export async function runAgentLoop(opts: {
     await flushParallelBatch();
 
     messages.push({ role: "user", content: toolResultParts });
-    if (!requestedActionStop && !signal.aborted) {
+    if (!actionStopRequested()) {
       await deliverSteeredMessagesAtToolBoundary(toolResultParts);
     }
     if (requestedActionStop) {
@@ -15757,7 +15760,9 @@ export function createProductionAgentHandler(
                   steeredUserContent: (message) =>
                     buildUserContentWithAttachments({
                       text: message.text,
-                      attachments: message.attachments,
+                      ...(message.attachments === undefined
+                        ? {}
+                        : { attachments: message.attachments }),
                       vision: isAgentModelVisionCapable(
                         effectiveModel,
                         engine.capabilities.vision === true,

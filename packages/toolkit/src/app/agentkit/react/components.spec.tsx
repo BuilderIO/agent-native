@@ -550,8 +550,19 @@ describe("AgentKitChat", () => {
       join(process.cwd(), "src/app/agentkit/react/components.tsx"),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    for (const prop of ["slashCommands", "slashSkills", "onSlashCommand"]) {
-      expect(source).toContain(`${prop}={${prop}}`);
+    // Optional props reach the composer through definedProps, which leaves
+    // out the ones the host did not set.
+    const forwarded = /\{\.\.\.definedProps\(\{([^}]*)\}\)\}/.exec(source);
+    expect(forwarded).not.toBeNull();
+    for (const prop of [
+      "slashCommands",
+      "slashSkills",
+      "onSlashCommand",
+      "autoFocus",
+      "composerRef",
+      "interceptBuildRequestsForBuilder",
+    ]) {
+      expect(forwarded?.[1]).toMatch(new RegExp(`\\b${prop},`));
     }
     expect(source).toContain(
       "includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}",
@@ -560,12 +571,7 @@ describe("AgentKitChat", () => {
       "includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}",
     );
     expect(source).toContain('plusMenuMode ?? "full"');
-    expect(source).toContain("autoFocus={autoFocus}");
-    expect(source).toContain("composerRef={composerRef}");
     expect(source).toContain("onAttachmentError={reportAttachmentError}");
-    expect(source).toContain(
-      "interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}",
-    );
     expect(source).toContain(
       'window.dispatchEvent(\n      new CustomEvent("agentkit:attach-files"',
     );

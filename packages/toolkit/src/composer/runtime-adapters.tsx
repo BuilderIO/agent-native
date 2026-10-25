@@ -321,8 +321,42 @@ const fallbackBuilderFlow = {
   retry: () => false,
 };
 
-const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
-  ComposerRuntimeAdapters = {
+type AdapterGroup<K extends keyof ComposerRuntimeAdapters> = NonNullable<
+  ComposerRuntimeAdapters[K]
+>;
+
+/** What the context always carries: the fallbacks fill these in. */
+type ResolvedComposerRuntimeAdapters = ComposerRuntimeAdapters &
+  Required<
+    Pick<ComposerRuntimeAdapters, "resolvePath" | "translate" | "formatNumber">
+  > & {
+    agentChat: AdapterGroup<"agentChat"> & // i18n-ignore -- type intersection, not UI text
+      Required<
+        Pick<
+          AdapterGroup<"agentChat">,
+          | "sendToAgentChat"
+          | "setContextItem"
+          | "requestThreadOpen"
+          | "formatContextItems"
+          | "normalizeReference"
+          | "StaleIndexBoundary"
+        >
+      >;
+    voice: AdapterGroup<"voice"> & // i18n-ignore -- type intersection, not UI text
+      Required<
+        Pick<
+          AdapterGroup<"voice">,
+          | "useProviderStatus"
+          | "getBrowserTabId"
+          | "readAppState"
+          | "setAppState"
+          | "subscribeSidebarState"
+          | "applyContextReplacements"
+        >
+      >;
+  };
+
+const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
   formatNumber: (value, options) =>
@@ -364,7 +398,7 @@ const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
 };
 
 const ComposerRuntimeAdaptersContext =
-  createContext<ComposerRuntimeAdapters>(fallbackAdapters);
+  createContext<ResolvedComposerRuntimeAdapters>(fallbackAdapters);
 
 export function ComposerRuntimeAdaptersProvider({
   adapters,

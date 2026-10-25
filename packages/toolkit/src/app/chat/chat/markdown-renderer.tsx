@@ -424,10 +424,10 @@ export const markdownComponents = {
           ),
         );
       }
-      const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
-      if (langMatch) {
+      const lang = className.match(/\blanguage-([\w+-]+)\b/)?.at(1);
+      if (lang !== undefined) {
         const code = extractCodeText(childProps.children).replace(/\n$/, "");
-        return reveal(<HighlightedCodeBlock code={code} lang={langMatch[1]} />);
+        return reveal(<HighlightedCodeBlock code={code} lang={lang} />);
       }
     }
     return <pre {...rest}>{children}</pre>;
@@ -500,7 +500,7 @@ export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
   blockText: string;
   /** The block is the live tail: hold back syntax that has not closed. */
   streaming?: boolean;
-  offset?: number;
+  offset?: number | undefined;
   animateFrom?: number | null;
 }) {
   const ReactMarkdown = markdownModule?.default;

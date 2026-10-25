@@ -478,7 +478,7 @@ class AISDKEngine implements AgentEngine {
       // No effort chosen: keep adaptive thinking on and send no effort, so
       // the model's own default level applies.
       providerOpts.anthropic = {
-        ...((providerOpts.anthropic as object) ?? {}),
+        ...(providerOpts.anthropic as object | undefined),
         thinking: { type: "adaptive" },
       };
     }

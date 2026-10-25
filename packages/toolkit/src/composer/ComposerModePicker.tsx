@@ -86,7 +86,9 @@ export function ComposerModePicker({
                   key={option.value}
                   value={option.value}
                   indicator="check"
-                  disabled={option.disabled}
+                  {...(option.disabled === undefined
+                    ? {}
+                    : { disabled: option.disabled })}
                   className="agent-composer-mode-picker-option pe-3"
                 >
                   {option.icon}

@@ -337,7 +337,6 @@ export function McpAppRenderer({
           }),
     );
     bridge.onreadresource = async ({ uri }) => {
-      if (readOnly) throw new Error(tRef.current("agentChat.mcpApps.readOnly"));
       return postMcpAppEndpoint("read-resource", {
         serverId: appRef.current.serverId,
         uri,

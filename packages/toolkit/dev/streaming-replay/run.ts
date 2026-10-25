@@ -30,22 +30,25 @@ import type { SyntheticTimelineKind } from "./timelines.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const harnessPath = resolve(here, "harness.tsx");
 
-function option(name: string, fallback?: string): string | undefined {
+function option(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : fallback;
+  if (index < 0) return undefined;
+  const value = process.argv.at(index + 1);
+  if (value === undefined) throw new Error(`--${name} needs a value.`);
+  return value;
 }
 
-const origin = option("origin", "http://localhost:3440")!;
-const pagePath = option("path", "/home")!;
-const timelines = option(
-  "timelines",
-  "steady,bursty,very-fast,stall-flood,recorded,history,user-scroll",
-)!.split(",");
+const origin = option("origin") ?? "http://localhost:3440";
+const pagePath = option("path") ?? "/home";
+const timelines = (
+  option("timelines") ??
+  "steady,bursty,very-fast,stall-flood,recorded,history,user-scroll"
+).split(",");
 const threadId = option("thread");
 const runId = option("run");
 const screenshotDir = option("screenshot");
 const out = option("out");
-const screenshotTimes = (option("screenshot-at", "5000") ?? "5000")
+const screenshotTimes = (option("screenshot-at") ?? "5000")
   .split(",")
   .map(Number);
 const includeSamples = process.argv.includes("--samples");
@@ -82,19 +85,26 @@ type TimelineSource =
   | { kind: "recorded"; threadId: string; runId: string }
   | { kind: "synthetic"; name: SyntheticTimelineKind };
 
+function timelineSource(name: string): TimelineSource {
+  if (name !== "recorded" && name !== "user-scroll") {
+    return { kind: "synthetic", name: name as SyntheticTimelineKind };
+  }
+  if (!threadId || !runId) throw new Error(`${name} needs --thread and --run.`);
+  return { kind: "recorded", threadId, runId };
+}
+
 async function runTimeline(page: Page, name: string): Promise<unknown> {
   // A fresh page per timeline, so one replay's leftovers never skew the next.
   await openHarness(page);
   if (name === "history") {
-    return page.evaluate(() => window.streamingReplay!.measureHistoryLoad());
+    return page.evaluate(() => {
+      const replay = window.streamingReplay;
+      if (!replay)
+        throw new Error("The streaming replay harness is not loaded.");
+      return replay.measureHistoryLoad();
+    });
   }
-  const recorded = name === "recorded" || name === "user-scroll";
-  if (recorded && (!threadId || !runId)) {
-    throw new Error(`${name} needs --thread and --run.`);
-  }
-  const source: TimelineSource = recorded
-    ? { kind: "recorded", threadId: threadId!, runId: runId! }
-    : { kind: "synthetic", name: name as SyntheticTimelineKind };
+  const source = timelineSource(name);
   const extra: Partial<ReplayOptions> = {
     includeSamples,
     codeWordCounting,
@@ -127,7 +137,9 @@ async function runTimeline(page: Page, name: string): Promise<unknown> {
     : Promise.resolve();
   const result = await page.evaluate(
     async ({ source, extra }) => {
-      const replay = window.streamingReplay!;
+      const replay = window.streamingReplay;
+      if (!replay)
+        throw new Error("The streaming replay harness is not loaded.");
       const timeline =
         source.kind === "recorded"
           ? await replay.captureRecordedTimeline({
