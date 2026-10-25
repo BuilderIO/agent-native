@@ -3780,18 +3780,6 @@ async function connectAfterEnsure(
       process.stdout.write("\r\x1b[K");
     }
   };
-  const failedResult = (reason?: string) => {
-    clearSpinner();
-    writeAuthMessage();
-    options.telemetry?.track("skills_cli connect failed", {
-      error: reason ?? "sign-in failed",
-    });
-    connectLog?.(
-      `Could not finish authentication automatically${reason ? ` (${reason})` : ""}. ` +
-        `Run it later with: ${connectCommand}`,
-    );
-    return { connected: false, connectCommand };
-  };
   const skippedResult = () => {
     clearWaitingLine();
     connectLog?.(
@@ -3828,9 +3816,10 @@ async function connectAfterEnsure(
       });
     }
     connectFailed = Boolean(process.exitCode);
-    if (connectFailed) {
-      return signInSkipped() ? skippedResult() : failedResult();
-    }
+    if (connectFailed && signInSkipped()) return skippedResult();
+    // runConnect returns normally after a failed sign-in, so the catch below
+    // reports it the same way as a thrown error.
+    if (connectFailed) throw new Error("sign-in failed");
     // A Ctrl+C that lands here came after the sign-in finished. It only cut
     // short an optional step, such as the Plans publish token.
     clearWaitingLine();
@@ -3841,7 +3830,16 @@ async function connectAfterEnsure(
   } catch (err: any) {
     connectFailed = Boolean(process.exitCode);
     if (signInSkipped()) return skippedResult();
-    return failedResult(err?.message ?? String(err));
+    clearSpinner();
+    writeAuthMessage();
+    options.telemetry?.track("skills_cli connect failed", {
+      error: err?.message ?? String(err),
+    });
+    connectLog?.(
+      `Could not finish authentication automatically (${err?.message ?? err}). ` +
+        `Run it later with: ${connectCommand}`,
+    );
+    return { connected: false, connectCommand };
   } finally {
     stopListeningForSkip();
     // Skipping isn't a failure; only a sign-in that failed on its own keeps

@@ -1095,7 +1095,7 @@ describe("agent-native skills", () => {
       expect(result.connected).toBe(false);
       expect(result.connectCommand).toBe(connectCommand);
       expect(connectLog).toContain(
-        "Could not finish authentication automatically. " +
+        "Could not finish authentication automatically (sign-in failed). " +
           `Run it later with: ${connectCommand}`,
       );
       expect(process.exitCode).toBe(1);
