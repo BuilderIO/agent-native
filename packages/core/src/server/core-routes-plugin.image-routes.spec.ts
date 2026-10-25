@@ -78,7 +78,7 @@ describe("mountImageRoutes", () => {
     ]);
   });
 
-  it("fails a request whose image handler fails to load, and loads it again on the next request", async () => {
+  it("fails a request whose image handler fails to build, and builds it on the next request", async () => {
     failLoads.og = 1;
     served.length = 0;
     const og = mount().get("/_agent-native/og-image.png")!;

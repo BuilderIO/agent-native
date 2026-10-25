@@ -3123,7 +3123,7 @@ export function mountMcpConnectRoutes(
 // Each image module loads on the first request for its route. The OG image
 // module embeds its background image, over a megabyte of source, and loading
 // it while the routes mount would cost every cold instance its first request.
-// A failed load isn't kept, so the route's next request retries it.
+// A failed load isn't kept, so the route's next request tries again.
 export function mountImageRoutes(
   app: H3AppShim,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -3156,8 +3156,10 @@ export function mountImageRoutes(
 
 type RouteHandler = (event: H3Event) => unknown;
 
-// h3's `defineLazyEventHandler` keeps a rejected load, which would fail the
-// route for the rest of the instance's life.
+// h3's `defineLazyEventHandler` keeps any rejected load, which would fail the
+// route for the rest of the instance's life. This one retries a handler that
+// failed to build or a module Node couldn't find or read. A module whose
+// evaluation threw stays failed, because Node keeps that error.
 function lazyRouteHandler(load: () => Promise<RouteHandler>) {
   let loaded: Promise<RouteHandler> | undefined;
   return defineEventHandler(async (event: H3Event) => {

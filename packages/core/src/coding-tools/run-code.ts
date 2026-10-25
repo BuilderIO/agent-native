@@ -75,7 +75,9 @@ const RUN_MAX_SOURCE_BYTES = 256 * 1024;
 
 // QuickJS is megabytes of code to compile, and registering these tools runs
 // on a cold instance's first framework request, so it loads on the first run.
-// A failed load isn't kept, so the next run retries it.
+// A failed start isn't kept, so the next run tries again. That recovers a
+// runner that failed to start, not a module whose evaluation threw: Node keeps
+// that error for the life of the process.
 let runRuntime:
   | Promise<{ runEvaluator: Runner; RunError: typeof RunError }>
   | undefined;

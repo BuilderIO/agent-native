@@ -62,7 +62,9 @@ function wrapCliScript(
 
 // Importing the scripts while the entries are built is mount-time work every
 // cold instance pays on its first framework request, whether or not it ever
-// queries the database. A failed load isn't kept, so the next call retries it.
+// queries the database. A failed load isn't kept, so the next call tries again.
+// That recovers a module Node couldn't find or read, not one whose evaluation
+// threw: Node keeps that error for the life of the process.
 function lazyCliDefault(
   load: () => Promise<{ default: CliMain }>,
 ): LazyCliMain {
