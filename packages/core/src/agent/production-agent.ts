@@ -128,7 +128,14 @@ import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
-import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import {
+  isHostedModelExperimentEnabled,
+  resolveHostedModelExperiment,
+} from "../observability/hosted-model-experiment.js";
+import {
+  isFirstPartyHostedAgentNative,
+  shouldInferSentimentForTurn,
+} from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -14421,9 +14428,45 @@ export function createProductionAgentHandler(
       // observability tables are unavailable during startup or migration.
     }
 
+    // Unlike the DB experiment above, this runs even when the client pinned the
+    // default model: chat clients always send the default, so keying off the
+    // resolved default is what lets the arm reach real traffic. A DB experiment
+    // that did not override the model is an unrelated assignment, so it does not
+    // block this one. Durable chat workers re-enter here and must resolve the
+    // same arm from the same request, so no background-worker check goes here.
+    const hostedModelExperiment =
+      modelSelectionSource !== "experiment"
+        ? resolveHostedModelExperiment({
+            enabled: isHostedModelExperimentEnabled({
+              setting: getAppConfig().observability.hostedModelExperiment,
+              firstParty: isFirstPartyHostedAgentNative(),
+            }),
+            userEmail: ownerEmail,
+            engineName: engine.name,
+            defaultModel: engine.defaultModel,
+            model: effectiveModel,
+            effort: isReasoningEffort(requestEffort)
+              ? requestEffort
+              : options.reasoningEffort,
+          })
+        : null;
+    if (hostedModelExperiment) {
+      experimentAssignments = [
+        ...experimentAssignments,
+        hostedModelExperiment.assignment,
+      ];
+      if (hostedModelExperiment.treatment) {
+        effectiveModel = normalizeModelForEngine(
+          engine,
+          hostedModelExperiment.model,
+        );
+        modelSelectionSource = "experiment";
+      }
+    }
+
     const reasoningEffort = resolveAgentRequestReasoningEffort({
       model: effectiveModel,
-      requestEffort,
+      requestEffort: hostedModelExperiment?.effort ?? requestEffort,
       configuredEffort: options.reasoningEffort,
     });
     const modelSupportsVision = isAgentModelVisionCapable(
