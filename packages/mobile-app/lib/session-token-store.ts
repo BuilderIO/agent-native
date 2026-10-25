@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 export const SESSION_TOKEN_KEY = "agent-native:session-token";
+const NATIVE_TOKEN_MUTATION_TIMEOUT_MS = 5_000;
 const nativeTokenMutationTails = new Map<string, Promise<void>>();
 const nativeTokenMutationVersions = new Map<string, number>();
 
@@ -39,9 +40,23 @@ async function withNativeTokenMutationLock<T>(
   nativeTokenMutationTails.set(logicalKey, tail);
 
   await previous;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await operation();
+    const operationPromise = operation();
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Session token storage operation timed out after ${NATIVE_TOKEN_MUTATION_TIMEOUT_MS}ms`,
+            ),
+          ),
+        NATIVE_TOKEN_MUTATION_TIMEOUT_MS,
+      );
+    });
+    return await Promise.race([operationPromise, timeoutPromise]);
   } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
     release();
     if (nativeTokenMutationTails.get(logicalKey) === tail) {
       nativeTokenMutationTails.delete(logicalKey);

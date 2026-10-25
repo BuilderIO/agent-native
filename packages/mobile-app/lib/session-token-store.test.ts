@@ -106,6 +106,38 @@ describe("secure mobile session token storage", () => {
     void pendingRead;
   });
 
+  it("releases the mutation lock after a SecureStore write stops responding", async () => {
+    vi.useFakeTimers();
+    try {
+      const logicalKey = "agent-native:session-token:unresolved-secure-write";
+      let markSecureWriteStarted!: () => void;
+      const secureWriteStarted = new Promise<void>(
+        (resolve) => (markSecureWriteStarted = resolve),
+      );
+      vi.mocked(SecureStore.setItemAsync).mockImplementationOnce(() => {
+        markSecureWriteStarted();
+        return new Promise<void>(() => {});
+      });
+
+      const stalledSave = saveSessionToken("stalled-token", logicalKey).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await secureWriteStarted;
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      const error = await stalledSave;
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toMatch(/timed out/);
+      await expect(
+        saveSessionToken("new-token", logicalKey),
+      ).resolves.toBeUndefined();
+      await expect(getSessionToken(logicalKey)).resolves.toBe("new-token");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("holds the mutation lock until both token deletions settle", async () => {
     let releaseSecureDelete!: () => void;
     let markSecureDeleteStarted!: () => void;
