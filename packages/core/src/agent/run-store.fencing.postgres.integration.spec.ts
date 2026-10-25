@@ -24,17 +24,22 @@ import {
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import { listAgentHarnessBackgroundTranscriptEvents } from "./harness/background.js";
 import {
+  resolveAgentHarnessApproval,
   registerLiveAgentHarnessSession,
   releaseLiveAgentHarnessSession,
   sendAgentHarnessFollowUp,
 } from "./harness/lifecycle.js";
 import {
+  claimAgentHarnessSessionApprovalResolution,
   ensureAgentHarnessSessionTables,
   getAgentHarnessSession,
+  listAgentHarnessSessionEvents,
   markAgentHarnessSessionStopped,
+  persistAgentHarnessApprovalEvent,
+  reconcileExpiredAgentHarnessFollowUp,
   saveAgentHarnessSession,
-  updateAgentHarnessSessionAtGeneration,
 } from "./harness/store.js";
 import type {
   AgentHarnessAdapter,
@@ -332,6 +337,7 @@ async function withTestDatabase<T>(
     await sql`DROP TRIGGER IF EXISTS agent_harness_reject_step_receipt ON agent_execution_steps`;
     await sql`DROP FUNCTION IF EXISTS agent_harness_reject_step_receipt()`;
     await sql`DELETE FROM agent_harness_test_effects WHERE effect_id LIKE ${`${prefix}%`}`;
+    await sql`DELETE FROM agent_harness_session_events WHERE session_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_chat_submission_inbox WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_harness_sessions WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM chat_threads WHERE id LIKE ${`${prefix}%`}`;
@@ -451,6 +457,252 @@ async function removeHarnessSessionUpdateGate(
 describe.skipIf(!databaseUrl)(
   "execution lease and journal process failures",
   () => {
+    it("recovers a killed dispatched follow-up as unknown without replaying its effect", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:harness-follow-up-crash`;
+        const followUpId = `${prefix}:follow-up`;
+        const claimId = `${prefix}:claim`;
+        const effectId = `${prefix}:effect`;
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId: `${prefix}:run`,
+            status: "idle",
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const worker = startBarrierWorker(
+          "harness-follow-up-crash-after-dispatch",
+          sessionId,
+          "unused",
+          `${prefix}:worker-turn`,
+          `${prefix}:worker-run`,
+          JSON.stringify({
+            expectedGeneration: session.generation,
+            claimId,
+            followUpId,
+            prompt: "Send the requested update",
+            effectId,
+          }),
+        );
+
+        try {
+          const ready = await worker.ready;
+          expect(Number(ready.databaseBackendPid)).toBeGreaterThan(0);
+          const dispatched = await withDbExec(executor(sql), () =>
+            getAgentHarnessSession(sessionId),
+          );
+          expect(dispatched).toMatchObject({
+            status: "running",
+            followUpClaimId: claimId,
+            followUpId,
+          });
+          expect(dispatched?.followUpDispatchedAt).toBeGreaterThan(0);
+          await worker.child.kill("SIGKILL");
+          const killed = await worker.closed;
+          expect(killed.signal).toBe("SIGKILL");
+
+          const recoveryAt = Date.now();
+          await sql`
+            UPDATE agent_harness_sessions
+            SET follow_up_claim_expires_at = ${recoveryAt - 1}
+            WHERE id = ${sessionId} AND follow_up_claim_id = ${claimId}
+          `;
+          const recovered = await withDbExec(executor(sql), () =>
+            reconcileExpiredAgentHarnessFollowUp(
+              sessionId,
+              claimId,
+              dispatched!.generation,
+              recoveryAt,
+            ),
+          );
+          expect(recovered).toMatchObject({
+            status: "idle",
+            followUpClaimId: null,
+            followUpOutcome: "unknown",
+          });
+          const [effect] = await sql`
+            SELECT effect_count FROM agent_harness_test_effects
+            WHERE effect_id = ${effectId}
+          `;
+          expect(Number(effect?.effect_count)).toBe(1);
+          const transcript = await withDbExec(executor(sql), () =>
+            listAgentHarnessSessionEvents(sessionId),
+          );
+          expect(transcript.map((entry) => entry.event)).toEqual([
+            { type: "user_input", text: "Send the requested update" },
+            { type: "text", text: "External effect completed" },
+            expect.objectContaining({
+              type: "error",
+              errorCode: "harness_follow_up_outcome_unknown",
+            }),
+          ]);
+        } finally {
+          await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
+    it("orders run and session transcript events by the shared session counter", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:transcript-thread`;
+        const turnId = `${prefix}:transcript-turn`;
+        const runId = `${prefix}:transcript-run`;
+        const sessionId = `${prefix}:transcript-session`;
+        const approvalId = `${prefix}:transcript-approval`;
+        await withDbExec(executor(sql), () =>
+          insertRun(runId, threadId, turnId),
+        );
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId,
+            runId,
+            status: "idle",
+            pendingApproval: { type: "approval-request", id: approvalId },
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const approval = await withDbExec(executor(sql), () =>
+          claimAgentHarnessSessionApprovalResolution(
+            sessionId,
+            approvalId,
+            "idle",
+            session.generation,
+            null,
+          ),
+        );
+        expect(approval).not.toBeNull();
+        await withDbExec(executor(sql), () =>
+          persistAgentHarnessApprovalEvent(
+            sessionId,
+            approvalId,
+            { type: "text", text: "Session journal first" },
+            8_000,
+          ),
+        );
+        await withDbExec(executor(sql), () =>
+          insertRunEvent(
+            runId,
+            0,
+            JSON.stringify({ type: "text", text: "Run journal second" }),
+            { eventAt: 2_000 },
+          ),
+        );
+
+        const transcript = await withDbExec(executor(sql), () =>
+          listAgentHarnessBackgroundTranscriptEvents(runId, {
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        expect(transcript.map((event) => event.message)).toEqual([
+          "Session journal first",
+          "Run journal second",
+        ]);
+        const [sessionOrder] = await sql`
+          SELECT transcript_order FROM agent_harness_session_events
+          WHERE session_id = ${sessionId}
+        `;
+        const [runOrder] = await sql`
+          SELECT transcript_order FROM agent_run_events
+          WHERE run_id = ${runId}
+        `;
+        expect(Number(sessionOrder.transcript_order)).toBeLessThan(
+          Number(runOrder.transcript_order),
+        );
+      });
+    });
+
+    it("replays approval continuation events after the harness process dies", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const sessionId = `${prefix}:approval-session`;
+        const runId = `${prefix}:approval-run`;
+        const approvalId = `${prefix}:approval`;
+        const ownerEmail = "owner@example.com";
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId: `${prefix}:thread`,
+            runId,
+            status: "idle",
+            pendingApproval: {
+              type: "approval-request",
+              id: approvalId,
+              tool: "read_file",
+              message: "Allow this read?",
+            },
+            ownerEmail,
+            orgId: prefix,
+          }),
+        );
+        const resolving = await withDbExec(executor(sql), () =>
+          claimAgentHarnessSessionApprovalResolution(
+            sessionId,
+            approvalId,
+            "idle",
+            session.generation,
+            null,
+          ),
+        );
+        expect(resolving).not.toBeNull();
+        expect(resolving?.approvalResolutionId).toBe(approvalId);
+        const worker = startBarrierWorker(
+          "harness-approval-crash-after-event",
+          sessionId,
+          "unused",
+          runId,
+          "unused",
+          JSON.stringify({ approvalId }),
+        );
+
+        try {
+          const ready = await worker.ready;
+          expect(Number(ready.databaseBackendPid)).toBeGreaterThan(0);
+          const resolving = await withDbExec(executor(sql), () =>
+            getAgentHarnessSession(sessionId),
+          );
+          expect(resolving?.approvalResolutionId).toBe(approvalId);
+          await worker.child.kill("SIGKILL");
+          const killed = await worker.closed;
+          expect(killed.signal).toBe("SIGKILL");
+
+          const transcript = await withDbExec(executor(sql), () =>
+            listAgentHarnessBackgroundTranscriptEvents(runId, {
+              ownerEmail,
+              orgId: prefix,
+            }),
+          );
+          expect(transcript).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                message: "Approval continuation started",
+                sourceRecord: expect.objectContaining({
+                  type: "agent-harness-session-event",
+                  operationId: `approval:${approvalId}`,
+                }),
+              }),
+              expect.objectContaining({
+                message: "Running read_file",
+                sourceRecord: expect.objectContaining({
+                  type: "agent-harness-session-event",
+                  operationId: `approval:${approvalId}`,
+                }),
+              }),
+            ]),
+          );
+        } finally {
+          await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
     it("admits a harness follow-up in only one independent worker", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const sessionId = `${prefix}:harness-session`;
@@ -613,13 +865,15 @@ describe.skipIf(!databaseUrl)(
           }),
         );
         const reserved = await withDbExec(executor(sql), () =>
-          updateAgentHarnessSessionAtGeneration(
+          claimAgentHarnessSessionApprovalResolution(
             sessionId,
+            approvalId,
             "idle",
             session.generation,
-            { approvalResolutionId: approvalId },
+            null,
           ),
         );
+        expect(reserved).not.toBeNull();
         const gate = await installHarnessSessionUpdateGate(sql, sessionId);
         let approvalWorker: BarrierWorker | undefined;
         let stopWorker: BarrierWorker | undefined;
@@ -710,13 +964,15 @@ describe.skipIf(!databaseUrl)(
           }),
         );
         const reserved = await withDbExec(executor(sql), () =>
-          updateAgentHarnessSessionAtGeneration(
+          claimAgentHarnessSessionApprovalResolution(
             sessionId,
+            approvalId,
             "idle",
             session.generation,
-            { approvalResolutionId: approvalId },
+            null,
           ),
         );
+        expect(reserved).not.toBeNull();
 
         const stop = await runWorker(
           "harness-follow-up-stop",
@@ -1995,7 +2251,10 @@ describe.skipIf(!databaseUrl)(
           retryStep,
           "retry-safe",
         );
-        expect(crashedRetry.exitCode).toBe(82);
+        expect(
+          crashedRetry.exitCode,
+          crashedRetry.error ?? crashedRetry.stderr,
+        ).toBe(82);
         await forceLeaseExpiry(sql, retryThread, retryTurn);
         const retryFence = await claimInProcess(
           sql,
@@ -2077,6 +2336,106 @@ describe.skipIf(!databaseUrl)(
             ),
         );
         expect(failedAdmission).toEqual({ status: "unknown" });
+      });
+    }, 45_000);
+
+    it("returns the committed run receipt after the admitting process dies before acknowledgement", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:lost-ack-thread`;
+        const messageId = `${prefix}:lost-ack-message`;
+        const actor: QueuedSubmissionActor = {
+          email: "lost-ack-owner@example.com",
+          anonymous: false,
+        };
+        const message: QueuedMessage = {
+          id: messageId,
+          threadId,
+          text: "Persist this request once",
+        };
+        await createThread(actor.email, { id: threadId });
+        await mutateThreadQueuedMessages(
+          threadId,
+          { type: "append", message },
+          { actor },
+        );
+        const queuedReceipt = await getQueuedSubmissionReceipt(
+          threadId,
+          messageId,
+        );
+        if (!queuedReceipt)
+          throw new Error("Queued receipt disappeared before claim");
+        await mutateThreadQueuedMessages(threadId, {
+          type: "claimFromInbox",
+          receipt: queuedReceipt,
+          claimId: "lost-ack-promoter",
+        });
+
+        const submittedRunId = `${prefix}:lost-ack-run`;
+        const worker = startBarrierWorker(
+          "queue-submit-ack-barrier",
+          threadId,
+          `${prefix}:lost-ack-turn`,
+          submittedRunId,
+          messageId,
+          JSON.stringify({
+            message,
+            claimId: "lost-ack-promoter",
+            actor,
+          }),
+        );
+        try {
+          await expect(worker.ready).resolves.toMatchObject({
+            committed: true,
+          });
+          await expect(
+            getQueuedSubmissionReceipt(threadId, messageId),
+          ).resolves.toMatchObject({
+            state: "submitted",
+            submittedRunId,
+          });
+
+          worker.child.kill("SIGKILL");
+          const lostAcknowledgement = await worker.closed;
+          expect(lostAcknowledgement.signal).toBe("SIGKILL");
+        } finally {
+          await stopBarrierWorker(worker);
+        }
+
+        const retryRunId = `${prefix}:lost-ack-retry`;
+        expect(retryRunId).not.toBe(submittedRunId);
+        const committedThread = await getThread(threadId);
+        expect(committedThread).not.toBeNull();
+        const retryAdmission = applySubmittedUserMessage(
+          JSON.parse(committedThread!.threadData),
+          buildUserMessage({
+            text: message.text,
+            runId: retryRunId,
+            queuedMessageId: messageId,
+          }),
+          { id: messageId, claimId: "lost-ack-promoter" },
+        );
+        expect(retryAdmission).toMatchObject({ status: "already_claimed" });
+
+        const retryReceipt = await getQueuedSubmissionReceipt(
+          threadId,
+          messageId,
+        );
+        expect(retryReceipt).toMatchObject({
+          state: "submitted",
+          submittedRunId,
+        });
+        const finalThread = await getThread(threadId);
+        expect(finalThread).not.toBeNull();
+        const finalRepo = JSON.parse(finalThread!.threadData);
+        expect(
+          finalRepo.messages.filter((entry: any) => {
+            const stored = entry?.message ?? entry;
+            return (
+              stored?.role === "user" &&
+              stored.metadata?.custom?.agentNativeQueuedMessageId === messageId
+            );
+          }),
+        ).toHaveLength(1);
       });
     }, 45_000);
 

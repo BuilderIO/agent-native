@@ -184,9 +184,7 @@ async function openLegacySelectionLink(page: Page, query: string) {
   await page.goto(appPath(query), { waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
 }
 
@@ -307,9 +305,7 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   await page.reload();
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   await expandAllLayers(page);
   expect(await screenWidths(app, screens)).toEqual(["111px", "233px"]);

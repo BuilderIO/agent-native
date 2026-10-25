@@ -481,7 +481,7 @@ test("arrangement keyboard commands use physical brackets and persist across rel
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(
         page.getByRole("button", { name: "Move", exact: true }),
-      ).toBeVisible({ timeout: 30_000 });
+      ).toBeVisible();
       await enterDirectMode(page);
       await expect
         .poll(() => renderedOrder(page, "stack"))
@@ -553,7 +553,7 @@ test("overview board arrange commands measure, persist, and support context menu
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(
         page.getByRole("button", { name: "Move", exact: true }),
-      ).toBeVisible({ timeout: 30_000 });
+      ).toBeVisible();
       await expect(
         page.locator(
           "[data-board-surface-layer] iframe[data-design-preview-iframe]",

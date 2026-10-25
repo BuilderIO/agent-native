@@ -36,6 +36,9 @@ const insertAuditEventMock = vi.hoisted(() =>
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const flushRunEventsMock = vi.hoisted(() => vi.fn(async () => {}));
+const captureRunControlMock = vi.hoisted(() => vi.fn());
+const captureDirectRunnerControlMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
@@ -83,7 +86,15 @@ vi.mock("../agent/durable-background.js", () => ({
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
-  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+  runAgentLoopDirectWithSoftTimeout: (
+    opts: unknown,
+    _softTimeoutMs: unknown,
+    _timeoutOptions: unknown,
+    control: unknown,
+  ) => {
+    captureDirectRunnerControlMock(control);
+    return runAgentLoopMock(opts);
+  },
 }));
 
 vi.mock("../server/agent-chat/prompt-resources.js", () => ({
@@ -207,6 +218,16 @@ vi.mock("../agent/run-manager.js", async () => ({
   startRun: startRunMock.mockImplementation(
     (runId, threadId, runFn, onComplete) => {
       const events: any[] = [];
+      const controller = new AbortController();
+      const control = {
+        turnSignal: controller.signal,
+        chunkSignal: controller.signal,
+        chunkBoundaryReason: () => null,
+        beginChunk: () => controller.signal,
+        flushEvents: flushRunEventsMock,
+      };
+      captureRunControlMock.mockReturnValue(control);
+      captureRunControlMock(control);
       const send = (event: any) => {
         events.push({
           id: `event-${events.length + 1}`,
@@ -215,7 +236,7 @@ vi.mock("../agent/run-manager.js", async () => ({
           createdAt: Date.now(),
         });
       };
-      Promise.resolve(runFn(send, new AbortController().signal))
+      Promise.resolve(runFn(send, controller.signal, control))
         .then(() =>
           onComplete?.({
             runId,
@@ -319,6 +340,8 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    flushRunEventsMock.mockReset();
+    flushRunEventsMock.mockResolvedValue(undefined);
     insertAuditEventMock.mockResolvedValue(undefined);
     preloadJevContextWithStatusMock.mockResolvedValue({
       context: "",
@@ -509,6 +532,52 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "flushes events before writes and shares run control with the recoverable driver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const order: string[] = [];
+      flushRunEventsMock.mockImplementationOnce(async () => {
+        order.push("flush");
+      });
+      runAgentLoopMock.mockImplementationOnce(async (opts) => {
+        await opts.beforeWrite();
+        order.push("write");
+        opts.send({ type: "text", text: "done" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const control = captureRunControlMock.mock.results.at(-1)?.value;
+      expect(control).toBeDefined();
+      expect(runAgentLoopMock.mock.calls[0]?.[0].beforeWrite).toBe(
+        control.flushEvents,
+      );
+      expect(captureDirectRunnerControlMock.mock.calls[0]?.[0]).toBe(control);
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        expect.objectContaining({
+          executionLease: true,
+          recoverChunkBoundaries: true,
+        }),
+      );
+      expect(order).toEqual(["flush", "write"]);
+      expect(flushRunEventsMock).toHaveBeenCalledOnce();
     },
   );
 
@@ -715,7 +784,8 @@ describe("integration webhook handler engine resolution", () => {
       };
       getJevContextCredentialsMock.mockResolvedValueOnce({
         apiKey: "owner-jev-key",
-        personalApiKey: "owner-jev-key",
+        personalApiKey: undefined,
+        directApiKey: "owner-jev-key",
         builderAuth: null,
       });
 
@@ -765,7 +835,8 @@ describe("integration webhook handler engine resolution", () => {
           orgId: "org-qa",
           workspaceAppsEnabled: true,
           apiKey: "owner-jev-key",
-          personalApiKey: "owner-jev-key",
+          personalApiKey: undefined,
+          directApiKey: "owner-jev-key",
           builderAuth: null,
         }),
       );

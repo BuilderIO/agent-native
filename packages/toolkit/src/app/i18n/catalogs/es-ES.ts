@@ -2042,6 +2042,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "No se pudo cargar la configuración del almacenamiento de archivos.",
   "settings.storage.retry": "Reintentar",
+  "settings.storage.unreadable":
+    "No se pudieron comprobar algunos ajustes de almacenamiento guardados. Vuelve a intentarlo o sustituye los valores obligatorios ilegibles antes de guardar.",
+  "settings.storage.unreadableField":
+    "No se puede leer este valor guardado. Introdúcelo de nuevo.",
+  "settings.storage.clearUnreadableField": "Borrar el campo ilegible {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "Este valor guardado se eliminará al guardar.",
   "settings.storage.adminOnly":
     "Solo los propietarios y administradores de la organización pueden cambiar el almacenamiento de archivos.",
   "settings.audit.action": "Acción",
@@ -2487,7 +2494,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "Quitar las credenciales de {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "El agente deja de responder en {{platform}} para todos, salvo que el entorno de despliegue también defina estas claves.",
+    "Al quitar estas credenciales del espacio de trabajo, el agente podría dejar de responder en {{platform}} a todos, salvo que el entorno de despliegue también defina estas claves.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Esto solo quita tus credenciales personales de {{platform}}. Las credenciales de otras personas y del espacio de trabajo no cambian.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Esto elimina las credenciales guardadas seleccionadas de {{platform}}. Las demás credenciales guardadas no cambian.",
   "settingsShell.channels.removeCredentials.confirm": "Quitar",
   "settingsShell.channels.removeCredentials.failed":
     "No se pudieron quitar las credenciales.",
@@ -2495,6 +2506,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "¿Quitar las credenciales de {{platform}}?",
   "settingsShell.channels.retry": "Reintentar",
+  "settingsShell.channels.setup.unreadable":
+    "No se puede leer una credencial guardada. Introduce un valor de reemplazo.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Esto solo reemplaza tu credencial personal; las credenciales de otras personas no cambian.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Esta credencial pertenece a otra sección de ajustes. Actualízala allí antes de configurar este canal.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "No se pueden leer algunas credenciales guardadas del canal. Sustitúyelas antes de activar este canal.",
   "settingsShell.channels.setup.addToEnvironment":
     "Añádela al entorno de despliegue",
   "settingsShell.channels.setup.body":
@@ -2505,6 +2524,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "Opcional",
   "settingsShell.channels.setup.replace": "Reemplazar",
   "settingsShell.channels.setup.replaceAria": "Reemplazar {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Reemplaza esta credencial guardada en los ajustes de integración correspondientes.",
   "settingsShell.channels.setup.save": "Guardar",
   "settingsShell.channels.setup.saveAndTurnOn": "Guardar y activar",
   "settingsShell.channels.setup.saving": "Guardando…",
@@ -2519,6 +2540,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Sin configurar",
   "settingsShell.channels.state.off": "Desactivado",
   "settingsShell.channels.state.on": "Activado",
+  "settingsShell.channels.state.unavailable": "No disponible",
   "settingsShell.channels.status": "Estado",
   "settingsShell.channels.toggleFailed": "No se pudo actualizar {{platform}}.",
   "settingsShell.channels.turnOnAria": "Activar {{platform}}",
@@ -2827,6 +2849,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Acceso a modelos, automatización del navegador, almacenamiento de archivos e identidad del espacio de trabajo. Hay un plan gratuito.",
   "settingsShell.integrations.builderStatusFailed":
     "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "No se pudieron leer algunos datos guardados de la cuenta de Builder.",
   "settingsShell.integrations.category.analytics": "Analítica",
   "settingsShell.integrations.category.design": "Diseño",
   "settingsShell.integrations.category.engineering": "Ingeniería",
@@ -3303,11 +3327,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} rechazó esta clave el {{date}}. Pide a un propietario o administrador que la sustituya.",
   "settingsModel.rejectedHeadline": "{{provider}} rechazó esta clave",
+  "settingsModel.unreadable":
+    "No se puede leer la configuración guardada del proveedor. Sustitúyela para recuperar el acceso.",
+  "settingsModel.unreadableAskAdmin":
+    "No se puede leer la configuración guardada del proveedor. Pide a un propietario o administrador que la sustituya.",
   "settingsModel.remove": "Quitar",
   "settingsModel.removeProvider": "Quitar proveedor",
   "settingsModel.removeTitle": "¿Quitar {{provider}}?",
   "settingsModel.removing": "Quitando",
   "settingsModel.replace": "Sustituir",
+  "settingsModel.replaceEndpoint": "Sustituir endpoint",
   "settingsModel.replaceKey": "Sustituir clave",
   "settingsModel.restrictBody":
     "Los miembros solo pueden usar proveedores de la organización.",

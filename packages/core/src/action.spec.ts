@@ -1800,11 +1800,23 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ x: "hi" });
     expect(out).toEqual({ id: "abc", count: 2 });
-    expect(action.outputErrorStrategy).toBe("warn");
+    expect(action.outputErrorStrategy).toBe("strict");
     expect(action.outputSchema).toBeDefined();
   });
 
-  it('warns and returns the ORIGINAL result on mismatch under the default "warn" strategy', async () => {
+  it("throws on mismatch under the default strict strategy", async () => {
+    const action = defineAction({
+      description: "strict by default",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      run: async () => ({ id: "abc", count: "nope" }) as never,
+    });
+    await expect(action.run({ x: "hi" })).rejects.toMatchObject({
+      errorCode: "output_contract_violation",
+    });
+  });
+
+  it('warns and returns the ORIGINAL result on mismatch under the "warn" strategy', async () => {
     const bad = { id: "abc", count: "not-a-number" };
     const warnings: unknown[][] = [];
     const original = console.warn;
@@ -1816,7 +1828,8 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         description: "warn output",
         schema: z.object({ x: z.string() }),
         outputSchema: z.object({ id: z.string(), count: z.number() }),
-        run: async () => bad,
+        outputErrorStrategy: "warn",
+        run: async () => bad as never,
       });
       const out = await action.run({ x: "hi" });
       expect(out).toBe(bad);
@@ -2031,6 +2044,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         outputSchema: z.object({ owner: z.string() }).superRefine(() => {
           throw new Error("refinement bug");
         }),
+        outputErrorStrategy: "warn",
         run: async () => output,
       });
       await expect(action.run({})).resolves.toBe(output);
@@ -2712,8 +2726,11 @@ describe("defineAction — mcpOutputSchema opt-in", () => {
       /requires an outputSchema/,
     ],
     [
-      "the default warn strategy",
-      { outputSchema: z.object({ id: z.string() }) },
+      "a warn strategy",
+      {
+        outputSchema: z.object({ id: z.string() }),
+        outputErrorStrategy: "warn" as const,
+      },
       /outputErrorStrategy: "strict"/,
     ],
     [

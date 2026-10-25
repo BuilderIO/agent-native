@@ -11,6 +11,7 @@ import {
   createError,
   defineEventHandler,
   mockEvent,
+  getResponseStatus,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -68,6 +69,7 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
   isAgentChatDurableBackgroundEnabled,
@@ -2348,6 +2350,7 @@ export function createAgentChatPlugin(
           workspaceAppsEnabled: input.workspaceAppsEnabled,
           apiKey: credentials.apiKey,
           personalApiKey: credentials.personalApiKey,
+          directApiKey: credentials.directApiKey,
           builderAuth: credentials.builderAuth,
           appDiscoveryOnly: true,
         });
@@ -9875,6 +9878,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (expectsBackgroundRuntime) {
             runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
+          let stopBackgroundSetupHeartbeat = true;
+          const reportFailureFinalizationError = (error: unknown) => {
+            console.error(
+              "[agent-chat] _process-run failure finalization failed:",
+              error,
+            );
+            captureError(error, {
+              route: AGENT_CHAT_PROCESS_RUN_PATH,
+              method: getMethod(event),
+              userAgent: getHeader(event, "user-agent"),
+              tags: {
+                source: "agent-chat-bg-worker",
+                phase: "process-run-finalization",
+              },
+              extra: {
+                runId: prepared.runId,
+              },
+            });
+          };
 
           try {
             // DIAGNOSTIC: load the run-store diagnostic recorder only after the
@@ -9977,7 +9999,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
             await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
-            return await invokeAgentChatHandler(event);
+            const result = await invokeAgentChatHandler(event);
+            const responseStatus = getResponseStatus(event);
+            if (responseStatus >= 400) {
+              const responseCode =
+                result &&
+                typeof result === "object" &&
+                "code" in result &&
+                typeof result.code === "string"
+                  ? result.code
+                  : undefined;
+              try {
+                await finalizeClaimedAgentChatProcessRunFailure(
+                  prepared.runId,
+                  new Error(
+                    `Background worker returned HTTP ${responseStatus}${responseCode ? ` code=${responseCode}` : ""}`,
+                  ),
+                );
+              } catch (error) {
+                stopBackgroundSetupHeartbeat = false;
+                reportFailureFinalizationError(error);
+              }
+            }
+            return result;
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
             captureError(err, {
@@ -9992,13 +10036,32 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            await finalizeClaimedAgentChatProcessRunFailure(
-              prepared.runId,
-              err,
-            );
+            try {
+              await finalizeClaimedAgentChatProcessRunFailure(
+                prepared.runId,
+                err,
+              );
+            } catch (finalizationError) {
+              stopBackgroundSetupHeartbeat = false;
+              reportFailureFinalizationError(finalizationError);
+            }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           } finally {
+            const setupCleanup = (event as any).context?.[
+              AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD
+            ];
+            if ((event as any).context) {
+              delete (event as any).context[
+                AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD
+              ];
+            }
+            if (
+              stopBackgroundSetupHeartbeat &&
+              typeof setupCleanup === "function"
+            ) {
+              setupCleanup();
+            }
             if (expectsBackgroundRuntime) {
               if (hadExpectedRuntimeMarker) {
                 runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ =
@@ -10188,6 +10251,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               staleRunsReaped === null ||
               staleRunsReaped.failed > 0 ||
               staleRunsReaped.truncated;
+            const { sweepExpiredAgentHarnessFollowUps } =
+              await import("../agent/harness/lifecycle.js");
+            const expiredAgentHarnessFollowUps =
+              await sweepExpiredAgentHarnessFollowUps().catch(
+                (error: unknown) => {
+                  console.error(
+                    "[agent-chat] durable AgentHarness follow-up recovery failed:",
+                    error,
+                  );
+                  return null;
+                },
+              );
+            const agentHarnessFollowUpRecoveryIncomplete =
+              expiredAgentHarnessFollowUps === null ||
+              expiredAgentHarnessFollowUps.truncated;
+            const { sweepExpiredAgentHarnessApprovalResolutions } =
+              await import("../agent/harness/lifecycle.js");
+            const expiredAgentHarnessApprovals =
+              await sweepExpiredAgentHarnessApprovalResolutions().catch(
+                (error: unknown) => {
+                  console.error(
+                    "[agent-chat] durable AgentHarness approval recovery failed:",
+                    error,
+                  );
+                  return null;
+                },
+              );
+            const agentHarnessApprovalRecoveryIncomplete =
+              expiredAgentHarnessApprovals === null ||
+              expiredAgentHarnessApprovals.truncated;
             const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
               event,
             ).catch((error: unknown) => {
@@ -10249,6 +10342,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: false,
                 staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10262,6 +10357,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (
                 staleRunReapIncomplete ||
+                agentHarnessFollowUpRecoveryIncomplete ||
+                agentHarnessApprovalRecoveryIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10274,6 +10371,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok:
                   !staleRunReapIncomplete &&
+                  !agentHarnessFollowUpRecoveryIncomplete &&
+                  !agentHarnessApprovalRecoveryIncomplete &&
                   appSweepHandlers.failed.length === 0 &&
                   automationFailureAlerts !== null &&
                   queuedSubmissionDrain !== null &&
@@ -10281,6 +10380,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   staleAgentTeamRuns !== null &&
                   staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10295,6 +10396,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await processRecurringJobs(schedulerDeps);
               if (
                 staleRunReapIncomplete ||
+                agentHarnessFollowUpRecoveryIncomplete ||
+                agentHarnessApprovalRecoveryIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10306,6 +10409,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return {
                   ok: false,
                   staleRunsReaped,
+                  expiredAgentHarnessFollowUps,
+                  expiredAgentHarnessApprovals,
                   staleAgentTeamRuns,
                   queuedSubmissionDrain,
                   chatHealth,
@@ -10317,6 +10422,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10330,6 +10437,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10543,6 +10651,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     error,
                   );
                 });
+                const { sweepExpiredAgentHarnessFollowUps } =
+                  await import("../agent/harness/lifecycle.js");
+                await sweepExpiredAgentHarnessFollowUps().catch(
+                  (error: unknown) => {
+                    console.error(
+                      "[agent-chat] in-process AgentHarness follow-up recovery failed:",
+                      error,
+                    );
+                  },
+                );
+                const { sweepExpiredAgentHarnessApprovalResolutions } =
+                  await import("../agent/harness/lifecycle.js");
+                await sweepExpiredAgentHarnessApprovalResolutions().catch(
+                  (error: unknown) => {
+                    console.error(
+                      "[agent-chat] in-process AgentHarness approval recovery failed:",
+                      error,
+                    );
+                  },
+                );
                 const { sweepUnclaimedBackgroundRuns } =
                   await import("./unclaimed-background-runs.js");
                 await sweepUnclaimedBackgroundRuns({

@@ -116,9 +116,9 @@ export function formatAttachmentError(
 }
 
 export class TextAttachmentAdapter extends SimpleTextAttachmentAdapter {
-  public accept = TEXT_ATTACHMENT_ACCEPT;
+  public override accept = TEXT_ATTACHMENT_ACCEPT;
 
-  public async add(state: { file: File }): Promise<PendingAttachment> {
+  public override async add(state: { file: File }): Promise<PendingAttachment> {
     if (state.file.size > MAX_TEXT_ATTACHMENT_BYTES) {
       throw new Error(
         formatOversizedTextAttachmentError(state.file.name, state.file.size),
@@ -127,7 +127,7 @@ export class TextAttachmentAdapter extends SimpleTextAttachmentAdapter {
     return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 
-  public async send(
+  public override async send(
     attachment: Parameters<SimpleTextAttachmentAdapter["send"]>[0],
   ) {
     if (attachment.file.size > MAX_TEXT_ATTACHMENT_BYTES) {

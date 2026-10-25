@@ -1888,6 +1888,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "스토리지 자격 증명을 지울 수 없습니다.",
   "settings.storage.loadFailed": "파일 스토리지 설정을 불러올 수 없습니다.",
   "settings.storage.retry": "다시 시도",
+  "settings.storage.unreadable":
+    "저장된 스토리지 설정 일부를 확인할 수 없습니다. 다시 시도하거나 저장하기 전에 읽을 수 없는 필수 값을 교체하세요.",
+  "settings.storage.unreadableField":
+    "저장된 값을 읽을 수 없습니다. 다시 입력하세요.",
+  "settings.storage.clearUnreadableField": "읽을 수 없는 {{field}} 지우기",
+  "settings.storage.unreadableFieldCleared":
+    "저장하면 이 저장된 값이 삭제됩니다.",
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
@@ -2301,7 +2308,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "{{platform}} 자격 증명 제거",
   "settingsShell.channels.removeCredentials.body":
-    "배포 환경에서도 이 키를 설정하지 않는 한, 에이전트가 모든 사용자에게 {{platform}}에서 더 이상 응답하지 않습니다.",
+    "이 워크스페이스 자격 증명을 제거하면 배포 환경에도 같은 키가 설정되어 있지 않은 한 에이전트가 {{platform}}에서 모든 사용자에게 답변하지 못할 수 있습니다.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "이 작업은 {{platform}}용 개인 자격 증명만 제거합니다. 다른 사용자와 워크스페이스의 자격 증명은 그대로 유지됩니다.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "{{platform}}의 선택한 저장된 자격 증명을 제거합니다. 다른 저장된 자격 증명은 변경되지 않습니다.",
   "settingsShell.channels.removeCredentials.confirm": "제거",
   "settingsShell.channels.removeCredentials.failed":
     "자격 증명을 제거하지 못했습니다.",
@@ -2309,6 +2320,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}} 자격 증명을 제거할까요?",
   "settingsShell.channels.retry": "다시 시도",
+  "settingsShell.channels.setup.unreadable":
+    "저장된 자격 증명을 읽을 수 없습니다. 대체 값을 입력하세요.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "이렇게 하면 본인 개인 자격 증명만 교체되며, 다른 사용자의 자격 증명은 변경되지 않습니다.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "이 자격 증명은 다른 설정 영역에서 관리됩니다. 이 채널을 설정하기 전에 해당 영역에서 업데이트하세요.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "저장된 채널 자격 증명 일부를 읽을 수 없습니다. 이 채널을 사용 설정하기 전에 교체하세요.",
   "settingsShell.channels.setup.addToEnvironment": "배포 환경에 추가하세요",
   "settingsShell.channels.setup.body":
     "이 값들을 이 배포에 추가한 다음 켜세요.",
@@ -2317,6 +2336,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "선택 사항",
   "settingsShell.channels.setup.replace": "교체",
   "settingsShell.channels.setup.replaceAria": "{{key}} 교체",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "저장된 이 자격 증명은 해당 연동 설정에서 교체하세요.",
   "settingsShell.channels.setup.save": "저장",
   "settingsShell.channels.setup.saveAndTurnOn": "저장하고 켜기",
   "settingsShell.channels.setup.saving": "저장 중…",
@@ -2330,6 +2351,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "설정 안 됨",
   "settingsShell.channels.state.off": "꺼짐",
   "settingsShell.channels.state.on": "켜짐",
+  "settingsShell.channels.state.unavailable": "사용할 수 없음",
   "settingsShell.channels.status": "상태",
   "settingsShell.channels.toggleFailed":
     "{{platform}}을(를) 업데이트하지 못했습니다.",
@@ -2620,6 +2642,8 @@ const messages: ToolkitAgentChatTranslation = {
     "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
   "settingsShell.integrations.builderStatusFailed":
     "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "저장된 Builder 계정 정보 일부를 읽을 수 없습니다.",
   "settingsShell.integrations.category.analytics": "분석",
   "settingsShell.integrations.category.design": "디자인",
   "settingsShell.integrations.category.engineering": "엔지니어링",
@@ -3081,11 +3105,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}}에서 {{date}}에 이 키를 거부했습니다. 소유자나 관리자에게 교체를 요청하세요.",
   "settingsModel.rejectedHeadline": "{{provider}}에서 이 키를 거부했습니다",
+  "settingsModel.unreadable":
+    "저장된 공급자 설정을 읽을 수 없습니다. 액세스를 복구하려면 교체하세요.",
+  "settingsModel.unreadableAskAdmin":
+    "저장된 공급자 설정을 읽을 수 없습니다. 소유자나 관리자에게 교체를 요청하세요.",
   "settingsModel.remove": "삭제",
   "settingsModel.removeProvider": "공급자 삭제",
   "settingsModel.removeTitle": "{{provider}}을(를) 삭제할까요?",
   "settingsModel.removing": "삭제하는 중",
   "settingsModel.replace": "교체",
+  "settingsModel.replaceEndpoint": "엔드포인트 교체",
   "settingsModel.replaceKey": "키 교체",
   "settingsModel.restrictBody": "멤버는 조직 공급자만 사용할 수 있습니다.",
   "settingsModel.restrictConfirm": "키 제한",

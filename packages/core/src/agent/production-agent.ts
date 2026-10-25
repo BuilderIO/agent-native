@@ -128,7 +128,14 @@ import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
-import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import {
+  isHostedModelExperimentEnabled,
+  resolveHostedModelExperiment,
+} from "../observability/hosted-model-experiment.js";
+import {
+  isFirstPartyHostedAgentNative,
+  shouldInferSentimentForTurn,
+} from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -144,6 +151,7 @@ import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
   isAgentChatAiSetupRequiredError,
 } from "../server/agent-chat-ai-setup.js";
+import { finalizeClaimedAgentChatProcessRunFailure } from "../server/agent-chat/process-run-failure.js";
 import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
   preloadJevContextWithStatus,
@@ -243,6 +251,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
@@ -386,7 +395,7 @@ import {
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
-import type { ActiveRun } from "./run-manager.js";
+import type { ActiveRun, StartedRun } from "./run-manager.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,
@@ -416,6 +425,7 @@ import {
   recordRunDiagnostic,
   countRunsForTurn,
   RUN_DIAG_STAGE,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
@@ -523,6 +533,9 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
+export const BACKGROUND_SETUP_HEARTBEAT_MAX_MS =
+  BACKGROUND_PROCESSING_RUN_STALE_MS;
+export const BACKGROUND_SETUP_FINALIZATION_MAX_MS = 10_000;
 const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
@@ -786,10 +799,8 @@ async function getOwnerApiKeyDetailed(
     }
   } catch {
     lookupFailed = true;
-    if (syntheticTraffic) {
-      reportLookupFailure();
-      return undefined;
-    }
+    reportLookupFailure();
+    return undefined;
   }
   if (syntheticTraffic || personalRestricted) {
     reportLookupFailure();
@@ -854,12 +865,15 @@ export async function getOwnerJevApiKey(
 async function getOwnerJevApiKeyCredential(
   ownerEmail: string | null | undefined,
 ): Promise<{
-  credential: { apiKey: string; source: "user" | "deployment" } | null;
+  credential: {
+    apiKey: string;
+    source: "user" | "org" | "workspace" | "deployment";
+  } | null;
   lookupFailed: boolean;
 }> {
   if (!ownerEmail) return { credential: null, lookupFailed: false };
   const cacheKey = [
-    "jev-source-v1",
+    "jev-source-v2",
     ownerEmail,
     getRequestOrgId() ?? `solo:${ownerEmail}`,
     getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
@@ -872,26 +886,33 @@ async function getOwnerJevApiKeyCredential(
     const apiKey = cached.value.slice(separator + 1);
     return {
       credential:
-        (source === "user" || source === "deployment") && apiKey
+        (source === "user" ||
+          source === "org" ||
+          source === "workspace" ||
+          source === "deployment") &&
+        apiKey
           ? { apiKey, source }
           : null,
       lookupFailed: false,
     };
   }
-  let lookupFailed = false;
-  const value = await getOwnerApiKey("jev", ownerEmail, {
+  const lookupState: { failed: boolean } = { failed: false };
+  const ownerCredential = await getOwnerApiKeyDetailed("jev", ownerEmail, {
     onLookupFailure: () => {
-      lookupFailed = true;
+      lookupState.failed = true;
     },
   });
-  if (value) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, `user:${value}`);
+  if (ownerCredential) {
+    const source = ownerCredential.credentialProvenance.scope;
+    if (!lookupState.failed) {
+      writeOptionalKeyCache(cacheKey, `${source}:${ownerCredential.apiKey}`);
+    }
     return {
-      credential: { apiKey: value, source: "user" },
-      lookupFailed,
+      credential: { apiKey: ownerCredential.apiKey, source },
+      lookupFailed: lookupState.failed,
     };
   }
-  if (lookupFailed) return { credential: null, lookupFailed: true };
+  if (lookupState.failed) return { credential: null, lookupFailed: true };
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -903,22 +924,21 @@ async function getOwnerJevApiKeyCredential(
       value: deployKey,
     }))
   ) {
-    if (!lookupFailed) {
-      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
-    }
+    writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
     return {
       credential: { apiKey: deployKey, source: "deployment" },
       lookupFailed: false,
     };
   }
 
-  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  writeOptionalKeyCache(cacheKey, undefined);
   return { credential: null, lookupFailed: false };
 }
 
 export interface JevContextCredentials {
   apiKey: string | undefined;
   personalApiKey: string | undefined;
+  directApiKey?: string;
   builderAuth: BuilderGatewayAuth | null;
   apiKeyLookupFailed?: boolean;
   builderAuthLookupFailed?: boolean;
@@ -943,6 +963,11 @@ export async function getJevContextCredentials(
     apiKey: credential?.apiKey,
     personalApiKey:
       credential?.source === "user" ? credential.apiKey : undefined,
+    ...(credential &&
+    credential.source !== "deployment" &&
+    credential.source !== "user"
+      ? { directApiKey: credential.apiKey }
+      : {}),
     builderAuth: builderAuthLookup.builderAuth,
     ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
     ...(builderAuthLookup.lookupFailed
@@ -978,11 +1003,23 @@ const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
 export async function getOwnerApiKeyForEngine(
   engineName: string,
   ownerEmail: string | null | undefined,
+  options?: {
+    allowDeploymentFallback?: boolean;
+    onLookupFailure?: () => void;
+  },
 ): Promise<ResolvedOwnerApiKey> {
+  const lookupState: { failed: boolean } = { failed: false };
+  const reportLookupFailure = (): void => {
+    if (lookupState.failed) return;
+    lookupState.failed = true;
+    options?.onLookupFailure?.();
+  };
   try {
     const provider = engineToProvider(engineName);
     const envVar = PROVIDER_TO_ENV[provider];
-    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail);
+    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail, {
+      onLookupFailure: reportLookupFailure,
+    });
     if (ownerKey) {
       return {
         apiKey: ownerKey.apiKey,
@@ -990,7 +1027,12 @@ export async function getOwnerApiKeyForEngine(
         credentialProvenance: ownerKey.credentialProvenance,
       };
     }
-    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+    if (
+      lookupState.failed ||
+      options?.allowDeploymentFallback === false ||
+      !envVar ||
+      !canUseDeployCredentialFallbackForRequest(envVar)
+    ) {
       return NO_OWNER_API_KEY;
     }
     const envKey = readDeployCredentialEnv(envVar);
@@ -1006,6 +1048,7 @@ export async function getOwnerApiKeyForEngine(
     }
     return NO_OWNER_API_KEY;
   } catch {
+    reportLookupFailure();
     return NO_OWNER_API_KEY;
   }
 }
@@ -11706,6 +11749,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   continuationCount: number;
   runsInBackgroundFunction: boolean;
   backgroundRuntimeDetail?: string;
+  onSetupDeadline?: (stopHeartbeat: () => void) => void;
   deps?: {
     recordRunDiagnostic?: typeof recordRunDiagnostic;
     insertRun?: typeof insertRun;
@@ -11714,7 +11758,14 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     isTurnAborted?: typeof isTurnAborted;
     markRunAborted?: typeof markRunAborted;
   };
-}): Promise<{ claimed: true } | { claimed: false; skipped: string }> {
+}): Promise<
+  | {
+      claimed: true;
+      setupDeadlineExceeded: () => boolean;
+      stopSetupHeartbeat: () => void;
+    }
+  | { claimed: false; skipped: string }
+> {
   const record = opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic;
   const insert = opts.deps?.insertRun ?? insertRun;
   const claim = opts.deps?.claimBackgroundRun ?? claimBackgroundRun;
@@ -11734,11 +11785,15 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   let preclaimHeartbeatInFlight = false;
   let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let setupHeartbeatDeadline: ReturnType<typeof setTimeout> | undefined;
+  let setupHeartbeatStarted = false;
+  let setupDeadlineExceeded = false;
   const preclaimHeartbeatStartedAt = Date.now();
   const heartbeatWhileUnclaimed = () => {
     if (
+      !setupHeartbeatStarted &&
       Date.now() - preclaimHeartbeatStartedAt >=
-      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+        BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
     ) {
       stopPreclaimHeartbeat();
       return;
@@ -11756,6 +11811,37 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       clearInterval(preclaimHeartbeatTimer);
       preclaimHeartbeatTimer = undefined;
     }
+    if (setupHeartbeatDeadline !== undefined) {
+      clearTimeout(setupHeartbeatDeadline);
+      setupHeartbeatDeadline = undefined;
+    }
+  };
+  const keepSetupAlive = () => {
+    // Keep the run fresh until handoff, then fail setup if handoff never arrives.
+    setupHeartbeatStarted = true;
+    if (preclaimHeartbeatTimer === undefined) {
+      preclaimHeartbeatTimer = setInterval(
+        heartbeatWhileUnclaimed,
+        BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+      );
+    }
+    setupHeartbeatDeadline = setTimeout(() => {
+      setupHeartbeatDeadline = undefined;
+      setupDeadlineExceeded = true;
+      if (!opts.onSetupDeadline) {
+        stopPreclaimHeartbeat();
+        return;
+      }
+      try {
+        opts.onSetupDeadline(stopPreclaimHeartbeat);
+      } catch (error) {
+        stopPreclaimHeartbeat();
+        console.error(
+          "[agent-chat] background setup deadline handler failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }, BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
   };
 
   preclaimHeartbeatTimer = setInterval(
@@ -11763,6 +11849,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   );
   heartbeatWhileUnclaimed();
+  let startupHeartbeatHandedOff = false;
   try {
     await record(
       opts.runId,
@@ -11793,21 +11880,29 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }
 
     const won = await claim(opts.runId);
-    stopPreclaimHeartbeat();
     if (!won) {
+      stopPreclaimHeartbeat();
       await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
       return { claimed: false, skipped: "already-claimed" };
     }
 
+    keepSetupAlive();
     await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
     await heartbeat(opts.runId).catch(() => {});
     if (await turnAborted(threadId, turnId)) {
       await abortRun(opts.runId, "user").catch(() => {});
       return { claimed: false, skipped: "turn-aborted" };
     }
-    return { claimed: true };
+    startupHeartbeatHandedOff = true;
+    return {
+      claimed: true,
+      setupDeadlineExceeded: () => setupDeadlineExceeded,
+      stopSetupHeartbeat: stopPreclaimHeartbeat,
+    };
   } finally {
-    stopPreclaimHeartbeat();
+    if (!startupHeartbeatHandedOff && !setupDeadlineExceeded) {
+      stopPreclaimHeartbeat();
+    }
   }
 }
 
@@ -13236,6 +13331,9 @@ export function createProductionAgentHandler(
     const priorNoProgressCount = priorContinuationState.noProgressCount;
     const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
+    let stopBackgroundSetupHeartbeat: (() => void) | undefined;
+    let backgroundSetupDeadlineExceeded: (() => boolean) | undefined;
+    let backgroundSetupStartedRun: StartedRun | undefined;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
         runId: bgRunId,
@@ -13248,11 +13346,65 @@ export function createProductionAgentHandler(
         continuationCount: backgroundContinuationCount,
         runsInBackgroundFunction,
         backgroundRuntimeDetail,
+        onSetupDeadline: (stopSetupHeartbeat) => {
+          backgroundSetupStartedRun?.abort.abort();
+          const finalizationTimeout = setTimeout(() => {
+            captureError(
+              new Error("Background setup failure finalization timed out"),
+              {
+                route: "/_agent-native/agent-chat",
+                aiTraceId: bgRunId,
+                tags: {
+                  source: "agent-chat",
+                  failureClass: "background-setup-timeout-finalization",
+                },
+                extra: {
+                  runId: bgRunId,
+                  finalizationTimeoutMs: BACKGROUND_SETUP_FINALIZATION_MAX_MS,
+                },
+              },
+            );
+            stopSetupHeartbeat();
+          }, BACKGROUND_SETUP_FINALIZATION_MAX_MS);
+          void finalizeClaimedAgentChatProcessRunFailure(
+            bgRunId,
+            new Error("Background worker setup heartbeat deadline exceeded"),
+          )
+            .catch((error) => {
+              captureError(error, {
+                route: "/_agent-native/agent-chat",
+                aiTraceId: bgRunId,
+                tags: {
+                  source: "agent-chat",
+                  failureClass: "background-setup-timeout-finalization",
+                },
+                extra: { runId: bgRunId },
+              });
+            })
+            .finally(() => {
+              clearTimeout(finalizationTimeout);
+              stopSetupHeartbeat();
+            });
+        },
       });
       if (!earlyClaim.claimed) {
         return { ok: true, skipped: earlyClaim.skipped };
       }
       backgroundRunClaimedEarly = true;
+      backgroundSetupDeadlineExceeded = earlyClaim.setupDeadlineExceeded;
+      (event as any).context[AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD] =
+        () => {
+          if (
+            !backgroundSetupStartedRun &&
+            !earlyClaim.setupDeadlineExceeded()
+          ) {
+            earlyClaim.stopSetupHeartbeat();
+          }
+        };
+      if (earlyClaim.setupDeadlineExceeded()) {
+        return { ok: true, skipped: "setup-deadline" };
+      }
+      stopBackgroundSetupHeartbeat = earlyClaim.stopSetupHeartbeat;
     }
     let dispatchToBackground =
       !isBackgroundWorker &&
@@ -14421,9 +14573,45 @@ export function createProductionAgentHandler(
       // observability tables are unavailable during startup or migration.
     }
 
+    // Unlike the DB experiment above, this runs even when the client pinned the
+    // default model: chat clients always send the default, so keying off the
+    // resolved default is what lets the arm reach real traffic. A DB experiment
+    // that did not override the model is an unrelated assignment, so it does not
+    // block this one. Durable chat workers re-enter here and must resolve the
+    // same arm from the same request, so no background-worker check goes here.
+    const hostedModelExperiment =
+      modelSelectionSource !== "experiment"
+        ? resolveHostedModelExperiment({
+            enabled: isHostedModelExperimentEnabled({
+              setting: getAppConfig().observability.hostedModelExperiment,
+              firstParty: isFirstPartyHostedAgentNative(),
+            }),
+            userEmail: ownerEmail,
+            engineName: engine.name,
+            defaultModel: engine.defaultModel,
+            model: effectiveModel,
+            effort: isReasoningEffort(requestEffort)
+              ? requestEffort
+              : options.reasoningEffort,
+          })
+        : null;
+    if (hostedModelExperiment) {
+      experimentAssignments = [
+        ...experimentAssignments,
+        hostedModelExperiment.assignment,
+      ];
+      if (hostedModelExperiment.treatment) {
+        effectiveModel = normalizeModelForEngine(
+          engine,
+          hostedModelExperiment.model,
+        );
+        modelSelectionSource = "experiment";
+      }
+    }
+
     const reasoningEffort = resolveAgentRequestReasoningEffort({
       model: effectiveModel,
-      requestEffort,
+      requestEffort: hostedModelExperiment?.effort ?? requestEffort,
       configuredEffort: options.reasoningEffort,
     });
     const modelSupportsVision = isAgentModelVisionCapable(
@@ -15034,6 +15222,7 @@ export function createProductionAgentHandler(
         deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
@@ -15050,6 +15239,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
@@ -16091,10 +16281,15 @@ export function createProductionAgentHandler(
       },
     );
 
+    if (backgroundSetupDeadlineExceeded?.()) {
+      return { ok: true, skipped: "setup-deadline" };
+    }
+
     const startedRun = startRun(
       runId,
       effectiveThreadId,
       async (rawSend, signal, control) => {
+        if (backgroundSetupDeadlineExceeded?.()) return;
         const send = (event: AgentChatEvent) => {
           rawSend(event);
           updateTrackedProgressFromEvent(event);
@@ -16845,10 +17040,16 @@ export function createProductionAgentHandler(
         attemptCount: backgroundContinuationCount,
       },
     );
+    backgroundSetupStartedRun = startedRun;
+    void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());
 
     if (isBackgroundWorker) {
-      await startedRun.finalized;
-      return { ok: true, runId };
+      try {
+        await startedRun.finalized;
+        return { ok: true, runId };
+      } finally {
+        stopBackgroundSetupHeartbeat?.();
+      }
     }
 
     const stream = subscribeToRun(runId, 0);

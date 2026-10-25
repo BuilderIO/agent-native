@@ -124,7 +124,7 @@ describe("PlanDocumentEditor image node", () => {
     ).find((button) => button.textContent === "common.retry");
     expect(retryBeforeAttempt).toBeUndefined();
     const upload = configureImageNode.mock.calls
-      .map(([options]) => options.onImageUpload)
+      .map(([options]) => options?.onImageUpload)
       .find((candidate) => typeof candidate === "function");
     expect(upload).toBeTypeOf("function");
     let pendingUpload: Promise<{ src: string; alt?: string }>;
@@ -171,7 +171,7 @@ describe("PlanDocumentEditor image node", () => {
     );
     let pendingUpload: Promise<{ src: string; alt?: string }>;
     const upload = configureImageNode.mock.calls
-      .map(([options]) => options.onImageUpload)
+      .map(([options]) => options?.onImageUpload)
       .find((candidate) => typeof candidate === "function");
     expect(upload).toBeTypeOf("function");
     act(() => {

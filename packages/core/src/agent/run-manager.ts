@@ -115,6 +115,7 @@ export interface ActiveRun {
 
 export interface StartedRun extends ActiveRun {
   finalized: Promise<void>;
+  livenessReady: Promise<boolean>;
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -912,9 +913,13 @@ export function startRun(
   let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
+  let resolveLivenessReady: (ready: boolean) => void = () => {};
   const finalized = new Promise<void>((resolve, reject) => {
     resolveFinalized = resolve;
     rejectFinalized = reject;
+  });
+  const livenessReady = new Promise<boolean>((resolve) => {
+    resolveLivenessReady = resolve;
   });
   void finalized.catch(() => {});
   const run: StartedRun = {
@@ -932,6 +937,7 @@ export function startRun(
     nextEventSeq: 0,
     startedAt: Date.now(),
     finalized,
+    livenessReady,
   };
 
   activeRuns.set(runId, run);
@@ -1006,6 +1012,13 @@ export function startRun(
     )
       throw error;
   });
+  const waitForRunInsert = async (): Promise<void> => {
+    try {
+      await insertRunPromise;
+    } catch (error) {
+      if (!servicePrincipalStartRefused) throw error;
+    }
+  };
 
   let executionLeaseClaimFailed = false;
   const executionFencePromise: Promise<ExecutionFence | undefined> =
@@ -1724,17 +1737,24 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
+  let livenessResolved = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
       (options?.executionLease
-        ? executionFencePromise.then((fence) =>
-            fence ? renewTurnExecutionLease(fence) : Promise.resolve(),
-          )
-        : updateRunHeartbeat(runId)
+        ? executionFencePromise.then(async (fence) => {
+            if (!fence) return false;
+            await renewTurnExecutionLease(fence);
+            return true;
+          })
+        : updateRunHeartbeat(runId).then(() => true)
       )
-        .then(() => {
+        .then((livenessConfirmed) => {
           consecutiveHeartbeatFailures = 0;
+          if (livenessConfirmed && !livenessResolved) {
+            livenessResolved = true;
+            resolveLivenessReady(true);
+          }
         })
         .catch((error) => {
           if (
@@ -1851,11 +1871,8 @@ export function startRun(
     eventData: string,
     eventAt: number,
   ): Promise<void> => {
-    const terminal = isTerminalRunEvent(runEvent.event);
-    const requireInserted =
-      runEvent.event.type === "tool_start" ||
-      (terminal && !servicePrincipalStartRefused);
-    if (requireInserted) await insertRunPromise;
+    await waitForRunInsert();
+    const requireInserted = !servicePrincipalStartRefused;
     const write = () =>
       insertRunEvent(runId, runEvent.seq, eventData, {
         eventAt,
@@ -1965,9 +1982,13 @@ export function startRun(
             publications: [],
             write: () => {
               if (openEventBatch === batch) openEventBatch = null;
-              return retryOnce(() =>
-                withWorkerFence(() => insertRunEvents(runId, batch.events)),
-              );
+              return (async () => {
+                await waitForRunInsert();
+                if (servicePrincipalStartRefused) return;
+                await retryOnce(() =>
+                  withWorkerFence(() => insertRunEvents(runId, batch.events)),
+                );
+              })();
             },
           },
         };
@@ -2627,6 +2648,10 @@ export function startRun(
     })
     .finally(async () => {
       clearInterval(heartbeatTimer);
+      if (!livenessResolved) {
+        livenessResolved = true;
+        resolveLivenessReady(false);
+      }
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (progressWriteTimer) clearTimeout(progressWriteTimer);
