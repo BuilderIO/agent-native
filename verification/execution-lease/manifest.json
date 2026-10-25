@@ -44,6 +44,11 @@
       "config": "mutations/e-fence-check-then-act.cfg",
       "invariant": "P1",
       "breaks": "a fenced write whose lease check commits before the write"
+    },
+    {
+      "config": "mutations/g-reset-without-successor-fence.cfg",
+      "invariant": "P1",
+      "breaks": "reset fallback writing to a successor without checking its current lease"
     }
   ],
   "findings": [

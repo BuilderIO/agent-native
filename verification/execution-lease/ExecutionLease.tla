@@ -20,14 +20,14 @@ CONSTANTS
   Runs,           \* agent_runs ids that belong to this turn
   NoRun,          \* stands for an empty owner / run_id column
   PolicyChoices,  \* intent.replayPolicy values a run's deploy may use
-  Mutation,       \* "none" or one of "a".."e" (broken variants, see NOTES.md)
+  Mutation,       \* "none" or one of "a".."g" (broken variants, see NOTES.md)
   WithPrune,      \* include the retention prune (RS:5126-5258)
   PruneWhileTurnActive \* the prune may reach a turn that can still see
                        \* work: see PruneRun, PruneLease, InsertRun
 
 ASSUME NoRun \notin Runs
 ASSUME PolicyChoices \subseteq {"never", "retry-safe", "read-only"}
-ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f"}
+ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g"}
 ASSUME WithPrune \in BOOLEAN
 ASSUME PruneWhileTurnActive \in BOOLEAN
 
@@ -267,6 +267,25 @@ ResetBeforeInvocation(r) ==
                          liveSteal>>
           /\ RetireDead
 
+\* Mutation g drops the successor lease check before rewriting the step owner.
+ResetBeforeInvocationWithoutSuccessorFence(r) ==
+  /\ Mutation = "g"
+  /\ wpc[r] = "invoke"
+  /\ ~effectPending[r]
+  /\ step.exists /\ step.status = "dispatched" /\ StepMine(r)
+  /\ \E q \in Runs :
+       /\ q # r
+       /\ ~Current(r)
+       /\ ~Current(q)
+       /\ rstatus[q] = "running"
+       /\ step' = [step EXCEPT !.status = "prepared",
+                                 !.run = q, !.gen = wg[q]]
+       /\ wpc' = [wpc EXCEPT ![r] = "done"]
+       /\ effectPending' = [effectPending EXCEPT ![r] = FALSE]
+       /\ staleWrite' = TRUE
+       /\ UNCHANGED <<policy, rstatus, wg, lease, checked, effects, liveSteal>>
+       /\ RetireDead
+
 \* W7 the external effect: runPreparedActionCall PA:9947 (inside invokeAction,
 \* PA:9896-9961) or adapter.sendMessageToTarget BAR:1228. No DB guard. It may
 \* land at any later time, also after the run timed it out and moved on
@@ -502,6 +521,7 @@ Next ==
   \/ \E r \in Runs : MarkDispatched(r)
   \/ \E r \in Runs : InvokeHandler(r)
   \/ \E r \in Runs : ResetBeforeInvocation(r)
+  \/ \E r \in Runs : ResetBeforeInvocationWithoutSuccessorFence(r)
   \/ \E r \in Runs : Effect(r)
   \/ \E r \in Runs : CompleteStep(r)
   \/ \E r \in Runs : MarkUnknown(r)
