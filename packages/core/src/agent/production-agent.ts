@@ -8553,13 +8553,8 @@ export async function runAgentLoop(opts: {
     const historyIndexByCall = new Map(
       allToolCallParts.map((toolCall, index) => [toolCall, index]),
     );
-    const logicalExecutionStepIds = new Map(
-      toolCallParts.map((toolCall, index) => [
-        toolCall,
-        `model-step:${createHash("sha256")
-          .update(`${durableStepCheckpointId}:${index}`)
-          .digest("hex")}`,
-      ]),
+    const toolCallIndexes = new Map(
+      toolCallParts.map((toolCall, index) => [toolCall, index]),
     );
     const historyToolCallByCall = new Map(
       toolCallParts.map((toolCall) => [
@@ -9586,8 +9581,22 @@ export async function runAgentLoop(opts: {
       );
 
       const executionFence = currentExecutionFence();
+      const toolCallIndex = toolCallIndexes.get(originalToolCall);
+      // A continuation re-asks the model from the same checkpoint and may get a
+      // different call in the same slot, so the call itself is part of its ID.
       const logicalExecutionStepId =
-        logicalExecutionStepIds.get(originalToolCall);
+        toolCallIndex === undefined
+          ? undefined
+          : `model-step:${createHash("sha256")
+              .update(
+                JSON.stringify([
+                  durableStepCheckpointId,
+                  toolCallIndex,
+                  toolCall.name,
+                  argumentsHash,
+                ]),
+              )
+              .digest("hex")}`;
       const interruptedStep =
         executionFence && toolCallJournal
           ? findInterruptedJournalEntryForCall(
