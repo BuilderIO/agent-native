@@ -2832,7 +2832,21 @@ export function MotionSpringEditor({
       return undefined;
     }
 
-    const next = springToken({ bounce, settle: currentSpring.settle });
+    const bounceToken = springToken({ bounce, settle: 1 });
+    const nextBounce = bounceToken.slice("spring(".length, -1);
+    const explicitSettle =
+      /^spring\(\s*[+-]?[\d.]+\s*,\s*([+-]?[\d.]+)\s*\)$/i.exec(
+        currentValue.trim(),
+      )?.[1];
+    const settle =
+      explicitSettle === undefined ? undefined : Number(explicitSettle);
+    const next =
+      settle !== undefined &&
+      Number.isFinite(settle) &&
+      settle >= 0.05 &&
+      settle <= 1
+        ? `spring(${nextBounce}, ${explicitSettle})`
+        : springToken({ bounce, settle: currentSpring.settle });
     bounceDraftEditedRef.current = false;
     if (parseSpringToken(next)?.bounce === currentSpring.bounce) {
       const reset = springBounceDraft(currentValue, currentSpring.bounce);
@@ -3436,8 +3450,8 @@ function linearPreviewPoints(
         firstRunEnd += 1;
       }
       preview = [
-        { position: 0, output: second.output },
-        { position: first.position, output: second.output },
+        { position: 0, output: first.output },
+        { position: first.position, output: first.output },
         ...points.slice(firstRunEnd),
       ];
     } else {

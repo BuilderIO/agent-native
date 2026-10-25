@@ -158,8 +158,9 @@ describe("MotionNativeStyleEditor", () => {
     ).toBe("M 0 133.33 L 20 100 L 80 0 L 100 -33.33");
   });
 
-  // oracle-change: CSS Easing Functions Level 2 §2.1.4 resolves equal stop
-  // inputs to point B: https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
+  // oracle-change: CSS Easing Functions Level 2 uses the first output for
+  // left extrapolation when the initial stop inputs are equal:
+  // https://drafts.csswg.org/css-easing-2/#output-of-a-linear-easing-function
   it("clamps descending CSS linear() stop positions to the preceding stop", async () => {
     await act(async () => {
       root.render(
@@ -176,7 +177,7 @@ describe("MotionNativeStyleEditor", () => {
       container
         .querySelector("svg[data-easing-curve] path[data-curve-path]")
         ?.getAttribute("d"),
-    ).toBe("M 0 0 L 80 0 L 100 0");
+    ).toBe("M 0 100 L 80 100 L 80 0 L 100 0");
   });
 
   // oracle-change: CSS Easing Functions Level 2 §2.1.4 selects the last point
@@ -201,10 +202,10 @@ describe("MotionNativeStyleEditor", () => {
     ).toBe("M 0 100 L 50 60 L 50 40 L 100 0");
   });
 
-  // oracle-change: CSS Easing Functions Level 2 §2.1.4 selects the second
-  // point when the first two inputs are equal, including for left extrapolation:
-  // https://www.w3.org/TR/css-easing-2/#output-of-a-linear-easing-function
-  it("uses the second output when the first CSS linear() stops share a positive position", async () => {
+  // oracle-change: CSS Easing Functions Level 2 uses the first output before
+  // the first duplicated input, then jumps to the last stop at that input:
+  // https://drafts.csswg.org/css-easing-2/#output-of-a-linear-easing-function
+  it("preserves the first output before duplicate initial CSS linear() stops", async () => {
     await act(async () => {
       root.render(
         <MotionBezierCurveEditor
@@ -220,7 +221,7 @@ describe("MotionNativeStyleEditor", () => {
       container
         .querySelector("svg[data-easing-curve] path[data-curve-path]")
         ?.getAttribute("d"),
-    ).toBe("M 0 60 L 20 60 L 100 0");
+    ).toBe("M 0 100 L 20 100 L 20 60 L 100 0");
   });
 
   it.each(["steps(1, jump-none)", "steps(129, end)"])(
@@ -2516,6 +2517,40 @@ describe("MotionNativeStyleEditor", () => {
       {
         ...styleWithSpring,
         props: { ...styleWithSpring.props, easing: "spring(0.45, 0.5)" },
+      },
+      expect.objectContaining({ index: 0, styleKey: "Position" }),
+    );
+  });
+
+  it("preserves settle precision when editing only Bounce", async () => {
+    const styleWithSpring = {
+      ...positionStyle,
+      props: { ...positionStyle.props, easing: "spring(0.69, 0.123456)" },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [styleWithSpring], onChange });
+    await openStyleDetails();
+    await openCurveEditor();
+
+    const bounceLabel = Array.from(
+      document.body.querySelectorAll<HTMLLabelElement>("label"),
+    ).find((label) =>
+      String(label.textContent).includes("designEditor.motion.bounce"),
+    );
+    const bounceInput = bounceLabel?.querySelector<HTMLInputElement>("input");
+    if (!bounceInput) throw new Error("Missing spring Bounce input");
+
+    await act(async () => bounceInput.focus());
+    await setInputValue(bounceInput, "0.45");
+    await act(async () => bounceInput.blur());
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...styleWithSpring,
+        props: {
+          ...styleWithSpring.props,
+          easing: "spring(0.45, 0.123456)",
+        },
       },
       expect.objectContaining({ index: 0, styleKey: "Position" }),
     );

@@ -1523,13 +1523,7 @@ export default defineAction({
             targetNodeIds.length === 0 &&
             writeCapability.status === "unsupported" &&
             writeCapability.code === "missing-node" &&
-            writeCapability.targetNodeIds.length === 0 &&
-            (sourceAudioClips !== undefined ||
-              easingVariables.length > 0 ||
-              animationStyles.length > 0 ||
-              (currentReactRead?.status === "valid" &&
-                (animationStylesInput !== undefined ||
-                  easingVariablesInput !== undefined)));
+            writeCapability.targetNodeIds.length === 0;
           if (
             writeCapability.status === "unsupported" &&
             !incomingMetadataAuthorizesMetadataOnlyWrite
