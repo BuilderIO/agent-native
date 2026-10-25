@@ -1429,6 +1429,23 @@ describe("Builder org fallback (transient org-context dropout)", () => {
 });
 
 describe("resolveBuilderCredentialsDetailed", () => {
+  it("does not expose an env pair when saved credential lookup fails", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "deploy-space";
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    const error = new Error("connection terminated unexpectedly");
+    mockReadAppSecrets.mockRejectedValue(error);
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      source: null,
+      lookupFailed: true,
+      cause: error,
+    });
+  });
+
   it("sets lookupFailed=true when the secrets store read throws a db error", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
@@ -3350,6 +3367,55 @@ describe("Restrict personal API keys", () => {
     }
   });
 
+  it("lets an owner or admin use the org secret when their personal row is unreadable", async () => {
+    const personalError = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@b.com",
+    });
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ scope }: any) => {
+        if (scope === "user") throw personalError;
+        return scope === "org"
+          ? { value: "test-anthropic-org", last4: "org", updatedAt: 1 }
+          : null;
+      });
+
+      await expect(
+        resolveSecretDetailed("ANTHROPIC_API_KEY"),
+      ).resolves.toMatchObject({
+        value: "test-anthropic-org",
+        source: "org",
+        lookupFailed: false,
+      });
+    }
+  });
+
+  it("surfaces a member's unreadable personal secret instead of using an org secret", async () => {
+    restrictOrg("member", false);
+    const personalError = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@b.com",
+    });
+    mockReadAppSecret.mockImplementation(async ({ scope }: any) => {
+      if (scope === "user") throw personalError;
+      return scope === "org"
+        ? { value: "test-anthropic-org", last4: "org", updatedAt: 1 }
+        : null;
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({
+      value: null,
+      lookupFailed: true,
+      cause: personalError,
+    });
+    expect(mockReadAppSecret.mock.calls.map(([query]) => query.scope)).toEqual([
+      "user",
+    ]);
+  });
+
   it("uses the member's personal key again once the restriction is off", async () => {
     restrictOrg("member", false);
     storeRows({
@@ -3467,6 +3533,38 @@ describe("Restrict personal API keys", () => {
         lookupFailed: false,
         source: "org",
         scopeId: ORG,
+      });
+    }
+  });
+
+  it("uses an owner's or admin's org Builder pair when their personal pair is unreadable", async () => {
+    const personalError = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@b.com",
+    });
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ key, scope }: any) => {
+        if (
+          scope === "user" &&
+          (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ) {
+          throw personalError;
+        }
+        if (
+          scope === "org" &&
+          (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ) {
+          return { value: `org-${key}`, last4: "-key", updatedAt: 1 };
+        }
+        return null;
+      });
+
+      await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+        source: "org",
+        privateKey: "org-BUILDER_PRIVATE_KEY",
+        publicKey: "org-BUILDER_PUBLIC_KEY",
+        lookupFailed: false,
       });
     }
   });

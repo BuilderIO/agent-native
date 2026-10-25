@@ -45,15 +45,24 @@ function precedence(detail: ResolvedSecretDetail): number {
   }
 }
 
-function unreadableScopePrecedence(cause: unknown): number | undefined {
-  if (!(cause instanceof AppSecretDecryptionError)) return undefined;
-  if (cause.scope === "user") return 0;
-  if (cause.scope === "org") return 1;
-  if (cause.scope === "workspace") {
-    if (!cause.scopeId) return undefined;
-    return cause.scopeId.startsWith("solo:") ? 3 : 2;
+function isLowerPriorityAliasFailure(
+  failed: { name: string; detail: ResolvedSecretDetail },
+  best: { name: string; detail: ResolvedSecretDetail },
+  names: readonly string[],
+): boolean {
+  if (
+    failed.name === names[0] ||
+    best.name !== names[0] ||
+    best.detail.source !== "org" ||
+    !(failed.detail.cause instanceof AppSecretDecryptionError)
+  ) {
+    return false;
   }
-  return undefined;
+  return (
+    failed.detail.cause.scope === "workspace" ||
+    (failed.detail.cause.scope === "org" &&
+      failed.detail.cause.scopeId === best.detail.scopeId)
+  );
 }
 
 /**
@@ -84,15 +93,12 @@ export async function resolveSecretWithAliasesDetailed(
       best = entry;
     }
   }
-  const unresolvedFailures = details.filter(({ name, detail }) => {
-    if (!detail.lookupFailed) return false;
-    if (!best || best.name !== names[0] || name === names[0]) return true;
-    const failedPrecedence = unreadableScopePrecedence(detail.cause);
-    return (
-      failedPrecedence === undefined ||
-      failedPrecedence < precedence(best.detail)
-    );
-  });
+  const failedLookups = details.filter(({ detail }) => detail.lookupFailed);
+  const unresolvedFailures = best
+    ? failedLookups.filter(
+        (entry) => !isLowerPriorityAliasFailure(entry, best, names),
+      )
+    : failedLookups;
   const lookupFailed = unresolvedFailures.length > 0;
   const cause = unresolvedFailures[0]?.detail.cause;
   if (!best) {
@@ -116,8 +122,9 @@ export async function resolveSecretWithAliases(
 ): Promise<string | null> {
   if (secretKeyNames(key).length === 1) return resolveSecret(key);
   const resolved = await resolveSecretWithAliasesDetailed(key);
-  assertCredentialStoreReadable(resolved);
+  if (resolved.lookupFailed) assertCredentialStoreReadable(resolved);
   if (resolved.value) return resolved.value;
+  assertCredentialStoreReadable(resolved);
   return null;
 }
 

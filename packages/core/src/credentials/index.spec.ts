@@ -689,9 +689,13 @@ describe("credentials encryption at rest", () => {
   });
 
   it("does not fall through to an org key when a member's personal key is unreadable", async () => {
+    const error = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@example.test",
+    });
     readOrgMemberRole.mockResolvedValue("member");
     readAppSecret.mockImplementation(async (ref: any) => {
-      if (ref.scope === "user") throw new AppSecretDecryptionError(ref);
+      if (ref.scope === "user") throw error;
       return ref.scope === "org"
         ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
         : null;
@@ -703,7 +707,7 @@ describe("credentials encryption at rest", () => {
         userEmail: "member@example.test",
         orgId: "org-1",
       }),
-    ).rejects.toBeInstanceOf(AppSecretDecryptionError);
+    ).rejects.toBe(error);
     expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
       "user",
     ]);

@@ -1170,11 +1170,13 @@ type WatchedRequestNavigationCandidate = {
   requestStartedDuringNavigation?: boolean;
   requestStartedAfterNavigation?: boolean;
   requestStartedBeforeReloadCommit?: boolean;
+  pendingOutgoingAbort?: boolean;
+  outgoingAbortErrorText?: string;
+  requestResourceType?: string;
   competingRequestStartedAfterNavigation?: boolean;
   competingClaimStartedAfterNavigation?: boolean;
   competingSameUrlClaimStartedAfterNavigation?: boolean;
   competingRegistrationStartedAfterNavigation?: boolean;
-  pendingOutgoingAbort?: boolean;
   outgoingNavigationAbort?: boolean;
   outgoingRequestKind?: "poll" | "heartbeat";
   requestSessionId?: string | null;
@@ -1433,6 +1435,51 @@ function isFinishedRetiredSessionRequest(
   );
 }
 
+function isPendingRetiredSessionRequestAbort(
+  candidate: WatchedRequestNavigationCandidate,
+  requestKind: "poll" | "heartbeat",
+  evaluationDelayMs: number,
+) {
+  const matchesRequest =
+    requestKind === "poll"
+      ? candidate.method === "POST" &&
+        browserSessionClaimId(candidate.pathname) === candidate.requestSessionId
+      : candidate.pathname === "/_agent-native/browser-sessions"
+        ? matchesRetiredRegistrationCandidate(candidate)
+        : matchesRetiredSessionHeartbeat(
+            candidate.method,
+            candidate.pathname,
+            candidate.requestSessionId,
+            candidate.retiredSessionId,
+            candidate.competingSameTypeRequest,
+            candidate.competingRegistrationStartedAfterNavigation,
+          );
+  return (
+    candidate.pendingOutgoingAbort === true &&
+    (candidate.outgoingAbortErrorText === "NS_BINDING_ABORTED" ||
+      candidate.outgoingAbortErrorText === "net::ERR_ABORTED" ||
+      candidate.outgoingAbortErrorText === "Load request cancelled") &&
+    candidate.sameOrigin === true &&
+    candidate.requestResourceType === "fetch" &&
+    candidate.requestSourceIsMainFrame === true &&
+    normalizeDocumentUrl(candidate.requestFrameUrl ?? null) !== null &&
+    normalizeDocumentUrl(candidate.requestFrameUrl ?? null) ===
+      normalizeDocumentUrl(candidate.outgoingDocumentUrl ?? null) &&
+    candidate.requestStartedDuringNavigation === true &&
+    candidate.requestStartedBeforeReloadCommit === true &&
+    candidate.outgoingRequestKind === requestKind &&
+    candidate.requestSessionId !== null &&
+    candidate.requestSessionId === candidate.retiredSessionId &&
+    matchesRequest &&
+    candidate.outgoingAbortWarningAgeMs !== undefined &&
+    candidate.outgoingAbortWarningAgeMs >= 0 &&
+    candidate.outgoingAbortWarningAgeMs <=
+      retiredBrowserSessionPollConsoleGraceMs + evaluationDelayMs &&
+    candidate.competingSameTypeRequest !== true &&
+    candidate.competingRegistrationStartedAfterNavigation !== true
+  );
+}
+
 export function isExpectedSaveReloadBrowserSessionConsoleError(
   message: string,
   activePhase: string,
@@ -1447,22 +1494,29 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
     // ambiguous. A finished one carries no such attribution, and the retired
     // page keeps polling until the reloaded document commits, so any of them
     // excuses the warning.
-    const aborted = candidates.filter(
-      (candidate) =>
-        (candidate.outgoingNavigationAbort === true ||
-          candidate.pendingOutgoingAbort === true) &&
+    const aborted = candidates.filter((candidate) => {
+      const correlatedAbort =
+        candidate.outgoingNavigationAbort === true ||
+        isPendingRetiredSessionRequestAbort(
+          candidate,
+          outgoingRequestKind,
+          evaluationDelayMs,
+        );
+      return (
+        correlatedAbort &&
         candidate.outgoingRequestKind === outgoingRequestKind &&
         candidate.requestSessionId !== null &&
         candidate.requestSessionId === candidate.retiredSessionId &&
         candidate.outgoingAbortWarningAgeMs !== undefined &&
         candidate.outgoingAbortWarningAgeMs >= 0 &&
         candidate.outgoingAbortWarningAgeMs <=
-          retiredBrowserSessionPollConsoleGraceMs &&
+          retiredBrowserSessionPollConsoleGraceMs + evaluationDelayMs &&
         candidate.competingSameTypeRequest !== true &&
         (candidate.outgoingRequestKind !== "heartbeat" ||
           candidate.pathname !== "/_agent-native/browser-sessions" ||
-          matchesRetiredRegistrationCandidate(candidate)),
-    ).length;
+          matchesRetiredRegistrationCandidate(candidate))
+      );
+    }).length;
     if (aborted > 0) return aborted === 1;
     if (!message.endsWith("TypeError: Load failed")) {
       return candidates.some((candidate) =>
@@ -3024,11 +3078,13 @@ export async function runAuthoringFuzz(
         requestStartedAfterNavigation: candidate.requestStartedAfterNavigation,
         requestStartedBeforeReloadCommit:
           candidate.requestStartedBeforeReloadCommit,
+        pendingOutgoingAbort: candidate.pendingOutgoingAbort,
+        outgoingAbortErrorText: candidate.failureText ?? undefined,
+        requestResourceType: candidate.resourceType,
         competingClaimStartedAfterNavigation:
           hasCompetingClaimStartedAfterNavigation(request),
         competingRegistrationStartedAfterNavigation:
           hasCompetingRegistrationStartedAfterNavigation(request),
-        pendingOutgoingAbort: candidate.pendingOutgoingAbort,
         outgoingNavigationAbort: candidate.outgoingNavigationAbort,
         outgoingRequestKind: candidate.outgoingRequestKind ?? undefined,
         requestSessionId: candidate.requestSessionId,
