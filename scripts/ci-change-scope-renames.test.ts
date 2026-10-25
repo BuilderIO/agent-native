@@ -218,34 +218,20 @@ test("classification retains the path but excludes supplied pure renames", () =>
   );
 });
 
-test("only diagnostics use the filtered Design spec list", () => {
+test("the broad Design workflow uses the unfiltered spec list and no diagnostic job remains", () => {
   const workflow = readFileSync(
     join(process.cwd(), ".github/workflows/ci.yml"),
     "utf8",
   );
   const broadStart = workflow.indexOf("  design-canvas-broad-workflows:\n");
-  const diagnosticsStart = workflow.indexOf(
-    "  design-canvas-changed-spec-diagnostics:\n",
-  );
-  const diagnosticsEnd = workflow.indexOf(
-    "\n  pre-auth-session-replay-smoke:",
-    diagnosticsStart,
-  );
+  const preAuthStart = workflow.indexOf("  pre-auth-session-replay-smoke:\n");
   assert.notEqual(broadStart, -1);
-  assert.notEqual(diagnosticsStart, -1);
+  assert.notEqual(preAuthStart, -1);
 
-  const broadJob = workflow.slice(broadStart, diagnosticsStart);
-  const diagnosticsJob = workflow.slice(
-    diagnosticsStart,
-    diagnosticsEnd === -1 ? undefined : diagnosticsEnd,
-  );
+  const broadJob = workflow.slice(broadStart, preAuthStart);
   assert.ok(
     broadJob.includes("needs.change-scope.outputs.design_canvas_e2e_specs"),
   );
   assert.doesNotMatch(broadJob, /design_canvas_e2e_diagnostic_specs/u);
-  assert.ok(
-    diagnosticsJob.includes(
-      "needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs",
-    ),
-  );
+  assert.doesNotMatch(workflow, /design-canvas-changed-spec-diagnostics/u);
 });

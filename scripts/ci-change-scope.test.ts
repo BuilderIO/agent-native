@@ -626,15 +626,12 @@ test("the nightly run and the shard action cover every Slides authoring shard", 
       `unknown shard ${shard}`,
     );
   }
-  for (const workflow of [
-    nightly,
+  assert.match(nightly, /uses: \.\/\.github\/actions\/slides-authoring-shard/u);
+  assert.doesNotMatch(
     readFileSync(".github/workflows/ci.yml", "utf8"),
-  ]) {
-    assert.match(
-      workflow,
-      /uses: \.\/\.github\/actions\/slides-authoring-shard/u,
-    );
-  }
+    /slides-authoring-shard/u,
+    "PRs must not run the authoring matrix; the nightly is its only run",
+  );
 });
 
 test("every browser runs each slice of the authoring parity suite exactly once", () => {
@@ -657,24 +654,18 @@ test("every browser runs each slice of the authoring parity suite exactly once",
 });
 
 test("Slides authoring jobs run in the image keyed on its Dockerfile", () => {
-  const ci = readFileSync(".github/workflows/ci.yml", "utf8");
   const nightly = readFileSync(
     ".github/workflows/slides-authoring-nightly.yml",
     "utf8",
   );
-  for (const workflow of [ci, nightly]) {
-    assert.match(
-      workflow,
-      /uses: \.\/\.github\/actions\/slides-authoring-image/u,
-    );
-    assert.match(
-      workflow,
-      /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
-    );
-    // A job that can write the registry would let a PR overwrite the image.
-    assert.doesNotMatch(workflow, /packages: write/u);
-    assert.match(workflow, /packages: read/u);
-  }
+  assert.match(nightly, /uses: \.\/\.github\/actions\/slides-authoring-image/u);
+  assert.match(
+    nightly,
+    /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
+  );
+  // A job that can write the registry would let a run overwrite the image.
+  assert.doesNotMatch(nightly, /packages: write/u);
+  assert.match(nightly, /packages: read/u);
 
   const publisher = readFileSync(
     ".github/workflows/slides-authoring-image.yml",
@@ -2148,7 +2139,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const verticalAutoLayoutWorkflow = step(
     "Run vertical auto-layout held-guide regression",
   );
-  const changedSpecRegressions = step("Run changed Design E2E specs");
   const preAuthReplaySmoke = step("Run pre-auth session replay smoke");
   const designE2eWorkflow = readFileSync(
     ".github/workflows/design-e2e.yml",
@@ -2166,11 +2156,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
-  );
-  assert.match(
-    changedSpecRegressions,
-    /^        timeout-minutes: 24$/m,
-    "the changed-spec diagnostic step must fit inside its 30-minute job after setup",
   );
   assert.match(
     workflow,
@@ -2316,17 +2301,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     designGlobalSetup,
     /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeRecoveryDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
     "the composer probe window must start after navigation so a slow cold route does not consume it",
-  );
-  assert.match(
-    changedSpecRegressions,
-    /--shard="\$\{changed_shard\}\/48"/,
-    "changed-spec diagnostics must retain full coverage across 48 shards",
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      "--grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'",
-    ),
-    "the long music-app and vertical auto-layout tests must run only in dedicated lanes",
   );
   assert.match(
     musicAppWorkflow,
@@ -2592,22 +2566,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     [1],
   );
-  assert.deepEqual(
-    [...changedSpecRegressions.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
-      Number(count),
-    ),
-    [1],
-  );
   const coreJobStart = workflow.indexOf("  design-canvas-core-regression:\n");
   assert.notEqual(coreJobStart, -1);
   const broadJobStart = workflow.indexOf("  design-canvas-broad-workflows:\n");
   assert.notEqual(broadJobStart, -1);
-  const diagnosticJobStart = workflow.indexOf(
-    "  design-canvas-changed-spec-diagnostics:\n",
+  const preAuthJobStart = workflow.indexOf(
+    "  pre-auth-session-replay-smoke:\n",
   );
-  assert.notEqual(diagnosticJobStart, -1);
+  assert.notEqual(preAuthJobStart, -1);
   const coreJob = workflow.slice(coreJobStart, broadJobStart);
-  const broadJob = workflow.slice(broadJobStart, diagnosticJobStart);
+  const broadJob = workflow.slice(broadJobStart, preAuthJobStart);
   const designJob = coreJob;
 
   assert.ok(coreJob.includes("needs: change-scope"));
@@ -2631,25 +2599,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     broadJob,
     /design_canvas_e2e_specs_overflow/,
     "broad workflow selectors must not suppress selected tests",
-  );
-  const diagnosticJobEnd = workflow.indexOf(
-    "\n  pre-auth-session-replay-smoke:",
-    diagnosticJobStart,
-  );
-  const diagnosticJob = workflow.slice(
-    diagnosticJobStart,
-    diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
-  );
-  assert.ok(diagnosticJob.includes("needs: change-scope"));
-  assert.ok(
-    diagnosticJob.includes(
-      "if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'",
-    ),
-    "changed-spec diagnostics should run when selectors are present",
-  );
-  assert.ok(
-    diagnosticJob.includes("Run changed Design E2E specs"),
-    "the changed spec suite must remain visible in CI diagnostics",
   );
   assert.doesNotMatch(
     workflow,
@@ -2675,12 +2624,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const screenHistoryStepTimeout = Number(
     screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
-  const changedSpecStepTimeout = Number(
-    changedSpecRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
-  );
-  const diagnosticJobTimeout = Number(
-    diagnosticJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
-  );
   assert.match(
     designJob,
     /^    timeout-minutes: 30$/m,
@@ -2701,10 +2644,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Design acceptance must stay below thirty-one minutes",
   );
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 30,
-    `changed-spec diagnostics must have the exact thirty-minute cap (got ${diagnosticJobTimeout})`,
-  );
-  assert.ok(
     Number.isInteger(stepTimeout) &&
       stepTimeout === 23 &&
       stepTimeout >=
@@ -2723,17 +2662,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
           screenHistoryWebServerBudgetMinutes &&
       jobTimeout >= screenHistoryStepTimeout + 9,
     `Screen-history tests need five minutes for the Playwright run, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and nine minutes of job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
-  );
-  const changedSpecRunBudgetMinutes = 8;
-  assert.ok(
-    Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 24 &&
-      changedSpecStepTimeout >=
-        changedSpecRunBudgetMinutes +
-          screenHistorySetupBudgetMinutes +
-          screenHistoryWebServerBudgetMinutes &&
-      diagnosticJobTimeout >= changedSpecStepTimeout + 6,
-    `changed-spec diagnostics need eight minutes for Playwright, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and six minutes of job headroom (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
@@ -2793,45 +2721,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
 });
 
-test("keeps every changed Design E2E spec in visible diagnostic shards", () => {
+test("the PR workflow has no changed-spec diagnostic fan-out", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  const diagnosticJobStart = workflow.indexOf(
-    "  design-canvas-changed-spec-diagnostics:",
-  );
-  assert.notEqual(diagnosticJobStart, -1);
-  const diagnosticJobEnd = workflow.indexOf(
-    "\n  pre-auth-session-replay-smoke:",
-    diagnosticJobStart,
-  );
-  const diagnosticJob = workflow.slice(
-    diagnosticJobStart,
-    diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
-  );
-  const changedShardNumbers = [
-    ...diagnosticJob.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
-  ].map(([, shard]) => Number(shard));
-
-  assert.deepEqual(
-    changedShardNumbers,
-    Array.from({ length: 48 }, (_, index) => index + 1),
-    "all changed-spec shards must remain present and sequential",
-  );
-  assert.match(
-    diagnosticJob,
-    /--shard="\$\{changed_shard\}\/48"/,
-    "changed specs must be fully covered across the same 48 shards",
-  );
-  const fastTestsStart = workflow.indexOf("  fast-tests:\n");
-  assert.notEqual(fastTestsStart, -1);
-  const fastTestsEnd = workflow.indexOf("\n  docs:", fastTestsStart);
-  const fastTestsJob = workflow.slice(
-    fastTestsStart,
-    fastTestsEnd === -1 ? undefined : fastTestsEnd,
-  );
+  // design-e2e.yml runs the full Design E2E suite on its schedule, so a PR
+  // must not fan out a second hard-coded shard matrix.
   assert.doesNotMatch(
-    fastTestsJob,
-    /design-canvas-changed-spec-diagnostics/,
-    "the broad diagnostic matrix must not extend the required Design lane",
+    workflow,
+    /^ {2}design-canvas-changed-spec-diagnostics:/mu,
+    "the changed-spec diagnostic matrix must not run on PRs",
   );
 });
 
