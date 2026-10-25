@@ -2617,6 +2617,33 @@ describe("unreadable credential store is not 'not configured'", () => {
     }
   });
 
+  it("does not use a trusted env fallback when a saved secret cannot be decrypted", async () => {
+    process.env.OPENAI_API_KEY = "deploy-key";
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecret.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+        if (scope === "org" || (scope === "workspace" && scopeId === "org-1")) {
+          throw new AppSecretDecryptionError({
+            scope: scope as "org" | "workspace",
+            scopeId,
+          });
+        }
+        return null;
+      },
+    );
+
+    await expect(
+      resolveSecretDetailed("OPENAI_API_KEY"),
+    ).resolves.toMatchObject({
+      value: null,
+      lookupFailed: true,
+      cause: expect.any(AppSecretDecryptionError),
+    });
+    await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+
   it("throws instead of reporting Builder as not connected", async () => {
     mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
 
@@ -3567,6 +3594,51 @@ describe("Restrict personal API keys", () => {
         lookupFailed: false,
       });
     }
+  });
+
+  it("checks an owner or admin org pair before falling back from an unreadable personal pair", async () => {
+    process.env.GOOGLE_CLIENT_ID = "deploy-client";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(
+        async ({ key, scope, scopeId }: any) => {
+          if (scope === "user") {
+            throw new AppSecretDecryptionError({ scope, scopeId });
+          }
+          return scope === "org"
+            ? { value: `org-${key}`, last4: "-key", updatedAt: 1 }
+            : null;
+        },
+      );
+
+      await expect(
+        resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+      ).resolves.toEqual(["org-GOOGLE_CLIENT_ID", "org-GOOGLE_CLIENT_SECRET"]);
+    }
+  });
+
+  it("does not replace an unreadable member pair with an org or deploy pair", async () => {
+    process.env.GOOGLE_CLIENT_ID = "deploy-client";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
+    restrictOrg("member", false);
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) => {
+        if (scope === "user") {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        return scope === "org"
+          ? { value: `org-${key}`, last4: "-key", updatedAt: 1 }
+          : null;
+      },
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    expect(
+      mockReadAppSecret.mock.calls.some(([args]) => args.scope === "org"),
+    ).toBe(false);
   });
 
   it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {

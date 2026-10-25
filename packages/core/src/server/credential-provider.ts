@@ -2111,9 +2111,18 @@ export async function resolveSecretPairs(
 
   let lookupFailed = false;
   let cause: unknown;
+  let personal: [string, string] | null = null;
+  let personalReadError: AppSecretDecryptionError | undefined;
   try {
     let pair: [string, string] | null = null;
-    const personal = allowUserScope ? await readPairs("user", email) : null;
+    if (allowUserScope) {
+      try {
+        personal = await readPairs("user", email);
+      } catch (error) {
+        if (!(error instanceof AppSecretDecryptionError)) throw error;
+        personalReadError = error;
+      }
+    }
 
     let orgId: string | null | undefined = getRequestOrgId();
     if (!orgId) {
@@ -2124,13 +2133,18 @@ export async function resolveSecretPairs(
     }
     // Before the personal answer: without the org, an owner's role is unknown.
     if (lookupFailed) {
+      if (personalReadError) throw personalReadError;
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
       assertCredentialStoreReadable({ lookupFailed, cause });
       return null;
     }
 
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+    const orgCredentialFirst =
+      Boolean(personal || personalReadError) &&
+      (await readsOrgCredentialFirst(orgId, email));
+    if (personalReadError && !orgCredentialFirst) throw personalReadError;
+    if (personal && !orgCredentialFirst) {
       return personal;
     }
 
@@ -2146,6 +2160,7 @@ export async function resolveSecretPairs(
         if (pair) return pair;
       }
     }
+    if (personalReadError) throw personalReadError;
     if (personal) return personal;
 
     if (allowUserScope) {
@@ -2190,6 +2205,13 @@ export async function resolveSecretPairs(
     cause = error;
   }
 
+  const unreadableSavedCredential = personalReadError ?? cause;
+  if (unreadableSavedCredential instanceof AppSecretDecryptionError) {
+    assertCredentialStoreReadable({
+      lookupFailed: true,
+      cause: unreadableSavedCredential,
+    });
+  }
   const environmentPair = readEnvironmentPairs();
   if (environmentPair) return environmentPair;
   assertCredentialStoreReadable({ lookupFailed, cause });
@@ -2421,7 +2443,11 @@ export async function resolveSecretDetailed(
       lookupFailed = true;
       cause = err;
     }
-    if (lookupFailed && !isTrustedSelfHostedRuntime()) {
+    if (
+      lookupFailed &&
+      (cause instanceof AppSecretDecryptionError ||
+        !isTrustedSelfHostedRuntime())
+    ) {
       return { value: null, lookupFailed: true, cause };
     }
     const envFallback = (
