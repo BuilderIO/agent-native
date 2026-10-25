@@ -9103,6 +9103,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           let claimId: string | undefined;
           let retryCount = receipt.retryCount;
           let recoveryMutationAttempted = false;
+          let activeRunPreflightError: { error: unknown } | undefined;
           const retryClaimedReceipt = async (countRetry = false) => {
             if (!claimId) {
               throw new Error(
@@ -9209,6 +9210,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (blocked) result.blocked += 1;
               else deferReceipt(receipt.threadId);
               continue;
+            }
+
+            if (!drainOptions.threadId && message.interruptActiveRun !== true) {
+              try {
+                if (
+                  (await getActiveRunForThreadAsync(receipt.threadId))?.inFlight
+                ) {
+                  // Completion drains target this thread; broad sweeps should
+                  // not claim and release the same busy receipt every tick.
+                  deferReceipt(receipt.threadId);
+                  continue;
+                }
+              } catch (error) {
+                activeRunPreflightError = { error };
+              }
             }
 
             claimId = crypto.randomUUID();
@@ -9344,6 +9360,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             }
 
+            if (activeRunPreflightError) {
+              throw activeRunPreflightError.error;
+            }
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {

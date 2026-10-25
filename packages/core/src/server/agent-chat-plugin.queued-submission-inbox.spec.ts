@@ -35,6 +35,7 @@ const inboxHarness = vi.hoisted(() => ({
     call: number;
   } | null,
   activeRun: null as Record<string, unknown> | null,
+  completeRun: null as ((run: any, threadId?: string) => Promise<void>) | null,
   afterInterruptRunRecorded: null as (() => Promise<void>) | null,
   safeAbort: null as
     | ((runId: string, reason: string) => Promise<boolean>)
@@ -44,6 +45,7 @@ const inboxHarness = vi.hoisted(() => ({
     | null,
   turnAbort: null as ((runId: string, reason: string) => Promise<void>) | null,
   receiptReads: [] as Array<[string, string]>,
+  queueMutations: [] as Array<{ threadId: string; type: string }>,
   failActiveRunCheckThreadId: null as string | null,
 }));
 
@@ -121,6 +123,15 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
       }
       return actual.getQueuedSubmissionReceipt(threadId, messageId);
     },
+    mutateThreadQueuedMessages: async (
+      ...args: Parameters<typeof actual.mutateThreadQueuedMessages>
+    ) => {
+      inboxHarness.queueMutations.push({
+        threadId: args[0],
+        type: args[1].type,
+      });
+      return actual.mutateThreadQueuedMessages(...args);
+    },
     recordQueuedSubmissionInterruptRun: async (
       input: Parameters<typeof actual.recordQueuedSubmissionInterruptRun>[0],
     ) => {
@@ -159,31 +170,36 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
     await importOriginal<typeof import("../agent/production-agent.js")>();
   return {
     ...actual,
-    createProductionAgentHandler: () => async (event: any) => {
-      const body = event.context?.__agentChatBackgroundBody;
-      if (body) {
-        const messageId = String(body.queuedMessageId ?? "");
-        inboxHarness.admissionOwnerContexts.push(
-          event.context?.__agentNativeOwnerContext as
-            | Record<string, unknown>
-            | undefined,
-        );
-        inboxHarness.admissionAttempts.push(messageId);
-        const admissionThrow = inboxHarness.admissionThrow;
-        if (admissionThrow?.messageId === messageId) {
-          throw admissionThrow.error;
-        }
-        const admissionFailure = inboxHarness.admissionFailure;
-        if (admissionFailure?.messageId === messageId) {
-          event.res.status = admissionFailure.status;
-          return admissionFailure.response;
-        }
-        const runId = await inboxHarness.admit?.(body);
-        if (!runId) throw new Error("Test admission callback was not set");
-        inboxHarness.admissions.push({ ...body });
-        event.res.headers.set("X-Run-Id", runId);
+    createProductionAgentHandler: (handlerOptions: Record<string, any>) => {
+      if (typeof handlerOptions.onRunComplete === "function") {
+        inboxHarness.completeRun = handlerOptions.onRunComplete;
       }
-      return {};
+      return async (event: any) => {
+        const body = event.context?.__agentChatBackgroundBody;
+        if (body) {
+          const messageId = String(body.queuedMessageId ?? "");
+          inboxHarness.admissionOwnerContexts.push(
+            event.context?.__agentNativeOwnerContext as
+              | Record<string, unknown>
+              | undefined,
+          );
+          inboxHarness.admissionAttempts.push(messageId);
+          const admissionThrow = inboxHarness.admissionThrow;
+          if (admissionThrow?.messageId === messageId) {
+            throw admissionThrow.error;
+          }
+          const admissionFailure = inboxHarness.admissionFailure;
+          if (admissionFailure?.messageId === messageId) {
+            event.res.status = admissionFailure.status;
+            return admissionFailure.response;
+          }
+          const runId = await inboxHarness.admit?.(body);
+          if (!runId) throw new Error("Test admission callback was not set");
+          inboxHarness.admissions.push({ ...body });
+          event.res.headers.set("X-Run-Id", runId);
+        }
+        return {};
+      };
     },
     getActiveRunForThreadAsync: vi.fn(async (threadId: string) => {
       if (inboxHarness.failActiveRunCheckThreadId === threadId) {
@@ -424,11 +440,13 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.admissionFailure = null;
     inboxHarness.failReceiptRead = null;
     inboxHarness.activeRun = null;
+    inboxHarness.completeRun = null;
     inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
     inboxHarness.durableAbort = null;
     inboxHarness.turnAbort = null;
     inboxHarness.receiptReads.length = 0;
+    inboxHarness.queueMutations.length = 0;
     inboxHarness.failActiveRunCheckThreadId = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
@@ -1055,19 +1073,46 @@ describe("queued submission inbox recurring sweep", () => {
       const runSweep = await createSweepHandler();
 
       try {
+        inboxHarness.queueMutations.length = 0;
         await runSweep();
         expect(inboxHarness.admissionAttempts).toEqual(
           inFlight ? [] : [headMessageId],
         );
+        if (inFlight) expect(inboxHarness.queueMutations).toEqual([]);
         await expect(
           getQueuedSubmissionReceipt(threadId, headMessageId),
-        ).resolves.toMatchObject({ state: "queued" });
+        ).resolves.toMatchObject({
+          retryCount: 0,
+          state: "queued",
+        });
 
-        // The blocking run ends and the next drain runs before any retry window
-        // could have elapsed.
-        if (inFlight) inboxHarness.activeRun = null;
-        else inboxHarness.admissionFailure = null;
-        await runSweep();
+        if (inFlight) {
+          // Exercise the plugin's real run-completion callback, which schedules
+          // a thread-scoped inbox drain without waiting for the recurring sweep.
+          inboxHarness.activeRun = null;
+          const completeRun = inboxHarness.completeRun;
+          if (!completeRun)
+            throw new Error("Run completion callback not captured");
+          await completeRun(
+            {
+              events: [],
+              runId: "run-ending-with-tool-in-flight",
+              startedAt: Date.now() - 1_000,
+              status: "completed",
+              threadId,
+              turnId: "turn-ending-with-tool-in-flight",
+            },
+            threadId,
+          );
+          await vi.waitFor(() => {
+            expect(
+              inboxHarness.admissions.map((body) => body.agentKitMessageId),
+            ).toEqual([headMessageId]);
+          });
+        } else {
+          inboxHarness.admissionFailure = null;
+          await runSweep();
+        }
 
         expect(
           inboxHarness.admissions.map((body) => body.agentKitMessageId),
