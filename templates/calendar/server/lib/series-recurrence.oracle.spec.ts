@@ -128,7 +128,7 @@ function compactDate(ms: number): string {
 }
 
 function weekdayOf(wall: number): Code {
-  const code = CODES.at(new Date(wall).getUTCDay());
+  const code: Code | undefined = CODES[new Date(wall).getUTCDay()];
   if (code === undefined) throw new Error("getUTCDay outside 0-6");
   return code;
 }
@@ -661,7 +661,7 @@ describe("app-produced RRULE strings", () => {
   it("builds custom weekly rules that parse back to the drafted interval, days, and end", () => {
     fc.assert(
       fc.property(customDraftArb, (draft) => {
-        const rule = buildCustomRecurrenceRules(draft).at(0);
+        const rule: string | undefined = buildCustomRecurrenceRules(draft)[0];
         if (rule === undefined) throw new Error("no custom recurrence rule");
         const parsed = RRule.fromString(rule).options;
         expect(parsed.freq).toBe(RRule.WEEKLY);

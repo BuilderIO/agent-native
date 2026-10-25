@@ -47,7 +47,16 @@ test("leaves type-level proofs (.test-d.ts) out of mutation scope", () => {
   assert.deepEqual(mutateSpecs(added), ["src/state-machine/index.ts:1-1"]);
 });
 
-test("names only dot-form specs after a mutated file", () => {
+/** Serves only the listed files; any other read fails the test. */
+const readFrom =
+  (files: Record<string, string>) =>
+  (file: string): string => {
+    const text: string | undefined = files[file];
+    if (text === undefined) throw new Error(`unexpected read of ${file}`);
+    return text;
+  };
+
+test("names dot-form specs after a mutated file", () => {
   const listing = [
     "session.spec.ts",
     "session.store.test.ts",
@@ -55,7 +64,7 @@ test("names only dot-form specs after a mutated file", () => {
     "session.ts",
   ];
   assert.deepEqual(
-    namedSpecs(["src/session.ts:1-2"], () => listing),
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom({})),
     {
       include: ["src/session.spec.ts", "src/session.store.test.ts"],
       missing: [],
@@ -63,12 +72,85 @@ test("names only dot-form specs after a mutated file", () => {
   );
 });
 
-test("reports a mutated file as missing when only a dash-named spec exists", () => {
+test("a dot-named spec wins over a same-directory spec that imports the module", () => {
+  const listing = ["session.spec.ts", "routes.spec.ts"];
   assert.deepEqual(
-    namedSpecs(["src/session.ts:1-2"], () => [
-      "session-store.spec.ts",
-      "session.ts",
-    ]),
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom({})),
+    { include: ["src/session.spec.ts"], missing: [] },
+  );
+});
+
+test("selects a same-directory spec that imports the module when no dot-named spec exists", () => {
+  const listing = [
+    "action.execution-outcome.spec.ts",
+    "unrelated.spec.ts",
+    "action-invocation.ts",
+  ];
+  const files = {
+    "src/action.execution-outcome.spec.ts": `import { invokeAction } from "./action-invocation";`,
+    "src/unrelated.spec.ts": `import { other } from "./other";`,
+  };
+  assert.deepEqual(
+    namedSpecs(
+      ["src/action-invocation.ts:1-2"],
+      () => listing,
+      readFrom(files),
+    ),
+    { include: ["src/action.execution-outcome.spec.ts"], missing: [] },
+  );
+});
+
+test("matches static imports, re-exports, and dynamic imports with either quote and an optional extension", () => {
+  const listing = [
+    "a.spec.ts",
+    "b.spec.ts",
+    "c.spec.ts",
+    "d.spec.ts",
+    "e.spec.ts",
+    "f.spec.ts",
+  ];
+  const files = {
+    "src/a.spec.ts": `import { x } from './session';`,
+    "src/b.spec.ts": `import { x } from "./session.js";`,
+    "src/c.spec.ts": `export * from "./session.ts";`,
+    "src/d.spec.ts": `const m = await import("./session");`,
+    "src/e.spec.ts": `const m = await import('./session.js');`,
+    "src/f.spec.ts": `import "./session";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom(files)),
+    {
+      include: [
+        "src/a.spec.ts",
+        "src/b.spec.ts",
+        "src/c.spec.ts",
+        "src/d.spec.ts",
+        "src/e.spec.ts",
+        "src/f.spec.ts",
+      ],
+      missing: [],
+    },
+  );
+});
+
+test("does not select a same-directory spec that does not import the module", () => {
+  const listing = ["unrelated.spec.ts", "session.ts"];
+  const files = {
+    "src/unrelated.spec.ts": `import { x } from "./other";\nimport { y } from "../session";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom(files)),
+    { include: [], missing: ["src/session.ts"] },
+  );
+});
+
+test("does not count session-store.spec.ts, which imports only ./session-store, for session.ts", () => {
+  const listing = ["session-store.spec.ts", "session.ts"];
+  const files = {
+    "src/session-store.spec.ts": `import { createSessionStore } from "./session-store";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/session.ts:1-2"], () => listing, readFrom(files)),
     { include: [], missing: ["src/session.ts"] },
   );
 });

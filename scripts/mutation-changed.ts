@@ -7,7 +7,7 @@
  *
  * Exit codes follow the guard contract: 0 passed (or no in-scope lines were
  * added), 1 the mutation score is under the break threshold or a mutated
- * file has no spec named after it, 2 could not run
+ * file has no spec named after or importing it, 2 could not run
  * (base unresolvable, Stryker crashed or was misconfigured, no report).
  *
  *   pnpm mutation:changed
@@ -153,16 +153,31 @@ function specFile(spec: string): string {
   return spec.slice(0, colon);
 }
 
+/** Whether `text` imports `./<base>` statically, re-exports it, or imports it dynamically. */
+function importsModule(text: string, base: string): boolean {
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const target = `\\./${escaped}(?:\\.js|\\.ts)?["']`;
+  return new RegExp(
+    `(?:\\bfrom|\\bimport)\\s*["']${target}|\\bimport\\s*\\(\\s*["']${target}`,
+  ).test(text);
+}
+
 /**
- * The specs named after each mutated file, relative to Core: for
- * `src/a2a/task-store.ts`, `task-store.spec.ts` and `task-store.db.spec.ts`
- * in the same directory. A dash extends the module name, so
- * `task-store-lifecycle.spec.ts` names a `task-store-lifecycle` module and is
- * not counted. Returns the mutated files with no such spec under `missing`.
+ * The specs that exercise each mutated file, relative to Core. The first
+ * choice is a spec named after the file: for `src/a2a/task-store.ts`,
+ * `task-store.spec.ts` and `task-store.db.spec.ts` in the same directory. A
+ * dash extends the module name, so `task-store-lifecycle.spec.ts` names a
+ * `task-store-lifecycle` module and is not counted. Only when no such spec
+ * exists does a same-directory spec or test count, if its text imports or
+ * re-exports `./task-store` (optionally `.js` or `.ts`). `readFile` takes a
+ * path relative to Core and must throw on failure: an empty string would look
+ * like a spec that does not import the module. Returns the mutated files with
+ * no such spec under `missing`.
  */
 export function namedSpecs(
   specs: readonly string[],
   listDirectory: (directory: string) => readonly string[],
+  readFile: (file: string) => string,
 ): { include: string[]; missing: string[] } {
   const include = new Set<string>();
   const missing: string[] = [];
@@ -170,11 +185,19 @@ export function namedSpecs(
   for (const file of files) {
     const directory = path.posix.dirname(file);
     const base = path.posix.basename(file).replace(/\.tsx?$/, "");
-    const named = listDirectory(directory).filter(
+    const entries = listDirectory(directory);
+    let selected = entries.filter(
       (entry) => entry.startsWith(`${base}.`) && TEST_FILE.test(entry),
     );
-    if (named.length === 0) missing.push(file);
-    for (const entry of named) include.add(`${directory}/${entry}`);
+    if (selected.length === 0) {
+      selected = entries.filter(
+        (entry) =>
+          TEST_FILE.test(entry) &&
+          importsModule(readFile(`${directory}/${entry}`), base),
+      );
+    }
+    if (selected.length === 0) missing.push(file);
+    for (const entry of selected) include.add(`${directory}/${entry}`);
   }
   return { include: [...include].sort(), missing };
 }
@@ -187,11 +210,13 @@ export function namedSpecs(
  * aborts the whole run.
  */
 function writeVitestConfig(specs: readonly string[]): string | null {
-  const { include, missing } = namedSpecs(specs, (directory) =>
-    readdirSync(path.join(CORE_ROOT, directory)),
+  const { include, missing } = namedSpecs(
+    specs,
+    (directory) => readdirSync(path.join(CORE_ROOT, directory)),
+    (file) => readFileSync(path.join(CORE_ROOT, file), "utf8"),
   );
   if (missing.length > 0) {
-    return `no spec named after ${missing.map((file) => `${CORE_DIR}/${file}`).join(", ")}, so no test can kill a mutant there`;
+    return `no spec named after or importing ${missing.map((file) => `${CORE_DIR}/${file}`).join(", ")}, so no test can kill a mutant there`;
   }
   writeFileSync(
     path.join(CORE_ROOT, VITEST_CONFIG),
