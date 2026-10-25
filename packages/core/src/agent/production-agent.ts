@@ -14424,11 +14424,12 @@ export function createProductionAgentHandler(
 
     // Unlike the DB experiment above, this runs even when the client pinned the
     // default model: chat clients always send the default, so keying off the
-    // resolved default is what lets the arm reach real traffic. Background
-    // automations are out of scope. A DB experiment that did not override the
-    // model is an unrelated assignment, so it does not block this one.
+    // resolved default is what lets the arm reach real traffic. A DB experiment
+    // that did not override the model is an unrelated assignment, so it does not
+    // block this one. Durable chat workers re-enter here and must resolve the
+    // same arm from the same request, so no background-worker check goes here.
     const hostedModelExperiment =
-      modelSelectionSource !== "experiment" && !isBackgroundWorker
+      modelSelectionSource !== "experiment"
         ? resolveHostedModelExperiment({
             userEmail: ownerEmail,
             engineName: engine.name,
