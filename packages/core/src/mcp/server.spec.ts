@@ -9316,7 +9316,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "url-only-ticket",
     );
     expect(out.result.structuredContent.openLink).toBeUndefined();
-    expect(out.result.structuredContent.url).toBeUndefined();
+    // The widget's open-link picker skips the placeholder.
+    expect(out.result.structuredContent.url).toBe("[hidden embed URL]");
   });
 
   it("uses a durable root open link for root-path embed starts", async () => {
@@ -9490,6 +9491,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
@@ -9536,6 +9538,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       payload: "x".repeat(3000),
       receipt: { id: "operation-42", verified: true },
     });
@@ -9684,6 +9687,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       id: "record-42",
       status: "failed",
       message: "The request failed",
+      url: "[hidden embed URL]",
       steps: [
         {
           kind: "network",
@@ -9697,6 +9701,77 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("top-level-ticket");
     expect(out.result.content[0].text).not.toContain("nested-ticket");
     expect(out.result.content[0].text).not.toContain("private/thread/42");
+  });
+
+  it("reads a hidden value back as the placeholder under its key", async () => {
+    const path =
+      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-row": {
+          tool: { description: "Read a collection row" },
+          readOnly: true,
+          mcpApp: { structuredContent: true },
+          run: async () => ({
+            readback: {
+              title: "Row",
+              propertyValues: { path, status: "inbox" },
+            },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "tools/call",
+        params: { name: "read-row", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const readback = {
+      title: "Row",
+      propertyValues: { path: "[hidden embed URL]", status: "inbox" },
+    };
+    expect(out.result.structuredContent).toEqual({ readback });
+    expect(JSON.parse(out.result.content[0].text)).toEqual({ readback });
+    expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
+  });
+
+  it("leaves out an open link whose URL is hidden, rather than pointing it at the placeholder", () => {
+    const start =
+      "https://mail.agent-native.com/_agent-native/embed/start?ticket=link-ticket";
+    const inbox = "https://mail.agent-native.com/inbox";
+    expect(
+      mcpBuildServer.mcpAppStructuredContent(
+        { ok: true },
+        { "agent-native/openLink": { webUrl: start, label: "Open" } },
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      mcpBuildServer.mcpAppStructuredContent(
+        { ok: true },
+        {
+          "agent-native/openLink": {
+            webUrl: inbox,
+            desktopUrl: start,
+            label: "Open",
+          },
+        },
+      ),
+    ).toEqual({
+      ok: true,
+      openLink: { webUrl: inbox, label: "Open" },
+      url: inbox,
+    });
   });
 
   it("preserves ordinary ticket fields on unrelated read-only payloads", async () => {

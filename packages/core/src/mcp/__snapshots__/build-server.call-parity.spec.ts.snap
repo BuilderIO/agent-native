@@ -2174,13 +2174,14 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
           },
           "content": [
             {
-              "text": "app-only completed.",
+              "text": "{"startUrl":"[hidden embed URL]","ok":true}",
               "type": "text",
             },
           ],
           "resultType": "complete",
           "structuredContent": {
             "ok": true,
+            "startUrl": "[hidden embed URL]",
           },
         },
       },
@@ -3020,15 +3021,17 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-leak 1`
           },
           "content": [
             {
-              "text": "{"nested":[{"label":"start"},{"keep":"me"}]}",
+              "text": "{"message":"[hidden embed URL]","nested":[{"url":"[hidden embed URL]","label":"start"},{"keep":"me"}]}",
               "type": "text",
             },
           ],
           "resultType": "complete",
           "structuredContent": {
+            "message": "[hidden embed URL]",
             "nested": [
               {
                 "label": "start",
+                "url": "[hidden embed URL]",
               },
               {
                 "keep": "me",

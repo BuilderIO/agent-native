@@ -2506,7 +2506,11 @@ export function mcpAppStructuredContent(
         ? { result }
         : {};
   // A link whose URL the walker would hide is left out whole.
-  const openLink = redactEmbedCredentials(meta?.["agent-native/openLink"]);
+  const openLink = redactEmbedCredentials(
+    meta?.["agent-native/openLink"],
+    undefined,
+    { dropHiddenFields: true },
+  );
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
     if (typeof webUrl === "string") {
@@ -2523,9 +2527,9 @@ export function mcpAppStructuredContent(
  * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
  * so a change here must change that derivation too. Opted-in (`contracted`)
  * actions keep an empty object as `{}`, since the `{ status: "ok" }`
- * placeholder is not in their contract. Their result arrives with an embed
- * URL field masked in place (`maskUrlFields`) rather than deleted, since their
- * contract may require the field.
+ * placeholder is not in their contract. A result arrives with an embed URL
+ * field masked in place rather than deleted, which their contract may
+ * require.
  */
 export function mcpResponseStructuredContent(
   result: unknown,
