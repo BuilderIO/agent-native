@@ -101,7 +101,10 @@ vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   requireAgentChatAiSetup: harness.requireAgentChatAiSetup,
 }));
 
-import { AGENT_CHAT_BACKGROUND_RUN_FIELD } from "../agent/durable-background.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_PROCESS_RUN_PATH,
+} from "../agent/durable-background.js";
 import {
   registerAgentEngine,
   unregisterAgentEngine,
@@ -111,6 +114,8 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "../agent/engine/types.js";
+import { BACKGROUND_PRECLAIM_HEARTBEAT_MS } from "../agent/production-agent.js";
+import * as runStore from "../agent/run-store.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import {
   createThread,
@@ -389,6 +394,71 @@ describe("background agent sessions through the agent-chat plugin", () => {
       consoleError.mockRestore();
       seedOwner.mockRestore();
       finalizeFailure.mockRestore();
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("finalizes a pre-start worker error and stops its setup heartbeat", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const runId = "process-run-prestart-response-error";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    vi.useFakeTimers();
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    const seedOwner = vi
+      .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
+      .mockResolvedValue(undefined);
+    const finalizeFailure = vi
+      .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
+      .mockResolvedValue(true);
+
+    try {
+      const response = await fetch(AGENT_CHAT_PROCESS_RUN_PATH, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${signInternalToken(runId)}`,
+        },
+        body: JSON.stringify({
+          threadId: "prestart-error-thread",
+          turnId: "prestart-error-turn",
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId,
+            turnId: "prestart-error-turn",
+          },
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "message is required" });
+      expect(finalizeFailure).toHaveBeenCalledWith(
+        runId,
+        expect.objectContaining({
+          message: expect.stringContaining("HTTP 400"),
+        }),
+      );
+      const heartbeatCount = updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
+    } finally {
+      finalizeFailure.mockRestore();
+      seedOwner.mockRestore();
+      updateRunHeartbeat.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      isTurnAborted.mockRestore();
+      claimBackgroundRun.mockRestore();
+      vi.useRealTimers();
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;
     }

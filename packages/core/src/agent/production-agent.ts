@@ -244,6 +244,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
@@ -13354,6 +13355,15 @@ export function createProductionAgentHandler(
       }
       backgroundRunClaimedEarly = true;
       backgroundSetupDeadlineExceeded = earlyClaim.setupDeadlineExceeded;
+      (event as any).context[AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD] =
+        () => {
+          if (
+            !backgroundSetupStartedRun &&
+            !earlyClaim.setupDeadlineExceeded()
+          ) {
+            earlyClaim.stopSetupHeartbeat();
+          }
+        };
       if (earlyClaim.setupDeadlineExceeded()) {
         return { ok: true, skipped: "setup-deadline" };
       }
