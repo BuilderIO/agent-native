@@ -204,7 +204,7 @@ export function requireAddedLines(cwd, guardName, options) {
 }
 
 const SOURCE_EXTENSIONS =
-  /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
+  /\.(?:tsx?|jsx?|mts|cts|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
 
 export function parseUnifiedDiff(diff, cwd, pathApi = path) {
   return nullOnQuotedPath(() => scanUnifiedDiff(diff, cwd, pathApi));

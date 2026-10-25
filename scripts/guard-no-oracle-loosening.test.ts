@@ -265,6 +265,33 @@ describe("disabled-test and expect-anything in test files", () => {
     ]);
   });
 
+  it("flags a whole expected value wrapped in parentheses, a cast, a non-null or satisfies", () => {
+    const source = [
+      `import * as v from "${VITEST}";`,
+      "expect(value).toEqual((v.expect.anything()));",
+      "expect(value).toEqual(expect.anything() as never);",
+      "expect(value).toEqual(<never>expect.anything());",
+      "expect(value).toEqual(expect.anything()!);",
+      "expect(value).toEqual(expect.anything() satisfies unknown);",
+      "expect(value).toEqual(((expect.anything() as never)));",
+      "expect(value).toEqual((v.expect as any).anything());",
+      "expect(value).toEqual((expect as any).anything());",
+      "expect(value).toEqual({ id: (expect.anything() as never) });",
+      "expect(send).toHaveBeenCalledWith((expect.anything() as never), id);",
+    ].join("\n");
+
+    assert.deepEqual(flagged({ [SPEC]: { source, added: allLines(source) } }), [
+      `${SPEC}:2: expect-anything`,
+      `${SPEC}:3: expect-anything`,
+      `${SPEC}:4: expect-anything`,
+      `${SPEC}:5: expect-anything`,
+      `${SPEC}:6: expect-anything`,
+      `${SPEC}:7: expect-anything`,
+      `${SPEC}:8: expect-anything`,
+      `${SPEC}:9: expect-anything`,
+    ]);
+  });
+
   it("parses .mts and .cts test files as TypeScript, so a type assertion does not swallow the next call", () => {
     // Read as JS, `<number>value` opens a JSX element and `it.skip` is lost.
     const source = [

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { effectiveEditZones } from "./google-calendar";
 import {
   alignSeriesRecurrenceToStart,
   shiftSeriesDateValue,
@@ -139,5 +140,72 @@ describe("series date alignment", () => {
         "America/New_York",
       ),
     ).toBe("2026-05-01T13:00:00Z");
+  });
+});
+
+describe("effectiveEditZones", () => {
+  const master = {
+    start: {
+      dateTime: "2026-05-01T10:00:00-04:00",
+      timeZone: "America/New_York",
+    },
+    end: {
+      dateTime: "2026-05-01T11:00:00-04:00",
+      timeZone: "America/New_York",
+    },
+  };
+
+  // A one-hour master in New York and an edit that names Berlin for its start
+  // only. Both offset-less endpoints are wall time in Berlin, so the one-hour
+  // gap has to survive the shift onto the master's New York wall clock.
+  it("keeps a one-hour duration when a lone start zone is applied to both endpoints", () => {
+    const edit = {
+      start: "2026-05-04T09:00:00",
+      end: "2026-05-04T10:00:00",
+      startTimeZone: "Europe/Berlin",
+    };
+    const zones = effectiveEditZones(edit, master);
+    expect(zones).toEqual({
+      startTimeZone: "Europe/Berlin",
+      endTimeZone: "Europe/Berlin",
+    });
+
+    const start = shiftSeriesDateValue(
+      edit.start,
+      "2026-05-04T10:00:00-04:00",
+      master.start.dateTime,
+      master.start.timeZone,
+      zones.startTimeZone,
+    );
+    const end = shiftSeriesDateValue(
+      edit.end,
+      "2026-05-04T11:00:00-04:00",
+      master.end.dateTime,
+      master.end.timeZone,
+      zones.endTimeZone,
+    );
+    expect(Date.parse(end!) - Date.parse(start!)).toBe(60 * 60 * 1000);
+  });
+
+  it("applies a lone end zone to both endpoints", () => {
+    expect(
+      effectiveEditZones({ endTimeZone: "Europe/Berlin" }, master),
+    ).toEqual({ startTimeZone: "Europe/Berlin", endTimeZone: "Europe/Berlin" });
+  });
+
+  it("keeps each zone when the edit names both", () => {
+    expect(
+      effectiveEditZones(
+        { startTimeZone: "Europe/Berlin", endTimeZone: "Asia/Tokyo" },
+        master,
+      ),
+    ).toEqual({ startTimeZone: "Europe/Berlin", endTimeZone: "Asia/Tokyo" });
+  });
+
+  it("falls back to the master's zones only when the edit names neither", () => {
+    expect(effectiveEditZones({}, master)).toEqual({
+      startTimeZone: "America/New_York",
+      endTimeZone: "America/New_York",
+    });
   });
 });

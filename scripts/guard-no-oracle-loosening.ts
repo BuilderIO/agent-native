@@ -383,11 +383,45 @@ function isLiteralZero(node: ts.Node): boolean {
   return ts.isNumericLiteral(node) && node.text === "0";
 }
 
+type TransparentWrapper =
+  | ts.ParenthesizedExpression
+  | ts.AsExpression
+  | ts.TypeAssertion
+  | ts.NonNullExpression
+  | ts.SatisfiesExpression;
+
+// Wrappers that leave the runtime value unchanged, so `(x as never)` checks
+// exactly what `x` checks.
+function isTransparentWrapper(node: ts.Node): node is TransparentWrapper {
+  return (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isSatisfiesExpression(node)
+  );
+}
+
+function unwrapTransparent(node: ts.Expression): ts.Expression {
+  let inner = node;
+  while (isTransparentWrapper(inner)) inner = inner.expression;
+  return inner;
+}
+
+function outermostWrapper(node: ts.Node): ts.Node {
+  let outer = node;
+  while (outer.parent && isTransparentWrapper(outer.parent)) {
+    outer = outer.parent;
+  }
+  return outer;
+}
+
 // `expect`, or `expect` read off a test runner namespace: `v.expect` after
 // `import * as v from "vitest"`.
 function isExpectReceiver(node: ts.Expression, scope: ImportScope): boolean {
-  if (ts.isIdentifier(node)) return scope.expectRoots.has(node.text);
-  const member = memberOf(node);
+  const target = unwrapTransparent(node);
+  if (ts.isIdentifier(target)) return scope.expectRoots.has(target.text);
+  const member = memberOf(target);
   return (
     member !== null &&
     member.name === "expect" &&
@@ -399,11 +433,12 @@ function isExpectReceiver(node: ts.Expression, scope: ImportScope): boolean {
 // `toHaveBeenCalledWith(expect.anything(), id)` still pins `id`; only a matcher
 // whose whole expected value is `expect.anything()` checks nothing.
 function isWholeExpectedValue(call: ts.CallExpression): boolean {
-  const parent = call.parent;
+  const arg = outermostWrapper(call);
+  const parent = arg.parent;
   return (
     ts.isCallExpression(parent) &&
     parent.arguments.length === 1 &&
-    parent.arguments[0] === call &&
+    parent.arguments[0] === arg &&
     ts.isPropertyAccessExpression(parent.expression) &&
     parent.expression.name.text.startsWith("to")
   );

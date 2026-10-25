@@ -59,6 +59,22 @@ describe("parseUnifiedDiff", () => {
     expect(parseUnifiedDiff(diff, CWD)).toBeNull();
   });
 
+  it("refuses a binary diff of any JS or TS family source, including .test.mts", () => {
+    for (const file of [
+      "src/a.test.mts",
+      "src/a.cts",
+      "src/a.ts",
+      "src/a.tsx",
+      "src/a.mjs",
+      "src/a.cjs",
+      "src/a.js",
+      "src/a.jsx",
+    ]) {
+      const diff = `Binary files a/${file} and b/${file} differ`;
+      expect(parseUnifiedDiff(diff, CWD), file).toBeNull();
+    }
+  });
+
   it("refuses even when the binary file is one of several", () => {
     const diff = [
       "diff --git a/src/a.ts b/src/a.ts",

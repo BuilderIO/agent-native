@@ -337,23 +337,38 @@ function googleEventEndValue(event: any): string | undefined {
   return event.end?.dateTime || event.end?.date || undefined;
 }
 
+// An offset-less edit time is wall time in the zone it names, so one supplied
+// zone applies to both endpoints. The master's zones are only the fallback
+// when the edit names neither, or the two endpoints would read in different
+// zones and the duration would shift.
+export function effectiveEditZones(
+  event: { startTimeZone?: string; endTimeZone?: string },
+  master: { start?: { timeZone?: string }; end?: { timeZone?: string } },
+): { startTimeZone?: string; endTimeZone?: string } {
+  return {
+    startTimeZone:
+      event.startTimeZone ?? event.endTimeZone ?? master.start?.timeZone,
+    endTimeZone:
+      event.endTimeZone ?? event.startTimeZone ?? master.end?.timeZone,
+  };
+}
+
 function alignSeriesUpdateToMaster(
   event: Partial<CalendarEvent>,
   instance: any,
   master: any,
 ): Partial<CalendarEvent> {
   const aligned: Partial<CalendarEvent> = { ...event };
+  const zones = effectiveEditZones(event, master);
   if (event.start !== undefined) {
     aligned.start = shiftSeriesDateValue(
       event.start,
       googleEventStartValue(instance),
       googleEventStartValue(master),
       master.start?.timeZone,
-      event.startTimeZone,
+      zones.startTimeZone,
     );
-    if (event.startTimeZone === undefined && master.start?.timeZone) {
-      aligned.startTimeZone = master.start.timeZone;
-    }
+    aligned.startTimeZone = zones.startTimeZone;
   }
   if (event.end !== undefined) {
     aligned.end = shiftSeriesDateValue(
@@ -361,11 +376,9 @@ function alignSeriesUpdateToMaster(
       googleEventEndValue(instance),
       googleEventEndValue(master),
       master.end?.timeZone,
-      event.endTimeZone,
+      zones.endTimeZone,
     );
-    if (event.endTimeZone === undefined && master.end?.timeZone) {
-      aligned.endTimeZone = master.end.timeZone;
-    }
+    aligned.endTimeZone = zones.endTimeZone;
   }
   return aligned;
 }
