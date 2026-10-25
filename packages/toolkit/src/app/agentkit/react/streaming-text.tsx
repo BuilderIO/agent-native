@@ -6,23 +6,28 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 
+// The pacer module itself, not the agentkit barrel: markdown renderers import
+// this file, and the barrel would drag the composer into every one of them.
 import {
-  initialSmoothStreamingGraphemeCount,
-  smoothStreamingPunctuationDelayMs,
-  smoothStreamingRevealCount,
-  splitStreamingTextGraphemes,
   SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
-} from "../../../agentkit.js";
+  StreamingRevealPacer,
+} from "../../../streaming-text-smoothing.js";
 
 interface BufferedTextCacheEntry {
   targetText: string;
   visibleText: string;
 }
 
+// Grouped message parts are rebuilt as tool calls arrive, so a text part can
+// unmount and mount again with the same identity. Keeping the reveal position
+// outside that subtree lets a structural update continue from where it was
+// instead of replaying the opening sentence.
 const bufferedTextCache = new Map<string, BufferedTextCacheEntry>();
 const maximumCacheEntries = 128;
-const emptyGraphemes: string[] = [];
+const backgroundCatchUpCharacters = 2_000;
+const backgroundTailCharacters = 200;
 
 function cachedBufferedText(
   resetKey: string,
@@ -48,17 +53,7 @@ function remember(
   if (oldest !== undefined) bufferedTextCache.delete(oldest);
 }
 
-function sliceGraphemes(
-  targetText: string,
-  graphemes: readonly string[],
-  count: number,
-): string {
-  if (count >= graphemes.length) return targetText;
-  if (count <= 0) return "";
-  return graphemes.slice(0, count).join("");
-}
-
-function usePrefersReducedMotion(): boolean {
+export function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
     typeof window !== "undefined" && window.matchMedia
       ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -81,17 +76,39 @@ function usePrefersReducedMotion(): boolean {
   return prefersReducedMotion;
 }
 
-export function advanceBufferedText(visible: string, target: string): string {
+/**
+ * The character offset from which newly revealed text fades in, or null when
+ * nothing should animate. It is fixed the first time the text is seen
+ * streaming, so text already on screen at mount (history, a remount mid-stream)
+ * never fades again, and stays fixed after the stream ends so the rendered
+ * structure does not change when it does.
+ */
+export function useStreamingRevealOrigin(
+  visibleLength: number,
+  streaming: boolean,
+): number | null {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [origin, setOrigin] = useState<number | null>(() =>
+    streaming && !prefersReducedMotion ? visibleLength : null,
+  );
+  if (origin === null && streaming && !prefersReducedMotion) {
+    setOrigin(visibleLength);
+  }
+  return prefersReducedMotion ? null : origin;
+}
+
+/** Advances `visible` toward `target` by one animation frame of reveal. */
+export function advanceBufferedText(
+  visible: string,
+  target: string,
+  { inputDone = false }: { inputDone?: boolean } = {},
+): string {
   if (!target.startsWith(visible)) return target;
-  const targetGraphemes = splitStreamingTextGraphemes(target);
-  const visibleCount = splitStreamingTextGraphemes(visible).length;
-  const backlog = targetGraphemes.length - visibleCount;
-  if (backlog <= 0) return target;
-  const revealCount = smoothStreamingRevealCount({
-    backlog,
-    elapsedMs: SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
-  });
-  return sliceGraphemes(target, targetGraphemes, visibleCount + revealCount);
+  const pacer = new StreamingRevealPacer();
+  pacer.setTarget(target, { inputDone });
+  pacer.restoreVisibleLength(visible.length);
+  pacer.step(SMOOTH_STREAMING_COMMIT_INTERVAL_MS);
+  return pacer.visibleText;
 }
 
 export interface UseBufferedAgentTextOptions {
@@ -108,62 +125,38 @@ export function useBufferedAgentText(
     frameMs = SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
   }: UseBufferedAgentTextOptions,
 ): string {
-  const prefersReducedMotion = usePrefersReducedMotion();
+  // Reduced motion drops the fade and the scroll glide, not this pacing: an
+  // unpaced reveal lands a whole network chunk at once and jumps the pinned
+  // transcript by several lines.
   const [visible, setVisible] = useState(() => {
-    if (!active || prefersReducedMotion) return text;
-    const cached = cachedBufferedText(resetKey, text);
-    if (cached !== undefined) return cached;
-    const targetGraphemes = splitStreamingTextGraphemes(text);
-    return sliceGraphemes(
-      text,
-      targetGraphemes,
-      initialSmoothStreamingGraphemeCount(targetGraphemes),
-    );
+    if (!active) return text;
+    return cachedBufferedText(resetKey, text) ?? "";
   });
   const visibleRef = useRef(visible);
-  const targetRef = useRef(text);
-  const targetGraphemesRef = useRef<string[]>(emptyGraphemes);
-  const visibleCountRef = useRef(-1);
-  if (visibleCountRef.current < 0) {
-    if (active && !prefersReducedMotion) {
-      targetGraphemesRef.current = splitStreamingTextGraphemes(text);
-      visibleCountRef.current = splitStreamingTextGraphemes(visible).length;
-    } else {
-      visibleCountRef.current = 0;
-    }
-  }
+  const pacerRef = useRef<StreamingRevealPacer | null>(null);
   const frameRef = useRef<number | null>(null);
-  const lastCommitAtRef = useRef(0);
-  const pauseUntilRef = useRef(0);
-  const inputDoneRef = useRef(false);
+  const lastCommitAtRef = useRef<number | null>(null);
   const resetKeyRef = useRef(resetKey);
   const cacheKeyRef = useRef(resetKey);
   const cacheActiveRef = useRef(active);
-  const cacheReducedMotionRef = useRef(prefersReducedMotion);
   const stepRef = useRef<(time: number) => void>(() => {});
 
   cacheKeyRef.current = resetKey;
   cacheActiveRef.current = active;
-  cacheReducedMotionRef.current = prefersReducedMotion;
 
-  const commitVisibleCount = useCallback((nextCount: number) => {
-    const targetGraphemes = targetGraphemesRef.current;
-    const boundedCount = Math.max(
-      0,
-      Math.min(nextCount, targetGraphemes.length),
-    );
-    const nextText = sliceGraphemes(
-      targetRef.current,
-      targetGraphemes,
-      boundedCount,
-    );
-    visibleCountRef.current = boundedCount;
+  const pacer = () => {
+    pacerRef.current ??= new StreamingRevealPacer();
+    return pacerRef.current;
+  };
+
+  const commitVisible = useCallback((nextText: string) => {
     if (visibleRef.current !== nextText) {
       visibleRef.current = nextText;
       setVisible(nextText);
     }
-    if (cacheActiveRef.current && !cacheReducedMotionRef.current) {
-      remember(cacheKeyRef.current, targetRef.current, nextText);
+    const target = pacerRef.current?.target ?? nextText;
+    if (cacheActiveRef.current) {
+      remember(cacheKeyRef.current, target, nextText);
     }
   }, []);
 
@@ -176,7 +169,6 @@ export function useBufferedAgentText(
       window.cancelAnimationFrame(frameRef.current);
     }
     frameRef.current = null;
-    pauseUntilRef.current = 0;
   }, []);
 
   const scheduleFrame = useCallback(() => {
@@ -185,79 +177,47 @@ export function useBufferedAgentText(
       typeof window === "undefined" ||
       typeof window.requestAnimationFrame !== "function"
     ) {
-      commitVisibleCount(targetGraphemesRef.current.length);
+      pacerRef.current?.revealAll();
+      commitVisible(pacerRef.current?.visibleText ?? "");
       return;
     }
     frameRef.current = window.requestAnimationFrame((time) => {
       frameRef.current = null;
       stepRef.current(time);
     });
-  }, [commitVisibleCount]);
+  }, [commitVisible]);
 
   stepRef.current = (time) => {
-    const targetGraphemes = targetGraphemesRef.current;
-    const backlog = targetGraphemes.length - visibleCountRef.current;
-    if (backlog <= 0) {
-      pauseUntilRef.current = 0;
-      return;
-    }
-    if (pauseUntilRef.current > time) {
+    const current = pacerRef.current;
+    if (!current || current.settled) return;
+    const lastCommitAt = lastCommitAtRef.current;
+    if (lastCommitAt !== null && time - lastCommitAt < frameMs - 1) {
       scheduleFrame();
       return;
     }
-
-    const lastCommitAt = lastCommitAtRef.current || time - frameMs;
-    if (time - lastCommitAt < frameMs && backlog > 1) {
-      scheduleFrame();
-      return;
+    lastCommitAtRef.current = time;
+    // Rendered inside the frame, so each step paints on its own; a deferred
+    // render would merge several steps' words into one frame.
+    if (current.step(time)) {
+      flushSync(() => commitVisible(current.visibleText));
     }
-    const revealCount = smoothStreamingRevealCount({
-      backlog,
-      elapsedMs: Math.min(120, Math.max(8, time - lastCommitAt)),
-      inputDone: inputDoneRef.current,
-    });
-    if (revealCount > 0) {
-      commitVisibleCount(visibleCountRef.current + revealCount);
-      lastCommitAtRef.current = time;
-      const nextBacklog = targetGraphemes.length - visibleCountRef.current;
-      const pauseMs = smoothStreamingPunctuationDelayMs(
-        targetGraphemes[visibleCountRef.current - 1],
-        nextBacklog,
-      );
-      pauseUntilRef.current = pauseMs > 0 ? time + pauseMs : 0;
-    }
-    if (visibleCountRef.current < targetGraphemes.length) {
-      scheduleFrame();
-    } else {
-      pauseUntilRef.current = 0;
-    }
+    if (!current.settled) scheduleFrame();
   };
 
   useEffect(() => {
-    targetRef.current = text;
     const keyChanged = resetKeyRef.current !== resetKey;
     resetKeyRef.current = resetKey;
-    const targetGraphemes = splitStreamingTextGraphemes(text);
     const shouldDrain =
       !keyChanged &&
       !active &&
-      !prefersReducedMotion &&
       visibleRef.current.length > 0 &&
       visibleRef.current !== text &&
       text.startsWith(visibleRef.current);
 
-    if (shouldDrain) {
-      targetGraphemesRef.current = targetGraphemes;
-      inputDoneRef.current = true;
-      scheduleFrame();
-      return;
-    }
-
-    if (!active || prefersReducedMotion) {
+    if (!shouldDrain && !active) {
       cancelFrame();
-      inputDoneRef.current = false;
-      targetGraphemesRef.current = emptyGraphemes;
-      visibleCountRef.current = 0;
+      pacerRef.current = null;
+      lastCommitAtRef.current = null;
       if (visibleRef.current !== text) {
         visibleRef.current = text;
         setVisible(text);
@@ -265,57 +225,50 @@ export function useBufferedAgentText(
       return;
     }
 
-    targetGraphemesRef.current = targetGraphemes;
-    inputDoneRef.current = false;
-    const visibleNoLongerMatches =
-      visibleRef.current.length > 0 && !text.startsWith(visibleRef.current);
-    if (
-      keyChanged ||
-      visibleNoLongerMatches ||
-      visibleCountRef.current > targetGraphemes.length
-    ) {
-      commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
-      lastCommitAtRef.current = 0;
-      pauseUntilRef.current = 0;
+    const current = pacer();
+    if (keyChanged || !text.startsWith(visibleRef.current)) {
+      pacerRef.current = new StreamingRevealPacer();
+      lastCommitAtRef.current = null;
+      pacerRef.current.setTarget(text, { inputDone: shouldDrain });
+      commitVisible("");
+    } else {
+      const fresh = current.target === "" && visibleRef.current.length > 0;
+      current.setTarget(text, { inputDone: shouldDrain });
+      if (fresh) current.restoreVisibleLength(visibleRef.current.length);
+      if (current.visibleText !== visibleRef.current) {
+        commitVisible(current.visibleText);
+      }
     }
-    if (visibleCountRef.current < targetGraphemes.length) scheduleFrame();
-  }, [
-    active,
-    cancelFrame,
-    commitVisibleCount,
-    prefersReducedMotion,
-    resetKey,
-    scheduleFrame,
-    text,
-  ]);
+    if (!pacerRef.current!.settled) scheduleFrame();
+  }, [active, cancelFrame, commitVisible, resetKey, scheduleFrame, text]);
 
   useEffect(() => {
-    if (!active || prefersReducedMotion) return;
+    if (!active) return;
     remember(resetKey, text, visible);
-  }, [active, prefersReducedMotion, resetKey, text, visible]);
+  }, [active, resetKey, text, visible]);
 
+  // A background tab pauses animation frames while text keeps arriving.
+  // Replaying minutes of backlog on return would make the reader wait, so only
+  // the last few lines animate in.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const handleVisibilityChange = () => {
+      const current = pacerRef.current;
+      if (document.visibilityState !== "visible" || !current) return;
       if (
-        document.visibilityState !== "visible" ||
-        !active ||
-        prefersReducedMotion
+        current.target.length - current.visibleLength <=
+        backgroundCatchUpCharacters
       ) {
         return;
       }
-      const targetGraphemes = targetGraphemesRef.current;
-      const backlog = targetGraphemes.length - visibleCountRef.current;
-      if (backlog <= 2_000) return;
-      commitVisibleCount(Math.max(0, targetGraphemes.length - 200));
-      lastCommitAtRef.current = 0;
-      pauseUntilRef.current = 0;
+      current.jumpNearEnd(backgroundTailCharacters);
+      commitVisible(current.visibleText);
       scheduleFrame();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [active, commitVisibleCount, prefersReducedMotion, scheduleFrame]);
+  }, [commitVisible, scheduleFrame]);
 
   useEffect(() => cancelFrame, [cancelFrame]);
 

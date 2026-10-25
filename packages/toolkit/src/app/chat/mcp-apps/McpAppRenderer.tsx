@@ -22,7 +22,7 @@ import {
   type McpUiResourceCsp,
   type McpUiResourcePermissions,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -32,6 +32,7 @@ import {
   useState,
 } from "react";
 
+import { Skeleton } from "../../../ui/skeleton.js";
 import {
   SESSION_REPLAY_BLOCK_PROPS,
   SESSION_REPLAY_MASK_PROPS,
@@ -42,7 +43,9 @@ type CallToolResult = Parameters<
   InstanceType<typeof AppBridge>["sendToolResult"]
 >[0];
 
-export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 650;
+// Matches the .agent-mcp-app min-height so most apps grow after load instead
+// of collapsing from a tall placeholder.
+export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 220;
 export const MCP_APP_INITIALIZE_TIMEOUT_MS = 8000;
 const MIN_IFRAME_HEIGHT = 220;
 const VIEWPORT_MARGIN = 16;
@@ -134,7 +137,7 @@ export function McpAppRenderer({
                 packageName: error.packageName,
                 installCommand: `pnpm add ${error.packageName}`,
               })
-            : "Failed to initialize MCP App.",
+            : t("agentChat.mcpApps.initFailed"),
         );
       });
     return () => {
@@ -143,6 +146,9 @@ export function McpAppRenderer({
   }, [readOnly, resourceHtml, t]);
 
   const appRef = useRef(app);
+  // Read through a ref: a locale change must not tear down a live bridge.
+  const tRef = useRef(t);
+  tRef.current = t;
   const supportedPermissionsRef = useRef(supportedPermissions);
   const uiCspRef = useRef(appCsp);
   appRef.current = app;
@@ -301,7 +307,7 @@ export function McpAppRenderer({
     };
     bridge.oncalltool = async ({ name, arguments: toolArguments }) => {
       if (readOnly) {
-        return errorToolResult("This saved MCP App is read-only.");
+        return errorToolResult(tRef.current("agentChat.mcpApps.readOnly"));
       }
       const toolName = normalizeSameServerToolName(
         appRef.current.serverId,
@@ -331,7 +337,7 @@ export function McpAppRenderer({
           }),
     );
     bridge.onreadresource = async ({ uri }) => {
-      if (readOnly) throw new Error("This saved MCP App is read-only.");
+      if (readOnly) throw new Error(tRef.current("agentChat.mcpApps.readOnly"));
       return postMcpAppEndpoint("read-resource", {
         serverId: appRef.current.serverId,
         uri,
@@ -368,7 +374,7 @@ export function McpAppRenderer({
     void bridge.connect(transport).catch((err: any) => {
       if (!closed) {
         clearTimeout(initializeTimer);
-        setError(err?.message ?? "Failed to initialize MCP App.");
+        setError(err?.message ?? tRef.current("agentChat.mcpApps.initFailed"));
       }
     });
 
@@ -392,7 +398,7 @@ export function McpAppRenderer({
     return (
       <div className={cn("agent-mcp-app agent-mcp-app--error", className)}>
         <IconAlertTriangle size={15} />
-        <span>MCP App resource was not available.</span>
+        <span>{t("agentChat.mcpApps.resourceUnavailable")}</span>
         {externalOpenUrl && !readOnly && (
           <button
             type="button"
@@ -401,7 +407,7 @@ export function McpAppRenderer({
               window.open(externalOpenUrl, "_blank", "noopener,noreferrer")
             }
           >
-            Open in new tab
+            {t("agentChat.mcpApps.openInNewTab")}
           </button>
         )}
       </div>
@@ -432,12 +438,7 @@ export function McpAppRenderer({
             }}
           />
         ) : (
-          !error && (
-            <div className="agent-mcp-app__loading" role="status">
-              <IconLoader2 size={14} className="agent-conversation-spin" />
-              <span>Loading MCP App</span>
-            </div>
-          )
+          !error && <McpAppLoading label={t("agentChat.mcpApps.loading")} />
         )}
       </div>
     );
@@ -452,10 +453,7 @@ export function McpAppRenderer({
       )}
     >
       {!ready && !error && (
-        <div className="agent-mcp-app__loading">
-          <IconLoader2 size={14} className="agent-conversation-spin" />
-          <span>Loading MCP App</span>
-        </div>
+        <McpAppLoading label={t("agentChat.mcpApps.loading")} />
       )}
       {error && (
         <div className="agent-mcp-app__error" role="alert">
@@ -470,7 +468,7 @@ export function McpAppRenderer({
                   window.open(externalOpenUrl, "_blank", "noopener,noreferrer")
                 }
               >
-                Open in new tab
+                {t("agentChat.mcpApps.openInNewTab")}
               </button>
             )}
           </div>
@@ -490,6 +488,15 @@ export function McpAppRenderer({
         }}
         onError={handleIframeError}
       />
+    </div>
+  );
+}
+
+function McpAppLoading({ label }: { label: string }) {
+  return (
+    <div className="agent-mcp-app__loading" role="status">
+      <Skeleton className="absolute inset-0 rounded-none" />
+      <span className="sr-only">{label}</span>
     </div>
   );
 }

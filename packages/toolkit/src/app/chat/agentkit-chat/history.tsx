@@ -8,7 +8,12 @@ import {
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
-import { useDevMode } from "@agent-native/core/client/agent-chat";
+import {
+  isFrameworkRouteError,
+  listChatCheckpoints,
+  restoreChatCheckpoint,
+  useDevMode,
+} from "@agent-native/core/client/agent-chat";
 import { captureError } from "@agent-native/core/client/analytics";
 import {
   actionErrorMessage,
@@ -16,11 +21,13 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -28,11 +35,7 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import { cn } from "@agent-native/toolkit/utils";
-import {
-  IconAlertTriangle,
-  IconArrowBackUp,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { IconAlertTriangle, IconArrowBackUp } from "@tabler/icons-react";
 import {
   createContext,
   useCallback,
@@ -47,6 +50,7 @@ import {
 import {
   useAgentKit,
   useAgentThread,
+  useAgentThreadSelector,
   type AgentKitRenderProps,
 } from "../../agentkit/react/index.js";
 
@@ -142,9 +146,19 @@ export function updateAgentKitSubmissionCounts(
 export interface AgentKitDevCheckpointContextValue {
   apiUrl: string;
   isDevMode: boolean;
+  /** Empty unless `checkpointsStatus` is "ready". */
   checkpointRunIds: ReadonlySet<string>;
+  /** "failed" means the list could not be read, which is not "no checkpoints". */
+  checkpointsStatus: "idle" | "ready" | "failed";
   isBusy: boolean;
 }
+
+type AgentKitDevCheckpointsState =
+  | { status: "idle" }
+  | { status: "ready"; runIds: ReadonlySet<string> }
+  | { status: "failed" };
+
+const NO_CHECKPOINT_RUN_IDS: ReadonlySet<string> = new Set<string>();
 
 const AgentKitHistoryContext =
   createContext<AgentKitHistoryContextValue | null>(null);
@@ -163,9 +177,9 @@ export function AgentKitDevCheckpointProvider({
   const thread = useAgentThread(threadId);
   const hasActiveRuns = thread.activeRunIds.length > 0;
   const history = useOptionalAgentKitHistory();
-  const [checkpointRunIds, setCheckpointRunIds] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
+  const [checkpoints, setCheckpoints] = useState<AgentKitDevCheckpointsState>({
+    status: "idle",
+  });
 
   const shouldLoad = shouldLoadAgentKitDevCheckpoints({
     isDevMode,
@@ -176,38 +190,41 @@ export function AgentKitDevCheckpointProvider({
 
   useEffect(() => {
     if (!shouldLoad) {
-      setCheckpointRunIds((current) =>
-        current.size === 0 ? current : new Set<string>(),
+      setCheckpoints((current) =>
+        current.status === "idle" ? current : { status: "idle" },
       );
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       try {
-        const response = await fetch(
-          `${apiUrl}/checkpoints?threadId=${encodeURIComponent(threadId)}`,
-        );
-        if (!response.ok) throw new Error(String(response.status));
-        const rows: unknown = await response.json();
-        if (cancelled) return;
-        setCheckpointRunIds(
-          new Set(
-            Array.isArray(rows)
-              ? rows
-                  .map((row) => (row as { runId?: unknown })?.runId)
-                  .filter(
-                    (runId): runId is string =>
-                      typeof runId === "string" && runId.length > 0,
-                  )
-              : [],
+        const rows = await listChatCheckpoints({
+          apiUrl,
+          threadId,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        setCheckpoints({
+          status: "ready",
+          runIds: new Set(
+            rows
+              .map((row) => row.runId)
+              .filter((runId): runId is string => runId !== null),
           ),
-        );
-      } catch {
-        if (!cancelled) setCheckpointRunIds(new Set<string>());
+        });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        captureError(error, {
+          tags: {
+            source: "agentkit-chat-client",
+            phase: "dev-checkpoints-load",
+          },
+        });
+        setCheckpoints({ status: "failed" });
       }
     })();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [apiUrl, shouldLoad, thread.messages.length, threadId]);
 
@@ -215,10 +232,14 @@ export function AgentKitDevCheckpointProvider({
     () => ({
       apiUrl,
       isDevMode,
-      checkpointRunIds,
+      checkpointRunIds:
+        checkpoints.status === "ready"
+          ? checkpoints.runIds
+          : NO_CHECKPOINT_RUN_IDS,
+      checkpointsStatus: checkpoints.status,
       isBusy: hasActiveRuns || Boolean(history?.isBusy),
     }),
-    [apiUrl, checkpointRunIds, hasActiveRuns, history?.isBusy, isDevMode],
+    [apiUrl, checkpoints, hasActiveRuns, history?.isBusy, isDevMode],
   );
   return (
     <AgentKitDevCheckpointContext.Provider value={value}>
@@ -263,14 +284,28 @@ export function shouldOfferAgentKitDevCheckpointRestore(input: {
   );
 }
 
+export function agentKitDevCheckpointRestoreErrorMessage(
+  error: unknown,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): string {
+  if (!isFrameworkRouteError(error) || error.kind === "network") {
+    return t("agentChat.message.restoreRequestFailed");
+  }
+  return (
+    error.serverMessage ??
+    t("agentChat.message.restoreFailed", { status: error.status ?? 0 })
+  );
+}
+
 export function AgentKitDevCheckpointRestore({
   message,
 }: {
   message: AgentMessage;
 }) {
   const checkpoint = useContext(AgentKitDevCheckpointContext);
-  const { threadId } = useAgentKit();
-  const thread = useAgentThread(threadId);
+  const isLastMessage = useAgentThreadSelector(
+    (thread) => thread.messages.at(-1)?.id === message.id,
+  );
   const t = useT();
   const [state, setState] = useState<
     "idle" | "confirming" | "restoring" | "error"
@@ -279,11 +314,12 @@ export function AgentKitDevCheckpointRestore({
   const runId = messageRunId(message);
   const offered =
     checkpoint !== null &&
+    checkpoint.checkpointsStatus === "ready" &&
     typeof window !== "undefined" &&
     shouldOfferAgentKitDevCheckpointRestore({
       isDevMode: checkpoint.isDevMode,
       isComplete: message.status === "complete",
-      isLastMessage: thread.messages.at(-1)?.id === message.id,
+      isLastMessage,
       isBusy: checkpoint.isBusy,
       runId,
       checkpointRunIds: checkpoint.checkpointRunIds,
@@ -296,36 +332,19 @@ export function AgentKitDevCheckpointRestore({
     setState("restoring");
     setError(null);
     try {
-      const response = await fetch(`${checkpoint.apiUrl}/checkpoints/restore`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runId }),
-      });
-      if (response.ok) {
-        window.location.reload();
-        return;
-      }
-      // coercion-ok: the response remains a failure and its status supplies the fallback detail.
-      const payload: unknown = await response.json().catch(() => null);
-      const detail =
-        isRecord(payload) && typeof payload.error === "string"
-          ? payload.error
-          : t("agentChat.message.restoreFailed", { status: response.status });
-      setError(detail);
-      setState("error");
+      await restoreChatCheckpoint({ apiUrl: checkpoint.apiUrl, runId });
+      window.location.reload();
     } catch (restoreError) {
-      setError(
-        restoreError instanceof Error
-          ? restoreError.message
-          : t("agentChat.message.restoreRequestFailed"),
-      );
+      setError(agentKitDevCheckpointRestoreErrorMessage(restoreError, t));
       setState("error");
     }
   };
 
   if (!offered) return null;
   return (
-    <Popover
+    <RevertConfirmPopover
+      label={t("agentChat.message.revertHere")}
+      question={t("agentChat.message.restoreQuestion")}
       open={
         state === "confirming" || state === "restoring" || state === "error"
       }
@@ -334,23 +353,67 @@ export function AgentKitDevCheckpointRestore({
         setState(open ? "confirming" : "idle");
         if (!open) setError(null);
       }}
-    >
+      phase={state === "idle" ? "confirming" : state}
+      disabled={checkpoint?.isBusy}
+      error={error}
+      onCancel={() => setState("idle")}
+      onConfirm={() => void restore()}
+      onDismiss={() => {
+        setError(null);
+        setState("idle");
+      }}
+    />
+  );
+}
+
+/** The revert affordance shared by dev checkpoints and saved history versions. */
+function RevertConfirmPopover({
+  label,
+  question,
+  open,
+  onOpenChange,
+  phase,
+  disabled,
+  error,
+  onCancel,
+  onConfirm,
+  onDismiss,
+}: {
+  label: string;
+  question: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  phase: "confirming" | "restoring" | "error";
+  disabled?: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onDismiss: () => void;
+}) {
+  const t = useT();
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
       <TooltipProvider delayDuration={400}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <button
+              <Button
                 type="button"
-                aria-label={t("agentChat.message.revertHere")}
-                disabled={checkpoint?.isBusy}
-                className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={label}
+                disabled={disabled}
+                className={cn(
+                  "text-muted-foreground hover:text-foreground [&_svg]:size-4",
+                  open && "bg-accent text-foreground",
+                )}
               >
-                <IconArrowBackUp className="h-3.5 w-3.5" />
-              </button>
+                <IconArrowBackUp aria-hidden="true" />
+              </Button>
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
-            {t("agentChat.message.revertHere")}
+            {label}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -358,51 +421,60 @@ export function AgentKitDevCheckpointRestore({
         side="top"
         align="start"
         sideOffset={6}
-        className="w-56 rounded-lg border-border p-3 shadow-xl"
+        className="w-56 rounded-lg p-3"
       >
-        {state === "confirming" ? (
+        {phase === "confirming" ? (
           <div className="grid gap-2">
-            <p className="text-xs font-medium text-foreground">
-              {t("agentChat.message.restoreQuestion")}
-            </p>
+            <p className="text-xs font-medium text-foreground">{question}</p>
             <div className="flex justify-end gap-1.5">
-              <button
+              <Button
                 type="button"
-                onClick={() => setState("idle")}
-                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                variant="ghost"
+                size="xs"
+                onClick={onCancel}
               >
                 {t("agentChat.common.cancel")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                disabled={checkpoint?.isBusy}
-                onClick={() => void restore()}
-                className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                variant="destructive"
+                size="xs"
+                disabled={disabled}
+                onClick={onConfirm}
               >
-                {t("agentChat.message.revertHere")}
-              </button>
+                {label}
+              </Button>
             </div>
           </div>
-        ) : state === "restoring" ? (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+        ) : phase === "restoring" ? (
+          <span
+            role="status"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+          >
+            <Spinner className="size-3" aria-hidden="true" />
             {t("agentChat.message.restoring")}
           </span>
         ) : (
           <div className="grid gap-2">
-            <p className="text-xs text-destructive">
+            <p
+              role="alert"
+              className="flex items-start gap-1.5 text-xs text-foreground"
+            >
+              <IconAlertTriangle
+                aria-hidden="true"
+                className="agent-kit-tone-warning mt-0.5 size-3.5 shrink-0"
+              />
               {error ?? t("agentChat.message.restoreRequestFailed")}
             </p>
-            <button
+            <Button
               type="button"
-              onClick={() => {
-                setError(null);
-                setState("idle");
-              }}
-              className="justify-self-end rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              variant="ghost"
+              size="xs"
+              className="justify-self-end"
+              onClick={onDismiss}
             >
               {t("agentChat.common.dismiss")}
-            </button>
+            </Button>
           </div>
         )}
       </PopoverContent>
@@ -699,6 +771,7 @@ export function AgentKitHistoryProvider<
 }) {
   const { threadId } = useAgentKit();
   const thread = useAgentThread(threadId);
+  const t = useT();
   const listArgs =
     typeof history.list.args === "function"
       ? history.list.args(threadId)
@@ -795,13 +868,13 @@ export function AgentKitHistoryProvider<
   const restoreVersion = useCallback(
     async (version: AssistantChatHistoryVersion) => {
       if (restoreInFlightRef.current) {
-        throw new Error("A chat history restore is already in progress.");
+        throw new Error(t("agentChat.message.restoreInProgress"));
       }
       if (thread.activeRunIds.length > 0) {
-        throw new Error("A chat run is already in progress.");
+        throw new Error(t("agentChat.message.restoreUnavailable"));
       }
       if (submissionsInFlightRef.current > 0) {
-        throw new Error("A chat submission is already in progress.");
+        throw new Error(t("agentChat.message.restoreSubmissionInProgress"));
       }
       restoreInFlightRef.current = true;
       setIsRestoring(true);
@@ -839,6 +912,7 @@ export function AgentKitHistoryProvider<
       history.restore,
       listQuery.refetch,
       restoreMutation,
+      t,
       thread.activeRunIds.length,
     ],
   );
@@ -1041,7 +1115,9 @@ function AgentKitHistoryRevertButton({
   }, [history, isBusy, t, version]);
 
   return (
-    <Popover
+    <RevertConfirmPopover
+      label={label}
+      question={t("agentChat.message.revertQuestion")}
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen && isBusy) return;
@@ -1053,80 +1129,13 @@ function AgentKitHistoryRevertButton({
           setError(null);
         }
       }}
-    >
-      <TooltipProvider delayDuration={400}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label={label}
-                disabled={isBusy}
-                className={cn(
-                  "flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
-                  open && "bg-accent text-foreground",
-                )}
-              >
-                <IconArrowBackUp className="h-4 w-4" />
-              </button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">
-            {label}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <PopoverContent
-        side="top"
-        align="start"
-        sideOffset={6}
-        className="w-56 rounded-lg border-border p-3 shadow-xl"
-      >
-        {state === "confirming" ? (
-          <div className="grid gap-2">
-            <p className="text-xs font-medium text-foreground">
-              {t("agentChat.message.revertQuestion")}
-            </p>
-            <div className="flex justify-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                {t("agentChat.common.cancel")}
-              </button>
-              <button
-                type="button"
-                disabled={isBusy}
-                onClick={() => void restore()}
-                className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-              >
-                {label}
-              </button>
-            </div>
-          </div>
-        ) : state === "restoring" || isRestoring ? (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <IconLoader2 className="h-3 w-3 animate-spin" />
-            {t("agentChat.message.restoring")}
-          </span>
-        ) : (
-          <div className="grid gap-2">
-            <p className="flex items-start gap-1.5 text-xs text-destructive">
-              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              {error ?? t("agentChat.message.restoreRequestFailed")}
-            </p>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="justify-self-end rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              {t("agentChat.common.dismiss")}
-            </button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+      phase={isRestoring && state !== "confirming" ? "restoring" : state}
+      disabled={isBusy}
+      error={error}
+      onCancel={() => setOpen(false)}
+      onConfirm={() => void restore()}
+      onDismiss={() => setOpen(false)}
+    />
   );
 }
 

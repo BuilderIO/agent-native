@@ -19,18 +19,13 @@ import {
 import { normalizeTooltipText } from "@agent-native/toolkit/ui/tooltip";
 import {
   IconMessageCircle,
-  IconMessageDots,
   IconTerminal2,
-  IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
   IconCheck,
   IconPlus,
   IconX,
   IconDotsVertical,
-  IconHistory,
-  IconArrowsHorizontal,
   IconExternalLink,
-  IconPlugConnected,
   IconShare3,
 } from "@tabler/icons-react";
 import React, {
@@ -45,6 +40,7 @@ import React, {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { Skeleton } from "../../ui/skeleton.js";
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
@@ -76,8 +72,12 @@ import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "@agent-native/core/client/agent-chat";
-import { useDevMode } from "@agent-native/core/client/agent-chat";
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  fetchAvailableClis,
+  useDevMode,
+  type AvailableCli,
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import { getFramePostMessageTargetOrigin } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding";
@@ -99,6 +99,14 @@ import {
   SettingsReturnPathRecorder,
   URLSync,
 } from "./agent-sidebar-url-sync.js";
+import {
+  AgentPanelTab,
+  AgentPanelTabList,
+  AgentPanelThreadNav,
+  resolveAgentPanelTabLayout,
+  useElementInlineSize,
+  type AgentPanelThreadItem,
+} from "./AgentPanelThreadTabs.js";
 import type { AssistantChatProps } from "./chat/surface-types.js";
 import { assistantUiRecoverableRenderErrorKind } from "./composer/assistant-ui-recovery.js";
 function parentFrameTargetOrigin(): string {
@@ -267,8 +275,6 @@ const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
-const EXEC_MODE_KEY = "agent-native-exec-mode";
-type ExecMode = "build" | "plan";
 type PanelMode = "chat" | "cli" | "resources";
 export function normalizeAgentPanelModeForSurface(
   mode: string,
@@ -277,24 +283,12 @@ export function normalizeAgentPanelModeForSurface(
   if (chatOnly) return "chat";
   return mode === "cli" || mode === "resources" ? mode : "chat";
 }
-const AGENT_PANEL_FONT_FAMILY =
-  'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-const AGENT_PANEL_ROOT_STYLE = {
-  fontFamily: AGENT_PANEL_FONT_FAMILY,
-  fontSize: 13,
-  lineHeight: 1.2,
-} satisfies React.CSSProperties;
 const AGENT_PANEL_HEADER_CLASS =
   "agent-native-shell-topbar relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2";
 const AGENT_PANEL_HEADER_STYLE = {
   paddingLeft: 8,
   paddingRight: 8,
 } satisfies React.CSSProperties;
-const AGENT_PANEL_CONTROL_STYLE = {
-  fontSize: 12,
-  lineHeight: 1,
-} satisfies React.CSSProperties;
-const ACTIVATE_KEYS = new Set(["Enter", " "]);
 
 export function deferAgentPanelOverlayOpen(
   event: { preventDefault: () => void },
@@ -318,21 +312,34 @@ export function consumeAgentPanelOverlayFocusRestore(
   openOverlay();
 }
 
-interface AvailableCli {
-  command: string;
-  label: string;
-  available: boolean;
-}
+const NO_CLIS: AvailableCli[] = [];
 
-function useAvailableClis() {
-  const [clis, setClis] = useState<AvailableCli[]>([]);
+type AvailableClisState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; clis: AvailableCli[] }
+  | { status: "error" };
+
+function useAvailableClis(enabled: boolean) {
+  const [state, setState] = useState<AvailableClisState>({ status: "idle" });
+  const [attempt, setAttempt] = useState(0);
+  const loaded = state.status === "ready";
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/available-clis"))
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setClis(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, []);
-  return clis;
+    if (!enabled || loaded) return;
+    const controller = new AbortController();
+    setState({ status: "loading" });
+    fetchAvailableClis({ signal: controller.signal })
+      .then((clis) => {
+        if (!controller.signal.aborted) setState({ status: "ready", clis });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState({ status: "error" });
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [attempt, enabled, loaded]);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  return { state, retry };
 }
 
 function useCliSelection(keyPrefix: string) {
@@ -851,7 +858,6 @@ function AgentPanelInner({
   const feedbackEnabled =
     resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
   const keyPrefix = storageKey ? `:${storageKey}` : "";
-  const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
   const panelModeKey = `agent-native-panel-mode${keyPrefix}`;
   const isMac = useMemo(
     () =>
@@ -865,29 +871,6 @@ function AgentPanelInner({
     toggleSidebar: toggleSidebarHint,
     widenChat: widenChatHint,
   } = getAgentPanelShortcutHints(isMac);
-
-  const [execMode, setExecMode] = useState<ExecMode>(() => {
-    try {
-      const saved = localStorage.getItem(execModeKey);
-      if (saved === "build" || saved === "plan") return saved;
-    } catch {}
-    return "build";
-  });
-
-  const switchExecMode = useCallback(
-    (next: ExecMode) => {
-      setExecMode(next);
-      try {
-        localStorage.setItem(execModeKey, next);
-      } catch {}
-      window.dispatchEvent(
-        new CustomEvent("agent-panel:exec-mode-change", {
-          detail: { mode: next },
-        }),
-      );
-    },
-    [execModeKey],
-  );
 
   const [mode, setMode] = useState<PanelMode>(() => {
     try {
@@ -952,14 +935,6 @@ function AgentPanelInner({
       );
     },
     [switchMode],
-  );
-  const activateOnKeyDown = useCallback(
-    (activate: () => void) => (event: React.KeyboardEvent) => {
-      if (!ACTIVATE_KEYS.has(event.key)) return;
-      event.preventDefault();
-      activate();
-    },
-    [],
   );
 
   useEffect(() => {
@@ -1077,7 +1052,10 @@ function AgentPanelInner({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [mode, activeCliTab, closeCliTab, closeAllCliTabs, isMac]);
 
-  const availableClis = useAvailableClis();
+  const { state: availableClisState, retry: retryAvailableClis } =
+    useAvailableClis(mode === "cli");
+  const availableClis =
+    availableClisState.status === "ready" ? availableClisState.clis : NO_CLIS;
   const [selectedCli, selectCli] = useCliSelection(keyPrefix);
   const { isDevMode } = useDevMode(apiUrl);
   const effectiveAgentChatSurface = resolveAgentPanelChatSurface(
@@ -1139,14 +1117,13 @@ function AgentPanelInner({
               onClick={() => switchMode("chat")}
               aria-label={t("agentPanel.chatMode")}
               className={cn(
-                "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                "flex h-6 items-center gap-1 rounded-md px-2 text-xs",
                 activeMode === "chat"
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
-              style={AGENT_PANEL_CONTROL_STYLE}
             >
-              <IconMessageCircle size={14} />
+              <IconMessageCircle size={16} />
               {t("agentPanel.chat")}
             </button>
           }
@@ -1160,14 +1137,13 @@ function AgentPanelInner({
                 onClick={() => switchMode("cli")}
                 aria-label={t("agentPanel.cliTerminalMode")}
                 className={cn(
-                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                  "flex h-6 items-center gap-1 rounded-md px-2 text-xs",
                   activeMode === "cli"
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
-                style={AGENT_PANEL_CONTROL_STYLE}
               >
-                <IconTerminal2 size={14} />
+                <IconTerminal2 size={16} />
                 {t("agentPanel.cli")}
               </button>
             }
@@ -1186,14 +1162,13 @@ function AgentPanelInner({
               onClick={() => switchMode("resources")}
               aria-label={t("agentPanel.workspaceMode")}
               className={cn(
-                "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                "flex h-6 items-center gap-1 rounded-md px-2 text-xs",
                 activeMode === "resources"
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
-              style={AGENT_PANEL_CONTROL_STYLE}
             >
-              <IconLayoutGrid size={14} />
+              <IconLayoutGrid size={16} />
               {t("agentPanel.workspace")}
             </button>
           }
@@ -1206,6 +1181,12 @@ function AgentPanelInner({
   );
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const panelRootRef = useRef<HTMLDivElement>(null);
+  const panelWidth = useElementInlineSize(panelRootRef);
+  // Only the docked sidebar trades its tabs for a switcher; full-page chat keeps them.
+  const sidebarTabLayout = onCollapse
+    ? resolveAgentPanelTabLayout(panelWidth)
+    : "tabs";
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
   const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
@@ -1274,6 +1255,17 @@ function AgentPanelInner({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [mode, onCollapse, wideDrawerAction]);
 
+  // The switcher menu leads with its own "New" row, so the header and the
+  // overflow menu drop theirs instead of offering it twice.
+  const isThreadSwitcherShown = useCallback(
+    (tabs: MultiTabAssistantChatHeaderProps["tabs"]) =>
+      Boolean(onCollapse) &&
+      sidebarTabLayout === "switcher" &&
+      (Boolean(renderCliTab && showTabBar) ||
+        (mode === "chat" && shouldShowAgentPanelSidebarChatTabs(tabs))),
+    [mode, onCollapse, renderCliTab, showTabBar, sidebarTabLayout],
+  );
+
   const renderHeaderActions = useCallback(
     ({
       activeChatSessionId,
@@ -1325,7 +1317,7 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                triggerClassName="h-7 px-2"
+                triggerClassName="h-6 px-2 text-xs"
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1350,7 +1342,7 @@ function AgentPanelInner({
             }
           />
         ) : null}
-        {mode === "chat" && (
+        {mode === "chat" && !isThreadSwitcherShown(tabs) && (
           <IconTooltip
             content={
               newTabMode === "cli" && newCliTabLabel
@@ -1367,21 +1359,23 @@ function AgentPanelInner({
               }
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
-              <IconPlus size={14} />
+              <IconPlus size={16} />
             </button>
           </IconTooltip>
         )}
-        {mode === "cli" && (canUseCodeTools || renderCliTab) && (
-          <IconTooltip content={t("agentPanel.newTerminal")}>
-            <button
-              onClick={openNewCliTab}
-              aria-label={t("agentPanel.newTerminal")}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <IconPlus size={14} />
-            </button>
-          </IconTooltip>
-        )}
+        {mode === "cli" &&
+          (canUseCodeTools || renderCliTab) &&
+          !isThreadSwitcherShown(tabs) && (
+            <IconTooltip content={t("agentPanel.newTerminal")}>
+              <button
+                onClick={openNewCliTab}
+                aria-label={t("agentPanel.newTerminal")}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              >
+                <IconPlus size={16} />
+              </button>
+            </IconTooltip>
+          )}
         <DropdownMenu open={headerMenuOpen} onOpenChange={setHeaderMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -1391,7 +1385,7 @@ function AgentPanelInner({
               )}
               aria-label={t("agentPanel.panelOptions")}
             >
-              <IconDotsVertical size={14} />
+              <IconDotsVertical size={16} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -1408,10 +1402,6 @@ function AgentPanelInner({
             {onCollapse && (
               <>
                 <DropdownMenuItem onSelect={onCollapse}>
-                  <IconLayoutSidebarRightCollapse
-                    size={14}
-                    className="shrink-0"
-                  />
                   {t("agentPanel.collapseSidebar")}
                   <DropdownMenuShortcut>
                     {toggleSidebarHint}
@@ -1422,7 +1412,6 @@ function AgentPanelInner({
             )}
             {onCollapse && mode === "chat" && wideDrawerAction ? (
               <DropdownMenuItem onSelect={wideDrawerAction}>
-                <IconArrowsHorizontal size={14} className="shrink-0" />
                 {wideDrawerLabel}
                 <DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -1446,7 +1435,6 @@ function AgentPanelInner({
             {integrationsHref ? (
               <DropdownMenuItem asChild>
                 <RouterSidebarLink to={integrationsHref}>
-                  <IconPlugConnected size={14} className="shrink-0" />
                   {t("agentPanel.integrations")}
                 </RouterSidebarLink>
               </DropdownMenuItem>
@@ -1460,28 +1448,27 @@ function AgentPanelInner({
               (newTabMode === "cli" || (mode === "cli" && renderCliTab)) && (
                 <>
                   <DropdownMenuItem onSelect={() => openNewUiTab(addTab)}>
-                    <IconPlus size={14} className="shrink-0" />
                     {newUiTabLabel ?? t("agentPanel.newChat")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={openNewCliTab}>
-                    <IconTerminal2 size={14} className="shrink-0" />
                     {newCliTabLabel ?? t("agentPanel.newTerminal")}
                   </DropdownMenuItem>
                   {mode === "chat" ? <DropdownMenuSeparator /> : null}
                 </>
               )}
-            {onCollapse && mode === "chat" && newTabMode !== "cli" && (
-              <DropdownMenuItem onSelect={() => openNewUiTab(addTab)}>
-                <IconPlus size={14} className="shrink-0" />
-                {newUiTabLabel ?? t("agentPanel.newChat")}
-              </DropdownMenuItem>
-            )}
+            {onCollapse &&
+              mode === "chat" &&
+              newTabMode !== "cli" &&
+              !isThreadSwitcherShown(tabs) && (
+                <DropdownMenuItem onSelect={() => openNewUiTab(addTab)}>
+                  {newUiTabLabel ?? t("agentPanel.newChat")}
+                </DropdownMenuItem>
+              )}
             {onCollapse &&
             mode === "chat" &&
             renderCliTab &&
             newTabMode !== "cli" ? (
               <DropdownMenuItem onSelect={openNewCliTab}>
-                <IconTerminal2 size={14} className="shrink-0" />
                 {newCliTabLabel ?? t("agentPanel.newTerminal")}
               </DropdownMenuItem>
             ) : null}
@@ -1490,7 +1477,6 @@ function AgentPanelInner({
             onNewCliTab &&
             newCliTabLabel ? (
               <DropdownMenuItem onSelect={onNewCliTab}>
-                <IconTerminal2 size={14} className="shrink-0" />
                 {newCliTabLabel}
               </DropdownMenuItem>
             ) : null}
@@ -1517,7 +1503,6 @@ function AgentPanelInner({
                       )
                     }
                   >
-                    <IconShare3 size={14} className="shrink-0" />
                     {t("agentChat.share.share", { defaultValue: "Share" })}
                   </DropdownMenuItem>
                 );
@@ -1533,7 +1518,6 @@ function AgentPanelInner({
                   )
                 }
               >
-                <IconHistory size={14} className="shrink-0" />
                 {showHistory
                   ? t("agentPanel.hideChats")
                   : t("agentPanel.allChats")}
@@ -1548,6 +1532,23 @@ function AgentPanelInner({
               />
             )}
             {mode === "chat" && <DropdownMenuSeparator />}
+            {mode === "cli" && availableClisState.status === "error" ? (
+              <>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    retryAvailableClis();
+                  }}
+                  className="text-muted-foreground"
+                >
+                  {t("agentChat.agentPanel.clisLoadFailed")}
+                  <span className="ms-auto text-foreground">
+                    {t("agentChat.common.retry")}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
             {mode === "cli" && availableClis.length > 0 && (
               <>
                 {availableClis.map((cli) => (
@@ -1582,7 +1583,6 @@ function AgentPanelInner({
                   )
                 }
               >
-                <IconMessageDots size={14} className="shrink-0" />
                 {t("agentPanel.feedback")}
               </DropdownMenuItem>
             ) : null}
@@ -1596,7 +1596,6 @@ function AgentPanelInner({
                   shouldShowAgentPanelChatTabBar(tabs, activeTabId) ? (
                     <>
                       <DropdownMenuItem onSelect={() => closeTab(activeTabId)}>
-                        <IconX size={14} className="shrink-0" />
                         {t("agentPanel.closeTab")}
                         <DropdownMenuShortcut>
                           {closeTabHint}
@@ -1616,7 +1615,6 @@ function AgentPanelInner({
                     </>
                   ) : (
                     <DropdownMenuItem onSelect={clearActiveTab}>
-                      <IconX size={14} className="shrink-0" />
                       {t("agentPanel.clearChat")}
                     </DropdownMenuItem>
                   )
@@ -1625,7 +1623,6 @@ function AgentPanelInner({
                     <DropdownMenuItem
                       onSelect={() => closeCliTab(activeCliTab)}
                     >
-                      <IconX size={14} className="shrink-0" />
                       {t("agentPanel.closeTab")}
                       <DropdownMenuShortcut>
                         {closeTabHint}
@@ -1656,7 +1653,7 @@ function AgentPanelInner({
               aria-label={t("agentPanel.collapseSidebar")}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
-              <IconX size={14} />
+              <IconX size={16} />
             </button>
           </IconTooltip>
         )}
@@ -1666,6 +1663,7 @@ function AgentPanelInner({
       activeCliTab,
       addCliTab,
       availableClis,
+      availableClisState.status,
       canUseCodeTools,
       closeHeaderMenuForOverlay,
       closeAllCliTabs,
@@ -1693,10 +1691,12 @@ function AgentPanelInner({
       openNewCliTab,
       openNewUiTab,
       renderCliTab,
+      retryAvailableClis,
       selectCli,
       selectedCli,
       shareFromMenuOpen,
       showCollapseButton,
+      isThreadSwitcherShown,
       storageKey,
       switchMode,
       t,
@@ -1784,9 +1784,9 @@ function AgentPanelInner({
                           type="button"
                           data-agent-page-title-menu=""
                           aria-label={t("agentPanel.panelOptions")}
-                          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
                         >
-                          <IconDotsVertical size={14} />
+                          <IconDotsVertical size={16} />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
@@ -1811,7 +1811,6 @@ function AgentPanelInner({
                               )
                             }
                           >
-                            <IconHistory size={14} className="shrink-0" />
                             {showHistory
                               ? t("agentPanel.hideChats")
                               : t("agentPanel.allChats")}
@@ -1819,7 +1818,6 @@ function AgentPanelInner({
                         ) : null}
                         {activeTabMessageCount > 0 ? (
                           <DropdownMenuItem onSelect={clearActiveTab}>
-                            <IconX size={14} className="shrink-0" />
                             {t("agentPanel.clearChat")}
                           </DropdownMenuItem>
                         ) : null}
@@ -1840,32 +1838,33 @@ function AgentPanelInner({
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
                       triggerContent={
                         pageHeaderShareTriggerContent ?? (
-                          <IconShare3 size={15} aria-hidden="true" />
+                          <IconShare3 size={16} aria-hidden="true" />
                         )
                       }
                       triggerClassName={cn(
-                        "h-8 border-0 bg-transparent shadow-none hover:bg-accent/60",
+                        "h-6 border-0 bg-transparent text-xs shadow-none hover:bg-accent/60 [&_svg]:size-4",
                         pageHeaderShareTriggerContent === undefined ||
                           pageHeaderShareTriggerContent === null
-                          ? "size-8 p-0"
+                          ? "size-6 p-0"
                           : "w-auto px-2",
                       )}
                     />
                   ) : null}
                   {toolbarSlot}
                   {showNewChatAction ? (
-                    <button
-                      type="button"
-                      data-agent-page-new-chat=""
-                      aria-label={t("agentPanel.newChat")}
-                      onClick={() => {
-                        addTab();
-                      }}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <IconPlus size={14} />
-                      <span>{t("agentPanel.newChat")}</span>
-                    </button>
+                    <IconTooltip content={t("agentPanel.newChat")}>
+                      <button
+                        type="button"
+                        data-agent-page-new-chat=""
+                        aria-label={t("agentPanel.newChat")}
+                        onClick={() => {
+                          addTab();
+                        }}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <IconPlus size={16} aria-hidden="true" />
+                      </button>
+                    </IconTooltip>
                   ) : null}
                 </div>
               </header>
@@ -1891,7 +1890,7 @@ function AgentPanelInner({
   );
 
   const activeTabResizeObserverRef = useRef<ResizeObserver | null>(null);
-  const scrollActiveTabIntoView = useCallback((el: HTMLDivElement) => {
+  const scrollActiveTabIntoView = useCallback((el: HTMLElement) => {
     const container = getActiveTabScrollContainer(el);
     if (!container) return;
     requestAnimationFrame(() => {
@@ -1904,7 +1903,7 @@ function AgentPanelInner({
   }, []);
 
   const activeTabRefCb = useCallback(
-    (el: HTMLDivElement | null) => {
+    (el: HTMLElement | null) => {
       activeTabResizeObserverRef.current?.disconnect();
       activeTabResizeObserverRef.current = null;
       if (!el) return;
@@ -1948,132 +1947,55 @@ function AgentPanelInner({
       const showUnifiedSurfaceTabs = Boolean(
         onCollapse && renderCliTab && showTabBar,
       );
-      const renderUnifiedSurfaceTabs = () => (
-        <div
-          className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
-          role="tablist"
-          aria-label={t("agentPanel.panelOptions")}
-          data-agent-panel-surface-tabs
-        >
-          {mode === "chat" &&
-            mainTabs.map((tab) => {
-              const isActive =
-                mode === "chat" &&
-                (tab.id === activeTabId ||
-                  (tab.id === focusParentId &&
-                    activeTab?.parentThreadId === tab.id));
-              return (
-                <div
-                  key={tab.id}
-                  className="agent-tab-group relative flex min-w-[56px] max-w-[150px] shrink items-center"
-                >
-                  <div
-                    role="tab"
-                    tabIndex={0}
-                    aria-selected={isActive}
-                    ref={isActive ? activeTabRefCb : undefined}
-                    onClick={() => {
-                      setActiveTabId(tab.id);
-                      switchMode("chat");
-                    }}
-                    onKeyDown={activateOnKeyDown(() => {
-                      setActiveTabId(tab.id);
-                      switchMode("chat");
-                    })}
-                    className={cn(
-                      "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
-                      isActive
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    <span className="truncate pe-1">{tab.label}</span>
-                    {tab.status === "running" && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={t("agentPanel.closeTab")}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                    style={{
-                      position: "absolute",
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: 28,
-                      paddingRight: 6,
-                      borderRadius: "0 6px 6px 0",
-                      background:
-                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                    }}
-                  >
-                    <IconX size={10} />
-                  </button>
-                </div>
-              );
-            })}
-          {mode === "cli" &&
-            cliTabs.map((id, index) => {
-              const isActive = mode === "cli" && id === activeCliTab;
-              return (
-                <div
-                  key={id}
-                  className="agent-tab-group relative flex shrink-0 items-center"
-                >
-                  <div
-                    role="tab"
-                    tabIndex={0}
-                    aria-selected={isActive}
-                    ref={isActive ? activeTabRefCb : undefined}
-                    onClick={() => {
-                      setActiveCliTab(id);
-                      switchMode("cli");
-                    }}
-                    onKeyDown={activateOnKeyDown(() => {
-                      setActiveCliTab(id);
-                      switchMode("cli");
-                    })}
-                    className={cn(
-                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
-                      isActive
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    <span>Terminal {index + 1}</span>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={t("agentPanel.closeTab")}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      closeCliTab(id);
-                    }}
-                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                    style={{
-                      position: "absolute",
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: 28,
-                      paddingRight: 6,
-                      borderRadius: "0 6px 6px 0",
-                      background:
-                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                    }}
-                  >
-                    <IconX size={10} />
-                  </button>
-                </div>
-              );
-            })}
-        </div>
-      );
+      const isActiveMainTab = (tab: (typeof mainTabs)[number]) =>
+        tab.id === activeTabId ||
+        (tab.id === focusParentId && activeTab?.parentThreadId === tab.id);
+      const chatThreadItems = (): AgentPanelThreadItem[] =>
+        mainTabs.map((tab) => ({
+          id: tab.id,
+          label: tab.label || t("agentPanel.newChat"),
+          active: isActiveMainTab(tab),
+          running: tab.status === "running",
+        }));
+      const newChatLabel = newUiTabLabel ?? t("agentPanel.newChat");
+      const renderUnifiedSurfaceTabs = () =>
+        mode === "cli" ? (
+          <AgentPanelThreadNav
+            layout={sidebarTabLayout}
+            tabListLabel={t("agentChat.agentPanel.terminalTabs")}
+            items={cliTabs.map((id, index) => ({
+              id,
+              label: t("agentChat.agentPanel.terminalTab", {
+                index: index + 1,
+              }),
+              active: id === activeCliTab,
+            }))}
+            activeTabRef={activeTabRefCb}
+            onSelect={(id) => {
+              setActiveCliTab(id);
+              switchMode("cli");
+            }}
+            onClose={closeCliTab}
+            onNew={openNewCliTab}
+            newLabel={newCliTabLabel ?? t("agentPanel.newTerminal")}
+            closeLabel={t("agentPanel.closeTab")}
+          />
+        ) : (
+          <AgentPanelThreadNav
+            layout={sidebarTabLayout}
+            tabListLabel={t("agentChat.agentPanel.chatTabs")}
+            items={chatThreadItems()}
+            activeTabRef={activeTabRefCb}
+            onSelect={(id) => {
+              setActiveTabId(id);
+              switchMode("chat");
+            }}
+            onClose={closeTab}
+            onNew={() => openNewUiTab(addTab)}
+            newLabel={newChatLabel}
+            closeLabel={t("agentPanel.closeTab")}
+          />
+        );
 
       return (
         <div
@@ -2095,63 +2017,17 @@ function AgentPanelInner({
               {showUnifiedSurfaceTabs ? (
                 renderUnifiedSurfaceTabs()
               ) : showSidebarChatTabs ? (
-                <div className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-                  {mainTabs.map((tab) => {
-                    const isActive =
-                      tab.id === activeTabId ||
-                      (tab.id === focusParentId &&
-                        activeTab?.parentThreadId === tab.id);
-                    return (
-                      <div
-                        key={tab.id}
-                        className="agent-tab-group relative min-w-[56px] max-w-[150px] shrink"
-                      >
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          ref={isActive ? activeTabRefCb : undefined}
-                          onClick={() => setActiveTabId(tab.id)}
-                          onKeyDown={activateOnKeyDown(() =>
-                            setActiveTabId(tab.id),
-                          )}
-                          className={cn(
-                            "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
-                            isActive
-                              ? "bg-accent text-foreground"
-                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                          )}
-                        >
-                          <span className="truncate pe-1">{tab.label}</span>
-                          {tab.status === "running" && (
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          aria-label={t("agentPanel.closeTab")}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeTab(tab.id);
-                          }}
-                          className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                          style={{
-                            position: "absolute",
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: 28,
-                            paddingRight: 6,
-                            borderRadius: "0 6px 6px 0",
-                            background:
-                              "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                          }}
-                        >
-                          <IconX size={10} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                <AgentPanelThreadNav
+                  layout={sidebarTabLayout}
+                  tabListLabel={t("agentChat.agentPanel.chatTabs")}
+                  items={chatThreadItems()}
+                  activeTabRef={activeTabRefCb}
+                  onSelect={setActiveTabId}
+                  onClose={closeTab}
+                  onNew={addTab}
+                  newLabel={newChatLabel}
+                  closeLabel={t("agentPanel.closeTab")}
+                />
               ) : shouldShowAgentPanelModeButtons(
                   Boolean(onCollapse),
                   chatOnly,
@@ -2198,7 +2074,13 @@ function AgentPanelInner({
                 <>
                   {!showSidebarChatTabs && (
                     <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
-                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                      <AgentPanelTabList
+                        label={
+                          mode === "chat"
+                            ? t("agentChat.agentPanel.chatTabs")
+                            : t("agentChat.agentPanel.terminalTabs")
+                        }
+                      >
                         {mode === "chat"
                           ? mainTabs.map((tab) => {
                               const isActive =
@@ -2206,108 +2088,36 @@ function AgentPanelInner({
                                 (tab.id === focusParentId &&
                                   activeTab?.parentThreadId === tab.id);
                               return (
-                                <div
+                                <AgentPanelTab
                                   key={tab.id}
-                                  className="agent-tab-group relative min-w-[56px] max-w-[150px] shrink"
-                                >
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    ref={isActive ? activeTabRefCb : undefined}
-                                    onClick={() => setActiveTabId(tab.id)}
-                                    onKeyDown={activateOnKeyDown(() =>
-                                      setActiveTabId(tab.id),
-                                    )}
-                                    className={cn(
-                                      "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
-                                      isActive
-                                        ? "bg-accent text-foreground"
-                                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                                    )}
-                                  >
-                                    <span className="truncate pe-1">
-                                      {tab.label}
-                                    </span>
-                                    {tab.status === "running" && (
-                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                                    )}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    aria-label={t("agentPanel.closeTab")}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      closeTab(tab.id);
-                                    }}
-                                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                                    style={{
-                                      position: "absolute",
-                                      right: 0,
-                                      top: 0,
-                                      bottom: 0,
-                                      width: 28,
-                                      paddingRight: 6,
-                                      borderRadius: "0 6px 6px 0",
-                                      background:
-                                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                                    }}
-                                  >
-                                    <IconX size={10} />
-                                  </button>
-                                </div>
+                                  label={tab.label}
+                                  active={isActive}
+                                  running={tab.status === "running"}
+                                  tabRef={isActive ? activeTabRefCb : undefined}
+                                  onSelect={() => setActiveTabId(tab.id)}
+                                  onClose={() => closeTab(tab.id)}
+                                  closeLabel={t("agentPanel.closeTab")}
+                                />
                               );
                             })
                           : cliTabs.map((id, i) => (
-                              <div
+                              <AgentPanelTab
                                 key={id}
-                                className="agent-tab-group relative shrink-0"
-                              >
-                                <div
-                                  role="button"
-                                  tabIndex={0}
-                                  ref={
-                                    id === activeCliTab
-                                      ? activeTabRefCb
-                                      : undefined
-                                  }
-                                  onClick={() => setActiveCliTab(id)}
-                                  onKeyDown={activateOnKeyDown(() =>
-                                    setActiveCliTab(id),
-                                  )}
-                                  className={cn(
-                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
-                                    id === activeCliTab
-                                      ? "bg-accent text-foreground"
-                                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                                  )}
-                                >
-                                  <span>Terminal {i + 1}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  aria-label={t("agentPanel.closeTab")}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    closeCliTab(id);
-                                  }}
-                                  className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                                  style={{
-                                    position: "absolute",
-                                    right: 0,
-                                    top: 0,
-                                    bottom: 0,
-                                    width: 28,
-                                    paddingRight: 6,
-                                    borderRadius: "0 6px 6px 0",
-                                    background:
-                                      "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                                  }}
-                                >
-                                  <IconX size={10} />
-                                </button>
-                              </div>
+                                label={t("agentChat.agentPanel.terminalTab", {
+                                  index: i + 1,
+                                })}
+                                active={id === activeCliTab}
+                                tabRef={
+                                  id === activeCliTab
+                                    ? activeTabRefCb
+                                    : undefined
+                                }
+                                onSelect={() => setActiveCliTab(id)}
+                                onClose={() => closeCliTab(id)}
+                                closeLabel={t("agentPanel.closeTab")}
+                              />
                             ))}
-                      </div>
+                      </AgentPanelTabList>
                     </div>
                   )}
                   {/* Sub-agent tab row — shown when the active context has children */}
@@ -2318,79 +2128,39 @@ function AgentPanelInner({
                         !showSidebarChatTabs && "border-b border-border",
                       )}
                     >
-                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setActiveTabId(focusParentId)}
-                          onKeyDown={activateOnKeyDown(() =>
-                            setActiveTabId(focusParentId),
-                          )}
-                          className={cn(
-                            "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
+                      <AgentPanelTabList
+                        label={t("agentChat.agentPanel.subAgentTabs")}
+                      >
+                        <AgentPanelTab
+                          size="compact"
+                          label={t("agentChat.agentPanel.mainThread")}
+                          active={activeTabId === focusParentId}
+                          tabRef={
                             activeTabId === focusParentId
-                              ? "bg-accent text-foreground"
-                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                          )}
-                        >
-                          Main
-                        </div>
+                              ? activeTabRefCb
+                              : undefined
+                          }
+                          onSelect={() => setActiveTabId(focusParentId)}
+                          closeLabel={t("agentPanel.closeTab")}
+                        />
                         {childTabs.map((tab) => (
-                          <div
+                          <AgentPanelTab
                             key={tab.id}
-                            className="agent-tab-group relative min-w-[48px] max-w-[140px] shrink"
-                          >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              ref={
-                                tab.id === activeTabId
-                                  ? activeTabRefCb
-                                  : undefined
-                              }
-                              onClick={() => setActiveTabId(tab.id)}
-                              onKeyDown={activateOnKeyDown(() =>
-                                setActiveTabId(tab.id),
-                              )}
-                              className={cn(
-                                "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
-                                tab.id === activeTabId
-                                  ? "bg-accent text-foreground"
-                                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                              )}
-                            >
-                              <span className="truncate pe-1">
-                                {tab.subAgentName || tab.label}
-                              </span>
-                              {tab.status === "running" && (
-                                <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              aria-label={t("agentPanel.closeTab")}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                closeTab(tab.id);
-                              }}
-                              className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                              style={{
-                                position: "absolute",
-                                right: 0,
-                                top: 0,
-                                bottom: 0,
-                                width: 24,
-                                paddingRight: 4,
-                                borderRadius: "0 6px 6px 0",
-                                background:
-                                  "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                              }}
-                            >
-                              <IconX size={8} />
-                            </button>
-                          </div>
+                            size="compact"
+                            label={tab.subAgentName || tab.label}
+                            active={tab.id === activeTabId}
+                            running={tab.status === "running"}
+                            tabRef={
+                              tab.id === activeTabId
+                                ? activeTabRefCb
+                                : undefined
+                            }
+                            onSelect={() => setActiveTabId(tab.id)}
+                            onClose={() => closeTab(tab.id)}
+                            closeLabel={t("agentPanel.closeTab")}
+                          />
                         ))}
-                      </div>
+                      </AgentPanelTabList>
                     </div>
                   )}
                 </>
@@ -2412,9 +2182,13 @@ function AgentPanelInner({
       cliTabs,
       activeCliTab,
       activeTabRefCb,
-      activateOnKeyDown,
       closeCliTab,
+      newCliTabLabel,
+      newUiTabLabel,
+      openNewCliTab,
+      openNewUiTab,
       renderCliTab,
+      sidebarTabLayout,
       switchMode,
       t,
     ],
@@ -2427,44 +2201,18 @@ function AgentPanelInner({
         onReadyChange={setSettingsCommandsReady}
       />
       <div
+        ref={panelRootRef}
+        data-agent-panel-tab-layout={onCollapse ? sidebarTabLayout : undefined}
         className={cn(
           "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 min-w-0 h-full antialiased",
           className,
         )}
         style={{
-          ...AGENT_PANEL_ROOT_STYLE,
           ...style,
           ...(isFirstRunOnboardingSurface ? { contain: "none" } : {}),
         }}
         data-agent-fullscreen={isFullscreen ? "true" : undefined}
       >
-        {/* Fullscreen rules center the message stream and composer to a Claude-style
-          column while leaving the header bar at full width so the action buttons
-          stay pinned to the top corners. */}
-        <style
-          dangerouslySetInnerHTML={{
-            __html:
-              ".agent-tab-close{opacity:0;pointer-events:none}" +
-              ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}" +
-              ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
-              ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
-              `[data-agent-fullscreen='true'] .agent-thread-content,` +
-              `[data-agent-fullscreen='true'] .agent-running-activity{` +
-              `max-width:var(--agent-kit-conversation-max-width);` +
-              `margin-left:auto;margin-right:auto;width:100%;}` +
-              `[data-agent-fullscreen='true'] [data-agent-suggestion-bar='true'],` +
-              `[data-agent-fullscreen='true'] .agent-composer-area,` +
-              `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
-              `max-width:var(--agent-kit-conversation-max-width);` +
-              `margin-left:auto;margin-right:auto;width:100%;}` +
-              `[data-agent-fullscreen='true'] .agent-composer-area:not(.agent-composer-area--compact){` +
-              `padding-left:0;padding-right:0;}` +
-              `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,` +
-              `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion-error--composer{` +
-              `max-width:var(--agent-kit-conversation-max-width);` +
-              `margin-left:auto;margin-right:auto;width:100%;}`,
-          }}
-        />
         {/* Framework onboarding — appears above the chat, CLI, and resources tabs
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user dismisses
@@ -2521,8 +2269,6 @@ function AgentPanelInner({
                 assistantChatProps.suggestionPlacement ?? "context-chips"
               }
               onSwitchToCli={() => switchMode("cli")}
-              execMode={execMode}
-              onExecModeChange={switchExecMode}
               storageKey={storageKey}
               restoreActiveThread={restoreActiveThread}
               scope={scope}
@@ -2548,8 +2294,13 @@ function AgentPanelInner({
             >
               <Suspense
                 fallback={
-                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    {t("agentPanel.loadingTerminal")}
+                  <div role="status" className="flex h-full flex-col gap-2 p-3">
+                    <span className="sr-only">
+                      {t("agentPanel.loadingTerminal")}
+                    </span>
+                    <Skeleton className="h-4 w-3/5" />
+                    <Skeleton className="h-4 w-4/5" />
+                    <Skeleton className="h-4 w-2/5" />
                   </div>
                 }
               >
@@ -2596,12 +2347,26 @@ function AgentPanelInner({
           <div className="flex flex-1 flex-col min-h-0">
             <Suspense
               fallback={
-                <div className="flex h-full flex-col min-h-0">
+                <div className="flex h-full flex-col min-h-0" aria-hidden>
                   <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
                     <div className="flex items-center gap-1">
-                      <div className="h-5 w-16 rounded bg-muted animate-pulse" />
-                      <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+                      <Skeleton className="h-5 w-16 rounded" />
+                      <Skeleton className="h-5 w-14 rounded" />
                     </div>
+                  </div>
+                  <div className="flex flex-col gap-1 p-2">
+                    {[64, 48, 56, 40].map((width) => (
+                      <div
+                        key={width}
+                        className="flex h-7 items-center gap-2 px-1"
+                      >
+                        <Skeleton className="size-4 shrink-0 rounded" />
+                        <Skeleton
+                          className="h-3.5"
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               }

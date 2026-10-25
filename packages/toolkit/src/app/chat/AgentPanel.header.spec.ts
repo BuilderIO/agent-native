@@ -1113,7 +1113,6 @@ describe("AgentPanel header overflow actions", () => {
       source.indexOf("const renderPageChatOverlay"),
     );
 
-    expect(overflowMenu).toContain("<IconShare3");
     expect(overflowMenu).toContain("setShareFromMenuOpen(true)");
     expect(overflowMenu).not.toContain('trigger="label-icon"');
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
@@ -1145,9 +1144,6 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("if (open && !showWhenOpen) return null");
     expect(source).toContain("aria-pressed={open}");
     expect(source).toContain('data-state={open ? "open" : "closed"}');
-    expect(source).toContain(
-      "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
-    );
     expect(source).not.toContain("IconLayoutSidebarRightExpand");
     expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
     expect(source).toContain("showCollapseButton={showCollapseButton}");
@@ -1165,15 +1161,6 @@ describe("AgentPanel header overflow actions", () => {
       "cliTabs.filter((id) => mountedCliTabs.includes(id))",
     );
     expect(source).toContain("previousDefaultModeRef.current === defaultMode");
-  });
-
-  it("only shows tabs for the active desktop surface", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(/\{mode === "chat" &&\s+mainTabs\.map/);
-    expect(source).toMatch(/\{mode === "cli" &&\s+cliTabs\.map/);
   });
 });
 

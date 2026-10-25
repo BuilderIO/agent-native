@@ -1,18 +1,13 @@
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
-  IconArrowUp,
   IconCheck,
   IconChevronDown,
-  IconChevronRight,
   IconBulb,
   IconClock,
   IconBolt,
   IconTool,
   IconX,
   IconClipboardList,
-  IconKey,
-  IconPencil,
-  IconHelpCircle,
   IconAlertCircle,
   IconLoader2,
   IconRefresh,
@@ -34,14 +29,27 @@ import React, {
 } from "react";
 import { toast } from "sonner";
 
+import { Button } from "../ui/button.js";
 import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "../ui/popover.js";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuTrailing,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu.js";
+import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
+import { ComposerNotice } from "./composer-notice.js";
 import {
   searchComposerContextActions,
   type ComposerContextMenuItem,
@@ -63,10 +71,16 @@ import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import {
+  curateModelPickerRows,
   filterModelGroupsForAgent,
   isClaudeCodeAgentId,
   resolvePreferredAgentModel,
 } from "./model-selection.js";
+import {
+  hasModelDetails,
+  RecommendedBadge,
+  ModelDetailsCard,
+} from "./ModelPickerParts.js";
 import {
   createPastedAttachmentFile,
   readClipboardPaste,
@@ -79,6 +93,7 @@ import {
   formatPromptContextItems,
   getReasoningEffortOptionsForModel,
   getComposerReferenceEventTarget,
+  type ComposerModelDescription,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type AgentChatContextItem,
@@ -99,9 +114,18 @@ import type {
 } from "./types.js";
 import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
-import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
+import {
+  RealtimeVoiceModeBoundary,
+  useRealtimeVoiceModeCopy,
+  useRealtimeVoiceModeOptional,
+} from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
-import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+import {
+  ComposerSendButton,
+  isVoiceRecordingActive,
+  VoiceButton,
+  VoiceRecordingOverlay,
+} from "./VoiceButton.js";
 /**
  * What a send would take from the composer at one moment, so a host that held
  * a send back can tell the draft it held from one the person kept editing.
@@ -232,6 +256,31 @@ export interface TiptapComposerSubmitOptions {
   onLocalSubmit?: () => void;
   /** Mode instructions, separate from provider-owned context awaiting revalidation. */
   composerModeContext?: string;
+  /** Id `onSubmitStart` returned, so the sent message can be matched to its placeholder. */
+  submissionId?: string;
+  /** Set when `/plan` asked for this one message to be a read-only plan turn. */
+  requestMode?: "plan";
+}
+
+export interface ComposerSubmitStartAttachment {
+  id: string;
+  name: string;
+  contentType?: string;
+  file?: Blob;
+}
+
+/** What the user sent, captured before any preflight or host await. */
+export interface ComposerSubmitStart {
+  text: string;
+  references: Reference[];
+  attachments: readonly ComposerSubmitStartAttachment[];
+  intent: ComposerSubmitIntent;
+}
+
+export interface ComposerSubmitStartHandle {
+  id: string;
+  /** Called once the submit settles, whether it was sent, refused or failed. */
+  end: () => void;
 }
 
 export function canSubmitComposerContent(options: {
@@ -265,13 +314,6 @@ export function canRemoveVoicePreview(options: {
     return false;
   }
   return options.currentText === options.previewText;
-}
-
-export function resolveComposerPrimaryAction(options: {
-  canSubmit: boolean;
-  hasStopButton: boolean;
-}): "send" | "stop" {
-  return !options.canSubmit && options.hasStopButton ? "stop" : "send";
 }
 
 export function getComposerSendTooltipKey(
@@ -633,6 +675,17 @@ export function getComposerPopoverPosition(
   }
 }
 
+/** True when the document holds nothing at all, not even an inline atom. */
+export function isComposerDocEmpty(doc: {
+  childCount: number;
+  firstChild: { childCount: number } | null;
+}): boolean {
+  return (
+    doc.childCount === 0 ||
+    (doc.childCount === 1 && (doc.firstChild?.childCount ?? 0) === 0)
+  );
+}
+
 export function getComposerPopoverAnchorPosition(
   view: Pick<EditorView, "coordsAtPos" | "dom">,
   pos: number,
@@ -805,7 +858,23 @@ export function handleComposerFileDrop(options: {
   return true;
 }
 
-function builtInCommands(t: ComposerTranslate): SlashCommand[] {
+/** Handled by the composer itself: it marks only the next message as a plan. */
+const PLAN_SLASH_COMMAND = "plan";
+
+function planSlashCommand(t: ComposerTranslate): SlashCommand {
+  return {
+    name: PLAN_SLASH_COMMAND,
+    description: t("agentChat.commands.planNext", {
+      defaultValue: "Plan the next message",
+    }),
+    icon: "plan",
+  };
+}
+
+function builtInCommands(
+  t: ComposerTranslate,
+  { planCommand = false }: { planCommand?: boolean } = {},
+): SlashCommand[] {
   return [
     {
       name: "clear",
@@ -828,20 +897,7 @@ function builtInCommands(t: ComposerTranslate): SlashCommand[] {
       }),
       icon: "history",
     },
-    {
-      name: "plan",
-      description: t("agentChat.commands.plan", {
-        defaultValue: "Switch to read-only planning",
-      }),
-      icon: "plan",
-    },
-    {
-      name: "act",
-      description: t("agentChat.commands.act", {
-        defaultValue: "Switch back to acting",
-      }),
-      icon: "act",
-    },
+    ...(planCommand ? [planSlashCommand(t)] : []),
     {
       name: "help",
       description: t("agentChat.commands.help", {
@@ -1015,24 +1071,47 @@ function ComposerModeChip({
 }) {
   const t = useComposerRuntimeAdapters().translate!;
   const config = localizedComposerModeConfig(mode, t);
-  const Icon = config.icon;
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground">
+    <ComposerChip
+      icon={config.icon}
+      label={config.label}
+      removeLabel={t("agentChat.common.cancel", { defaultValue: "Cancel" })}
+      onRemove={onRemove}
+    />
+  );
+}
+
+function ComposerChip({
+  icon: Icon,
+  label,
+  removeLabel,
+  onRemove,
+  slot,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  removeLabel: string;
+  onRemove: () => void;
+  slot?: string;
+}) {
+  return (
+    <span
+      data-agent-composer-slot={slot}
+      className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 text-xs font-medium text-foreground"
+    >
       <Icon className="h-3 w-3 text-muted-foreground" />
-      {config.label}
+      {label}
       <button
         type="button"
         onClick={onRemove}
-        aria-label={t("agentChat.common.cancel", { defaultValue: "Cancel" })}
-        className="ms-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
+        aria-label={removeLabel}
+        className="-my-1 -me-1.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
       >
-        <IconX className="h-3 w-3" />
+        <IconX aria-hidden="true" className="h-3 w-3" />
       </button>
     </span>
   );
 }
-
-type ExecMode = "build" | "plan";
 
 export interface ComposerAgentOption {
   /** Stable host-defined identifier for the agent runtime. */
@@ -1050,7 +1129,15 @@ export interface ComposerAgentOption {
 }
 
 export interface TiptapComposerProps {
+  /**
+   * Placeholder for an empty thread. With `conversationStarted` it yields to
+   * `replyPlaceholder`; without it, it is the only placeholder.
+   */
   placeholder?: string;
+  /** Placeholder once the thread has messages. Defaults to "Reply…". */
+  replyPlaceholder?: string;
+  /** The thread already has messages, so the composer reads as a reply. */
+  conversationStarted?: boolean;
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
   disabled?: boolean;
@@ -1098,6 +1185,17 @@ export interface TiptapComposerProps {
     draft?: ComposerDraftSnapshot,
   ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
+  /**
+   * Called synchronously when a submit takes its draft, before `onBeforeSubmit`
+   * or `onSubmit` await anything. Return a handle to own an optimistic copy of
+   * the message; its attachments then leave the strip until the submit settles.
+   * The owner also reports an `onSubmit` failure, so the composer adds none.
+   */
+  onSubmitStart?: (
+    submission: ComposerSubmitStart,
+  ) => ComposerSubmitStartHandle | undefined;
+  /** Attachments an optimistic message is showing; hide them from the draft. */
+  onOptimisticAttachmentsChange?: (attachmentIds: readonly string[]) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
   /**
@@ -1117,6 +1215,11 @@ export interface TiptapComposerProps {
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
   onEscape?: () => void;
+  /**
+   * ArrowUp in an empty composer with the caret at the start. Return true when
+   * the host started editing the last sent message, so the key is consumed.
+   */
+  onRecallLastMessage?: () => boolean;
   onFocus?: () => void;
   onBlur?: () => void;
   onSelectionChange?: (selection: ComposerTextSelection) => void;
@@ -1124,11 +1227,18 @@ export interface TiptapComposerProps {
   actionButton?: React.ReactNode;
   /** Whether the default send action will wait behind existing work. */
   willQueue?: boolean;
+  /**
+   * A draft sent while an earlier one is still being submitted goes out as a
+   * queued send behind it. Without this the composer waits for the earlier
+   * submission before it takes another.
+   */
+  queuesBehindSubmission?: boolean;
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
-   * Stop control shown instead of the disabled send button while the composer
-   * has no sendable content. Typing or attaching content restores send.
+   * Stop control rendered beside send while a run is active, whatever the
+   * draft holds. Pass it only while there is something to stop; Escape in the
+   * editor clicks it when it is enabled.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
@@ -1137,6 +1247,13 @@ export interface TiptapComposerProps {
   modeControl?: React.ReactNode;
   /** Explicit host-owned toolbar slot rendered next to the attachment affordance. */
   toolbarSlot?: React.ReactNode;
+  /**
+   * Context usage control rendered just before the model chip. The composer
+   * never fetches usage itself.
+   */
+  contextUsageSlot?: React.ReactNode;
+  /** Host-owned row rendered inside the frame, above the editor. */
+  headerSlot?: React.ReactNode;
   /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
   layoutVariant?: AgentComposerLayoutVariant;
   /** Additional slash commands surfaced in the shared / menu. */
@@ -1149,14 +1266,12 @@ export interface TiptapComposerProps {
   includeDefaultSlashSkills?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
-  /** Current execution mode (build/plan) */
-  execMode?: ExecMode;
-  /** Callback to change execution mode */
-  onExecModeChange?: (mode: ExecMode) => void;
-  /** Disable Plan mode while leaving Act mode available. */
-  planModeDisabled?: boolean;
-  /** Explanation shown next to the disabled Plan option. */
-  planModeDisabledReason?: string;
+  /**
+   * Offer `/plan`, which sends only the next message as a read-only plan turn
+   * through `requestMode` in the submit options. Opt in only when the submit
+   * handler honors `requestMode`.
+   */
+  planCommand?: boolean;
   /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
@@ -1209,6 +1324,11 @@ export interface TiptapComposerProps {
   onConnectProvider?: () => void;
   /** Route local runtime setup through the host's native bridge. */
   onConnectLocalRuntime?: (engine: string) => void;
+  /**
+   * A provider setup card is on screen for this composer. The model control
+   * then hides while it would only repeat the card's connect choices.
+   */
+  setupCardVisible?: boolean;
   /**
    * Optional secondary model menu (e.g. an image-generation model) rendered as
    * an extra section inside the model picker. Opt-in; omit for chat-only apps.
@@ -1380,118 +1500,12 @@ export function createTiptapComposerExtensions(
       placeholder: () => getPlaceholder() ?? "",
       emptyEditorClass: "is-editor-empty",
       showOnlyCurrent: false,
+      showOnlyWhenEditable: false,
     }),
     FileReference,
     SkillReference,
     MentionReference,
   ];
-}
-
-function ModeSelector({
-  mode,
-  onChange,
-  planModeDisabled = false,
-  planModeDisabledReason,
-}: {
-  mode: ExecMode;
-  onChange: (mode: ExecMode) => void;
-  planModeDisabled?: boolean;
-  planModeDisabledReason?: string;
-}) {
-  const t = useComposerRuntimeAdapters().translate!;
-  const [open, setOpen] = useState(false);
-  const resolvedPlanModeDisabledReason =
-    planModeDisabledReason ??
-    t("agentChat.composer.planDesktopRequired", {
-      defaultValue: "Open Agent-Native Desktop to use Plan mode.",
-    });
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={
-            mode === "build"
-              ? t("agentChat.composer.actMode", { defaultValue: "Act mode" })
-              : t("agentChat.plan.mode", { defaultValue: "Plan mode" })
-          }
-          data-agent-composer-slot="mode-button"
-          className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-        >
-          {mode === "build"
-            ? t("agentChat.plan.act", { defaultValue: "Act" })
-            : t("agentChat.composer.plan", { defaultValue: "Plan" })}
-          <IconChevronDown className="h-3 w-3 opacity-60" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="end"
-        sideOffset={6}
-        collisionPadding={8}
-        data-agent-native-composer-popover="true"
-        className="z-[260] w-60 rounded-lg border-border p-0 py-1 shadow-lg"
-        style={{ fontSize: 13 }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            onChange("build");
-            setOpen(false);
-          }}
-          className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-start"
-        >
-          <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground text-[13px]">
-              {t("agentChat.plan.act", { defaultValue: "Act" })}
-            </span>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {t("agentChat.composer.actDescription", {
-                defaultValue: "Use tools and make approved changes",
-              })}
-            </p>
-          </div>
-          {mode === "build" && (
-            <IconCheck className="size-4 shrink-0 text-primary" />
-          )}
-        </button>
-        <button
-          type="button"
-          disabled={planModeDisabled}
-          title={planModeDisabled ? resolvedPlanModeDisabledReason : undefined}
-          onClick={() => {
-            if (planModeDisabled) return;
-            onChange("plan");
-            setOpen(false);
-          }}
-          className={`flex w-full items-center gap-3 px-3 py-2 text-start ${
-            planModeDisabled
-              ? "cursor-not-allowed opacity-60"
-              : "hover:bg-accent/50"
-          }`}
-        >
-          <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground text-[13px]">
-              {t("agentChat.composer.plan", { defaultValue: "Plan" })}
-            </span>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {planModeDisabled
-                ? resolvedPlanModeDisabledReason
-                : t("agentChat.composer.planDescription", {
-                    defaultValue: "Read-only research and approval first",
-                  })}
-            </p>
-          </div>
-          {mode === "plan" && !planModeDisabled && (
-            <IconCheck className="size-4 shrink-0 text-primary" />
-          )}
-        </button>
-      </PopoverContent>
-    </Popover>
-  );
 }
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
@@ -1622,15 +1636,16 @@ const HARNESS_AGENTS_DOCS_URL =
   "https://www.agent-native.com/docs/harness-agents";
 
 export const MODEL_SELECTOR_POPOVER_STYLE = {
-  fontSize: 13,
-  maxHeight: "min(500px, var(--radix-popover-content-available-height, 500px))",
+  maxHeight:
+    "min(500px, var(--radix-dropdown-menu-content-available-height, 500px))",
 } satisfies React.CSSProperties;
 
-const MODEL_SELECTOR_POPOVER_CLASS =
-  "box-border w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none";
-const PICKER_HELP_BUTTON_CLASS =
-  "flex size-3 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground";
-const PICKER_HELP_ICON_CLASS = "size-2";
+type ModelPickerSection = "more" | "effort" | "image" | "agent" | "mode";
+const MODEL_PICKER_STACK_BELOW_PX = 544;
+// The shared menu primitives as they come; only the stacking order and a
+// scrollable height are added, since the composer sits above app overlays.
+const MODEL_SELECTOR_MENU_CLASS = "z-[9999] overflow-y-auto";
+const MODEL_PICKER_TWO_LINE_ITEM_CLASS = "flex-col items-start gap-0 py-1.5";
 
 /**
  * With nothing connected, every family is a dead "needs API key" row, so the
@@ -1737,36 +1752,6 @@ export function compactComposerModelName(
   return shortName || fullName;
 }
 
-export function compactComposerReasoningEffortLabel(
-  effort: ReasoningEffort,
-  t?: ComposerTranslate,
-): string {
-  if (effort === "medium" || effort === "auto") {
-    return (
-      t?.("agentChat.composer.reasoningMediumShort", {
-        defaultValue: "Med",
-      }) ?? "Med"
-    );
-  }
-  if (effort === "minimal") {
-    return (
-      t?.("agentChat.composer.reasoningMinimalShort", {
-        defaultValue: "Min",
-      }) ?? "Min"
-    );
-  }
-  if (effort === "xhigh") {
-    return (
-      t?.("agentChat.composer.reasoningExtraHighShort", {
-        defaultValue: "XHigh",
-      }) ?? "XHigh"
-    );
-  }
-  return t
-    ? localizedReasoningEffortLabel(t, effort, reasoningEffortLabel(effort))
-    : reasoningEffortLabel(effort);
-}
-
 function localizedReasoningEffortLabel(
   t: ComposerTranslate,
   effort: ReasoningEffort,
@@ -1790,104 +1775,6 @@ function localizedReasoningEffortLabel(
     case "max":
       return t("agentChat.composer.reasoningEffort.max", { defaultValue });
   }
-}
-
-function versionedModelFamily(
-  model: string,
-): { family: string; version: number[] } | undefined {
-  const id = model.replace(/^(?:anthropic|openai|google)\//i, "");
-  const claude = id.match(
-    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?/,
-  );
-  if (claude) {
-    return {
-      family: `claude-${claude[1]}`,
-      version: [Number(claude[2]), Number(claude[3] ?? 0)],
-    };
-  }
-  const gpt = id.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
-  if (gpt?.[3]) {
-    return {
-      family: `gpt-${gpt[3]}`,
-      version: [Number(gpt[1]), Number(gpt[2] ?? 0)],
-    };
-  }
-  const gemini = id.match(/^gemini-(\d+)(?:[.-](\d+))?-(.+?)(?:-preview)?$/);
-  if (gemini) {
-    return {
-      family: `gemini-${gemini[3]}`,
-      version: [Number(gemini[1]), Number(gemini[2] ?? 0)],
-    };
-  }
-  return undefined;
-}
-
-function compareModelVersions(
-  left: readonly number[],
-  right: readonly number[],
-) {
-  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-    const difference = (left[i] ?? 0) - (right[i] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
-
-/** Keep the newest version of each Claude, Gemini, and GPT tier. */
-function latestModelsOnly(models: readonly string[]): string[] {
-  const latest = new Map<string, { id: string; version: number[] }>();
-  for (const id of models) {
-    const candidate = versionedModelFamily(id);
-    if (!candidate) continue;
-    const current = latest.get(candidate.family);
-    if (
-      !current ||
-      compareModelVersions(candidate.version, current.version) > 0
-    ) {
-      latest.set(candidate.family, { id, version: candidate.version });
-    }
-  }
-  const latestIds = new Set([...latest.values()].map(({ id }) => id));
-  return models.filter((id) => !versionedModelFamily(id) || latestIds.has(id));
-}
-
-/**
- * Coarse relative cost per model, rendered as a quiet `$`…`$$$` suffix.
- *
- * Tokens and their order mirror `MODEL_COST_ORDER` in `@agent-native/core`'s
- * chat-model-groups, which sorts these same rows — the toolkit cannot import
- * from core, so a new model family has to be added in both places. Tiers are
- * each provider's own entry/mid/flagship ladder, not a cross-provider price
- * claim; anything unlisted has no tier rather than a guessed one.
- */
-const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
-  ["luna", 1],
-  ["terra", 2],
-  ["sol", 3],
-  ["haiku", 1],
-  ["sonnet", 2],
-  ["opus", 3],
-  ["fable", 3],
-  ["flash", 1],
-  ["pro", 3],
-];
-
-export function composerModelCostTier(model: string): 1 | 2 | 3 | undefined {
-  const normalized = model.toLowerCase();
-  return MODEL_COST_TIERS.find(([token]) => normalized.includes(token))?.[1];
-}
-
-function ModelCostTier({ model }: { model: string }) {
-  const t = useComposerRuntimeAdapters().translate!;
-  const tier = composerModelCostTier(model);
-  if (!tier) return null;
-  const costLabel =
-    tier === 1
-      ? t("agentChat.composer.costLower", { defaultValue: "Lower cost" })
-      : tier === 2
-        ? t("agentChat.composer.costMedium", { defaultValue: "Medium cost" })
-        : t("agentChat.composer.costHigher", { defaultValue: "Higher cost" });
-  return <span className="sr-only">{costLabel}</span>;
 }
 
 /**
@@ -1916,6 +1803,26 @@ export function getComposerReasoningEffortOptions(
     : getReasoningEffortOptionsForModel(model);
 }
 
+interface ModelPickerRow {
+  key: string;
+  model: string;
+  engine: string;
+  label: string;
+  /** The card's title: the row's name without a provider suffix. */
+  cardName: string;
+  /** Marked with the Recommended badge (Auto). */
+  recommended?: boolean;
+  description?: ComposerModelDescription;
+  identity: string;
+  recommendedRank?: number;
+  rootRank?: number;
+  provider?: string;
+}
+
+function useNoLiveModelDescriptions(): undefined {
+  return undefined;
+}
+
 function ModelSelector({
   model,
   effort,
@@ -1937,6 +1844,7 @@ function ModelSelector({
   onConnectLocalRuntime,
   terminalModeControl,
   imageModel,
+  setupCardVisible = false,
 }: {
   model: string;
   selectedEngine?: string;
@@ -1966,10 +1874,20 @@ function ModelSelector({
   onModelSelectorOpenChange?: (open: boolean) => void;
   imageModel?: ComposerImageModelMenu;
   open?: boolean;
+  setupCardVisible?: boolean;
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const formatNumber = adapters.formatNumber!;
   const reasoning = adapters.models?.reasoning;
+  const engineNames = useMemo(
+    () => engines.map((group) => group.engine),
+    [engines],
+  );
+  const useLiveDescribe =
+    adapters.models?.useDescribeModel ?? useNoLiveModelDescriptions;
+  const describeModel =
+    useLiveDescribe(engineNames) ?? adapters.models?.describe;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -2047,13 +1965,21 @@ function ModelSelector({
     preferredAgentModel,
     selectedModelIsAvailable,
   ]);
+  const effortOptionsFor = useCallback(
+    (candidate: string, engine: string | undefined): ReasoningEffort[] =>
+      describeModel
+        ? describeModel(candidate, engine).efforts
+        : (reasoning?.getOptionsForModel?.(candidate) ??
+          getComposerReasoningEffortOptions(candidate)),
+    [describeModel, reasoning],
+  );
   const effortOptions = agentOnly
     ? []
-    : (reasoning?.getOptionsForModel?.(model) ??
-      getComposerReasoningEffortOptions(model));
-  const selectedEffort =
-    reasoning?.resolve?.(model, effort) ??
-    resolveReasoningEffortSelection(model, effort ?? defaultEffort);
+    : effortOptionsFor(model, selectedEngine);
+  const resolveEffort = (candidate: string, value?: ReasoningEffort) =>
+    reasoning?.resolve?.(candidate, value) ??
+    resolveReasoningEffortSelection(candidate, value);
+  const selectedEffort = resolveEffort(model, effort ?? defaultEffort);
   const effortLabel = useCallback(
     (value: ReasoningEffort) =>
       localizedReasoningEffortLabel(
@@ -2068,21 +1994,27 @@ function ModelSelector({
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
-  const [detailSection, setDetailSection] = useState<
-    "agent" | "model" | "effort" | "mode" | null
-  >(null);
-  const resolvedSection = detailSection ?? (agentOnly ? "agent" : "model");
+  const [openSection, setOpenSection] = useState<ModelPickerSection | null>(
+    null,
+  );
+  const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
+  const [moreSide, setMoreSide] = useState<"left" | "right">("right");
+  const sectionTriggerRefs = useRef<
+    Partial<Record<ModelPickerSection, HTMLDivElement | null>>
+  >({});
 
   const setPickerOpen = useCallback(
     (nextOpen: boolean) => {
       if (controlledOpen === undefined) setInternalOpen(nextOpen);
-      if (nextOpen) setDetailSection(agentOnly ? "agent" : null);
+      if (!nextOpen) {
+        setOpenSection(null);
+        setHighlightedRow(null);
+      }
       onModelSelectorOpenChange?.(nextOpen);
     },
-    [agentOnly, controlledOpen, onModelSelectorOpenChange],
+    [controlledOpen, onModelSelectorOpenChange],
   );
 
-  const visibleProviderGroups = modelProviderGroups;
   // Keep setup actions visible, but do not show unusable model rows until one
   // provider or local agent is ready.
   const builderFlow = adapters.builder!.useConnectFlow!({
@@ -2127,6 +2059,74 @@ function ModelSelector({
     showProviderActions,
     providerGroups,
   );
+  // Only engines this person can run right now contribute rows; connecting a
+  // provider stays on the setup card and in settings.
+  const availableGroups = useMemo(
+    () => modelProviderGroups.filter((group) => group.configured),
+    [modelProviderGroups],
+  );
+  const modelRows = useMemo(() => {
+    const rows: ModelPickerRow[] = availableGroups.flatMap((group) =>
+      group.models.map((candidate) => {
+        const description = describeModel?.(candidate, group.engine);
+        const label =
+          group.modelDisplayNames?.[candidate] ??
+          description?.shortName ??
+          friendlyModelName(candidate, t);
+        return {
+          key: `${group.engine}\u0000${candidate}`,
+          model: candidate,
+          engine: group.engine,
+          label,
+          cardName: label,
+          description,
+          identity: description?.catalogId ?? candidate,
+          recommendedRank: description?.recommended
+            ? description.recommendedRank
+            : undefined,
+          rootRank: description?.rootRank,
+          provider: description?.provider,
+        };
+      }),
+    );
+    // One model on two engines (Builder credits and a personal key) reads the
+    // same; the provider suffix is what tells the rows apart.
+    const labelCounts = new Map<string, number>();
+    for (const row of rows) {
+      labelCounts.set(row.label, (labelCounts.get(row.label) ?? 0) + 1);
+    }
+    return rows.map((row) => {
+      if ((labelCounts.get(row.label) ?? 0) < 2) return row;
+      const group = availableGroups.find(
+        (candidate) => candidate.engine === row.engine,
+      )!;
+      return {
+        ...row,
+        label: `${row.label} · ${modelProviderGroupLabel(group, availableGroups)}`,
+      };
+    });
+  }, [availableGroups, describeModel, t]);
+  const curatedRows = useMemo(
+    () => curateModelPickerRows(modelRows),
+    [modelRows],
+  );
+  const autoRow: ModelPickerRow | undefined =
+    autoModelGroup?.configured && !isClaudeCodeAgent
+      ? (() => {
+          const description = describeModel?.("auto", autoModelGroup.engine);
+          return {
+            key: "auto",
+            model: "auto",
+            engine: autoModelGroup.engine,
+            label: t("agentChat.composer.auto", { defaultValue: "Auto" }),
+            cardName: t("agentChat.composer.auto", { defaultValue: "Auto" }),
+            recommended: description?.recommended === true,
+            description,
+            identity: "auto",
+          };
+        })()
+      : undefined;
+
   const selectedModelProviderGroups = modelProviderGroups.filter(
     (group) =>
       group.models.includes(model) &&
@@ -2135,42 +2135,33 @@ function ModelSelector({
   const selectedModelDisplayName = selectedModelProviderGroups
     .map((group) => group.modelDisplayNames?.[model])
     .find((displayName) => typeof displayName === "string");
-  const selectedModelProviderGroup =
-    selectedModelProviderGroups.find(
-      (group) => group.engine === selectedEngine,
-    ) ?? selectedModelProviderGroups[0];
+  const selectedModelDescription =
+    model === "auto"
+      ? autoRow?.description
+      : describeModel?.(model, selectedEngine);
+  // With no level chosen the provider's own default applies; name it when
+  // the catalog or the provider says what it is.
+  const providerDefaultEffort = selectedModelDescription?.providerDefaultEffort;
+  const effectiveEffort =
+    selectedEffort === "auto" ? providerDefaultEffort : selectedEffort;
+  const effortValueLabel = effortLabel(effectiveEffort ?? "auto");
   const selectedModelFriendlyName =
-    selectedModelDisplayName ?? friendlyModelName(model, t);
-  const selectedModelHasDuplicateName =
-    selectedModelProviderGroup !== undefined &&
-    modelProviderGroups.some(
-      (group) =>
-        group.engine !== selectedModelProviderGroup.engine &&
-        group.models.some(
-          (candidate) =>
-            (group.modelDisplayNames?.[candidate] ??
-              friendlyModelName(candidate, t)) === selectedModelFriendlyName,
-        ),
-    );
-  const selectedModelProviderLabel =
-    selectedModelProviderGroup &&
-    modelProviderGroupLabel(selectedModelProviderGroup, modelProviderGroups);
-  const selectedModelDisplayLabel = selectedModelHasDuplicateName
-    ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
-    : selectedModelFriendlyName;
+    selectedModelDisplayName ??
+    selectedModelDescription?.name ??
+    friendlyModelName(model, t);
   const selectedModelNeedsConnection =
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
-  const selectedModelName = selectedModelNeedsConnection
-    ? showBuilderAction
-      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-      : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
-    : selectedModelDisplayLabel;
-  const selectedModelLabel = selectedModelName;
+  // One connect label on every surface: hosts differ in which connect paths
+  // they offer, and the picker lists those paths.
   const selectedModelButtonLabel = selectedModelNeedsConnection
-    ? selectedModelLabel
-    : selectedModelFriendlyName;
+    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+    : model === "auto" && autoRow
+      ? autoRow.label
+      : (selectedModelDisplayName ??
+        selectedModelDescription?.shortName ??
+        selectedModelFriendlyName);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2188,28 +2179,557 @@ function ModelSelector({
     [onConnectLocalRuntime, setPickerOpen],
   );
 
+  const hasAgentSection = Boolean(agents && agents.length > 0);
+  // The setup card is the one setup path; a chip offering the same two
+  // choices beside it reads as a second, competing one.
+  if (
+    setupCardVisible &&
+    selectedModelNeedsConnection &&
+    !hasAgentSection &&
+    !terminalModeControl
+  ) {
+    return null;
+  }
+
+  // Two menus side by side need about 34rem; below that a submenu cannot
+  // clear the viewport on either side, so the sections stack in one menu and
+  // the model card, which needs the same room, stays hidden.
+  const stacked =
+    open &&
+    typeof window !== "undefined" &&
+    window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
+
+  const connectItems = showProviderActions ? (
+    <>
+      {showBuilderAction && BuilderConnectPopover ? (
+        <>
+          <BuilderConnectPopover
+            flow={builderFlow}
+            onConnect={(provisionAccount) => {
+              if (onConnectProvider && !provisionAccount) {
+                onConnectProvider();
+              } else {
+                builderFlow.start({ provisionAccount });
+              }
+            }}
+          >
+            <DropdownMenuItem
+              disabled={builderFlow.connecting}
+              // The Builder choice opens its own popover from this row.
+              onSelect={(event) => event.preventDefault()}
+              className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+            >
+              <span className="block font-medium text-foreground">
+                {builderFlow.connecting
+                  ? t("agentPanel.connectingBuilder", {
+                      defaultValue: "Setting up Builder.io…",
+                    })
+                  : t("agentPanel.connectBuilderIo", {
+                      defaultValue: "Use Builder.io",
+                    })}
+              </span>
+              <span className="block agent-kit-caption-copy text-muted-foreground">
+                {t("agentPanel.builderModelCredits", {
+                  defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                })}
+              </span>
+            </DropdownMenuItem>
+          </BuilderConnectPopover>
+          {!onConnectProvider && builderFlow.error && (
+            <p
+              role="alert"
+              className="px-2 pb-2 agent-kit-caption-copy text-destructive"
+            >
+              {builderFlow.error}
+            </p>
+          )}
+        </>
+      ) : null}
+      {showAddKeysAction && (
+        <DropdownMenuItem
+          onSelect={openLlmSettings}
+          className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+        >
+          <span className="block font-medium text-foreground">
+            {t("agentPanel.addOwnKeys", {
+              defaultValue: "Add your own keys",
+            })}
+          </span>
+          <span className="block agent-kit-caption-copy text-muted-foreground">
+            {t("agentPanel.configureProviderKeys", {
+              defaultValue: "Choose a cloud, gateway, or local provider",
+            })}
+          </span>
+        </DropdownMenuItem>
+      )}
+    </>
+  ) : null;
+
+  const agentItems = hasAgentSection ? (
+    <>
+      <DropdownMenuRadioGroup
+        value={selectedAgent ?? "default"}
+        onValueChange={(value) => {
+          onAgentChange?.(value);
+          setPickerOpen(false);
+        }}
+      >
+        {agents!.map((agent) => {
+          const isConfigured = agent.configured !== false;
+          const canConnect = !isConfigured && Boolean(onConnectLocalRuntime);
+          const statusLabel =
+            agent.statusLabel ?? (!isConfigured ? "Unavailable" : undefined);
+          const item = isConfigured ? (
+            <DropdownMenuRadioItem
+              key={agent.id}
+              value={agent.id}
+              indicator="check"
+              disabled={!onAgentChange}
+            >
+              <span className="min-w-0 flex-1 truncate">{agent.label}</span>
+            </DropdownMenuRadioItem>
+          ) : (
+            <DropdownMenuItem
+              key={agent.id}
+              inset
+              disabled={!canConnect}
+              onSelect={() => connectLocalRuntime(agent.id)}
+              className="text-muted-foreground"
+            >
+              <span className="min-w-0 flex-1 truncate">{agent.label}</span>
+              {statusLabel ? (
+                <span className="ms-auto max-w-[6rem] shrink-0 truncate agent-kit-micro-copy text-muted-foreground/70">
+                  {statusLabel}
+                </span>
+              ) : null}
+            </DropdownMenuItem>
+          );
+          return agent.description ? (
+            <Tooltip key={agent.id}>
+              <TooltipTrigger asChild>{item}</TooltipTrigger>
+              <TooltipContent
+                side="left"
+                className="max-w-xs"
+                onEscapeKeyDown={() => setPickerOpen(false)}
+              >
+                {agent.description}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            item
+          );
+        })}
+      </DropdownMenuRadioGroup>
+      <DropdownMenuSeparator className="my-1" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuItem asChild inset>
+            <a href={HARNESS_AGENTS_DOCS_URL} target="_blank" rel="noreferrer">
+              {t("agentChat.composer.learnMoreHarnessAgents", {
+                defaultValue: "Learn more about harness agents",
+              })}
+            </a>
+          </DropdownMenuItem>
+        </TooltipTrigger>
+        <TooltipContent
+          side="left"
+          className="max-w-xs"
+          onEscapeKeyDown={() => setPickerOpen(false)}
+        >
+          {hostedHarness
+            ? t("agentChat.composer.hostedHarnessDescription", {
+                defaultValue:
+                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent-Native Desktop.",
+              })
+            : t("agentChat.composer.harnessAgentDescription", {
+                defaultValue:
+                  "Harnesses run their own coding loop and local tools.",
+              })}
+        </TooltipContent>
+      </Tooltip>
+    </>
+  ) : null;
+
+  const selectModel = (m: string, engine: string) => {
+    onChange(m, engine);
+    const nextOptions = effortOptionsFor(m, engine);
+    if (
+      selectedEffort !== "auto" &&
+      nextOptions.length > 0 &&
+      !nextOptions.includes(selectedEffort)
+    ) {
+      onEffortChange?.(defaultEffort);
+    }
+    setPickerOpen(false);
+  };
+
+  const isSelectedRow = (row: ModelPickerRow) =>
+    row.model === model &&
+    (row.model === "auto" || !selectedEngine || row.engine === selectedEngine);
+
+  const renderModelRow = (
+    row: ModelPickerRow,
+    cardSide: "left" | "right",
+    options: { shortcut?: number; section?: ModelPickerSection } = {},
+  ) => {
+    const { shortcut, section } = options;
+    const selected = isSelectedRow(row);
+    const details = hasModelDetails(row.description)
+      ? row.description
+      : undefined;
+    const cardOpen = !stacked && details && highlightedRow === row.key;
+    const cardId = `${row.key}-card`;
+    const item = (
+      <DropdownMenuItem
+        key={row.key}
+        role="menuitemradio"
+        aria-checked={selected}
+        aria-describedby={cardOpen ? cardId : undefined}
+        data-agent-composer-model-row={row.model}
+        onSelect={() => selectModel(row.model, row.engine)}
+        onFocus={(event) => {
+          setHighlightedRow(row.key);
+          // A submenu row's card goes on the far side of its submenu.
+          const side = event.currentTarget
+            .closest("[data-agent-composer-model-panel]")
+            ?.getAttribute("data-side");
+          if (side === "left" || side === "right") setMoreSide(side);
+        }}
+        onBlur={() =>
+          setHighlightedRow((current) => (current === row.key ? null : current))
+        }
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate">{row.label}</span>
+          {row.recommended ? <RecommendedBadge t={t} /> : null}
+        </span>
+        {shortcut !== undefined ? (
+          // One trailing column: the current row's check takes the place of
+          // its number, at the same width, so no row shifts.
+          <DropdownMenuShortcut>
+            {selected ? <IconCheck aria-hidden="true" /> : shortcut}
+          </DropdownMenuShortcut>
+        ) : (
+          <DropdownMenuTrailing>
+            {selected ? <IconCheck aria-hidden="true" /> : null}
+          </DropdownMenuTrailing>
+        )}
+      </DropdownMenuItem>
+    );
+    if (!details || stacked) return item;
+    return (
+      <Popover key={row.key} open={Boolean(cardOpen)}>
+        <PopoverAnchor asChild>{item}</PopoverAnchor>
+        <PopoverContent
+          id={cardId}
+          role="tooltip"
+          side={cardSide}
+          align="start"
+          sideOffset={8}
+          collisionPadding={8}
+          // The card describes the focused row; focus stays in the menu.
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          // The card is the top layer, so it receives the Escape meant for
+          // the menu under it: close that menu, one level at a time.
+          onEscapeKeyDown={(event) => {
+            if (!section) {
+              setPickerOpen(false);
+              return;
+            }
+            event.preventDefault();
+            setHighlightedRow(null);
+            setOpenSection(null);
+            sectionTriggerRefs.current[section]?.focus();
+          }}
+          data-agent-native-composer-popover="true"
+          className="pointer-events-none z-[9999]"
+        >
+          <ModelDetailsCard
+            name={row.cardName}
+            description={details}
+            t={t}
+            formatNumber={formatNumber}
+          />
+        </PopoverContent>
+      </Popover>
+    );
+  };
+
+  const showModelList =
+    !agentOnly && hasConfiguredProvider && !onlyConnectPathAvailable;
+  const shortcutRows = showModelList
+    ? [...(autoRow ? [autoRow] : []), ...curatedRows.main].slice(0, 9)
+    : [];
+  const moreRows = showModelList ? curatedRows.more : [];
+
+  const primaryItems = (
+    <>
+      {connectItems}
+      {hasConfiguredProvider &&
+        isCodexAgent &&
+        !modelListLoading &&
+        !onlyConnectPathAvailable &&
+        modelProviderGroups.length === 0 && (
+          <DropdownMenuItem
+            inset
+            onSelect={openLlmSettings}
+            className="text-muted-foreground"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {t("agentChat.composer.noOpenAiModels", {
+                defaultValue: "No OpenAI models configured",
+              })}
+            </span>
+            <span className="shrink-0 agent-kit-caption-copy text-muted-foreground/70">
+              Configure
+            </span>
+          </DropdownMenuItem>
+        )}
+      {shortcutRows.map((row, index) =>
+        renderModelRow(row, "left", { shortcut: index + 1 }),
+      )}
+    </>
+  );
+
+  const moreItems =
+    moreRows.length > 0 ? (
+      <>
+        {moreRows.map((row) =>
+          renderModelRow(row, moreSide, {
+            section: stacked ? undefined : "more",
+          }),
+        )}
+      </>
+    ) : null;
+
+  const imageItems =
+    hasConfiguredCloudProviderReady &&
+    imageModel &&
+    imageModel.options.length > 0 ? (
+      <DropdownMenuRadioGroup
+        value={imageModel.value}
+        onValueChange={(value) => {
+          imageModel.onChange(value);
+          setPickerOpen(false);
+        }}
+      >
+        {imageModel.options.map((option) => (
+          <DropdownMenuRadioItem
+            key={option.value}
+            value={option.value}
+            indicator="check"
+          >
+            <span className="min-w-0 flex-1 truncate">{option.label}</span>
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
+    ) : null;
+
+  const modeItems = terminalModeControl ? (
+    <DropdownMenuRadioGroup
+      value={terminalModeControl.enabled ? "cli" : "ui"}
+      onValueChange={(value) => {
+        terminalModeControl.onChange(value === "cli");
+        setPickerOpen(false);
+      }}
+    >
+      <DropdownMenuRadioItem value="ui" indicator="check">
+        {t("agentPanel.uiMode", { defaultValue: "UI" })}
+      </DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="cli" indicator="check">
+        {t("agentPanel.cli", { defaultValue: "CLI" })}
+      </DropdownMenuRadioItem>
+    </DropdownMenuRadioGroup>
+  ) : null;
+
+  const effortItems =
+    effortOptions.length > 0 && showModelList
+      ? effortOptions.map((level) => {
+          const selected = level === effectiveEffort;
+          return (
+            <DropdownMenuItem
+              key={level}
+              role="menuitemradio"
+              aria-checked={selected}
+              data-agent-composer-effort-level={level}
+              onSelect={() => {
+                // Picking the provider's default goes back to sending none,
+                // so the level follows the provider if its default changes.
+                onEffortChange?.(
+                  level === providerDefaultEffort ? "auto" : level,
+                );
+                setPickerOpen(false);
+              }}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="truncate">{effortLabel(level)}</span>
+                {level === providerDefaultEffort ? (
+                  <RecommendedBadge t={t} />
+                ) : null}
+              </span>
+              <DropdownMenuTrailing>
+                {selected ? <IconCheck aria-hidden="true" /> : null}
+              </DropdownMenuTrailing>
+            </DropdownMenuItem>
+          );
+        })
+      : null;
+
+  const sections: Array<{
+    key: ModelPickerSection;
+    label: string;
+    value?: string;
+    content: React.ReactNode;
+  }> = [];
+  if (moreItems) {
+    sections.push({
+      key: "more",
+      label: t("agentChat.composer.moreModels", {
+        defaultValue: "More models",
+      }),
+      content: moreItems,
+    });
+  }
+  if (effortItems) {
+    sections.push({
+      key: "effort",
+      label: t("agentChat.composer.effort", { defaultValue: "Effort" }),
+      value: effortValueLabel,
+      content: effortItems,
+    });
+  }
+  if (imageItems) {
+    sections.push({
+      key: "image",
+      label:
+        imageModel!.label ??
+        t("agentChat.composer.imageModel", { defaultValue: "Image model" }),
+      value: imageModel!.options.find(
+        (option) => option.value === imageModel!.value,
+      )?.label,
+      content: imageItems,
+    });
+  }
+  if (agentItems && !agentOnly) {
+    sections.push({
+      key: "agent",
+      label: t("agentChat.composer.agentSection", { defaultValue: "Agent" }),
+      value: selectedAgentLabel,
+      content: agentItems,
+    });
+  }
+  if (modeItems) {
+    sections.push({
+      key: "mode",
+      label: t("agentPanel.mode", { defaultValue: "Mode" }),
+      value: terminalModeControl!.enabled
+        ? t("agentPanel.cli", { defaultValue: "CLI" })
+        : t("agentPanel.uiMode", { defaultValue: "UI" }),
+      content: modeItems,
+    });
+  }
+
+  const moreSection = sections.find((section) => section.key === "more");
+  const otherSections = sections.filter((section) => section.key !== "more");
+  const renderSection = (
+    section: (typeof sections)[number],
+    leading: boolean,
+  ) =>
+    stacked ? (
+      <DropdownMenuGroup
+        key={section.key}
+        data-agent-composer-model-group={section.key}
+      >
+        {leading || section !== otherSections[0] ? (
+          <DropdownMenuSeparator className="my-1" />
+        ) : null}
+        <DropdownMenuLabel>{section.label}</DropdownMenuLabel>
+        {section.content}
+      </DropdownMenuGroup>
+    ) : (
+      <DropdownMenuSub
+        key={section.key}
+        open={openSection === section.key}
+        onOpenChange={(nextOpen) =>
+          setOpenSection((current) =>
+            nextOpen ? section.key : current === section.key ? null : current,
+          )
+        }
+      >
+        <DropdownMenuSubTrigger
+          ref={(node) => {
+            sectionTriggerRefs.current[section.key] = node;
+          }}
+          data-agent-composer-model-section={section.key}
+        >
+          <span className="min-w-0 flex-1 truncate">{section.label}</span>
+          {section.value ? (
+            <DropdownMenuShortcut>{section.value}</DropdownMenuShortcut>
+          ) : null}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent
+          sideOffset={4}
+          alignOffset={-4}
+          collisionPadding={8}
+          data-agent-native-composer-popover="true"
+          data-agent-composer-model-panel={section.key}
+          // One Escape closes this submenu and returns to its row; the next
+          // closes the picker.
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            setOpenSection(null);
+            sectionTriggerRefs.current[section.key]?.focus();
+          }}
+          className={MODEL_SELECTOR_MENU_CLASS}
+          style={MODEL_SELECTOR_POPOVER_STYLE}
+        >
+          {section.content}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    );
+
+  const hasPrimaryItems = Boolean(connectItems) || shortcutRows.length > 0;
+  const showEffortInLabel =
+    effortOptions.length > 0 &&
+    !selectedModelNeedsConnection &&
+    effectiveEffort !== undefined &&
+    effectiveEffort !== "auto";
+
   return (
-    <Popover open={open} onOpenChange={setPickerOpen}>
-      <PopoverTrigger asChild>
+    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+      <DropdownMenuTrigger asChild>
         <button
           type="button"
           data-agent-composer-slot="model-button"
-          aria-label={`${t("agentChat.composer.model", {
-            defaultValue: "Model",
-          })}: ${selectedModelButtonLabel}${
-            effortOptions.length > 0
+          // Screen readers in browse mode activate with a bare click,
+          // which the menu trigger ignores because it opens on pointer
+          // down.
+          onClick={(event) => {
+            if (event.detail === 0) setPickerOpen(!open);
+          }}
+          aria-label={`${
+            selectedAgentOption && selectedAgentOption.id !== "default"
+              ? t("agentChat.composer.modelButtonWithAgent", {
+                  defaultValue: "{{model}}. Agent: {{agent}}",
+                  model: `${t("agentChat.composer.model", {
+                    defaultValue: "Model",
+                  })}: ${selectedModelButtonLabel}`,
+                  agent: selectedAgentLabel,
+                })
+              : `${t("agentChat.composer.model", {
+                  defaultValue: "Model",
+                })}: ${selectedModelButtonLabel}`
+          }${
+            effortOptions.length > 0 && !selectedModelNeedsConnection
               ? `. ${t("agentChat.composer.effort", {
                   defaultValue: "Effort",
-                })}: ${effortLabel(selectedEffort)}`
-              : ""
-          }${
-            selectedAgentOption && selectedAgentOption.id !== "default"
-              ? `. Agent: ${selectedAgentLabel}`
+                })}: ${effortValueLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-0 max-w-none shrink items-center gap-1 overflow-hidden rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-[var(--agentkit-composer-model-min-width,min(8rem,100%))] max-w-[var(--agentkit-composer-model-max-width,none)] shrink items-center gap-1 overflow-hidden rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] px-[var(--agentkit-composer-toolbar-control-padding-inline,0.5rem)] py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          <span className="min-w-0 truncate">
+          <span className="agent-composer-model-name min-w-0 truncate text-foreground">
             {selectedAgentOption?.icon ? (
               <span className="me-1 inline-flex shrink-0 align-middle text-muted-foreground">
                 {selectedAgentOption.icon}
@@ -2219,641 +2739,55 @@ function ModelSelector({
               ? selectedAgentLabel
               : selectedModelButtonLabel}
           </span>
-          {effortOptions.length > 0 && (
-            <span className="agent-composer-model-effort min-w-0 shrink-0 truncate text-muted-foreground/70">
-              · {compactComposerReasoningEffortLabel(selectedEffort, t)}
+          {showEffortInLabel && (
+            <span className="agent-composer-model-effort shrink-0 text-muted-foreground">
+              {effortLabel(effectiveEffort)}
             </span>
           )}
-          <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+          <IconChevronDown
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 opacity-60"
+          />
         </button>
-      </PopoverTrigger>
-      <PopoverContent
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
         side="top"
         align="end"
         sideOffset={6}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
-        className={`z-[260] overflow-visible ${MODEL_SELECTOR_POPOVER_CLASS}`}
+        className={MODEL_SELECTOR_MENU_CLASS}
         style={MODEL_SELECTOR_POPOVER_STYLE}
+        onKeyDown={(event) => {
+          if (
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            !/^[1-9]$/.test(event.key) ||
+            !event.currentTarget.contains(event.target as Node)
+          ) {
+            return;
+          }
+          const row = shortcutRows[Number(event.key) - 1];
+          if (!row) return;
+          event.preventDefault();
+          selectModel(row.model, row.engine);
+        }}
       >
-        <Popover open={detailSection !== null} onOpenChange={() => undefined}>
-          <PopoverAnchor asChild>
-            <div
-              className="flex flex-col"
-              role="tablist"
-              aria-label={t("agentChat.composer.pickerSections", {
-                defaultValue: "Picker sections",
-              })}
-            >
-              {agents && agents.length > 0 && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resolvedSection === "agent"}
-                  onClick={() => setDetailSection("agent")}
-                  onMouseEnter={() => setDetailSection("agent")}
-                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
-                    resolvedSection === "agent"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  }`}
-                >
-                  <span className="flex min-w-0 items-center">
-                    <span className="shrink-0 text-[12px] font-medium">
-                      Agent
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span
-                          role="img"
-                          aria-label={t("agentChat.composer.harnessAgentHelp", {
-                            defaultValue: "Learn about harness agents",
-                          })}
-                          onClick={(event) => event.stopPropagation()}
-                          className={`ms-1.5 ${PICKER_HELP_BUTTON_CLASS}`}
-                        >
-                          <IconHelpCircle
-                            aria-hidden="true"
-                            className={PICKER_HELP_ICON_CLASS}
-                            strokeWidth={1.8}
-                          />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs">
-                        <span className="block">
-                          {hostedHarness
-                            ? t("agentChat.composer.hostedHarnessDescription", {
-                                defaultValue:
-                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent-Native Desktop.",
-                              })
-                            : t("agentChat.composer.harnessAgentDescription", {
-                                defaultValue:
-                                  "Harnesses run their own coding loop and local tools.",
-                              })}
-                        </span>
-                        <a
-                          href={HARNESS_AGENTS_DOCS_URL}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1 block underline underline-offset-2 hover:no-underline"
-                        >
-                          {t("agentChat.composer.learnMoreHarnessAgents", {
-                            defaultValue: "Learn more about harness agents",
-                          })}
-                        </a>
-                      </TooltipContent>
-                    </Tooltip>
-                  </span>
-                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
-                    {selectedAgentLabel}
-                  </span>
-                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
-                </button>
-              )}
-              {!agentOnly && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resolvedSection === "model"}
-                  onClick={() => setDetailSection("model")}
-                  onMouseEnter={() => setDetailSection("model")}
-                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
-                    resolvedSection === "model"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  }`}
-                >
-                  <span className="shrink-0 text-[12px] font-medium">
-                    Model
-                  </span>
-                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
-                    {selectedModelLabel}
-                  </span>
-                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
-                </button>
-              )}
-              {!agentOnly && effortOptions.length > 0 && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resolvedSection === "effort"}
-                  onClick={() => setDetailSection("effort")}
-                  onMouseEnter={() => setDetailSection("effort")}
-                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
-                    resolvedSection === "effort"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  }`}
-                >
-                  <span className="shrink-0 text-[12px] font-medium">
-                    {t("agentChat.composer.effort", {
-                      defaultValue: "Effort",
-                    })}
-                  </span>
-                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
-                    {effortLabel(selectedEffort)}
-                  </span>
-                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
-                </button>
-              )}
-              {terminalModeControl && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resolvedSection === "mode"}
-                  onClick={() => setDetailSection("mode")}
-                  onMouseEnter={() => setDetailSection("mode")}
-                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
-                    resolvedSection === "mode"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  }`}
-                >
-                  <span className="shrink-0 text-[12px] font-medium">
-                    {t("agentPanel.mode", { defaultValue: "Mode" })}
-                  </span>
-                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
-                    {terminalModeControl.enabled
-                      ? t("agentPanel.cli", { defaultValue: "CLI" })
-                      : t("agentPanel.uiMode", { defaultValue: "UI" })}
-                  </span>
-                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
-                </button>
-              )}
-            </div>
-          </PopoverAnchor>
-          <PopoverContent
-            side="right"
-            align="start"
-            sideOffset={4}
-            alignOffset={-8}
-            collisionPadding={8}
-            className={`z-[320] overflow-visible ${MODEL_SELECTOR_POPOVER_CLASS}`}
-            style={MODEL_SELECTOR_POPOVER_STYLE}
-          >
-            <div className="max-h-[min(500px,var(--radix-popover-content-available-height,500px))] overflow-y-auto">
-              <div
-                className="min-h-0 min-w-0"
-                role="tabpanel"
-                aria-label={resolvedSection}
-              >
-                {resolvedSection === "agent" && agents && (
-                  <div className="flex flex-col">
-                    {agents.map((agent) => {
-                      const isSelected =
-                        agent.id === (selectedAgent ?? "default");
-                      const isConfigured = agent.configured !== false;
-                      const canConnect =
-                        !isConfigured && Boolean(onConnectLocalRuntime);
-                      const statusLabel =
-                        agent.statusLabel ??
-                        (!isConfigured ? "Unavailable" : undefined);
-                      return (
-                        <div
-                          key={agent.id}
-                          className="group flex items-center rounded-md hover:bg-accent/30"
-                        >
-                          <button
-                            type="button"
-                            disabled={!isConfigured || !onAgentChange}
-                            aria-current={isSelected ? "true" : undefined}
-                            onClick={() => {
-                              if (!isConfigured) return;
-                              onAgentChange?.(agent.id);
-                              setPickerOpen(false);
-                            }}
-                            className={`flex min-w-0 flex-1 items-center gap-0.5 px-2 py-2 text-start ${
-                              isConfigured
-                                ? "hover:bg-accent/50"
-                                : "cursor-default opacity-50"
-                            }`}
-                          >
-                            {agent.icon ? (
-                              <span
-                                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
-                                aria-hidden="true"
-                              >
-                                {agent.icon}
-                              </span>
-                            ) : null}
-                            <span
-                              className={`min-w-0 truncate text-[12px] ${
-                                isSelected
-                                  ? "text-foreground"
-                                  : "text-muted-foreground"
-                              }`}
-                            >
-                              {agent.label}
-                            </span>
-                            {agent.description && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span
-                                    role="img"
-                                    aria-label={`${agent.label} details`}
-                                    onClick={(event) => event.stopPropagation()}
-                                    className={PICKER_HELP_BUTTON_CLASS}
-                                  >
-                                    <IconHelpCircle
-                                      aria-hidden="true"
-                                      className={PICKER_HELP_ICON_CLASS}
-                                      strokeWidth={1.8}
-                                    />
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent
-                                  side="left"
-                                  className="max-w-xs"
-                                >
-                                  {agent.description}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            <span
-                              className="min-w-0 flex-1"
-                              aria-hidden="true"
-                            />
-                            {isSelected && isConfigured && (
-                              <IconCheck className="size-4 shrink-0 text-primary" />
-                            )}
-                          </button>
-                          {!isConfigured && statusLabel && (
-                            <button
-                              type="button"
-                              disabled={!canConnect}
-                              className="ms-auto max-w-[6rem] shrink-0 truncate px-2 py-2 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:cursor-default"
-                              onClick={() => {
-                                if (canConnect) connectLocalRuntime(agent.id);
-                              }}
-                            >
-                              {statusLabel}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {resolvedSection === "model" && (
-                  <>
-                    {showProviderActions && (
-                      <>
-                        {showBuilderAction && BuilderConnectPopover ? (
-                          <>
-                            <BuilderConnectPopover
-                              flow={builderFlow}
-                              onConnect={(provisionAccount) => {
-                                if (onConnectProvider && !provisionAccount) {
-                                  onConnectProvider();
-                                } else {
-                                  builderFlow.start({ provisionAccount });
-                                }
-                              }}
-                            >
-                              <button
-                                type="button"
-                                disabled={builderFlow.connecting}
-                                className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
-                              >
-                                {builderFlow.connecting ? (
-                                  <IconLoader2
-                                    aria-hidden="true"
-                                    className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
-                                  />
-                                ) : null}
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-[12px] font-medium text-foreground">
-                                    {builderFlow.connecting
-                                      ? t("agentPanel.connectingBuilder", {
-                                          defaultValue:
-                                            "Setting up Builder.io…",
-                                        })
-                                      : t("agentPanel.connectBuilderIo", {
-                                          defaultValue: "Use Builder.io",
-                                        })}
-                                  </span>
-                                  <span className="block text-[11px] text-muted-foreground">
-                                    {t("agentPanel.builderModelCredits", {
-                                      defaultValue:
-                                        "Free credits for Claude, OpenAI & Gemini",
-                                    })}
-                                  </span>
-                                </span>
-                              </button>
-                            </BuilderConnectPopover>
-                            {!onConnectProvider && builderFlow.error && (
-                              <p
-                                role="alert"
-                                className="px-2 pb-2 ps-8 text-[11px] text-destructive"
-                              >
-                                {builderFlow.error}
-                              </p>
-                            )}
-                          </>
-                        ) : null}
-                        {showAddKeysAction && (
-                          <button
-                            type="button"
-                            onClick={openLlmSettings}
-                            className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                          >
-                            <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-[12px] font-medium text-foreground">
-                                {t("agentPanel.addOwnKeys", {
-                                  defaultValue: "Add your own keys",
-                                })}
-                              </span>
-                              <span className="block text-[11px] text-muted-foreground">
-                                {t("agentPanel.configureProviderKeys", {
-                                  defaultValue:
-                                    "Choose a cloud, gateway, or local provider",
-                                })}
-                              </span>
-                            </span>
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {hasConfiguredCloudProviderReady &&
-                      imageModel &&
-                      imageModel.options.length > 0 && (
-                        <div className="mt-2 pt-1">
-                          <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            {imageModel.label ??
-                              t("agentChat.composer.imageModel", {
-                                defaultValue: "Image model",
-                              })}
-                          </div>
-                          {imageModel.options.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() => {
-                                imageModel.onChange(option.value);
-                                setPickerOpen(false);
-                              }}
-                              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                            >
-                              <span
-                                className={`min-w-0 flex-1 truncate text-[12px] ${
-                                  option.value === imageModel.value
-                                    ? "text-foreground"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
-                                {option.label}
-                              </span>
-                              {option.value === imageModel.value && (
-                                <IconCheck className="size-4 shrink-0 text-primary" />
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    {hasConfiguredProvider &&
-                      isCodexAgent &&
-                      !modelListLoading &&
-                      !onlyConnectPathAvailable &&
-                      modelProviderGroups.length === 0 && (
-                        <button
-                          type="button"
-                          onClick={openLlmSettings}
-                          className="flex w-full items-center rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                        >
-                          <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-                            {t("agentChat.composer.noOpenAiModels", {
-                              defaultValue: "No OpenAI models configured",
-                            })}
-                          </span>
-                          <span className="shrink-0 text-[11px] text-muted-foreground/70">
-                            Configure
-                          </span>
-                        </button>
-                      )}
-                    {hasConfiguredProvider &&
-                      autoModelGroup &&
-                      !onlyConnectPathAvailable && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onChange("auto", autoModelGroup.engine);
-                            setPickerOpen(false);
-                          }}
-                          className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
-                        >
-                          <span
-                            className={`min-w-0 flex-1 truncate text-[13px] ${
-                              model === "auto"
-                                ? "text-foreground"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {t("agentChat.composer.auto", {
-                              defaultValue: "Auto",
-                            })}
-                          </span>
-                          {model === "auto" && (
-                            <IconCheck className="size-4 shrink-0 text-primary" />
-                          )}
-                        </button>
-                      )}
-                    {hasConfiguredProvider &&
-                      !onlyConnectPathAvailable &&
-                      visibleProviderGroups.map((group, groupIndex) => {
-                        const latestModels =
-                          group.engine === "chatgpt-subscription"
-                            ? group.models
-                            : latestModelsOnly(group.models);
-                        const models = group.models.filter(
-                          (candidate) =>
-                            latestModels.includes(candidate) ||
-                            candidate === model,
-                        );
-                        const showProviderLabels =
-                          visibleProviderGroups.length > 1;
-                        const isLocalRuntime =
-                          group.engine === "codex-cli" ||
-                          group.engine === "claude-cli";
-                        const canConnectLocalRuntime =
-                          isLocalRuntime && Boolean(onConnectLocalRuntime);
-                        const statusLabel =
-                          group.statusLabel ??
-                          (!group.configured
-                            ? canConnectLocalRuntime
-                              ? t("agentChat.auth.logIn", {
-                                  defaultValue: "Sign in",
-                                })
-                              : t("agentChat.composer.needsApiKey", {
-                                  defaultValue: "needs API key",
-                                })
-                            : undefined);
-                        return (
-                          <div
-                            key={`${group.engine}:${group.label}`}
-                            className={
-                              showProviderLabels && groupIndex > 0
-                                ? "mt-2 pt-1"
-                                : ""
-                            }
-                          >
-                            {showProviderLabels && (
-                              <div className="group flex items-center px-2 py-1">
-                                <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  {modelProviderGroupLabel(
-                                    group,
-                                    visibleProviderGroups,
-                                  )}
-                                </span>
-                                {!group.configured && statusLabel && (
-                                  <button
-                                    type="button"
-                                    aria-label={statusLabel}
-                                    className="ms-auto max-w-[9rem] shrink-0 cursor-pointer truncate px-0 py-1 text-end text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100"
-                                    onClick={() =>
-                                      canConnectLocalRuntime
-                                        ? connectLocalRuntime(group.engine)
-                                        : openLlmSettings()
-                                    }
-                                  >
-                                    {statusLabel}
-                                  </button>
-                                )}
-                                {group.configured && statusLabel && (
-                                  <span className="ms-auto max-w-[9rem] shrink-0 truncate py-1 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                                    {statusLabel}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            {models.map((m) => {
-                              const isSelected =
-                                m === model && group.configured;
-                              return (
-                                <button
-                                  key={m}
-                                  type="button"
-                                  onClick={() => {
-                                    if (!group.configured) {
-                                      if (canConnectLocalRuntime) {
-                                        connectLocalRuntime(group.engine);
-                                      } else {
-                                        openLlmSettings();
-                                      }
-                                      return;
-                                    }
-                                    onChange(m, group.engine);
-                                    const nextOptions =
-                                      getReasoningEffortOptionsForModel(m);
-                                    if (
-                                      nextOptions.length > 0 &&
-                                      !nextOptions.includes(selectedEffort)
-                                    ) {
-                                      onEffortChange?.(defaultEffort);
-                                    }
-                                    setPickerOpen(false);
-                                  }}
-                                  className={`group flex w-full items-center gap-3 rounded-md px-2 py-2 text-start ${
-                                    group.configured
-                                      ? "hover:bg-accent/50"
-                                      : "cursor-default opacity-40"
-                                  }`}
-                                >
-                                  <span
-                                    className={`min-w-0 flex-1 truncate text-[12px] ${
-                                      isSelected
-                                        ? "text-foreground"
-                                        : "text-muted-foreground"
-                                    }`}
-                                  >
-                                    {group.modelDisplayNames?.[m] ??
-                                      friendlyModelName(m, t)}
-                                  </span>
-                                  <ModelCostTier model={m} />
-                                  {!showProviderLabels && statusLabel && (
-                                    <span className="hidden max-w-[9rem] shrink-0 truncate text-[10px] text-muted-foreground/70 group-hover:inline">
-                                      {statusLabel}
-                                    </span>
-                                  )}
-                                  {isSelected && (
-                                    <IconCheck className="size-4 shrink-0 text-primary" />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                  </>
-                )}
-                {resolvedSection === "effort" && effortOptions.length > 0 && (
-                  <div className="flex flex-col">
-                    {effortOptions.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => onEffortChange?.(option)}
-                        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                      >
-                        <span
-                          className={`min-w-0 flex-1 truncate text-[12px] ${
-                            option === selectedEffort
-                              ? "text-foreground"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {effortLabel(option)}
-                        </span>
-                        {option === selectedEffort && (
-                          <IconCheck className="size-4 shrink-0 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {resolvedSection === "mode" && terminalModeControl && (
-                  <div className="flex flex-col">
-                    {[
-                      {
-                        enabled: false,
-                        label: t("agentPanel.uiMode", { defaultValue: "UI" }),
-                      },
-                      {
-                        enabled: true,
-                        label: t("agentPanel.cli", { defaultValue: "CLI" }),
-                      },
-                    ].map((option) => (
-                      <button
-                        key={option.label}
-                        type="button"
-                        onClick={() => {
-                          terminalModeControl.onChange(option.enabled);
-                          setPickerOpen(false);
-                        }}
-                        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                      >
-                        <span
-                          className={`min-w-0 flex-1 truncate text-[12px] ${
-                            option.enabled === terminalModeControl.enabled
-                              ? "text-foreground"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {option.label}
-                        </span>
-                        {option.enabled === terminalModeControl.enabled && (
-                          <IconCheck className="size-4 shrink-0 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </PopoverContent>
-    </Popover>
+        {agentOnly ? (
+          agentItems
+        ) : (
+          <>
+            {primaryItems}
+            {moreSection ? renderSection(moreSection, true) : null}
+            {otherSections.length > 0 && (hasPrimaryItems || moreSection) ? (
+              <DropdownMenuSeparator className="my-1" />
+            ) : null}
+            {otherSections.map((section) => renderSection(section, false))}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -2864,8 +2798,75 @@ type PopoverState = {
   query: string;
 } | null;
 
-export function TiptapComposer({
+/**
+ * Held by each submit phase. Once a phase's draft has fully left the editor,
+ * what is in the editor is a different message: it can be sent, and it queues
+ * behind the one in flight.
+ */
+type ComposerSubmitLock = { draftReleased: boolean };
+
+function composerSubmitOrder(
+  locks: ReadonlySet<ComposerSubmitLock>,
+): "free" | "behind" | "blocked" {
+  let order: "free" | "behind" = "free";
+  for (const lock of locks) {
+    if (!lock.draftReleased) return "blocked";
+    order = "behind";
+  }
+  return order;
+}
+
+const POPOVER_TOKEN_LEAF = "\ufffc";
+
+/**
+ * The typed "@" or "/" token, read from the document at pick time. The menu
+ * opens a task after its key and its query trails fast typing, so neither its
+ * anchor nor its query is a reliable bound on what is in the editor.
+ */
+function popoverTokenRange(
+  editor: Pick<Editor, "state">,
+  trigger: "@" | "/",
+): { from: number; to: number } {
+  const { state } = editor;
+  const to = state.selection.from;
+  const $to = state.doc.resolve(to);
+  if (!$to.parent.isTextblock) return { from: to, to };
+  const blockStart = $to.start();
+  // One character per inline leaf keeps string offsets equal to positions.
+  const before = state.doc.textBetween(
+    blockStart,
+    to,
+    undefined,
+    POPOVER_TOKEN_LEAF,
+  );
+  for (let index = before.length - 1; index >= 0; index -= 1) {
+    if (before[index] !== trigger) continue;
+    const previous = before[index - 1];
+    if (
+      previous === undefined ||
+      previous === POPOVER_TOKEN_LEAF ||
+      /\s/.test(previous)
+    ) {
+      return { from: blockStart + index, to };
+    }
+  }
+  return { from: to, to };
+}
+
+export function TiptapComposer(props: TiptapComposerProps) {
+  // The provider sits above the composer body so the editor can follow
+  // voice chat: it locks while a session owns the conversation.
+  return (
+    <RealtimeVoiceModeBoundary>
+      <TiptapComposerSurface {...props} />
+    </RealtimeVoiceModeBoundary>
+  );
+}
+
+function TiptapComposerSurface({
   placeholder,
+  replyPlaceholder,
+  conversationStarted = false,
   ariaLabel,
   disabled = false,
   isReferenceTarget,
@@ -2887,27 +2888,29 @@ export function TiptapComposer({
   onEmptySubmit,
   onBeforeSubmit,
   onSubmissionPendingChange,
+  onSubmitStart,
+  onOptimisticAttachmentsChange,
   getSubmitFailureDraftScope,
   clearOnSubmit = true,
   clearOnSubmitImmediately = false,
   onTextChange,
   actionButton,
   willQueue = false,
+  queuesBehindSubmission = false,
   extraActionButton,
   stopButton,
   attachButton,
   modeControl,
   toolbarSlot,
+  contextUsageSlot,
+  headerSlot,
   layoutVariant = "default",
   slashCommands = [],
   slashSkills = [],
   includeDefaultSlashCommands = true,
   includeDefaultSlashSkills = true,
   onSlashCommand,
-  execMode,
-  onExecModeChange,
-  planModeDisabled = false,
-  planModeDisabledReason,
+  planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
   selectedEngine,
@@ -2927,6 +2930,7 @@ export function TiptapComposer({
   providerConnectStatusEnabled,
   onConnectProvider,
   onConnectLocalRuntime,
+  setupCardVisible = false,
   imageModelMenu,
   draftScope,
   contextItems: providedContextItems,
@@ -2945,6 +2949,7 @@ export function TiptapComposer({
   includeDefaultMentionSearch = true,
   onReferencesChange,
   onEscape,
+  onRecallLastMessage,
   onFocus,
   onBlur,
   onSelectionChange,
@@ -2955,6 +2960,13 @@ export function TiptapComposer({
     !(attachmentsEnabled && attachButton);
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const realtimeVoice = useRealtimeVoiceModeOptional();
+  const realtimeVoiceCopy = useRealtimeVoiceModeCopy();
+  const voiceChat =
+    voiceEnabled && realtimeVoice?.active ? realtimeVoice : null;
+  // The realtime session has no text input, so a typed draft would start a
+  // separate run the voice agent never hears.
+  const editorLocked = disabled || voiceChat !== null;
   const initialReferencesRef = useRef(initialReferences);
   initialReferencesRef.current = initialReferences;
   const textChips = useCallback(
@@ -2983,8 +2995,19 @@ export function TiptapComposer({
     text: string;
     runConfigSignature: string;
   } | null>(null);
-  const submitInFlightRef = useRef(false);
+  const submitLocksRef = useRef(new Set<ComposerSubmitLock>());
   const attachmentCleanupPendingRef = useRef(0);
+  const onSubmissionPendingChangeRef = useRef(onSubmissionPendingChange);
+  onSubmissionPendingChangeRef.current = onSubmissionPendingChange;
+  // Submits can overlap, so the host hears only the first start and last end.
+  const pendingSubmitCountRef = useRef(0);
+  const reportSubmissionPending = useCallback((pending: boolean) => {
+    const count = pendingSubmitCountRef.current + (pending ? 1 : -1);
+    pendingSubmitCountRef.current = count;
+    if (count === (pending ? 1 : 0)) {
+      onSubmissionPendingChangeRef.current?.(pending);
+    }
+  }, []);
   const mountedRef = useRef(false);
   useLayoutEffect(() => {
     mountedRef.current = true;
@@ -3045,6 +3068,13 @@ export function TiptapComposer({
       setContextSubmissionError(null);
     }
   }, [composerAttachments, failedAttachmentCleanupSnapshots]);
+  const hasDraft =
+    editorHasText ||
+    slotReferences.length > 0 ||
+    composerAttachments.length > 0;
+  const hasNonTextDraftRef = useRef(false);
+  hasNonTextDraftRef.current =
+    slotReferences.length > 0 || composerAttachments.length > 0;
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
@@ -3059,13 +3089,19 @@ export function TiptapComposer({
         ),
       ),
   });
-  const primaryAction = resolveComposerPrimaryAction({
-    canSubmit: canSend,
-    hasStopButton: Boolean(stopButton),
-  });
+  const stopSlotRef = useRef<HTMLDivElement>(null);
   const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
+  // `/plan` applies to the next send only; the composer acts again after it.
+  const [planNext, setPlanNext] = useState(false);
+  const planNextRef = useRef(false);
+  const setPlanNextState = useCallback((next: boolean) => {
+    planNextRef.current = next;
+    setPlanNext(next);
+  }, []);
+  const hasHeaderRows =
+    Boolean(headerSlot) || Boolean(composerMode) || planNext || hasContextRows;
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -3073,18 +3109,23 @@ export function TiptapComposer({
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
   const composingRef = useRef(false);
+  const voiceCapturingRef = useRef(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const onAttachmentErrorRef = useRef(onAttachmentError);
   // Many standalone prompts pass no handler; a rejected file must still say so.
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
-  const execModeRef = useRef(execMode);
-  execModeRef.current = execMode;
-  const onExecModeChangeRef = useRef(onExecModeChange);
-  onExecModeChangeRef.current = onExecModeChange;
-  const planModeDisabledRef = useRef(planModeDisabled);
-  planModeDisabledRef.current = planModeDisabled;
+  const onSubmitStartRef = useRef(onSubmitStart);
+  onSubmitStartRef.current = onSubmitStart;
+  const onOptimisticAttachmentsChangeRef = useRef(
+    onOptimisticAttachmentsChange,
+  );
+  onOptimisticAttachmentsChangeRef.current = onOptimisticAttachmentsChange;
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+  const onRecallLastMessageRef = useRef(onRecallLastMessage);
+  onRecallLastMessageRef.current = onRecallLastMessage;
 
   const {
     items: mentionItems,
@@ -3161,13 +3202,28 @@ export function TiptapComposer({
   } = useSkills(includeDefaultSlashSkills && popover?.type === "/");
 
   const allSlashCommands = useMemo(() => {
-    // A command without a host callback would be deleted as an invisible no-op.
-    if (!onSlashCommand) return [];
+    // A command without a host callback would be deleted as an invisible
+    // no-op; `/plan` is the one the composer runs itself.
+    if (!onSlashCommand) return planCommand ? [planSlashCommand(t)] : [];
     return mergeSlashCommands([
-      ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
+      ...(includeDefaultSlashCommands
+        ? builtInCommands(t, { planCommand })
+        : planCommand
+          ? [planSlashCommand(t)]
+          : []),
       ...slashCommands,
     ]);
-  }, [includeDefaultSlashCommands, onSlashCommand, slashCommands, t]);
+  }, [
+    includeDefaultSlashCommands,
+    onSlashCommand,
+    planCommand,
+    slashCommands,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (!planCommand) setPlanNextState(false);
+  }, [planCommand, setPlanNextState]);
 
   const allSlashSkills = useMemo(
     () =>
@@ -3217,15 +3273,24 @@ export function TiptapComposer({
   launchersDisabledRef.current = disabled || contextControlsDisabled;
   const onSlashCommandRef = useRef(onSlashCommand);
   onSlashCommandRef.current = onSlashCommand;
-  const announceSlashCommand = useCallback((command: SlashCommand) => {
-    const handler = onSlashCommandRef.current;
-    if (!handler) return;
-    handler(command.name);
-    toast.success(`/${command.name}`, {
-      description: command.description,
-      duration: 1800,
-    });
-  }, []);
+  const planCommandRef = useRef(planCommand);
+  planCommandRef.current = planCommand;
+  const announceSlashCommand = useCallback(
+    (command: SlashCommand) => {
+      if (command.name === PLAN_SLASH_COMMAND && planCommandRef.current) {
+        setPlanNextState(true);
+        return;
+      }
+      const handler = onSlashCommandRef.current;
+      if (!handler) return;
+      handler(command.name);
+      toast.success(`/${command.name}`, {
+        description: command.description,
+        duration: 1800,
+      });
+    },
+    [setPlanNextState],
+  );
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
   const contextItemsRef = useRef(contextItems);
@@ -3546,18 +3611,24 @@ export function TiptapComposer({
   }, [composerRuntime]);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
-  const resolvedPlaceholder = composerMode
-    ? localizedComposerModeConfig(composerMode, t).placeholder
-    : (placeholder ??
-      t("agentChat.composer.messageAgent", {
-        defaultValue: "Message agent...",
-      }));
+  const resolvedPlaceholder = voiceChat
+    ? realtimeVoiceCopy.placeholder
+    : composerMode
+      ? localizedComposerModeConfig(composerMode, t).placeholder
+      : conversationStarted
+        ? (replyPlaceholder ??
+          t("agentChat.composer.replyPlaceholder", { defaultValue: "Reply…" }))
+        : (placeholder ??
+          t("agentChat.composer.newChatPlaceholder", {
+            defaultValue: "Ask anything",
+          }));
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
 
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
-    editable: !disabled,
+    immediatelyRender: false,
+    editable: !editorLocked,
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
@@ -3588,12 +3659,13 @@ export function TiptapComposer({
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,
         "aria-multiline": "true",
-        "aria-disabled": String(disabled || contextControlsDisabled),
+        // Context controls can be off while the editor still takes a draft.
+        "aria-disabled": String(editorLocked),
         role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
         class:
-          "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
+          "agent-composer-prosemirror flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
       },
       handleDOMEvents: {
         compositionstart: () => {
@@ -3617,7 +3689,7 @@ export function TiptapComposer({
           if (popoverStateRef.current) {
             closePopover();
           } else {
-            onEscape?.();
+            onEscapeRef.current?.();
           }
           event.stopPropagation();
           return true;
@@ -3846,17 +3918,35 @@ export function TiptapComposer({
           }
         }
 
-        // Keyboard shortcut toggles Act/Plan mode from inside the editor.
-        if (event.key === "Tab" && event.shiftKey) {
+        // Backspace at the start of an empty draft removes the Plan chip.
+        if (
+          event.key === "Backspace" &&
+          planNextRef.current &&
+          view.state.doc.textContent.trim() === "" &&
+          from === to &&
+          from <= 1
+        ) {
+          setPlanNextState(false);
+          return true;
+        }
+
+        // ArrowUp in an empty composer edits the last sent message. Only a bare
+        // press at the very start counts, so caret movement inside a draft is
+        // never captured.
+        if (
+          event.key === "ArrowUp" &&
+          !event.shiftKey &&
+          !event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          onRecallLastMessageRef.current &&
+          cursorAtStart &&
+          !composerModeRef.current &&
+          !hasNonTextDraftRef.current &&
+          isComposerDocEmpty(view.state.doc) &&
+          onRecallLastMessageRef.current()
+        ) {
           event.preventDefault();
-          const current = execModeRef.current;
-          const cb = onExecModeChangeRef.current;
-          if (current && cb) {
-            const next = current === "build" ? "plan" : "build";
-            if (next !== "plan" || !planModeDisabledRef.current) {
-              cb(next);
-            }
-          }
           return true;
         }
 
@@ -3879,11 +3969,23 @@ export function TiptapComposer({
           return true;
         }
 
-        if (event.key === "Escape" && onEscape) {
+        if (event.key === "Escape" && onEscapeRef.current) {
           event.preventDefault();
           event.stopPropagation();
-          onEscape();
+          onEscapeRef.current();
           return true;
+        }
+
+        if (event.key === "Escape" && !voiceCapturingRef.current) {
+          const stop = stopSlotRef.current?.querySelector<HTMLButtonElement>(
+            "button:not(:disabled)",
+          );
+          if (stop) {
+            event.preventDefault();
+            event.stopPropagation();
+            stop.click();
+            return true;
+          }
         }
 
         // Detect @ trigger — only when preceded by start-of-text, space, or newline
@@ -3900,11 +4002,13 @@ export function TiptapComposer({
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
             const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
+            // The key inserts at `from`; later keys can land before this runs.
+            const startPos = from + 1;
             setTimeout(() => {
               const state: PopoverState = {
                 type: "@",
                 position,
-                startPos: view.state.selection.from,
+                startPos,
                 query: "",
               };
               popoverStateRef.current = state;
@@ -3924,11 +4028,12 @@ export function TiptapComposer({
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
             const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
+            const startPos = from + 1;
             setTimeout(() => {
               const state: PopoverState = {
                 type: "/",
                 position,
-                startPos: view.state.selection.from,
+                startPos,
                 query: "",
               };
               popoverStateRef.current = state;
@@ -4119,161 +4224,251 @@ export function TiptapComposer({
     };
   }, [adapters, insertReferenceIfEmpty, isReferenceTarget]);
 
-  useImperativeHandle(focusRef, () => ({
-    focus() {
-      // An editor inside a hidden session shell cannot take focus, and nothing
-      // re-runs this when the shell is shown. Focus on the first size change.
-      focusComposerEditorWhenVisible(editor);
-    },
-    addAttachment(file: File) {
-      return addAttachmentForCurrentScope(file);
-    },
-    insertText(text: string) {
-      if (!isComposerEditorUsable(editor)) return;
-      editor.commands.setContent(plainTextToDoc(""), { emitUpdate: false });
-      editor.commands.focus("end");
-      if (!document.execCommand("insertText", false, text)) {
-        editor.commands.insertContent(text);
-      }
-    },
-    insertTextAtCursor(text: string) {
-      if (!isComposerEditorUsable(editor)) return;
-      editor.commands.focus();
-      const mention = text === "@" && !launchersDisabledRef.current;
-      let inserted = text;
-      if (mention) {
-        const { from } = editor.state.selection;
-        const before = editor.state.doc.textBetween(
-          Math.max(0, from - 1),
-          from,
-        );
-        if (from > 1 && before !== "" && !/\s/.test(before)) inserted = ` @`;
-      }
-      // The popover anchors on the selection right after this insert, but an
-      // execCommand edit reaches the editor state only once ProseMirror reads
-      // the DOM back, so an @ goes through the editor directly.
-      if (
-        mention ||
-        typeof document.execCommand !== "function" ||
-        !document.execCommand("insertText", false, inserted)
-      ) {
-        editor.commands.insertContent(inserted);
-      }
-      if (!mention) return;
-      const view = editor.view;
-      const startPos = view.state.selection.from;
-      const position = getComposerPopoverAnchorPosition(view, startPos - 1);
-      if (!position) return;
-      const state: PopoverState = {
-        type: "@",
-        position,
-        startPos,
-        query: "",
-      };
-      popoverStateRef.current = state;
-      setPopover(state);
-    },
-    setText(text: string, references?: readonly ComposerTextReference[]) {
-      if (!isComposerEditorUsable(editor)) return;
-      editor.commands.setContent(plainTextToDoc(text, textChips(references)));
-      editor.commands.focus("end");
-      const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
-      setEditorHasText(trimmed.length > 0);
-      updateSlotReferences([]);
-      composerRuntime.setText(trimmed);
-      onTextChangeRef.current?.(trimmed);
-      flushComposerDraft();
-    },
-    submitWithText: (text: string) => submitComposer("immediate", text),
-    submit: () => submitComposer("immediate"),
-    getDraftSnapshot: () => {
-      const { text, references } = extractComposerPayload();
-      return composerDraftSnapshot(
-        text,
-        references,
-        composerRuntime.getState().attachments,
-      );
-    },
-    insertReference,
-    replaceReference(refType, ref) {
-      if (!isComposerEditorUsable(editor)) return;
-      const positions: number[] = [];
-      editor.state.doc.descendants((node: any, pos: number) => {
+  // The editor is created after the first commit, so a host driving the
+  // composer from its own mount effect reaches this handle before the editor
+  // exists. Those calls replay once it does instead of being dropped. The
+  // replay runs a microtask after the usable handle is published, so every
+  // call queues behind a non-empty queue or it would land before earlier ones.
+  const latestHandleRef = useRef<TiptapComposerHandle | null>(null);
+  const callsBeforeEditorRef = useRef<
+    ((handle: TiptapComposerHandle) => void)[]
+  >([]);
+  useEffect(() => {
+    const calls = callsBeforeEditorRef.current;
+    return () => {
+      calls.length = 0;
+    };
+  }, []);
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    if (callsBeforeEditorRef.current.length === 0) return;
+    // Reference chips render through React node views, which flushSync and
+    // cannot do so from inside this effect.
+    queueMicrotask(() => {
+      const handle = latestHandleRef.current;
+      if (!handle || !isComposerEditorUsable(editor)) return;
+      for (const call of callsBeforeEditorRef.current.splice(0)) call(handle);
+    });
+  }, [editor]);
+
+  useImperativeHandle(focusRef, () => {
+    const handle: TiptapComposerHandle = {
+      focus() {
         if (
-          node.type.name === "mentionReference" &&
-          node.attrs.refType === refType
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
         ) {
-          positions.push(pos);
+          callsBeforeEditorRef.current.push((latest) => latest.focus());
+          return;
         }
-      });
-      if (positions.length === 0) {
-        if (ref) insertReference(ref);
-        return;
-      }
-      const referencePosition = positions[0]!;
-      const node = editor.state.doc.nodeAt(referencePosition);
-      if (!node) return;
-      const normalized = ref
-        ? (adapters.agentChat!.normalizeReference!(
-            ref,
-          ) as AgentComposerReference)
-        : null;
-      editor
-        .chain()
-        .focus()
-        .command(({ tr }) => {
-          for (const duplicatePosition of positions.slice(1).reverse()) {
-            const duplicate = tr.doc.nodeAt(duplicatePosition);
-            if (duplicate) {
-              tr.delete(
-                duplicatePosition,
-                duplicatePosition + duplicate.nodeSize,
-              );
+        // An editor inside a hidden session shell cannot take focus, and
+        // nothing re-runs this when the shell is shown. Focus on the first
+        // size change.
+        focusComposerEditorWhenVisible(editor);
+      },
+      addAttachment(file: File) {
+        return addAttachmentForCurrentScope(file);
+      },
+      insertText(text: string) {
+        if (
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
+        ) {
+          callsBeforeEditorRef.current.push((latest) =>
+            latest.insertText(text),
+          );
+          return;
+        }
+        editor.commands.setContent(plainTextToDoc(""), { emitUpdate: false });
+        editor.commands.focus("end");
+        if (!document.execCommand("insertText", false, text)) {
+          editor.commands.insertContent(text);
+        }
+      },
+      insertTextAtCursor(text: string) {
+        if (
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
+        ) {
+          callsBeforeEditorRef.current.push((latest) =>
+            latest.insertTextAtCursor?.(text),
+          );
+          return;
+        }
+        editor.commands.focus();
+        const mention = text === "@" && !launchersDisabledRef.current;
+        let inserted = text;
+        if (mention) {
+          const { from } = editor.state.selection;
+          const before = editor.state.doc.textBetween(
+            Math.max(0, from - 1),
+            from,
+          );
+          if (from > 1 && before !== "" && !/\s/.test(before)) inserted = ` @`;
+        }
+        // The popover anchors on the selection right after this insert, but
+        // an execCommand edit reaches the editor state only once ProseMirror
+        // reads the DOM back, so an @ goes through the editor directly.
+        if (
+          mention ||
+          typeof document.execCommand !== "function" ||
+          !document.execCommand("insertText", false, inserted)
+        ) {
+          editor.commands.insertContent(inserted);
+        }
+        if (!mention) return;
+        const view = editor.view;
+        const startPos = view.state.selection.from;
+        const position = getComposerPopoverAnchorPosition(view, startPos - 1);
+        if (!position) return;
+        const state: PopoverState = {
+          type: "@",
+          position,
+          startPos,
+          query: "",
+        };
+        popoverStateRef.current = state;
+        setPopover(state);
+      },
+      setText(text: string, references?: readonly ComposerTextReference[]) {
+        if (
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
+        ) {
+          callsBeforeEditorRef.current.push((latest) =>
+            latest.setText(text, references),
+          );
+          return;
+        }
+        editor.commands.setContent(plainTextToDoc(text, textChips(references)));
+        editor.commands.focus("end");
+        const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
+        setEditorHasText(trimmed.length > 0);
+        updateSlotReferences([]);
+        composerRuntime.setText(trimmed);
+        onTextChangeRef.current?.(trimmed);
+        flushComposerDraft();
+      },
+      submitWithText: (text: string) => submitComposer("immediate", text),
+      submit: () => submitComposer("immediate"),
+      getDraftSnapshot: () => {
+        const { text, references } = extractComposerPayload();
+        return composerDraftSnapshot(
+          text,
+          references,
+          composerRuntime.getState().attachments,
+        );
+      },
+      insertReference(ref) {
+        if (
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
+        ) {
+          callsBeforeEditorRef.current.push((latest) =>
+            latest.insertReference(ref),
+          );
+          return;
+        }
+        insertReference(ref);
+      },
+      replaceReference(refType, ref) {
+        if (
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
+        ) {
+          callsBeforeEditorRef.current.push((latest) =>
+            latest.replaceReference(refType, ref),
+          );
+          return;
+        }
+        const positions: number[] = [];
+        editor.state.doc.descendants((node: any, pos: number) => {
+          if (
+            node.type.name === "mentionReference" &&
+            node.attrs.refType === refType
+          ) {
+            positions.push(pos);
+          }
+        });
+        if (positions.length === 0) {
+          if (ref) insertReference(ref);
+          return;
+        }
+        const referencePosition = positions[0]!;
+        const node = editor.state.doc.nodeAt(referencePosition);
+        if (!node) return;
+        const normalized = ref
+          ? (adapters.agentChat!.normalizeReference!(
+              ref,
+            ) as AgentComposerReference)
+          : null;
+        editor
+          .chain()
+          .focus()
+          .command(({ tr }) => {
+            for (const duplicatePosition of positions.slice(1).reverse()) {
+              const duplicate = tr.doc.nodeAt(duplicatePosition);
+              if (duplicate) {
+                tr.delete(
+                  duplicatePosition,
+                  duplicatePosition + duplicate.nodeSize,
+                );
+              }
             }
-          }
-          if (normalized) {
-            tr.setNodeMarkup(
-              referencePosition,
-              undefined,
-              mentionReferenceAttrs(normalized),
-            );
-          } else {
-            tr.delete(referencePosition, referencePosition + node.nodeSize);
-          }
-          return true;
-        })
-        .run();
-    },
-    getSelection() {
-      if (!isComposerEditorUsable(editor)) return null;
-      const { from, to, anchor, head } = editor.state.selection;
-      return {
-        start: from,
-        end: to,
-        direction:
-          anchor === head ? "none" : anchor > head ? "backward" : "forward",
-      };
-    },
-    setSelection(start, end = start, direction = "none") {
-      if (!isComposerEditorUsable(editor)) return;
-      const maxPosition = editor.state.doc.content.size;
-      const boundedStart = Math.max(1, Math.min(start, maxPosition));
-      const boundedEnd = Math.max(1, Math.min(end, maxPosition));
-      const anchor = direction === "backward" ? boundedEnd : boundedStart;
-      const head = direction === "backward" ? boundedStart : boundedEnd;
-      editor.commands.focus();
-      editor.view.dispatch(
-        editor.state.tr.setSelection(
-          TextSelection.create(editor.state.doc, anchor, head),
-        ),
-      );
-    },
-    dismissPopover() {
-      if (!popoverStateRef.current) return false;
-      closePopover();
-      return true;
-    },
-  }));
+            if (normalized) {
+              tr.setNodeMarkup(
+                referencePosition,
+                undefined,
+                mentionReferenceAttrs(normalized),
+              );
+            } else {
+              tr.delete(referencePosition, referencePosition + node.nodeSize);
+            }
+            return true;
+          })
+          .run();
+      },
+      getSelection() {
+        if (!isComposerEditorUsable(editor)) return null;
+        const { from, to, anchor, head } = editor.state.selection;
+        return {
+          start: from,
+          end: to,
+          direction:
+            anchor === head ? "none" : anchor > head ? "backward" : "forward",
+        };
+      },
+      setSelection(start, end = start, direction = "none") {
+        if (
+          !isComposerEditorUsable(editor) ||
+          callsBeforeEditorRef.current.length > 0
+        ) {
+          callsBeforeEditorRef.current.push((latest) =>
+            latest.setSelection(start, end, direction),
+          );
+          return;
+        }
+        const maxPosition = editor.state.doc.content.size;
+        const boundedStart = Math.max(1, Math.min(start, maxPosition));
+        const boundedEnd = Math.max(1, Math.min(end, maxPosition));
+        const anchor = direction === "backward" ? boundedEnd : boundedStart;
+        const head = direction === "backward" ? boundedStart : boundedEnd;
+        editor.commands.focus();
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            TextSelection.create(editor.state.doc, anchor, head),
+          ),
+        );
+      },
+      dismissPopover() {
+        if (!popoverStateRef.current) return false;
+        closePopover();
+        return true;
+      },
+    };
+    latestHandleRef.current = handle;
+    return handle;
+  });
 
   const handleSelectMode = useCallback(
     (mode: ComposerMode) => {
@@ -4439,6 +4634,10 @@ export function TiptapComposer({
   });
   const voiceCancelRef = useRef(voice.cancel);
   voiceCancelRef.current = voice.cancel;
+  // Escape cancels dictation through the window listener below; it must not
+  // also stop the run.
+  voiceCapturingRef.current =
+    voice.state === "recording" || voice.state === "starting";
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
@@ -4470,6 +4669,9 @@ export function TiptapComposer({
     }
   }, [voice.state, editor]);
 
+  const voiceChatActiveRef = useRef(false);
+  voiceChatActiveRef.current = voiceChat !== null;
+
   // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
   // while recording. Scoped to avoid firing when focus is outside the app.
   useEffect(() => {
@@ -4485,6 +4687,7 @@ export function TiptapComposer({
         !e.altKey;
       if (isToggleCombo) {
         e.preventDefault();
+        if (voiceChatActiveRef.current) return;
         if (voice.state === "recording" || voice.state === "starting") {
           voice.stop();
         } else if (voice.state !== "transcribing") {
@@ -4607,8 +4810,7 @@ export function TiptapComposer({
 
   const syncComposerRuntimeState = useCallback(
     (text: string, references: Reference[]) => {
-      const requestMode =
-        execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
+      const requestMode = planNextRef.current ? "plan" : undefined;
       const custom: {
         references?: Reference[];
         requestMode?: "act" | "plan";
@@ -4632,7 +4834,7 @@ export function TiptapComposer({
       composerRuntime.setRunConfig(runConfig);
       lastComposerRuntimeSyncRef.current = { text, runConfigSignature };
     },
-    [composerRuntime, execMode],
+    [composerRuntime],
   );
 
   const resetComposerRuntimeState = useCallback(() => {
@@ -4698,16 +4900,23 @@ export function TiptapComposer({
     ],
   );
 
-  const submitComposer = useCallback(
+  const submitComposerOnce = useCallback(
     async (
       intent: ComposerSubmitIntent = "immediate",
-      textOverride?: string,
-      steer = false,
+      textOverride: string | undefined,
+      steer: boolean,
+      optimistic: { handle?: ComposerSubmitStartHandle },
     ): Promise<boolean> => {
-      const submitIntent = steer ? "immediate" : willQueue ? "queued" : intent;
+      let order = composerSubmitOrder(submitLocksRef.current);
+      if (order === "behind" && !queuesBehindSubmission) order = "blocked";
+      const submitIntent = steer
+        ? "immediate"
+        : willQueue || order === "behind"
+          ? "queued"
+          : intent;
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return false;
-      if (submitInFlightRef.current || attachmentCleanupPendingRef.current > 0)
+      if (order === "blocked" || attachmentCleanupPendingRef.current > 0)
         return false;
       if (
         submissionDisabledRef.current ||
@@ -4716,8 +4925,9 @@ export function TiptapComposer({
         return false;
 
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
-      submitInFlightRef.current = true;
-      if (!onBeforeSubmit) onSubmissionPendingChange?.(true);
+      const barrierLock: ComposerSubmitLock = { draftReleased: false };
+      submitLocksRef.current.add(barrierLock);
+      if (!onBeforeSubmit) reportSubmissionPending(true);
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       let attachmentSnapshot: typeof composerAttachments;
       try {
@@ -4738,8 +4948,8 @@ export function TiptapComposer({
         }
         return false;
       } finally {
-        submitInFlightRef.current = false;
-        if (!onBeforeSubmit) onSubmissionPendingChange?.(false);
+        submitLocksRef.current.delete(barrierLock);
+        if (!onBeforeSubmit) reportSubmissionPending(false);
       }
       if (
         !isComposerEditorUsable(ed) ||
@@ -4792,6 +5002,16 @@ export function TiptapComposer({
         draftScopeGenerationRef.current === submittingDraftGeneration;
       let { text: draftText, references } = syncComposerState();
       let text = textOverride ?? draftText;
+      const submittedAsPlan = planNextRef.current;
+      let submittedPlanCleared = false;
+      // Once: after the draft leaves, the chip belongs to the next draft.
+      const clearSubmittedPlan = () => {
+        if (submittedPlanCleared) return;
+        submittedPlanCleared = true;
+        if (submittedAsPlan && mountedRef.current && isCurrentDraftScope()) {
+          setPlanNextState(false);
+        }
+      };
       let attachments = attachmentSnapshot;
       let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
@@ -5023,6 +5243,49 @@ export function TiptapComposer({
 
       if (handleLocalSubmission()) return true;
 
+      const startOptimisticSubmission = () => {
+        const start = onSubmitStartRef.current;
+        if (!start || optimistic.handle) return;
+        const startMode = composerMode
+          ? localizedComposerModeConfig(composerMode, t)
+          : undefined;
+        const handle = start({
+          text: startMode
+            ? displayableComposerModeMessage({
+                messagePrefix: startMode.messagePrefix,
+                trimmedText: trimmed,
+                attachmentCount: attachments.length,
+                attachedContextFallback: t(
+                  "agentChat.composer.useAttachedContext",
+                  { defaultValue: "Use the attached context." },
+                ),
+              })
+            : text,
+          references,
+          attachments: attachments.map((attachment) => ({
+            id: attachment.id,
+            name: attachment.name,
+            ...(attachment.contentType
+              ? { contentType: attachment.contentType }
+              : {}),
+            ...(isBlob(attachment.file) ? { file: attachment.file } : {}),
+          })),
+          intent: submitIntent,
+        });
+        if (!handle) return;
+        optimistic.handle = handle;
+        if (attachments.length) {
+          onOptimisticAttachmentsChangeRef.current?.(
+            attachments.map((attachment) => attachment.id),
+          );
+        }
+      };
+      // A preflight that rereads the editor can still change the text, so the
+      // optimistic copy waits for it; a cleared editor has nothing to reread.
+      if (!onBeforeSubmit || clearedBeforePreflight) {
+        startOptimisticSubmission();
+      }
+
       if (clearedBeforePreflight) {
         cancelActiveVoice();
         clearEditorAfterSubmit(
@@ -5032,7 +5295,10 @@ export function TiptapComposer({
       }
 
       if (onBeforeSubmit) {
-        submitInFlightRef.current = true;
+        const preflightLock: ComposerSubmitLock = {
+          draftReleased: clearedBeforePreflight,
+        };
+        submitLocksRef.current.add(preflightLock);
         try {
           const shouldSubmit = await onBeforeSubmit(
             composerDraftSnapshot(text, references, attachments),
@@ -5055,7 +5321,7 @@ export function TiptapComposer({
           }
           return false;
         } finally {
-          submitInFlightRef.current = false;
+          submitLocksRef.current.delete(preflightLock);
         }
       }
       if (
@@ -5069,8 +5335,9 @@ export function TiptapComposer({
       }
 
       if (onBeforeSubmit && !clearedBeforePreflight) {
-        submitInFlightRef.current = true;
-        onSubmissionPendingChange?.(true);
+        const preflightLock: ComposerSubmitLock = { draftReleased: false };
+        submitLocksRef.current.add(preflightLock);
+        reportSubmissionPending(true);
         let preflightAttachmentSnapshot: typeof composerAttachments;
         try {
           preflightAttachmentSnapshot =
@@ -5089,8 +5356,8 @@ export function TiptapComposer({
           }
           return false;
         } finally {
-          submitInFlightRef.current = false;
-          onSubmissionPendingChange?.(false);
+          submitLocksRef.current.delete(preflightLock);
+          reportSubmissionPending(false);
         }
 
         const current = syncComposerState();
@@ -5132,6 +5399,7 @@ export function TiptapComposer({
             })()
           : null;
         if (textOverride === undefined && handleLocalSubmission()) return true;
+        startOptimisticSubmission();
       }
 
       try {
@@ -5203,12 +5471,7 @@ export function TiptapComposer({
             ...(contextSnapshot === undefined
               ? {}
               : { contextItems: contextSnapshot }),
-            mode:
-              execMode === "plan"
-                ? "plan"
-                : execMode === "build"
-                  ? "act"
-                  : undefined,
+            ...(submittedAsPlan ? { mode: "plan" as const } : {}),
             submit: true,
           });
         }
@@ -5217,23 +5480,39 @@ export function TiptapComposer({
           setComposerMode(null);
           composerModeRef.current = null;
         }
+        clearSubmittedPlan();
         return true;
       }
 
       const currentOnSubmit = onSubmitRef.current;
       if (currentOnSubmit) {
-        if (submitInFlightRef.current) return false;
+        if (composerSubmitOrder(submitLocksRef.current) === "blocked")
+          return false;
         const submittedAttachments = [...attachments];
         const submittedScopeGeneration = draftScopeGenerationRef.current;
-        submittingAttachmentIdsRef.current = new Set(
-          submittedAttachments.map((attachment) => attachment.id),
-        );
-        submitInFlightRef.current = true;
+        submittingAttachmentIdsRef.current = new Set([
+          ...submittingAttachmentIdsRef.current,
+          ...submittedAttachments.map((attachment) => attachment.id),
+        ]);
+        const submitLock: ComposerSubmitLock = { draftReleased: false };
+        submitLocksRef.current.add(submitLock);
+        let textReleased = clearedBeforePreflight;
+        let attachmentsReleased = submittedAttachments.length === 0;
+        const releaseDraft = () => {
+          if (!textReleased || !attachmentsReleased) return;
+          submitLock.draftReleased = true;
+          clearSubmittedPlan();
+        };
+        releaseDraft();
         let locallySubmitted = false;
         let settled = false;
         let submittedAttachmentCleanup = Promise.resolve();
         const clearSubmittedAttachmentIds = () => {
-          submittingAttachmentIdsRef.current = new Set();
+          const remaining = new Set(submittingAttachmentIdsRef.current);
+          for (const attachment of submittedAttachments) {
+            remaining.delete(attachment.id);
+          }
+          submittingAttachmentIdsRef.current = remaining;
         };
         const recordFailedAttachmentCleanup = () => {
           const remainingAttachments = composerRuntime.getState().attachments;
@@ -5387,7 +5666,7 @@ export function TiptapComposer({
             releaseBarrier();
           }
         };
-        onSubmissionPendingChange?.(true);
+        reportSubmissionPending(true);
         const clearSubmittedComposer = () => {
           if (clearOnSubmit) {
             clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
@@ -5416,6 +5695,10 @@ export function TiptapComposer({
             }
           });
           submittedAttachmentCleanup = cleanup
+            .then(() => {
+              attachmentsReleased = true;
+              releaseDraft();
+            })
             .catch((error) => {
               if (mountedRef.current && isCurrentDraftScope()) {
                 onAttachmentErrorRef.current?.(
@@ -5451,8 +5734,11 @@ export function TiptapComposer({
             setComposerMode(null);
             composerModeRef.current = null;
           }
+          clearSubmittedPlan();
           resetComposerRuntimeState();
           closePopover();
+          textReleased = true;
+          releaseDraft();
         };
         const onLocalSubmit = () => {
           if (settled || locallySubmitted || !clearOnSubmit) return;
@@ -5465,7 +5751,8 @@ export function TiptapComposer({
           setContextSubmissionError(null);
           if (clearImmediately && !clearedBeforePreflight) {
             cancelActiveVoice();
-            clearSubmittedDraft();
+            textReleased = clearSubmittedDraft();
+            releaseDraft();
           }
           await currentOnSubmit(
             submissionText,
@@ -5475,23 +5762,35 @@ export function TiptapComposer({
               intent: submitIntent,
               ...(steer ? { steer: true } : {}),
               onLocalSubmit,
+              ...(optimistic.handle
+                ? { submissionId: optimistic.handle.id }
+                : {}),
               ...(composerModeContext === undefined
                 ? {}
                 : { composerModeContext }),
               ...(contextSnapshot === undefined
                 ? {}
                 : { contextItems: contextSnapshot }),
+              ...(submittedAsPlan ? { requestMode: "plan" as const } : {}),
             },
           );
         } catch (error) {
           if (locallySubmitted) {
             restoreSubmittedDraft(true);
+            if (submittedAsPlan && mountedRef.current && isCurrentDraftScope())
+              setPlanNextState(true);
             await submittedAttachmentCleanup;
             clearSubmittedAttachmentIds();
             return true;
           }
           restoreSubmittedDraft(true);
-          if (mountedRef.current && isCurrentDraftScope()) {
+          if (submittedAsPlan && mountedRef.current && isCurrentDraftScope())
+            setPlanNextState(true);
+          if (
+            mountedRef.current &&
+            isCurrentDraftScope() &&
+            !optimistic.handle
+          ) {
             setContextSubmissionError(
               formatAttachmentError(
                 error,
@@ -5505,9 +5804,10 @@ export function TiptapComposer({
           return false;
         } finally {
           settled = true;
-          submitInFlightRef.current = false;
-          onSubmissionPendingChange?.(false);
+          submitLocksRef.current.delete(submitLock);
+          reportSubmissionPending(false);
         }
+        clearSubmittedPlan();
 
         if (!isCurrentDraftScope()) {
           clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
@@ -5569,6 +5869,7 @@ export function TiptapComposer({
       }
       cancelActiveVoice();
       if (!clearedBeforePreflight) clearSubmittedDraft();
+      clearSubmittedPlan();
       return true;
     },
     [
@@ -5589,18 +5890,43 @@ export function TiptapComposer({
       getSubmitFailureDraftScope,
       onBeforeSubmit,
       onEmptySubmit,
-      onSubmissionPendingChange,
+      reportSubmissionPending,
       extractComposerPayload,
       syncComposerState,
       updateSlotReferences,
       slotReferences,
       resetComposerRuntimeState,
+      setPlanNextState,
       voice,
       allSlashCommands,
       announceSlashCommand,
       willQueue,
+      queuesBehindSubmission,
       t,
     ],
+  );
+  const submitComposer = useCallback(
+    async (
+      intent?: ComposerSubmitIntent,
+      textOverride?: string,
+      steer = false,
+    ): Promise<boolean> => {
+      const optimistic: { handle?: ComposerSubmitStartHandle } = {};
+      try {
+        return await submitComposerOnce(
+          intent,
+          textOverride,
+          steer,
+          optimistic,
+        );
+      } finally {
+        if (optimistic.handle) {
+          onOptimisticAttachmentsChangeRef.current?.([]);
+          optimistic.handle.end();
+        }
+      }
+    },
+    [submitComposerOnce],
   );
 
   // Helper functions that operate on the editor view directly
@@ -5611,9 +5937,10 @@ export function TiptapComposer({
   ) {
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
-    const currentPos = ed.state.selection.from;
-    // startPos is after the trigger char, so -1 to include the @ or /
-    const deleteFrom = Math.max(0, pop.startPos - 1);
+    const { from: deleteFrom, to: currentPos } = popoverTokenRange(
+      ed,
+      pop.type,
+    );
     if (item.source === COMPOSER_CONTEXT_ENTRY_SOURCE && item.refId) {
       ed.chain()
         .focus()
@@ -5699,9 +6026,7 @@ export function TiptapComposer({
   ) {
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
-    const currentPos = ed.state.selection.from;
-    const deleteFrom = Math.max(0, pop.startPos - 1);
-    ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
+    ed.chain().focus().deleteRange(popoverTokenRange(ed, pop.type)).run();
     popoverStateRef.current = null;
     setPopover(null);
     announceSlashCommand(command);
@@ -5714,11 +6039,9 @@ export function TiptapComposer({
   ) {
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
-    const currentPos = ed.state.selection.from;
-    const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain()
       .focus()
-      .deleteRange({ from: deleteFrom, to: currentPos })
+      .deleteRange(popoverTokenRange(ed, pop.type))
       .insertContent({
         type: "skillReference",
         attrs: { name: skill.name, path: skill.path, source: skill.source },
@@ -5742,12 +6065,10 @@ export function TiptapComposer({
   const handleSelectCommand = useCallback(
     (command: SlashCommand) => {
       if (!isComposerEditorUsable(editor) || !popover) return;
-      const currentPos = editor.state.selection.from;
-      const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
         .chain()
         .focus()
-        .deleteRange({ from: deleteFrom, to: currentPos })
+        .deleteRange(popoverTokenRange(editor, popover.type))
         .run();
       closePopover();
       announceSlashCommand(command);
@@ -5758,12 +6079,10 @@ export function TiptapComposer({
   const handleSelectSkill = useCallback(
     (skill: SkillResult) => {
       if (!isComposerEditorUsable(editor) || !popover) return;
-      const currentPos = editor.state.selection.from;
-      const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
         .chain()
         .focus()
-        .deleteRange({ from: deleteFrom, to: currentPos })
+        .deleteRange(popoverTokenRange(editor, popover.type))
         .insertContent({
           type: "skillReference",
           attrs: { name: skill.name, path: skill.path, source: skill.source },
@@ -5845,6 +6164,8 @@ export function TiptapComposer({
       setPopover(updated);
     };
 
+    // Keys typed before the menu opened never reached this listener.
+    updateHandler();
     editor.on("update", updateHandler);
     editor.on("selectionUpdate", updateHandler);
     return () => {
@@ -5879,6 +6200,7 @@ export function TiptapComposer({
       updateSlotReferences([]);
       setComposerMode(null);
       composerModeRef.current = null;
+      setPlanNextState(false);
       lastComposerRuntimeSyncRef.current = null;
       composerRuntime.setText("");
       const cleanupGeneration = draftScopeGenerationRef.current;
@@ -5944,6 +6266,7 @@ export function TiptapComposer({
     initialText,
     initialTextKey,
     scheduleComposerDraftPersist,
+    setPlanNextState,
     textChips,
     updateSlotReferences,
   ]);
@@ -5951,9 +6274,11 @@ export function TiptapComposer({
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
-    editor.setEditable(!disabled);
-    if (disabled) editor.commands.blur();
-  }, [editor, disabled]);
+    editor.setEditable(!editorLocked);
+    if (!editorLocked) return;
+    editor.commands.blur();
+    closePopover();
+  }, [editor, editorLocked, closePopover]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
@@ -5964,11 +6289,11 @@ export function TiptapComposer({
           ...(editor.options.editorProps?.attributes as
             | Record<string, string>
             | undefined),
-          "aria-disabled": String(disabled || contextControlsDisabled),
+          "aria-disabled": String(editorLocked),
         },
       },
     });
-  }, [editor, disabled, contextControlsDisabled]);
+  }, [editor, editorLocked]);
 
   const launchersDisabled = disabled || contextControlsDisabled;
 
@@ -6019,47 +6344,86 @@ export function TiptapComposer({
     ];
   }, [contextMenuItems, filteredMentionItems, insertReference, t]);
 
+  const sendButton = (
+    <ComposerSendButton
+      onSend={(event) =>
+        void submitComposer(
+          "immediate",
+          undefined,
+          event.metaKey || event.ctrlKey,
+        )
+      }
+      sendDisabled={!canSend || sendButtonDisabled}
+      sendLabel={sendButtonTooltip}
+      busy={sendButtonBusy}
+      voiceEnabled={voiceEnabled}
+      voiceChatEligible={
+        !hasDraft &&
+        !planNext &&
+        !composerMode &&
+        !stopButton &&
+        !isVoiceRecordingActive(voice.state)
+      }
+      disabled={disabled}
+    />
+  );
   return (
-    <RealtimeVoiceModeBoundary>
-      <style>{`
-        .aui-composer .ProseMirror p.is-editor-empty:first-child::before,
-        .aui-composer .ProseMirror p.is-empty:first-child:last-child::before {
-          content: attr(data-placeholder);
-          color: var(--color-muted-foreground);
-          opacity: 0.5;
-          float: left;
-          height: 0;
-          pointer-events: none;
-        }
-      `}</style>
-      {composerMode && (
+    <>
+      {headerSlot ? (
+        <div
+          data-agent-composer-variant={layoutVariant}
+          data-agent-composer-slot="header-row"
+          className="agent-composer-header-row px-[var(--agentkit-composer-inset,0.75rem)] pt-2"
+        >
+          {headerSlot}
+        </div>
+      ) : null}
+      {(composerMode || planNext) && (
         <div
           data-agent-composer-variant={layoutVariant}
           data-agent-composer-slot="mode-row"
-          className="agent-composer-mode-row px-2.5 pt-2 pb-0"
+          className="agent-composer-mode-row flex flex-wrap gap-1.5 px-[var(--agentkit-composer-inset,0.75rem)] pt-2"
         >
-          <ComposerModeChip
-            mode={composerMode}
-            onRemove={() => {
-              setComposerMode(null);
-              composerModeRef.current = null;
-              if (isComposerEditorUsable(editor)) {
-                editor.commands.focus("end");
-              }
-            }}
-          />
+          {planNext ? (
+            <ComposerChip
+              slot="plan-chip"
+              icon={IconClipboardList}
+              label={t("agentChat.composer.plan", { defaultValue: "Plan" })}
+              removeLabel={t("agentChat.composer.removePlan", {
+                defaultValue: "Remove plan",
+              })}
+              onRemove={() => {
+                setPlanNextState(false);
+                if (isComposerEditorUsable(editor)) {
+                  editor.commands.focus("end");
+                }
+              }}
+            />
+          ) : null}
+          {composerMode ? (
+            <ComposerModeChip
+              mode={composerMode}
+              onRemove={() => {
+                setComposerMode(null);
+                composerModeRef.current = null;
+                if (isComposerEditorUsable(editor)) {
+                  editor.commands.focus("end");
+                }
+              }}
+            />
+          ) : null}
         </div>
       )}
       {hasContextRows && (
         <div
           data-agent-composer-variant={layoutVariant}
           data-agent-composer-slot="context-row"
-          className="agent-composer-context-row flex flex-wrap gap-1.5 px-2.5 pt-2 pb-0"
+          className="agent-composer-context-row flex flex-wrap gap-1.5 px-[var(--agentkit-composer-inset,0.75rem)] pt-2"
         >
           {slotReferences.map((ref) => (
             <span
               key={ref.slotKey}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground shadow-sm"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5 agent-kit-caption-copy font-medium text-foreground shadow-sm"
             >
               <MentionItemMedia
                 media={ref.media}
@@ -6086,9 +6450,9 @@ export function TiptapComposer({
                   defaultValue: "Remove {{name}} reference",
                   name: slotReferenceTitle(ref),
                 })}
-                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                <IconX className="h-3 w-3" />
+                <IconX aria-hidden="true" className="h-3 w-3" />
               </button>
             </span>
           ))}
@@ -6101,7 +6465,7 @@ export function TiptapComposer({
                 data-state={
                   selectedContextItemKey === item.key ? "selected" : undefined
                 }
-                className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium text-foreground ${
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 agent-kit-caption-copy font-medium text-foreground ${
                   selectedContextItemKey === item.key
                     ? "border-ring bg-accent ring-2 ring-ring/40"
                     : "border-border bg-muted/50"
@@ -6137,9 +6501,9 @@ export function TiptapComposer({
                       defaultValue: "Remove {{name}} context",
                       name: item.title,
                     })}
-                    className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
-                    <IconX className="h-3 w-3" />
+                    <IconX aria-hidden="true" className="h-3 w-3" />
                   </button>
                 ) : null}
               </span>
@@ -6171,37 +6535,81 @@ export function TiptapComposer({
         </div>
       )}
       {contextSubmissionError ? (
-        <p role="alert" className="px-2 text-xs text-destructive">
+        <ComposerNotice
+          noticeId="context-submission"
+          role="alert"
+          onDismiss={() => setContextSubmissionError(null)}
+          dismissLabel={t("agentChat.common.dismiss")}
+        >
           {contextSubmissionError}
-        </p>
+        </ComposerNotice>
       ) : null}
       {attachmentError ? (
-        <p
+        <ComposerNotice
+          noticeId="attachment"
           role="alert"
-          className="break-words px-2.5 pt-2 text-xs text-destructive"
+          onDismiss={() => setAttachmentError(null)}
+          dismissLabel={t("agentChat.common.dismiss")}
         >
           {attachmentError}
-        </p>
+        </ComposerNotice>
       ) : null}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
-        className={`agent-composer-editor-wrap ${
-          composerMode || hasContextRows ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
+        className={`agent-composer-editor-wrap px-[var(--agentkit-composer-inset,0.75rem)] pb-1 ${
+          hasHeaderRows
+            ? "pt-[var(--agentkit-composer-editor-padding-top,0.25rem)]"
+            : "pt-[var(--agentkit-composer-editor-padding-top,0.5rem)]"
         }`}
       >
         <EditorContent
           editor={editor}
           data-agent-composer-variant={layoutVariant}
           data-agent-composer-slot="editor"
-          className="agent-composer-editor aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
-        />
+          className="agent-composer-editor aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
+        >
+          {editor ? null : (
+            // The editor mounts after hydration; hold its geometry until then.
+            <div
+              aria-hidden="true"
+              data-agent-composer-variant={layoutVariant}
+              data-agent-composer-slot="editor-input"
+              className="agent-composer-prosemirror min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] text-[length:var(--agentkit-composer-font-size,0.875rem)] leading-[var(--agentkit-composer-line-height,1.625rem)] text-muted-foreground"
+            >
+              <p className="m-0">{resolvedPlaceholder}</p>
+            </div>
+          )}
+        </EditorContent>
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
+      {voiceChat?.state === "error" && voiceChat.errorMessage ? (
+        <ComposerNotice
+          noticeId="voice-chat"
+          role="alert"
+          onDismiss={voiceChat.dismissError}
+          dismissLabel={t("agentChat.common.dismiss")}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                voiceChat.dismissError();
+                void voiceChat.start();
+              }}
+            >
+              {t("agentChat.common.retry", { defaultValue: "Try again" })}
+            </Button>
+          }
+        >
+          {voiceChat.errorMessage}
+        </ComposerNotice>
+      ) : null}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="toolbar"
-        className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
+        className="agent-composer-toolbar flex items-center gap-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] px-[calc(var(--agentkit-composer-inset,0.75rem)-0.25rem)] pt-[var(--agentkit-composer-toolbar-padding-top,0.375rem)] pb-[var(--agentkit-composer-toolbar-padding-bottom,0.375rem)]"
       >
         {!launchersDisabled && attachmentsEnabled && attachButton ? (
           attachButton
@@ -6271,6 +6679,7 @@ export function TiptapComposer({
         ) : null}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
+        {contextUsageSlot}
         {shouldRenderModelSelector(availableModels, onModelChange) && (
           <ModelSelector
             model={selectedModel ?? ""}
@@ -6293,52 +6702,35 @@ export function TiptapComposer({
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}
             imageModel={imageModelMenu}
-          />
-        )}
-        {execMode && onExecModeChange && (
-          <ModeSelector
-            mode={execMode}
-            onChange={onExecModeChange}
-            planModeDisabled={planModeDisabled}
-            planModeDisabledReason={planModeDisabledReason}
+            setupCardVisible={setupCardVisible}
           />
         )}
         {actionButton ?? (
           <>
             {extraActionButton}
+            {/* Dictation keeps its own slot beside Send, so typing never
+                hides it; while recording it grows into the recording pill. */}
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
-            {primaryAction === "stop" ? (
-              stopButton
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={(event) =>
-                      void submitComposer(
-                        "immediate",
-                        undefined,
-                        event.metaKey || event.ctrlKey,
-                      )
-                    }
-                    disabled={!canSend || sendButtonDisabled}
-                    aria-label={sendButtonTooltip}
-                    aria-busy={sendButtonBusy || undefined}
-                    data-agent-composer-slot="send-button"
-                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    {sendButtonBusy ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-                    ) : (
-                      <IconArrowUp className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{sendButtonTooltip}</TooltipContent>
-              </Tooltip>
-            )}
+            {stopButton ? (
+              // Stop takes Send's place while the composer is empty, and Send
+              // joins it once a draft exists so a draft never hides Stop. The
+              // slot grows from zero width, gap included, so the controls to
+              // its left slide rather than jump.
+              <div
+                ref={stopSlotRef}
+                data-agent-composer-slot="stop-slot"
+                className={`grid shrink-0 grid-cols-[1fr] justify-items-end transition-[grid-template-columns,margin-inline-start,margin-inline-end] duration-150 ease-out starting:-ms-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] starting:me-0 starting:grid-cols-[0fr] motion-reduce:transition-none ${
+                  hasDraft ? "me-1" : ""
+                }`}
+              >
+                <div className="flex min-w-0 transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0 motion-reduce:transition-none">
+                  {stopButton}
+                </div>
+              </div>
+            ) : null}
+            {stopButton && !hasDraft && !voiceChat ? null : sendButton}
           </>
         )}
       </div>
@@ -6360,6 +6752,6 @@ export function TiptapComposer({
         onSelectCommand={handleSelectCommand}
         onClose={closePopover}
       />
-    </RealtimeVoiceModeBoundary>
+    </>
   );
 }

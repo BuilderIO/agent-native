@@ -91,6 +91,9 @@ vi.mock("../chat-threads/store.js", () => ({
   updateThreadData: updateThreadDataMock,
   withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
     fn(),
+  // The run loop checks for Send now messages at every tool boundary.
+  claimSteeredQueuedMessages: async () => [],
+  deferSteeredQueuedMessages: async () => undefined,
 }));
 
 vi.mock("../agent/production-agent.js", () => ({

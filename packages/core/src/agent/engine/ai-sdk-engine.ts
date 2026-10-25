@@ -8,6 +8,7 @@ import {
   allowsSamplingParams,
   anthropicManualThinkingBudget,
   isGPTReasoningModel,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
@@ -468,6 +469,18 @@ class AISDKEngine implements AgentEngine {
               },
         };
       }
+    } else if (
+      this.provider === "anthropic" &&
+      isUnsetReasoningEffort(opts.reasoningEffort) &&
+      supportsClaudeAdaptiveThinking(opts.model) &&
+      !(providerOpts.anthropic as { thinking?: unknown } | undefined)?.thinking
+    ) {
+      // No effort chosen: keep adaptive thinking on and send no effort, so
+      // the model's own default level applies.
+      providerOpts.anthropic = {
+        ...((providerOpts.anthropic as object) ?? {}),
+        thinking: { type: "adaptive" },
+      };
     }
 
     // @ai-sdk/openai infers reasoning models from its own id prefixes, which

@@ -1256,7 +1256,7 @@ describe("Dispatch NavContent", () => {
 
   async function clickText(scope: ParentNode, text: string) {
     const button = [
-      ...scope.querySelectorAll<HTMLButtonElement>("button"),
+      ...scope.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
     ].find((button) => button.textContent?.trim() === text);
     expect(button, text).toBeDefined();
     await act(async () => {
@@ -1485,6 +1485,29 @@ describe("Dispatch NavContent", () => {
         "Revised work",
       );
       expect(clientState.createThread).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "renders app row actions as text-only menu items (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Earlier Dispatch work");
+      const items = [
+        ...document.body.querySelectorAll<HTMLElement>(
+          ".an-chat-history-row__menu-item",
+        ),
+      ];
+      const labels = items.map((item) => item.textContent?.trim());
+      expect(labels).toEqual(
+        expect.arrayContaining(["Rename chat", "Pin", "Archive"]),
+      );
+      expect(items.length).toBeGreaterThan(3);
+      for (const item of items) {
+        expect(item.tagName).not.toBe("BUTTON");
+        expect(item.getAttribute("role")).toBe("menuitem");
+        expect(item.querySelector("svg")).toBeNull();
+      }
     },
   );
 

@@ -1,6 +1,6 @@
 import type { EngineMessage } from "./engine/types.js";
 import {
-  buildAssistantMessage,
+  buildAssistantTurnSegments,
   lastUserPromptIndex,
   threadDataToEngineMessages,
 } from "./thread-data-builder.js";
@@ -18,16 +18,31 @@ export function buildTurnResumeContext(options: {
 }): { messages: EngineMessage[]; journalNote: string | null } {
   let messages = [...options.messages];
   if (options.events) {
-    const assistant = buildAssistantMessage(
+    const { assistant, steered } = buildAssistantTurnSegments(
       options.events.map((event, seq) => ({ seq, event })),
       "durable-resume",
       { suppressInternalContinuation: true, preserveUnknownToolOutcomes: true },
     );
-    if (assistant) {
-      const ledgerMessages = threadDataToEngineMessages(
-        { messages: [{ message: assistant }] },
-        { includeToolCalls: true },
-      );
+    if (assistant || steered.length > 0) {
+      const replay = (message: NonNullable<typeof assistant>) =>
+        threadDataToEngineMessages(
+          { messages: [{ message }] },
+          { includeToolCalls: true },
+        );
+      // A message sent into the run was read after the tool results before
+      // it, so the resumed model sees it in the same place.
+      const ledgerMessages: EngineMessage[] = [
+        ...(assistant ? replay(assistant) : []),
+        ...steered.flatMap(({ user, assistant: reply }) => [
+          {
+            role: "user" as const,
+            content: [
+              { type: "text" as const, text: user.content[0]?.text ?? "" },
+            ],
+          },
+          ...(reply ? replay(reply) : []),
+        ]),
+      ];
       const ledgerCallIds = new Set(
         ledgerMessages.flatMap(({ content }) =>
           content.flatMap((part) =>

@@ -4,7 +4,9 @@ import {
 } from "./run-store.js";
 import {
   buildAssistantMessage,
+  buildAssistantTurnSegments,
   foldAssistantTurn,
+  type SteeredRunSegment,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
@@ -40,13 +42,30 @@ function isTerminalProjectionEvent(event: RunEvent["event"]): boolean {
 /** Builds assistant content from the durable event journal and verifies that
  * every published nonterminal event reached that journal before projection.
  */
-export async function buildAssistantMessageFromRunJournal(input: {
+export async function buildAssistantMessageFromRunJournal(
+  input: Parameters<typeof buildAssistantTurnFromRunJournal>[0],
+): Promise<ReturnType<typeof buildAssistantMessage>> {
+  return (await buildAssistantTurnFromRunJournal(input)).assistant;
+}
+
+/**
+ * The turn's reply from the journal, split where the user sent messages into
+ * it. `assistant` is the reply the run's first output folds into; `steered`
+ * holds this run's delivered messages and the replies after them. After an
+ * earlier run of the turn delivered one, `parentId` is that message, since the
+ * turn's reply continues below it.
+ */
+export async function buildAssistantTurnFromRunJournal(input: {
   threadId: string;
   turnId: string;
   runId: string;
   runEvents: readonly RunEvent[];
   options?: BuildJournalAssistantMessageOptions;
-}): Promise<ReturnType<typeof buildAssistantMessage>> {
+}): Promise<{
+  assistant: ReturnType<typeof buildAssistantMessage>;
+  steered: SteeredRunSegment[];
+  parentId?: string;
+}> {
   const turnJournal = await getCurrentTurnRunEventsForThread(
     input.threadId,
     input.turnId,
@@ -89,6 +108,8 @@ export async function buildAssistantMessageFromRunJournal(input: {
   if (!runGroups.has(input.runId)) runGroups.set(input.runId, []);
 
   let repo: { messages: unknown[] } = { messages: [] };
+  let steered: SteeredRunSegment[] = [];
+  let parentId: string | undefined;
   for (const [runId, persistedRunEvents] of runGroups) {
     const runEvents = persistedRunEvents.sort(
       (left, right) => left.seq - right.seq,
@@ -104,7 +125,7 @@ export async function buildAssistantMessageFromRunJournal(input: {
       }
       runEvents.sort((left, right) => left.seq - right.seq);
     }
-    const assistant = buildAssistantMessage(
+    const segments = buildAssistantTurnSegments(
       runEvents,
       runId,
       runId === input.runId
@@ -118,8 +139,24 @@ export async function buildAssistantMessageFromRunJournal(input: {
             turnId: input.turnId,
           },
     );
-    if (!assistant) continue;
-    repo = foldAssistantTurn(repo, assistant, {
+    if (runId === input.runId) {
+      steered = segments.steered;
+    } else if (segments.steered.length > 0) {
+      // That run's fold saved everything up to its last delivered message;
+      // only the reply after it continues into this run's output.
+      const last = segments.steered.at(-1)!;
+      repo = { messages: [] };
+      parentId = last.user.id;
+      if (last.assistant) {
+        repo = foldAssistantTurn(repo, last.assistant, {
+          runId,
+          turnId: input.turnId,
+        });
+      }
+      continue;
+    }
+    if (!segments.assistant) continue;
+    repo = foldAssistantTurn(repo, segments.assistant, {
       runId,
       turnId: input.turnId,
     });
@@ -129,7 +166,10 @@ export async function buildAssistantMessageFromRunJournal(input: {
     entry && typeof entry === "object" && "message" in entry
       ? entry.message
       : entry;
-  return (
-    (message as ReturnType<typeof buildAssistantMessage> | undefined) ?? null
-  );
+  return {
+    assistant:
+      (message as ReturnType<typeof buildAssistantMessage> | undefined) ?? null,
+    steered,
+    ...(parentId ? { parentId } : {}),
+  };
 }

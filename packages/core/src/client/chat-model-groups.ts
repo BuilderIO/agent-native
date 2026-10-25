@@ -55,6 +55,34 @@ export interface BuildChatModelGroupsOptions {
   currentModel?: string;
 }
 
+/**
+ * Where a model picker starts before anyone chooses: the app's configured
+ * default model on a configured engine that offers it (the configured
+ * default engine first), else the first model of the first configured
+ * engine. `null` when nothing is configured. Every picker starts here, so
+ * the home composer and the agent panel never open on different models.
+ */
+export function resolveDefaultModelSelection(
+  groups: readonly Pick<EngineModelGroup, "engine" | "models" | "configured">[],
+  defaultModel: string | undefined,
+  defaultEngine?: string,
+): { model: string; engine: string } | null {
+  const configured = groups.filter((group) => group.configured);
+  const offering = defaultModel
+    ? configured.filter((group) => group.models.includes(defaultModel))
+    : [];
+  const group =
+    offering.find((candidate) => candidate.engine === defaultEngine) ??
+    offering[0] ??
+    configured[0];
+  if (!group) return null;
+  const model =
+    defaultModel && group.models.includes(defaultModel)
+      ? defaultModel
+      : group.models[0];
+  return model ? { model, engine: group.engine } : null;
+}
+
 export function modelCatalogConfirmsMissing(
   groups: readonly Pick<EngineModelGroup, "configured">[] | undefined,
   loading: boolean | undefined,

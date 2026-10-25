@@ -753,7 +753,7 @@ describe("integration webhook handler engine resolution", () => {
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
           maxOutputTokens: 64_000,
-          reasoningEffort: "high",
+          reasoningEffort: undefined,
           systemPrompt: expect.stringContaining("QR profile"),
         }),
       );

@@ -892,6 +892,109 @@ describe("createAgentNativeChatRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("splits the streamed reply around a message sent into the run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "text", text: "Checking the deck." },
+        { type: "tool_start", id: "call-1", tool: "read-deck", input: {} },
+        { type: "tool_done", id: "call-1", tool: "read-deck", result: "ok" },
+        {
+          type: "user_message",
+          message: {
+            id: "queued-1",
+            text: "Use the blue theme",
+            createdAt: "2026-10-24T10:00:05.000Z",
+            attachments: [
+              {
+                type: "image",
+                name: "ref.png",
+                url: "https://files.example.test/ref.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          continuationMessageId: "server-run-runtime:after:queued-1",
+        },
+        { type: "text", text: "Switching to blue." },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-steer" });
+    const turn = await session.startTurn({ prompt: "Fix the deck" });
+    const events = await drain(turn.events);
+
+    const messageEvents = events.flatMap((event) =>
+      event.type === "message-start" || event.type === "message-done"
+        ? [{ type: event.type, id: event.message.id, role: event.message.role }]
+        : event.type === "message-delta"
+          ? [{ type: event.type, id: event.messageId }]
+          : [],
+    );
+    const firstReplyId = messageEvents[0]!.id;
+    expect(messageEvents).toEqual([
+      { type: "message-start", id: firstReplyId, role: "assistant" },
+      { type: "message-delta", id: firstReplyId },
+      { type: "message-done", id: firstReplyId, role: "assistant" },
+      { type: "message-start", id: "queued-1", role: "user" },
+      { type: "message-done", id: "queued-1", role: "user" },
+      {
+        type: "message-start",
+        id: "server-run-runtime:after:queued-1",
+        role: "assistant",
+      },
+      { type: "message-delta", id: "server-run-runtime:after:queued-1" },
+      {
+        type: "message-done",
+        id: "server-run-runtime:after:queued-1",
+        role: "assistant",
+      },
+    ]);
+    const delivered = events.find(
+      (event) =>
+        event.type === "message-start" && event.message.role === "user",
+    );
+    expect(delivered).toMatchObject({
+      message: {
+        content: [
+          { type: "text", text: "Use the blue theme" },
+          {
+            type: "file",
+            url: "https://files.example.test/ref.png",
+            mediaType: "image/png",
+            filename: "ref.png",
+          },
+        ],
+        createdAt: "2026-10-24T10:00:05.000Z",
+        status: "complete",
+      },
+    });
+  });
+
+  it("rejects a user_message event without its continuation id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "user_message",
+          message: { id: "queued-1", text: "Use the blue theme" },
+        },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-steer" });
+    const turn = await session.startTurn({ prompt: "Fix the deck" });
+
+    await expect(drain(turn.events)).rejects.toThrow(
+      "Agent chat user_message event requires a message and a continuation id.",
+    );
+  });
+
   it("sends a continued turn's durable attachments when the turn is no longer in memory", async () => {
     const fetchMock = vi
       .fn()

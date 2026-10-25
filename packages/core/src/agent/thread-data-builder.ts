@@ -45,7 +45,11 @@ import type {
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
 import { isContinuationTerminalReason } from "./types.js";
-import type { AgentChatAttachment, RunEvent } from "./types.js";
+import type {
+  AgentChatAttachment,
+  AgentChatSteeredUserMessage,
+  RunEvent,
+} from "./types.js";
 
 interface ContentPart {
   type: string;
@@ -627,6 +631,90 @@ export function buildAssistantMessage(
         ? { type: "incomplete" as const, reason: "error" as const }
         : { type: "complete" as const, reason: "stop" as const },
     metadata,
+  };
+}
+
+export interface SteeredRunSegment {
+  user: UserMessage;
+  assistant: AssistantMessage | null;
+}
+
+/**
+ * A run's reply split at each message the user sent into it with Send now:
+ * the reply before the first one, then each delivered message with the reply
+ * written after it. A run without one is exactly `buildAssistantMessage`.
+ */
+export function buildAssistantTurnSegments(
+  events: RunEvent[],
+  runId?: string,
+  options: BuildAssistantMessageOptions = {},
+): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
+  const boundaries = events.flatMap((entry, index) =>
+    entry.event.type === "user_message" ? [index] : [],
+  );
+  if (boundaries.length === 0) {
+    return {
+      assistant: buildAssistantMessage(events, runId, options),
+      steered: [],
+    };
+  }
+  const { runDurationMs, ...segmentOptions } = options;
+  const steered: SteeredRunSegment[] = [];
+  for (const [position, boundary] of boundaries.entries()) {
+    const event = events[boundary]!.event;
+    if (event.type !== "user_message") continue;
+    const end = boundaries[position + 1] ?? events.length;
+    const last = position === boundaries.length - 1;
+    const assistant = buildAssistantMessage(
+      events.slice(boundary + 1, end),
+      runId,
+      last ? options : segmentOptions,
+    );
+    steered.push({
+      user: buildSteeredUserMessage(event.message, runId),
+      assistant: assistant
+        ? { ...assistant, id: event.continuationMessageId }
+        : null,
+    });
+  }
+  return {
+    assistant: buildAssistantMessage(
+      events.slice(0, boundaries[0]),
+      runId,
+      runDurationMs === undefined ? options : segmentOptions,
+    ),
+    steered,
+  };
+}
+
+/** The id a run writes its output under after delivering `messageId`. */
+export function steeredContinuationMessageId(
+  runId: string,
+  messageId: string,
+): string {
+  return `server-${runId}:after:${messageId}`;
+}
+
+export function buildSteeredUserMessage(
+  message: AgentChatSteeredUserMessage,
+  runId: string | undefined,
+): UserMessage {
+  const attachments = buildStoredAttachments(message.attachments, runId);
+  const createdAt = new Date(message.createdAt);
+  return {
+    id: message.id,
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+    role: "user",
+    content: [{ type: "text", text: message.text }],
+    ...(attachments.length > 0 ? { attachments } : {}),
+    // No submittedRunId: this message did not start a run, and a second
+    // prompt claiming one would hide the run's real prompt.
+    metadata: {
+      custom: {
+        agentNativeQueuedMessageId: message.id,
+        ...(runId ? { deliveredInRunId: runId } : {}),
+      },
+    },
   };
 }
 
@@ -1764,6 +1852,95 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
     -MAX_CLAIMED_QUEUED_MESSAGE_IDS,
   );
   return pruneClaimedQueuedMessages(normalized);
+}
+
+const STEERED_QUEUED_MESSAGES_KEY = "_steeredQueuedMessages";
+const MAX_STEERED_QUEUED_MESSAGES = 50;
+
+/** A Send now message a run took from the queue, kept until its run is folded. */
+export interface SteeredQueuedMessageRecord {
+  runId: string;
+  message: AgentChatSteeredUserMessage;
+  continuationMessageId: string;
+}
+
+function queuedAttachmentsForSteer(
+  attachments: unknown[] | undefined,
+): AgentChatAttachment[] {
+  return (attachments ?? []).flatMap((value) => {
+    const file =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : undefined;
+    const url = typeof file?.url === "string" ? file.url : undefined;
+    if (!url || isDataUrlReference(url)) return [];
+    const mediaType =
+      typeof file?.mediaType === "string"
+        ? file.mediaType
+        : typeof file?.contentType === "string"
+          ? file.contentType
+          : undefined;
+    return [
+      {
+        type: mediaType?.toLowerCase().startsWith("image/") ? "image" : "file",
+        name: typeof file?.name === "string" ? file.name : "attachment",
+        url,
+        ...(mediaType ? { mediaType, contentType: mediaType } : {}),
+      },
+    ];
+  });
+}
+
+export function steeredQueuedMessageRecords(
+  runId: string,
+  queued: ReadonlyArray<{ id: string; text: string; attachments?: unknown[] }>,
+  deliveredAt: number,
+): SteeredQueuedMessageRecord[] {
+  return queued.map((message) => {
+    const attachments = queuedAttachmentsForSteer(message.attachments);
+    return {
+      runId,
+      message: {
+        id: message.id,
+        text: message.text,
+        createdAt: new Date(deliveredAt).toISOString(),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      },
+      continuationMessageId: steeredContinuationMessageId(runId, message.id),
+    };
+  });
+}
+
+function steeredRecords(repo: any): SteeredQueuedMessageRecord[] {
+  const value = repo?.[STEERED_QUEUED_MESSAGES_KEY];
+  return Array.isArray(value)
+    ? value.filter(
+        (record): record is SteeredQueuedMessageRecord =>
+          typeof record?.runId === "string" &&
+          typeof record.message?.id === "string" &&
+          typeof record.message.text === "string" &&
+          typeof record.continuationMessageId === "string",
+      )
+    : [];
+}
+
+/**
+ * Claims the delivered ids, so a stale client save never re-queues them, and
+ * keeps each message until the run's fold places it in the transcript.
+ */
+export function recordSteeredQueuedMessages(
+  repo: any,
+  records: readonly SteeredQueuedMessageRecord[],
+): any {
+  let next = repo && typeof repo === "object" ? { ...repo } : {};
+  for (const { message } of records) {
+    next = claimQueuedMessage(next, message.id);
+  }
+  next[STEERED_QUEUED_MESSAGES_KEY] = [
+    ...steeredRecords(next),
+    ...records,
+  ].slice(-MAX_STEERED_QUEUED_MESSAGES);
+  return next;
 }
 
 function reconcileDirectSubmissionQueue(repo: any, userCustom: unknown): any {
@@ -4819,6 +4996,89 @@ export function foldAssistantTurn(
   return nextRepo;
 }
 
+function repositoryIndexOf(repo: any, id: string): number {
+  return repo.messages.findIndex(
+    (entry: any) => messageId(getStoredMessage(entry)) === id,
+  );
+}
+
+/**
+ * Places each message delivered into a run after the reply written before
+ * it, then the reply written after it. A refold updates them in place.
+ */
+function foldSteeredSegments(
+  repo: any,
+  steered: readonly SteeredRunSegment[],
+): any {
+  const next = normalizeThreadRepository(repo);
+  for (const { user, assistant } of steered) {
+    if (repositoryIndexOf(next, user.id) < 0) {
+      next.messages.push({
+        message: user,
+        parentId:
+          typeof next.headId === "string"
+            ? next.headId
+            : (messageId(getStoredMessage(next.messages.at(-1))) ?? null),
+      });
+      next.headId = user.id;
+    }
+    if (!assistant) continue;
+    const existing = repositoryIndexOf(next, assistant.id);
+    if (existing >= 0) {
+      next.messages[existing] = {
+        ...next.messages[existing],
+        message: assistant,
+      };
+      continue;
+    }
+    next.messages.push({ message: assistant, parentId: user.id });
+    next.headId = assistant.id;
+  }
+  return next;
+}
+
+/**
+ * Folds a run's reply and the messages delivered into it. Records the run
+ * took from the queue but never journaled are appended after its reply, and
+ * a refold updates the delivered messages in place.
+ */
+export function foldAssistantTurnWithSteers(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  steered: readonly SteeredRunSegment[],
+  options: Parameters<typeof foldAssistantTurn>[2] & { runId: string },
+): any {
+  const records = steeredRecords(repo).filter(
+    (record) => record.runId === options.runId,
+  );
+  const segments = [
+    ...steered,
+    ...records
+      .filter(
+        (record) => !steered.some(({ user }) => user.id === record.message.id),
+      )
+      .map((record) => ({
+        user: buildSteeredUserMessage(record.message, options.runId),
+        assistant: null,
+      })),
+  ];
+  const base = normalizeThreadRepository(repo);
+  const refold =
+    segments.length > 0 && repositoryIndexOf(base, segments[0]!.user.id) >= 0;
+  const folded =
+    assistantMsg && !refold
+      ? foldAssistantTurn(base, assistantMsg, options)
+      : base;
+  if (segments.length === 0) return folded;
+  const withSteered = foldSteeredSegments(folded, segments);
+  if (records.length > 0) {
+    withSteered[STEERED_QUEUED_MESSAGES_KEY] = steeredRecords(
+      withSteered,
+    ).filter((record) => record.runId !== options.runId);
+  }
+  return withSteered;
+}
+
 export function foldAgentChatRunCompletion(
   repo: unknown,
   assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
@@ -4827,15 +5087,14 @@ export function foldAgentChatRunCompletion(
       ActiveRun,
       "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
     >,
+  steered: readonly SteeredRunSegment[] = [],
 ) {
-  const folded = assistantMsg
-    ? foldAssistantTurn(repo, assistantMsg, {
-        runId: run.runId,
-        turnId: run.turnId,
-        parentId: run.parentId,
-        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
-      })
-    : repo;
+  const folded = foldAssistantTurnWithSteers(repo, assistantMsg, steered, {
+    runId: run.runId,
+    turnId: run.turnId,
+    parentId: run.parentId,
+    agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+  });
   return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
 }
 

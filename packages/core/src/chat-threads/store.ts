@@ -20,6 +20,9 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
+  recordSteeredQueuedMessages,
+  steeredQueuedMessageRecords,
+  type SteeredQueuedMessageRecord,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import {
@@ -1898,7 +1901,15 @@ export interface QueuedMessage {
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
   promotionClaim?: { id: string; expiresAt: number };
+  /**
+   * Send now was pressed during a run: `steering` waits for the run's next
+   * tool boundary, `after_reply` sends as the next turn. Thread state only,
+   * never part of the admitted payload.
+   */
+  delivery?: QueuedMessageDelivery;
 }
+
+export type QueuedMessageDelivery = "steering" | "after_reply";
 
 export type QueuedSubmissionState =
   | "queued"
@@ -1981,6 +1992,7 @@ export function hashQueuedSubmissionPayload(
   const {
     createdAt: _createdAt,
     promotionClaim: _claim,
+    delivery: _delivery,
     ...payload
   } = message as QueuedMessage;
   const options = payload.options as AgentRunOptions | undefined;
@@ -2456,6 +2468,83 @@ export async function retryQueuedSubmissionReceipt(
   return result?.receiptUpdated === true;
 }
 
+/**
+ * True when a queued receipt on this thread was moved to the head, which Send
+ * now does. Lets a run check its tool boundaries without reading thread data.
+ */
+export async function hasPrioritizedQueuedSubmission(
+  threadId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM agent_chat_submission_inbox
+          WHERE thread_id = ? AND state = 'queued' AND move_to_top_at IS NOT NULL
+          LIMIT 1`,
+    args: [threadId],
+  });
+  return rows.length > 0;
+}
+
+async function hasQueuedDelivery(
+  threadId: string,
+  deliveries: readonly QueuedMessageDelivery[],
+): Promise<boolean> {
+  const thread = await getThread(threadId);
+  if (!thread) return false;
+  const queued = parseThreadData(thread.threadData || "{}")?.queuedMessages;
+  return (
+    Array.isArray(queued) &&
+    queued.some((message: unknown) => {
+      const delivery = (message as QueuedMessage | null)?.delivery;
+      return delivery !== undefined && deliveries.includes(delivery);
+    })
+  );
+}
+
+/**
+ * Takes every Send now message off the queue for delivery into `runId`, and
+ * marks each admitted receipt submitted to that run in the same transaction,
+ * so the inbox can never also start it as a new turn.
+ */
+export async function claimSteeredQueuedMessages(
+  threadId: string,
+  runId: string,
+): Promise<
+  Array<{ queued: QueuedMessage; record: SteeredQueuedMessageRecord }>
+> {
+  if (
+    !(await hasPrioritizedQueuedSubmission(threadId)) ||
+    !(await hasQueuedDelivery(threadId, ["steering", "after_reply"]))
+  ) {
+    return [];
+  }
+  const result = await mutateThreadQueuedMessages(threadId, {
+    type: "claimSteered",
+    runId,
+  });
+  const records = result?.steeredRecords ?? [];
+  return (result?.steeredMessages ?? []).map((queued, index) => {
+    const record = records[index];
+    if (record?.message.id !== queued.id) {
+      throw new TypeError("Steered queue claim lost its delivery record.");
+    }
+    return { queued, record };
+  });
+}
+
+/** Marks Send now messages that missed the run's last tool boundary. */
+export async function deferSteeredQueuedMessages(
+  threadId: string,
+): Promise<void> {
+  if (
+    !(await hasPrioritizedQueuedSubmission(threadId)) ||
+    !(await hasQueuedDelivery(threadId, ["steering"]))
+  ) {
+    return;
+  }
+  await mutateThreadQueuedMessages(threadId, { type: "deferSteered" });
+}
+
 /** Retains but stops automatically promoting a row that can no longer be authorized. */
 export async function blockQueuedSubmissionReceipt(
   threadId: string,
@@ -2537,6 +2626,10 @@ export type ThreadQueuedMessageMutation =
   | { type: "remove"; messageId: string }
   | { type: "cancel"; messageId: string }
   | { type: "moveToTop"; messageId: string }
+  | { type: "steer"; messageId: string }
+  | { type: "claimSteered"; runId: string }
+  | { type: "deferSteered" }
+  | { type: "reorder"; messageIds: readonly string[] }
   | { type: "claim"; messageId: string; claimId: string }
   | {
       type: "claimFromInbox";
@@ -2574,6 +2667,8 @@ export interface ThreadQueuedMessageMutationResult {
   claimBusy?: boolean;
   submissionExpired?: boolean;
   promotionBusy?: boolean;
+  /** A reorder named a different message set than the queue holds. */
+  queueOrderStale?: boolean;
   receiptManaged?: boolean;
   receiptUnavailable?: boolean;
   retryDeferred?: boolean;
@@ -2581,9 +2676,19 @@ export interface ThreadQueuedMessageMutationResult {
   receiptUpdated?: boolean;
   claimLost?: boolean;
   released?: boolean;
+  /** Messages a run took from the queue at a tool boundary. */
+  steeredMessages?: QueuedMessage[];
+  steeredRecords?: SteeredQueuedMessageRecord[];
 }
 
 const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
+
+function queuedMessageClaimActive(message: QueuedMessage, now: number) {
+  return (
+    message.promotionClaim !== undefined &&
+    message.promotionClaim.expiresAt > now
+  );
+}
 
 function receiptMutationOwnsPromotionClaim(
   message: QueuedMessage | undefined,
@@ -2668,8 +2773,16 @@ function queuedMessageMatchesReceipt(
   message: QueuedMessage,
   receiptMessage: QueuedMessage,
 ): boolean {
-  const { promotionClaim: _messageClaim, ...messagePayload } = message;
-  const { promotionClaim: _receiptClaim, ...receiptPayload } = receiptMessage;
+  const {
+    promotionClaim: _messageClaim,
+    delivery: _messageDelivery,
+    ...messagePayload
+  } = message;
+  const {
+    promotionClaim: _receiptClaim,
+    delivery: _receiptDelivery,
+    ...receiptPayload
+  } = receiptMessage;
   return stableJson(messagePayload) === stableJson(receiptPayload);
 }
 
@@ -2743,6 +2856,7 @@ export async function mutateThreadQueuedMessages(
     let hadExistingQueuedMessage = false;
     let removedReceiptState: "removed" | "expired" = "removed";
     let movedToTop = false;
+    let reordered = false;
     let receiptClaimMessage: QueuedMessage | undefined;
     let claimQueueSnapshot: QueuedMessage[] | undefined;
     try {
@@ -2887,6 +3001,120 @@ export async function mutateThreadQueuedMessages(
                   ];
                 }
               }
+              break;
+            }
+            case "steer": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              if (index < 0) {
+                throw new Error(
+                  `Unknown queued message: ${mutation.messageId}`,
+                );
+              }
+              const selected = current[index]!;
+              const now = Date.now();
+              if (queuedSubmissionExpired(selected, now)) {
+                queuedMessages = current.filter(
+                  (message) => message.id !== mutation.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (queuedMessageClaimActive(selected, now)) {
+                response = { promotionBusy: true };
+                break;
+              }
+              movedToTop = true;
+              const steered: QueuedMessage = {
+                ...selected,
+                delivery: "steering",
+              };
+              queuedMessages = [
+                steered,
+                ...current.filter(
+                  (message) => message.id !== mutation.messageId,
+                ),
+              ];
+              response = { message: steered };
+              break;
+            }
+            case "claimSteered": {
+              const now = Date.now();
+              const steered = current.filter(
+                (message) =>
+                  message.delivery !== undefined &&
+                  !queuedMessageClaimActive(message, now) &&
+                  !queuedSubmissionExpired(message, now),
+              );
+              if (steered.length === 0) {
+                response = { steeredMessages: [] };
+                break;
+              }
+              const steeredIds = new Set(steered.map(({ id }) => id));
+              queuedMessages = current.filter(
+                (message) => !steeredIds.has(message.id),
+              );
+              const delivered = steered.map(
+                ({ promotionClaim: _claim, delivery: _delivery, ...message }) =>
+                  message,
+              );
+              const records = steeredQueuedMessageRecords(
+                mutation.runId,
+                delivered,
+                now,
+              );
+              response = {
+                steeredMessages: delivered,
+                steeredRecords: records,
+              };
+              result = { ...response, queuedMessages };
+              return JSON.stringify(
+                recordSteeredQueuedMessages(
+                  { ...repository, queuedMessages },
+                  records,
+                ),
+              );
+            }
+            case "deferSteered": {
+              queuedMessages = current.map((message) =>
+                message.delivery === "steering"
+                  ? { ...message, delivery: "after_reply" as const }
+                  : message,
+              );
+              break;
+            }
+            case "reorder": {
+              reordered = false;
+              const byId = new Map(
+                current.map((message) => [message.id, message]),
+              );
+              const ids = mutation.messageIds;
+              if (
+                ids.length !== current.length ||
+                new Set(ids).size !== ids.length ||
+                ids.some((id) => !byId.has(id))
+              ) {
+                response = { queueOrderStale: true };
+                break;
+              }
+              const now = Date.now();
+              const moving = ids.filter(
+                (id, index) => current[index]?.id !== id,
+              );
+              if (moving.length === 0) break;
+              // A claimed message is already being promoted into a run, so its
+              // position is no longer the queue's to change.
+              if (
+                moving.some((id) =>
+                  queuedMessageClaimActive(byId.get(id)!, now),
+                )
+              ) {
+                response = { promotionBusy: true };
+                break;
+              }
+              reordered = true;
+              queuedMessages = ids.map((id) => byId.get(id)!);
               break;
             }
             case "claim": {
@@ -3061,110 +3289,159 @@ export async function mutateThreadQueuedMessages(
                 await lockThreadRunSlot(tx, threadId);
                 return true;
               }
-            : mutation.type === "claimFromInbox"
+            : mutation.type === "claimSteered"
               ? async (tx) => {
-                  const currentReceipt = await readQueuedSubmissionReceipt(
-                    tx,
-                    threadId,
-                    mutation.receipt.messageId,
-                    { forUpdate: true },
-                  );
-                  if (
-                    !currentReceipt ||
-                    !queuedSubmissionReceiptSnapshotMatches(
-                      currentReceipt,
-                      mutation.receipt,
-                    )
-                  ) {
-                    receiptUnavailable = true;
-                    return false;
-                  }
-                  if (
-                    currentReceipt.retryAfter !== undefined &&
-                    currentReceipt.retryAfter > Date.now()
-                  ) {
-                    retryDeferred = true;
-                    return false;
-                  }
-                  return true;
-                }
-              : mutation.type === "claim"
-                ? async (tx) => {
-                    if (result?.submissionExpired) return true;
+                  for (const message of result?.steeredMessages ?? []) {
                     const receipt = await readQueuedSubmissionReceipt(
                       tx,
                       threadId,
-                      mutation.messageId,
+                      message.id,
                       { forUpdate: true },
                     );
-                    if (!receipt) return true;
-                    result = {
-                      ...(result ?? { queuedMessages: [] }),
-                      queuedMessages:
-                        claimQueueSnapshot ?? result?.queuedMessages ?? [],
-                      claimedMessage: undefined,
-                      claimBusy: undefined,
-                      receiptManaged: true,
-                    };
-                    return false;
+                    // Another delivery already owns it; this run must not
+                    // send it a second time.
+                    if (receipt && receipt.state !== "queued") {
+                      if (result) {
+                        result.steeredMessages = [];
+                        result.steeredRecords = [];
+                      }
+                      return false;
+                    }
                   }
-                : mutation.type === "renewClaim"
+                  return true;
+                }
+              : mutation.type === "claimFromInbox"
+                ? async (tx) => {
+                    const currentReceipt = await readQueuedSubmissionReceipt(
+                      tx,
+                      threadId,
+                      mutation.receipt.messageId,
+                      { forUpdate: true },
+                    );
+                    if (
+                      !currentReceipt ||
+                      !queuedSubmissionReceiptSnapshotMatches(
+                        currentReceipt,
+                        mutation.receipt,
+                      )
+                    ) {
+                      receiptUnavailable = true;
+                      return false;
+                    }
+                    if (
+                      currentReceipt.retryAfter !== undefined &&
+                      currentReceipt.retryAfter > Date.now()
+                    ) {
+                      retryDeferred = true;
+                      return false;
+                    }
+                    return true;
+                  }
+                : mutation.type === "claim"
                   ? async (tx) => {
+                      if (result?.submissionExpired) return true;
                       const receipt = await readQueuedSubmissionReceipt(
                         tx,
                         threadId,
                         mutation.messageId,
+                        { forUpdate: true },
                       );
-                      if (
-                        result?.claimLost === true ||
-                        receipt?.state !== "queued" ||
-                        receipt.interruptRunId !== mutation.runId
-                      ) {
-                        if (result) {
-                          result.claimLost = true;
-                          result.claimedMessage = undefined;
-                        }
-                        return false;
-                      }
-                      return true;
+                      if (!receipt) return true;
+                      result = {
+                        ...(result ?? { queuedMessages: [] }),
+                        queuedMessages:
+                          claimQueueSnapshot ?? result?.queuedMessages ?? [],
+                        claimedMessage: undefined,
+                        claimBusy: undefined,
+                        receiptManaged: true,
+                      };
+                      return false;
                     }
-                  : mutation.type === "recordInterruptRun" ||
-                      mutation.type === "clearInterruptRun"
+                  : mutation.type === "renewClaim"
                     ? async (tx) => {
-                        const ownsClaim = receiptMutationOwnsPromotionClaim(
-                          receiptClaimMessage,
-                          mutation.claimId,
-                          Date.now(),
-                        );
-                        if (!ownsClaim) {
-                          if (result) result.claimBusy = true;
-                          return false;
-                        }
                         const receipt = await readQueuedSubmissionReceipt(
                           tx,
                           threadId,
                           mutation.messageId,
                         );
-                        return (
-                          receipt?.state === "queued" &&
-                          (!receipt.interruptRunId ||
-                            receipt.interruptRunId === mutation.runId)
-                        );
+                        if (
+                          result?.claimLost === true ||
+                          receipt?.state !== "queued" ||
+                          receipt.interruptRunId !== mutation.runId
+                        ) {
+                          if (result) {
+                            result.claimLost = true;
+                            result.claimedMessage = undefined;
+                          }
+                          return false;
+                        }
+                        return true;
                       }
-                    : mutation.type === "retryReceipt" ||
-                        mutation.type === "blockReceipt"
-                      ? async () => {
+                    : mutation.type === "recordInterruptRun" ||
+                        mutation.type === "clearInterruptRun"
+                      ? async (tx) => {
                           const ownsClaim = receiptMutationOwnsPromotionClaim(
                             receiptClaimMessage,
                             mutation.claimId,
                             Date.now(),
                           );
-                          if (!ownsClaim && result) result.claimBusy = true;
-                          return ownsClaim;
+                          if (!ownsClaim) {
+                            if (result) result.claimBusy = true;
+                            return false;
+                          }
+                          const receipt = await readQueuedSubmissionReceipt(
+                            tx,
+                            threadId,
+                            mutation.messageId,
+                          );
+                          return (
+                            receipt?.state === "queued" &&
+                            (!receipt.interruptRunId ||
+                              receipt.interruptRunId === mutation.runId)
+                          );
                         }
-                      : undefined,
+                      : mutation.type === "retryReceipt" ||
+                          mutation.type === "blockReceipt"
+                        ? async () => {
+                            const ownsClaim = receiptMutationOwnsPromotionClaim(
+                              receiptClaimMessage,
+                              mutation.claimId,
+                              Date.now(),
+                            );
+                            if (!ownsClaim && result) result.claimBusy = true;
+                            return ownsClaim;
+                          }
+                        : undefined,
         afterUpdate: async (tx) => {
           if (!result) return;
+          if (mutation.type === "claimSteered") {
+            for (const message of result.steeredMessages ?? []) {
+              const receipt = await readQueuedSubmissionReceipt(
+                tx,
+                threadId,
+                message.id,
+                { forUpdate: true },
+              );
+              if (!receipt) continue;
+              const submitted = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'submitted', submitted_run_id = ?, interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [mutation.runId, Date.now(), threadId, message.id],
+              });
+              if (submitted.rowsAffected !== 1) {
+                throw new Error(
+                  `Queued submission ${message.id} changed while a run claimed it.`,
+                );
+              }
+            }
+            return;
+          }
+          if (mutation.type === "steer" && result.submissionExpired) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), threadId, mutation.messageId],
+            });
+            return;
+          }
           if (
             mutation.type === "recordInterruptRun" ||
             mutation.type === "clearInterruptRun"
@@ -3428,11 +3705,24 @@ export async function mutateThreadQueuedMessages(
                 );
               }
             }
-          } else if (mutation.type === "moveToTop" && movedToTop) {
+          } else if (
+            (mutation.type === "moveToTop" || mutation.type === "steer") &&
+            movedToTop
+          ) {
             await tx.execute({
               sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
               args: [Date.now(), Date.now(), threadId, mutation.messageId],
             });
+          } else if (mutation.type === "reorder" && reordered) {
+            // Promotion reads move_to_top_at DESC, so descending stamps from
+            // now encode the whole order; a later move-to-top still wins.
+            const now = Date.now();
+            for (const [index, messageId] of mutation.messageIds.entries()) {
+              await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [now - index, now, threadId, messageId],
+              });
+            }
           }
         },
       });

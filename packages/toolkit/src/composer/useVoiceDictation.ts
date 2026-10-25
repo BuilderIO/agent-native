@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  createRealtimeVoiceAudioLevelStore,
+  normalizeRealtimeVoiceRms,
+  type RealtimeVoiceAudioLevelStore,
+  smoothRealtimeVoiceLevel,
+} from "./realtime-voice-audio-level.js";
+import {
   applyVoiceContextReplacements,
+  type ComposerTranslate,
   type VoiceContextPack,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
@@ -94,7 +101,8 @@ export interface UseVoiceDictationOptions {
 
 export interface VoiceDictationApi {
   state: VoiceState;
-  amplitude: number;
+  /** Live microphone input level, read by the waveform without re-rendering the composer. */
+  levels: RealtimeVoiceAudioLevelStore;
   durationMs: number;
   errorMessage: string | null;
   provider: VoiceProvider;
@@ -291,7 +299,28 @@ function microphoneBlockedByPermissionsPolicy(): boolean {
   }
 }
 
-export function voiceDictationStartErrorMessage(error: unknown): string {
+const MICROPHONE_ACCESS_ERROR_NAMES = new Set([
+  "NotAllowedError",
+  "SecurityError",
+  "NotFoundError",
+  "DevicesNotFoundError",
+  "NotReadableError",
+  "TrackStartError",
+]);
+
+/** Whether a getUserMedia rejection is about microphone access or hardware. */
+export function isMicrophoneAccessError(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return typeof name === "string" && MICROPHONE_ACCESS_ERROR_NAMES.has(name);
+}
+
+const untranslated: ComposerTranslate = (_key, options) =>
+  typeof options?.defaultValue === "string" ? options.defaultValue : "";
+
+export function voiceDictationStartErrorMessage(
+  error: unknown,
+  t: ComposerTranslate = untranslated,
+): string {
   const name =
     typeof (error as { name?: unknown } | null)?.name === "string"
       ? (error as { name: string }).name
@@ -305,7 +334,10 @@ export function voiceDictationStartErrorMessage(error: unknown): string {
     microphoneBlockedByPermissionsPolicy() ||
     /permissions[- ]policy|feature policy/i.test(message)
   ) {
-    return "This app is blocking microphone access through its browser permissions policy. Reload the app, or open it directly in a browser tab.";
+    return t("agentChat.voice.dictation.errors.permissionsPolicy", {
+      defaultValue:
+        "This app is blocking microphone access through its browser permissions policy. Reload the app, or open it directly in a browser tab.",
+    });
   }
 
   if (
@@ -313,18 +345,39 @@ export function voiceDictationStartErrorMessage(error: unknown): string {
     name === "SecurityError" ||
     /permission|denied|not allowed/i.test(message)
   ) {
-    return "Microphone access is blocked. Click the site controls icon in the address bar, set Microphone to Allow for this app, then try again.";
+    // Chromium reports an OS-level block as "Permission denied by system".
+    if (/by system/i.test(message)) {
+      return t("agentChat.voice.dictation.errors.microphoneBlockedBySystem", {
+        defaultValue:
+          "Your computer is blocking microphone access for this browser. Allow it in your system privacy settings, then try again.",
+      });
+    }
+    return t("agentChat.voice.dictation.errors.microphoneBlocked", {
+      defaultValue:
+        "Microphone access is blocked. Click the site controls icon in the address bar, set Microphone to Allow for this app, then try again.",
+    });
   }
 
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "No microphone was found. Plug one in or choose a different input, then try again.";
+    return t("agentChat.voice.dictation.errors.noMicrophone", {
+      defaultValue:
+        "No microphone was found. Plug one in or choose a different input, then try again.",
+    });
   }
 
   if (name === "NotReadableError" || name === "TrackStartError") {
-    return "Your microphone is busy in another app. Close the other app or choose a different input, then try again.";
+    return t("agentChat.voice.dictation.errors.microphoneBusy", {
+      defaultValue:
+        "Your microphone is busy in another app. Close the other app or choose a different input, then try again.",
+    });
   }
 
-  return message || "Could not start recording";
+  return (
+    message ||
+    t("agentChat.voice.dictation.errors.startFailed", {
+      defaultValue: "Could not start dictation. Try again.",
+    })
+  );
 }
 
 function isMicPermissionError(error: string | undefined): boolean {
@@ -337,23 +390,33 @@ function isMicPermissionError(error: string | undefined): boolean {
 
 export function voiceDictationSpeechErrorMessage(
   error: string | undefined,
+  t: ComposerTranslate = untranslated,
 ): string {
   if (error === "not-allowed" || error === "service-not-allowed") {
-    return voiceDictationStartErrorMessage({
-      name: "NotAllowedError",
-      message: error,
-    });
+    return voiceDictationStartErrorMessage(
+      { name: "NotAllowedError", message: error },
+      t,
+    );
   }
   if (error === "audio-capture") {
-    return "No microphone was found. Plug one in or choose a different input, then try again.";
+    return voiceDictationStartErrorMessage({ name: "NotFoundError" }, t);
   }
   if (error === "network") {
-    return "Speech recognition couldn't reach its service. Check your connection, or pick a different source in Settings → Voice Transcription.";
+    return t("agentChat.voice.dictation.errors.speechServiceUnreachable", {
+      defaultValue:
+        "Speech recognition couldn't reach its service. Check your connection, or pick a different source under Voice transcription in Settings.",
+    });
   }
   if (error === "aborted" || error === undefined) {
-    return "Dictation stopped before it captured any audio. Another app or tab may be holding the microphone — close it, or pick a different source in Settings → Voice Transcription.";
+    return t("agentChat.voice.dictation.errors.noAudioCaptured", {
+      defaultValue:
+        "Dictation stopped before it captured any audio. Another app or tab may be using the microphone. Close it, or pick a different source under Voice transcription in Settings.",
+    });
   }
-  return `Speech recognition error: ${error}`;
+  return t("agentChat.voice.dictation.errors.speechRecognitionFailed", {
+    error,
+    defaultValue: `Speech recognition failed: ${error}`,
+  });
 }
 
 export function useVoiceDictation(
@@ -361,6 +424,7 @@ export function useVoiceDictation(
 ): VoiceDictationApi {
   const adapters = useComposerRuntimeAdapters();
   const resolvePath = adapters.resolvePath!;
+  const t = adapters.translate!;
   const replaceContext =
     adapters.voice!.applyContextReplacements ?? applyVoiceContextReplacements;
   const { onTranscript, onError, onLiveUpdate, contextPack } = options;
@@ -374,7 +438,7 @@ export function useVoiceDictation(
   contextPackRef.current = contextPack;
 
   const [state, setState] = useState<VoiceState>("idle");
-  const [amplitude, setAmplitude] = useState(0);
+  const [levels] = useState(createRealtimeVoiceAudioLevelStore);
   const [durationMs, setDurationMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [provider, setProvider] = useState<VoiceProvider>("auto");
@@ -461,8 +525,8 @@ export function useVoiceDictation(
     liveTextRef.current = "";
     realtimeFinalRef.current = "";
     realtimeInterimRef.current = "";
-    setAmplitude(0);
-  }, []);
+    levels.reset();
+  }, [levels]);
 
   useEffect(() => teardown, [teardown]);
 
@@ -481,39 +545,43 @@ export function useVoiceDictation(
     [],
   );
 
-  const startMeter = useCallback((stream: MediaStream) => {
-    try {
-      const AudioCtor =
-        typeof window !== "undefined"
-          ? window.AudioContext || (window as any).webkitAudioContext || null
-          : null;
-      if (!AudioCtor) return;
-      const ctx: AudioContext = new AudioCtor();
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      source.connect(analyser);
-      audioContextRef.current = ctx;
-      analyserRef.current = analyser;
+  const startMeter = useCallback(
+    (stream: MediaStream) => {
+      try {
+        const AudioCtor =
+          typeof window !== "undefined"
+            ? window.AudioContext || (window as any).webkitAudioContext || null
+            : null;
+        if (!AudioCtor) return;
+        const ctx: AudioContext = new AudioCtor();
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        audioContextRef.current = ctx;
+        analyserRef.current = analyser;
 
-      const buffer = new Uint8Array(analyser.frequencyBinCount);
-      const tick = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteTimeDomainData(buffer);
-        let sumSquares = 0;
-        for (let i = 0; i < buffer.length; i++) {
-          const n = (buffer[i] - 128) / 128;
-          sumSquares += n * n;
-        }
-        const rms = Math.sqrt(sumSquares / buffer.length);
-        setAmplitude(Math.min(1, rms * 2.5));
+        const buffer = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteTimeDomainData(buffer);
+          levels.set({
+            input: smoothRealtimeVoiceLevel(
+              levels.getSnapshot().input,
+              normalizeRealtimeVoiceRms(buffer),
+            ),
+            output: 0,
+          });
+          rafRef.current = requestAnimationFrame(tick);
+        };
         rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
-    } catch {
-      /* analyser is best-effort */
-    }
-  }, []);
+        // coercion-ok: the meter only animates the waveform; capture and transcription never read it.
+      } catch {
+        /* analyser is best-effort */
+      }
+    },
+    [levels],
+  );
 
   const startTimer = useCallback(() => {
     startedAtRef.current = Date.now();
@@ -575,11 +643,19 @@ export function useVoiceDictation(
             body: form,
           });
           if (!res.ok) {
-            const body = await res
-              .json()
-              .catch(() => ({ error: `HTTP ${res.status}` }));
+            // coercion-ok: an unreadable error body still fails with the status-coded message below.
+            const body = (await res.json().catch(() => ({}))) as {
+              error?: string;
+            };
             throw new Error(
-              body.error || `Transcription failed (${res.status})`,
+              body.error ||
+                t(
+                  "agentChat.voice.dictation.errors.transcriptionFailedStatus",
+                  {
+                    status: res.status,
+                    defaultValue: `Transcription failed (${res.status}). Try again.`,
+                  },
+                ),
             );
           }
           if (cancelledRef.current) {
@@ -607,7 +683,10 @@ export function useVoiceDictation(
           } else {
             failWith(
               (err as Error)?.message ??
-                "Transcription failed. Check your voice transcription provider in settings.",
+                t("agentChat.voice.dictation.errors.transcriptionFailed", {
+                  defaultValue:
+                    "Transcription failed. Check your provider under Voice transcription in Settings.",
+                }),
             );
           }
         }
@@ -668,6 +747,7 @@ export function useVoiceDictation(
       failWith,
       getVoiceContextPack,
       resolvePath,
+      t,
     ],
   );
 
@@ -679,7 +759,10 @@ export function useVoiceDictation(
       const Ctor = getSpeechRecognitionCtor();
       if (!Ctor) {
         throw new Error(
-          "Your browser doesn't support speech recognition. Add an OpenAI API key in settings for Whisper transcription.",
+          t("agentChat.voice.dictation.errors.speechRecognitionUnsupported", {
+            defaultValue:
+              "Your browser doesn't support speech recognition. Add an OpenAI API key in Settings to use Whisper transcription.",
+          }),
         );
       }
       if (cancelledRef.current) {
@@ -750,7 +833,7 @@ export function useVoiceDictation(
         if (!text) {
           if (fatal || !capturing) {
             if (onUnavailable?.(lastError)) return;
-            failWith(voiceDictationSpeechErrorMessage(lastError));
+            failWith(voiceDictationSpeechErrorMessage(lastError, t));
             return;
           }
           setState("idle");
@@ -793,6 +876,7 @@ export function useVoiceDictation(
       getVoiceContextPack,
       replaceContext,
       resolvePath,
+      t,
     ],
   );
 
@@ -814,9 +898,8 @@ export function useVoiceDictation(
             (typeof navigator !== "undefined" && navigator.language) || "en-US",
         }),
       });
-      const sessionBody = (await sessionRes
-        .json()
-        .catch(() => ({ error: `HTTP ${sessionRes.status}` }))) as {
+      // coercion-ok: an unreadable error body still fails with the status-coded message below.
+      const sessionBody = (await sessionRes.json().catch(() => ({}))) as {
         websocketUrl?: string;
         websocketProtocol?: string;
         sessionToken?: string;
@@ -830,7 +913,10 @@ export function useVoiceDictation(
         for (const track of stream.getTracks()) track.stop();
         throw new Error(
           sessionBody.error ||
-            `Could not start Google realtime transcription (${sessionRes.status})`,
+            t("agentChat.voice.dictation.errors.googleRealtimeStartFailed", {
+              status: sessionRes.status,
+              defaultValue: `Could not start Google realtime transcription (${sessionRes.status}).`,
+            }),
         );
       }
       if (cancelledRef.current) {
@@ -904,7 +990,12 @@ export function useVoiceDictation(
         try {
           socket.send(await event.data.arrayBuffer());
         } catch (err) {
-          finish((err as Error)?.message ?? "Realtime audio upload failed");
+          finish(
+            (err as Error)?.message ??
+              t("agentChat.voice.dictation.errors.googleRealtimeUploadFailed", {
+                defaultValue: "Realtime audio upload failed.",
+              }),
+          );
         }
       };
 
@@ -997,7 +1088,12 @@ export function useVoiceDictation(
           return;
         }
         if (message.type === "error") {
-          finish(message.error || "Google realtime transcription failed");
+          finish(
+            message.error ||
+              t("agentChat.voice.dictation.errors.googleRealtimeFailed", {
+                defaultValue: "Google realtime transcription failed.",
+              }),
+          );
           return;
         }
         if (message.type === "end") {
@@ -1006,7 +1102,11 @@ export function useVoiceDictation(
       };
 
       socket.onerror = () => {
-        finish("Google realtime transcription connection failed");
+        finish(
+          t("agentChat.voice.dictation.errors.googleRealtimeConnectionFailed", {
+            defaultValue: "Google realtime transcription lost its connection.",
+          }),
+        );
       };
 
       socket.onclose = () => {
@@ -1030,7 +1130,12 @@ export function useVoiceDictation(
             }),
           );
         } catch (err) {
-          finish((err as Error)?.message ?? "Could not start realtime stream");
+          finish(
+            (err as Error)?.message ??
+              t("agentChat.voice.dictation.errors.googleRealtimeStreamFailed", {
+                defaultValue: "Could not start the realtime stream.",
+              }),
+          );
         }
       };
     },
@@ -1042,6 +1147,7 @@ export function useVoiceDictation(
       getVoiceContextPack,
       replaceContext,
       resolvePath,
+      t,
     ],
   );
 
@@ -1071,14 +1177,23 @@ export function useVoiceDictation(
       if (resolvedProvider === "openai") {
         if (!mediaRecorderSupported) {
           throw new Error(
-            "Your browser doesn't support audio recording. Use the browser provider in Settings → Voice Transcription.",
+            t("agentChat.voice.dictation.errors.recordingUnsupported", {
+              defaultValue:
+                "Your browser doesn't support audio recording. Pick the browser option under Voice transcription in Settings.",
+            }),
           );
         }
         await startOpenAi(pref, prefs.instructions);
       } else if (resolvedProvider === "google-realtime") {
         if (!mediaRecorderSupported) {
           throw new Error(
-            "Your browser doesn't support audio recording, so Google realtime transcription can't start.",
+            t(
+              "agentChat.voice.dictation.errors.googleRealtimeRecordingUnsupported",
+              {
+                defaultValue:
+                  "Your browser doesn't support audio recording, so Google realtime transcription can't start.",
+              },
+            ),
           );
         }
         await startGoogleRealtime(prefs);
@@ -1091,7 +1206,7 @@ export function useVoiceDictation(
                 activeProviderRef.current = "openai";
                 setState("starting");
                 void startOpenAi("auto", prefs.instructions).catch((err) =>
-                  failWith(voiceDictationStartErrorMessage(err)),
+                  failWith(voiceDictationStartErrorMessage(err, t)),
                 );
                 return true;
               }
@@ -1105,7 +1220,7 @@ export function useVoiceDictation(
         setState("idle");
         return;
       }
-      failWith(voiceDictationStartErrorMessage(err));
+      failWith(voiceDictationStartErrorMessage(err, t));
     }
   }, [
     state,
@@ -1115,6 +1230,7 @@ export function useVoiceDictation(
     startGoogleRealtime,
     startBrowser,
     failWith,
+    t,
   ]);
 
   const stop = useCallback(() => {
@@ -1173,15 +1289,6 @@ export function useVoiceDictation(
     setState("idle");
   }, [state, teardown]);
 
-  useEffect(() => {
-    if (state !== "error") return;
-    const handle = setTimeout(() => {
-      setErrorMessage(null);
-      setState("idle");
-    }, 8000);
-    return () => clearTimeout(handle);
-  }, [state]);
-
   const dismissError = useCallback(() => {
     setErrorMessage(null);
     if (state === "error") setState("idle");
@@ -1189,7 +1296,7 @@ export function useVoiceDictation(
 
   return {
     state,
-    amplitude,
+    levels,
     durationMs,
     errorMessage,
     provider,

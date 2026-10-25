@@ -52,7 +52,10 @@ import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
   blockQueuedSubmissionReceipt,
+  claimSteeredQueuedMessages,
   createThread,
+  deferSteeredQueuedMessages,
+  hasPrioritizedQueuedSubmission,
   createThreadShareLink,
   deleteThread,
   forkThread,
@@ -193,6 +196,18 @@ describe("chat thread store", () => {
             candidate.thread_id === args[0] && candidate.message_id === args[1],
         );
         return { rows: submission ? [submission] : [], rowsAffected: 0 };
+      }
+      if (
+        /FROM agent_chat_submission_inbox/i.test(sql) &&
+        /state = 'queued' AND move_to_top_at IS NOT NULL/i.test(sql)
+      ) {
+        const prioritized = submissionRows.filter(
+          (candidate) =>
+            candidate.thread_id === args[0] &&
+            candidate.state === "queued" &&
+            candidate.move_to_top_at != null,
+        );
+        return { rows: prioritized.slice(0, 1), rowsAffected: 0 };
       }
       if (/FROM agent_chat_submission_inbox/i.test(sql)) {
         const interruptPoll = /interrupt_active_run = TRUE/i.test(sql);
@@ -2877,6 +2892,226 @@ describe("chat thread store", () => {
       "queued-interrupt",
       "queued-steered",
       "queued-first",
+    ]);
+  });
+
+  describe("Send now delivery into a running turn", () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const append = (id: string) =>
+      mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: { id, threadId: "thread-1", text: `Prompt ${id}` },
+        },
+        { actor },
+      );
+    const queuedIds = () =>
+      (JSON.parse(row!.thread_data).queuedMessages ?? []).map(
+        (message: { id: string }) => message.id,
+      );
+
+    it("flags the message, moves it to the head, and stamps the inbox", async () => {
+      await append("queued-a");
+      await append("queued-b");
+
+      const steered = await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-b",
+      });
+
+      expect(steered?.message).toMatchObject({
+        id: "queued-b",
+        delivery: "steering",
+      });
+      expect(queuedIds()).toEqual(["queued-b", "queued-a"]);
+      expect(
+        submissionRows.find((r) => r.message_id === "queued-b")?.move_to_top_at,
+      ).toEqual(expect.any(Number));
+      expect(await hasPrioritizedQueuedSubmission("thread-1")).toBe(true);
+      const receipt = await getQueuedSubmissionReceipt("thread-1", "queued-b");
+      // The delivery flag is thread state, never part of the admitted payload.
+      expect(receipt?.message).not.toHaveProperty("delivery");
+    });
+
+    it("hands a flagged message to the run exactly once and closes its receipt", async () => {
+      await append("queued-a");
+      await append("queued-b");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-b",
+      });
+      const receiptBeforeClaim = await getQueuedSubmissionReceipt(
+        "thread-1",
+        "queued-b",
+      );
+
+      const delivered = await claimSteeredQueuedMessages("thread-1", "run-1");
+
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.queued).toMatchObject({
+        id: "queued-b",
+        text: "Prompt queued-b",
+      });
+      expect(delivered[0]!.queued).not.toHaveProperty("delivery");
+      expect(delivered[0]!.record).toMatchObject({
+        runId: "run-1",
+        message: { id: "queued-b", text: "Prompt queued-b" },
+        continuationMessageId: "server-run-1:after:queued-b",
+      });
+      const data = JSON.parse(row!.thread_data);
+      expect(queuedIds()).toEqual(["queued-a"]);
+      expect(data._claimedQueuedMessageIds).toContain("queued-b");
+      expect(data._steeredQueuedMessages).toEqual([delivered[0]!.record]);
+      expect(
+        submissionRows.find((r) => r.message_id === "queued-b"),
+      ).toMatchObject({ state: "submitted", submitted_run_id: "run-1" });
+
+      expect(await claimSteeredQueuedMessages("thread-1", "run-2")).toEqual([]);
+      // The inbox cannot start it as a new turn afterwards.
+      const drained = await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt: receiptBeforeClaim!,
+        claimId: "claim-after-steer",
+      });
+      expect(drained?.receiptUnavailable).toBe(true);
+      expect(queuedIds()).toEqual(["queued-a"]);
+    });
+
+    it("leaves a message alone when its receipt was already delivered", async () => {
+      await append("queued-a");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-a",
+      });
+      const receipt = submissionRows.find((r) => r.message_id === "queued-a")!;
+      receipt.state = "submitted";
+      receipt.submitted_run_id = "run-inbox";
+      // Another path's prioritized row keeps the boundary check reading.
+      await append("queued-b");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "moveToTop",
+        messageId: "queued-b",
+      });
+
+      expect(await claimSteeredQueuedMessages("thread-1", "run-1")).toEqual([]);
+      expect(queuedIds()).toContain("queued-a");
+      expect(receipt.submitted_run_id).toBe("run-inbox");
+    });
+
+    it("marks waiting messages for after the reply, and a later boundary still takes them", async () => {
+      await append("queued-a");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-a",
+      });
+
+      await deferSteeredQueuedMessages("thread-1");
+
+      expect(JSON.parse(row!.thread_data).queuedMessages[0]).toMatchObject({
+        id: "queued-a",
+        delivery: "after_reply",
+      });
+      const delivered = await claimSteeredQueuedMessages("thread-1", "run-1");
+      expect(delivered.map(({ queued }) => queued.id)).toEqual(["queued-a"]);
+    });
+
+    it("skips the boundary check when nothing was sent now", async () => {
+      await append("queued-a");
+      executeMock.mockClear();
+
+      expect(await claimSteeredQueuedMessages("thread-1", "run-1")).toEqual([]);
+
+      expect(
+        executeMock.mock.calls.some(([query]) =>
+          /chat_threads/i.test(typeof query === "string" ? query : query.sql),
+        ),
+      ).toBe(false);
+    });
+
+    it("keeps a delivered message out of a stale client save", async () => {
+      await append("queued-a");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-a",
+      });
+      const stale = row!.thread_data;
+      await claimSteeredQueuedMessages("thread-1", "run-1");
+
+      await updateThreadData("thread-1", stale, "Thread", "", 1, {
+        preserveExistingQueuedMessages: false,
+      });
+
+      expect(queuedIds()).toEqual([]);
+    });
+  });
+
+  it("reorders the whole queue in thread data and drain priority", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    for (const id of ["queued-a", "queued-b", "queued-c"]) {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        { type: "append", message: { id, threadId: "thread-1", text: id } },
+        { actor },
+      );
+    }
+
+    const result = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-c", "queued-a", "queued-b"],
+    });
+    expect(result?.queueOrderStale).toBeUndefined();
+    expect(result?.queuedMessages.map((message) => message.id)).toEqual([
+      "queued-c",
+      "queued-a",
+      "queued-b",
+    ]);
+    const ordered = await listQueuedSubmissionReceipts();
+    expect(ordered.map((submission) => submission.messageId)).toEqual([
+      "queued-c",
+      "queued-a",
+      "queued-b",
+    ]);
+
+    const stale = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-a", "queued-b"],
+    });
+    expect(stale?.queueOrderStale).toBe(true);
+    expect(stale?.queuedMessages.map((message) => message.id)).toEqual([
+      "queued-c",
+      "queued-a",
+      "queued-b",
+    ]);
+    const unknown = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-a", "queued-b", "queued-gone"],
+    });
+    expect(unknown?.queueOrderStale).toBe(true);
+  });
+
+  it("refuses to reorder a message that is being promoted", async () => {
+    for (const id of ["queued-a", "queued-b"]) {
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: { id, threadId: "thread-1", text: id },
+      });
+    }
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: "queued-a",
+      claimId: "claim-1",
+    });
+    expect(claim?.claimedMessage?.id).toBe("queued-a");
+
+    const result = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-b", "queued-a"],
+    });
+    expect(result?.promotionBusy).toBe(true);
+    expect(result?.queuedMessages.map((message) => message.id)).toEqual([
+      "queued-a",
+      "queued-b",
     ]);
   });
 

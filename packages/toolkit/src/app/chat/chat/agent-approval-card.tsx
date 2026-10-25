@@ -1,19 +1,12 @@
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
+import { useT } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
-import {
-  IconCheck,
-  IconChevronDown,
-  IconShieldCheck,
-  IconX,
-} from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
 import React from "react";
 
-import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
+import {
+  ApprovalCard,
+  type ApprovalCardAction,
+} from "../../agentkit/react/approval-card.js";
 
 export interface AgentInputCardProps {
   title: React.ReactNode;
@@ -77,6 +70,7 @@ export interface AgentApprovalCardProps {
   alwaysAllowLabel: string;
   alwaysAllowHint?: string;
   saveFailedLabel?: string;
+  statusLabel?: string;
   isAlwaysAllowing?: boolean;
   onApprove?: () => void;
   onDeny: () => void;
@@ -92,80 +86,50 @@ export function AgentApprovalCard({
   alwaysAllowLabel,
   alwaysAllowHint,
   saveFailedLabel,
+  statusLabel,
   isAlwaysAllowing = false,
   onApprove,
   onDeny,
   onAlwaysAllow,
 }: AgentApprovalCardProps) {
+  const t = useT();
+  const actions: ApprovalCardAction[] = [
+    ...(onApprove
+      ? [
+          {
+            id: "approve",
+            label: approveLabel,
+            intent: "primary" as const,
+            onPress: onApprove,
+          },
+        ]
+      : []),
+    { id: "deny", label: denyLabel, onPress: onDeny },
+  ];
   return (
-    <AgentInputCard
+    <ApprovalCard
       title={question}
-      subtitle={toolName}
-      icon={<IconShieldCheck className="size-4" />}
-      className="agent-approval-card"
-      footer={
-        <>
-          {onApprove ? (
-            <div className="order-1 inline-flex items-stretch">
-              <button
-                type="button"
-                disabled={isAlwaysAllowing}
-                onClick={onApprove}
-                className={cn(
-                  "inline-flex shrink-0 h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
-                  "bg-foreground text-background hover:bg-foreground/90",
-                  onAlwaysAllow && "rounded-e-none",
-                  "disabled:pointer-events-none disabled:opacity-50",
-                )}
-              >
-                <IconCheck className="size-3.5" />
-                {approveLabel}
-              </button>
-              {onAlwaysAllow ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={isAlwaysAllowing}
-                      aria-label={moreOptionsLabel}
-                      title={moreOptionsLabel}
-                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-s-none rounded-e-md border-s border-background/25 bg-foreground text-background hover:bg-foreground/90 disabled:pointer-events-none disabled:opacity-50"
-                    >
-                      <IconChevronDown className="size-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onSelect={() => void onAlwaysAllow()}
-                      title={alwaysAllowHint}
-                    >
-                      <IconShieldCheck className="size-4" />
-                      {alwaysAllowLabel}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
-          ) : null}
-          <button
-            type="button"
-            disabled={isAlwaysAllowing}
-            onClick={onDeny}
-            className={cn(
-              compactOutlineButtonClassName,
-              "order-2 gap-1.5 px-3 hover:bg-muted",
-            )}
-          >
-            <IconX className="size-3.5" />
-            {denyLabel}
-          </button>
-          {saveFailedLabel ? (
-            <span role="alert" className="basis-full text-xs text-destructive">
-              {saveFailedLabel}
-            </span>
-          ) : null}
-        </>
+      detail={toolName || undefined}
+      status={statusLabel ?? t("agentChat.approval.pending")}
+      className="agent-approval-card mt-2 mb-0 w-full max-w-[30rem]"
+      actions={actions}
+      menu={
+        onApprove && onAlwaysAllow
+          ? {
+              label: moreOptionsLabel,
+              items: [
+                {
+                  id: "always-allow",
+                  label: alwaysAllowLabel,
+                  hint: alwaysAllowHint,
+                },
+              ],
+              onAction: () => void onAlwaysAllow(),
+            }
+          : undefined
       }
+      busy={isAlwaysAllowing}
+      error={saveFailedLabel}
     />
   );
 }

@@ -552,7 +552,25 @@ export type AgentChatEvent =
       reason: ContinuationReason;
       maxIterations?: number;
     }
-  | { type: "clear" };
+  | { type: "clear" }
+  /**
+   * A queued message the user sent into this run with Send now, delivered at
+   * a tool boundary. The run's later output is written under
+   * `continuationMessageId`, so the message sits between the two replies.
+   */
+  | {
+      type: "user_message";
+      message: AgentChatSteeredUserMessage;
+      continuationMessageId: string;
+    };
+
+export interface AgentChatSteeredUserMessage {
+  /** The queued message id, kept as the delivered message id. */
+  id: string;
+  text: string;
+  createdAt: string;
+  attachments?: AgentChatAttachment[];
+}
 
 export const CONTINUATION_REASONS = [
   "run_timeout",

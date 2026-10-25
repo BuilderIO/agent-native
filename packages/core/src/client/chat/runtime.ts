@@ -3965,6 +3965,64 @@ function agentNativeActivityStatus(
   return "running";
 }
 
+function steeredUserMessageEvent(raw: unknown):
+  | {
+      seq?: number;
+      continuationMessageId: string;
+      message: { id: string; text: string; createdAt?: string };
+      attachments: AgentChatRuntimeFilePart[];
+    }
+  | undefined {
+  const event = asRecord(raw);
+  if (event?.type !== "user_message") return undefined;
+  const message = asRecord(event.message);
+  if (
+    typeof event.continuationMessageId !== "string" ||
+    !event.continuationMessageId ||
+    typeof message?.id !== "string" ||
+    !message.id ||
+    typeof message.text !== "string"
+  ) {
+    throw new TypeError(
+      "Agent chat user_message event requires a message and a continuation id.",
+    );
+  }
+  const attachments = Array.isArray(message.attachments)
+    ? message.attachments.flatMap((value): AgentChatRuntimeFilePart[] => {
+        const attachment = asRecord(value);
+        if (typeof attachment?.url !== "string") return [];
+        const mediaType =
+          typeof attachment.mediaType === "string"
+            ? attachment.mediaType
+            : typeof attachment.contentType === "string"
+              ? attachment.contentType
+              : undefined;
+        return [
+          {
+            type: "file",
+            url: attachment.url,
+            ...(mediaType ? { mediaType } : {}),
+            ...(typeof attachment.name === "string"
+              ? { filename: attachment.name }
+              : {}),
+          },
+        ];
+      })
+    : [];
+  return {
+    ...(typeof event.seq === "number" ? { seq: event.seq } : {}),
+    continuationMessageId: event.continuationMessageId,
+    message: {
+      id: message.id,
+      text: message.text,
+      ...(typeof message.createdAt === "string"
+        ? { createdAt: message.createdAt }
+        : {}),
+    },
+    attachments,
+  };
+}
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
@@ -5126,6 +5184,50 @@ export function createAgentNativeChatRuntime(
           },
         };
         messageStates.set(stateKey, state);
+      }
+      const steered = steeredUserMessageEvent(event);
+      if (steered) {
+        const base = {
+          sessionId: context.sessionId,
+          turnId: context.turnId,
+          ...(steered.seq !== undefined
+            ? { metadata: { seq: steered.seq } }
+            : {}),
+        };
+        const userMessage: AgentChatRuntimeMessage = {
+          id: steered.message.id,
+          role: "user",
+          content: [
+            { type: "text", text: steered.message.text },
+            ...steered.attachments,
+          ],
+          createdAt: steered.message.createdAt,
+          status: "complete",
+        };
+        const mappedSteer: AgentChatRuntimeKnownEvent[] = [
+          ...(state.message.started
+            ? [
+                {
+                  type: "message-done" as const,
+                  ...base,
+                  message: {
+                    id: state.messageId,
+                    role: "assistant" as const,
+                    content: [],
+                    status: "complete" as const,
+                  },
+                },
+              ]
+            : []),
+          { type: "message-start", ...base, message: userMessage },
+          { type: "message-done", ...base, message: userMessage },
+        ];
+        // The run's output after the delivered message is a new reply, under
+        // the id the server saves it with.
+        state.messageId = steered.continuationMessageId;
+        state.message.content = [];
+        state.message.started = false;
+        return mappedSteer;
       }
       const mapped = mapAgentNativeEvent(event, {
         sessionId: context.sessionId,

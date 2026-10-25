@@ -6856,10 +6856,15 @@ describe("createAgentNativeAgentKitTransport", () => {
       threadId: "thread-queue",
       messageId: "queued-two",
     });
+    await transport.reorderQueuedMessages?.({
+      threadId: "thread-queue",
+      messageIds: ["queued-one", "queued-three"],
+    });
 
     expect(queueWrites).toEqual([
       { type: "moveToTop", messageId: "queued-three" },
       { type: "cancel", messageId: "queued-two" },
+      { type: "reorder", messageIds: ["queued-one", "queued-three"] },
     ]);
     await transport.dispose();
   });
@@ -7767,6 +7772,87 @@ describe("createAgentNativeAgentKitTransport", () => {
           { type: "text", text: "Done." },
         ],
       },
+    ]);
+    await transport.dispose();
+  });
+
+  it("names the tool calls each restored reasoning part introduced", async () => {
+    const threadId = "thread-reasoning-tool-order";
+    const toolCall = (toolCallId: string) => ({
+      type: "tool-call",
+      toolCallId,
+      toolName: "web-search",
+      args: { query: toolCallId },
+      result: "ok",
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "server-run-1",
+                    role: "assistant",
+                    content: [
+                      toolCall("call-before"),
+                      { type: "reasoning", text: "**Searching** first." },
+                      toolCall("call-1"),
+                      toolCall("call-2"),
+                      { type: "reasoning", text: "**Reading** next." },
+                      { type: "reasoning", text: "**Reading** pages." },
+                      toolCall("call-3"),
+                      { type: "reasoning", text: "**Answering**." },
+                      { type: "text", text: "Done." },
+                    ],
+                    status: { type: "complete", reason: "stop" },
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "assistant-1",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Done." }],
+                    metadata: { runId: "run-1" },
+                  },
+                ],
+              },
+            }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(
+      snapshot?.messages[0]?.parts.filter((part) => part.type === "reasoning"),
+    ).toEqual([
+      {
+        type: "reasoning",
+        text: "**Searching** first.",
+        visibility: "summary",
+        toolCallIds: ["call-1", "call-2"],
+      },
+      { type: "reasoning", text: "**Reading** next.", visibility: "summary" },
+      {
+        type: "reasoning",
+        text: "**Reading** pages.",
+        visibility: "summary",
+        toolCallIds: ["call-3"],
+      },
+      { type: "reasoning", text: "**Answering**.", visibility: "summary" },
     ]);
     await transport.dispose();
   });

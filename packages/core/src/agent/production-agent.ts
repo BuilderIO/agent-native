@@ -346,6 +346,7 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
   resolveFallbackModel,
@@ -1633,7 +1634,7 @@ Hard rules:
 - Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, send messages or tasks to external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
-- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
+- Plan mode covers only this message. End with the plan and do not carry it out; the user starts implementation with the Implement button or their next message.`;
 
 const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "refresh-screen",
@@ -7151,6 +7152,64 @@ export async function runAgentLoop(opts: {
       // Outcome observers are telemetry/protocol adapters and cannot alter the run.
     }
   };
+  // Send now delivers a queued message into this run: after the tool results
+  // it waited for and before the next model request, as user text the
+  // provider reads alongside those results.
+  const deliverSteeredMessagesAtToolBoundary = async (
+    toolResultParts: EngineContentPart[],
+  ) => {
+    const threadId = opts.threadId;
+    const runId = opts.runId;
+    if (!threadId || !runId) return;
+    const { claimSteeredQueuedMessages } =
+      await import("../chat-threads/store.js");
+    let delivered: Awaited<ReturnType<typeof claimSteeredQueuedMessages>>;
+    try {
+      delivered = await claimSteeredQueuedMessages(threadId, runId);
+    } catch (error) {
+      // The claim is one transaction, so a failure leaves the message queued
+      // and on screen; it sends at a later boundary or after this reply.
+      console.warn(
+        "[agent-chat] Send now delivery skipped at a tool boundary:",
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
+    for (const { queued, record } of delivered) {
+      toolResultParts.push(
+        ...buildUserContentWithAttachments({
+          text: queued.text,
+          attachments: queuedPromotionAttachments(
+            queued.attachments ?? [],
+            (queued.requestAttachments ?? []) as Record<string, unknown>[],
+          ),
+          vision: isAgentModelVisionCapable(
+            model,
+            engine.capabilities.vision === true,
+          ),
+        }),
+      );
+      await send({
+        type: "user_message",
+        message: record.message,
+        continuationMessageId: record.continuationMessageId,
+      });
+    }
+  };
+  const deferSteeredMessagesPastFinalResponse = async () => {
+    if (!opts.threadId || !opts.runId) return;
+    const { deferSteeredQueuedMessages } =
+      await import("../chat-threads/store.js");
+    try {
+      await deferSteeredQueuedMessages(opts.threadId);
+    } catch (error) {
+      // Only the row's label depends on this; the message still sends next.
+      console.warn(
+        "[agent-chat] Send now row could not be marked for after this reply:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
@@ -8464,6 +8523,7 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
+      await deferSteeredMessagesPastFinalResponse();
       if (followUpResults.length > 0)
         messages.push({ role: "user", content: followUpResults });
       if (terminalStopReason === "max_tokens") {
@@ -8488,8 +8548,10 @@ export async function runAgentLoop(opts: {
           emptyFinalResponseRetries += 1;
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
+          // With no effort chosen the provider ran at its own default, so
+          // step down from that documented level when the catalog knows it.
           effectiveReasoningEffort = stepDownReasoningEffort(
-            effectiveReasoningEffort,
+            effectiveReasoningEffort ?? getProviderDefaultEffort(model),
           );
           send({ type: "clear" });
           appendAgentLoopContinuation(messages, "max_tokens");
@@ -10578,6 +10640,9 @@ export async function runAgentLoop(opts: {
     await flushParallelBatch();
 
     messages.push({ role: "user", content: toolResultParts });
+    if (!requestedActionStop && !signal.aborted) {
+      await deliverSteeredMessagesAtToolBoundary(toolResultParts);
+    }
     if (requestedActionStop) {
       const stop = requestedActionStop as TerminalActionStop;
       if (isLoopBreakerStop(stop)) {

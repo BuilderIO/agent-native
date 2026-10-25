@@ -12,6 +12,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -43,6 +44,7 @@ import {
   updateRunStatusIfRunning,
   markRunAborted,
   markRunAbortedAtSafeBoundary,
+  markRunThreadProjectionPending,
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
@@ -1037,12 +1039,18 @@ export function startRun(
             return undefined;
           })
       : Promise.resolve(undefined);
-  const withWorkerFence = async <T>(work: () => Promise<T>): Promise<T> => {
+  const withWorkerFence = async <T>(
+    work: () => Promise<T>,
+    fenceOptions?: { outlivesStop?: boolean },
+  ): Promise<T> => {
     if (!options?.executionLease) return work();
     return withExecutionLeaseRequested(async () => {
       const fence = await executionFencePromise;
       if (!fence) throw new MissingExecutionFenceError();
-      return withExecutionFence(fence, work);
+      return withExecutionFence(
+        fenceOptions?.outlivesStop ? { ...fence, outlivesStop: true } : fence,
+        work,
+      );
     });
   };
 
@@ -2162,6 +2170,9 @@ export function startRun(
           ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
           : null;
       };
+      const stoppedByRequest = () =>
+        run.status === "aborted" &&
+        isRequestedStopAbortReason(run.abortReason ?? "");
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
       let terminalEvent = terminalEventForCompletion?.event ?? null;
       if (
@@ -2186,7 +2197,9 @@ export function startRun(
                 }
               : run;
           if (!executionLeaseClaimFailed) {
-            await withWorkerFence(async () => onComplete(completionRun));
+            await withWorkerFence(async () => onComplete(completionRun), {
+              outlivesStop: stoppedByRequest(),
+            });
           }
           run.continuationTerminalEvent ??=
             completionRun.continuationTerminalEvent;
@@ -2457,6 +2470,20 @@ export function startRun(
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
             throw error;
+          }
+        }
+        if (
+          completionError &&
+          !executionLeaseClaimFailed &&
+          stoppedByRequest()
+        ) {
+          // The abort already made the run terminal, so no later status write
+          // carries the projection retry, and the reply it wrote would never
+          // reach the thread.
+          try {
+            await markRunThreadProjectionPending(runId);
+          } catch (error) {
+            reportTerminalStatusPersistenceError(error);
           }
         }
       } else {

@@ -121,6 +121,14 @@ function clientDraftThreadKey(id: string): string {
   return `${CLIENT_DRAFT_THREAD_PREFIX}${encodeURIComponent(id)}`;
 }
 
+/**
+ * True while a thread id was created on this client and the server has not
+ * listed it yet. Routes use it to show a new chat instead of a missing thread.
+ */
+export function isClientDraftThread(id: string): boolean {
+  return hasClientDraftThreadMarker(id);
+}
+
 function hasClientDraftThreadMarker(id: string): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -131,7 +139,7 @@ function hasClientDraftThreadMarker(id: string): boolean {
   }
 }
 
-function markClientDraftThread(id: string): void {
+export function markClientDraftThread(id: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(clientDraftThreadKey(id), "1");

@@ -21,30 +21,22 @@ const ContextXRayPanel = lazy(() =>
   })),
 );
 
-export function ContextMeter({
+/**
+ * The X-Ray panel for one thread with working pin, evict, and restore, so
+ * every surface that opens the detailed breakdown shares one set of handlers.
+ */
+export function ContextXRayDetails({
   threadId,
-  manifest: providedManifest,
-  enabled = true,
+  manifest,
 }: {
   threadId?: string | null;
-  manifest?: ContextManifest | null;
-  enabled?: boolean;
+  manifest: ContextManifest;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const [optimistic, setOptimistic] = useState<
     Map<string, ContextSegmentStatus>
   >(new Map());
   const currentThreadId = useRef(threadId);
-  const shouldQuery = Boolean(threadId && enabled && !providedManifest);
-  const query = useActionQuery(
-    "context-manifest-get",
-    shouldQuery && threadId ? { threadId } : undefined,
-    {
-      enabled: shouldQuery,
-      staleTime: 1000,
-    },
-  ) as { data?: ContextManifest };
   const pin = useActionMutation("context-pin");
   const evict = useActionMutation("context-evict");
   const restore = useActionMutation("context-restore");
@@ -53,25 +45,6 @@ export function ContextMeter({
     currentThreadId.current = threadId;
     setOptimistic(new Map());
   }, [threadId]);
-
-  useEffect(() => {
-    if (!threadId || !enabled || typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const wantsXray = params.get("contextXray") === "1";
-    const targetThread = params.get("threadId");
-    if (wantsXray && (!targetThread || targetThread === threadId)) {
-      setOpen(true);
-    }
-  }, [enabled, threadId]);
-
-  const manifest = providedManifest ?? query.data;
-  if (
-    (!shouldQuery && !providedManifest) ||
-    !manifest ||
-    (manifest.rawTokens <= 0 && manifest.totalTokens <= 0)
-  ) {
-    return null;
-  }
 
   const mutateStatus = (
     segmentId: string,
@@ -94,6 +67,67 @@ export function ContextMeter({
   };
 
   return (
+    <Suspense
+      fallback={
+        <div className="flex h-52 items-center justify-center text-xs text-muted-foreground">
+          {t("agentChat.contextXray.loading", {
+            defaultValue: "Loading context view…",
+          })}
+        </div>
+      }
+    >
+      <ContextXRayPanel
+        manifest={manifest}
+        optimistic={optimistic}
+        onPin={(segmentId) => mutateStatus(segmentId, "pinned", "pin")}
+        onEvict={(segmentId) => mutateStatus(segmentId, "evicted", "evict")}
+        onRestore={(segmentId) => mutateStatus(segmentId, "active", "restore")}
+      />
+    </Suspense>
+  );
+}
+
+export function ContextMeter({
+  threadId,
+  manifest: providedManifest,
+  enabled = true,
+}: {
+  threadId?: string | null;
+  manifest?: ContextManifest | null;
+  enabled?: boolean;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const shouldQuery = Boolean(threadId && enabled && !providedManifest);
+  const query = useActionQuery(
+    "context-manifest-get",
+    shouldQuery && threadId ? { threadId } : undefined,
+    {
+      enabled: shouldQuery,
+      staleTime: 1000,
+    },
+  ) as { data?: ContextManifest };
+
+  useEffect(() => {
+    if (!threadId || !enabled || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const wantsXray = params.get("contextXray") === "1";
+    const targetThread = params.get("threadId");
+    if (wantsXray && (!targetThread || targetThread === threadId)) {
+      setOpen(true);
+    }
+  }, [enabled, threadId]);
+
+  const manifest = providedManifest ?? query.data;
+  if (
+    (!shouldQuery && !providedManifest) ||
+    !manifest ||
+    (manifest.rawTokens <= 0 && manifest.totalTokens <= 0)
+  ) {
+    return null;
+  }
+
+  return (
     <ContextMeterView
       manifest={{
         ...manifest,
@@ -106,25 +140,7 @@ export function ContextMeter({
       translate={t}
     >
       {open ? (
-        <Suspense
-          fallback={
-            <div className="flex h-52 items-center justify-center text-xs text-muted-foreground">
-              {t("agentChat.contextXray.loading", {
-                defaultValue: "Loading context view…",
-              })}
-            </div>
-          }
-        >
-          <ContextXRayPanel
-            manifest={manifest}
-            optimistic={optimistic}
-            onPin={(segmentId) => mutateStatus(segmentId, "pinned", "pin")}
-            onEvict={(segmentId) => mutateStatus(segmentId, "evicted", "evict")}
-            onRestore={(segmentId) =>
-              mutateStatus(segmentId, "active", "restore")
-            }
-          />
-        </Suspense>
+        <ContextXRayDetails threadId={threadId} manifest={manifest} />
       ) : null}
     </ContextMeterView>
   );

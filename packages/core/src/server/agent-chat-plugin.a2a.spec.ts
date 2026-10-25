@@ -779,7 +779,7 @@ describe("delegated A2A final response guards", () => {
       expect.objectContaining({
         finalResponseGuard: guard,
         maxOutputTokens: 64_000,
-        reasoningEffort: "high",
+        reasoningEffort: undefined,
         maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
         maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
         toolLimits: expect.objectContaining({

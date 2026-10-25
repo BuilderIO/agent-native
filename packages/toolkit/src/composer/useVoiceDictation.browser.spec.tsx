@@ -263,3 +263,66 @@ describe("useVoiceDictation — browser speech path", () => {
     await probe.cleanup();
   });
 });
+
+function stubUploadEnvironment(getUserMedia: ReturnType<typeof vi.fn>) {
+  stubSpeechEnvironment(getUserMedia);
+  vi.stubGlobal("SpeechRecognition", undefined);
+  vi.stubGlobal("webkitSpeechRecognition", undefined);
+  vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+}
+
+describe("useVoiceDictation — microphone access", () => {
+  it("asks for the microphone and records in one start", async () => {
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [] });
+    stubUploadEnvironment(getUserMedia);
+    const probe = await renderVoiceDictation();
+    await act(async () => {
+      await probe.latest().start();
+    });
+
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
+    expect(FakeMediaRecorder.last?.started).toBe(true);
+    expect(probe.latest().state).toBe("recording");
+    await probe.cleanup();
+  });
+
+  it("explains a denied microphone and stays retryable", async () => {
+    const denied = Object.assign(new Error("Permission denied"), {
+      name: "NotAllowedError",
+    });
+    const getUserMedia = vi
+      .fn()
+      .mockRejectedValueOnce(denied)
+      .mockResolvedValue({ getTracks: () => [] });
+    stubUploadEnvironment(getUserMedia);
+    const probe = await renderVoiceDictation();
+    await act(async () => {
+      await probe.latest().start();
+    });
+
+    expect(probe.latest().state).toBe("error");
+    expect(probe.latest().errorMessage).toContain("site controls icon");
+
+    await act(async () => {
+      await probe.latest().start();
+    });
+    expect(probe.latest().state).toBe("recording");
+    expect(probe.latest().errorMessage).toBeNull();
+    await probe.cleanup();
+  });
+
+  it("explains a missing microphone", async () => {
+    const missing = Object.assign(new Error("Requested device not found"), {
+      name: "NotFoundError",
+    });
+    stubUploadEnvironment(vi.fn().mockRejectedValue(missing));
+    const probe = await renderVoiceDictation();
+    await act(async () => {
+      await probe.latest().start();
+    });
+
+    expect(probe.latest().state).toBe("error");
+    expect(probe.latest().errorMessage).toContain("No microphone was found");
+    await probe.cleanup();
+  });
+});

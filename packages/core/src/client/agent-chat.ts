@@ -165,7 +165,6 @@ export interface AgentChatContextRemoveOptions extends AgentChatContextMutationO
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
 export const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
-const AGENT_CHAT_EXEC_MODE_KEY = "agent-native-exec-mode";
 export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
   "agentNative.chatContextChanged";
 export const AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
@@ -1191,36 +1190,6 @@ export function parseSubmitChatMessage(
   };
 }
 
-function normalizeStoredAgentChatExecMode(
-  value: string | null,
-): AgentChatRequestMode | undefined {
-  if (value === "plan") return "plan";
-  if (value === "build" || value === "act") return "act";
-  return undefined;
-}
-
-function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const storage = window.localStorage;
-    const saved = normalizeStoredAgentChatExecMode(
-      storage.getItem(AGENT_CHAT_EXEC_MODE_KEY),
-    );
-    if (saved) return saved;
-    const scopedModes: AgentChatRequestMode[] = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (!key?.startsWith(`${AGENT_CHAT_EXEC_MODE_KEY}:`)) continue;
-      const scopedSaved = normalizeStoredAgentChatExecMode(
-        storage.getItem(key),
-      );
-      if (scopedSaved) scopedModes.push(scopedSaved);
-    }
-    if (scopedModes.length === 1) return scopedModes[0];
-  } catch {}
-  return undefined;
-}
-
 function keepsApprovalInAppChat(
   opts: Pick<AgentChatMessage, "approvedToolCalls">,
 ): boolean {
@@ -1259,9 +1228,9 @@ function sendToAgentChatInternal(
     (opts.chatTarget === "local" && !routesLocalToChatGpt) ||
     keepsApprovalInAppChat(opts) ||
     (mcpAppLocalPayload && !routesLocalToChatGpt);
-  const requestMode =
-    normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
-    readStoredAgentChatRequestMode();
+  const requestMode = normalizeAgentChatRequestMode(
+    opts.requestMode ?? opts.mode,
+  );
   if (opts.submit !== false && opts.message.trim()) {
     trackEvent("app.first_action", {
       action: "chat_submit",
@@ -1459,9 +1428,9 @@ export function sendToAgentChatAndConfirm(
   }
 
   if (routesForcedLocalChatToOpenAiHost(opts)) {
-    const requestMode =
-      normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
-      readStoredAgentChatRequestMode();
+    const requestMode = normalizeAgentChatRequestMode(
+      opts.requestMode ?? opts.mode,
+    );
     const hostContent = mcpAppHostContent(opts);
     const hostDelivery = sendMcpAppHostMessage({
       message: opts.message,

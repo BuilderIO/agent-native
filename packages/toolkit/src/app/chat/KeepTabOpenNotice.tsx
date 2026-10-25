@@ -1,4 +1,5 @@
 import { useRunStuckDetection } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
@@ -43,6 +44,7 @@ export function KeepTabOpenNotice({
   hosted,
   className,
 }: KeepTabOpenNoticeProps) {
+  const t = useT();
   const effectiveHosted = hosted ?? !isDevClientBundle();
   const state = useRunStuckDetection({
     threadId,
@@ -115,10 +117,9 @@ export function KeepTabOpenNotice({
       />
       <span className="min-w-0 leading-snug">
         <span className="font-medium text-foreground/80">
-          Keep this tab open.
+          {t("agentChat.keepTabOpen.title")}
         </span>{" "}
-        This task continues from your browser — closing or leaving this tab will
-        pause it until you come back.
+        {t("agentChat.keepTabOpen.body")}
       </span>
     </div>
   );

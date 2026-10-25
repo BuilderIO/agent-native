@@ -77,6 +77,7 @@ export {
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type ReasoningEffort,

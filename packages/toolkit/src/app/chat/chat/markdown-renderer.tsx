@@ -3,13 +3,7 @@
 import { NEW_CHAT_ACTION_HREF } from "@agent-native/core/client/agent-chat";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
+import React, { useState, useEffect, useMemo } from "react";
 // react-markdown + remark-gfm type imports only — loaded lazily below.
 import type { default as ReactMarkdownType } from "react-markdown";
 import type { defaultUrlTransform as DefaultUrlTransformType } from "react-markdown";
@@ -17,12 +11,16 @@ import type remarkGfmType from "remark-gfm";
 
 import { splitMarkdownBlocks } from "../../../markdown-block-split.js";
 import {
-  initialSmoothStreamingGraphemeCount,
-  SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
-  smoothStreamingPunctuationDelayMs,
-  smoothStreamingRevealCount,
-  splitStreamingTextGraphemes,
-} from "../../../streaming-text-smoothing.js";
+  markdownBlockOffsets,
+  rehypeStreamingReveal,
+  settleStreamingMarkdown,
+  STREAMING_REVEAL_BLOCK_CLASS,
+} from "../../../streaming-markdown.js";
+import { useTableColumnGlide } from "../../../table-column-glide.js";
+import {
+  useBufferedAgentText,
+  useStreamingRevealOrigin,
+} from "../../agentkit/react/streaming-text.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import {
@@ -316,6 +314,20 @@ export function extractCodeText(child: React.ReactNode): string {
 
 // ─── Markdown components ──────────────────────────────────────────────────────
 
+function MarkdownTable(props: React.TableHTMLAttributes<HTMLTableElement>) {
+  const { children, ...rest } = props;
+  const table = React.useRef<HTMLTableElement>(null);
+  // Cells size their columns as they stream; columns glide to new widths.
+  useTableColumnGlide(table);
+  return (
+    <div className="agent-markdown-table-wrap">
+      <table ref={table} {...rest}>
+        {children}
+      </table>
+    </div>
+  );
+}
+
 export const markdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
     const {
@@ -371,16 +383,19 @@ export const markdownComponents = {
       </a>
     );
   },
-  table(props: React.TableHTMLAttributes<HTMLTableElement>) {
-    const { children, ...rest } = props;
-    return (
-      <div className="agent-markdown-table-wrap">
-        <table {...rest}>{children}</table>
-      </div>
-    );
-  },
+  table: MarkdownTable,
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
+    // Rich code renderers drop the <pre>, so its fade moves to a wrapper.
+    const revealsAsBlock = Boolean(
+      rest.className?.split(" ").includes(STREAMING_REVEAL_BLOCK_CLASS),
+    );
+    const reveal = (node: React.ReactElement) =>
+      revealsAsBlock ? (
+        <div className={STREAMING_REVEAL_BLOCK_CLASS}>{node}</div>
+      ) : (
+        node
+      );
     if (React.isValidElement(children)) {
       const childProps = children.props as {
         className?: string;
@@ -390,8 +405,8 @@ export const markdownComponents = {
       if (/\blanguage-embed\b/.test(className)) {
         const body = extractCodeText(childProps.children);
         const parsed = parseEmbedBody(body);
-        return (
-          <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
+        return reveal(
+          <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />,
         );
       }
       if (
@@ -401,16 +416,18 @@ export const markdownComponents = {
       ) {
         const body = extractCodeText(childProps.children).replace(/\n$/, "");
         const parsed = parseLegacyChartShorthand(body);
-        return parsed ? (
-          <LegacyChartShorthandChart parsed={parsed} />
-        ) : (
-          <LegacyChartShorthandFallback text={body} />
+        return reveal(
+          parsed ? (
+            <LegacyChartShorthandChart parsed={parsed} />
+          ) : (
+            <LegacyChartShorthandFallback text={body} />
+          ),
         );
       }
       const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
       if (langMatch) {
         const code = extractCodeText(childProps.children).replace(/\n$/, "");
-        return <HighlightedCodeBlock code={code} lang={langMatch[1]} />;
+        return reveal(<HighlightedCodeBlock code={code} lang={langMatch[1]} />);
       }
     }
     return <pre {...rest}>{children}</pre>;
@@ -455,336 +472,12 @@ export function renderMarkdownToClipboardHtml(markdown: string): string | null {
 
 // ─── Smooth streaming ─────────────────────────────────────────────────────────
 
-function usePrefersReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      : false,
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return undefined;
-
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const handleChange = () => setPrefersReducedMotion(media.matches);
-    handleChange();
-
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", handleChange);
-      return () => media.removeEventListener("change", handleChange);
-    }
-
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
-  }, []);
-
-  return prefersReducedMotion;
-}
-
-function sliceGraphemes(
-  targetText: string,
-  graphemes: readonly string[],
-  count: number,
-): string {
-  if (count >= graphemes.length) return targetText;
-  if (count <= 0) return "";
-  return graphemes.slice(0, count).join("");
-}
-
-type SmoothStreamingTextCacheEntry = {
-  targetText: string;
-  visibleText: string;
-};
-
-// Grouped message parts are rebuilt as tool calls arrive. A text part can
-// therefore be unmounted and mounted again even though its identity did not
-// change. Keep the reveal state outside that subtree so a structural update
-// continues from the current position instead of replaying the opening sentence.
-const smoothStreamingTextCache = new Map<
-  string,
-  SmoothStreamingTextCacheEntry
->();
-
-function cachedStreamingText(
-  resetKey: string,
-  targetText: string,
-): string | undefined {
-  const cached = smoothStreamingTextCache.get(resetKey);
-  if (!cached) return undefined;
-  if (
-    !targetText.startsWith(cached.targetText) ||
-    !targetText.startsWith(cached.visibleText)
-  ) {
-    return undefined;
-  }
-  return cached.visibleText;
-}
-
-function rememberStreamingText(
-  resetKey: string,
-  targetText: string,
-  visibleText: string,
-): void {
-  smoothStreamingTextCache.delete(resetKey);
-  smoothStreamingTextCache.set(resetKey, { targetText, visibleText });
-  if (smoothStreamingTextCache.size <= 128) return;
-  const oldestKey = smoothStreamingTextCache.keys().next().value;
-  if (oldestKey !== undefined) smoothStreamingTextCache.delete(oldestKey);
-}
-
-/** Stable placeholder so the grapheme ref stays `string[]` before it is seeded. */
-const EMPTY_GRAPHEMES: string[] = [];
-
 export function useSmoothStreamingText(
   targetText: string,
   streaming: boolean,
   resetKey: string,
 ): string {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [visibleText, setVisibleText] = useState(() => {
-    if (!streaming || prefersReducedMotion) return targetText;
-    const cachedText = cachedStreamingText(resetKey, targetText);
-    if (cachedText !== undefined) return cachedText;
-    const graphemes = splitStreamingTextGraphemes(targetText);
-    return sliceGraphemes(
-      targetText,
-      graphemes,
-      initialSmoothStreamingGraphemeCount(graphemes),
-    );
-  });
-  const visibleTextRef = useRef(visibleText);
-  const targetTextRef = useRef(targetText);
-  // `useRef(expr)` evaluates `expr` on EVERY render and throws it away after
-  // mount. Segmenting here therefore ran a full Intl.Segmenter pass per commit
-  // — up to 60Hz per streaming message — and, because `visibleText` is a strict
-  // prefix of `targetText`, that pass could never hit the incremental path and
-  // evicted the shared segmenter cache for every other live stream too. Seed
-  // once; the streaming effect below keeps both refs authoritative after that.
-  const visibleCountRef = useRef(-1);
-  const targetGraphemesRef = useRef<string[]>(EMPTY_GRAPHEMES);
-  if (visibleCountRef.current < 0) {
-    if (streaming && !prefersReducedMotion) {
-      targetGraphemesRef.current = splitStreamingTextGraphemes(targetText);
-      visibleCountRef.current = splitStreamingTextGraphemes(visibleText).length;
-    } else {
-      visibleCountRef.current = 0;
-    }
-  }
-  const frameRef = useRef<number | null>(null);
-  const lastCommitAtRef = useRef(0);
-  const pauseUntilRef = useRef(0);
-  const inputDoneRef = useRef(false);
-  const resetKeyRef = useRef(resetKey);
-  const cacheKeyRef = useRef(resetKey);
-  const cacheStreamingRef = useRef(streaming);
-  const cacheReducedMotionRef = useRef(prefersReducedMotion);
-  const stepRef = useRef<(time: number) => void>(() => {});
-
-  cacheKeyRef.current = resetKey;
-  cacheStreamingRef.current = streaming;
-  cacheReducedMotionRef.current = prefersReducedMotion;
-
-  const commitVisibleCount = useCallback((nextCount: number) => {
-    const graphemes = targetGraphemesRef.current;
-    const boundedCount = Math.max(0, Math.min(nextCount, graphemes.length));
-    const nextText = sliceGraphemes(
-      targetTextRef.current,
-      graphemes,
-      boundedCount,
-    );
-    visibleCountRef.current = boundedCount;
-    if (visibleTextRef.current !== nextText) {
-      visibleTextRef.current = nextText;
-      setVisibleText(nextText);
-    }
-    if (cacheStreamingRef.current && !cacheReducedMotionRef.current) {
-      rememberStreamingText(
-        cacheKeyRef.current,
-        targetTextRef.current,
-        nextText,
-      );
-    }
-  }, []);
-
-  const cancelFrame = useCallback(() => {
-    if (
-      frameRef.current != null &&
-      typeof window !== "undefined" &&
-      typeof window.cancelAnimationFrame === "function"
-    ) {
-      window.cancelAnimationFrame(frameRef.current);
-    }
-    frameRef.current = null;
-    pauseUntilRef.current = 0;
-  }, []);
-
-  const scheduleFrame = useCallback(() => {
-    if (frameRef.current != null) return;
-    if (
-      typeof window === "undefined" ||
-      typeof window.requestAnimationFrame !== "function"
-    ) {
-      commitVisibleCount(targetGraphemesRef.current.length);
-      return;
-    }
-
-    frameRef.current = window.requestAnimationFrame((time) => {
-      frameRef.current = null;
-      stepRef.current(time);
-    });
-  }, [commitVisibleCount]);
-
-  stepRef.current = (time) => {
-    const targetGraphemes = targetGraphemesRef.current;
-    const backlog = targetGraphemes.length - visibleCountRef.current;
-    if (backlog <= 0) {
-      pauseUntilRef.current = 0;
-      return;
-    }
-
-    if (pauseUntilRef.current > time) {
-      scheduleFrame();
-      return;
-    }
-
-    const lastCommitAt =
-      lastCommitAtRef.current || time - SMOOTH_STREAMING_COMMIT_INTERVAL_MS;
-    if (
-      time - lastCommitAt < SMOOTH_STREAMING_COMMIT_INTERVAL_MS &&
-      backlog > 1
-    ) {
-      scheduleFrame();
-      return;
-    }
-
-    const revealCount = smoothStreamingRevealCount({
-      backlog,
-      elapsedMs: Math.min(120, Math.max(8, time - lastCommitAt)),
-      inputDone: inputDoneRef.current,
-    });
-
-    if (revealCount > 0) {
-      const nextCount = visibleCountRef.current + revealCount;
-      commitVisibleCount(nextCount);
-      lastCommitAtRef.current = time;
-      const nextBacklog = targetGraphemes.length - visibleCountRef.current;
-      const pauseMs = smoothStreamingPunctuationDelayMs(
-        targetGraphemes[visibleCountRef.current - 1],
-        nextBacklog,
-      );
-      pauseUntilRef.current = pauseMs > 0 ? time + pauseMs : 0;
-    }
-
-    if (visibleCountRef.current < targetGraphemes.length) {
-      scheduleFrame();
-    } else {
-      pauseUntilRef.current = 0;
-    }
-  };
-
-  useEffect(() => {
-    targetTextRef.current = targetText;
-
-    const keyChanged = resetKeyRef.current !== resetKey;
-    resetKeyRef.current = resetKey;
-
-    const targetGraphemes = splitStreamingTextGraphemes(targetText);
-    const shouldSettleBufferedText =
-      !keyChanged &&
-      !streaming &&
-      !prefersReducedMotion &&
-      visibleTextRef.current.length > 0 &&
-      visibleTextRef.current !== targetText &&
-      targetText.startsWith(visibleTextRef.current);
-
-    if (shouldSettleBufferedText) {
-      targetGraphemesRef.current = targetGraphemes;
-      inputDoneRef.current = true;
-      if (visibleCountRef.current < targetGraphemes.length) {
-        scheduleFrame();
-      }
-      return;
-    }
-
-    if (!streaming || prefersReducedMotion) {
-      cancelFrame();
-      inputDoneRef.current = false;
-      targetGraphemesRef.current = EMPTY_GRAPHEMES;
-      visibleCountRef.current = 0;
-      if (visibleTextRef.current !== targetText) {
-        visibleTextRef.current = targetText;
-        setVisibleText(targetText);
-      }
-      return;
-    }
-
-    targetGraphemesRef.current = targetGraphemes;
-    inputDoneRef.current = false;
-
-    const visibleNoLongerMatchesTarget =
-      visibleTextRef.current.length > 0 &&
-      !targetText.startsWith(visibleTextRef.current);
-
-    if (
-      keyChanged ||
-      visibleNoLongerMatchesTarget ||
-      visibleCountRef.current > targetGraphemes.length
-    ) {
-      commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
-      lastCommitAtRef.current = 0;
-      pauseUntilRef.current = 0;
-    }
-
-    if (visibleCountRef.current < targetGraphemes.length) {
-      scheduleFrame();
-    }
-  }, [
-    targetText,
-    streaming,
-    prefersReducedMotion,
-    resetKey,
-    cancelFrame,
-    commitVisibleCount,
-    scheduleFrame,
-  ]);
-
-  useEffect(() => {
-    if (!streaming || prefersReducedMotion) return;
-    rememberStreamingText(resetKey, targetText, visibleText);
-  }, [prefersReducedMotion, resetKey, streaming, targetText, visibleText]);
-
-  // When the tab returns from background, rAF has been paused and the backlog
-  // may be tens of thousands of characters. Animating from where we left off
-  // would replay minutes of content at the normal rate — instead jump the
-  // cursor to near the tail so only the final ~200 graphemes animate in.
-  // Reduced-motion users already get instant reveals (handled above), so this
-  // guard only applies to the normal animation path.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
-      if (!streaming || prefersReducedMotion) return;
-      const graphemes = targetGraphemesRef.current;
-      const backlog = graphemes.length - visibleCountRef.current;
-      const BACKGROUND_CATCH_UP_THRESHOLD = 2000;
-      const BACKGROUND_TAIL_GRAPHEMES = 200;
-      if (backlog > BACKGROUND_CATCH_UP_THRESHOLD) {
-        commitVisibleCount(
-          Math.max(0, graphemes.length - BACKGROUND_TAIL_GRAPHEMES),
-        );
-        lastCommitAtRef.current = 0;
-        pauseUntilRef.current = 0;
-        scheduleFrame();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [streaming, prefersReducedMotion, commitVisibleCount, scheduleFrame]);
-
-  useEffect(() => cancelFrame, [cancelFrame]);
-
-  return visibleText;
+  return useBufferedAgentText(targetText, { active: streaming, resetKey });
 }
 
 // ─── Markdown readiness hook ──────────────────────────────────────────────────
@@ -800,19 +493,45 @@ export function useMarkdownReady(): boolean {
 
 export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
   blockText,
+  streaming = false,
+  offset = 0,
+  animateFrom = null,
 }: {
   blockText: string;
+  /** The block is the live tail: hold back syntax that has not closed. */
+  streaming?: boolean;
+  offset?: number;
+  animateFrom?: number | null;
 }) {
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
+  const settled = settleStreamingMarkdown(blockText, streaming);
+  const reveals = animateFrom !== null && offset + settled.length > animateFrom;
+  const rehypePlugins = useMemo(
+    () =>
+      reveals
+        ? [
+            [
+              rehypeStreamingReveal,
+              { baseOffset: offset, animateFrom },
+            ] as const,
+          ]
+        : undefined,
+    [animateFrom, offset, reveals],
+  );
   if (!ReactMarkdown || !gfm) return null;
   return (
     <ReactMarkdown
       remarkPlugins={[gfm]}
+      rehypePlugins={
+        rehypePlugins as React.ComponentProps<
+          typeof ReactMarkdownType
+        >["rehypePlugins"]
+      }
       components={markdownComponents}
       urlTransform={markdownUrlTransform}
     >
-      {wrapLegacyChartShorthandLines(blockText)}
+      {wrapLegacyChartShorthandLines(settled)}
     </ReactMarkdown>
   );
 });
@@ -838,6 +557,10 @@ export function StreamingText({
   const mdReady = useMarkdownReady();
   const shouldAnimate = streaming && animateStreaming;
   const visibleText = useSmoothStreamingText(text, shouldAnimate, resetKey);
+  const animateFrom = useStreamingRevealOrigin(
+    visibleText.length,
+    shouldAnimate,
+  );
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
   // Split whether or not the turn is still streaming. Rendering the finished
@@ -861,6 +584,11 @@ export function StreamingText({
         : markdownBlocks.completedBlocks,
     [markdownBlocks],
   );
+  const blockOffsets = useMemo(
+    () => markdownBlockOffsets(visibleText, renderedBlocks),
+    [renderedBlocks, visibleText],
+  );
+  const holdsBackTail = streaming || visibleText !== text;
 
   useEffect(() => {
     if (!onRevealComplete || !shouldAnimate || visibleText !== text) return;
@@ -875,7 +603,13 @@ export function StreamingText({
     >
       {mdReady && ReactMarkdown && gfm ? (
         renderedBlocks.map((blockText, index) => (
-          <MemoizedMarkdownBlock key={index} blockText={blockText} />
+          <MemoizedMarkdownBlock
+            key={index}
+            blockText={blockText}
+            streaming={holdsBackTail && index === renderedBlocks.length - 1}
+            offset={blockOffsets[index]}
+            animateFrom={animateFrom}
+          />
         ))
       ) : (
         <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
