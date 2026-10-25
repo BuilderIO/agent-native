@@ -18,6 +18,11 @@ import {
   suggestionHighlightSpec,
 } from "./VisualEditor";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 const source = "First.\n\nSecond.\n\nThird.";
 
 function record(word: string, replacement: string): ResourceSuggestion {
@@ -27,10 +32,12 @@ function record(word: string, replacement: string): ResourceSuggestion {
     revision: 1,
     baseRevision: "revision",
     operations: [
-      markdownSuggestionOperation(
-        source,
-        source.replace(`${word}.`, `${replacement}.`),
-      )!,
+      defined(
+        markdownSuggestionOperation(
+          source,
+          source.replace(`${word}.`, `${replacement}.`),
+        ),
+      ),
     ],
   } as ResourceSuggestion;
 }
@@ -70,7 +77,7 @@ describe("queued suggestion decisions", () => {
       suggestionsWithQueuedDecisions(
         [{ ...first, status: "rejected" }],
         [queued("accepted", [first])],
-      )[0]!.status,
+      )[0]?.status,
     ).toBe("rejected");
   });
 
@@ -96,9 +103,8 @@ describe("queued suggestion decisions", () => {
     });
     try {
       setSuggestionHighlights(editor.view, {
-        specs: presentations.map(
-          (presentation) =>
-            suggestionHighlightSpec(editor.state.doc, presentation)!,
+        specs: presentations.map((presentation) =>
+          defined(suggestionHighlightSpec(editor.state.doc, presentation)),
         ),
       });
       expect(
@@ -110,7 +116,7 @@ describe("queued suggestion decisions", () => {
       ).toBe("One");
       // Once live sync brings the accepted text, nothing is drawn over it.
       expect(
-        suggestionHighlightSpec(accepted.state.doc, presentations[0]!),
+        suggestionHighlightSpec(accepted.state.doc, defined(presentations[0])),
       ).toBeNull();
     } finally {
       editor.destroy();
@@ -124,24 +130,26 @@ describe("queued suggestion decisions", () => {
       ...first,
       id: "split",
       operations: [
-        markdownSuggestionOperation(
-          page,
-          page.replace("Second.", "Two.\nMore."),
-        )!,
+        defined(
+          markdownSuggestionOperation(
+            page,
+            page.replace("Second.", "Two.\nMore."),
+          ),
+        ),
       ],
     } as ResourceSuggestion;
-    const [presentation] = queuedAcceptedPresentations([
-      queued("accepted", [split]),
-    ]);
-    expect(presentation?.presentation).toBe("canonical");
-    expect(presentation?.frozen).toBe(true);
+    const presentation = defined(
+      queuedAcceptedPresentations([queued("accepted", [split])])[0],
+    );
+    expect(presentation.presentation).toBe("canonical");
+    expect(presentation.frozen).toBe(true);
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: nfmToDoc(page),
     });
     try {
       expect(
-        suggestionHighlightSpec(editor.state.doc, presentation!)?.frozen,
+        suggestionHighlightSpec(editor.state.doc, presentation)?.frozen,
       ).toBe(true);
     } finally {
       editor.destroy();

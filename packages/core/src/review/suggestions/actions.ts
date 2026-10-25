@@ -1239,7 +1239,7 @@ export const decideResourceSuggestionProposal = defineAction({
               },
               transaction: tx,
               coordination,
-              placement: members[index]!.placement,
+              placement: members[index]?.placement,
             });
           } catch (error) {
             staleProposal(error);

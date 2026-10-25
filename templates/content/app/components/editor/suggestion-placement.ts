@@ -26,8 +26,9 @@ export function suggestionPlacements(
   if (!binding) return placements;
   for (const id of suggestionIds) {
     const ranges = specs.filter((spec) => spec.suggestionId === id);
-    if (ranges.length !== 1) continue;
-    const placement = suggestionPlacementForRange(binding, ranges[0]!);
+    const range = ranges.length === 1 ? ranges[0] : undefined;
+    if (!range) continue;
+    const placement = suggestionPlacementForRange(binding, range);
     if (placement) placements[id] = placement;
   }
   return placements;

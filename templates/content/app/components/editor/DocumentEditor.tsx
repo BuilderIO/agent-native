@@ -304,6 +304,7 @@ import { StaticDocumentBody } from "./StaticDocumentBody";
 import {
   enqueueSuggestionDecision,
   queuedSuggestionDecisions,
+  singleDecisionMember,
   suggestionDecisionsSettled,
   suggestionDecisionView,
   updateQueuedSuggestionDecisions,
@@ -8781,9 +8782,8 @@ function PageEditorSessionBody({
   useSuggestionDecisionView(documentId, {
     failed: (entry, error) => {
       void suggestionsQuery.refetch();
-      if (entry.proposalId !== null || !isSuggestionStaleActionError(error))
-        return;
-      const member = entry.members[0]!;
+      const member = singleDecisionMember(entry);
+      if (!member || !isSuggestionStaleActionError(error)) return;
       setUnplaceableSuggestionRevisions((revisions) =>
         new Map(revisions).set(member.id, member.revision),
       );
@@ -8830,7 +8830,8 @@ function PageEditorSessionBody({
               )) ?? {})
             : {};
         if (entry.proposalId === null) {
-          const member = entry.members[0]!;
+          const member = singleDecisionMember(entry);
+          if (!member) throw new Error("A single decision names one edit");
           const result = await decideSuggestion.mutateAsync({
             id: member.id,
             decision: entry.decision,

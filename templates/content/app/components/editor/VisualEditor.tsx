@@ -4117,13 +4117,10 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!onSuggestionPlacementsChange) return;
-    onSuggestionPlacementsChange(
-      editor
-        ? (suggestionIds) =>
-            editor.isDestroyed
-              ? {}
-              : suggestionPlacements(editor.state, suggestionIds)
-        : null,
+    onSuggestionPlacementsChange((suggestionIds) =>
+      editor.isDestroyed
+        ? {}
+        : suggestionPlacements(editor.state, suggestionIds),
     );
     return () => onSuggestionPlacementsChange(null);
   }, [editor, onSuggestionPlacementsChange]);

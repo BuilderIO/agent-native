@@ -17,6 +17,15 @@ export interface QueuedSuggestionDecision {
   beforeContent: string;
 }
 
+/** The suggestion a decision on one suggestion, not a group, is about. */
+export function singleDecisionMember(
+  entry: QueuedSuggestionDecision,
+): ResourceSuggestion | undefined {
+  return entry.proposalId === null && entry.members.length === 1
+    ? entry.members[0]
+    : undefined;
+}
+
 /** What the open editor for a Page does as its queued decisions finish. */
 export interface SuggestionDecisionView {
   failed(entry: QueuedSuggestionDecision, error: unknown): void;

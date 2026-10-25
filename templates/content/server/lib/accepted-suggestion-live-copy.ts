@@ -59,7 +59,8 @@ function storedChange(
 ): StoredChange | null {
   const start = before.content.findDiffStart(after.content);
   if (start === null) return null;
-  const end = before.content.findDiffEnd(after.content)!;
+  const end = before.content.findDiffEnd(after.content);
+  if (!end) return null;
   let endBefore = end.a;
   let endAfter = end.b;
   // Along repeated text the two ends cross; the shorter side stays empty.
@@ -145,8 +146,11 @@ function spliceText(text: Y.XmlText, offset: number, from: string, to: string) {
     return;
   }
   const boundaries = [0];
-  for (const character of from)
-    boundaries.push(boundaries[boundaries.length - 1]! + character.length);
+  let boundary = 0;
+  for (const character of from) {
+    boundary += character.length;
+    boundaries.push(boundary);
+  }
   const lastBefore = (limit: number) =>
     boundaries.reduce((best, boundary) => (boundary < limit ? boundary : best));
   let start = at;

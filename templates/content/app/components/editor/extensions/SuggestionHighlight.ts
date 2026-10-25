@@ -842,10 +842,10 @@ export function editsSettlingSuggestion(
     transaction.getMeta("addToHistory") === false
   )
     return false;
-  const held = specs
+  // Each held range as the transaction moves it, and where it began.
+  let ranges = specs
     .filter((spec) => spec.settling || spec.frozen)
-    .map(({ from, to }) => ({ from, to }));
-  let ranges = held;
+    .map(({ from, to }) => ({ from, to, was: { from, to } }));
   for (const step of transaction.steps) {
     if (ranges.length === 0) return false;
     const touched: Array<{ from: number; to: number }> = [];
@@ -871,17 +871,18 @@ export function editsSettlingSuggestion(
     ranges = ranges.map((range) => ({
       from: map.map(range.from, 1),
       to: map.map(range.to, -1),
+      was: range.was,
     }));
   }
   // A letter typed onto either end, or a space taken away there, makes a
   // different word than was reviewed, which the server would turn down. So
   // that waits too. An end that is a space or punctuation has no word to join.
-  return held.some(
-    (range, index) =>
-      range.from !== range.to &&
+  return ranges.some(
+    (range) =>
+      range.was.from !== range.was.to &&
       (["before", "after"] as const).some((side) => {
-        const was = side === "before" ? range.from : range.to;
-        const is = side === "before" ? ranges[index]!.from : ranges[index]!.to;
+        const was = side === "before" ? range.was.from : range.was.to;
+        const is = side === "before" ? range.from : range.to;
         const outside = characterBeside(transaction.doc, is, side);
         return (
           WORD_CHARACTER.test(outside) &&
@@ -917,10 +918,10 @@ function characterBeside(
           "￼",
         ),
   );
+  // Empty at either end of the textblock.
   return (
-    (side === "before" ? characters[characters.length - 1] : characters[0]) ??
-    ""
-  );
+    side === "before" ? characters.slice(-1) : characters.slice(0, 1)
+  ).join("");
 }
 
 /**

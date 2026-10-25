@@ -42,13 +42,11 @@ function unloadBlocked() {
 describe("suggestion decision queue", () => {
   it("sends decisions one at a time in click order", async () => {
     const started: string[] = [];
-    const gates = new Map([
-      ["one", deferred()],
-      ["two", deferred()],
-    ]);
+    const one = deferred();
+    const two = deferred();
     const run = async (queued: QueuedSuggestionDecision) => {
       started.push(queued.key);
-      await gates.get(queued.key)!.promise;
+      await (queued.key === "one" ? one : two).promise;
     };
     enqueueSuggestionDecision("order", entry("one"), run);
     enqueueSuggestionDecision("order", entry("two"), run);
@@ -58,13 +56,13 @@ describe("suggestion decision queue", () => {
       "one",
       "two",
     ]);
-    gates.get("one")!.resolve();
+    one.resolve();
     await new Promise((done) => setTimeout(done, 0));
     expect(started).toEqual(["one", "two"]);
     expect(queuedSuggestionDecisions("order").map((e) => e.key)).toEqual([
       "two",
     ]);
-    gates.get("two")!.resolve();
+    two.resolve();
     await suggestionDecisionsSettled("order");
     expect(queuedSuggestionDecisions("order")).toEqual([]);
   });
