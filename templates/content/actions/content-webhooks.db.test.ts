@@ -2234,6 +2234,19 @@ describe("property generations", () => {
           sourceValuesJson: JSON.stringify({ note: "from the scan" }),
         })),
       );
+    const [noteField] = await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: `${sources[0].id}-note`,
+        ownerEmail: OWNER,
+        sourceId: sources[0].id,
+        propertyId: ids.properties.notes,
+        localFieldKey: ids.properties.notes,
+        sourceFieldKey: "note",
+        sourceFieldLabel: "Note",
+        sourceFieldType: "text",
+      })
+      .returning();
 
     // A refresh of the first row lands between the materializer's scan and
     // its lock. The write must carry the refresh, not what the scan read.
@@ -2245,9 +2258,7 @@ describe("property generations", () => {
     await materializeSourceFieldPropertyValues({
       database,
       sourceId: sources[0].id,
-      fields: [
-        { propertyId: ids.properties.notes, sourceFieldKey: "note" },
-      ] as never,
+      fields: [noteField],
       now: new Date().toISOString(),
     });
     expect(lockHook.beforeNext).toBeNull();
@@ -2284,6 +2295,103 @@ describe("property generations", () => {
     );
     expect(await storedValue(ids.rows[1].documentId, source.id)).toBe(
       sources[1].id,
+    );
+  });
+
+  it("the source writers read bindings and sources again under the lock", async () => {
+    const ids = await fixture(2);
+    const {
+      ensureDatabaseSourceProperty,
+      materializeSourceFieldPropertyValues,
+    } = await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = [0, 1, 2].map((index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: `Sheet ${index}`,
+      sourceTable: `Sheet ${index}`,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values(sources.slice(0, 2));
+    const links = schema.contentDatabaseSourceRows;
+    const link = (row: number, source: number) => ({
+      id: `${ids.rows[row].itemId}-link`,
+      ownerEmail: OWNER,
+      sourceId: sources[source].id,
+      databaseItemId: ids.rows[row].itemId,
+      documentId: ids.rows[row].documentId,
+      sourceRowId: `row-${row}`,
+      sourceQualifiedId: `row-${row}`,
+      sourceDisplayKey: `row-${row}`,
+      sourceValuesJson: JSON.stringify({ note: "from the source" }),
+    });
+    await getDb().insert(links).values(link(0, 0));
+    const fields = schema.contentDatabaseSourceFields;
+    const [noteField] = await getDb()
+      .insert(fields)
+      .values({
+        id: `${sources[0].id}-note`,
+        ownerEmail: OWNER,
+        sourceId: sources[0].id,
+        propertyId: ids.properties.notes,
+        localFieldKey: ids.properties.notes,
+        sourceFieldKey: "note",
+        sourceFieldLabel: "Note",
+        sourceFieldType: "text",
+      })
+      .returning();
+
+    // The field is unbound between the materializer's scan and its lock, so
+    // the column it fed keeps its own value.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(fields)
+        .set({ propertyId: null, localFieldKey: "note" })
+        .where(eq(fields.id, noteField.id));
+    await materializeSourceFieldPropertyValues({
+      database,
+      sourceId: sources[0].id,
+      fields: [noteField],
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    expect(
+      await storedValue(ids.rows[0].documentId, ids.properties.notes),
+    ).toBe("first");
+
+    // A third source, holding the second row, is attached between the Source
+    // column's scan and its lock. That row's Source is the new source, not
+    // Local.
+    lockHook.beforeNext = async (tx) => {
+      await tx.insert(schema.contentDatabaseSources).values(sources[2]);
+      await tx.insert(links).values(link(1, 2));
+    };
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    const [sourceColumn] = await getDb()
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(await storedValue(ids.rows[0].documentId, sourceColumn.id)).toBe(
+      sources[0].id,
+    );
+    expect(await storedValue(ids.rows[1].documentId, sourceColumn.id)).toBe(
+      sources[2].id,
     );
   });
 });

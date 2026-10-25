@@ -6165,18 +6165,33 @@ export async function materializeSourceFieldPropertyValues(args: {
 
   // Only the write takes the collection's mutation lock, like every other
   // value write. Under it, the writes for those pages are worked out again
-  // from their source rows, definitions and values as they are now, so a
-  // refresh or guarded write that landed since the scan isn't overwritten
-  // with what it replaced.
+  // from their bindings, source rows, definitions and values as they are now,
+  // so a refresh, unbinding or guarded write that landed since the scan isn't
+  // overwritten with what it replaced.
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
     await lockContentDatabaseMutation(tx, args.database.id);
+    const stillBound = (
+      await tx
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId),
+            inArray(
+              schema.contentDatabaseSourceFields.id,
+              boundFields.map((field) => field.id),
+            ),
+          ),
+        )
+    ).filter((field) => field.propertyId);
+    if (stillBound.length === 0) return;
     await upsertSourcePropertyValues(
       tx,
       await sourceFieldValueWrites(
         tx,
         args,
-        boundFields,
+        stillBound,
         Array.from(new Set(candidates.map((write) => write.documentId))),
       ),
     );
@@ -8230,8 +8245,9 @@ export async function ensureDatabaseSourceProperty(args: {
 
   // As in materializeSourceFieldPropertyValues, the scan runs without the
   // lock and only finds the rows to look at. Under the lock their Source is
-  // worked out again from the links and memberships as they are now, so a
-  // row moved to another source since the scan isn't set back.
+  // worked out again from the sources, links and memberships as they are now,
+  // so a row moved to another source, or one whose source was attached, since
+  // the scan isn't set back.
   const candidates = await sourcePropertyWrites(
     db,
     args,
@@ -8243,13 +8259,18 @@ export async function ensureDatabaseSourceProperty(args: {
   await db.transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
     await lockContentDatabaseMutation(tx, args.database.id);
+    const currentSources = await tx
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, args.database.id));
+    if (currentSources.length < 2) return;
     await upsertSourcePropertyValues(
       tx,
       await sourcePropertyWrites(
         tx,
         args,
         propertyId,
-        sources,
+        currentSources,
         candidates.map((write) => write.documentId),
       ),
     );

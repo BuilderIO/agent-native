@@ -161,12 +161,19 @@ export async function readPropertyTombstones(
  * tombstones, until the transaction ends, so a guarded write can compare and
  * write without another writer in between. A read that returns values takes
  * generations from its own value rows instead: see readPropertyTombstones.
+ *
+ * Without the lock, tombstones are read first, for the reason given there.
+ * With it, value rows are locked first, the order a deletion takes them in
+ * when its trigger records tombstones, so the two can't deadlock.
  */
 export async function readPropertyGenerations(
   db: Db,
   documentIds: string[],
   options: { propertyIds?: string[]; lock?: boolean } = {},
 ): Promise<StoredPropertyGenerations> {
+  const unlockedTombstones = options.lock
+    ? null
+    : await readPropertyTombstones(db, documentIds, options);
   const changeIds: StoredPropertyChangeIds = new Map();
   if (documentIds.length && options.propertyIds?.length !== 0) {
     const values = schema.documentPropertyValues;
@@ -192,7 +199,8 @@ export async function readPropertyGenerations(
   }
   return storedPropertyGenerations(
     changeIds,
-    await readPropertyTombstones(db, documentIds, options),
+    unlockedTombstones ??
+      (await readPropertyTombstones(db, documentIds, options)),
   );
 }
 
