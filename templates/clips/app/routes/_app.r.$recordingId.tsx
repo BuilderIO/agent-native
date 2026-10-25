@@ -3044,10 +3044,10 @@ export default function RecordingPage() {
         <div className="contents">
           <div
             className={cn(
-              "clips-recording-player-column flex min-w-0 flex-col bg-background lg:col-start-1 lg:row-start-1",
+              "flex min-w-0 flex-col bg-background lg:col-start-1 lg:row-start-1",
               editing && canUseNativeEditor
                 ? "min-h-0 flex-1 overflow-hidden"
-                : "gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
+                : "clips-recording-player-column gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
             )}
           >
             {editing && canUseNativeEditor ? (
