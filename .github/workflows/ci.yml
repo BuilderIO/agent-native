@@ -52,6 +52,7 @@ jobs:
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
+      design_canvas_e2e_diagnostic_shards: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_shards }}
       design_canvas_broad_workflow_shards: ${{ steps.scope.outputs.design_canvas_broad_workflow_shards }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_caret_e2e: ${{ steps.scope.outputs.slides_caret_e2e }}
@@ -779,13 +780,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          [
-            changed-1,
-            changed-2,
-            changed-3,
-            changed-4,
-          ]
+        shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -827,7 +822,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/4" --grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/${{ strategy.job-total }}" --grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
 
       - name: Detect retried Design test failures
         id: retry-artifacts

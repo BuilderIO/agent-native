@@ -20,6 +20,7 @@ import {
   SLIDES_AUTHORING_SHARDS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
+  designCanvasE2eDiagnosticShardsFor,
   shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
@@ -2139,6 +2140,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const verticalAutoLayoutWorkflow = step(
     "Run vertical auto-layout held-guide regression",
   );
+  const changedSpecRegressions = step("Run changed Design E2E specs");
   const preAuthReplaySmoke = step("Run pre-auth session replay smoke");
   const designE2eWorkflow = readFileSync(
     ".github/workflows/design-e2e.yml",
@@ -2156,6 +2158,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
+  );
+  assert.match(
+    changedSpecRegressions,
+    /^        timeout-minutes: 24$/m,
+    "the changed-spec diagnostic step must fit inside its 30-minute job after setup",
   );
   assert.match(
     workflow,
@@ -2301,6 +2308,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     designGlobalSetup,
     /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeRecoveryDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
     "the composer probe window must start after navigation so a slow cold route does not consume it",
+  );
+  assert.match(
+    changedSpecRegressions,
+    /--shard="\$\{changed_shard\}\/\$\{\{ strategy\.job-total \}\}"/,
+    "changed-spec diagnostics must shard across the whole sized matrix",
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      "--grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'",
+    ),
+    "the long music-app and vertical auto-layout tests must run only in dedicated lanes",
   );
   assert.match(
     musicAppWorkflow,
@@ -2566,16 +2584,22 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     [1],
   );
+  assert.deepEqual(
+    [...changedSpecRegressions.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
+      Number(count),
+    ),
+    [1],
+  );
   const coreJobStart = workflow.indexOf("  design-canvas-core-regression:\n");
   assert.notEqual(coreJobStart, -1);
   const broadJobStart = workflow.indexOf("  design-canvas-broad-workflows:\n");
   assert.notEqual(broadJobStart, -1);
-  const preAuthJobStart = workflow.indexOf(
-    "  pre-auth-session-replay-smoke:\n",
+  const diagnosticJobStart = workflow.indexOf(
+    "  design-canvas-changed-spec-diagnostics:\n",
   );
-  assert.notEqual(preAuthJobStart, -1);
+  assert.notEqual(diagnosticJobStart, -1);
   const coreJob = workflow.slice(coreJobStart, broadJobStart);
-  const broadJob = workflow.slice(broadJobStart, preAuthJobStart);
+  const broadJob = workflow.slice(broadJobStart, diagnosticJobStart);
   const designJob = coreJob;
 
   assert.ok(coreJob.includes("needs: change-scope"));
@@ -2599,6 +2623,25 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     broadJob,
     /design_canvas_e2e_specs_overflow/,
     "broad workflow selectors must not suppress selected tests",
+  );
+  const diagnosticJobEnd = workflow.indexOf(
+    "\n  pre-auth-session-replay-smoke:",
+    diagnosticJobStart,
+  );
+  const diagnosticJob = workflow.slice(
+    diagnosticJobStart,
+    diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
+  );
+  assert.ok(diagnosticJob.includes("needs: change-scope"));
+  assert.ok(
+    diagnosticJob.includes(
+      "if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'",
+    ),
+    "changed-spec diagnostics should run when selectors are present",
+  );
+  assert.ok(
+    diagnosticJob.includes("Run changed Design E2E specs"),
+    "the changed spec suite must remain visible in CI diagnostics",
   );
   assert.doesNotMatch(
     workflow,
@@ -2624,6 +2667,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const screenHistoryStepTimeout = Number(
     screenSelectionRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
+  const changedSpecStepTimeout = Number(
+    changedSpecRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const diagnosticJobTimeout = Number(
+    diagnosticJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.match(
     designJob,
     /^    timeout-minutes: 30$/m,
@@ -2644,6 +2693,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Design acceptance must stay below thirty-one minutes",
   );
   assert.ok(
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 30,
+    `changed-spec diagnostics must have the exact thirty-minute cap (got ${diagnosticJobTimeout})`,
+  );
+  assert.ok(
     Number.isInteger(stepTimeout) &&
       stepTimeout === 23 &&
       stepTimeout >=
@@ -2662,6 +2715,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
           screenHistoryWebServerBudgetMinutes &&
       jobTimeout >= screenHistoryStepTimeout + 9,
     `Screen-history tests need five minutes for the Playwright run, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and nine minutes of job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+  );
+  const changedSpecRunBudgetMinutes = 8;
+  assert.ok(
+    Number.isInteger(changedSpecStepTimeout) &&
+      changedSpecStepTimeout === 24 &&
+      changedSpecStepTimeout >=
+        changedSpecRunBudgetMinutes +
+          screenHistorySetupBudgetMinutes +
+          screenHistoryWebServerBudgetMinutes &&
+      diagnosticJobTimeout >= changedSpecStepTimeout + 6,
+    `changed-spec diagnostics need eight minutes for Playwright, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and six minutes of job headroom (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
@@ -2721,14 +2785,42 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
 });
 
-test("the PR workflow has no changed-spec diagnostic fan-out", () => {
+test("keeps every changed Design E2E spec in visible diagnostic shards", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
-  // design-e2e.yml runs the full Design E2E suite on its schedule, so a PR
-  // must not fan out a second hard-coded shard matrix.
+  const diagnosticJobStart = workflow.indexOf(
+    "  design-canvas-changed-spec-diagnostics:",
+  );
+  assert.notEqual(diagnosticJobStart, -1);
+  const diagnosticJobEnd = workflow.indexOf(
+    "\n  pre-auth-session-replay-smoke:",
+    diagnosticJobStart,
+  );
+  const diagnosticJob = workflow.slice(
+    diagnosticJobStart,
+    diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
+  );
+  assert.ok(
+    diagnosticJob.includes(
+      "shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}",
+    ),
+    "the changed-spec matrix must come from the sized shard list",
+  );
+  assert.match(
+    diagnosticJob,
+    /--shard="\$\{changed_shard\}\/\$\{\{ strategy\.job-total \}\}"/,
+    "changed specs must be covered across every shard in the matrix",
+  );
+  const fastTestsStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsStart, -1);
+  const fastTestsEnd = workflow.indexOf("\n  docs:", fastTestsStart);
+  const fastTestsJob = workflow.slice(
+    fastTestsStart,
+    fastTestsEnd === -1 ? undefined : fastTestsEnd,
+  );
   assert.doesNotMatch(
-    workflow,
-    /^ {2}design-canvas-changed-spec-diagnostics:/mu,
-    "the changed-spec diagnostic matrix must not run on PRs",
+    fastTestsJob,
+    /design-canvas-changed-spec-diagnostics/,
+    "the broad diagnostic matrix must not extend the required Design lane",
   );
 });
 
@@ -4633,3 +4725,42 @@ test(
     }
   },
 );
+
+test("sizes changed-spec diagnostic shards to the selected tests", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-diagnostic-shards-"));
+  try {
+    mkdirSync(join(root, "e2e"));
+    const spec = (name: string, tests: number) => {
+      writeFileSync(
+        join(root, "e2e", name),
+        Array.from(
+          { length: tests },
+          (_, i) => `test("t${i}", () => {});`,
+        ).join("\n"),
+      );
+      return `e2e/${name}`;
+    };
+    assert.deepEqual(designCanvasE2eDiagnosticShardsFor([], root), []);
+    assert.deepEqual(
+      designCanvasE2eDiagnosticShardsFor([spec("small.spec.ts", 3)], root),
+      ["changed-1"],
+    );
+    assert.deepEqual(
+      designCanvasE2eDiagnosticShardsFor(["e2e/deleted.spec.ts"], root),
+      ["changed-1"],
+    );
+    assert.equal(
+      designCanvasE2eDiagnosticShardsFor([spec("medium.spec.ts", 40)], root)
+        .length,
+      4,
+    );
+    const all = designCanvasE2eDiagnosticShardsFor(
+      [spec("all.spec.ts", 1038)],
+      root,
+    );
+    assert.equal(all.length, 48);
+    assert.equal(all.at(-1), "changed-48");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
