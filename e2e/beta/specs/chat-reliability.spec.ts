@@ -60,7 +60,7 @@ for (const site of chatSites()) {
 
     if (!full) return;
 
-    test(`${RELIABILITY_TAG} a second message during a run gets no error and both are answered`, async ({
+    test(`${RELIABILITY_TAG} UI and direct API messages during a run are queued and answered`, async ({
       browser,
     }) => {
       test.setTimeout(360_000);
