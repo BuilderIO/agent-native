@@ -930,6 +930,11 @@ interface CommentsSidebarOptions {
   onMaterializeDraft?: (
     suggestion: DraftSuggestion,
   ) => Promise<ResourceSuggestion | null>;
+  /** Shows the decision on a draft at once, then saves and decides it. */
+  onDecideDraftSuggestion?: (
+    suggestion: DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   canDecideSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
@@ -1017,6 +1022,7 @@ export function CommentsSidebar({
   suggestions = NO_SUGGESTIONS,
   draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
+  onDecideDraftSuggestion,
   canDecideSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
@@ -3003,8 +3009,10 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
+      deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
+      onDecideDraft={onDecideDraftSuggestion}
       onActivateSaved={(saved) => {
         replyDrafts.setOpenReply(saved.threadId, saved.id);
         onActivateSuggestion?.(saved.id);
@@ -3914,8 +3922,10 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  deciding,
   onActivate,
   onMaterialize,
+  onDecideDraft,
   onActivateSaved,
   onDecide,
   surface = "rail",
@@ -3933,10 +3943,15 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
     suggestion: DraftSuggestion,
   ) => Promise<ResourceSuggestion | null>;
+  onDecideDraft?: (
+    suggestion: DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   onActivateSaved: (suggestion: ResourceSuggestion) => void;
   onDecide: (
     suggestion: ResourceSuggestion,
@@ -4025,9 +4040,17 @@ function DraftSuggestionThreadView({
                           ? "editor.acceptSuggestion"
                           : "editor.rejectSuggestion",
                       )}
-                      disabled={isSaving || !onMaterialize}
+                      disabled={
+                        isSaving ||
+                        deciding ||
+                        (!onDecideDraft && !onMaterialize)
+                      }
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (onDecideDraft) {
+                          onDecideDraft(suggestion, decision);
+                          return;
+                        }
                         void materialize().then((saved) => {
                           if (saved) onDecide(saved, decision);
                         });

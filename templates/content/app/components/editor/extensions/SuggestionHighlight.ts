@@ -965,14 +965,16 @@ function typedRemoval(doc: ProseMirrorNode, step: ReplaceStep): string | null {
   if (!$from.parent.isTextblock || !$from.sameParent(doc.resolve(step.to)))
     return null;
   if (step.slice.openStart !== 0 || step.slice.openEnd !== 0) return null;
-  let text = true;
+  const inline: ProseMirrorNode[] = [];
   step.slice.content.forEach((node) => {
-    if (!node.isText) text = false;
+    inline.push(node);
   });
   doc.nodesBetween(step.from, step.to, (node) => {
-    if (node.isInline && !node.isText) text = false;
+    if (node.isInline) inline.push(node);
   });
-  return text ? doc.textBetween(step.from, step.to) : null;
+  return inline.every((node) => node.isText)
+    ? doc.textBetween(step.from, step.to)
+    : null;
 }
 
 /**
@@ -1008,20 +1010,19 @@ function typedDraftSpecs(
             spec.to === step.from && (spec.deletedText || spec.editableText),
         )
       : undefined;
-    if (!inside && (before || after)) {
-      const joined = (before ?? after)!;
-      next = specs.map((spec) =>
-        spec === joined
-          ? {
-              ...spec,
-              deletedText: before
-                ? removed + (spec.deletedText ?? "")
-                : (spec.deletedText ?? "") + removed,
-              deletedPresentation: undefined,
-              editableBoundary: true,
-            }
-          : spec,
-      );
+    const joined = before ?? after;
+    if (!inside && joined) {
+      next = specs.map((spec) => {
+        if (spec !== joined) return spec;
+        const { deletedPresentation: _presentation, ...rest } = spec;
+        return {
+          ...rest,
+          deletedText: before
+            ? removed + (spec.deletedText ?? "")
+            : (spec.deletedText ?? "") + removed,
+          editableBoundary: true,
+        };
+      });
     } else if (
       !inside &&
       (removed || step.slice.size > 0) &&
@@ -1033,7 +1034,7 @@ function typedDraftSpecs(
         kind: step.slice.size > 0 ? "mark" : "delete",
         from: step.from,
         to: step.from + step.slice.size,
-        deletedText: removed || undefined,
+        ...(removed ? { deletedText: removed } : {}),
         editableBoundary: !!removed,
         editableText: step.slice.size > 0,
         draft: true,
