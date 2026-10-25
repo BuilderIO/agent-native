@@ -295,17 +295,20 @@ export function planDocReconcile(
     // Once a paragraph closes the page, the filler is a stray empty line the
     // next save would keep. The editor adds it back when it is needed again.
     // A selection's `to` is its later end, so a range reaching in counts too.
-    const fillerFrom = liveDoc.content.size - liveDoc.lastChild!.nodeSize;
+    const liveLast = liveDoc.lastChild;
     const selectionOnFiller =
-      !!options.liveSelection && options.liveSelection.to > fillerFrom;
+      !!liveLast &&
+      !!options.liveSelection &&
+      options.liveSelection.to > liveDoc.content.size - liveLast.nodeSize;
+    const mergedLast = tr.doc.lastChild;
     if (
       liveHasFiller &&
       !selectionOnFiller &&
       !endsInEditorFiller(tr.doc) &&
-      isEditorFiller(tr.doc.lastChild)
+      isEditorFiller(mergedLast)
     ) {
       const end = tr.doc.content.size;
-      tr.delete(end - tr.doc.lastChild!.nodeSize, end);
+      tr.delete(end - mergedLast.nodeSize, end);
     }
     return { status: "applied", mergedDoc: tr.doc, steps: tr.steps, setAside };
   } catch {
@@ -321,7 +324,7 @@ export function reconcileDocAgainstBase(
 ): BaseAwareReconcileResult {
   const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, {
     ...options,
-    liveSelection: editor.isFocused ? editor.state.selection : undefined,
+    ...(editor.isFocused ? { liveSelection: editor.state.selection } : {}),
   });
   if (plan.status !== "applied") return plan;
   try {
@@ -412,14 +415,18 @@ function endsInEditorFiller(doc: ProseMirrorNode): boolean {
   );
 }
 
-function isEditorFiller(node: ProseMirrorNode | null): boolean {
-  return isEmptyParagraph(node) && node!.sameMarkup(node!.type.create());
+function isEditorFiller(node: ProseMirrorNode | null): node is ProseMirrorNode {
+  return (
+    node !== null &&
+    isEmptyParagraph(node) &&
+    node.sameMarkup(node.type.create())
+  );
 }
 
 function withoutLastChild(doc: ProseMirrorNode): ProseMirrorNode {
-  return doc.copy(
-    doc.content.cut(0, doc.content.size - doc.lastChild!.nodeSize),
-  );
+  const last = doc.lastChild;
+  if (!last) return doc;
+  return doc.copy(doc.content.cut(0, doc.content.size - last.nodeSize));
 }
 
 function withPreservedTrailingParagraph(

@@ -147,7 +147,7 @@ describe("VisualEditor merge counts", () => {
     act(() => {
       editor().commands.setTextSelection(1);
     });
-    expect(editor().state.doc.lastChild!.content.size, "the filler line").toBe(
+    expect(editor().state.doc.lastChild?.content.size, "the filler line").toBe(
       0,
     );
 
@@ -180,7 +180,9 @@ describe("VisualEditor merge counts", () => {
 
     expect(shownBody()).toBe(local);
     expect(merges.map((merge) => merge.status)).toEqual(["merged"]);
-    expect(canonicalizeNfm(merges[0]!.content)).toBe(local);
+    expect(merges.map((merge) => canonicalizeNfm(merge.content))).toEqual([
+      local,
+    ]);
     expect(report.mock.calls.map(([event]) => event)).toEqual([
       { id: "page", outcome: "set_aside" },
     ]);

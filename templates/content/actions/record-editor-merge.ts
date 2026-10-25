@@ -20,6 +20,7 @@ export default defineAction({
         "kept_all when the merge kept every saved change; set_aside when it left one out for overlapping the tab's own edit",
       ),
   }),
+  outputSchema: z.object({ recorded: z.literal(true) }),
   run: async (args) => {
     await assertDocumentMutationAccess(args.id, "viewer", "id");
     // Count inside the request: a serverless instance can freeze before a
