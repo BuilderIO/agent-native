@@ -19,8 +19,10 @@
  * The guard scans every server source file (actions and server directories
  * of templates, community templates, apps and packages) for a timer callback
  * that calls `track`, a `track…` wrapper such as `trackLifecycleEvent`, or a
- * count helper. It follows a callback passed by name, functions the same file
- * defines, and names the file binds to a timer (`const defer = setTimeout`).
+ * count helper. TypeScript resolves each name in that one file the way its
+ * scope sees it, so the guard follows callbacks passed by name or as methods
+ * (`this.flush`, `queue.flush`), the functions and methods they call, and
+ * timers renamed through any chain of aliases (`const defer = setTimeout`).
  * It does not follow helpers imported from other files unless their names say
  * they track or count. A timer that has to defer a count says why, on any line
  * of the timer call or the line above:
@@ -84,92 +86,172 @@ function isCountName(name: string): boolean {
   return COUNTS.has(name) || /^track(?:[A-Z]\w*)?$/.test(name);
 }
 
-function functionBody(node: ts.Node | undefined): ts.Node | undefined {
-  if (!node) return undefined;
-  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+/**
+ * A type checker over this one file, so a name resolves to the declaration its
+ * scope sees, and `this.flush` or `queue.flush` to the method. Imports stay
+ * unresolved, so helpers from other files are judged by name.
+ */
+function fileChecker(sourceFile: ts.SourceFile): ts.TypeChecker {
+  const host: ts.CompilerHost = {
+    getSourceFile: (name) =>
+      name === sourceFile.fileName ? sourceFile : undefined,
+    getDefaultLibFileName: () => "lib.d.ts",
+    writeFile: () => {},
+    getCurrentDirectory: () => "/",
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n",
+    fileExists: (name) => name === sourceFile.fileName,
+    readFile: () => undefined,
+  };
+  return ts
+    .createProgram({
+      rootNames: [sourceFile.fileName],
+      options: { noLib: true, noResolve: true, strict: true, types: [] },
+      host,
+    })
+    .getTypeChecker();
+}
+
+function bodyOf(node: ts.Node): ts.Node | undefined {
+  if (
+    ts.isFunctionDeclaration(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isFunctionExpression(node)
+  ) {
     return node.body;
   }
   return undefined;
 }
 
-/** Functions the file defines by name, so a helper's count is seen. */
-function localFunctions(sourceFile: ts.SourceFile): Map<string, ts.Node> {
-  const functions = new Map<string, ts.Node>();
-  const visit = (node: ts.Node) => {
-    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      functions.set(node.name.text, node.body);
-    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      const body = functionBody(node.initializer);
-      if (body) functions.set(node.name.text, body);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return functions;
+/** The declaration a name or property reference resolves to in this file. */
+function declarationOf(
+  checker: ts.TypeChecker,
+  reference: ts.Identifier | ts.PropertyAccessExpression,
+): ts.Declaration | undefined {
+  const symbol = checker.getSymbolAtLocation(
+    ts.isPropertyAccessExpression(reference) ? reference.name : reference,
+  );
+  const declaration =
+    symbol?.declarations?.find((candidate) => bodyOf(candidate)) ??
+    symbol?.valueDeclaration ??
+    symbol?.declarations?.[0];
+  if (declaration && ts.isShorthandPropertyAssignment(declaration)) {
+    const value = checker.getShorthandAssignmentValueSymbol(declaration);
+    return value?.valueDeclaration ?? value?.declarations?.[0];
+  }
+  return declaration;
 }
 
-function isTimerReference(expression: ts.Expression): boolean {
-  const name = calleeName(expression);
+/** What a declaration binds: a function, another expression, or nothing. */
+function boundValue(declaration: ts.Declaration): ts.Node | undefined {
+  if (
+    ts.isFunctionDeclaration(declaration) ||
+    ts.isMethodDeclaration(declaration)
+  ) {
+    return declaration;
+  }
+  if (
+    ts.isVariableDeclaration(declaration) ||
+    ts.isPropertyAssignment(declaration) ||
+    ts.isPropertyDeclaration(declaration)
+  ) {
+    return declaration.initializer;
+  }
+  return undefined;
+}
+
+/** `(flush)`, `flush as Fn` and `flush!` all name `flush`. */
+function unwrapped(expression: ts.Expression): ts.Expression {
+  let target = expression;
+  while (
+    ts.isParenthesizedExpression(target) ||
+    ts.isAsExpression(target) ||
+    ts.isSatisfiesExpression(target) ||
+    ts.isNonNullExpression(target)
+  ) {
+    target = target.expression;
+  }
+  return target;
+}
+
+/** `flush.bind(this)` runs `flush`. */
+function unbound(expression: ts.Expression): ts.Expression {
+  let target = unwrapped(expression);
+  while (
+    ts.isCallExpression(target) &&
+    ts.isPropertyAccessExpression(target.expression) &&
+    target.expression.name.text === "bind"
+  ) {
+    target = unwrapped(target.expression.expression);
+  }
+  return target;
+}
+
+/** A timer, or a name bound to one through any chain of aliases. */
+function isTimerReference(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen: Set<ts.Node>,
+): boolean {
+  const target = unbound(expression);
+  const name = calleeName(target);
   if (name && TIMERS.has(name)) return true;
-  // `setTimeout.bind(globalThis)`
+  if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
+    return false;
+  }
+  const declaration = declarationOf(checker, target);
+  if (!declaration || seen.has(declaration)) return false;
+  seen.add(declaration);
+  const value = boundValue(declaration);
   return (
-    ts.isCallExpression(expression) &&
-    ts.isPropertyAccessExpression(expression.expression) &&
-    expression.expression.name.text === "bind" &&
-    isTimerReference(expression.expression.expression)
+    !!value && ts.isExpression(value) && isTimerReference(checker, value, seen)
   );
 }
 
-/** Names the file binds to a timer, such as `const defer = setTimeout`. */
-function timerAliases(sourceFile: ts.SourceFile): Set<string> {
-  const aliases = new Set<string>();
-  const visit = (node: ts.Node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer &&
-      isTimerReference(node.initializer)
-    ) {
-      aliases.add(node.name.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return aliases;
+/** Whether calling this reference tracks or counts, as far as the file shows. */
+function countsWhenCalled(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen: Set<ts.Node>,
+): boolean {
+  const target = unbound(expression);
+  const body = bodyOf(target);
+  if (body) return callsCount(checker, body, seen);
+  const name = calleeName(target);
+  if (name && isCountName(name)) return true;
+  if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
+    return false;
+  }
+  const declaration = declarationOf(checker, target);
+  if (!declaration || seen.has(declaration)) return false;
+  seen.add(declaration);
+  // `import { countOutcome as record }`
+  if (ts.isImportSpecifier(declaration)) {
+    return isCountName((declaration.propertyName ?? declaration.name).text);
+  }
+  const value = boundValue(declaration);
+  if (!value) return false;
+  const valueBody = bodyOf(value);
+  if (valueBody) return callsCount(checker, valueBody, seen);
+  return ts.isExpression(value) && countsWhenCalled(checker, value, seen);
 }
 
 function callsCount(
+  checker: ts.TypeChecker,
   node: ts.Node,
-  functions: ReadonlyMap<string, ts.Node>,
-  followed: Set<string>,
+  seen: Set<ts.Node>,
 ): boolean {
-  if (ts.isCallExpression(node)) {
-    const name = calleeName(node.expression);
-    if (name && isCountName(name)) return true;
-    if (name && ts.isIdentifier(node.expression) && !followed.has(name)) {
-      followed.add(name);
-      const helper = functions.get(name);
-      if (helper && callsCount(helper, functions, followed)) return true;
-    }
+  if (
+    ts.isCallExpression(node) &&
+    countsWhenCalled(checker, node.expression, seen)
+  ) {
+    return true;
   }
   return (
-    ts.forEachChild(node, (child) => callsCount(child, functions, followed)) ??
-    false
+    ts.forEachChild(node, (child) => callsCount(checker, child, seen)) ?? false
   );
-}
-
-function deferredCallbackCounts(
-  callback: ts.Expression | undefined,
-  functions: ReadonlyMap<string, ts.Node>,
-): boolean {
-  if (!callback) return false;
-  if (ts.isIdentifier(callback)) {
-    if (isCountName(callback.text)) return true;
-    const helper = functions.get(callback.text);
-    return !!helper && callsCount(helper, functions, new Set([callback.text]));
-  }
-  const body = functionBody(callback);
-  return !!body && callsCount(body, functions, new Set());
 }
 
 export function findDeferredCounts(
@@ -180,43 +262,36 @@ export function findDeferredCounts(
     ? ts.ScriptKind.TSX
     : ts.ScriptKind.TS;
   const sourceFile = ts.createSourceFile(
-    file,
+    kind === ts.ScriptKind.TSX ? "/guarded.tsx" : "/guarded.ts",
     source,
     ts.ScriptTarget.Latest,
     true,
     kind,
   );
+  const checker = fileChecker(sourceFile);
   const lines = source.split(/\r?\n/);
   const findings: DeferredCountFinding[] = [];
-  const functions = localFunctions(sourceFile);
-  const aliases = timerAliases(sourceFile);
-  const isTimer = (expression: ts.Expression) =>
-    (ts.isIdentifier(expression) && aliases.has(expression.text)) ||
-    TIMERS.has(calleeName(expression) ?? "");
 
   const visit = (node: ts.Node) => {
-    if (ts.isCallExpression(node)) {
-      if (
-        isTimer(node.expression) &&
-        deferredCallbackCounts(node.arguments[0], functions)
-      ) {
-        const start =
-          sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-            .line + 1;
-        const end = sourceFile.getLineAndCharacterOfPosition(node.end).line + 1;
-        const opted =
-          lines.slice(start - 1, end).some((line) => PRAGMA.test(line)) ||
-          PRAGMA.test(lines[start - 2] ?? "");
-        if (!opted) {
-          findings.push({
-            file,
-            line: start,
-            snippet: node
-              .getText(sourceFile)
-              .replace(/\s+/g, " ")
-              .slice(0, 120),
-          });
-        }
+    if (
+      ts.isCallExpression(node) &&
+      node.arguments[0] &&
+      isTimerReference(checker, node.expression, new Set()) &&
+      countsWhenCalled(checker, node.arguments[0], new Set())
+    ) {
+      const start =
+        sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+          .line + 1;
+      const end = sourceFile.getLineAndCharacterOfPosition(node.end).line + 1;
+      const opted =
+        lines.slice(start - 1, end).some((line) => PRAGMA.test(line)) ||
+        PRAGMA.test(lines[start - 2] ?? "");
+      if (!opted) {
+        findings.push({
+          file,
+          line: start,
+          snippet: node.getText(sourceFile).replace(/\s+/g, " ").slice(0, 120),
+        });
       }
     }
     ts.forEachChild(node, visit);

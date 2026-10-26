@@ -65,6 +65,80 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(flagged(source), [3, 4]);
   });
 
+  it("follows timer aliases through any number of hops", () => {
+    const source = [
+      "const defer = setTimeout;",
+      "const later = defer;",
+      "const timers = { soon: later };",
+      'later(() => countOutcome("content_editor_mount_counts", {}), 0);',
+      'timers.soon(() => track("page_saved"));',
+      "const pause = sleep;",
+      'pause(() => track("page_saved"));',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [4, 5]);
+  });
+
+  it("resolves each name in its own scope", () => {
+    const source = [
+      "function sweep() {",
+      "  const flush = () => sweepExpired();",
+      "  setTimeout(flush, 0);",
+      "}",
+      "function flush() {",
+      '  countOutcome("content_editor_mount_counts", {});',
+      "}",
+      "setTimeout(flush, 0);",
+      "function drain(flush: () => void) {",
+      "  setTimeout(flush, 0);",
+      "}",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [8]);
+  });
+
+  it("follows callbacks passed as methods", () => {
+    const source = [
+      "class Counter {",
+      "  flush() {",
+      '    countOutcome("content_editor_mount_counts", {});',
+      "  }",
+      "  start() {",
+      "    setTimeout(() => this.flush(), 0);",
+      "    setTimeout(this.flush.bind(this), 0);",
+      "  }",
+      "}",
+      "class Sweeper {",
+      "  flush() {",
+      "    sweepExpired();",
+      "  }",
+      "  start() {",
+      "    setInterval(this.flush, 60_000);",
+      "  }",
+      "}",
+      "function report() {",
+      '  track("page_saved");',
+      "}",
+      'const queue = { flush() { countOutcome("content_editor_mount_counts", {}); }, report };',
+      "setTimeout(queue.flush);",
+      "setTimeout(() => queue.report(), 0);",
+      "setImmediate(cache.flush);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [6, 7, 22, 23]);
+  });
+
+  it("follows a count helper imported under another name", () => {
+    const source = [
+      'import { countOutcome as record } from "@agent-native/core/server";',
+      'import { sweep } from "./sweep";',
+      'setTimeout(() => record("content_editor_mount_counts", {}), 0);',
+      "setTimeout(() => sweep(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [3]);
+  });
+
   it("allows counts inside the request and timers that do not count", () => {
     const source = [
       "try {",
