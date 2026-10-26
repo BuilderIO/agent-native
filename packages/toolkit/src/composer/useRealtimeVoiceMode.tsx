@@ -1,3 +1,4 @@
+import { TranscriptGrouper, type TranscriptSegment } from "openai/helpers/live";
 import {
   createContext,
   useCallback,
@@ -438,6 +439,8 @@ export function createRealtimeVoiceLanguageUpdate(
 interface RealtimeVoiceWorkSegment {
   id: string;
   threadId: string;
+  /** The GPT-Live delegation the calls ran under; one delegation is one request. */
+  delegationId: string | undefined;
   calls: RealtimeVoiceWorkCall[];
   /** The reply is over; the segment ends once its last call does. */
   closing: boolean;
@@ -456,17 +459,35 @@ function publishRealtimeVoiceWorkSegment(
   });
 }
 
-/** The reply's open work a new call joins, or new work; none without a thread. */
+/**
+ * The reply's open work a new call joins, or new work; none without a thread.
+ * A call from a different delegation is a new request.
+ */
 function openRealtimeVoiceWorkSegment(
   ref: { current: RealtimeVoiceWorkSegment | null },
   threadId: string | undefined,
   callId: string,
+  delegationId: string | undefined,
 ): RealtimeVoiceWorkSegment | null {
   if (!threadId) return null;
   const current = ref.current;
-  if (current?.threadId === threadId) return current;
+  if (
+    current?.threadId === threadId &&
+    (!current.delegationId ||
+      !delegationId ||
+      current.delegationId === delegationId)
+  ) {
+    current.delegationId ??= delegationId;
+    return current;
+  }
   if (current) closeRealtimeVoiceWorkSegment(ref, current);
-  const segment = { id: callId, threadId, calls: [], closing: false };
+  const segment = {
+    id: callId,
+    threadId,
+    delegationId,
+    calls: [],
+    closing: false,
+  };
   ref.current = segment;
   return segment;
 }
@@ -498,8 +519,6 @@ export interface CompletedRealtimeVoiceTranscript {
 
 export interface RealtimeVoiceTranscriptSequencer {
   handle: (event: RealtimeServerEvent) => void;
-  /** Ends the GPT-Live turns in progress, such as when a tool call starts. */
-  endLiveTurns: () => void;
   flush: () => void;
   reset: (options?: { preserveQueuedTranscripts?: boolean }) => void;
 }
@@ -510,19 +529,12 @@ interface SequencedRealtimeVoiceTranscript {
   transcript?: CompletedRealtimeVoiceTranscript;
 }
 
-interface LiveRealtimeVoiceTranscriptBuffer {
-  role: CompletedRealtimeVoiceTranscript["role"];
-  text: string;
-  lastEndMs?: number;
-  sequence: number;
-  /** The other speaker has spoken since this turn began. */
-  answered: boolean;
-}
-
 /**
  * Orders provider transcripts into conversation order. `publish` receives each
  * final transcript; `stream`, when given, receives the growing text of a turn
- * under the same `providerId` its final transcript will carry.
+ * under the same `providerId` its final transcript will carry. GPT-Live turns
+ * come from the SDK's transcript grouper, which splits on speaker changes and
+ * two-second silences and drops short backchannels heard over the reply.
  */
 export function createRealtimeVoiceTranscriptSequencer(
   publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
@@ -532,30 +544,41 @@ export function createRealtimeVoiceTranscriptSequencer(
   const items = new Map<string, SequencedRealtimeVoiceTranscript>();
   const settledItemIds = new Set<string>();
   const receivedTranscriptIds = new Set<string>();
-  const liveBuffers = new Map<
-    CompletedRealtimeVoiceTranscript["role"],
-    LiveRealtimeVoiceTranscriptBuffer
-  >();
   const streamingText = new Map<string, string>();
   const streamedText = new Map<string, string>();
-  let liveSequence = 0;
+  let liveGrouper: TranscriptGrouper | undefined;
 
-  const liveProviderId = (buffer: LiveRealtimeVoiceTranscriptBuffer) =>
-    `live-${buffer.sequence}`;
+  const liveTranscript = (segment: TranscriptSegment) => {
+    const text = segment.text.trim();
+    if (!text) return undefined;
+    return stream
+      ? { role: segment.speaker, text, providerId: segment.id }
+      : { role: segment.speaker, text };
+  };
 
-  const flushLiveTranscript = (
-    role: CompletedRealtimeVoiceTranscript["role"],
-  ) => {
-    const buffer = liveBuffers.get(role);
-    if (!buffer) return;
-    liveBuffers.delete(role);
-    const text = buffer.text.trim();
-    if (!text) return;
-    publish(
-      stream
-        ? { role, text, providerId: liveProviderId(buffer) }
-        : { role, text },
-    );
+  // Listeners check that their grouper is still current, so a discarded one
+  // never publishes what it closes on the way out.
+  const openLiveGrouper = () => {
+    if (liveGrouper) return liveGrouper;
+    const grouper = new TranscriptGrouper();
+    grouper.on("segment.updated", (segment) => {
+      const transcript = liveTranscript(segment);
+      if (grouper === liveGrouper && stream && transcript) stream(transcript);
+    });
+    grouper.on("segment.closed", ({ segment }) => {
+      const transcript = liveTranscript(segment);
+      if (grouper === liveGrouper && transcript) publish(transcript);
+    });
+    liveGrouper = grouper;
+    return grouper;
+  };
+
+  const closeLiveGrouper = (keepText: boolean) => {
+    const grouper = liveGrouper;
+    if (!grouper) return;
+    if (!keepText) liveGrouper = undefined;
+    grouper.close();
+    liveGrouper = undefined;
   };
 
   // A turn appears once every earlier turn has appeared, so a fast reply
@@ -578,14 +601,6 @@ export function createRealtimeVoiceTranscriptSequencer(
         text,
         providerId: entry.transcript?.providerId ?? id,
       });
-    }
-  };
-
-  const flushLiveTranscripts = () => {
-    for (const buffer of [...liveBuffers.values()].sort(
-      (left, right) => left.sequence - right.sequence,
-    )) {
-      flushLiveTranscript(buffer.role);
     }
   };
 
@@ -632,50 +647,22 @@ export function createRealtimeVoiceTranscriptSequencer(
         event.type === "session.input_transcript.delta" ||
         event.type === "session.output_transcript.delta"
       ) {
-        const role =
+        const type =
           event.type === "session.input_transcript.delta"
-            ? "user"
-            : "assistant";
-        const startMs =
-          typeof event.start_ms === "number" ? event.start_ms : undefined;
-        const endMs = typeof event.end_ms === "number" ? event.end_ms : startMs;
-        // Turns change with the speaker, never with a pause: a reply spoken
-        // in several breaths is one message. The two speakers can overlap on
-        // the session timeline, so the other side's turn ends only once this
-        // delta starts after it, and this side's turn ends once it was answered.
-        const otherRole = role === "user" ? "assistant" : "user";
-        const other = liveBuffers.get(otherRole);
-        const ending: LiveRealtimeVoiceTranscriptBuffer[] = [];
-        if (other) {
-          other.answered = true;
-          if (
-            startMs !== undefined &&
-            other.lastEndMs !== undefined &&
-            startMs >= other.lastEndMs
-          ) {
-            ending.push(other);
-          }
+            ? "session.input_transcript.delta"
+            : "session.output_transcript.delta";
+        const { event_id, delta, start_ms, end_ms } = event;
+        if (
+          typeof event_id !== "string" ||
+          typeof delta !== "string" ||
+          typeof start_ms !== "number" ||
+          typeof end_ms !== "number"
+        ) {
+          throw new Error(
+            "GPT-Live sent a transcript delta without an id, text, or timing.",
+          );
         }
-        const own = liveBuffers.get(role);
-        if (own?.answered) ending.push(own);
-        ending.sort((left, right) => left.sequence - right.sequence);
-        for (const ended of ending) flushLiveTranscript(ended.role);
-        let buffer = liveBuffers.get(role);
-        if (!buffer) {
-          buffer = {
-            role,
-            text: "",
-            sequence: ++liveSequence,
-            answered: false,
-          };
-          liveBuffers.set(role, buffer);
-        }
-        if (typeof event.delta === "string") buffer.text += event.delta;
-        if (endMs !== undefined) buffer.lastEndMs = endMs;
-        const text = buffer.text.trim();
-        if (stream && text) {
-          stream({ role, text, providerId: liveProviderId(buffer) });
-        }
+        openLiveGrouper().push({ type, event_id, delta, start_ms, end_ms });
         return;
       }
       if (
@@ -700,7 +687,7 @@ export function createRealtimeVoiceTranscriptSequencer(
         emitStreams();
         return;
       }
-      if (event.type === "session.closed") flushLiveTranscripts();
+      if (event.type === "session.closed") closeLiveGrouper(true);
       if (
         event.type === "conversation.item.added" ||
         event.type === "conversation.item.created"
@@ -778,7 +765,7 @@ export function createRealtimeVoiceTranscriptSequencer(
       emitStreams();
     },
     flush() {
-      flushLiveTranscripts();
+      closeLiveGrouper(true);
       if (!stream) return;
       // The session is over: a turn that streamed but never got its final
       // transcript keeps the text that was heard.
@@ -804,13 +791,11 @@ export function createRealtimeVoiceTranscriptSequencer(
         }
       }
     },
-    endLiveTurns() {
-      flushLiveTranscripts();
-    },
     reset(options) {
-      liveBuffers.clear();
-      liveSequence = 0;
+      // A failed response leaves what was already heard; a new session
+      // starts clean.
       if (options?.preserveQueuedTranscripts) return;
+      closeLiveGrouper(false);
       order.length = 0;
       items.clear();
       settledItemIds.clear();
@@ -1852,6 +1837,7 @@ function useRealtimeVoiceModeController(
   const transcriptSequenceRef = useRef(0);
   const transcriptCreatedAtRef = useRef(new Map<string, string>());
   const workSegmentRef = useRef<RealtimeVoiceWorkSegment | null>(null);
+  const responseCallCountsRef = useRef(new Map<string, number>());
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -2162,6 +2148,7 @@ function useRealtimeVoiceModeController(
   const cleanupTransport = useCallback(() => {
     turnMetrics.sessionEnded();
     closeRealtimeVoiceWorkSegment(workSegmentRef);
+    responseCallCountsRef.current.clear();
     if (liveCloseDrainTimerRef.current !== null) {
       window.clearTimeout(liveCloseDrainTimerRef.current);
       liveCloseDrainTimerRef.current = null;
@@ -2281,7 +2268,10 @@ function useRealtimeVoiceModeController(
   );
 
   const handleFunctionCall = useCallback(
-    async (call: { name: string; callId: string; argumentsText: string }) => {
+    async (
+      call: { name: string; callId: string; argumentsText: string },
+      delegationId: string | undefined,
+    ) => {
       if (handledCallsRef.current.has(call.callId)) return;
       handledCallsRef.current.add(call.callId);
       const transportGeneration = transportGenerationRef.current;
@@ -2290,8 +2280,6 @@ function useRealtimeVoiceModeController(
       toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
       turnMetrics.toolCallStarted();
-      // What was said before the call reads above its work row.
-      transcriptSequencer.endLiveTurns();
       const workCall: RealtimeVoiceWorkCall = {
         id: call.callId,
         name: call.name,
@@ -2302,6 +2290,7 @@ function useRealtimeVoiceModeController(
         workSegmentRef,
         transcriptThreadIdRef.current,
         call.callId,
+        delegationId,
       );
       let result: RealtimeVoiceToolResult;
       try {
@@ -2354,13 +2343,7 @@ function useRealtimeVoiceModeController(
       turnMetrics.toolCallFinished(performance.now(), result);
       toolManifestCoordinator.enqueue(result);
     },
-    [
-      browserTabId,
-      toolManifestCoordinator,
-      transcriptSequencer,
-      transition,
-      turnMetrics,
-    ],
+    [browserTabId, toolManifestCoordinator, transition, turnMetrics],
   );
 
   const handleServerEvent = useCallback(
@@ -2433,7 +2416,6 @@ function useRealtimeVoiceModeController(
         }
         syncAppState("working");
       } else if (event.type === "session.input_transcript.delta") {
-        closeRealtimeVoiceWorkSegment(workSegmentRef);
         const now = performance.now();
         turnMetrics.userSpeechStarted(now);
         turnMetrics.userSpeechEnded(
@@ -2467,6 +2449,7 @@ function useRealtimeVoiceModeController(
             ? (response as { status?: unknown }).status
             : undefined;
         if (responseEvent.type === "response.failed" || status === "failed") {
+          closeRealtimeVoiceWorkSegment(workSegmentRef);
           transportGenerationRef.current += 1;
           handledCallsRef.current.clear();
           abortActiveToolCalls();
@@ -2518,12 +2501,36 @@ function useRealtimeVoiceModeController(
         return;
       }
 
+      const delegationId =
+        typeof event.delegation_id === "string" ? event.delegation_id : "";
       const calls = extractRealtimeVoiceFunctionCalls(event);
-      for (const call of calls) void handleFunctionCall(call);
-      if (responseBoundary && calls.length === 0) {
-        closeRealtimeVoiceWorkSegment(workSegmentRef);
+      for (const call of calls) {
+        void handleFunctionCall(call, delegationId || undefined);
+      }
+      // GPT-Live's response snapshots carry no output, so whether a response
+      // called a tool is counted from its streamed items, per delegation.
+      const responseCalls = responseCallCountsRef.current;
+      if (responseEvent.type === "response.created") {
+        responseCalls.set(delegationId, 0);
+      }
+      if (calls.length > 0) {
+        responseCalls.set(
+          delegationId,
+          (responseCalls.get(delegationId) ?? 0) + calls.length,
+        );
+      }
+      if (responseBoundary && !responseCalls.get(delegationId)) {
+        const segment = workSegmentRef.current;
+        if (
+          !delegationId ||
+          !segment?.delegationId ||
+          segment.delegationId === delegationId
+        ) {
+          closeRealtimeVoiceWorkSegment(workSegmentRef);
+        }
         transition("listening");
       }
+      if (responseBoundary) responseCalls.delete(delegationId);
       if (responseBoundary) {
         lastUserTextRef.current = "";
         lastAssistantTextRef.current = "";

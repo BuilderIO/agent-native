@@ -139,7 +139,16 @@ describe("realtime voice session controls", () => {
       vi.fn(() => new Promise<Response>((resolve) => results.push(resolve))),
     );
     const session = await startSession();
+    const resolveCall = async (callId: string) => {
+      await act(async () => {
+        results.shift()?.(
+          Response.json({ callId, status: "completed", output: "{}" }),
+        );
+        await new Promise((done) => setTimeout(done, 0));
+      });
+    };
 
+    await session.send({ type: "response.created" });
     for (const [callId, name] of [
       ["call-search", "web-search"],
       ["call-read", "web-request"],
@@ -151,25 +160,20 @@ describe("realtime voice session controls", () => {
         arguments: "{}",
       });
     }
-    // The reply ends before its tools return; the work ends with them.
+    // The response that asked for the tools is not the end of the reply.
     await session.send({
       type: "response.done",
       response: { status: "completed", output: [] },
     });
+    await resolveCall("call-search");
+    await resolveCall("call-read");
     expect(work.every((update) => !update.completedAt)).toBe(true);
 
-    for (const [index, resolve] of results.entries()) {
-      await act(async () => {
-        resolve(
-          Response.json({
-            callId: index === 0 ? "call-search" : "call-read",
-            status: "completed",
-            output: "{}",
-          }),
-        );
-        await new Promise((done) => setTimeout(done, 0));
-      });
-    }
+    await session.send({ type: "response.created" });
+    await session.send({
+      type: "response.done",
+      response: { status: "completed", output: [] },
+    });
 
     const last = work.at(-1);
     expect(new Set(work.map((update) => update.id))).toEqual(
@@ -180,6 +184,75 @@ describe("realtime voice session controls", () => {
       ["call-read", "completed"],
     ]);
     expect(last?.completedAt).toBe(last?.calls.at(-1)?.completedAt);
+    unregister();
+    session.unmount();
+  });
+
+  it("groups a GPT-Live delegation's tool calls into one piece of work", async () => {
+    const work: RealtimeVoiceWorkUpdate[] = [];
+    const unregister = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-live-work",
+      active: true,
+      append: () => true,
+      appendWork: (update) => {
+        work.push(update);
+        return true;
+      },
+    });
+    const results: Array<(value: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => results.push(resolve))),
+    );
+    const session = await startSession();
+    const nested = (delegationId: string, event: Record<string, unknown>) =>
+      session.send({
+        type: "response.event",
+        delegation_id: delegationId,
+        event,
+      });
+    // Live response snapshots never carry their output.
+    const doneSnapshot = {
+      type: "response.done",
+      response: { status: "completed" },
+    };
+    const callResponse = async (delegationId: string, callId: string) => {
+      await nested(delegationId, { type: "response.created" });
+      await nested(delegationId, {
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          call_id: callId,
+          name: "web-search",
+          arguments: "{}",
+        },
+      });
+      await nested(delegationId, doneSnapshot);
+      await act(async () => {
+        results.shift()?.(
+          Response.json({ callId, status: "completed", output: "{}" }),
+        );
+        await new Promise((done) => setTimeout(done, 0));
+      });
+    };
+
+    await callResponse("delegation-1", "call-1");
+    await callResponse("delegation-1", "call-2");
+    await callResponse("delegation-1", "call-3");
+    expect(work.every((update) => !update.completedAt)).toBe(true);
+    await nested("delegation-1", { type: "response.created" });
+    await nested("delegation-1", doneSnapshot);
+    expect(work.at(-1)).toMatchObject({ id: "call-1" });
+    expect(work.at(-1)?.calls.map((call) => call.id)).toEqual([
+      "call-1",
+      "call-2",
+      "call-3",
+    ]);
+    expect(work.at(-1)?.completedAt).toBeTruthy();
+
+    // The next request is a new delegation and new work.
+    await callResponse("delegation-2", "call-4");
+    expect(work.at(-1)).toMatchObject({ id: "call-4" });
     unregister();
     session.unmount();
   });

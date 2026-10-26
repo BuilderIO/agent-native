@@ -1287,58 +1287,38 @@ describe("Realtime voice startup and transcript ordering", () => {
     ]);
   });
 
-  it("keeps overlapping GPT-Live transcript roles independent", () => {
+  // GPT-Live transcript deltas carry an id and their place on the session
+  // timeline; the SDK's grouper turns them into speaker turns.
+  let liveEventId = 0;
+  const liveDelta = (
+    role: "user" | "assistant",
+    delta: string,
+    start_ms: number,
+    end_ms: number,
+  ) => ({
+    type:
+      role === "user"
+        ? "session.input_transcript.delta"
+        : "session.output_transcript.delta",
+    event_id: `live-event-${++liveEventId}`,
+    delta,
+    start_ms,
+    end_ms,
+  });
+
+  it("orders GPT-Live turns by speaker", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
       published.push(transcript);
     });
 
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "Can you help ",
-      start_ms: 0,
-      end_ms: 400,
-    });
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "me?",
-      start_ms: 400,
-      end_ms: 500,
-    });
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Absolutely.",
-      start_ms: 300,
-      end_ms: 900,
-    });
-    expect(published).toEqual([]);
-
-    sequencer.handle({
-      type: "response.event",
-      event: { type: "response.completed" },
-    });
-    expect(published).toEqual([]);
-
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "Next question.",
-      start_ms: 2_000,
-      end_ms: 2_200,
-    });
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Next answer.",
-      start_ms: 2_300,
-      end_ms: 2_500,
-    });
-    // The reply starting after the question ended finishes the question.
-    expect(published).toEqual([
-      { role: "user", text: "Can you help me?" },
-      { role: "assistant", text: "Absolutely." },
-      { role: "user", text: "Next question." },
-    ]);
-
+    sequencer.handle(liveDelta("user", "Can you help ", 0, 400));
+    sequencer.handle(liveDelta("user", "me?", 400, 500));
+    sequencer.handle(liveDelta("assistant", "Absolutely.", 1_100, 1_900));
+    sequencer.handle(liveDelta("user", "Next question.", 3_000, 3_400));
+    sequencer.handle(liveDelta("assistant", "Next answer.", 4_000, 4_500));
     sequencer.handle({ type: "session.closed" });
+
     expect(published).toEqual([
       { role: "user", text: "Can you help me?" },
       { role: "assistant", text: "Absolutely." },
@@ -1353,18 +1333,20 @@ describe("Realtime voice startup and transcript ordering", () => {
       published.push(transcript);
     });
 
-    for (const [delta, start_ms] of [
-      ["I found a solid overview. ", 0],
-      ["They explain the meaning of life, ", 2_000],
-      ["and meaning in life.", 4_500],
-    ] as const) {
-      sequencer.handle({
-        type: "session.output_transcript.delta",
-        delta,
-        start_ms,
-        end_ms: start_ms + 1_000,
-      });
-    }
+    sequencer.handle(
+      liveDelta("assistant", "I found a solid overview. ", 0, 1_000),
+    );
+    sequencer.handle(
+      liveDelta(
+        "assistant",
+        "They explain the meaning of life, ",
+        2_000,
+        3_000,
+      ),
+    );
+    sequencer.handle(
+      liveDelta("assistant", "and meaning in life.", 4_500, 5_500),
+    );
     sequencer.handle({ type: "session.closed" });
 
     expect(published).toEqual([
@@ -1375,47 +1357,49 @@ describe("Realtime voice startup and transcript ordering", () => {
     ]);
   });
 
-  it("ends the GPT-Live turns in progress when a tool call starts", () => {
+  it("starts a new GPT-Live message after the assistant goes quiet", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
       published.push(transcript);
     });
 
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Sure, on it.",
-      start_ms: 0,
-      end_ms: 500,
-    });
-    sequencer.endLiveTurns();
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Here is what I found.",
-      start_ms: 4_000,
-      end_ms: 5_000,
-    });
+    sequencer.handle(liveDelta("assistant", "On it, looking it ", 0, 400));
+    sequencer.handle(liveDelta("assistant", "up.", 400, 600));
+    // A tool runs in the silence before the answer.
+    sequencer.handle(
+      liveDelta("assistant", "Here is what I found.", 6_000, 7_000),
+    );
     sequencer.handle({ type: "session.closed" });
 
     expect(published).toEqual([
-      { role: "assistant", text: "Sure, on it." },
+      { role: "assistant", text: "On it, looking it up." },
       { role: "assistant", text: "Here is what I found." },
     ]);
   });
 
-  it("discards unconfirmed GPT-Live transcript buffers on reset", () => {
+  it("discards unconfirmed GPT-Live transcripts on reset", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
       published.push(transcript);
     });
 
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Possibly incomplete.",
-    });
+    sequencer.handle(liveDelta("assistant", "Possibly incomplete.", 0, 500));
     sequencer.reset();
     sequencer.flush();
 
     expect(published).toEqual([]);
+  });
+
+  it("rejects a GPT-Live transcript delta without its timing", () => {
+    const sequencer = createRealtimeVoiceTranscriptSequencer(() => undefined);
+
+    expect(() =>
+      sequencer.handle({
+        type: "session.output_transcript.delta",
+        event_id: "untimed",
+        delta: "Hello",
+      }),
+    ).toThrow(/timing/);
   });
 });
 
@@ -1501,28 +1485,31 @@ describe("Realtime voice transcript streaming", () => {
     ]);
   });
 
-  it("streams GPT-Live turns under a stable live id", () => {
+  it("streams GPT-Live turns under the id their final transcript keeps", () => {
     const { sequencer, streamed, published } = streamingSequencer();
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "Hello ",
-      start_ms: 0,
-      end_ms: 200,
-    });
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "there",
-      start_ms: 200,
-      end_ms: 400,
-    });
+    for (const [index, [delta, start_ms, end_ms]] of (
+      [
+        ["Hello ", 0, 200],
+        ["there", 200, 400],
+      ] as const
+    ).entries()) {
+      sequencer.handle({
+        type: "session.input_transcript.delta",
+        event_id: `stream-${index}`,
+        delta,
+        start_ms,
+        end_ms,
+      });
+    }
     sequencer.handle({ type: "session.closed" });
 
+    const [id] = published.map(({ providerId }) => providerId);
     expect(streamed).toEqual([
-      { role: "user", text: "Hello", providerId: "live-1" },
-      { role: "user", text: "Hello there", providerId: "live-1" },
+      { role: "user", text: "Hello", providerId: id },
+      { role: "user", text: "Hello there", providerId: id },
     ]);
     expect(published).toEqual([
-      { role: "user", text: "Hello there", providerId: "live-1" },
+      { role: "user", text: "Hello there", providerId: id },
     ]);
   });
 });
