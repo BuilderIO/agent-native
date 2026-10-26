@@ -160,11 +160,15 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   alreadyFinished: "upload_already_finished",
   /**
    * A start repeated for one picked file while the first start is still
-   * making its Clip. Repeat it in a few seconds; Clips answers
-   * `upload_key_used` once that start has gone about ten minutes without one.
+   * making its Clip. Repeat it in a few seconds; once that start failed, or
+   * has gone about ten minutes without its Clip, a repeat takes it over with
+   * the same Clip.
    */
   uploadStarting: "upload_starting",
-  /** A start repeated for one picked file whose upload can't continue. */
+  /**
+   * A start repeated for one picked file whose upload can't continue: it was
+   * cancelled or failed, or waits for storage.
+   */
   keyUsed: "upload_key_used",
 } as const;
 
@@ -234,12 +238,24 @@ export type CreateClipUploadResult =
  * The `outcome` a ticket's `cancelUrl` answers with: `cancelled` (200), the
  * upload failed in Clips and its free clip released; `already_finished`
  * (409), Clips had the whole file first and kept the Clip, with `status`
- * `processing` or `ready`. Any other answer is a refusal with only `error`.
+ * `processing` or `ready`; `upload_finishing` (409), Clips is taking the
+ * final chunk and doesn't know yet whether it makes the Clip, so nothing
+ * changed and the same cancel can go again in a few seconds. Any other answer
+ * is a refusal with only `error`.
  */
 export const CLIP_CANCEL_OUTCOME = {
   cancelled: "cancelled",
   alreadyFinished: "already_finished",
+  finishing: "upload_finishing",
 } as const;
+
+/**
+ * The `outcome` a final chunk answers, 409, while Clips is still taking an
+ * earlier send of it: nothing changed, and the same chunk can go again in a
+ * few seconds. Clips holds the upload for at most two minutes. A final chunk
+ * sent again after Clips took the first answers with that one's success.
+ */
+export const CLIP_CHUNK_FINISHING = CLIP_CANCEL_OUTCOME.finishing;
 
 /** What giving an upload up did, as this tab knows it. */
 export type ClipCancelResult =

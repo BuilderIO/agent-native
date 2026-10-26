@@ -358,6 +358,24 @@ describe("create-clip-upload", () => {
     });
   });
 
+  it.each(["../rec_1", "rec 1", "x".repeat(129)])(
+    "reads a finished answer whose Clip id isn't one, %s, as unreadable",
+    async (recordingId) => {
+      mocks.requestClipsUpload.mockResolvedValue({
+        ok: true,
+        status: 409,
+        body: {
+          code: "upload_already_finished",
+          recordingId,
+          status: "processing",
+        },
+      });
+      await expect(
+        failureOf(createClipUpload.run(start)),
+      ).resolves.toMatchObject({ errorCode: "clip_upload_failed" });
+    },
+  );
+
   it("answers that an earlier start of the same file is still making its Clip", async () => {
     mocks.requestClipsUpload.mockResolvedValue({
       ok: true,

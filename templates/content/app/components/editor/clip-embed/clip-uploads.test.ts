@@ -165,6 +165,91 @@ describe("sendClipChunks", () => {
     expect(down).toHaveLength(5);
   });
 
+  it("sends a chunk again when Clips never answers it, then stops after the last retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    // A request that never settles until its signal aborts.
+    const hang = (init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () =>
+          reject(new DOMException("timed out", "TimeoutError")),
+        );
+      });
+    let hangs = 1;
+    const sent: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        sent.push(new URL(url).searchParams.get("index")!);
+        if (hangs > 0) {
+          hangs -= 1;
+          return hang(init);
+        }
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      }),
+    );
+    const slow = sendClipChunks(file, ticket, () => {}, noWait);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await expect(slow).resolves.toBe(true);
+    expect(sent).toEqual(["0", "0", "1", "2"]);
+
+    hangs = Infinity;
+    sent.length = 0;
+    const stuck = sendClipChunks(file, ticket, () => {}, noWait);
+    await vi.advanceTimersByTimeAsync(5 * 2 * 60_000);
+    await expect(stuck).resolves.toBe(false);
+    expect(sent).toEqual(["0", "0", "0", "0", "0"]);
+  });
+
+  const finishing = () =>
+    Response.json(
+      {
+        error: "This upload is finishing. Try again.",
+        outcome: "upload_finishing",
+        recordingId: "rec_1",
+      },
+      { status: 409 },
+    );
+
+  it("sends the last chunk again while Clips is still taking an earlier send of it, beyond the usual retries", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const sent = stubFetch([
+      200,
+      200,
+      ...Array.from({ length: 6 }, finishing),
+      200,
+    ]);
+    const upload = sendClipChunks(file, ticket, () => {});
+    await vi.advanceTimersByTimeAsync(6 * 5_000);
+
+    await expect(upload).resolves.toBe(true);
+    expect(sent.map(({ url }) => url.searchParams.get("index"))).toEqual([
+      "0",
+      "1",
+      ...Array.from({ length: 7 }, () => "2"),
+    ]);
+  });
+
+  it("gives the last chunk up once Clips has been taking an earlier send of it past its claim's two minutes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        new URL(url).searchParams.get("isFinal") === "1"
+          ? finishing()
+          : new Response("{}", { status: 200 }),
+      ),
+    );
+    let sent: boolean | null = null;
+    void sendClipChunks(file, ticket, () => {}).then((result) => {
+      sent = result;
+    });
+
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(sent).toBeNull();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sent).toBe(false);
+  });
+
   it("counts a last chunk Clips already took as sent when its answer was lost", async () => {
     const finished = (status: string) =>
       new Response(
@@ -234,6 +319,52 @@ describe("cancelClipUpload", () => {
   ])("says what happened when %s", async (_when, answer, result) => {
     stubFetch([answer]);
     await expect(cancelClipUpload(ticket)).resolves.toEqual(result);
+  });
+
+  const finishing = () =>
+    Response.json(
+      {
+        error: "This upload is finishing. Try again.",
+        outcome: "upload_finishing",
+        recordingId: "rec_1",
+      },
+      { status: 409 },
+    );
+
+  it.each([
+    [
+      "Clips made the Clip",
+      finishedFirst("ready"),
+      { outcome: "already_finished", status: "ready" },
+    ],
+    ["the final chunk failed", cancelled(), { outcome: "cancelled" }],
+  ])(
+    "cancels again with the same ticket while Clips takes the final chunk, until %s",
+    async (_until, answer, result) => {
+      const sent = stubFetch([finishing(), answer]);
+      const wait = vi.fn(noWait);
+      await expect(cancelClipUpload(ticket, wait)).resolves.toEqual(result);
+      expect(wait.mock.calls).toEqual([[2_000]]);
+      expect(sent.map(({ url }) => url.href)).toEqual([
+        ticket.cancelUrl,
+        ticket.cancelUrl,
+      ]);
+    },
+  );
+
+  it("says Clips didn't confirm the cancel when it is still taking the final chunk after the last retry", async () => {
+    const sent = stubFetch([
+      finishing(),
+      finishing(),
+      finishing(),
+      finishing(),
+    ]);
+    const wait = vi.fn(noWait);
+    await expect(cancelClipUpload(ticket, wait)).resolves.toEqual({
+      outcome: "not_cancelled",
+    });
+    expect(wait.mock.calls).toEqual([[2_000], [5_000], [10_000]]);
+    expect(sent).toHaveLength(4);
   });
 });
 

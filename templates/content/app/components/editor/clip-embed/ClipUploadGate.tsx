@@ -6,6 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { CLIP_EMBED_BLOCK_TYPE } from "@shared/clip-embed-block";
 import {
+  CLIP_UPLOAD_ERRORS,
   isClipUploadErrorCode,
   isContentClipUploadMimeType,
   type ClipUploadErrorCode,
@@ -30,7 +31,10 @@ import { clipsStorageSetupUrls, useClipsLinks } from "./use-clips-links";
 
 const UPLOAD_STATUS_RESOURCE = "clip-upload-status";
 
-/** How long to wait before each repeat of a start Clips is still making. */
+/**
+ * How long to wait before each repeat of a start Clips is still making, or
+ * that got no answer.
+ */
 const STARTING_RETRY_MS = [2_000, 5_000, 10_000];
 
 const UPLOAD_ERROR_MESSAGES: Record<ClipUploadErrorCode, string> = {
@@ -49,6 +53,19 @@ function uploadErrorKey(error: unknown): string {
   return isClipUploadErrorCode(code)
     ? UPLOAD_ERROR_MESSAGES[code]
     : "clipEmbed.uploadFailed";
+}
+
+/**
+ * A start that failed with no refusal from Clips: it may still have made the
+ * upload, so it goes again with the same key, never a new one.
+ */
+function gotNoAnswer(error: unknown): boolean {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return (
+    !isClipUploadErrorCode(code) ||
+    code === CLIP_UPLOAD_ERRORS.unreachable ||
+    code === CLIP_UPLOAD_ERRORS.failed
+  );
 }
 
 /** Why a check on where uploads go failed: nothing has uploaded yet. */
@@ -97,16 +114,24 @@ export interface ClipUploadStarted {
   blockId: string;
 }
 
-/** A file the editor picked, with what every start of it sends. */
+/**
+ * A file the editor picked, with what every start of it sends. Its upload key
+ * lives only here: every retry and Try again of the file sends it, so Clips
+ * makes one recording however often the file starts. Remove, or a start
+ * Clips answers, drops it.
+ */
 interface PickedClipFile {
   file: File;
   uploadKey: string;
   blockId: string;
 }
 
-export interface HeldClipFile extends PickedClipFile {
-  storage: ContentClipStorage;
-}
+export type HeldClipFile = PickedClipFile &
+  (
+    | { storage: ContentClipStorage }
+    /** No start of it got an answer from Clips; `failureKey` says why. */
+    | { storage: null; failureKey: string }
+  );
 
 /**
  * Starts a video's upload to Clips. When Clips has nowhere to save it, the
@@ -124,7 +149,7 @@ export function useClipFileUpload(input: {
   const [held, setHeld] = useState<HeldClipFile | null>(null);
   // The held file as of now, not as of a render: Remove during a check or a
   // start must keep that file from uploading, or from coming back.
-  const heldRef = useRef<PickedClipFile | null>(null);
+  const heldRef = useRef<HeldClipFile | null>(null);
   const hold = useCallback((next: HeldClipFile | null) => {
     heldRef.current = next;
     setHeld(next);
@@ -157,17 +182,37 @@ export function useClipFileUpload(input: {
           blockId,
           uploadKey,
         };
-        let result = await startUpload(request);
+        // A refusal from Clips ends the start at once.
+        const attempt = () =>
+          startUpload(request).then(
+            (result) => ({ result }),
+            (error: unknown) => {
+              if (gotNoAnswer(error)) return { failure: error };
+              throw error;
+            },
+          );
+        let answer = await attempt();
         for (const wait of STARTING_RETRY_MS) {
-          if (result.status !== "starting") break;
+          if ("result" in answer && answer.result.status !== "starting") break;
           await new Promise((resolve) => setTimeout(resolve, wait));
           if (heldRef.current !== heldBefore) return;
-          result = await startUpload(request);
+          answer = await attempt();
         }
         if (heldRef.current !== heldBefore) {
-          if (result.status === "started") void cancelClipUpload(result);
+          if ("result" in answer && answer.result.status === "started") {
+            void cancelClipUpload(answer.result);
+          }
           return;
         }
+        if (!("result" in answer)) {
+          hold({
+            ...pick,
+            storage: null,
+            failureKey: uploadErrorKey(answer.failure),
+          });
+          return;
+        }
+        const { result } = answer;
         if (
           result.status === "started" ||
           result.status === "already_finished"
@@ -214,6 +259,10 @@ export function useClipFileUpload(input: {
   const checkAgain = useCallback(async () => {
     const pick = heldRef.current;
     if (!documentId || !pick || busyRef.current) return;
+    if (pick.storage === null) {
+      await startPick(pick);
+      return;
+    }
     busyRef.current = true;
     setBusy(true);
     let storage: ContentClipStorage | null = null;
@@ -236,12 +285,12 @@ export function useClipFileUpload(input: {
     else hold({ ...pick, storage });
   }, [documentId, hold, startPick, t]);
 
-  const heldFile = held?.file ?? null;
+  const waitingFile = held?.storage ? held.file : null;
 
   // Setup happens in a Clips tab, so coming back is the cue to look again.
   // Nothing checks while this tab is hidden.
   useEffect(() => {
-    if (!heldFile) return;
+    if (!waitingFile) return;
     function onVisible() {
       if (document.visibilityState === "visible") void checkAgain();
     }
@@ -251,7 +300,7 @@ export function useClipFileUpload(input: {
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [heldFile, checkAgain]);
+  }, [waitingFile, checkAgain]);
 
   return {
     held,
@@ -272,6 +321,8 @@ export function ClipUploadHint({
   error?: unknown;
 }) {
   const t = useT();
+  // Only where an upload would be saved as a Clip now; the gate explains the
+  // rest once a file is picked.
   const text = error
     ? t(storageErrorKey(error))
     : storage?.state === "free"
@@ -280,9 +331,10 @@ export function ClipUploadHint({
         : storage.remaining > 0
           ? t("clipEmbed.savedAsClipFree", { count: storage.remaining })
           : t("clipEmbed.savedAsClipFreeNone")
-      : storage?.state === "used_up"
-        ? t("clipEmbed.savedAsClipFreeNone")
-        : t("clipEmbed.savedAsClip");
+      : storage?.state === "ready"
+        ? t("clipEmbed.savedAsClip")
+        : null;
+  if (!text) return null;
   return (
     <p className="text-center text-xs leading-4 text-muted-foreground">
       {text}
@@ -311,7 +363,10 @@ const GATE_COPY: Record<
   },
 };
 
-/** A video waiting in its block for somewhere in Clips to save it. */
+/**
+ * A video waiting in its block for somewhere in Clips to save it, or for
+ * Clips to answer its start.
+ */
 export function ClipUploadGate({
   held,
   busy,
@@ -328,9 +383,17 @@ export function ClipUploadGate({
   const setup = links.appUrl ? clipsStorageSetupUrls(links.appUrl) : null;
   // Clips can find room between the check and the start; the gate then
   // waits for the next one.
-  const state = canUpload(held.storage) ? "none" : held.storage.state;
-  const copy = GATE_COPY[state as keyof typeof GATE_COPY];
-  const limit = held.storage.state === "used_up" ? held.storage.limit : 0;
+  const state =
+    held.storage === null
+      ? "unanswered"
+      : canUpload(held.storage)
+        ? "none"
+        : held.storage.state;
+  const copy: { titleKey: string; statusKey?: string; whyKey?: string } =
+    held.storage === null
+      ? { titleKey: held.failureKey }
+      : GATE_COPY[state as keyof typeof GATE_COPY];
+  const limit = held.storage?.state === "used_up" ? held.storage.limit : 0;
   const size = `${(held.file.size / 1_000_000).toFixed(1)} MB`;
 
   return (
@@ -343,7 +406,13 @@ export function ClipUploadGate({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{held.file.name}</div>
           <div className="text-xs text-muted-foreground">
-            {size} · {t(copy.statusKey, { limit })}
+            {copy.statusKey ? (
+              <>
+                {size} · {t(copy.statusKey, { limit })}
+              </>
+            ) : (
+              size
+            )}
           </div>
         </div>
         <Button
@@ -360,7 +429,8 @@ export function ClipUploadGate({
       <div className="flex flex-col gap-3 border-t border-border p-5">
         <div className="text-base font-semibold">{t(copy.titleKey)}</div>
         <div className="flex flex-wrap items-center gap-2">
-          {setup && state === "account_required" ? (
+          {state === "unanswered" ? null : setup &&
+            state === "account_required" ? (
             <Button asChild>
               <a href={setup.account} target="_blank" rel="noopener noreferrer">
                 {t("clipEmbed.openClips")}
@@ -397,22 +467,28 @@ export function ClipUploadGate({
             {busy ? (
               <IconLoader2 className="size-4 animate-spin" aria-hidden />
             ) : null}
-            {t("clipEmbed.gateCheckAgain")}
+            {t(
+              state === "unanswered"
+                ? "clipEmbed.retry"
+                : "clipEmbed.gateCheckAgain",
+            )}
           </Button>
           <div className="flex-1" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4"
-              >
-                {t("clipEmbed.gateWhyLabel")}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-80 whitespace-normal text-xs leading-relaxed">
-              {t(copy.whyKey)}
-            </TooltipContent>
-          </Tooltip>
+          {copy.whyKey ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4"
+                >
+                  {t("clipEmbed.gateWhyLabel")}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-80 whitespace-normal text-xs leading-relaxed">
+                {t(copy.whyKey)}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
     </div>

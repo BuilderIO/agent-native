@@ -5,6 +5,7 @@ import {
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   CLIP_CANCEL_OUTCOME,
+  CLIP_CHUNK_FINISHING,
   type ClipCancelResult,
   type ClipUploadTicket,
 } from "@shared/clips-peer-contract";
@@ -143,23 +144,57 @@ export function failClipUpload(recordingId: string) {
 
 const RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000];
 
-type ChunkAnswer = { ok: true } | { ok: false; retry: boolean };
+/**
+ * How long one chunk may go unanswered before it counts as a passing failure.
+ * A 3 MiB chunk takes about 30 s at 0.8 Mbps, and this is past Clips' 75 s
+ * function limit too, so a chunk sent again never runs beside the first.
+ */
+const CLIP_CHUNK_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
- * A chunk sent again after its answer was lost, when Clips had already taken
- * the last one: Clips refuses it as finished, with the Clip past uploading.
+ * How long a final chunk keeps going while Clips is still taking an earlier
+ * send of it: a little longer than Clips' claim on the upload
+ * (`FINAL_CHUNK_CLAIM_TTL_MS`, 2 minutes), after which the claim expires.
  */
-async function alreadyFinished(response: Response): Promise<boolean> {
-  if (response.status !== 409) return false;
+const CLIP_FINISHING_WAIT_MS = 150_000;
+const FINISHING_RETRY_MS = 5_000;
+
+/** How long to wait before each repeat of a cancel Clips can't decide yet. */
+const CANCEL_RETRY_MS = [2_000, 5_000, 10_000];
+
+const pause = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+type ChunkAnswer =
+  | { ok: true }
+  | { ok: false; retry: boolean }
+  /** Clips is still taking an earlier send of this final chunk. */
+  | { ok: false; finishing: true };
+
+/**
+ * Why Clips refused a final chunk it already has: `finished` when it took an
+ * earlier send whose answer was lost, `finishing` while it is still taking
+ * one.
+ */
+async function finalChunkConflict(
+  response: Response,
+): Promise<"finished" | "finishing" | null> {
+  if (response.status !== 409) return null;
   let body: unknown;
   try {
     body = await response.json();
   } catch (error) {
-    if (error instanceof SyntaxError) return false;
+    if (error instanceof SyntaxError) return null;
     throw error;
   }
-  const status = (body as { data?: { status?: unknown } } | null)?.data?.status;
-  return status === "processing" || status === "ready";
+  const { outcome, data } = (body ?? {}) as {
+    outcome?: unknown;
+    data?: { status?: unknown };
+  };
+  if (outcome === CLIP_CHUNK_FINISHING) return "finishing";
+  return data?.status === "processing" || data?.status === "ready"
+    ? "finished"
+    : null;
 }
 
 async function postChunk(
@@ -167,6 +202,8 @@ async function postChunk(
   body: Blob,
   signal?: AbortSignal,
 ): Promise<ChunkAnswer> {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), CLIP_CHUNK_TIMEOUT_MS);
   try {
     // A body with no type and no headers keeps this a simple CORS request:
     // Clips' auth layer answers every preflight, and the ticket in the URL is
@@ -177,29 +214,36 @@ async function postChunk(
       credentials: "omit",
       cache: "no-store",
       redirect: "error",
-      signal,
+      signal: signal
+        ? AbortSignal.any([signal, timeout.signal])
+        : timeout.signal,
     });
-    if (response.ok || (await alreadyFinished(response))) return { ok: true };
+    if (response.ok) return { ok: true };
+    const conflict = await finalChunkConflict(response);
+    if (conflict === "finished") return { ok: true };
+    if (conflict === "finishing") return { ok: false, finishing: true };
     return {
       ok: false,
       retry: response.status === 429 || response.status >= 500,
     };
   } catch {
     return { ok: false, retry: true };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 /**
  * Sends a file to Clips in the ticket's chunks, in order, one at a time.
- * A chunk Clips couldn't take for a passing reason is sent again; any other
- * refusal, or `signal` aborting, ends the upload.
+ * A chunk Clips couldn't take for a passing reason, or didn't answer in
+ * time, is sent again, as is a final chunk Clips is still taking an earlier
+ * send of; any other refusal, or `signal` aborting, ends the upload.
  */
 export async function sendClipChunks(
   file: Blob,
   ticket: ClipUploadTicket,
   onSent: (sentBytes: number) => void,
-  wait: (ms: number) => Promise<void> = (ms) =>
-    new Promise((resolve) => setTimeout(resolve, ms)),
+  wait: (ms: number) => Promise<void> = pause,
   signal?: AbortSignal,
 ): Promise<boolean> {
   for (let index = 0; index < ticket.totalChunks; index += 1) {
@@ -212,9 +256,19 @@ export async function sendClipChunks(
     const body = file.slice(start, end, "");
 
     let answer = await postChunk(url.toString(), body, signal);
-    for (const delay of RETRY_DELAYS_MS) {
-      if (answer.ok || !answer.retry || signal?.aborted) break;
-      await wait(delay);
+    let retries = 0;
+    let finishingFor = 0;
+    while (!answer.ok && !signal?.aborted) {
+      if ("finishing" in answer) {
+        if (finishingFor >= CLIP_FINISHING_WAIT_MS) break;
+        finishingFor += FINISHING_RETRY_MS;
+        await wait(FINISHING_RETRY_MS);
+      } else {
+        const delay = RETRY_DELAYS_MS[retries];
+        if (!answer.retry || delay === undefined) break;
+        retries += 1;
+        await wait(delay);
+      }
       if (signal?.aborted) break;
       answer = await postChunk(url.toString(), body, signal);
     }
@@ -224,10 +278,11 @@ export async function sendClipChunks(
   return true;
 }
 
-function cancelResult(
-  httpStatus: number,
-  text: string,
-): ClipCancelResult | null {
+type CancelAnswer =
+  | ClipCancelResult
+  | { outcome: typeof CLIP_CANCEL_OUTCOME.finishing };
+
+function cancelResult(httpStatus: number, text: string): CancelAnswer | null {
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -249,18 +304,13 @@ function cancelResult(
   ) {
     return { outcome, status };
   }
+  if (httpStatus === 409 && outcome === CLIP_CANCEL_OUTCOME.finishing) {
+    return { outcome };
+  }
   return null;
 }
 
-/**
- * Tells Clips this tab gave an upload up, so the Clip fails and its free clip
- * comes back now, not when Clips' cleanup finds it an hour later. Clips may
- * have had the whole file first and kept the Clip; `not_cancelled` means
- * Clips confirmed neither, and that cleanup still gets there.
- */
-export async function cancelClipUpload(
-  ticket: ClipUploadTicket,
-): Promise<ClipCancelResult> {
+async function sendCancel(ticket: ClipUploadTicket): Promise<CancelAnswer> {
   try {
     // No body and no headers, like a chunk: a simple CORS request whose
     // ticket is its only authority. `keepalive` outlives the page.
@@ -283,6 +333,34 @@ export async function cancelClipUpload(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  return { outcome: "not_cancelled" };
+}
+
+/**
+ * Tells Clips this tab gave an upload up, so the Clip fails and its free clip
+ * comes back now, not when Clips' cleanup finds it an hour later. Clips may
+ * have had the whole file first and kept the Clip. While Clips is taking the
+ * final chunk it can't say yet, so the same cancel goes again a few times;
+ * `not_cancelled` means Clips confirmed neither, and that cleanup still gets
+ * there.
+ */
+export async function cancelClipUpload(
+  ticket: ClipUploadTicket,
+  wait: (ms: number) => Promise<void> = pause,
+): Promise<ClipCancelResult> {
+  let answer = await sendCancel(ticket);
+  for (const delay of CANCEL_RETRY_MS) {
+    if (answer.outcome !== CLIP_CANCEL_OUTCOME.finishing) break;
+    await wait(delay);
+    answer = await sendCancel(ticket);
+  }
+  if (answer.outcome !== CLIP_CANCEL_OUTCOME.finishing) return answer;
+  console.warn(
+    "[content-clips] Clips was still taking an upload's last chunk",
+    {
+      recordingId: ticket.recordingId,
+    },
+  );
   return { outcome: "not_cancelled" };
 }
 

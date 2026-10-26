@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { requestClipsUpload } from "../server/lib/clips-peer.js";
+import { isClipRecordingId } from "../shared/clip-embed-block.js";
 import {
   CLIP_UPLOAD_ERRORS,
   CONTENT_CLIP_UPLOAD_FILE_NAME_CHARS,
@@ -37,7 +38,7 @@ const storageRequiredSchema = z.object({
 
 const alreadyFinishedSchema = z.object({
   code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished),
-  recordingId: z.string().min(1),
+  recordingId: z.string().refine(isClipRecordingId),
 });
 
 const startingSchema = z.object({

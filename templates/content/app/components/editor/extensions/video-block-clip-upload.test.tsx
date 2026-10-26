@@ -215,6 +215,14 @@ async function clickCheckAgain() {
   await act(async () => button!.click());
 }
 
+async function clickTryAgain() {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (each) => each.textContent === "clipEmbed.retry",
+  );
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+}
+
 function clickRemove() {
   const button = container.querySelector<HTMLButtonElement>(
     'button[aria-label="clipEmbed.gateDiscard"]',
@@ -273,13 +281,23 @@ describe("the Upload tab while Clips in pages is on", () => {
       { state: "free", remaining: 1, limit: 3, maxClipBytes: 9 },
       "clipEmbed.savedAsClipFreeOne",
     ],
-    [{ state: "used_up", limit: 3 }, "clipEmbed.savedAsClipFreeNone"],
     [{ state: "ready", provider: "builder" }, "clipEmbed.savedAsClip"],
-    [{ state: "none", reason: "disabled" }, "clipEmbed.savedAsClip"],
   ])("says where the video goes for %j", (storage, hint) => {
     state.storage = storage;
     render();
     expect(text()).toContain(hint);
+    expect(text()).not.toContain("onboarding.fileStorage");
+  });
+
+  it.each([
+    ["no storage", { state: "none", reason: "disabled" }],
+    ["no Clips account", { state: "account_required" }],
+    ["the free clips used up", { state: "used_up", limit: 3 }],
+    ["storage not known yet", undefined],
+  ])("says nothing will be saved as a Clip with %s", (_with, storage) => {
+    state.storage = storage;
+    render();
+    expect(text()).not.toContain("clipEmbed.savedAsClip");
     expect(text()).not.toContain("onboarding.fileStorage");
   });
 
@@ -633,6 +651,116 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(state.toast.error).toHaveBeenCalledWith("clipEmbed.uploadFailed");
       expect(state.beginClipUpload).not.toHaveBeenCalled();
       expect(inserted).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  const noAnswer = () =>
+    Object.assign(new Error("Clips didn't answer"), {
+      errorCode: "clips_unreachable",
+    });
+
+  it("starts again with the same key when a start gets no answer, so Clips makes one recording", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockRejectedValueOnce(noAnswer())
+        .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      expect(starts()).toHaveLength(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(starts()).toHaveLength(2);
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+
+      expect(starts()).toHaveLength(3);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+      expect(new Set(starts().map((each) => each.blockId)).size).toBe(1);
+      expect(state.beginClipUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ ticket, blockId: starts()[0].blockId }),
+      );
+      expect(state.toast.error).not.toHaveBeenCalled();
+      expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the file once every start gets no answer, and starts it with the same key from the gate", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockRejectedValueOnce(noAnswer())
+        .mockRejectedValueOnce(noAnswer())
+        .mockRejectedValueOnce(noAnswer())
+        .mockRejectedValueOnce(noAnswer())
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(4);
+      const gate = container.querySelector("[data-clip-upload-gate]");
+      expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
+      expect(gate?.textContent).toContain("clipEmbed.unreachable");
+      expect(gate?.textContent).toContain("demo.mp4");
+      expect(gate?.querySelectorAll("a")).toHaveLength(0);
+      expect(state.beginClipUpload).not.toHaveBeenCalled();
+      expect(state.toast.error).not.toHaveBeenCalled();
+
+      await clickTryAgain();
+      expect(starts()).toHaveLength(5);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+      expect(state.beginClipUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ ticket }),
+      );
+      expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the file and its key when it is removed after its starts got no answer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction.mockRejectedValue(noAnswer());
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+      const firstKey = starts()[0].uploadKey;
+      clickRemove();
+      expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+
+      state.callAction.mockReset();
+      state.callAction.mockResolvedValueOnce(ticket);
+      await pick(video());
+      expect(starts()).toHaveLength(1);
+      expect(starts()[0].uploadKey).not.toBe(firstKey);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts nothing again after Clips refuses a start, and holds nothing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction.mockRejectedValueOnce(
+        Object.assign(new Error("Edit access required"), {
+          errorCode: "document_edit_required",
+        }),
+      );
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(1);
+      expect(state.toast.error).toHaveBeenCalledWith(
+        "clipEmbed.uploadEditRequired",
+      );
+      expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
     } finally {
       vi.useRealTimers();
     }
