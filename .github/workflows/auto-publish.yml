@@ -90,7 +90,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && (inputs.betaTag || inputs.devTag)) && format('dev-{0}', inputs.betaTag || inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
+  group: ${{ (github.event_name == 'workflow_dispatch' && (inputs.betaTag || inputs.devTag)) && format('{0}-snapshot-dev-{1}', github.workflow, inputs.betaTag || inputs.devTag) || format('{0}-{1}-{2}', github.workflow, github.ref, (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly') }}
   cancel-in-progress: false
 
 jobs:
@@ -393,15 +393,15 @@ jobs:
           echo "::error::Set betaTag or devTag, not both."
           exit 1
 
-      - name: Validate Beta tag casing
-        if: ${{ inputs.betaTag != '' }}
+      - name: Validate snapshot tag casing
+        if: ${{ inputs.betaTag != '' || inputs.devTag != '' }}
         env:
-          DEV_TAG: ${{ inputs.betaTag }}
+          DEV_TAG: ${{ inputs.betaTag || inputs.devTag }}
         run: |
           set -euo pipefail
           normalized_tag="$(printf '%s' "$DEV_TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
           if [ "$normalized_tag" != "$DEV_TAG" ]; then
-            echo "::error::betaTag must be lowercase and must not contain surrounding whitespace."
+            echo "::error::Snapshot tags must be lowercase and must not contain surrounding whitespace."
             exit 1
           fi
 

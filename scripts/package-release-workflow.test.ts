@@ -2488,14 +2488,21 @@ fi
         "${{ inputs.betaTag != '' && inputs.devTag != '' }}",
       );
 
-      const betaTagValidation = (devSnapshot.steps as Workflow[]).find(
-        (step) => step.name === "Validate Beta tag casing",
+      const snapshotTagValidation = (devSnapshot.steps as Workflow[]).find(
+        (step) => step.name === "Validate snapshot tag casing",
       );
-      assert(betaTagValidation);
-      assert.equal(betaTagValidation.if, "${{ inputs.betaTag != '' }}");
+      assert(snapshotTagValidation);
       assert.equal(
-        (betaTagValidation.env as Workflow).DEV_TAG,
-        "${{ inputs.betaTag }}",
+        snapshotTagValidation.if,
+        "${{ inputs.betaTag != '' || inputs.devTag != '' }}",
+      );
+      assert.equal(
+        (snapshotTagValidation.env as Workflow).DEV_TAG,
+        "${{ inputs.betaTag || inputs.devTag }}",
+      );
+      assert.match(
+        String(snapshotTagValidation.run),
+        /Snapshot tags must be lowercase/,
       );
     });
 
@@ -2577,12 +2584,18 @@ fi
       );
     });
 
-    it("serializes Beta and dev snapshots by their shared npm tag", () => {
+    it("serializes canonical Beta and dev snapshot tags across branches", () => {
       const group = String((workflow.concurrency as Workflow).group);
+      const snapshotGroup = group.split(" || format(")[0];
       assert.match(group, /inputs\.betaTag \|\| inputs\.devTag/);
       assert.match(
+        snapshotGroup,
+        /format\('\{0\}-snapshot-dev-\{1\}', github\.workflow, inputs\.betaTag \|\| inputs\.devTag\)/,
+      );
+      assert.doesNotMatch(snapshotGroup, /github\.ref/);
+      assert.match(
         group,
-        /format\('dev-\{0\}', inputs\.betaTag \|\| inputs\.devTag\)/,
+        /format\('\{0\}-\{1\}-\{2\}', github\.workflow, github\.ref/,
       );
       assert.doesNotMatch(group, /format\('beta-\{0\}'/);
       assert.match(group, /stable-preparation/);
