@@ -22,10 +22,10 @@ const mockAccounts = vi.hoisted(
 );
 // Like sonner's, the mock returns the id of the toast it shows.
 const mockToast = vi.hoisted(() =>
-  Object.assign(
-    vi.fn(() => "toast-id"),
-    { error: vi.fn(), dismiss: vi.fn() },
-  ),
+  Object.assign(vi.fn().mockReturnValue("toast-id"), {
+    error: vi.fn(),
+    dismiss: vi.fn(),
+  }),
 );
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
