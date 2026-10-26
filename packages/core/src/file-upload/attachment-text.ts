@@ -33,7 +33,8 @@ const TEXT_LIKE_APPLICATION_TYPES = new Set([
 
 export function isTextLikeMimeType(contentType: string | undefined): boolean {
   if (!contentType) return false;
-  const ct = contentType.toLowerCase().split(";")[0].trim();
+  const [baseType = ""] = contentType.toLowerCase().split(";");
+  const ct = baseType.trim();
   if (ct.startsWith("text/")) return true;
   if (ct.endsWith("+json") || ct.endsWith("+xml")) return true;
   return TEXT_LIKE_APPLICATION_TYPES.has(ct);
@@ -83,11 +84,12 @@ export function unwrapOwnAttachmentEnvelope(
     /^<attachment\b([^>]*)>\n([\s\S]*)\n<\/attachment>$/,
   );
   if (!match) return text;
-  const attrName = match[1]!.match(/\bname=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/);
-  const wrapped = attrName?.[1] ?? attrName?.[2] ?? attrName?.[3];
-  return wrapped !== undefined && decodeXmlAttribute(wrapped) === name
-    ? match[2]!
-    : text;
+  const [, attrs = "", body = ""] = match;
+  const nameMatch = attrs.match(/\bname=("[^"]*"|'[^']*'|[^\s>]+)/);
+  if (!nameMatch) return text;
+  const [, rawName = ""] = nameMatch;
+  const wrapped = /^(["']).*\1$/.test(rawName) ? rawName.slice(1, -1) : rawName;
+  return decodeXmlAttribute(wrapped) === name ? body : text;
 }
 
 function decodeXmlAttribute(value: string): string {
@@ -129,16 +131,16 @@ const decodedAttachmentText = new WeakMap<
   object,
   {
     data: string;
-    name?: string;
-    contentType?: string;
+    name: string | undefined;
+    contentType: string | undefined;
     result: DecodedAttachmentText;
   }
 >();
 
 export function decodeTextAttachmentData(att: {
-  name?: string;
-  contentType?: string;
-  data?: string;
+  name?: string | undefined;
+  contentType?: string | undefined;
+  data?: string | undefined;
 }): DecodedAttachmentText {
   if (typeof att.data !== "string") return { kind: "not-text" };
   const cached = decodedAttachmentText.get(att);
@@ -169,17 +171,22 @@ export function sliceTextHead(text: string, end: number): string {
 }
 
 function decodeTextAttachmentDataUncached(
-  att: { name?: string; contentType?: string },
+  att: { name?: string | undefined; contentType?: string | undefined },
   data: string,
 ): DecodedAttachmentText {
   // The shared parser rejects a zero-length body, but storage returns one
   // for an empty file and the model should hear that it is empty.
   const empty = data.match(/^data:([^;,]*)(?:;[^,]*)?;base64,$/i);
-  const dataUrl = empty
-    ? { mediaType: empty[1] ?? "", data: "" }
-    : parseBase64DataUrl(data);
+  let dataUrl: { mediaType: string; data: string } | null;
+  if (empty) {
+    const [, emptyType = ""] = empty;
+    dataUrl = { mediaType: emptyType, data: "" };
+  } else {
+    dataUrl = parseBase64DataUrl(data);
+  }
   if (!dataUrl) return { kind: "not-text" };
-  const mediaType = dataUrl.mediaType.split(";")[0]!.trim().toLowerCase();
+  const [baseMediaType = ""] = dataUrl.mediaType.split(";");
+  const mediaType = baseMediaType.trim().toLowerCase();
   const untyped = !mediaType || mediaType === "application/octet-stream";
   const textLike =
     isTextLikeMimeType(mediaType) ||
@@ -235,10 +242,10 @@ function decodeTextAttachmentDataUncached(
  * large.
  */
 export function isOverTextAttachmentLimit(att: {
-  name?: string;
-  contentType?: string;
-  data?: string;
-  text?: string;
+  name?: string | undefined;
+  contentType?: string | undefined;
+  data?: string | undefined;
+  text?: string | undefined;
 }): boolean {
   const decoded = decodeTextAttachmentData(att);
   if (decoded.kind === "undecodable" && decoded.reason === "too-large") {

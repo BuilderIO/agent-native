@@ -1,10 +1,16 @@
 import type { CodeAgentPromptAttachment } from "@shared/ipc-channels";
 
-const READ_ERRORS = new Set<CodeAgentPromptAttachment["readError"]>([
+type ReadError = NonNullable<CodeAgentPromptAttachment["readError"]>;
+
+const READ_ERRORS: ReadonlySet<string> = new Set<ReadError>([
   "read-failed",
   "too-large",
   "not-utf8",
 ]);
+
+function isReadError(value: unknown): value is ReadError {
+  return typeof value === "string" && READ_ERRORS.has(value);
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -49,14 +55,7 @@ export function normalizeCodeAgentPromptAttachments(
       ) {
         attachment.totalChars = totalChars;
       }
-      if (
-        READ_ERRORS.has(
-          item.readError as CodeAgentPromptAttachment["readError"],
-        )
-      ) {
-        attachment.readError =
-          item.readError as CodeAgentPromptAttachment["readError"];
-      }
+      if (isReadError(item.readError)) attachment.readError = item.readError;
       if (dataUrl) attachment.dataUrl = dataUrl;
       return attachment;
     })

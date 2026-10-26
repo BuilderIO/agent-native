@@ -230,7 +230,8 @@ const TEXT_APPLICATION_TYPES = new Set([
 // Keep in step with core's isTextLikeMimeType / isTextLikeFilename, which
 // decide what hosted chat reads as text.
 export function isInlineableAgentPromptFile(file: File): boolean {
-  const type = file.type.split(";")[0]!.trim().toLowerCase();
+  const [baseType = ""] = file.type.split(";");
+  const type = baseType.trim().toLowerCase();
   if (type.startsWith("text/") || TEXT_APPLICATION_TYPES.has(type)) return true;
   if (type.endsWith("+json") || type.endsWith("+xml")) return true;
   if (isSvgFile(file)) return true;

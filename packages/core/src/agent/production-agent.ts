@@ -3085,7 +3085,7 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
     const isText = decodedText.kind === "text";
-    if (!isText && (att as any).referenceOnly === true && uploadedUrl) {
+    if (!isText && att.referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
       const contentType = att.contentType ? ` (${att.contentType})` : "";
       textAttachments.push(
@@ -14657,7 +14657,7 @@ export function createProductionAgentHandler(
           ownerEmail,
         });
         for (const [index, storage] of stored) {
-          const attachment = requestAttachments[index];
+          const attachment = requestAttachments.at(index);
           if (attachment) textAttachmentStorage.set(attachment, storage);
         }
       } catch (err) {

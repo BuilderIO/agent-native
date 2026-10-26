@@ -42,7 +42,7 @@ function storedAttachmentFileName(name: string): string {
   return Array.from(name, (char) =>
     /[a-zA-Z0-9.-]/.test(char)
       ? char
-      : `_${char.codePointAt(0)!.toString(16)}_`,
+      : `_${(char.codePointAt(0) ?? 0).toString(16)}_`,
   )
     .join("")
     .slice(0, 200);
@@ -65,9 +65,9 @@ function parseStoredAttachmentPath(path: string): {
   const match =
     basename.match(/^([a-z0-9]*[a-z][a-z0-9]*)-(\d+)-(.+)$/) ??
     basename.match(/^()(\d+)-(.+)$/);
-  return match
-    ? { batch: match[1]!, index: Number(match[2]), name: match[3]! }
-    : { batch: "", index: -1, name: basename };
+  if (!match) return { batch: "", index: -1, name: basename };
+  const [, batch = "", index = "-1", name = basename] = match;
+  return { batch, index: Number(index), name };
 }
 
 function compareNewestAttachmentFirst(
@@ -167,6 +167,18 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
+// Only the server writes reference rows: read-attachment fetches the URL in
+// one, so a body row must never carry that type from the client.
+function bodyMimeType(contentType: string | undefined): string {
+  if (!contentType || !isTextLikeMimeType(contentType)) return "text/plain";
+  const [baseType = ""] = contentType.split(";");
+  const normalized = baseType.trim().toLowerCase();
+  return normalized.startsWith("image/") ||
+    normalized === ATTACHMENT_REFERENCE_MIME_TYPE
+    ? "text/plain"
+    : contentType;
+}
+
 /** An upload already lives in file storage, so SQL keeps only where it is. */
 function storedAttachmentReference(att: {
   url?: string;
@@ -175,14 +187,16 @@ function storedAttachmentReference(att: {
   name?: string;
 }): StoredAttachmentReference | null {
   if (!att.uploadProvider || !att.url?.startsWith("https://")) return null;
+  // The re-read decides "text" from this type, so a generic upload type
+  // that was classified by filename must not be stored as-is.
+  const contentType =
+    att.contentType && isTextLikeMimeType(att.contentType)
+      ? att.contentType
+      : "text/plain";
   return {
     url: att.url,
-    // The re-read decides "text" from this type, so a generic upload type
-    // that was classified by filename must not be stored as-is.
-    contentType: isTextLikeMimeType(att.contentType)
-      ? att.contentType
-      : "text/plain",
-    name: att.name,
+    contentType,
+    ...(att.name === undefined ? {} : { name: att.name }),
   };
 }
 
@@ -239,8 +253,7 @@ export async function persistTextAttachmentsAsResources(opts: {
   const batch = attachmentBatchId();
   let bodyChars = 0;
 
-  for (let i = 0; i < opts.attachments.length; i++) {
-    const att = opts.attachments[i];
+  for (const [i, att] of opts.attachments.entries()) {
     if (att.displayOnly === true) continue;
     const decoded = decodeTextAttachmentData(att);
     // The prompt says an undecodable file's contents were withheld, so no
@@ -281,16 +294,9 @@ export async function persistTextAttachmentsAsResources(opts: {
     try {
       // The resource store rejects non-URL content under an image/* type, so
       // SVG source is stored as plain text.
-      // Only the server writes reference rows: read-attachment fetches the URL
-      // in one, so a body row must never carry that type from the client.
       const mimeType = reference
         ? ATTACHMENT_REFERENCE_MIME_TYPE
-        : isTextLikeMimeType(att.contentType) &&
-            !/^image\//i.test(att.contentType!) &&
-            att.contentType!.split(";")[0]!.trim().toLowerCase() !==
-              ATTACHMENT_REFERENCE_MIME_TYPE
-          ? att.contentType!
-          : "text/plain";
+        : bodyMimeType(att.contentType);
       const content = reference ? JSON.stringify(reference) : text;
       const resource = await resourcePut(owner, path, content, mimeType, {
         createdBy: "user",
@@ -372,7 +378,8 @@ export function createCoreAttachmentActionEntries(): Record<
         const ownerEmail =
           ctx?.userEmail || getRequestUserEmail() || "anonymous";
         const path = String(input.path || "").trim();
-        const name = String(input.name || "").trim() || path.split("/").pop()!;
+        const name =
+          String(input.name || "").trim() || (path.split("/").pop() ?? "");
         const offset = Math.max(0, parseInt(input.offset || "0", 10) || 0);
         const limit = Math.min(
           MAX_SLICE_LIMIT,
@@ -391,7 +398,7 @@ export function createCoreAttachmentActionEntries(): Record<
         }
 
         let threadId = path
-          ? path.split("/")[1]!
+          ? (path.split("/").at(1) ?? "")
           : String(input.threadId || "").trim();
         if (!threadId) {
           try {
@@ -446,7 +453,14 @@ export function createCoreAttachmentActionEntries(): Record<
             };
           }
 
-          const [meta, next] = candidates.sort(compareNewestAttachmentFirst);
+          const sorted = candidates.sort(compareNewestAttachmentFirst);
+          const meta = sorted.at(0);
+          const next = sorted.at(1);
+          if (!meta) {
+            return {
+              error: `No stored attachment found with name "${name}" in thread ${threadId}.`,
+            };
+          }
           const newestBatch = parseStoredAttachmentPath(meta.path).batch;
           // Legacy paths have no batch, so they never prove two files were
           // sent together.
