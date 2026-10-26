@@ -19,7 +19,6 @@
   ],
   "ignorePatterns": [
     "**/.claude",
-    "/dist",
     "/docs",
     "/changelog",
     "/blueprints",
