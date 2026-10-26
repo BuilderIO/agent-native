@@ -381,6 +381,9 @@ export const recordingContentBindings = table(
     // and gets the plan made for it.
     uploadMimeType: text("upload_mime_type"),
     uploadSizeBytes: bigint("upload_size_bytes", { mode: "number" }),
+    // When a start of it failed without Clips saying it left nothing: the
+    // next repeat starts it again under the same recording id.
+    uploadStartFailedAt: text("upload_start_failed_at"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },

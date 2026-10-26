@@ -175,6 +175,16 @@ export type ContentClipCancelAnswer =
       recordingId: string;
     };
 
+/**
+ * The `outcome` a final chunk posted to the chunk URL answers, 409, while
+ * Clips is still taking an earlier send of it: nothing changed, and the same
+ * chunk can go again in a few seconds, until the earlier send's claim ends
+ * (`FINAL_CHUNK_CLAIM_TTL_MS`, two minutes). A final chunk sent again once
+ * Clips took the first answers with that one's success.
+ */
+export const CONTENT_CLIP_CHUNK_FINISHING =
+  CONTENT_CLIP_CANCEL_OUTCOME.finishing;
+
 /** The `code` of an upload start Clips refused, with `storage` in the body. */
 export const CONTENT_CLIP_UPLOAD_REFUSED = {
   /** No storage takes the file: see `storage`. */
@@ -191,14 +201,16 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   alreadyFinished: "upload_already_finished",
   /**
    * A start repeated with an `uploadKey` while the first start is still
-   * making its recording. Repeat it again in a few seconds; after about ten
-   * minutes without a recording the answer becomes `upload_key_used`.
+   * making its recording. Repeat it again in a few seconds. Once a start
+   * failed without saying it left nothing, or has gone about ten minutes
+   * without its recording, the next repeat takes it over and starts it
+   * again with the same recording id.
    */
   uploadStarting: "upload_starting",
   /**
    * A start repeated with an `uploadKey` that can't continue: its upload
-   * was cancelled or failed, never got its recording, began in another
-   * block, or was for a file of another type or size.
+   * was cancelled or failed, is parked until storage is connected, began in
+   * another block, or was for a file of another type or size.
    */
   keyUsed: "upload_key_used",
 } as const;

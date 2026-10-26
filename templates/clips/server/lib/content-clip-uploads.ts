@@ -20,7 +20,7 @@ import {
 import { getBuiltinAgents } from "@agent-native/core/server/agent-discovery";
 import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   getQuery,
   getRequestHeader,
@@ -32,6 +32,7 @@ import { z } from "zod";
 
 import {
   CONTENT_CLIP_CANCEL_OUTCOME,
+  CONTENT_CLIP_CHUNK_FINISHING,
   CONTENT_CLIP_CLAIMS,
   CONTENT_CLIP_SCOPES,
   CONTENT_CLIP_UPLOAD_FILE_NAME_CHARS,
@@ -281,7 +282,29 @@ async function deleteBinding(id: string): Promise<void> {
     });
 }
 
-/** An upload start Clips refused for a reason Content shows, or null. */
+/**
+ * Marks a binding whose start failed without saying it left nothing, so the
+ * next repeat starts it again under the same recording id.
+ */
+async function markStartFailed(id: string): Promise<void> {
+  const now = new Date().toISOString();
+  await getDb()
+    .update(schema.recordingContentBindings)
+    .set({ uploadStartFailedAt: now, updatedAt: now })
+    .where(eq(schema.recordingContentBindings.id, id))
+    .catch((error: unknown) => {
+      // Unmarked, the binding is taken over once it is stale instead.
+      console.warn("[content-clip-uploads] failed start not marked", {
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+/**
+ * An upload start Clips refused for a reason Content shows, or null. Each
+ * is raised before a recording or a free clip is made.
+ */
 async function refusedStart(
   error: unknown,
   readCurrentStorage: () => Promise<ContentClipStorage>,
@@ -326,23 +349,41 @@ function startAnswer(upload: RecordingUploadStart): Response {
 }
 
 const keyUsed = () => refused(409, CONTENT_CLIP_UPLOAD_REFUSED.keyUsed);
+const uploadStarting = () =>
+  refused(409, CONTENT_CLIP_UPLOAD_REFUSED.uploadStarting);
+
+/** A start's binding, which its recording is made for. */
+interface BoundStart {
+  id: string;
+  recordingId: string;
+}
+
+/** A bound start with no recording, which failed or stalled. */
+interface StalledStart extends BoundStart {
+  updatedAt: string;
+  uploadStartFailedAt: string | null;
+}
 
 /**
  * The answer to a start Content repeated for a file it already started: that
- * upload, never a second recording. Null when the key is new.
+ * upload, never a second recording. A start that failed or stalled before
+ * its recording comes back for this one to take over. Null when the key is
+ * new.
  */
 async function repeatedStart(
   uploader: Uploader,
   start: UploadStart,
-): Promise<Response | null> {
+): Promise<Response | StalledStart | null> {
   const bindings = schema.recordingContentBindings;
   const [binding] = await getDb()
     .select({
+      id: bindings.id,
       recordingId: bindings.recordingId,
       blockId: bindings.blockId,
       uploadMimeType: bindings.uploadMimeType,
       uploadSizeBytes: bindings.uploadSizeBytes,
-      createdAt: bindings.createdAt,
+      uploadStartFailedAt: bindings.uploadStartFailedAt,
+      updatedAt: bindings.updatedAt,
     })
     .from(bindings)
     .where(
@@ -363,10 +404,12 @@ async function repeatedStart(
   }
   const standing = await readUploadPhase(binding.recordingId, uploader.email);
   if (!standing) {
-    // The first start bound the key and is making its recording.
-    return Date.now() - Date.parse(binding.createdAt) < RESERVATION_GRACE_MS
-      ? refused(409, CONTENT_CLIP_UPLOAD_REFUSED.uploadStarting)
-      : keyUsed();
+    // The latest start bound the key and is making its recording, unless it
+    // failed or stalled.
+    return binding.uploadStartFailedAt !== null ||
+      Date.now() - Date.parse(binding.updatedAt) >= RESERVATION_GRACE_MS
+      ? binding
+      : uploadStarting();
   }
   if (standing.phase === "finishing" || standing.phase === "finished") {
     return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished, {
@@ -401,63 +444,19 @@ export async function handleContentClipUploadStart(
 
   return runAsUploader(uploader, account, async () => {
     // Before the storage check: the first start may have taken the last free
-    // clip.
+    // clip, and a start taken over may hold the one it goes on with.
     const repeated = await repeatedStart(uploader, start);
-    if (repeated) return repeated;
-
-    const storage = await readStorage(uploader, account);
-    if (storage.state !== "ready" && storage.state !== "free") {
-      return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.storageRequired, {
-        storage,
-      });
-    }
-    const maxBytes =
-      storage.state === "free" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
-    if (start.sizeBytes > maxBytes) {
-      return refused(413, CONTENT_CLIP_UPLOAD_REFUSED.tooLarge, { maxBytes });
-    }
-
-    // The binding comes first, so the recording is never without the
-    // document that may show it.
-    const recordingId = nanoid();
-    const bindingId = nanoid(16);
-    const now = new Date().toISOString();
-    const bindings = schema.recordingContentBindings;
-    const [bound] = await getDb()
-      .insert(bindings)
-      .values({
-        id: bindingId,
-        recordingId,
-        contentApp: uploader.peer.contentApp,
-        documentId: uploader.peer.documentId,
-        blockId: start.blockId,
-        origin: "upload",
-        state: "active",
-        stateChangedAt: now,
-        createdBy: uploader.email,
-        uploadKey: start.uploadKey,
-        uploadMimeType: start.mimeType,
-        uploadSizeBytes: start.sizeBytes,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({
-        target: [
-          bindings.contentApp,
-          bindings.documentId,
-          bindings.createdBy,
-          bindings.uploadKey,
-        ],
-      })
-      .returning({ id: bindings.id });
-    // A start with the same key bound first, since the lookup above.
-    if (!bound) return (await repeatedStart(uploader, start)) ?? keyUsed();
+    if (repeated instanceof Response) return repeated;
+    const bound = repeated
+      ? await takeOverStart(repeated)
+      : await bindNewStart(uploader, account, start);
+    if (bound instanceof Response) return bound;
 
     let upload: Awaited<ReturnType<typeof startRecordingUpload>>;
     try {
       upload = await startRecordingUpload(
         {
-          recordingId,
+          recordingId: bound.recordingId,
           title: titleFromFileName(start.fileName),
           visibility: "private",
           mimeType: start.mimeType,
@@ -473,16 +472,110 @@ export async function handleContentClipUploadStart(
         },
       );
     } catch (error) {
-      await deleteBinding(bindingId);
       const response = await refusedStart(error, () =>
         readStorage(uploader, account),
       );
+      // Any other failure may have left a recording or a free clip under
+      // this id, so the binding stays for a repeat to start it again.
+      const leftNothing =
+        response !== null ||
+        (isActionContractError(error) &&
+          error.details?.cleanupConfirmed === true);
+      await (leftNothing ? deleteBinding(bound.id) : markStartFailed(bound.id));
       if (response) return response;
       throw error;
     }
 
     return startAnswer(upload);
   });
+}
+
+/**
+ * Checks where a new start's file would go, then binds its key before the
+ * recording is made, so the recording is never without the document that
+ * may show it.
+ */
+async function bindNewStart(
+  uploader: Uploader,
+  account: UploaderAccount,
+  start: UploadStart,
+): Promise<BoundStart | Response> {
+  const storage = await readStorage(uploader, account);
+  if (storage.state !== "ready" && storage.state !== "free") {
+    return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.storageRequired, {
+      storage,
+    });
+  }
+  const maxBytes =
+    storage.state === "free" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
+  if (start.sizeBytes > maxBytes) {
+    return refused(413, CONTENT_CLIP_UPLOAD_REFUSED.tooLarge, { maxBytes });
+  }
+
+  const recordingId = nanoid();
+  const bindingId = nanoid(16);
+  const now = new Date().toISOString();
+  const bindings = schema.recordingContentBindings;
+  const [bound] = await getDb()
+    .insert(bindings)
+    .values({
+      id: bindingId,
+      recordingId,
+      contentApp: uploader.peer.contentApp,
+      documentId: uploader.peer.documentId,
+      blockId: start.blockId,
+      origin: "upload",
+      state: "active",
+      stateChangedAt: now,
+      createdBy: uploader.email,
+      uploadKey: start.uploadKey,
+      uploadMimeType: start.mimeType,
+      uploadSizeBytes: start.sizeBytes,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({
+      target: [
+        bindings.contentApp,
+        bindings.documentId,
+        bindings.createdBy,
+        bindings.uploadKey,
+      ],
+    })
+    .returning({ id: bindings.id });
+  if (bound) return { id: bound.id, recordingId };
+  // A start with the same key bound first, since the lookup above.
+  const repeated = await repeatedStart(uploader, start);
+  if (repeated instanceof Response) return repeated;
+  return repeated ? await takeOverStart(repeated) : keyUsed();
+}
+
+/**
+ * Takes over a start that failed or stalled, for this one to make its
+ * recording under the same id. Clips reserves a free clip per recording id,
+ * so a retake never holds a second. Of repeats that read the same binding,
+ * one takes it; the rest are told it is starting.
+ */
+async function takeOverStart(
+  stalled: StalledStart,
+): Promise<BoundStart | Response> {
+  const bindings = schema.recordingContentBindings;
+  const [taken] = await getDb()
+    .update(bindings)
+    .set({ uploadStartFailedAt: null, updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(bindings.id, stalled.id),
+        eq(bindings.updatedAt, stalled.updatedAt),
+        stalled.uploadStartFailedAt === null
+          ? isNull(bindings.uploadStartFailedAt)
+          : eq(bindings.uploadStartFailedAt, stalled.uploadStartFailedAt),
+      ),
+    )
+    .returning({ id: bindings.id });
+  return taken
+    ? { id: stalled.id, recordingId: stalled.recordingId }
+    : uploadStarting();
 }
 
 function hostnameOf(url: string | undefined): string | undefined {
@@ -598,6 +691,8 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
 
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) return json({ error: "Not found" }, 404, cors);
+  const { isFinal } = getQuery(event);
+  const final = isFinal === "1" || isFinal === "true";
   try {
     const owner = await requireUploadTicketOwnerForToken(
       recordingId,
@@ -610,13 +705,19 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
     if (!isActiveUploadBinding(binding)) {
       return json({ error: "This upload's page is in Trash" }, 409, cors);
     }
-    const { isFinal } = getQuery(event);
-    if (isFinal === "1" || isFinal === "true") {
-      return await takeFinalChunk(event, owner, cors);
-    }
+    if (final) return await takeFinalChunk(event, owner, cors);
     return await handleRecordingChunk(event, owner);
   } catch (error) {
     if (!HTTPError.isError(error)) throw error;
+    // The ticket's own refusal of an upload Clips is making the Clip of.
+    const status = (error.data as { status?: unknown } | undefined)?.status;
+    if (
+      final &&
+      error.status === 409 &&
+      (status === "processing" || status === "ready")
+    ) {
+      return json(finishedChunk(recordingId, status), 200, cors);
+    }
     return json(
       { error: error.message, ...(error.data ? { data: error.data } : {}) },
       error.status,
@@ -625,11 +726,18 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
   }
 }
 
+/** What a final chunk sent again after Clips took the first one answers. */
+function finishedChunk(recordingId: string, status: "processing" | "ready") {
+  return { ok: true, finalized: true, id: recordingId, status };
+}
+
 /**
- * The final chunk, claimed before Clips takes its bytes: a cancel that comes
- * while the claim holds is asked to try again, and one that came before it
- * refuses the chunk. A chunk Clips accepts records where the upload went
- * before the claim comes off; one that fails leaves it uploading.
+ * The final chunk, claimed before Clips takes its bytes: a cancel or another
+ * send of it that comes while the claim holds is asked to try again, and a
+ * cancel that came before it refuses the chunk. A chunk Clips accepts
+ * records where the upload went before the claim comes off; one that fails
+ * leaves it uploading. A final chunk sent again after that answers with the
+ * first one's success, and Clips takes nothing more.
  */
 async function takeFinalChunk(
   event: H3Event,
@@ -645,10 +753,48 @@ async function takeFinalChunk(
       },
       run,
     );
-  const claim = await asOwner(() =>
-    claimFinalChunk(owner.recordingId, owner.ownerEmail),
+  const { recordingId } = owner;
+  const taken = await asOwner(() =>
+    claimFinalChunk(recordingId, owner.ownerEmail),
   );
-  if (!claim) return json({ error: "This upload was cancelled" }, 409, cors);
+  if (!taken || ("phase" in taken && taken.phase === "ended")) {
+    return json({ error: "This upload was cancelled" }, 409, cors);
+  }
+  if ("phase" in taken) {
+    if (taken.phase === "finishing") {
+      return json(
+        {
+          error: "This upload is finishing. Try again.",
+          outcome: CONTENT_CLIP_CHUNK_FINISHING,
+          recordingId,
+        },
+        409,
+        cors,
+      );
+    }
+    if (taken.phase === "parked") {
+      return json(
+        {
+          ok: true,
+          finalized: false,
+          waitingForStorage: true,
+          status: "waiting_storage",
+          id: recordingId,
+        },
+        202,
+        cors,
+      );
+    }
+    return json(
+      finishedChunk(
+        recordingId,
+        taken.status === "ready" ? "ready" : "processing",
+      ),
+      200,
+      cors,
+    );
+  }
+  const { claim } = taken;
   try {
     const answer = (await handleRecordingChunk(event, owner)) as {
       ok?: unknown;
