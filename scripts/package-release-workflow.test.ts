@@ -2577,12 +2577,14 @@ fi
       );
     });
 
-    it("has its own concurrency lane keyed by branch and tag", () => {
+    it("serializes Beta and dev snapshots by their shared npm tag", () => {
       const group = String((workflow.concurrency as Workflow).group);
-      assert.match(group, /inputs\.betaTag/);
-      assert.match(group, /format\('beta-\{0\}', inputs\.betaTag\)/);
-      assert.match(group, /inputs\.devTag/);
-      assert.match(group, /format\('dev-\{0\}', inputs\.devTag\)/);
+      assert.match(group, /inputs\.betaTag \|\| inputs\.devTag/);
+      assert.match(
+        group,
+        /format\('dev-\{0\}', inputs\.betaTag \|\| inputs\.devTag\)/,
+      );
+      assert.doesNotMatch(group, /format\('beta-\{0\}'/);
       assert.match(group, /stable-preparation/);
       assert.match(group, /stable-publication/);
     });

@@ -90,7 +90,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && inputs.betaTag) && format('beta-{0}', inputs.betaTag) || (github.event_name == 'workflow_dispatch' && inputs.devTag) && format('dev-{0}', inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && (inputs.betaTag || inputs.devTag)) && format('dev-{0}', inputs.betaTag || inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
   cancel-in-progress: false
 
 jobs:
