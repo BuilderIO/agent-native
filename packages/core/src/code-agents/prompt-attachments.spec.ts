@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { formatPromptWithAttachments } from "./prompt-attachments.js";
+import {
+  formatPromptWithAttachments,
+  promptAttachmentsFromMetadata,
+} from "./prompt-attachments.js";
 
 describe("formatPromptWithAttachments", () => {
   it("fences file text that looks like an attached-file tag", () => {
@@ -143,4 +146,63 @@ describe("formatPromptWithAttachments", () => {
       ]),
     ).toContain('<attached-file-error name="notes.md" code="not-utf8">');
   });
+});
+
+describe("promptAttachmentsFromMetadata", () => {
+  it("keeps every field the formatter reads, type-checked", () => {
+    expect(
+      promptAttachmentsFromMetadata([
+        {
+          name: "DESIGN.md",
+          type: "text/markdown",
+          size: 70_000,
+          text: "# Design",
+          totalChars: 70_000,
+          dataUrl: "data:text/markdown;base64,IyBEZXNpZ24=",
+          ignored: true,
+        },
+        { name: "notes.md", readError: "not-utf8" },
+      ]),
+    ).toEqual([
+      {
+        name: "DESIGN.md",
+        type: "text/markdown",
+        size: 70_000,
+        text: "# Design",
+        totalChars: 70_000,
+        dataUrl: "data:text/markdown;base64,IyBEZXNpZ24=",
+      },
+      { name: "notes.md", readError: "not-utf8" },
+    ]);
+  });
+
+  it("drops values of the wrong type and names a nameless file", () => {
+    expect(
+      promptAttachmentsFromMetadata([
+        {
+          name: "",
+          type: 1,
+          size: "3",
+          text: 4,
+          totalChars: "70000",
+          readError: "exploded",
+          dataUrl: 5,
+        },
+        "not an attachment",
+        null,
+        ["nested"],
+      ]),
+    ).toEqual([{ name: "file" }]);
+    expect(promptAttachmentsFromMetadata({ name: "a.md" })).toEqual([]);
+    expect(promptAttachmentsFromMetadata(undefined)).toEqual([]);
+  });
+
+  it.each(["read-failed", "too-large", "not-utf8"] as const)(
+    "keeps the %s read error",
+    (readError) => {
+      expect(
+        promptAttachmentsFromMetadata([{ name: "a.md", readError }]),
+      ).toEqual([{ name: "a.md", readError }]);
+    },
+  );
 });

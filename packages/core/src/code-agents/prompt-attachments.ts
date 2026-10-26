@@ -124,6 +124,49 @@ function describeAgentPromptAttachmentReadError(
       : "The browser could not read this file, so its contents were not sent. Do not infer its contents. Tell the user it could not be read and ask them to attach it again.";
 }
 
+const PROMPT_ATTACHMENT_READ_ERRORS: ReadonlySet<string> =
+  new Set<AgentPromptAttachmentReadError>([
+    "read-failed",
+    "too-large",
+    "not-utf8",
+  ]);
+
+function isAgentPromptAttachmentReadError(
+  value: unknown,
+): value is AgentPromptAttachmentReadError {
+  return typeof value === "string" && PROMPT_ATTACHMENT_READ_ERRORS.has(value);
+}
+
+/**
+ * Attachments come back from run metadata as untrusted JSON. Every field the
+ * formatter reads must survive here with its type checked: dropping
+ * `totalChars` sends a file's head as if it were the whole file, and dropping
+ * `readError` turns an unreadable file into a filename with no explanation.
+ */
+export function promptAttachmentsFromMetadata(
+  value: unknown,
+): AgentPromptAttachment[] {
+  if (!Array.isArray(value)) return [];
+  const items: unknown[] = value;
+  return items
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object" && !Array.isArray(item)),
+    )
+    .map((item) => ({
+      name: typeof item.name === "string" && item.name ? item.name : "file",
+      ...(typeof item.type === "string" ? { type: item.type } : {}),
+      ...(typeof item.size === "number" ? { size: item.size } : {}),
+      ...(typeof item.text === "string" ? { text: item.text } : {}),
+      ...(typeof item.totalChars === "number"
+        ? { totalChars: item.totalChars }
+        : {}),
+      ...(isAgentPromptAttachmentReadError(item.readError)
+        ? { readError: item.readError }
+        : {}),
+      ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
+    }));
+}
+
 export function escapePromptAttachmentAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
