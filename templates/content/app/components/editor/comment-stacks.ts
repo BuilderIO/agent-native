@@ -70,7 +70,8 @@ export function measureCommentBlocks(
   )) {
     const threadIds =
       highlight.getAttribute("data-comment-thread") ??
-      highlight.getAttribute("data-comment-block-threads")!;
+      highlight.getAttribute("data-comment-block-threads") ??
+      "";
     for (const threadId of threadIds.split(" ")) {
       const thread = byId.get(threadId);
       if (!thread || placements.has(thread.threadId)) continue;

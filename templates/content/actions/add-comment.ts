@@ -213,8 +213,8 @@ async function resolveCommentBlockType(args: {
       { statusCode: 400, errorCode: "comment_block_id_shared" },
     );
   }
-  if (!args.strict && (found || args.blockType))
-    return found?.blockType ?? args.blockType!;
+  const named = found?.blockType ?? args.blockType;
+  if (!args.strict && named) return named;
   if (found && !found.saved) {
     fail(
       "That video has no id saved in the page yet; give its <video> tag a new unique id with edit-document, then comment with that id",
@@ -440,7 +440,8 @@ export async function addCommentWithGuard(
   // rather than saved with no anchor. Keyed on the caller, not actorKind: a
   // person can run the CLI too.
   const strict = ctx?.caller !== "frontend";
-  const quotesText = !args.threadId && !!args.quotedText;
+  const quotedText = args.threadId ? undefined : args.quotedText;
+  const quotesText = !!quotedText;
   const readsQuoteAnchor =
     quotesText &&
     args.anchorPrefix === undefined &&
@@ -456,22 +457,23 @@ export async function addCommentWithGuard(
         )
       : null;
   const quoteOnPage =
-    quotesText && target ? nfmQuoteAnchor(target, args.quotedText!) : null;
+    quotedText && target ? nfmQuoteAnchor(target, quotedText) : null;
   const quoteAnchor = readsQuoteAnchor ? quoteOnPage : null;
-  const blockType = blockId
-    ? await resolveCommentBlockType({
-        target: target!,
-        blockId,
-        blockType: args.blockType,
-        strict,
-      }).catch(async (error: unknown) => {
-        const saved = await savedSubmission();
-        if (saved?.blockId === blockId && saved.blockType) {
-          return saved.blockType as CommentAnchorBlockType;
-        }
-        throw error;
-      })
-    : null;
+  const blockType =
+    blockId && target
+      ? await resolveCommentBlockType({
+          target,
+          blockId,
+          blockType: args.blockType,
+          strict,
+        }).catch(async (error: unknown) => {
+          const saved = await savedSubmission();
+          if (saved?.blockId === blockId && saved.blockType) {
+            return saved.blockType as CommentAnchorBlockType;
+          }
+          throw error;
+        })
+      : null;
 
   const values = {
     id,

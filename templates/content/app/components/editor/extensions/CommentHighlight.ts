@@ -187,15 +187,17 @@ function mapBlock(
 ): PendingRange | null {
   const mapped = tr.mapping.map(from, 1);
   const at = doc.nodeAt(mapped);
-  const pos =
-    (at &&
-      isCommentAnchorBlockType(at.type.name) &&
-      at.attrs.blockId === blockId) ||
-    commentAnchorBlockAt(doc, mapped)?.blockId === blockId
-      ? mapped
-      : commentAnchorBlockById(doc, blockId)?.pos;
-  if (pos === undefined) return null;
-  return { from: pos, to: pos + doc.nodeAt(pos)!.nodeSize, blockId };
+  if (
+    at &&
+    isCommentAnchorBlockType(at.type.name) &&
+    at.attrs.blockId === blockId
+  )
+    return { from: mapped, to: mapped + at.nodeSize, blockId };
+  const placed = commentAnchorBlockAt(doc, mapped);
+  const block =
+    placed?.blockId === blockId ? placed : commentAnchorBlockById(doc, blockId);
+  if (!block) return null;
+  return { from: block.pos, to: block.pos + block.nodeSize, blockId };
 }
 
 function buildDecorations(

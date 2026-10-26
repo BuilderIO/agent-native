@@ -561,6 +561,7 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("commentThreadAt(");
+    // oracle-change: the pointer lookup and hover capture moved into commentThreadAt and commentThreadHoverHandlers, whose behaviour comment-block-anchors.test.ts covers
     expect(source).toContain("commentThreadHoverHandlers(");
     expect(source).toContain("activateCommentThread(threadId)");
     expect(source).toContain("data-comments-flow-lane");

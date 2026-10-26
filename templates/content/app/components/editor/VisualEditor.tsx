@@ -4757,7 +4757,7 @@ export function VisualEditor({
       const range = block
         ? {
             from: block.pos,
-            to: block.pos + view.state.doc.nodeAt(block.pos)!.nodeSize,
+            to: block.pos + block.nodeSize,
             blockId: block.blockId,
           }
         : thread.block

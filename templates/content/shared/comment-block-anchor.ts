@@ -69,7 +69,7 @@ export function commentAnchorBlockNames(
   });
   const holders = new Map<string, number>();
   for (const { id } of names) holders.set(id, (holders.get(id) ?? 0) + 1);
-  return names.map((name) => ({ ...name, holders: holders.get(name.id)! }));
+  return names.map((name) => ({ ...name, holders: holders.get(name.id) ?? 1 }));
 }
 
 type AnchorBlockNode = PMNode & { type: CommentAnchorBlockType };
@@ -138,8 +138,8 @@ export function keepVideoBlockIds(
   const unsaved = theirs.filter(({ node }) => !savedVideoId(node));
   if (!unsaved.length) return incoming;
   const taken = new Set(theirs.map(({ node }) => savedVideoId(node)));
-  const ours = videosIn(nfmToDoc(local)).filter(
-    ({ id }) => id && !taken.has(id),
+  const ours = videosIn(nfmToDoc(local)).flatMap((video) =>
+    video.id && !taken.has(video.id) ? [{ ...video, id: video.id }] : [],
   );
   const matched = new Map<PlacedVideo, string>();
   const src = ({ node }: PlacedVideo) => String(node.attrs?.src ?? "");
@@ -157,18 +157,22 @@ export function keepVideoBlockIds(
     [placed, (a, b) => a === b],
   ];
   for (const [key, fits] of steps) {
-    const groups = new Map<string, [PlacedVideo[], PlacedVideo[]]>();
-    const add = (side: 0 | 1, video: PlacedVideo) => {
-      const group = groups.get(key(video)) ?? [[], []];
-      group[side].push(video);
-      groups.set(key(video), group);
+    const groups = new Map<string, [typeof ours, PlacedVideo[]]>();
+    const group = (video: PlacedVideo) => {
+      const known = groups.get(key(video));
+      if (known) return known;
+      const added: [typeof ours, PlacedVideo[]] = [[], []];
+      groups.set(key(video), added);
+      return added;
     };
     const used = new Set(matched.values());
-    for (const video of ours) if (!used.has(video.id!)) add(0, video);
-    for (const video of unsaved) if (!matched.has(video)) add(1, video);
+    for (const video of ours)
+      if (!used.has(video.id)) group(video)[0].push(video);
+    for (const video of unsaved)
+      if (!matched.has(video)) group(video)[1].push(video);
     for (const [mine, other] of groups.values())
       if (fits(mine.length, other.length))
-        other.forEach((video, index) => matched.set(video, mine[index].id!));
+        other.forEach((video, index) => matched.set(video, mine[index].id));
   }
   for (const video of unsaved)
     video.node.attrs = {

@@ -12,6 +12,7 @@ export type CommentAnchorBlock = {
   blockId: string;
   blockType: CommentAnchorBlockType;
   pos: number;
+  nodeSize: number;
 };
 
 /** A comment being started on a whole block, and where the block is. */
@@ -48,11 +49,12 @@ function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
     type: CommentAnchorBlockType;
     attrs: ProseMirrorNode["attrs"];
     pos: number;
+    nodeSize: number;
   }[] = [];
   doc.descendants((node, pos) => {
     const type = node.type.name;
     if (!isCommentAnchorBlockType(type)) return true;
-    found.push({ type, attrs: node.attrs, pos });
+    found.push({ type, attrs: node.attrs, pos, nodeSize: node.nodeSize });
     if (type === "video") blocks.videos++;
     return false;
   });
@@ -62,6 +64,7 @@ function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
       blockId: id,
       blockType: found[index].type,
       pos: found[index].pos,
+      nodeSize: found[index].nodeSize,
     };
     blocks.list.push(block);
     if (holders > 1) return void blocks.shared.add(id);

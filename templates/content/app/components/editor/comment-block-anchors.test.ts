@@ -110,6 +110,7 @@ describe("the block a thread is on", () => {
       blockId: written,
       blockType: "video",
       pos: 1,
+      nodeSize: 1,
     });
     expect(commentAnchorBlockAt(doc, 0)).toBeNull();
   });
