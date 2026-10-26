@@ -1081,7 +1081,7 @@ export function useEditorModes({
             primitiveSource: null,
           })
         ) {
-          return true;
+          return false;
         }
         return true;
       }
@@ -1107,7 +1107,7 @@ export function useEditorModes({
           primitiveSource: { geometry: source.geometry, fill: source.fill },
         })
       ) {
-        return true;
+        return false;
       }
       return true;
     },

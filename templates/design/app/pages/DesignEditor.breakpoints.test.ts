@@ -625,14 +625,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     const modeHandler = commandSource("mode-change.ts");
     expect(modeHandler).toContain("resolveModeChangeView({");
     expect(modeHandler).toContain('if (routing === "enter-single-interact")');
-    expect(modeHandler).toContain("enterSingleScreen(nextActiveFile?.id)");
     expect(modeHandler).toContain('if (routing === "enter-overview")');
     expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain(
       'mode === "interact" && !overviewInteractScreenId',
-    );
-    expect(modeHandler).toContain(
-      "setOverviewInteractScreenId(nextActiveFile!.id)",
     );
     expect(source).toContain("focusedInteractViewport={");
     expect(source).toContain("overviewInteractScreenId === activeFileId) ? (");

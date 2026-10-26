@@ -153,12 +153,13 @@ export function runModeChange(
     viewMode: viewModeRef.current,
   });
   if (routing === "enter-single-interact") {
+    if (!nextActiveFile) return false;
     const entered = options?.keepInteractDevice
-      ? enterSingleScreen(nextActiveFile!.id, { keepInteractDevice: true })
-      : enterSingleScreen(nextActiveFile!.id);
+      ? enterSingleScreen(nextActiveFile.id, { keepInteractDevice: true })
+      : enterSingleScreen(nextActiveFile.id);
     if (entered === false) return false;
-    rememberOverviewScreenSelection(nextActiveFile!.id);
-    setOverviewInteractScreenId(nextActiveFile!.id);
+    rememberOverviewScreenSelection(nextActiveFile.id);
+    setOverviewInteractScreenId(nextActiveFile.id);
     return true;
   }
   if (routing === "enter-overview") {
@@ -167,19 +168,20 @@ export function runModeChange(
     return true;
   }
   if (next === "interact" && overviewInteractScreenId) {
+    if (!nextActiveFile) return false;
     if (
       options?.targetFileId &&
-      nextActiveFile!.id !== overviewInteractScreenId
+      nextActiveFile.id !== overviewInteractScreenId
     ) {
       const entered = options.keepInteractDevice
         ? enterSingleScreen(nextActiveFile.id, { keepInteractDevice: true })
         : enterSingleScreen(nextActiveFile.id);
       if (entered === false) return false;
-      rememberOverviewScreenSelection(nextActiveFile!.id);
+      rememberOverviewScreenSelection(nextActiveFile.id);
       setOverviewInteractScreenId(nextActiveFile.id);
       return true;
     }
-    setOverviewInteractScreenId(nextActiveFile!.id);
+    setOverviewInteractScreenId(nextActiveFile.id);
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
   else if (
