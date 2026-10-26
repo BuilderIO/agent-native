@@ -67,8 +67,10 @@ Helper invariants, checked in the same runs:
   Stopping a completed approval pause also writes the turn-abort marker without
   changing a run or lease; this is a stuttering step for the model's `AbortTurn`.
   Explicit interruption records those same markers in the slot-admission
-  transaction before inserting its replacement turn. The completed run and
-  its lease remain unchanged; cross-turn admission is outside this model.
+  transaction before inserting its replacement turn. Legacy turns tied without
+  admission metadata retain every unresolved approval pause; interruption writes
+  each completed pause's marker in that transaction. Completed runs and their
+  leases remain unchanged; cross-turn admission is outside this model.
 
 ## Results against source snapshot c8190ab8
 

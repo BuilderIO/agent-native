@@ -1194,6 +1194,69 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
+  it.each([
+    { olderOrder: 0, legacy: "none", olderApproval: false },
+    { olderOrder: 2, legacy: "none", olderApproval: false },
+    { olderOrder: 0, legacy: "older", olderApproval: false },
+    { olderOrder: 2, legacy: "both", olderApproval: false },
+    { olderOrder: 2, legacy: "both", olderApproval: true },
+  ])(
+    "protects the newest admitted approval when start times tie ($olderOrder, $legacy, $olderApproval)",
+    async ({ olderOrder, legacy, olderApproval }) => {
+      const threadId = `thread-${randomUUID()}`;
+      const actor = { email: "inbox-owner@example.com", anonymous: false };
+      vi.spyOn(Date, "now").mockReturnValue(Date.now());
+      await createThread(actor.email, { id: threadId });
+      await insertRun("older-run", threadId, "older-turn", {
+        continuationOrder: olderOrder,
+      });
+      if (olderApproval) {
+        await createAgentToolApproval({
+          ownerEmail: actor.email,
+          threadId,
+          turnId: "older-turn",
+          toolName: "release",
+          callId: "older-call",
+          approvalKey: "older-approval",
+        });
+      }
+      await updateRunStatus("older-run", "completed");
+      await insertRun("paused-run", threadId, "paused-turn");
+      await createAgentToolApproval({
+        ownerEmail: actor.email,
+        threadId,
+        turnId: "paused-turn",
+        toolName: "release",
+        callId: "release-call",
+        approvalKey: "release-approval",
+      });
+      await updateRunStatus("paused-run", "completed");
+      if (legacy !== "none") {
+        await getDbExec().execute({
+          sql: `UPDATE agent_runs SET admission_order = NULL
+                WHERE thread_id = ? AND (? OR id = 'older-run')`,
+          args: [threadId, legacy === "both"],
+        });
+      }
+
+      await expect(
+        tryClaimRunSlot(threadId, "ordinary-follow-up", undefined, {
+          hasPendingApproval: (tx) =>
+            hasPendingCurrentTurnApproval(threadId, tx),
+        }),
+      ).resolves.toMatchObject({ claimed: false, approvalPending: true });
+      await expect(
+        tryClaimRunSlot(threadId, "interrupting-follow-up", undefined, {
+          interruptApprovalPause: true,
+        }),
+      ).resolves.toMatchObject({ claimed: true });
+      await expect(isTurnAborted(threadId, "paused-turn")).resolves.toBe(true);
+      await expect(isTurnAborted(threadId, "older-turn")).resolves.toBe(
+        olderApproval,
+      );
+    },
+  );
+
   it.each(["expired", "aborted", "interrupted", "superseded"] as const)(
     "allows queued follow-ups to claim their run slot when approval state is %s",
     async (state) => {
@@ -1204,7 +1267,11 @@ describe("queued submission inbox recurring sweep", () => {
       const messageId = "follow-up";
       const actor = { email: "inbox-owner@example.com", anonymous: false };
       await createThread(actor.email, { id: threadId });
-      await insertRun(runId, threadId, turnId);
+      if (state === "superseded")
+        vi.spyOn(Date, "now").mockReturnValue(Date.now());
+      await insertRun(runId, threadId, turnId, {
+        ...(state === "superseded" ? { continuationOrder: 2 } : {}),
+      });
       await createAgentToolApproval({
         ownerEmail: actor.email,
         threadId,
@@ -1217,8 +1284,6 @@ describe("queued submission inbox recurring sweep", () => {
       if (state === "aborted") await markTurnAborted(threadId, turnId);
       else await updateRunStatus(runId, "completed");
       if (state === "superseded") {
-        const later = Date.now() + 1;
-        vi.spyOn(Date, "now").mockReturnValue(later);
         await insertRun("later-run", threadId, "later-turn");
         await updateRunStatus("later-run", "completed");
       }

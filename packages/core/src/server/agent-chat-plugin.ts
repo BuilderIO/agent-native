@@ -7158,10 +7158,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // ─── Run management endpoints (for hot-reload resilience) ─────────────
 
       const scheduleStoppedThreadInboxDrain = (threadId: string) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
         scheduleQueuedSubmissionInboxDrain({
           threadId,
           turnContinues: false,
-          waitUntil: getRequestRunContext()?.waitUntil,
+          ...(waitUntil ? { waitUntil } : {}),
           drain: drainQueuedSubmissionInbox,
           onError: (error) => {
             console.error(

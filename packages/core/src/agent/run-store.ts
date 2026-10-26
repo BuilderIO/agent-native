@@ -60,7 +60,7 @@ import {
 } from "./run-terminal-tracking.js";
 import {
   ensureAgentToolApprovalTable,
-  getPendingCurrentTurnApproval,
+  getPendingCurrentTurnApprovals,
   hasPendingCurrentTurnApproval,
 } from "./tool-approval-store.js";
 import {
@@ -476,6 +476,16 @@ export const agentRunsStore = defineStore({
                 FOR EACH ROW EXECUTE FUNCTION agent_run_events_assign_harness_transcript_order()`,
         });
       },
+    },
+    {
+      name: "agent-run-admission-order",
+      // Set the volatile default separately so existing run history is not rewritten.
+      sql: [
+        "CREATE SEQUENCE IF NOT EXISTS agent_run_admission_order_seq",
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS admission_order BIGINT",
+        `ALTER TABLE agent_runs ALTER COLUMN admission_order
+           SET DEFAULT nextval('agent_run_admission_order_seq')`,
+      ],
     },
   ],
 });
@@ -2163,14 +2173,15 @@ export async function tryClaimRunSlot(
       }
     }
     if (options?.interruptApprovalPause) {
-      const pause = await getPendingCurrentTurnApproval(threadId, tx);
-      if (pause?.status === "running") {
+      const pauses = await getPendingCurrentTurnApprovals(threadId, tx);
+      if (pauses.some((pause) => pause.status === "running")) {
         return {
           result: { claimed: false, activeRunId: null, approvalPending: true },
         } as const;
       }
-      if (pause)
+      for (const pause of pauses) {
         await insertTurnAbortMarkers(tx, threadId, pause.turnId, "user", now);
+      }
     }
     if (await options?.hasPendingApproval?.(tx)) {
       return {

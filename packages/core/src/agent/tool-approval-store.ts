@@ -320,45 +320,64 @@ export async function isAgentToolAlwaysAllowed(
   return (result.rows ?? []).length > 0;
 }
 
-export async function getPendingCurrentTurnApproval(
+export async function getPendingCurrentTurnApprovals(
   threadId: string,
   tx: DbExec,
   turnId?: string,
-): Promise<{ turnId: string; status: "running" | "completed" } | null> {
+): Promise<Array<{ turnId: string; status: "running" | "completed" }>> {
   const { rows } = await tx.execute({
-    sql: `WITH latest_run AS (
-            SELECT COALESCE(turn_id, id) AS turn_id, status
+    // Legacy turns can tie without admission metadata; keep every unresolved pause in that group.
+    sql: `WITH turn_runs AS (
+            SELECT DISTINCT ON (COALESCE(turn_id, id))
+                   COALESCE(turn_id, id) AS turn_id, status, admission_order, started_at
             FROM agent_runs
             WHERE thread_id = ? AND dispatch_mode IS DISTINCT FROM 'turn-abort'
-            ORDER BY started_at DESC, COALESCE(continuation_order, 0) DESC
-            LIMIT 1
+            ORDER BY COALESCE(turn_id, id), admission_order DESC NULLS LAST,
+                     COALESCE(continuation_order, 0) DESC, started_at DESC, id DESC
+          ), latest_admission AS (
+            SELECT turn_id, status, started_at FROM turn_runs
+            WHERE admission_order IS NOT DISTINCT FROM (
+              SELECT MAX(admission_order) FROM turn_runs
+            )
           )
-          SELECT latest_run.turn_id, latest_run.status FROM agent_tool_approvals approval
-          JOIN latest_run ON latest_run.turn_id = approval.turn_id
-          WHERE approval.thread_id = ? AND approval.status = 'pending'
-            AND approval.expires_at > ?
-            AND latest_run.status IN ('running', 'completed')
-            AND (CAST(? AS TEXT) IS NULL OR latest_run.turn_id = ?)
+          SELECT current_turn.turn_id, current_turn.status FROM latest_admission current_turn
+          WHERE current_turn.started_at = (SELECT MAX(started_at) FROM latest_admission)
+            AND current_turn.status IN ('running', 'completed')
+            AND (CAST(? AS TEXT) IS NULL OR current_turn.turn_id = ?)
+            AND EXISTS (
+              SELECT 1 FROM agent_tool_approvals approval
+              WHERE approval.thread_id = ? AND approval.turn_id = current_turn.turn_id
+                AND approval.status = 'pending' AND approval.expires_at > ?
+            )
             AND NOT EXISTS (
               SELECT 1 FROM agent_runs stopped
-              WHERE stopped.thread_id = approval.thread_id
-                AND stopped.turn_id = approval.turn_id
+              WHERE stopped.thread_id = ?
+                AND stopped.turn_id = current_turn.turn_id
                 AND stopped.dispatch_mode = 'turn-abort'
                 AND stopped.status = 'aborted'
-            )
-          LIMIT 1`,
-    args: [threadId, threadId, Date.now(), turnId ?? null, turnId ?? null],
+            )`,
+    args: [
+      threadId,
+      turnId ?? null,
+      turnId ?? null,
+      threadId,
+      Date.now(),
+      threadId,
+    ],
   });
-  const row = rows[0] as { turn_id?: unknown; status?: unknown } | undefined;
-  if (!row) return null;
-  if (
-    typeof row.turn_id !== "string" ||
-    !row.turn_id ||
-    (row.status !== "running" && row.status !== "completed")
-  ) {
-    throw new Error("Pending approval has an invalid turn identity or status");
-  }
-  return { turnId: row.turn_id, status: row.status };
+  return rows.map((result) => {
+    const row = result as { turn_id?: unknown; status?: unknown };
+    if (
+      typeof row.turn_id !== "string" ||
+      !row.turn_id ||
+      (row.status !== "running" && row.status !== "completed")
+    ) {
+      throw new Error(
+        "Pending approval has an invalid turn identity or status",
+      );
+    }
+    return { turnId: row.turn_id, status: row.status };
+  });
 }
 
 export async function hasPendingCurrentTurnApproval(
@@ -366,7 +385,9 @@ export async function hasPendingCurrentTurnApproval(
   tx: DbExec,
   turnId?: string,
 ): Promise<boolean> {
-  return (await getPendingCurrentTurnApproval(threadId, tx, turnId)) !== null;
+  return (
+    (await getPendingCurrentTurnApprovals(threadId, tx, turnId)).length > 0
+  );
 }
 
 export async function resolveAgentToolApprovalTurnId(binding: {
