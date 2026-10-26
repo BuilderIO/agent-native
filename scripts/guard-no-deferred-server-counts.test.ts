@@ -463,6 +463,118 @@ describe("deferred server counts guard", () => {
     );
   });
 
+  it("lists the members of exported objects and namespace re-exports", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_counters.ts",
+        [
+          'import { countOutcome } from "@agent-native/core/tracking";',
+          "function trackRetry() {",
+          "  return 1;",
+          "}",
+          'const trackSave = () => countOutcome("content_save_outcome_counts", {});',
+          "export const counters = {",
+          "  record(outcome: string) {",
+          '    countOutcome("content_save_outcome_counts", { outcome });',
+          "  },",
+          "  retry() {",
+          "    return 1;",
+          "  },",
+          "};",
+          "export const analytics = { trackRetry, trackSave } as const;",
+          "export class Tally {",
+          '  static record = () => countOutcome("content_save_outcome_counts", {});',
+          "}",
+          "export const loose = { ...counters };",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_barrel.ts",
+        [
+          'export * as outcomes from "./_counters.js";',
+          'export * from "@agent-native/core/tracking";',
+        ].join("\n"),
+      ],
+    ]);
+
+    assert.deepEqual(
+      Object.fromEntries(
+        [...countingExportsOf(sources)].map(([file, names]) => [
+          file,
+          [...names].sort(),
+        ]),
+      ),
+      {
+        "templates/content/actions/_counters.ts": [
+          "Tally.",
+          "Tally.record",
+          "analytics.",
+          "analytics.trackSave",
+          "counters.",
+          "counters.record",
+        ],
+        "templates/content/actions/_barrel.ts": [
+          "*",
+          "outcomes.",
+          "outcomes.Tally.",
+          "outcomes.Tally.record",
+          "outcomes.analytics.",
+          "outcomes.analytics.trackSave",
+          "outcomes.counters.",
+          "outcomes.counters.record",
+        ],
+      },
+    );
+  });
+
+  it("follows members and re-exports into the files that list them", () => {
+    const known = new Map([
+      [
+        "templates/content/actions/_counters.ts",
+        new Set([
+          "Tally.",
+          "Tally.record",
+          "analytics.",
+          "analytics.trackSave",
+          "counters.",
+          "counters.record",
+        ]),
+      ],
+      [
+        "templates/content/actions/_barrel.ts",
+        new Set([
+          "*",
+          "outcomes.",
+          "outcomes.counters.",
+          "outcomes.counters.record",
+        ]),
+      ],
+      [
+        "templates/content/actions/_tally.ts",
+        new Set(["default.", "default.record"]),
+      ],
+    ]);
+    const source = [
+      'import { counters, analytics, Tally, loose } from "./_counters.js";',
+      'import { outcomes, countOutcome, trackRetry } from "./_barrel.js";',
+      'import tally from "./_tally.js";',
+      'setTimeout(() => counters.record("saved"), 0);',
+      "setTimeout(() => analytics.trackRetry(), 0);",
+      "setTimeout(() => Tally.record(), 0);",
+      'setTimeout(() => outcomes.counters.record("saved"), 0);',
+      "setTimeout(() => outcomes.counters.retry(), 0);",
+      'setTimeout(() => countOutcome("content_save_outcome_counts", {}), 0);',
+      "setTimeout(() => trackRetry(), 0);",
+      "setTimeout(() => tally.record(), 0);",
+      "setTimeout(() => loose.trackSave(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, known).map((finding) => finding.line),
+      [4, 6, 7, 9, 10, 11, 12],
+    );
+  });
+
   it("allows counts inside the request and timers that do not count", () => {
     const source = [
       "try {",
