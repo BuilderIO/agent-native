@@ -257,6 +257,9 @@ export interface PastedImageFilesArgs {
   applyFileContentUpdateRef?: RefObject<
     PastedImageFilesArgs["applyFileContentUpdate"]
   >;
+  registerPendingPastedMedia?: (screenId: string, nodeId: string) => void;
+  isPendingPastedMediaCancelled?: (screenId: string, nodeId: string) => boolean;
+  clearPendingPastedMedia?: (screenId: string, nodeId: string) => void;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -364,6 +367,9 @@ export function runPastedImageFiles(
     overviewScreens,
     overviewSelectedScreenIds,
     pasteCascadeRef,
+    registerPendingPastedMedia,
+    isPendingPastedMediaCancelled,
+    clearPendingPastedMedia,
     replacePreviewContent,
     selectionRevisionRef,
     selectInsertedLayers,
@@ -529,15 +535,25 @@ export function runPastedImageFiles(
                   ),
               ).find((media) => media.getAttribute("src") === previewUrl)
                 ?.dataset.agentNativeNodeId ?? nodeId);
-        if (previewUrl && isCapturedActiveTarget(targetFileId)) {
-          replacePreviewContent(previewContent, null, {
-            forceFullDocument: true,
-          });
-        }
-
         try {
+          registerPendingPastedMedia?.(targetFileId, insertedNodeId);
+          if (previewUrl && isCapturedActiveTarget(targetFileId)) {
+            replacePreviewContent(previewContent, null, {
+              forceFullDocument: true,
+            });
+          }
           const imageUrl = await uploadMediaFileForHtml(file);
           const durableContent = getTargetScreenContent(targetFileId);
+          if (isPendingPastedMediaCancelled?.(targetFileId, insertedNodeId)) {
+            if (isCapturedActiveTarget(targetFileId)) {
+              replacePreviewContent(
+                getFreshActivePreviewContent?.() ?? durableContent,
+                null,
+                { forceFullDocument: true },
+              );
+            }
+            continue;
+          }
           const durableMediaUrl =
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
           const activePreviewContent = isCapturedActiveTarget(targetFileId)
@@ -603,6 +619,7 @@ export function runPastedImageFiles(
           }
           toast.error(t("common.genericError"));
         } finally {
+          clearPendingPastedMedia?.(targetFileId, insertedNodeId);
           if (previewUrl) URL.revokeObjectURL(previewUrl);
         }
       }

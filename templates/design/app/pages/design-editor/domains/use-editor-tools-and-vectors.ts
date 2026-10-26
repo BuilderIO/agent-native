@@ -114,6 +114,7 @@ type VectorEditingState = {
   nodeId: string;
   layerId: string;
   path: PenPath;
+  lastAcceptedPath: PenPath;
   selectedAnchorIndex: number | null;
   sourceOffset: { x: number; y: number };
   sourceMapping: PenPathVectorEditSourceMapping | null;
@@ -274,14 +275,16 @@ export function useEditorToolsAndVectors({
     "accepted",
   );
   const setVectorEditingStateFromMode = useCallback(
-    (next: VectorEditingState | null) => {
+    (next: Omit<VectorEditingState, "lastAcceptedPath"> | null) => {
       if (vectorEditingState?.pendingCommit) {
         toast.info(t("visualEditor.saving"), {
           id: `design-source-linked-edit-pending:${vectorEditingState.screenId}`,
         });
         return false;
       }
-      setVectorEditingState(next);
+      setVectorEditingState(
+        next ? { ...next, lastAcceptedPath: next.path } : null,
+      );
       return true;
     },
     [t, vectorEditingState],
@@ -948,7 +951,11 @@ export function useEditorToolsAndVectors({
           setVectorEditingState((latest) =>
             latest?.layerId === current.layerId &&
             latest.screenId === current.screenId
-              ? { ...latest, path: nextPath, pendingCommit: false }
+              ? {
+                  ...latest,
+                  path: latest.lastAcceptedPath,
+                  pendingCommit: false,
+                }
               : latest,
           );
           return false;
@@ -978,7 +985,11 @@ export function useEditorToolsAndVectors({
           setVectorEditingState((latest) =>
             latest?.layerId === current.layerId &&
             latest.screenId === current.screenId
-              ? { ...latest, path: nextPath, pendingCommit: false }
+              ? {
+                  ...latest,
+                  path: latest.lastAcceptedPath,
+                  pendingCommit: false,
+                }
               : latest,
           );
           return false;
@@ -999,7 +1010,10 @@ export function useEditorToolsAndVectors({
               latest.screenId === current.screenId
                 ? {
                     ...latest,
-                    path: nextPath,
+                    path:
+                      result.status === "refused"
+                        ? latest.lastAcceptedPath
+                        : nextPath,
                     primitiveSource,
                     pendingCommit: result.status === "deferred",
                   }
@@ -1016,6 +1030,8 @@ export function useEditorToolsAndVectors({
           ? {
               ...latest,
               path: nextPath,
+              lastAcceptedPath:
+                phase === "commit" ? nextPath : latest.lastAcceptedPath,
               primitiveSource,
               pendingCommit: phase === "commit" ? false : latest.pendingCommit,
             }
@@ -1054,7 +1070,7 @@ export function useEditorToolsAndVectors({
   );
 
   const handleVectorCornerRadiusChange = useCallback(
-    (radius: number, phase: "preview" | "commit") => {
+    (radius: number, phase: "preview" | "commit" | "cancel") => {
       const current = vectorEditingState;
       if (!current || current.selectedAnchorIndex === null) return;
       const nextPath = setPenNodeCornerRadius(
@@ -1064,22 +1080,36 @@ export function useEditorToolsAndVectors({
       );
       if (!nextPath) return;
       if (
+        phase !== "commit" &&
         (current.path.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0) ===
-        (nextPath.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0)
+          (nextPath.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0)
       ) {
         return;
       }
 
-      const updatePath = (pendingCommit?: boolean) => {
+      const updatePath = (
+        path: PenPath,
+        options?: { pendingCommit?: boolean; accepted?: boolean },
+      ) => {
         setVectorEditingState((latest) =>
           latest?.layerId === current.layerId &&
           latest.screenId === current.screenId
-            ? pendingCommit === undefined
-              ? { ...latest, path: nextPath }
-              : { ...latest, path: nextPath, pendingCommit }
+            ? {
+                ...latest,
+                path,
+                ...(options?.pendingCommit === undefined
+                  ? {}
+                  : { pendingCommit: options.pendingCommit }),
+                ...(options?.accepted ? { lastAcceptedPath: path } : {}),
+              }
             : latest,
         );
       };
+
+      if (phase === "cancel") {
+        updatePath(nextPath);
+        return;
+      }
 
       if (phase === "commit") {
         vectorCommitOutcomeRef.current = "accepted";
@@ -1087,7 +1117,7 @@ export function useEditorToolsAndVectors({
         if (!baseContent) {
           vectorCommitOutcomeRef.current = "refused";
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          updatePath(false);
+          updatePath(current.lastAcceptedPath, { pendingCommit: false });
           return;
         }
         const sourcePath = penPathForVectorEditCommit(
@@ -1103,7 +1133,7 @@ export function useEditorToolsAndVectors({
         if (nextContent === null) {
           vectorCommitOutcomeRef.current = "refused";
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          updatePath(false);
+          updatePath(current.lastAcceptedPath, { pendingCommit: false });
           return;
         }
         if (nextContent !== baseContent) {
@@ -1121,13 +1151,20 @@ export function useEditorToolsAndVectors({
             toast.error(t("editPanel.shaders.saveFailed"));
           }
           if (publication.status !== "accepted") {
-            updatePath(publication.status === "deferred");
+            updatePath(
+              publication.status === "refused"
+                ? current.lastAcceptedPath
+                : nextPath,
+              { pendingCommit: publication.status === "deferred" },
+            );
             return;
           }
         }
       }
 
-      updatePath(phase === "commit" ? false : undefined);
+      updatePath(nextPath, {
+        ...(phase === "commit" ? { pendingCommit: false, accepted: true } : {}),
+      });
     },
     [
       activeFile?.id,

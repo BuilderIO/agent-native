@@ -96,6 +96,7 @@ export interface DeleteSelectionArgs {
   ) => void;
   canEditDesign: boolean;
   canEditLiveScreen?: boolean;
+  onPendingPastedMediaDelete?: (screenId: string, nodeId: string) => void;
   codeLayerOwnerByNodeIdRef: RefObject<
     ReadonlyMap<
       string,
@@ -170,6 +171,7 @@ export function runDeleteSelection({
   applyLocalContentUpdate,
   canEditDesign,
   canEditLiveScreen = false,
+  onPendingPastedMediaDelete,
   codeLayerOwnerByNodeIdRef,
   deleteRuntimeElement,
   files,
@@ -543,6 +545,9 @@ export function runDeleteSelection({
         .slice(2)}`;
       if (!deleteRuntimeElement(primary, target.aliases, requestId)) continue;
       deletedAny = true;
+      if (target.sourceId) {
+        onPendingPastedMediaDelete?.(activeFile.id, target.sourceId);
+      }
       recordPendingLiveStructureEdit(
         activeFile.id,
         primary,
@@ -648,6 +653,13 @@ export function runDeleteSelection({
         }
         const next = removeCodeLayerNodeFromHtml(content, node);
         if (!next) continue;
+        const removedSourceIds = new Set([
+          node.dataAttributes["data-agent-native-node-id"] ?? node.id,
+          ...collectCodeLayerSubtreeDataNodeIds(tree, node.id, nodesById),
+        ]);
+        for (const nodeId of removedSourceIds) {
+          onPendingPastedMediaDelete?.(file.id, nodeId);
+        }
         const selector = preferredCodeLayerSelector(node);
         if (selector) removedSelectors.push(selector);
         content = next;
@@ -774,6 +786,32 @@ export function runDeleteSelection({
     selectedElement.selector,
   );
   if (!removedContent) return;
+  if (activeFile) {
+    const projection = buildCodeLayerProjection(baseContent, {
+      ...(source ? { source } : {}),
+    });
+    const targetNode = resolveCodeLayerNodeFromElementInfo(
+      projection,
+      selectedElement,
+    );
+    const removedSourceIds = new Set([
+      selectedElement.runtimeSourceId ?? selectedElement.sourceId,
+      ...(targetNode
+        ? [
+            targetNode.dataAttributes["data-agent-native-node-id"] ??
+              targetNode.id,
+            ...collectCodeLayerSubtreeDataNodeIds(
+              buildCodeLayerTree(projection),
+              targetNode.id,
+              new Map(projection.nodes.map((node) => [node.id, node])),
+            ),
+          ]
+        : []),
+    ]);
+    for (const nodeId of removedSourceIds) {
+      if (nodeId) onPendingPastedMediaDelete?.(activeFile.id, nodeId);
+    }
+  }
   const nextContent = pruneDeletedNativeEffects(baseContent, removedContent);
   if (
     selectedElement.sourceId &&

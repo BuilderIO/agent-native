@@ -143,4 +143,21 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
       selectedLayerIds: ["box-a"],
     });
   });
+
+  it("notifies pending media pastes after a structural selection delete", () => {
+    const undoManagerRef = {
+      current: { stopCapturing: vi.fn(), undoStack: [] },
+    };
+    const applyLocalContentUpdate = vi.fn();
+    const { args } = baseDeleteArgs({
+      undoManagerRef,
+      applyLocalContentUpdate,
+    });
+    const onPendingPastedMediaDelete = vi.fn();
+    args.onPendingPastedMediaDelete = onPendingPastedMediaDelete;
+
+    runDeleteSelection(args);
+
+    expect(onPendingPastedMediaDelete).toHaveBeenCalledWith("file-1", "box-a");
+  });
 });

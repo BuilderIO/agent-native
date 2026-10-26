@@ -123,6 +123,9 @@ import type { EditorScreenChangeHandlers } from "./use-editor-screen-change-hand
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
 
+const pendingPastedMediaKey = (screenId: string, nodeId: string) =>
+  JSON.stringify([screenId, nodeId]);
+
 export function useEditorClipboard({
   editorCore,
   editorHistory,
@@ -249,6 +252,40 @@ export function useEditorClipboard({
   } = editorContentAndComponents;
   const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
   applyFileContentUpdateRef.current = applyFileContentUpdate;
+  const pendingPastedMediaRef = useRef(new Map<string, boolean>());
+  const registerPendingPastedMedia = useCallback(
+    (screenId: string, nodeId: string) => {
+      pendingPastedMediaRef.current.set(
+        pendingPastedMediaKey(screenId, nodeId),
+        false,
+      );
+    },
+    [],
+  );
+  const isPendingPastedMediaCancelled = useCallback(
+    (screenId: string, nodeId: string) =>
+      pendingPastedMediaRef.current.get(
+        pendingPastedMediaKey(screenId, nodeId),
+      ) === true,
+    [],
+  );
+  const clearPendingPastedMedia = useCallback(
+    (screenId: string, nodeId: string) => {
+      pendingPastedMediaRef.current.delete(
+        pendingPastedMediaKey(screenId, nodeId),
+      );
+    },
+    [],
+  );
+  const cancelPendingPastedMedia = useCallback(
+    (screenId: string, nodeId: string) => {
+      const key = pendingPastedMediaKey(screenId, nodeId);
+      if (pendingPastedMediaRef.current.has(key)) {
+        pendingPastedMediaRef.current.set(key, true);
+      }
+    },
+    [],
+  );
   const { runtimeStructureInsertRevisionRef, selectionRevisionRef } =
     editorToolsAndVectors;
   const {
@@ -1089,6 +1126,9 @@ export function useEditorClipboard({
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          registerPendingPastedMedia,
+          isPendingPastedMediaCancelled,
+          clearPendingPastedMedia,
           replacePreviewContent,
           selectionRevisionRef,
           selectInsertedLayers,
@@ -1116,6 +1156,9 @@ export function useEditorClipboard({
       overviewScreens,
       overviewSelectedScreenIds,
       replacePreviewContent,
+      registerPendingPastedMedia,
+      isPendingPastedMediaCancelled,
+      clearPendingPastedMedia,
       selectionRevisionRef,
       selectInsertedLayers,
       t,
@@ -1192,6 +1235,9 @@ export function useEditorClipboard({
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          registerPendingPastedMedia,
+          isPendingPastedMediaCancelled,
+          clearPendingPastedMedia,
           replacePreviewContent,
           selectionRevisionRef,
           selectInsertedLayers,
@@ -1220,6 +1266,9 @@ export function useEditorClipboard({
       overviewScreens,
       overviewSelectedScreenIds,
       replacePreviewContent,
+      registerPendingPastedMedia,
+      isPendingPastedMediaCancelled,
+      clearPendingPastedMedia,
       selectionRevisionRef,
       selectInsertedLayers,
       t,
@@ -1531,6 +1580,7 @@ export function useEditorClipboard({
         previousMotionFileIdRef,
         pruneMotionTracksByNodeId,
         recordPendingLiveStructureEdit,
+        onPendingPastedMediaDelete: cancelPendingPastedMedia,
         responsiveEditScopeRef,
         selectedElement,
         selectedLayerIdsState,
@@ -1553,6 +1603,7 @@ export function useEditorClipboard({
       canEditDesign,
       canEditActiveVisualScreen,
       deleteRuntimeElement,
+      cancelPendingPastedMedia,
       recordPendingLiveStructureEdit,
       files,
       getFreshActiveContent,

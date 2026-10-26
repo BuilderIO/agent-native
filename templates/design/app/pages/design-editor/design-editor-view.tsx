@@ -1667,7 +1667,11 @@ export function renderDesignEditorView({
       ? (value: number, meta?: { phase?: "preview" | "commit" | "cancel" }) =>
           handleVectorCornerRadiusChange(
             value,
-            meta?.phase === "preview" ? "preview" : "commit",
+            meta?.phase === "preview"
+              ? "preview"
+              : meta?.phase === "cancel"
+                ? "cancel"
+                : "commit",
           )
       : undefined,
     selectionColorScopes,

@@ -350,6 +350,57 @@ describe("runPastedImageFiles", () => {
     expect(previewContent).toBe("<main></main>");
   });
 
+  it("does not reinsert a deleted pending image after switching screens", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:switched-delete");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    const applyLocalContentUpdate = vi.fn();
+    const replacePreviewContent = vi.fn();
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const activeFileIdRef = { current: "screen-1" };
+    let cancelled = false;
+    const clearPendingPastedMedia = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+    pasteArgs.registerPendingPastedMedia = vi.fn();
+    pasteArgs.isPendingPastedMediaCancelled = () => cancelled;
+    pasteArgs.clearPendingPastedMedia = clearPendingPastedMedia;
+
+    expect(
+      runPastedImageFiles(pasteArgs, [file], {
+        fileId: "screen-1",
+        point: { x: 40, y: 60 },
+      }),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(replacePreviewContent).toHaveBeenCalledOnce(),
+    );
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+
+    cancelled = true;
+    activeFileIdRef.current = "screen-2";
+    resolveUpload("https://cdn.example/deleted-after-switch.png");
+    await vi.waitFor(() =>
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:switched-delete"),
+    );
+
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(replacePreviewContent).toHaveBeenCalledOnce();
+    expect(clearPendingPastedMedia).toHaveBeenCalledWith(
+      "screen-1",
+      expect.any(String),
+    );
+  });
+
   it("inserts video at its intrinsic size and replaces the blob URL", async () => {
     const createObjectURL = vi
       .spyOn(URL, "createObjectURL")
