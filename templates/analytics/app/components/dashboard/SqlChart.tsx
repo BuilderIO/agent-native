@@ -37,7 +37,7 @@ import {
   type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
-import { numberTableColumns } from "@shared/table-columns";
+import { numberTableColumns, tableQuantity } from "@shared/table-columns";
 import {
   FUNNEL_OUTCOME_FILLS,
   FUNNEL_OUTCOME_SEGMENTS,
@@ -2501,8 +2501,10 @@ export function sortTableRows(
         if (aEmpty) return 1;
         if (bEmpty) return -1;
 
-        const an = numericTableValue(av);
-        const bn = numericTableValue(bv);
+        // Text that reads as a number sorts by it, and a duration such as
+        // "4.8 days" by how long it is.
+        const an = numericTableValue(av) ?? tableQuantity(av);
+        const bn = numericTableValue(bv) ?? tableQuantity(bv);
 
         if (an !== null && bn === null) return -1;
         if (an === null && bn !== null) return 1;

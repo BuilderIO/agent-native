@@ -128,6 +128,24 @@ describe("SqlChart table helpers", () => {
     ).toEqual([{ rate: "9%" }, { rate: "12.5%" }, { rate: "100%" }]);
   });
 
+  it("sorts durations and abbreviated numbers written as text by their size", () => {
+    const waits = ["9.9 days", "75 days", "18 hours", "10 days", "1m 42s"].map(
+      (waiting) => ({ waiting }),
+    );
+    expect(
+      sortTableRows(waits, [{ key: "waiting", direction: "desc" }]).map(
+        (row) => row.waiting,
+      ),
+    ).toEqual(["75 days", "10 days", "9.9 days", "18 hours", "1m 42s"]);
+
+    const views = ["1.2K", "980", "3.4M", "15K"].map((count) => ({ count }));
+    expect(
+      sortTableRows(views, [{ key: "count", direction: "asc" }]).map(
+        (row) => row.count,
+      ),
+    ).toEqual(["980", "1.2K", "15K", "3.4M"]);
+  });
+
   it("sorts unparseable values after numeric ones in a mixed column, regardless of direction", () => {
     const rows = [
       { revenue: "10" },
