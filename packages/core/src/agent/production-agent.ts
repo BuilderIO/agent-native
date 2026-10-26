@@ -2158,18 +2158,30 @@ export async function runCompletionCallbackWithDatabaseRetry(
 const BUILDER_GATEWAY_ERROR_MAX_RETRIES = 1;
 const RETRY_BASE_DELAY_MS = 2000;
 
+/**
+ * A customer key's 429 is that key's per-minute quota, so seconds-apart
+ * retries (in-turn or whole-turn) only re-hit it; wait only when the provider
+ * says how long.
+ */
+export function isCustomerKeyRateLimit(
+  err: unknown,
+  engine: AgentEngine | undefined,
+): err is EngineError {
+  if (!(err instanceof EngineError)) return false;
+  const code = (err.errorCode ?? "").toLowerCase();
+  return (
+    (err.statusCode === 429 || code === "http_429") &&
+    getEngineCredentialOwner(engine) === "customer"
+  );
+}
+
 /** @internal exported for unit tests only */
 export function maxRetriesForError(err: unknown, engine?: AgentEngine): number {
+  if (isCustomerKeyRateLimit(err, engine)) {
+    return err.retryAfterMs !== undefined ? 1 : 0;
+  }
   if (err instanceof EngineError) {
     const code = (err.errorCode ?? "").toLowerCase();
-    // A customer key's 429 is that key's per-minute quota, so seconds-apart
-    // retries only re-hit it; wait only when the provider says how long.
-    if (
-      (err.statusCode === 429 || code === "http_429") &&
-      getEngineCredentialOwner(engine) === "customer"
-    ) {
-      return err.retryAfterMs !== undefined ? 1 : 0;
-    }
     if (code === "builder_gateway_error") {
       if (isTransientProviderRateLimitError(err)) return MAX_RETRIES;
       return BUILDER_GATEWAY_ERROR_MAX_RETRIES;

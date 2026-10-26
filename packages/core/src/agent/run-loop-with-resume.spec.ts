@@ -4,6 +4,7 @@ import {
   MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
   MAX_RUN_LOOP_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { tagEngineCredentialOwner } from "./engine/credential-owner.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineMessage } from "./engine/types.js";
@@ -982,6 +983,29 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not rerun the turn for a customer-key 429 without Retry-After", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new EngineError("429 status code (no body)", {
+        errorCode: "http_429",
+        statusCode: 429,
+      });
+    });
+    const opts = makeOpts(
+      [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      new AbortController().signal,
+    );
+    tagEngineCredentialOwner(opts.engine, "customer");
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(opts, 60_000, {
+        backgroundFunction: true,
+      }),
+    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+    expect(attempts).toBe(1);
   });
 
   it("keeps the provider rate-limit terminal when a 429 hits the loop-attempt cap", async () => {

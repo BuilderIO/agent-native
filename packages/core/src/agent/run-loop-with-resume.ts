@@ -12,6 +12,7 @@ import {
   runAgentLoop,
   mergeAgentLoopUsage,
   appendAgentLoopContinuation,
+  isCustomerKeyRateLimit,
   isResumableEngineError,
   isTransientProviderRateLimitError,
   continuationReasonForResumableError,
@@ -538,6 +539,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
         backgroundRateLimitContinuations,
       );
       const rateLimitRetryFitsBudget =
+        !(
+          isCustomerKeyRateLimit(err, opts.engine) &&
+          err.retryAfterMs === undefined
+        ) &&
         attempts < maxRunLoopContinuations &&
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
