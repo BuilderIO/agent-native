@@ -40,6 +40,93 @@ describe("generation deck refresh", () => {
     expect(refreshOpenDeck).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retry a null refresh after the caller cancels", async () => {
+    vi.useFakeTimers();
+    const refreshOpenDeck = vi.fn().mockResolvedValueOnce(null);
+    const controller = new AbortController();
+
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    await Promise.resolve();
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("discards an in-flight refresh result after the caller cancels", async () => {
+    const deck = { id: "deck-1" } as unknown as Deck;
+    let finishRefresh!: (value: Deck | null) => void;
+    const controller = new AbortController();
+    const refreshOpenDeck = vi.fn(
+      (_deckId: string, options?: { signal?: AbortSignal }) => {
+        expect(options?.signal).toBe(controller.signal);
+        return new Promise<Deck | null>((resolve) => {
+          finishRefresh = resolve;
+        });
+      },
+    );
+
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    controller.abort();
+    finishRefresh(deck);
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(1);
+    expect(refreshOpenDeck).toHaveBeenCalledWith("deck-1", {
+      signal: controller.signal,
+    });
+  });
+
+  it("discards an in-flight retry result after the caller cancels", async () => {
+    vi.useFakeTimers();
+    const deck = { id: "deck-1" } as unknown as Deck;
+    let finishRetry!: (value: Deck | null) => void;
+    const refreshOpenDeck = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        () =>
+          new Promise<Deck | null>((resolve) => {
+            finishRetry = resolve;
+          }),
+      );
+    const controller = new AbortController();
+
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    await vi.advanceTimersByTimeAsync(250);
+    expect(refreshOpenDeck).toHaveBeenCalledTimes(2);
+    controller.abort();
+    finishRetry(deck);
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+  });
+
   it("returns unavailable for a rejected refresh", async () => {
     const refreshOpenDeck = vi
       .fn()

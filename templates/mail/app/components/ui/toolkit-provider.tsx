@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { designSystem } from "@/design-system";
 
 const components: ToolkitComponents = {
-  Button: Button as ToolkitComponents["Button"],
+  Button: Button as NonNullable<ToolkitComponents["Button"]>,
 };
 
 export function AppToolkitProvider({ children }: { children: ReactNode }) {

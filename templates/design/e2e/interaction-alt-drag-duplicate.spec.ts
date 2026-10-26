@@ -302,9 +302,7 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens);
   const firstCard = page.locator("[data-screen-card]").first();
   await expect(firstCard).toBeVisible();
   let lastBox: { x: number; y: number } | null = null;
@@ -661,9 +659,7 @@ async function expectBoardCopyAfterReload(
   copyId: string,
 ) {
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   const boardFrame = page
     .locator("[data-board-surface-layer] iframe")
     .first()

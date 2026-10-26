@@ -2,25 +2,9 @@ import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 import { getQuery } from "h3";
 
-import { readBody } from "../server/h3-helpers.js";
 import type { PatchOp } from "./json-to-yjs.js";
+import { readCollabBody } from "./payload.js";
 import * as manager from "./ydoc-manager.js";
-
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
-
-function getMaxPayloadBytes(event: H3Event): number {
-  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
-}
-
-function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
-  const maxBytes = getMaxPayloadBytes(event);
-  const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
-  if (encoded.length > maxBytes) {
-    setResponseStatus(event, 413);
-    return false;
-  }
-  return true;
-}
 
 export const postCollabJson = defineEventHandler(async (event: H3Event) => {
   const docId = getRouterParam(event, "docId");
@@ -29,10 +13,7 @@ export const postCollabJson = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const rawBody = await readBody(event);
-  if (!enforcePayloadLimit(event, rawBody)) {
-    return { error: "Payload too large" };
-  }
+  const rawBody = await readCollabBody(event);
   const { json, fieldName, type, requestSource } = rawBody as {
     json?: any;
     fieldName?: string;
@@ -63,10 +44,7 @@ export const postCollabPatch = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const rawBody = await readBody(event);
-  if (!enforcePayloadLimit(event, rawBody)) {
-    return { error: "Payload too large" };
-  }
+  const rawBody = await readCollabBody(event);
   const { ops, fieldName, requestSource } = rawBody as {
     ops?: PatchOp[];
     fieldName?: string;

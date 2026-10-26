@@ -28,6 +28,7 @@ import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
+  isWorkspaceAppHostPageUrl,
   isWorkspaceSsoApp,
   isDispatchWorkspaceAppId,
   navigateToWorkspaceApp,
@@ -35,6 +36,7 @@ import {
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
   workspaceAppHref,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
@@ -284,30 +286,35 @@ export function WorkspaceAppFrame({
     skipActionQueryInvalidation: true,
     timeoutMs: EMBED_SESSION_TIMEOUT_MS,
   });
+  const isHostPageUrl = isWorkspaceAppHostPageUrl(
+    app,
+    typeof window === "undefined" ? undefined : window.location.origin,
+  );
+  const appUrl = isHostPageUrl ? null : (app.url ?? null);
   const appHref = workspaceAppHref({
     id: app.id,
     name: app.name,
     path: app.path ?? "",
     homePath: app.homePath ?? undefined,
-    url: app.url,
+    url: appUrl,
     isDispatch: app.isDispatch ?? isDispatchWorkspaceAppId(app.id),
   });
   const topWindowHref = useMemo(() => {
     if (embedPath !== undefined) {
       return workspaceAppDirectHref(
-        { path: app.path, url: app.url },
+        { path: app.path ?? null, url: appUrl },
         embedPath,
       );
     }
     if (initialPath !== undefined) {
       return workspaceAppDirectHref(
-        { path: app.path, url: app.url },
+        { path: app.path ?? null, url: appUrl },
         initialPath,
       );
     }
 
     return appHref;
-  }, [appHref, embedPath, initialPath]);
+  }, [app.path, appHref, appUrl, embedPath, initialPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
@@ -319,12 +326,26 @@ export function WorkspaceAppFrame({
       return buildChatFirstEmbedSessionInput(app.id, initialPath);
     }
     if (!appHref) return null;
+    if (isHostPageUrl) {
+      return buildChatFirstEmbedSessionInput(
+        app.id,
+        workspaceAppTargetPath({ homePath: app.homePath ?? null }),
+      );
+    }
     return {
       app: app.id,
-      ...(app.url?.trim() ? { url: appHref } : { path: appHref }),
+      ...(appUrl?.trim() ? { url: appHref } : { path: appHref }),
       chrome: "minimal",
     };
-  }, [app.id, app.path, app.url, appHref, embedPath, initialPath]);
+  }, [
+    app.homePath,
+    app.id,
+    appHref,
+    appUrl,
+    embedPath,
+    initialPath,
+    isHostPageUrl,
+  ]);
 
   useEffect(() => {
     if (openInTopWindow && useWorkspaceSso && embedInput) {
@@ -410,7 +431,7 @@ export function WorkspaceAppFrame({
         const fallbackHref =
           initialPath !== undefined || embedPath !== undefined
             ? workspaceAppDirectHref(
-                { path: app.path ?? "", url: app.url },
+                { path: app.path ?? "", url: appUrl },
                 initialPath ?? embedPath ?? "/",
               )
             : appHref;
@@ -485,7 +506,7 @@ export function WorkspaceAppFrame({
       }
 
       const route = workspaceAppRouteForChildPath(
-        { id: app.id, path: app.path ?? "", url: app.url },
+        { id: app.id, path: app.path ?? "", url: appUrl },
         message.path,
       );
       if (route) onChildRouteChange(route);
@@ -493,7 +514,7 @@ export function WorkspaceAppFrame({
 
     window.addEventListener("message", handleWorkspaceAppRoute);
     return () => window.removeEventListener("message", handleWorkspaceAppRoute);
-  }, [app.id, app.path, app.url, embedUrl, onChildRouteChange]);
+  }, [app.id, app.path, appUrl, embedUrl, onChildRouteChange]);
 
   useEffect(() => {
     postThemeToFrame();

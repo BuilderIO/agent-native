@@ -49,6 +49,35 @@ describe("generation deck refresh", () => {
     ).resolves.toEqual({ status: "failed", endedAt: 1000 });
   });
 
+  it("passes cancellation into the open-deck refresh", async () => {
+    const deck = { id: "deck-1" } as unknown as Deck;
+    let finishRefresh!: (value: Deck | null) => void;
+    const refreshOpenDeck = vi.fn(
+      () =>
+        new Promise<Deck | null>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    const controller = new AbortController();
+
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+      controller.signal,
+    );
+    controller.abort();
+    finishRefresh(deck);
+
+    await expect(result).resolves.toEqual({
+      status: "cancelled",
+      endedAt: 1000,
+    });
+    expect(refreshOpenDeck).toHaveBeenCalledWith("deck-1", {
+      signal: controller.signal,
+    });
+  });
+
   it("returns unavailable when both refreshes return null", async () => {
     vi.useFakeTimers();
     const refreshOpenDeck = vi

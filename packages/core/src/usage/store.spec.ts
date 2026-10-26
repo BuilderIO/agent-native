@@ -736,6 +736,47 @@ describe("recordUsage refId + cost override", () => {
     expect(rows[0].input_tokens).toBe(200);
   });
 
+  it("retains the prior same-ref row when its replacement insert fails", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 100,
+      outputTokens: 10,
+      model: "gpt-5.6-sol",
+      label: "a2a",
+      refId: "task-1:attempt-1",
+      orgId: "org-a",
+    });
+    await pglite.exec(
+      "ALTER TABLE token_usage ADD CONSTRAINT reject_test_usage CHECK (input_tokens <> 999)",
+    );
+
+    await expect(
+      recordUsage({
+        ownerEmail: "u@x.com",
+        inputTokens: 999,
+        outputTokens: 99,
+        model: "gpt-5.6-sol",
+        label: "a2a",
+        refId: "task-1:attempt-1",
+        orgId: "org-a",
+      }),
+    ).rejects.toThrow();
+
+    const rows = await pglite
+      .prepare(
+        "SELECT owner_email, org_id, input_tokens, output_tokens FROM token_usage WHERE label = 'a2a' AND ref_id = 'task-1:attempt-1'",
+      )
+      .all();
+    expect(rows).toEqual([
+      {
+        owner_email: "u@x.com",
+        org_id: "org-a",
+        input_tokens: 100,
+        output_tokens: 10,
+      },
+    ]);
+  });
+
   it("deduplicates a refId only within the same organization", async () => {
     await runWithRequestContext(
       { userEmail: "a@example.com", orgId: "org-a" },

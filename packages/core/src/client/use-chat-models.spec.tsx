@@ -324,16 +324,16 @@ describe("useChatModels", () => {
     ).toBe("openai/gpt-5.6-luna");
   });
 
-  it("defaults effort to high", async () => {
+  it("leaves effort unset by default", async () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled={false} />);
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain(":high:");
+    expect(container.textContent).toContain(":auto:");
   });
 
-  it("migrates a persisted legacy auto selection to high", async () => {
+  it("keeps a persisted auto selection unset", async () => {
     window.localStorage.setItem(
       "legacy-reasoning-selection",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -349,7 +349,7 @@ describe("useChatModels", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("claude-sonnet-5:high:");
+    expect(container.textContent).toContain("claude-sonnet-5:auto:");
   });
 
   it("upgrades a persisted GPT selection to the newest model in that engine", async () => {
@@ -773,6 +773,36 @@ describe("useChatModels", () => {
     )?.textContent;
     expect(selected).not.toBe("gpt-5-6-luna");
     expect(["claude-sonnet-5", "claude-opus-4-8"]).toContain(selected);
+  });
+
+  it("starts on the app's default model and effort, not the first one listed", async () => {
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      current: { engine: "anthropic", model: "claude-sonnet-5-5" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="app-default" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("claude-sonnet-5-5");
+    expect(container.querySelector("button")?.textContent).toContain(
+      "claude-sonnet-5-5:auto:",
+    );
   });
 
   it("refreshes the active picker catalog after engine configuration changes", async () => {

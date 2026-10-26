@@ -3515,6 +3515,8 @@ describe("GitHub folder freshness", () => {
 
   it("tells readers when a background sync finds or clears a problem", async () => {
     const { database } = await linkBaseFolder();
+    const changesForDatabase = () =>
+      changes.filter((change) => change.resourceId === database.documentId);
     const { GitHubSourceError } =
       await import("../server/lib/github-source-client.js");
     const sweepAgain = async () => {
@@ -3536,22 +3538,22 @@ describe("GitHub folder freshness", () => {
       401,
     );
     await sweepAgain();
-    expect(changes).toEqual(announced);
+    expect(changesForDatabase()).toEqual(announced);
 
     // The same problem again leaves the status line as it was.
     await sweepAgain();
-    expect(changes).toHaveLength(0);
+    expect(changesForDatabase()).toHaveLength(0);
 
     github.state.failure = null;
     await sweepAgain();
-    expect(changes).toEqual(announced);
+    expect(changesForDatabase()).toEqual(announced);
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.metadata.github).toMatchObject({ problem: null });
 
     // A failure GitHub doesn't name is a problem on the link all the same.
     github.state.failure = new Error("socket hang up");
     await sweepAgain();
-    expect(changes).toEqual(announced);
+    expect(changesForDatabase()).toEqual(announced);
     const failed = await as(() => getSource.run({ databaseId: database.id }));
     expect(failed.source?.metadata.github?.problem).toMatchObject({
       code: "sync_failed",

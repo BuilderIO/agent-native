@@ -3133,6 +3133,11 @@ export function applyPlanContentPatches(
             `Block ${patch.blockId} is ${block.type}, not wireframe.`,
           );
         }
+        if (!block.data.screen) {
+          throw new Error(
+            `Wireframe block ${patch.blockId} has no screen nodes to update.`,
+          );
+        }
         const result = updateWireframeNode(
           block.data.screen,
           patch.nodeId,

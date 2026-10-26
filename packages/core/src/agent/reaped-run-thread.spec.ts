@@ -229,6 +229,55 @@ describe("a run the server reaps after its worker died", () => {
     });
   });
 
+  it("saves a message sent into the run between the replies around it", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    await insertRunEvent(
+      run,
+      3,
+      JSON.stringify({
+        type: "user_message",
+        message: {
+          id: "queued-cc",
+          text: "Copy Ben too",
+          createdAt: "2026-10-24T10:00:05.000Z",
+        },
+        continuationMessageId: `server-${run}:after:queued-cc`,
+      }),
+    );
+    await insertRunEvent(
+      run,
+      4,
+      JSON.stringify({ type: "text", text: "Adding Ben." }),
+    );
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    const [, sent, steered, after] = savedMessages(thread);
+    expect(sent).toMatchObject({ role: "assistant", id: `server-${run}` });
+    expect(steered).toMatchObject({
+      role: "user",
+      id: "queued-cc",
+      content: [{ type: "text", text: "Copy Ben too" }],
+    });
+    expect(after).toMatchObject({
+      role: "assistant",
+      id: `server-${run}:after:queued-cc`,
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("Adding Ben."),
+        }),
+      ],
+      // The run's failure belongs to the reply it stopped in.
+      metadata: { custom: { runError: { errorCode: "stale_run" } } },
+    });
+    expect(sent.metadata.custom).not.toHaveProperty("runError");
+  });
+
   it("keeps legacy flat messages when projecting a reaped run", async () => {
     const thread = `thread-reaped-flat-${seq}`;
     const turn = `turn-reaped-flat-${seq}`;
