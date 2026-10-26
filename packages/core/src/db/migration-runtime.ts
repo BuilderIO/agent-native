@@ -128,15 +128,36 @@ export function isMigrationExecutingRuntime(): boolean {
   return migrationExecutionStorage?.getStore() === true;
 }
 
+function shouldLogMigrationTiming(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.uptime === "function" &&
+    process.env.VITEST !== "true" &&
+    process.env.VITEST !== "1"
+  );
+}
+
 export async function withMigrationRuntime<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   const runtime = globalThis as MigrationRuntimeGlobal;
   const previous = runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+  const logTiming = previous === undefined && shouldLogMigrationTiming();
+  const startedAt = Date.now();
+  if (logTiming) {
+    console.log(
+      `[db] Migration runtime ready ${Math.round(process.uptime() * 1_000)}ms after process start`,
+    );
+  }
   runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = true;
   try {
     return await run();
   } finally {
+    if (logTiming) {
+      console.log(
+        `[db] Release migrations finished in ${Date.now() - startedAt}ms`,
+      );
+    }
     if (previous === undefined) {
       delete runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
     } else {
