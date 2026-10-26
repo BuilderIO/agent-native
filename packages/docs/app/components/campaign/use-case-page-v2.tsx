@@ -140,10 +140,13 @@ function ThemedImage({
 // logo set doesn't have yet shows its name instead, so a missing logo is
 // visible rather than an empty gap.
 function ToolLogo({ name, src: link }: { name: string; src?: string }) {
-  const id = name
+  const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+  // Some built-in logos are named without the domain ("monday.com" is "monday").
+  const bare = slug.replace(/-(com|io|ai|app)$/, "");
+  const id = mcpIntegrationLogo(slug) ? slug : bare;
   const src = link ?? mcpIntegrationLogo(id);
   if (!src) {
     return (
