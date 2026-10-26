@@ -5333,29 +5333,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       (surface.isSubmissionInFlight &&
         lastMessage?.role === "user" &&
         lastMessage.metadata?.hideUserMessage !== true));
-  const showHomeSuggestions =
-    surface.props.centerComposerWhenEmpty &&
-    !surface.hasRenderedMessages &&
-    surface.threadRestore.status === "ready";
-  const initialContextSuggestionBar =
-    !surface.hasRenderedMessages &&
-    surface.props.suggestionPlacement === "context-chips" &&
-    !showHomeSuggestions &&
-    surface.showSuggestions &&
-    surface.suggestions.length > 0 ? (
-      <AgentKitSuggestedPrompts
-        suggestions={surface.suggestions}
-        disabled={
-          !surface.canChat ||
-          surface.props.composerDisabled ||
-          surface.props.composerSubmissionDisabled ||
-          surface.isSubmissionInFlight ||
-          surface.composerSubmissionPending
-        }
-        onSelect={surface.submitSuggestion}
-        className="agentkit-host-suggestions"
-      />
-    ) : null;
   if (surface.authError) {
     const authTitle = surface.authSessionAvailable
       ? t("agentChat.auth.refreshTitle")
@@ -5583,7 +5560,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           />
         </div>
       ) : null}
-      {initialContextSuggestionBar}
       {renderThreadSlot(
         surface.props.threadFooterSlot,
         threadId,
@@ -5980,6 +5956,14 @@ function AgentKitComposerSurface({
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
+  // Starters for a docked chat share the follow-up row above the composer,
+  // so the chips never move when the first message lands.
+  const showSuggestionsSlot =
+    props.suggestionPlacement !== "hidden" &&
+    (hasRenderedMessages ||
+      (props.suggestionPlacement === "context-chips" &&
+        !showHomeSuggestions &&
+        threadRestore.status === "ready"));
   const showAfterComposerSuggestions =
     props.suggestionPlacement === "after-composer" &&
     !hasRenderedMessages &&
@@ -6070,7 +6054,7 @@ function AgentKitComposerSurface({
           onClear={onClearSelection}
         />
       ) : null}
-      {hasRenderedMessages && props.suggestionPlacement !== "hidden" ? (
+      {showSuggestionsSlot ? (
         <div
           className="agentkit-host-suggestions-slot"
           data-agentkit-host-suggestions-slot="true"
