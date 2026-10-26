@@ -637,6 +637,11 @@ export function sessionEditsDrawnAsSaved(
   return drawn;
 }
 
+type EditedSuggestionRevision = Pick<
+  ResourceSuggestion,
+  "id" | "revision" | "baseRevision"
+>;
+
 // A suggestion typed in Suggesting mode is saved before it's decided. Its
 // saved copy is the one the save matched to it, and a saved suggestion the
 // save amended is decided at the revision the save gave it. The suggestion
@@ -646,7 +651,7 @@ export function sessionEditsDrawnAsSaved(
 export function suggestionToDecideAfterSave(
   persisted: ReadonlyMap<string, ResourceSuggestion>,
   target: ResourceSuggestion | DraftSuggestion,
-  editing: Pick<ResourceSuggestion, "id" | "revision" | "baseRevision"> | null,
+  editing: EditedSuggestionRevision | null,
 ): ResourceSuggestion | null {
   if ("durability" in target)
     return materializedSuggestionForDraft(persisted, target);
