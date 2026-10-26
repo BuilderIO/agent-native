@@ -598,7 +598,7 @@ const messages = {
     live: "Übersetzt: Live",
     generatingNotesInline: "Zusammenfassung wird erstellt…",
     regenerateNotes: "Zusammenfassung neu generieren",
-    share: "Aktie",
+    share: "Teilen",
     meetingOptions: "Besprechungsmöglichkeiten",
     removeMeeting: "Besprechung entfernen",
     removeThisMeeting: "Diese Besprechung entfernen?",
