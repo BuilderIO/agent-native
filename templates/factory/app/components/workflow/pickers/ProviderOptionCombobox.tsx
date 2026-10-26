@@ -178,7 +178,11 @@ function Combobox({
   const shown = searching
     ? (listed.options ?? [])
     : (base.options ?? []).filter((option) => !typed || matches(option, typed));
-  const offersTyped = typed !== "" && !shown.some((o) => o.value === typed);
+  // Until the search answers, Enter would commit the half-typed text instead of the match.
+  const offersTyped =
+    typed !== "" &&
+    !(searching && listed.loading) &&
+    !shown.some((o) => o.value === typed);
   const empty =
     !listed.loading && !listed.failure && shown.length === 0 && !offersTyped;
   const storedLabel = choosingParent
