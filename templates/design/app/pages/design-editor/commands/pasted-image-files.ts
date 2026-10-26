@@ -378,11 +378,11 @@ export function runPastedImageFiles(
       ? activeFileIdRef.current === fileId
       : activeFile.id === fileId;
   const isCapturedActiveTarget = (fileId: string) =>
-    fileId === activeFile?.id && isTargetFileActive(fileId);
+    fileId === activeFile.id && isTargetFileActive(fileId);
   const getTargetScreenContent = (fileId: string) =>
     isCapturedActiveTarget(fileId)
       ? getFreshActiveContent()
-      : (getScreenContent(fileId) ?? "");
+      : getScreenContent(fileId);
   const activeFileIdAtStart = activeFileIdRef?.current;
   let expectedSelectionRevision = selectionRevisionRef?.current;
   let lastSelectedFileIdByThisPaste: string | null = null;
