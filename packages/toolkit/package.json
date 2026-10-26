@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.214.0",
+  "version": "0.220.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -45,6 +45,13 @@
       "types": "./dist/app/chat/agent-sidebar-events.d.ts",
       "import": "./dist/app/chat/agent-sidebar-events.js",
       "default": "./dist/app/chat/agent-sidebar-events.js"
+    },
+    "./app/chat/ownership-history": {
+      "types": "./dist/app/chat/ownership-history/index.d.ts",
+      "browser": "./dist/app/chat/ownership-history/index.js",
+      "development": "./dist/app/chat/ownership-history/index.js",
+      "import": "./dist/app/chat/ownership-history/index.js",
+      "default": "./dist/app/chat/ownership-history/index.js"
     },
     "./app/chat": {
       "types": "./dist/app/chat/index.d.ts",
@@ -389,6 +396,13 @@
       "import": "./dist/app/changelog/index.js",
       "default": "./dist/app/changelog/index.js"
     },
+    "./app/agent-select": {
+      "types": "./dist/app/agent-select/index.d.ts",
+      "browser": "./dist/app/agent-select/index.js",
+      "development": "./dist/app/agent-select/index.js",
+      "import": "./dist/app/agent-select/index.js",
+      "default": "./dist/app/agent-select/index.js"
+    },
     "./app/context-xray": {
       "types": "./dist/app/context-xray/index.d.ts",
       "browser": "./dist/app/context-xray/index.js",
@@ -594,6 +608,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
+    "typecheck:spec": "tsc -p tsconfig.spec.json",
     "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {

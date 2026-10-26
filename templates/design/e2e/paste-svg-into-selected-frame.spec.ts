@@ -28,7 +28,10 @@ test("Cmd+V of SVG markup while a frame is selected appends the SVG as the frame
     frame.x + frame.width / 2,
     frame.y + frame.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(center.x, center.y);
+  await page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toEqual(["Paste target"]);
 
   await page.evaluate((svg) => navigator.clipboard.writeText(svg), SVG);

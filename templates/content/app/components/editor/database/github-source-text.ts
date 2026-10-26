@@ -20,6 +20,7 @@ const PROBLEM_KEYS: Record<GitHubSourceProblemCode, DatabaseMessageKey> = {
   unavailable: "githubProblemPaused",
   sync_failed: "githubProblemPaused",
   storage_unavailable: "githubProblemStorageUnavailable",
+  storage_failed: "githubPicturesNotSaved",
 };
 
 const SKIP_KEYS: Record<GitHubSourceSkipReason, DatabaseMessageKey> = {

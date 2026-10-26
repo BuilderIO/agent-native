@@ -36,6 +36,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -59,6 +60,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { StyleChangeMeta } from "../edit-panel/style-change-types";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import {
   ContrastBar,
   ContrastOverlay,
@@ -121,10 +123,6 @@ import {
   type ColorPickerTab,
 } from "./color-picker-sections";
 import {
-  ShaderPane,
-  type ShaderPaneController,
-} from "./color-picker-shader-pane";
-import {
   alphaTrackBackground,
   alphaTrackBackgroundFor,
   CHECKER_B,
@@ -155,7 +153,6 @@ import {
   showsChevron,
   showsOpacity,
 } from "./fill-field-reading";
-import type { GlslShaderPanelContext } from "./GlslShaderPanel";
 import {
   GradientEditor,
   defaultGradient,
@@ -170,6 +167,11 @@ import {
   parseImageFillCss,
   type ImageFillValue,
 } from "./ImageFillControls";
+import {
+  NativeShaderPanel,
+  persistNativeShaderEdit,
+  selectedNativeInstances,
+} from "./NativeShaderPanel";
 
 export {
   computeScrubbedValue,
@@ -297,9 +299,9 @@ export interface DesignColorPickerProps {
   onRemoveGradientStop?: (id: string) => void;
   documentColors?: string[];
   supportedPaintTypes?: DesignPaintType[];
+  shaderContext?: ShaderEditorContext;
   maxGradientStops?: number;
   showReverseStops?: boolean;
-  glslShaderContext?: GlslShaderPanelContext;
   labels?: Partial<DesignColorPickerLabels>;
   allowDesignHistoryHotkeys?: boolean;
   onDesignHistoryHotkey?: () => void;
@@ -343,8 +345,6 @@ export interface DesignColorPickerProps {
    * survives here. The Fill field reads it as written.
    */
   authoredValue?: string;
-  /** The Shader paint's name in the Fill field: the shader on the element. */
-  paintLabel?: string;
   /**
    * The color goes to something that reads only opaque sRGB, such as a shader
    * uniform: no opacity and no Display P3 or OKLCH, rather than a color the
@@ -449,9 +449,9 @@ export function DesignColorPicker({
   onGradientTypeChange,
   documentColors,
   supportedPaintTypes,
+  shaderContext,
   maxGradientStops,
   showReverseStops,
-  glslShaderContext,
   labels,
   allowDesignHistoryHotkeys = false,
   onDesignHistoryHotkey,
@@ -467,7 +467,6 @@ export function DesignColorPicker({
   anchorElement,
   restoreOnEscape = false,
   authoredValue,
-  paintLabel,
   opaqueSrgb = false,
 }: DesignColorPickerProps) {
   const t = useT();
@@ -585,12 +584,8 @@ export function DesignColorPicker({
     };
   }, []);
 
-  // The mounted Shader pane's way to take the shader off the element. The
-  // pane reads the screen's shaders, so a picker that never shows it does not.
-  const shaderPaneRef = useRef<ShaderPaneController | null>(null);
-
   const isPaintTypeSupported = (type: DesignPaintType) =>
-    (type !== "shader" || glslShaderContext !== undefined) &&
+    (type !== "shader" || shaderContext !== undefined) &&
     (!supportedPaintTypes || supportedPaintTypes.includes(type));
 
   const rawEffectivePaintType: DesignPaintType =
@@ -870,17 +865,26 @@ export function DesignColorPicker({
     if (disabled) return;
     if (!isPaintTypeSupported(nextType)) return;
 
-    // A shader is painted beside the fill's color, not instead of it, so
-    // leaving the Shader paint takes it off the element first.
-    const shaderPane = shaderPaneRef.current;
+    const activeNativeFill = selectedNativeInstances(
+      shaderContext?.content,
+      shaderContext?.nodeId,
+      "fill",
+      shaderContext?.selector,
+    ).instances[0];
     if (
       effectivePaintType === "shader" &&
       nextType !== "shader" &&
-      shaderPane?.hasShader()
+      activeNativeFill &&
+      shaderContext
     ) {
-      void shaderPane.remove().then((removed) => {
-        if (removed) applyPaintType(nextType);
-      });
+      void persistNativeShaderEdit(shaderContext, {
+        kind: "remove",
+        instanceId: activeNativeFill.id,
+      })
+        .then(() => applyPaintType(nextType))
+        .catch(() => {
+          toast.error(t("editPanel.shaders.saveFailed"));
+        });
       return;
     }
     applyPaintType(nextType);
@@ -891,7 +895,6 @@ export function DesignColorPicker({
       setLocalPaintType("shader");
       return;
     }
-
     if (onPaintTypeChange) {
       setLocalPaintType(nextType);
       if (onPaintTypeChange(nextType) !== false) return;
@@ -1627,13 +1630,19 @@ export function DesignColorPicker({
           />
         )}
 
-        {effectivePaintType === "shader" && glslShaderContext && (
-          <ShaderPane
-            context={glslShaderContext}
-            disabled={disabled}
-            controllerRef={shaderPaneRef}
+        {effectivePaintType === "shader" && shaderContext && (
+          <NativeShaderPanel
+            context={shaderContext}
+            placement="fill"
+            showCatalog={
+              selectedNativeInstances(
+                shaderContext.content,
+                shaderContext.nodeId,
+                "fill",
+                shaderContext.selector,
+              ).instances.length === 0
+            }
             renderColorPicker={renderNestedColorPicker}
-            onRemoved={() => applyPaintType("solid")}
           />
         )}
 
@@ -1665,7 +1674,7 @@ export function DesignColorPicker({
           : effectivePaintType === "shader"
             ? "shader"
             : "none",
-    paintName: fillPaintName(effectivePaintType, copy, paintLabel),
+    paintName: fillPaintName(effectivePaintType, copy),
     value,
     authored: authoredValue,
     token: fieldTokenName
@@ -1788,7 +1797,7 @@ export function DesignColorPicker({
                           );
                         }}
                       />
-                      <span className="-ml-1 tabular-nums text-muted-foreground !text-[11px]">
+                      <span className="-ml-1.5 tabular-nums !text-[11px]">
                         %
                       </span>
                     </>

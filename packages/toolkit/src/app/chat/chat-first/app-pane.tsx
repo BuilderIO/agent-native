@@ -1,6 +1,6 @@
 import { Skeleton } from "@agent-native/toolkit/ui";
 
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstAppPaneProps } from "./types.js";
 
 export function ChatFirstAppPane({
@@ -10,13 +10,16 @@ export function ChatFirstAppPane({
   errorMessage,
   onRetry,
   renderEmbed,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstAppPaneProps) {
+  const copy = useChatFirstCopy(copyProp);
   return (
     <section
       data-chat-first-app-pane
       className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background"
-      aria-label={app ? `${app.name} app` : copy("appUnavailable")}
+      aria-label={
+        app ? copy("appLabel", { name: app.name }) : copy("appUnavailable")
+      }
     >
       {status === "loading" ? (
         <div className="space-y-3 p-4">

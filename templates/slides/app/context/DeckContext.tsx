@@ -538,7 +538,7 @@ interface DeckContextType {
   catchUpStaleDeckList: () => void;
   refreshOpenDeck: (
     deckId: string,
-    options?: { clearPendingWrites?: boolean },
+    options?: { clearPendingWrites?: boolean; signal?: AbortSignal },
   ) => Promise<Deck | null>;
   resolveDeckContentConflict: (
     deckId: string,
@@ -5286,7 +5286,7 @@ export function DeckProvider({
   const syncOpenDeck = useCallback(
     async (
       currentOpenId: string,
-      options?: { clearPendingWrites?: boolean },
+      options?: { clearPendingWrites?: boolean; signal?: AbortSignal },
     ): Promise<OpenDeckSync> => {
       const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
@@ -5302,7 +5302,10 @@ export function DeckProvider({
       const createPendingAtReadStart =
         pendingCreateIdsRef.current.has(currentOpenId);
       const read = await readDeckFromAPI(currentOpenId);
-      if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
+      if (
+        options?.signal?.aborted ||
+        openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId
+      ) {
         return { read: "superseded", deck: null };
       }
       if (
@@ -5400,7 +5403,7 @@ export function DeckProvider({
   const refetchOpenDeckIfChanged = useCallback(
     async (
       currentOpenId: string,
-      options?: { clearPendingWrites?: boolean },
+      options?: { clearPendingWrites?: boolean; signal?: AbortSignal },
     ): Promise<Deck | null> =>
       (await syncOpenDeck(currentOpenId, options)).deck,
     [syncOpenDeck],

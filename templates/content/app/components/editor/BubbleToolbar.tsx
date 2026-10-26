@@ -39,7 +39,6 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
@@ -212,10 +211,7 @@ function BubbleActionButton({ item }: { item: ToolbarAction }) {
 
 function toolbarEditChain(editor: Editor) {
   if (!editor.isEditable) return null;
-  return editor.chain().command(({ tr }) => {
-    tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-    return true;
-  });
+  return editor.chain();
 }
 
 export function setSelectionNotionSpanAttribute(
@@ -254,7 +250,6 @@ export function setSelectionNotionSpanAttribute(
   });
 
   if (!transaction.docChanged) return false;
-  transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
   editor.view.dispatch(transaction);
   editor.commands.focus();
   return true;
@@ -328,9 +323,10 @@ function useCommentFromSelection(
       editor.state.selection.from,
       editor.state.selection.to,
     );
-    const text = editor.state.doc.textBetween(from, to, " ");
-    if (!text.trim()) return false;
+    // The quote is the anchor's text, which runs blocks together: a selection
+    // across a paragraph break is highlighted and found again in that form.
     const anchor = captureAnchor(editor.state.doc, from, to);
+    if (!anchor.quotedText.trim()) return false;
     const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
     const coords = editor.view.coordsAtPos(from);
     const scrollContainer = editor.view.dom.closest(
@@ -342,7 +338,7 @@ function useCommentFromSelection(
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
+    onComment(anchor.quotedText, offsetTop, anchor, { from, to }, suggestionId);
     return true;
   }, [editor, onComment]);
 }

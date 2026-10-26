@@ -203,7 +203,7 @@ describe("LayoutContextProperties", () => {
     });
   });
 
-  it("shows Flow and Padding for an empty rectangle so auto layout can be enabled before nesting", () => {
+  it("gives an empty rectangle W/H sizing only, with no Auto layout block", () => {
     const markup = renderToStaticMarkup(
       createElement(LayoutContextProperties, {
         element: element({
@@ -214,11 +214,34 @@ describe("LayoutContextProperties", () => {
       }),
     );
 
-    expect(markup).toContain("editPanel.sections.autoLayout");
-    expect(markup).toContain("Flow");
-    expect(markup).toContain("Normal flow");
-    expect(markup).toContain("Padding");
+    expect(markup).toContain("editPanel.sections.layout");
+    expect(markup).not.toContain("editPanel.sections.autoLayout");
+    expect(markup).not.toContain("Normal flow");
+    expect(markup).not.toContain("Padding");
     expect(markup).not.toContain("Clip content");
+  });
+
+  it("offers Remove auto layout in the section header only while auto layout is on", () => {
+    const rendered = (info: Parameters<typeof element>[0]) =>
+      renderToStaticMarkup(
+        createElement(LayoutContextProperties, {
+          element: element(info),
+          onStyleChange: vi.fn(),
+          onDisableAutoLayout: vi.fn(),
+        }),
+      );
+
+    expect(
+      rendered({
+        primitiveKind: "frame",
+        sourceId: "frame-1",
+        isFlexContainer: true,
+        computedStyles: { display: "flex", width: "120px", height: "80px" },
+      }),
+    ).toContain("canvasMenu.removeAutoLayout");
+    expect(
+      rendered({ primitiveKind: "frame", sourceId: "frame-1" }),
+    ).not.toContain("canvasMenu.removeAutoLayout");
   });
 
   it("offers Clip content on a frame, not on a drawn shape or text", () => {

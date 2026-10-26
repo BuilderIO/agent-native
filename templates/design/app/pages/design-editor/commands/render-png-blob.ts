@@ -91,18 +91,27 @@ export function resolveSelectedScreenExportFrames(args: {
   });
 }
 
-export function resolveSelectedScreensExportBounds(args: {
-  selectedScreenIds: string[];
-  overviewScreens: OverviewScreen[];
-  canvasFrameGeometryById: CanvasFrameGeometryById;
-  iframeSizeById?: ReadonlyMap<string, { width: number; height: number }>;
-}) {
-  if (args.selectedScreenIds.length === 0) return null;
-  const frames = resolveSelectedScreenExportFrames(args);
-  return getExportCompositeBounds(frames.map(({ frame }) => frame));
+export interface PngCaptureResult {
+  blob: Blob;
+  width: number;
+  height: number;
+  scale: number;
+}
+
+export interface PngRenderOptions {
+  scope: PngCaptureScope;
+  settings?: Partial<ExportSettingsValue>;
+  format?: "png" | "jpg" | "webp";
 }
 
 export async function runRenderPngBlob(
+  args: RenderPngBlobArgs,
+  options: PngRenderOptions,
+): Promise<Blob> {
+  return (await runRenderPngCapture(args, options)).blob;
+}
+
+export async function runRenderPngCapture(
   {
     activeCanvasSourceType,
     designId,
@@ -114,19 +123,14 @@ export async function runRenderPngBlob(
     selectedScreenIds,
     viewMode,
   }: RenderPngBlobArgs,
-  {
-    scope,
-    settings,
-    format = "png",
-  }: {
-    scope: PngCaptureScope;
-    settings?: Partial<ExportSettingsValue>;
-    format?: "png" | "jpg" | "webp";
-  },
-): Promise<Blob> {
+  { scope, settings, format = "png" }: PngRenderOptions,
+): Promise<PngCaptureResult> {
   const requestedExportScale =
     settings?.scale ?? Math.max(2, window.devicePixelRatio || 1);
   let outputCanvas: HTMLCanvasElement;
+  let width: number;
+  let height: number;
+  let scale: number;
 
   if (
     scope === "screens" &&
@@ -204,6 +208,9 @@ export async function runRenderPngBlob(
         height: bounds.height,
         requestedScale: requestedExportScale,
       });
+      width = bounds.width;
+      height = bounds.height;
+      scale = exportScale;
       outputCanvas = document.createElement("canvas");
       outputCanvas.width = Math.max(1, Math.ceil(bounds.width * exportScale));
       outputCanvas.height = Math.max(1, Math.ceil(bounds.height * exportScale));
@@ -315,7 +322,7 @@ export async function runRenderPngBlob(
             : undefined;
         if (selectedNodeIds && selectedNodeIds.length === 0)
           throw new PngCaptureError("selection-unresolved");
-        return await captureNativeCurrentFramePng({
+        const blob = await captureNativeCurrentFramePng({
           designId,
           fileId,
           iframe: target.iframe,
@@ -323,6 +330,12 @@ export async function runRenderPngBlob(
           ...(cropRect ? { cropRect } : {}),
           ...(selectedNodeIds ? { selectedNodeIds } : {}),
         });
+        return {
+          blob,
+          width: cropRect?.width ?? target.iframe.clientWidth,
+          height: cropRect?.height ?? target.iframe.clientHeight,
+          scale: requestedExportScale,
+        };
       }
       prepared = await prepareExportCaptureTarget(target);
       const { cropSelection, doc, iframe } = {
@@ -374,6 +387,9 @@ export async function runRenderPngBlob(
           : [],
       });
       outputCanvas = rendered.canvas;
+      width = rendered.width;
+      height = rendered.height;
+      scale = rendered.scale;
     } finally {
       prepared?.dispose();
       if (screenLease) releaseScreenFromExport?.(screenLease);
@@ -385,7 +401,7 @@ export async function runRenderPngBlob(
       : format === "webp"
         ? "image/webp"
         : "image/png";
-  return await new Promise<Blob>((resolve, reject) => {
+  const blob = await new Promise<Blob>((resolve, reject) => {
     outputCanvas.toBlob(
       (blob) => {
         if (blob) resolve(blob);
@@ -395,4 +411,5 @@ export async function runRenderPngBlob(
       mimeType === "image/png" ? undefined : 0.95,
     );
   });
+  return { blob, width, height, scale };
 }

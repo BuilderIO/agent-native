@@ -8,6 +8,7 @@ import {
   launchChromium,
 } from "../server/lib/playwright-runtime.js";
 import { degradeWideColorsInHtml } from "../shared/export-color-fallback.js";
+import { parseSrcset } from "../shared/srcset.js";
 
 const MAX_RENDER_SIDE = 16_384;
 const MAX_RENDER_PIXELS = 64 * 1024 * 1024;
@@ -221,7 +222,12 @@ function findSnapshotDataUrls(html: string): string[] {
   while (stack.length > 0) {
     const node = stack.pop()!;
     for (const attribute of node.attrs ?? []) {
-      add(attribute.value);
+      if (attribute.name.toLowerCase() === "srcset") {
+        for (const candidate of parseSrcset(attribute.value))
+          add(candidate.url);
+      } else {
+        add(attribute.value);
+      }
     }
     if (node.tagName?.toLowerCase() === "style") {
       add((node.childNodes ?? []).map((child) => child.value ?? "").join(""));

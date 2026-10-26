@@ -50,6 +50,17 @@ function cellTexts(page: Page, selector: string) {
   );
 }
 
+/** Rendered widths of the cells in the table's first row. */
+function columnWidths(page: Page) {
+  return page.evaluate(
+    (editor) =>
+      [
+        ...document.querySelectorAll(`${editor} tr:first-child :is(td, th)`),
+      ].map((td) => td.getBoundingClientRect().width),
+    EDITOR,
+  );
+}
+
 /** Whether keyboard focus is still inside the open menu. */
 function focusIsInMenu(page: Page) {
   return page.evaluate(
@@ -586,6 +597,48 @@ test.describe("inline table controls", () => {
       page.locator(`${EDITOR} tr:first-child :is(td, th)`),
     ).toHaveCount(7);
   });
+
+  test("a content-sized table's border moves only when dragged, and one undo puts it back", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table border drag");
+    const table = page.locator(`${EDITOR} table`);
+    await page.locator(EDITOR).getByText("Before the table.").click();
+    await expect(table).toHaveAttribute("data-column-sizing", "content");
+    const before = await columnWidths(page);
+    const item = (await cell(page, "Item").boundingBox())!;
+    const border = { x: item.x + item.width - 1, y: item.y + item.height / 2 };
+    await page.mouse.move(border.x - 20, border.y);
+    await page.mouse.move(border.x, border.y);
+
+    // A press on the border that doesn't drag it stores no widths.
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(table).toHaveAttribute("data-column-sizing", "content");
+
+    // The drag lasts longer than undo's grouping window, so the widths it
+    // stores have to join the drag's own undo step.
+    await page.mouse.down();
+    await page.mouse.move(border.x + 20, border.y, { steps: 4 });
+    await page.waitForTimeout(700); // e2e-harness-ignore: the drag must outlast undo's 500 ms grouping window
+    await page.mouse.move(border.x + 40, border.y, { steps: 4 });
+    await page.mouse.up();
+    await expect(table).not.toHaveAttribute("data-column-sizing");
+    const after = await columnWidths(page);
+    expect(Math.abs(after[0] - before[0] - 40)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[1] - before[1] + 40)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[2] - before[2])).toBeLessThanOrEqual(2);
+
+    await page.keyboard.press("Control+z");
+    await expect(table).toHaveAttribute(
+      "data-column-sizing",
+      /^(content|held)$/,
+    );
+    const undone = await columnWidths(page);
+    undone.forEach((width, index) =>
+      expect(Math.abs(width - before[index])).toBeLessThanOrEqual(1),
+    );
+  });
 });
 
 test.describe("inline table controls on a touch screen", () => {
@@ -631,22 +684,38 @@ test.describe("inline table controls on a touch screen", () => {
     const headerCells = page.locator(`${EDITOR} tr:first-child :is(td, th)`);
     const addColumn = page.getByTestId("table-column-handle");
 
-    // The control sits half over the cell the scrollport's edge cuts through.
+    // The control sits over the scrollport's edge. Columns sized to their
+    // content can put a border there too, and a tap beside a border may land
+    // in the next cell, so the tap goes where the control is farthest from one.
     const addBox = (await addColumn.boundingBox())!;
-    const tap = { x: addBox.x + 3, y: addBox.y + addBox.height / 2 };
-    const tappedCell = await page.evaluate(
-      ({ editor, x, y }) => {
-        const cells = document.querySelectorAll(`${editor} td, ${editor} th`);
-        const hit = [...cells].find((td) => {
-          const box = td.getBoundingClientRect();
-          return (
-            box.left <= x && x <= box.right && box.top <= y && y <= box.bottom
-          );
-        });
-        return hit?.textContent ?? null;
+    const y = addBox.y + addBox.height / 2;
+    const { x, tappedCell } = await page.evaluate(
+      ({ editor, left, right, y }) => {
+        const cells = [
+          ...document.querySelectorAll(`${editor} td, ${editor} th`),
+        ].map((td) => ({ td, box: td.getBoundingClientRect() }));
+        const row = cells.filter(({ box }) => box.top <= y && y <= box.bottom);
+        const borders = row.flatMap(({ box }) => [box.left, box.right]);
+        // Only the part of the control over the table's visible area.
+        const visible = row[0]?.td
+          .closest(".tableWrapper")
+          ?.getBoundingClientRect();
+        const from = Math.max(left, visible?.left ?? left) + 2;
+        const to = Math.min(right, visible?.right ?? right) - 2;
+        let best = from;
+        let bestGap = -1;
+        for (let x = from; x <= to; x += 0.5) {
+          const gap = Math.min(...borders.map((edge) => Math.abs(edge - x)));
+          if (gap > bestGap) [best, bestGap] = [x, gap];
+        }
+        const hit = row.find(
+          ({ box }) => box.left <= best && best <= box.right,
+        );
+        return { x: best, tappedCell: hit?.td.textContent ?? null };
       },
-      { editor: EDITOR, ...tap },
+      { editor: EDITOR, left: addBox.x, right: addBox.x + addBox.width, y },
     );
+    const tap = { x, y };
     expect(tappedCell).not.toBeNull();
 
     await page.touchscreen.tap(tap.x, tap.y);

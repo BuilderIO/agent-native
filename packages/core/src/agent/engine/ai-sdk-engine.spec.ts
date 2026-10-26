@@ -92,7 +92,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
   });
 
-  it("defaults to adaptive thinking at high effort for an effort-capable Claude model", async () => {
+  it("keeps adaptive thinking and sends no effort when none is chosen", async () => {
     const { streamText } = mockAiSdk();
     mockAnthropicProvider();
 
@@ -107,9 +107,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(call.providerOptions.anthropic.thinking).toEqual({
       type: "adaptive",
     });
-    expect(call.providerOptions.anthropic.outputConfig).toEqual({
-      effort: "high",
-    });
+    expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
   });
 
   it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
@@ -124,6 +122,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
         ...BASE_STREAM_OPTIONS,
         model: "claude-haiku-4-5-20251001",
         maxOutputTokens: 32_000,
+        reasoningEffort: "high",
       }),
     );
 
@@ -146,6 +145,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
       engine.stream({
         ...BASE_STREAM_OPTIONS,
         model: "claude-haiku-5-5",
+        reasoningEffort: "medium",
       }),
     );
 
@@ -154,7 +154,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
       type: "adaptive",
     });
     expect(call.providerOptions.anthropic.outputConfig).toEqual({
-      effort: "high",
+      effort: "medium",
     });
   });
 
@@ -310,7 +310,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("defaults to high effort when no reasoningEffort is set for Google", async () => {
+  it("sends no thinking config when no effort is chosen for Google", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -325,9 +325,20 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
 
     const call = streamText.mock.calls[0][0];
-    expect(call.providerOptions?.google?.thinkingConfig).toEqual({
-      thinkingLevel: "high",
-    });
+    expect(call.providerOptions?.google?.thinkingConfig).toBeUndefined();
+  });
+
+  it("sends no reasoning effort to OpenAI when none is chosen", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "key" });
+
+    await drain(engine.stream({ ...BASE_STREAM_OPTIONS, model: "gpt-6-luna" }));
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions?.openai?.reasoningEffort).toBeUndefined();
   });
 });
 

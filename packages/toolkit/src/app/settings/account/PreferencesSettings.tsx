@@ -3,6 +3,7 @@ import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import { LanguagePicker } from "../../shared/index.js";
 import { SchedulingTimezoneField } from "../SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
+import { VoiceChatSettings } from "../VoiceChatSettings.js";
 import { VoiceTranscriptionSection } from "../VoiceTranscriptionSection.js";
 import { ThemeFamilySettings } from "./ThemeFamilySettings.js";
 
@@ -48,6 +49,7 @@ export function PreferencesSettings() {
       <SettingsGroup id="voice-input" title={t(key("voiceInput"))}>
         <VoiceTranscriptionSection compact />
       </SettingsGroup>
+      <VoiceChatSettings />
     </div>
   );
 }

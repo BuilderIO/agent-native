@@ -3011,9 +3011,11 @@ describe("document editor layout", () => {
 
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
+    // A comment on the whole page opens in the Discussion panel.
     expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext)",
+      "setCommentsBrowseOpen(preserveBrowseContext || !!pageThread)",
     );
+    expect(activation).toContain("isPageCommentThread(thread)");
     expect(activation).toContain('setUtilityPanel("comments")');
     expect(source).toContain(
       'activateCommentThread(threadId, presentation === "history")',
@@ -3342,8 +3344,8 @@ describe("document editor layout", () => {
     expect(source).toMatch(
       /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
-    expect(source).toContain(
-      "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",
+    expect(source).toMatch(
+      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return savedSuggestions/,
     );
     expect(decision).not.toContain("setIsSuggesting(false)");
   });

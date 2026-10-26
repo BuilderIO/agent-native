@@ -105,6 +105,10 @@
       "dist/app/changelog/index.d.ts",
       "dist/app/changelog/index.js"
     ],
+    "./app/agent-select": [
+      "dist/app/agent-select/index.d.ts",
+      "dist/app/agent-select/index.js"
+    ],
     "./app/context-xray": [
       "dist/app/context-xray/index.d.ts",
       "dist/app/context-xray/index.js"

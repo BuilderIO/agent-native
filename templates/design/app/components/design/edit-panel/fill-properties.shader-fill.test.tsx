@@ -1,10 +1,5 @@
 // @vitest-environment happy-dom
 
-/**
- * A fill that already has a shader opens its picker on the Shader paint, with
- * the shader's controls in place; a fill without one opens on Solid.
- */
-
 import { applyVisualEdit } from "@shared/code-layer";
 import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
 import {
@@ -12,12 +7,6 @@ import {
   parseEffectsFromHtml,
   updateNativeInstanceInHtml,
 } from "@shared/native-effects";
-import {
-  applyShaderToHtml,
-  newShaderId,
-  type GlslShaderMode,
-} from "@shared/shader-fills";
-import { GLSL_SHADER_PRESETS } from "@shared/shader-presets";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,12 +30,6 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children?: unknown }) => children as never,
 }));
 
-// The pane reads the screen's shaders through the action hooks; the picker
-// only decides when to show it.
-vi.mock("../inspector/color-picker-shader-pane", () => ({
-  ShaderPane: () => <div data-testid="shader-pane" />,
-}));
-
 vi.mock("../inspector/NativeShaderCatalogPreview", () => ({
   NativeShaderCatalogPreviewProvider: ({
     children,
@@ -61,14 +44,10 @@ vi.mock("./field-primitives", async (importOriginal) => {
   return { ...actual, FieldTrailer: () => null };
 });
 
-import { findFillShader } from "../inspector/GlslShaderPanel";
+import { findSavedGlslFill } from "../inspector/saved-glsl-shader";
 import type { ElementInfo } from "../types";
 import { FillProperties } from "./fill-properties";
 
-const mesh = GLSL_SHADER_PRESETS.find(
-  (preset) => preset.name === "mesh-gradient",
-)!;
-const effect = GLSL_SHADER_PRESETS.find((preset) => preset.mode === "effect")!;
 const BASE =
   '<html><body><div data-agent-native-node-id="hero"></div></body></html>';
 const NATIVE_BASE =
@@ -96,20 +75,11 @@ function withNativeFill(enabled = true): string {
   return updated.html;
 }
 
-function withShader(mode: GlslShaderMode) {
-  const preset = mode === "fill" ? mesh : effect;
-  return applyShaderToHtml(BASE, {
-    nodeId: "hero",
-    def: {
-      id: newShaderId(),
-      name: preset.label,
-      mode,
-      glsl: preset.glsl,
-      uniforms: preset.uniforms,
-    },
-    fallbackColor: "#ff9a9e",
-  }).html;
-}
+const SAVED_FILL = `<html><body><div data-agent-native-node-id="hero" data-an-shader-fill="saved-fill" style="background-color:#ff9a9e"></div><script type="application/x-agent-native-shader" data-shader-id="saved-fill" data-shader-name="Saved glow" data-shader-mode="fill">precision highp float;void main(){gl_FragColor=vec4(1.0);}</script></body></html>`;
+const SAVED_EFFECT = SAVED_FILL.replace(
+  'data-an-shader-fill="saved-fill"',
+  'data-an-shader-effect="saved-fill"',
+).replace('data-shader-mode="fill"', 'data-shader-mode="effect"');
 
 function element(): ElementInfo {
   return {
@@ -128,24 +98,24 @@ function element(): ElementInfo {
   } as ElementInfo;
 }
 
-describe("findFillShader", () => {
+describe("findSavedGlslFill", () => {
   it("finds the shader painted as the node's fill", () => {
     expect(
-      findFillShader({ content: withShader("fill"), nodeId: "hero" }),
-    ).toMatchObject({ name: "Mesh Gradient" });
+      findSavedGlslFill({ content: SAVED_FILL, nodeId: "hero" }),
+    ).toMatchObject({ name: "Saved glow" });
   });
 
   it("is null for an effect, another node, no node, or source it does not hold", () => {
     expect(
-      findFillShader({ content: withShader("effect"), nodeId: "hero" }),
+      findSavedGlslFill({ content: SAVED_EFFECT, nodeId: "hero" }),
     ).toBeNull();
     expect(
-      findFillShader({ content: withShader("fill"), nodeId: "other" }),
+      findSavedGlslFill({ content: SAVED_FILL, nodeId: "other" }),
     ).toBeNull();
-    expect(findFillShader({ content: withShader("fill") })).toBeNull();
-    expect(findFillShader({ nodeId: "hero" })).toBeNull();
-    expect(findFillShader(undefined)).toBeNull();
-    expect(findFillShader({ content: BASE, nodeId: "hero" })).toBeNull();
+    expect(findSavedGlslFill({ content: SAVED_FILL })).toBeNull();
+    expect(findSavedGlslFill({ nodeId: "hero" })).toBeNull();
+    expect(findSavedGlslFill(undefined)).toBeNull();
+    expect(findSavedGlslFill({ content: BASE, nodeId: "hero" })).toBeNull();
   });
 });
 
@@ -178,82 +148,42 @@ describe("FillProperties with a shader fill", () => {
     vi.unstubAllGlobals();
   });
 
-  function open(content: string) {
+  it("distinguishes unreadable saved source from a source with no shader", () => {
+    const transparentElement = {
+      ...element(),
+      computedStyles: {
+        backgroundColor: "transparent",
+        backgroundImage: "none",
+      },
+      inlineStyles: { backgroundColor: "transparent" },
+    } as ElementInfo;
     act(() =>
       root.render(
         <FillProperties
-          element={element()}
+          element={transparentElement}
           onStyleChange={vi.fn()}
-          glslShaderContext={{
+          shaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+        />,
+      ),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "common.genericError",
+    );
+    act(() =>
+      root.render(
+        <FillProperties
+          element={transparentElement}
+          onStyleChange={vi.fn()}
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
-            content,
             nodeId: "hero",
+            content: BASE,
           }}
         />,
       ),
     );
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Open color picker"]',
-        )!
-        .click(),
-    );
-  }
-
-  const shaderPaint = () =>
-    document.querySelector<HTMLButtonElement>('button[aria-label="Shader"]')!;
-
-  it("opens on the Shader paint with its pane", () => {
-    open(withShader("fill"));
-
-    expect(shaderPaint().getAttribute("aria-pressed")).toBe("true");
-    expect(
-      document.querySelector('[data-testid="shader-pane"]'),
-    ).not.toBeNull();
-    expect(document.querySelector('input[aria-label="Hex"]')).toBeNull();
-  });
-
-  it("opens on the Shader paint when the agent gave the fill a shader after the picker had been used", () => {
-    const shaderContext = (content: string) => ({
-      designId: "d1",
-      fileId: "f1",
-      content,
-      nodeId: "hero",
-    });
-    const render = (content: string) =>
-      act(() =>
-        root.render(
-          <FillProperties
-            element={element()}
-            onStyleChange={vi.fn()}
-            glslShaderContext={shaderContext(content)}
-          />,
-        ),
-      );
-    const trigger = () =>
-      container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Open color picker"]',
-      )!;
-
-    // The picker is used while the fill has no shader, and closed again.
-    render(BASE);
-    act(() => trigger().click());
-    act(() =>
-      document.querySelector<HTMLButtonElement>('[aria-label="None"]')!.click(),
-    );
-    act(() => trigger().click());
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-
-    // The agent then gives the same fill a shader.
-    render(withShader("fill"));
-    act(() => trigger().click());
-
-    expect(shaderPaint().getAttribute("aria-pressed")).toBe("true");
-    expect(
-      document.querySelector('[data-testid="shader-pane"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("removes the shader, not just the color, when the fill row is removed", () => {
@@ -265,10 +195,10 @@ describe("FillProperties with a shader fill", () => {
           element={element()}
           onStyleChange={onStyleChange}
           onRemoveShaderFill={onRemoveShaderFill}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
-            content: withShader("fill"),
+            content: SAVED_FILL,
             nodeId: "hero",
           }}
         />,
@@ -297,7 +227,7 @@ describe("FillProperties with a shader fill", () => {
           element={element()}
           onStyleChange={onStyleChange}
           onRemoveShaderFill={onRemoveShaderFill}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content: BASE,
@@ -368,7 +298,7 @@ describe("FillProperties with a shader fill", () => {
             },
           }}
           onStyleChange={onStyleChange}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content: overlaid.content,
@@ -427,7 +357,7 @@ describe("FillProperties with a shader fill", () => {
         <FillProperties
           element={element()}
           onStyleChange={vi.fn()}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content: stacked.html,
@@ -486,7 +416,7 @@ describe("FillProperties with a shader fill", () => {
         <FillProperties
           element={element()}
           onStyleChange={vi.fn()}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content: applied.html,
@@ -544,7 +474,7 @@ describe("FillProperties with a shader fill", () => {
         <FillProperties
           element={element()}
           onStyleChange={onStyleChange}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content,
@@ -614,7 +544,7 @@ describe("FillProperties with a shader fill", () => {
         <FillProperties
           element={element()}
           onStyleChange={vi.fn()}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content: stacked.html,
@@ -663,7 +593,7 @@ describe("FillProperties with a shader fill", () => {
         <FillProperties
           element={element()}
           onStyleChange={vi.fn()}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content,
@@ -702,7 +632,7 @@ describe("FillProperties with a shader fill", () => {
         <FillProperties
           element={element()}
           onStyleChange={onStyleChange}
-          glslShaderContext={{
+          shaderContext={{
             designId: "d1",
             fileId: "f1",
             content,
@@ -731,13 +661,5 @@ describe("FillProperties with a shader fill", () => {
     });
     expect(onApplied).toHaveBeenCalledWith("f1", content, "updated-1", content);
     expect(onStyleChange).not.toHaveBeenCalled();
-  });
-
-  it("opens on Solid when the fill has no shader", () => {
-    open(BASE);
-
-    expect(shaderPaint().getAttribute("aria-pressed")).toBe("false");
-    expect(document.querySelector('[data-testid="shader-pane"]')).toBeNull();
-    expect(document.querySelector('input[aria-label="Hex"]')).not.toBeNull();
   });
 });

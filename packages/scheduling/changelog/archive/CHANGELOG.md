@@ -1,3 +1,49 @@
+## 0.1.21
+
+### Patch Changes
+
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+  - @agent-native/toolkit@0.4.3
+
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [ec523c4]
+  - @agent-native/toolkit@0.4.2
+
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [e1ad535]
+  - @agent-native/toolkit@0.4.1
+
+## 0.1.18
+
+### Patch Changes
+
+- Updated dependencies [9d8c83c]
+- Updated dependencies [9d8c83c]
+  - @agent-native/toolkit@0.4.0
+
+## 0.1.17
+
+### Patch Changes
+
+- Updated dependencies [277d115]
+  - @agent-native/toolkit@0.3.0
+
+## 0.1.16
+
+### Patch Changes
+
+- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
+- Updated dependencies [b24446e]
+  - @agent-native/toolkit@0.2.0
+
 ## 0.1.15
 
 ### Patch Changes

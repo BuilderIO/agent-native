@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
@@ -126,6 +126,19 @@ async function waitForMessageAfter(
   );
 }
 
+async function selectFromLayers(page: Page, nodeId: string) {
+  await page.evaluate((id) => {
+    window.postMessage(
+      {
+        type: "select-element",
+        selector: `[data-agent-native-node-id="${id}"]`,
+      },
+      "*",
+    );
+  }, nodeId);
+  await page.waitForTimeout(100);
+}
+
 describe("canvas deep selection modifiers", () => {
   it("modifier-clicks the child when the selected container is not the topmost hit", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -151,12 +164,10 @@ describe("canvas deep selection modifiers", () => {
         ),
       );
 
+      // A plain click stops at the top-level wrapper; pick the card the way
+      // the Layers panel does.
+      await selectFromLayers(page, "card");
       let elementSelectCount = await messageCount(page, "element-select");
-      await page.mouse.click(250, 220);
-      await waitForMessageAfter(page, "element-select", elementSelectCount);
-      expect(await lastSelectedSourceId(page)).toBe("card");
-
-      elementSelectCount = await messageCount(page, "element-select");
       await page.keyboard.down("Meta");
       await page.mouse.click(130, 120);
       await page.keyboard.up("Meta");
@@ -496,11 +507,10 @@ describe("canvas deep selection modifiers", () => {
           ),
         );
 
+        // A plain click stops at the artwork; pick the note the way the
+        // Layers panel does.
+        await selectFromLayers(page, "note");
         let elementSelectCount = await messageCount(page, "element-select");
-        await page.mouse.click(150, 148);
-        await waitForMessageAfter(page, "element-select", elementSelectCount);
-        expect(await lastSelectedSourceId(page)).toBe("note");
-        elementSelectCount = await messageCount(page, "element-select");
 
         await page.keyboard.down(modifier);
         await page.mouse.click(150, 148);

@@ -1,4 +1,7 @@
-import type { DocumentPropertiesResponse, DocumentProperty } from "@shared/api";
+import type {
+  ConfigureDocumentPropertyResponse,
+  DocumentProperty,
+} from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -236,25 +239,22 @@ describe("blockFieldTabDropGap", () => {
 });
 
 describe("createdBlocksFieldId", () => {
-  it("finds the new Blocks field in a properties response", () => {
-    const response: DocumentPropertiesResponse = {
+  it("reads the id the create reports, not another new field in the list", () => {
+    // A collaborator's field, created between this request and its response,
+    // comes back first and is just as unfamiliar to this browser.
+    const response: ConfigureDocumentPropertyResponse = {
       documentId: "doc-1",
       databaseId: "db-1",
+      propertyId: "blocks-4",
       properties: [
         blocksProperty("content"),
         blocksProperty("notes"),
-        {
-          ...blocksProperty("status"),
-          definition: {
-            ...blocksProperty("status").definition,
-            type: "status",
-          },
-        },
         blocksProperty("blocks-3"),
+        blocksProperty("blocks-4"),
       ],
     };
     expect(createdBlocksFieldId(response, new Set(["content", "notes"]))).toBe(
-      "blocks-3",
+      "blocks-4",
     );
   });
 
@@ -267,16 +267,9 @@ describe("createdBlocksFieldId", () => {
     ).toBeNull();
   });
 
-  it("returns null when nothing new came back", () => {
+  it("returns null when the reported field already existed", () => {
     expect(
-      createdBlocksFieldId(
-        {
-          documentId: "doc-1",
-          databaseId: "db-1",
-          properties: [blocksProperty("content")],
-        },
-        new Set(["content"]),
-      ),
+      createdBlocksFieldId({ propertyId: "content" }, new Set(["content"])),
     ).toBeNull();
   });
 });

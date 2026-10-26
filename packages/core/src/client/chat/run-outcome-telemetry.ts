@@ -92,6 +92,7 @@ export function trackRunOutcome(
       drain_attempts: report.drainAttempts,
       run_id: report.runId,
       thread_id: report.threadId,
+      ...(report.turnId ? { turn_id: report.turnId } : {}),
       sample_rate: rate,
       sample_weight: 1 / rate,
     });

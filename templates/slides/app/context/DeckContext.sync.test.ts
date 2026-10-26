@@ -1248,6 +1248,48 @@ describe("DeckContext fallback polling", () => {
     expect(getDeckSaveError(created.id)).toBeUndefined();
   });
 
+  it("does not apply an open-deck read after its refresh signal is aborted", async () => {
+    const initial = openDeck();
+    const { api, result } = await renderOpenDeck({ decks: [initial] });
+    api.setServerDecks([
+      {
+        ...initial,
+        title: "Remote title",
+        updatedAt: "2026-07-26T00:00:00.000Z",
+      },
+    ]);
+    const real = api.fetchMock.getMockImplementation()!;
+    let releaseRead = () => {};
+    const readGate = new Promise<void>((resolve) => (releaseRead = resolve));
+    let held = false;
+    api.fetchMock.mockImplementation((url) => {
+      const response = real(url);
+      if (!held && requestString(url).includes(`get-deck?id=${initial.id}`)) {
+        held = true;
+        return response.then((value) => readGate.then(() => value));
+      }
+      return response;
+    });
+    const controller = new AbortController();
+    let read: Promise<Deck | null> = Promise.resolve(null);
+
+    act(() => {
+      read = result.current.refreshOpenDeck(initial.id, {
+        signal: controller.signal,
+      });
+    });
+    await waitFor(() => expect(held).toBe(true));
+    controller.abort();
+
+    await act(async () => {
+      releaseRead();
+      await read;
+    });
+
+    await expect(read).resolves.toBeNull();
+    expect(result.current.getDeck(initial.id)?.title).toBe(initial.title);
+  });
+
   it("retries a remote read when a draft save settles during the read", async () => {
     const initial = {
       ...openDeck(),

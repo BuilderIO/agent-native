@@ -1387,12 +1387,22 @@ export default {
     drilldownHideSql: "隱藏 SQL",
     drilldownDownloadCsv: "下載 CSV",
     drilldownShowing: "顯示 {{total}} 筆記錄中的 {{shown}} 筆",
+    drilldownShowingLoaded:
+      "顯示已載入的 {{loaded}} 筆記錄中的 {{shown}} 筆；總數未知。",
+    drilldownCsvTruncatedUnknownTotal:
+      "無法確定匯出是否完整；此檔案包含已載入的 {{loaded}} 筆記錄中經過篩選的 {{exported}} 筆。",
     drilldownCsvTruncated:
       "匯出不完整：查詢符合 {{total}} 筆記錄，但僅載入前 {{loaded}} 筆；篩選後此檔案包含 {{exported}} 筆。",
     drilldownCountMismatch: "圖表顯示 {{chart}}，但符合的記錄有 {{total}} 筆",
     drilldownAggregateOnly: "此面板只有彙總列。與所點選資料點相符的列已標示。",
     drilldownNoRecords: "沒有相符的記錄",
+    drilldownNoRecordsIncomplete:
+      "未載入任何記錄。結果不完整，因此仍可能有相符的記錄。",
+    drilldownNoLoadedMatches:
+      "已載入的記錄中沒有相符項目，但完整結果可能包含未載入的記錄。",
     drilldownLoadFailed: "無法載入記錄",
+    drilldownOverByteCap:
+      "這些記錄將讀取超過 {{gib}} GiB 的資料，因此未載入。請縮小儀表板的篩選條件或日期範圍後再試一次。",
     filterSeries: "篩選",
     chartTimeRangeOverride: "覆寫此圖表的時間範圍",
     chartTimeRangeInherit: "儀表板範圍",
@@ -1712,6 +1722,10 @@ export default {
     catalogOpenSessions: "顯示包含 {{event}} 的工作階段",
     catalogAutomatic: "自動",
     catalogStoppedFiring: "已停止傳送",
+    catalogMadeIt: "已建立",
+    catalogUsedIt: "已使用",
+    catalogNoUsedIt:
+      "未定義「已使用」事件，因此「已建立但未使用」無法檢查 {{apps}} 的產出。",
     catalogPropertyKeys: "屬性鍵",
     catalogMoreKeys: "另外 {{count}} 個",
     catalogTruncated: "僅顯示最近出現的 {{count}} 個事件。",
@@ -1725,6 +1739,29 @@ export default {
     speedCoverageStarting: "速度會從現在開始針對頁面瀏覽進行測量。",
     speedFilterNeedsLab:
       "此連結包含速度篩選。請在設定中開啟「工作階段篩選」Lab 以套用此篩選。",
+    unusedOutputs: "已建立但未使用",
+    anyOutcome: "任何工作階段",
+    unusedSlidesDecks: "未使用的 Slides 幻燈片",
+    unusedSlidesRule:
+      "建立於至少 {{days}} 天前，且在 {{days}} 天內既未越過第一張投影片播放 {{seconds}} 秒以上、也未匯出的幻燈片。僅開啟幻燈片不算使用。",
+    unusedFilterNeedsLab:
+      "此連結包含「已建立但未使用」篩選。請在設定中開啟「工作階段篩選」Lab 以套用此篩選。",
+    outputCoverageSince:
+      "自 {{date}} 起追蹤產出；未使用的產出會在建立 {{days}} 天後顯示。",
+    outputCoverageStarting:
+      "產出會從現在開始追蹤；未使用的產出會在建立 {{days}} 天後顯示。",
+    openDeck: "開啟幻燈片",
+    moreOutputs: "另外 {{count}} 個",
+    deckCount: "{{count}} 個幻燈片",
+    deckCountSingular: "{{count}} 個幻燈片",
+    deckMadeOn: "幻燈片建立於 {{date}}",
+    outputPresentedOn: "播放於 {{date}}",
+    outputExportedOn: "匯出於 {{date}}",
+    outputUsedOn: "使用於 {{date}}",
+    outputUnused: "{{days}} 天內未使用",
+    outputOpen: "尚未使用；{{date}} 之後計為未使用",
+    outputUnmeasured: "未測量：部分事件儲存失敗",
+    outputsUnavailable: "無法載入產出。",
     slowRequestCount: "{{count}} 個緩慢請求",
     slowRequestCountSingular: "{{count}} 個緩慢請求",
     speedIncomplete: "速度資料不完整",
