@@ -62,6 +62,7 @@ import {
   type MotionNativeStyleIdentity,
 } from "@/components/design/motion-native-style-identity";
 import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
+import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -467,7 +468,8 @@ export function renderDesignEditorView({
 
   const {
     keyboardShortcutsOpen,
-    keyboardShortcutsInitialFocus,
+    nudgeAmountOpen,
+    handleCloseNudgeAmount,
     responsiveInteractActive,
     handleModeChange,
     handlePinToolToggle,
@@ -2264,14 +2266,20 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
-            initialFocus={keyboardShortcutsInitialFocus}
+            unavailableShortcutIds={getUnavailableShortcutIds({
+              annotateEnabled: annotateLab === "on",
+            })}
+          />
+        ) : null}
+
+        {!hostOwnsChrome ? (
+          <NudgeAmountDialog
+            open={nudgeAmountOpen}
+            onClose={handleCloseNudgeAmount}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>
               setEditorPreferences({ ...editorPreferences, nudge })
             }
-            unavailableShortcutIds={getUnavailableShortcutIds({
-              annotateEnabled: annotateLab === "on",
-            })}
           />
         ) : null}
 
