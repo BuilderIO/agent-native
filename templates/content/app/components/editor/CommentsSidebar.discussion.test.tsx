@@ -253,6 +253,10 @@ describe("the Discussion panel", () => {
       CommentThread,
       CommentThread,
     ];
+    const rootComment = textThread.comments.find(
+      (comment) => comment.id === "text-1-root",
+    );
+    if (!rootComment) throw new Error("The fixture thread has no comment");
     const withEntries = (...ids: string[]): CommentThread[] => [
       pageThread,
       {
@@ -260,7 +264,7 @@ describe("the Discussion panel", () => {
         comments: [
           ...textThread.comments,
           ...ids.map((id) => ({
-            ...textThread.comments[0],
+            ...rootComment,
             id,
             parent_id: "text-1-root",
             content: `Entry ${id}`,
