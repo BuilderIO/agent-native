@@ -1622,7 +1622,7 @@ export function useEditorSelectionAndStyles({
   );
 
   const handleFrameSelection = useCallback(() => {
-    if (!activeFile) return;
+    if (!activeFileId) return;
     return runFrameSelection({
       activeBreakpointWidthState,
       activeFile,
