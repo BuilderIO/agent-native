@@ -541,7 +541,7 @@ function invalidMethod(event: H3Event): { error: string } {
 }
 
 function createSessionHandler(
-  tools: RealtimeFunctionTool[],
+  getTools: () => RealtimeFunctionTool[],
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -669,7 +669,7 @@ function createSessionHandler(
                   },
                 },
               };
-        const packedTools = packRealtimeTools(sessionBase, tools);
+        const packedTools = packRealtimeTools(sessionBase, getTools());
         const session = realtimeSessionWithTools(sessionBase, packedTools);
 
         let upstream: Response;
@@ -887,7 +887,7 @@ function normalizeExecutionResult(
 }
 
 function createToolHandler(
-  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>,
+  getToolsByName: () => ReadonlyMap<string, RealtimeFunctionTool>,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -984,7 +984,7 @@ function createToolHandler(
           const expandedTools = grantDiscoveredRealtimeTools({
             request,
             result,
-            toolsByName,
+            toolsByName: getToolsByName(),
             initialAllowedNames: capability.initialNames,
             capability,
           });
@@ -1023,11 +1023,18 @@ export function mountRealtimeVoiceRoutes(
     throw new Error("mountRealtimeVoiceRoutes requires executeTool");
   }
 
-  const tools = buildRealtimeTools(actions);
-  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+  // Converting every action's schema is mount-time work a cold instance pays
+  // on its first framework request, voice or not, so the tools wait for the
+  // first voice request. They come from the actions as mounted.
+  const mounted = { ...actions };
+  let tools: RealtimeFunctionTool[] | undefined;
+  let toolsByName: ReadonlyMap<string, RealtimeFunctionTool> | undefined;
+  const getTools = () => (tools ??= buildRealtimeTools(mounted));
+  const getToolsByName = () =>
+    (toolsByName ??= new Map(getTools().map((tool) => [tool.name, tool])));
   const app = getH3App(nitroApp);
-  app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(tools, options));
-  app.use(REALTIME_VOICE_TOOL_PATH, createToolHandler(toolsByName, options));
+  app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(getTools, options));
+  app.use(REALTIME_VOICE_TOOL_PATH, createToolHandler(getToolsByName, options));
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,
     toolPath: REALTIME_VOICE_TOOL_PATH,

@@ -235,12 +235,29 @@ function clearChunkRecoveryCacheBuster(win: Window): void {
   );
 }
 
-function isModuleAssetLoadFailure(event: Event): boolean {
+// The app's own files are on the page's origin, or in an MCP App embed on the
+// app origin embedApp records, because the embed document runs on the host's.
+function isAppAssetHref(win: Window, href: string): boolean {
+  if (sameOriginHref(win, href)) return true;
+  const embed = (win as unknown as Record<string, unknown>)[
+    EXTERNAL_EMBED_WINDOW_KEY
+  ] as { origin?: unknown } | undefined;
+  // embedApp records it as a URL origin, so a prefix match is exact.
+  return (
+    typeof embed?.origin === "string" &&
+    embed.origin !== "" &&
+    href.startsWith(`${embed.origin}/`)
+  );
+}
+
+function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
   const target = event.target as
     | (EventTarget & {
         hasAttribute?: (name: string) => boolean;
         getAttribute?: (name: string) => string | null;
+        href?: string;
         rel?: string;
+        src?: string;
         tagName?: string;
         type?: string;
       })
@@ -248,11 +265,16 @@ function isModuleAssetLoadFailure(event: Event): boolean {
   const tagName = target?.tagName?.toUpperCase();
   if (tagName === "LINK" && target) {
     if (target.hasAttribute?.(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)) return false;
+    if (target.href && !isAppAssetHref(win, target.href)) return false;
     return /(?:^|\s)modulepreload(?:\s|$)/i.test(
       target.getAttribute?.("rel") ?? target.rel ?? "",
     );
   }
-  return tagName === "SCRIPT" && target?.type?.toLowerCase() === "module";
+  if (tagName !== "SCRIPT" || target?.type?.toLowerCase() !== "module") {
+    return false;
+  }
+  // Inline module scripts have no src and are the app's own.
+  return !target.src || isAppAssetHref(win, target.src);
 }
 
 function isAgentNativeDesktop(win: Window): boolean {
@@ -535,7 +557,10 @@ export function installRouteChunkRecovery(
   win.document.addEventListener(
     "error",
     (event) => {
-      if (isModuleAssetLoadFailure(event) && hasViteDevRecovery(win) !== true) {
+      if (
+        isModuleAssetLoadFailure(win, event) &&
+        hasViteDevRecovery(win) !== true
+      ) {
         reloadForStaleChunk(win);
       }
     },
