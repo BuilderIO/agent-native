@@ -4,10 +4,12 @@ import {
   MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
   MAX_RUN_LOOP_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { tagEngineCredentialOwner } from "./engine/credential-owner.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
+  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
   isResumableEngineError,
@@ -19,7 +21,6 @@ import {
 } from "./production-agent.js";
 import {
   AgentLoopAbortedError,
-  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   appendDurableContinuationContext,
   clientAbortReason,
   runAgentLoopDirectWithSoftTimeout,
@@ -484,9 +485,8 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     const autoContinueIndex = sentEvents.findIndex(
       (event) => event.type === "auto_continue",
     );
-    const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
     expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
     const continuationText = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
@@ -983,6 +983,36 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([
+    ["without", undefined],
+    ["with", 5_000],
+  ])(
+    "does not rerun the turn for a customer-key 429 %s Retry-After",
+    async (_label, retryAfterMs) => {
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+          retryAfterMs,
+        });
+      });
+      const opts = makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      );
+      tagEngineCredentialOwner(opts.engine, "customer");
+
+      await expect(
+        runAgentLoopDirectWithSoftTimeout(opts, 60_000, {
+          backgroundFunction: true,
+        }),
+      ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+      expect(attempts).toBe(1);
+    },
+  );
 
   it("keeps the provider rate-limit terminal when a 429 hits the loop-attempt cap", async () => {
     let attempts = 0;
@@ -1509,7 +1539,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
-  it("clears the streamed prefix when a resume emits only the suffix", async () => {
+  it("keeps the streamed prefix when a resume emits only the suffix", async () => {
     const sentEvents: AgentChatEvent[] = [];
     let attempts = 0;
 
@@ -1541,9 +1571,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
-    expect(sentEvents.filter((event) => event.type === "clear")).toHaveLength(
-      1,
-    );
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
     expect(
       sentEvents
         .filter(

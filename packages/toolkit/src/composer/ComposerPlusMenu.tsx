@@ -1,5 +1,5 @@
 import { useComposerRuntime } from "@assistant-ui/react";
-import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { uploadedSkillSlug } from "../skill-upload.js";
@@ -389,10 +389,10 @@ export function useComposerDefaultActions({
             <Button
               type="button"
               variant="ghost"
-              className="justify-start"
+              size="sm"
+              className="-ms-3 justify-self-start"
               onClick={resetSkillUpload}
             >
-              <IconArrowLeft className="rtl:-scale-x-100" />
               {t("agentChat.composer.skill.back", { defaultValue: "Back" })}
             </Button>
             <p className="break-words text-xs text-muted-foreground">

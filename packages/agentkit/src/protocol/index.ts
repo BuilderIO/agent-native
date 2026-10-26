@@ -71,6 +71,12 @@ export interface ReasoningPart {
   text: string;
   label?: string;
   visibility?: "visible" | "summary" | "hidden";
+  /**
+   * Tool calls made after this reasoning and before the next, in order. Saved
+   * history keeps no reasoning events, so this is what places reasoning
+   * between the calls it introduced.
+   */
+  toolCallIds?: string[];
 }
 
 export interface CitationPart {
@@ -1095,7 +1101,14 @@ export interface AgentQueuedMessage {
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
+  /**
+   * Send now was pressed while a run was working: `steering` sends it into
+   * that run at its next step, `after_reply` sends it as the next turn.
+   */
+  delivery?: AgentQueuedMessageDelivery;
 }
+
+export type AgentQueuedMessageDelivery = "steering" | "after_reply";
 
 export interface AgentSubmissionReference {
   type: "file" | "skill" | "mention" | "agent" | "custom-agent";
@@ -1140,7 +1153,15 @@ export interface ThreadMessageInput extends ThreadIdInput {
 }
 
 export interface SteerQueuedMessageInput extends ThreadMessageInput {
+  /** Stops the active run before sending. */
   interruptActiveRun?: boolean;
+  /** Sends into the active run at its next step instead of stopping it. */
+  deliverInActiveRun?: boolean;
+}
+
+export interface ReorderQueuedMessagesInput extends ThreadIdInput {
+  /** Every queued message id exactly once, in the new order. */
+  messageIds: readonly string[];
 }
 
 export interface CreateThreadInput {
@@ -1217,6 +1238,8 @@ export type QueueMessageResult =
 export type SteerQueuedMessageResult =
   | (AgentRunStartResult & { alreadySubmitted?: true })
   | { alreadyRemoved: true }
+  /** The message stays queued until the active run takes it or ends. */
+  | { delivery: AgentQueuedMessageDelivery }
   | void;
 
 export interface AgentTransportThreadOperations {
@@ -1276,6 +1299,14 @@ export interface AgentTransportThreadOperations {
   /** Move an existing queued message to the head of the durable queue. */
   moveQueuedMessageToTop?(
     input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  /**
+   * Replace the durable queue order. Rejects when `messageIds` no longer
+   * matches the queued set, so a stale client never reorders blind.
+   */
+  reorderQueuedMessages?(
+    input: ReorderQueuedMessagesInput,
     context?: AgentRequestContext,
   ): Promise<void>;
 }

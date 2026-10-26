@@ -1,4 +1,6 @@
 export {
+  isClientDraftThread,
+  markClientDraftThread,
   useChatThreads,
   useChatThreadList,
   notifyChatThreadsUpdated,

@@ -1559,6 +1559,9 @@ export interface ShareGeneralAccessRowProps {
   sentenceTrigger?: boolean;
   /** Resource-specific text added to the organization confirmation. */
   confirmDetail?: ReactNode;
+  /** Opens the access menu from elsewhere in the panel; leave unset otherwise. */
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
   /** Shown beside the access control, such as an advanced-access popover. */
   children?: ReactNode;
 }
@@ -1574,6 +1577,8 @@ export function ShareGeneralAccessRow({
   visibilityCopy,
   sentenceTrigger,
   confirmDetail,
+  menuOpen,
+  onMenuOpenChange,
   children,
 }: ShareGeneralAccessRowProps) {
   const t = useT();
@@ -1598,6 +1603,8 @@ export function ShareGeneralAccessRow({
           visibilityCopy={visibilityCopy}
           allowPublic={controller.policy.allowPublic}
           triggerRef={triggerRef}
+          open={menuOpen}
+          onOpenChange={onMenuOpenChange}
         />
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {!sentenceTrigger ? (
@@ -1624,6 +1631,8 @@ function VisibilitySelect(props: {
   allowPrivate?: boolean;
   allowPublic?: boolean;
   triggerRef?: Ref<HTMLButtonElement>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
   const allowPrivate = props.allowPrivate !== false;
@@ -1640,6 +1649,8 @@ function VisibilitySelect(props: {
       value={props.value}
       onValueChange={(v) => props.onChange(v as Visibility)}
       disabled={props.disabled}
+      open={props.open}
+      onOpenChange={props.onOpenChange}
     >
       <Select.Trigger
         ref={props.triggerRef}

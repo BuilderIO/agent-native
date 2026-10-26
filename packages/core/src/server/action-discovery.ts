@@ -721,6 +721,7 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       "list-model-providers",
       () => import("../agent/actions/list-model-providers.js"),
     ],
+    ["describe-models", () => import("../agent/actions/describe-models.js")],
     [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
@@ -814,6 +815,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     [
       "context-report",
       () => import("../agent/context-xray/actions/context-report.js"),
+    ],
+    [
+      "context-compact",
+      () => import("../agent/context-xray/actions/context-compact.js"),
+    ],
+    [
+      "context-compaction-get",
+      () => import("../agent/context-xray/actions/context-compaction-get.js"),
     ],
     [
       "get-localization-preference",

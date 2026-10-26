@@ -926,8 +926,91 @@ export function findInterruptedJournalEntryForCall(
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
+  const matches = journalStepEntriesForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+/**
+ * The entry with a durable step that this call's identity claims: the
+ * earliest-started unclaimed match among the interrupted entries and the
+ * finished ones the model never saw. A finished entry carries its own result,
+ * so identical calls pair with identical entries in the order they started;
+ * an interrupted one binds only when no other interrupted entry matches.
+ */
+export function findUnresolvedJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
+  const interrupted = journalStepEntriesForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const finished = journalStepEntriesForCall(
+    unseenFinished,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const earliest = [...interrupted, ...finished].reduce<
+    ToolCallJournalEntry | undefined
+  >(
+    (first, entry) =>
+      first === undefined || entry.order < first.order ? entry : first,
+    undefined,
+  );
+  const match =
+    earliest && (finished.includes(earliest) || interrupted.length === 1)
+      ? earliest
+      : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+/** Whether any interrupted or unseen finished entry could name this call's step. */
+export function hasJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): boolean {
+  return [journal.interrupted, unseenFinished].some(
+    (entries) =>
+      journalStepEntriesForCall(
+        entries,
+        toolName,
+        argumentsHash,
+        input,
+        undefined,
+      ).length > 0,
+  );
+}
+
+function journalStepEntriesForCall(
+  entries: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys: ReadonlySet<string> | undefined,
+): ToolCallJournalEntry[] {
   const inputFingerprint = toolCallInputFingerprint(input);
-  const matches = journal.interrupted.filter((entry) => {
+  return entries.filter((entry) => {
     if (
       entry.tool !== toolName ||
       !entry.executionStepId ||
@@ -946,9 +1029,6 @@ export function findInterruptedJournalEntryForCall(
       inputSignature(entry.input) === inputSignature(input)
     );
   });
-  const match = matches.length === 1 ? matches[0] : undefined;
-  if (match) consumedKeys?.add(match.key);
-  return match;
 }
 
 export function findInterruptedLegacyJournalEntryForCall(

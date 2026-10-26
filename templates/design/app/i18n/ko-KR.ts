@@ -1889,8 +1889,12 @@ export default {
         small: "작은 이동",
         big: "큰 이동",
         unit: "px",
-        description:
-          "화살표 키는 작은 간격으로, Shift 화살표 키는 큰 간격으로 이동합니다. 오토 레이아웃 프레임 안에서는 화살표 키가 레이어 순서를 변경합니다.",
+        close: "이동 간격 닫기",
+        done: "완료",
+        smallDescription:
+          "화살표 키를 사용할 때 오브젝트가 이동하는 픽셀 수를 설정합니다.",
+        bigDescription:
+          "Shift + 화살표 키를 사용할 때 오브젝트가 이동하는 픽셀 수를 설정합니다.",
       },
       keys: {
         or: "또는",
