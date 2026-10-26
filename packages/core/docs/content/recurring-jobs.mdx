@@ -268,7 +268,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-A build that does not list the label skips those files without reading or writing them, which lets two deployments on one database split their jobs. The option only widens which files this app picks up. The scheduler lease, run history, and health rows stay under `appId`, so deployments that share a database still take turns on one lease. If the app queues **Run now** for those jobs, pass the same list as `additionalJobAppIds` to `queueAutomationRunNow`.
+A build that does not list the label skips those files without claiming, running, or writing them, which lets two deployments on one database split their jobs. The option only widens which files this app picks up. The scheduler lease, run history, and health rows stay under `appId`, so deployments that share a database still take turns on one lease. If the app queues **Run now** for those jobs, pass the same list as `additionalJobAppIds` to `queueAutomationRunNow`.
 
 ## Debugging a job {#debugging}
 

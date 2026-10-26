@@ -1,5 +1,5 @@
 import { IconCheck, IconChevronLeft, IconSelector } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +26,35 @@ import type { ProviderOption } from "../../../../server/workflow-host/option-lis
 import type { PickerKind } from "./picker-kinds";
 import { usePickerScope } from "./picker-scope";
 import { usePickerStrings } from "./picker-strings";
-import { useProviderOptions, type ListFailure } from "./use-provider-options";
+import {
+  useProviderOptions,
+  type ListFailure,
+  type ProviderOptionsState,
+} from "./use-provider-options";
+
+/** A typed query is sent to the provider after this long without a keystroke. */
+const SEARCH_DEBOUNCE_MS = 250;
+
+/** A value that follows its source once the source has been still for `delayMs`. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
+}
+
+/** What the list shows while typed text is still settling: the last search does not answer it. */
+const SETTLING: ProviderOptionsState = {
+  options: undefined,
+  loading: true,
+  failure: null,
+  retry: () => {},
+  hasMore: false,
+  loadMore: () => {},
+  loadingMore: false,
+};
 
 function matches(option: ProviderOption, query: string): boolean {
   const needle = query.toLowerCase();
@@ -121,27 +149,41 @@ function Combobox({
   // Closed, the trigger names what is stored, so it reads the list the value belongs to.
   const parent = open ? picked : parentOf(kind, value);
   const choosingParent = kind.parentResource !== undefined && !parent;
-  const listed = useProviderOptions({
+  const resource =
+    choosingParent && kind.parentResource ? kind.parentResource : kind.resource;
+  const listParent = choosingParent ? undefined : parent;
+  const base = useProviderOptions({
     factoryId,
     kind,
-    resource:
-      choosingParent && kind.parentResource
-        ? kind.parentResource
-        : kind.resource,
-    parent: choosingParent ? undefined : parent,
+    resource,
+    parent: listParent,
     enabled: open,
   });
 
+  // A list with more pages cannot be filtered here, so the provider is asked.
   const typed = query.trim();
-  const shown = (listed.options ?? []).filter(
-    (option) => !typed || matches(option, typed),
-  );
+  const searching = typed !== "" && base.hasMore;
+  const search = useDebounced(typed, SEARCH_DEBOUNCE_MS);
+  const settling = searching && search !== typed;
+  const found = useProviderOptions({
+    factoryId,
+    kind,
+    resource,
+    parent: listParent,
+    search,
+    enabled: open && searching && !settling,
+  });
+  const listed = settling ? SETTLING : searching ? found : base;
+
+  const shown = searching
+    ? (listed.options ?? [])
+    : (base.options ?? []).filter((option) => !typed || matches(option, typed));
   const offersTyped = typed !== "" && !shown.some((o) => o.value === typed);
   const empty =
     !listed.loading && !listed.failure && shown.length === 0 && !offersTyped;
   const storedLabel = choosingParent
     ? undefined
-    : listed.options?.find((option) => option.value === value)?.label;
+    : base.options?.find((option) => option.value === value)?.label;
 
   const choose = (next: string) => {
     onChange(next);

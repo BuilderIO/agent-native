@@ -253,7 +253,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-Una compilación que no incluya la etiqueta omite esos archivos sin leerlos ni escribir en ellos, lo que permite que dos implementaciones sobre una misma base de datos repartan sus trabajos. La opción solo amplía qué archivos recoge esta aplicación. El lease del planificador, el historial de ejecuciones y las filas de salud siguen bajo `appId`, así que las implementaciones que comparten una base de datos siguen turnándose con un mismo lease. Si la aplicación pone en cola **Run now** para esos trabajos, pase la misma lista como `additionalJobAppIds` a `queueAutomationRunNow`.
+Una compilación que no incluya la etiqueta omite esos archivos sin reclamarlos, ejecutarlos ni escribir en ellos, lo que permite que dos implementaciones sobre una misma base de datos repartan sus trabajos. La opción solo amplía qué archivos recoge esta aplicación. El lease del planificador, el historial de ejecuciones y las filas de salud siguen bajo `appId`, así que las implementaciones que comparten una base de datos siguen turnándose con un mismo lease. Si la aplicación pone en cola **Run now** para esos trabajos, pase la misma lista como `additionalJobAppIds` a `queueAutomationRunNow`.
 
 ## Depurar un trabajo {#debugging}
 

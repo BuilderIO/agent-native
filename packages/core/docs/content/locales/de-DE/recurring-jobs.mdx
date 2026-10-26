@@ -245,7 +245,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-Ein Build, der das Label nicht aufführt, überspringt diese Dateien, ohne sie zu lesen oder zu schreiben. So können zwei Deployments auf einer Datenbank ihre Jobs aufteilen. Die Option erweitert nur, welche Dateien diese App aufnimmt. Planer-Lease, Laufverlauf und Health-Zeilen bleiben unter `appId`, daher wechseln sich Deployments, die eine Datenbank teilen, weiterhin bei derselben Lease ab. Wenn die App **Run now** für diese Jobs in die Warteschlange stellt, übergeben Sie dieselbe Liste als `additionalJobAppIds` an `queueAutomationRunNow`.
+Ein Build, der das Label nicht aufführt, überspringt diese Dateien, ohne sie zu beanspruchen, auszuführen oder zu schreiben. So können zwei Deployments auf einer Datenbank ihre Jobs aufteilen. Die Option erweitert nur, welche Dateien diese App aufnimmt. Planer-Lease, Laufverlauf und Health-Zeilen bleiben unter `appId`, daher wechseln sich Deployments, die eine Datenbank teilen, weiterhin bei derselben Lease ab. Wenn die App **Run now** für diese Jobs in die Warteschlange stellt, übergeben Sie dieselbe Liste als `additionalJobAppIds` an `queueAutomationRunNow`.
 
 ## Debuggen eines Jobs {#debugging}
 

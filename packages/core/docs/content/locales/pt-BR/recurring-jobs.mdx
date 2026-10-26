@@ -252,7 +252,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-Um build que não inclua o rótulo ignora esses arquivos sem lê-los nem gravá-los, o que permite que duas implantações em um mesmo banco de dados dividam seus trabalhos. A opção apenas amplia quais arquivos este aplicativo processa. O lease do agendador, o histórico de execuções e as linhas de saúde permanecem sob `appId`, então as implantações que compartilham um banco de dados continuam se revezando em um mesmo lease. Se o aplicativo enfileirar o **Run now** para esses trabalhos, passe a mesma lista como `additionalJobAppIds` para `queueAutomationRunNow`.
+Um build que não inclua o rótulo ignora esses arquivos sem reivindicá-los, executá-los nem gravá-los, o que permite que duas implantações em um mesmo banco de dados dividam seus trabalhos. A opção apenas amplia quais arquivos este aplicativo processa. O lease do agendador, o histórico de execuções e as linhas de saúde permanecem sob `appId`, então as implantações que compartilham um banco de dados continuam se revezando em um mesmo lease. Se o aplicativo enfileirar o **Run now** para esses trabalhos, passe a mesma lista como `additionalJobAppIds` para `queueAutomationRunNow`.
 
 ## Depurando um trabalho {#debugging}
 

@@ -242,7 +242,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-未列出該標籤的建置會略過這些檔案，既不讀取也不寫入。如此一來，共用同一個資料庫的兩個部署便能拆分各自的作業。此選項只會擴大本應用程式納入的檔案範圍。調度程式的 lease、執行歷史和健康狀態資料列仍保留在 `appId` 下，因此共用同一個資料庫的部署仍會輪流持有同一個 lease。如果應用程式將這些作業的 **Run now** 排入佇列，請將同一份清單以 `additionalJobAppIds` 形式傳給 `queueAutomationRunNow`。
+未列出該標籤的建置會略過這些檔案，既不認領、執行，也不寫入。如此一來，共用同一個資料庫的兩個部署便能拆分各自的作業。此選項只會擴大本應用程式納入的檔案範圍。調度程式的 lease、執行歷史和健康狀態資料列仍保留在 `appId` 下，因此共用同一個資料庫的部署仍會輪流持有同一個 lease。如果應用程式將這些作業的 **Run now** 排入佇列，請將同一份清單以 `additionalJobAppIds` 形式傳給 `queueAutomationRunNow`。
 
 ## 偵錯作業 {#debugging}
 

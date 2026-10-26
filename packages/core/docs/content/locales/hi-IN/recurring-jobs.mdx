@@ -243,7 +243,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-जो build यह लेबल सूचीबद्ध नहीं करता, वह उन फ़ाइलों को बिना पढ़े या लिखे छोड़ देता है, जिससे एक ही database पर दो deployments अपने jobs बाँट सकते हैं। यह विकल्प केवल यह बढ़ाता है कि यह ऐप कौन-सी फ़ाइलें उठाएगा। शेड्यूलर का lease, run history और health rows `appId` के अंतर्गत ही रहते हैं, इसलिए जो deployments एक ही database साझा करते हैं, वे अब भी एक ही lease पर बारी-बारी से चलते हैं। यदि ऐप इन jobs के लिए **Run now** को queue करता है, तो वही सूची `additionalJobAppIds` के रूप में `queueAutomationRunNow` को दें।
+जो build यह लेबल सूचीबद्ध नहीं करता, वह उन फ़ाइलों को बिना claim किए, चलाए या लिखे छोड़ देता है, जिससे एक ही database पर दो deployments अपने jobs बाँट सकते हैं। यह विकल्प केवल यह बढ़ाता है कि यह ऐप कौन-सी फ़ाइलें उठाएगा। शेड्यूलर का lease, run history और health rows `appId` के अंतर्गत ही रहते हैं, इसलिए जो deployments एक ही database साझा करते हैं, वे अब भी एक ही lease पर बारी-बारी से चलते हैं। यदि ऐप इन jobs के लिए **Run now** को queue करता है, तो वही सूची `additionalJobAppIds` के रूप में `queueAutomationRunNow` को दें।
 
 ## किसी कार्य को डिबग करना {#debugging}
 

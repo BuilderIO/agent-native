@@ -254,7 +254,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-Un build qui n'inclut pas l'étiquette ignore ces fichiers sans les lire ni les écrire, ce qui permet à deux déploiements sur une même base de données de répartir leurs tâches. L'option n'élargit que les fichiers que cette application récupère. Le lease du planificateur, l'historique des exécutions et les lignes de santé restent sous `appId`, de sorte que les déploiements qui partagent une base de données se relaient toujours sur un même lease. Si l'application met **Run now** en file d'attente pour ces tâches, transmettez la même liste en tant que `additionalJobAppIds` à `queueAutomationRunNow`.
+Un build qui n'inclut pas l'étiquette ignore ces fichiers sans les réclamer, les exécuter ni les écrire, ce qui permet à deux déploiements sur une même base de données de répartir leurs tâches. L'option n'élargit que les fichiers que cette application récupère. Le lease du planificateur, l'historique des exécutions et les lignes de santé restent sous `appId`, de sorte que les déploiements qui partagent une base de données se relaient toujours sur un même lease. Si l'application met **Run now** en file d'attente pour ces tâches, transmettez la même liste en tant que `additionalJobAppIds` à `queueAutomationRunNow`.
 
 ## Débogage d'une tâche {#debugging}
 

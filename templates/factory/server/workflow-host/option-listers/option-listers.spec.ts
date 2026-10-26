@@ -309,6 +309,74 @@ describe("github repositories", () => {
     expect(limited.code).toBe("rate_limited");
   });
 
+  it("types GitHub's primary and secondary rate limits, sent as a 403, as rate_limited", async () => {
+    const primary = await failureOf(
+      githubRepositories.list(
+        serving(
+          answer(
+            { message: "API rate limit exceeded for user ID 1." },
+            { status: 403 },
+          ),
+        ).http,
+        {},
+      ),
+    );
+    expect(primary).toMatchObject({
+      code: "rate_limited",
+      status: 403,
+      retryable: true,
+    });
+    const secondary = await failureOf(
+      githubRepositories.list(
+        serving(
+          answer(
+            {
+              message:
+                "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+            },
+            { status: 403, retryAfterSeconds: 60 },
+          ),
+        ).http,
+        {},
+      ),
+    );
+    expect(secondary).toMatchObject({
+      code: "rate_limited",
+      status: 403,
+      retryAfterSeconds: 60,
+    });
+    const hintOnly = await failureOf(
+      githubRepositories.list(
+        serving(answer({}, { status: 403, retryAfterSeconds: 0 })).http,
+        {},
+      ),
+    );
+    expect(hintOnly).toMatchObject({
+      code: "rate_limited",
+      retryAfterSeconds: 0,
+    });
+  });
+
+  it("keeps a plain 403 and a 401 a refused credential", async () => {
+    for (const [status, message] of [
+      [403, "Bad credentials"],
+      [403, "Resource not accessible by personal access token"],
+      [401, "Bad credentials"],
+    ] as const) {
+      const error = await failureOf(
+        githubRepositories.list(
+          serving(answer({ message }, { status })).http,
+          {},
+        ),
+      );
+      expect(error).toMatchObject({
+        code: "credential_missing",
+        reason: "refused",
+        status,
+      });
+    }
+  });
+
   it("refuses a cursor that is not a page number and a repository with no owner", async () => {
     await expect(
       githubRepositories.list(serving().http, { cursor: "abc" }),

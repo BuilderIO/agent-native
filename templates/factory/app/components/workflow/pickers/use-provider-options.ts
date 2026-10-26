@@ -44,6 +44,32 @@ function listFailure(error: unknown): ListFailure {
   };
 }
 
+/** The `list-provider-options` parameters for one read; the first page and every later one differ only by `cursor`. */
+export function providerOptionsRequest({
+  factoryId,
+  provider,
+  resource,
+  parent,
+  search,
+  cursor,
+}: {
+  factoryId: string;
+  provider: string;
+  resource: string;
+  parent?: string;
+  search?: string;
+  cursor?: string;
+}): Record<string, string> {
+  return {
+    factoryId,
+    provider,
+    resource,
+    ...(parent ? { parent } : {}),
+    ...(search ? { search } : {}),
+    ...(cursor ? { cursor } : {}),
+  };
+}
+
 export interface ProviderOptionsState {
   /** Every page read so far; undefined until the first lands. */
   options: readonly ProviderOption[] | undefined;
@@ -58,26 +84,29 @@ export interface ProviderOptionsState {
 /**
  * One provider list, read through `list-provider-options` once `enabled`.
  * The first page is a cached action query; later pages are read on request and
- * dropped when the list changes.
+ * dropped when the list changes. With `search` the server reads on until it has
+ * matches, so a resource on a later page is found without paging to it.
  */
 export function useProviderOptions({
   factoryId,
   kind,
   resource,
   parent,
+  search,
   enabled,
 }: {
   factoryId: string;
   kind: PickerKind;
   resource: PickerResource;
   parent?: string;
+  search?: string;
   enabled: boolean;
 }): ProviderOptionsState {
   const { provider } = kind;
-  const listKey = `${factoryId}/${provider}/${resource}/${parent ?? ""}`;
+  const listKey = `${factoryId}/${provider}/${resource}/${parent ?? ""}/${search ?? ""}`;
   const first = useActionQuery<OptionsPage>(
     "list-provider-options",
-    { factoryId, provider, resource, ...(parent ? { parent } : {}) },
+    providerOptionsRequest({ factoryId, provider, resource, parent, search }),
     { enabled, retry: false, staleTime: LIST_STALE_MS },
   );
 
@@ -112,13 +141,14 @@ export function useProviderOptions({
     setMore((previous) => ({ ...previous, loading: true, failure: null }));
     callAction<OptionsPage>(
       "list-provider-options",
-      {
+      providerOptionsRequest({
         factoryId,
         provider,
         resource,
-        ...(parent ? { parent } : {}),
+        parent,
+        search,
         cursor: nextCursor,
-      },
+      }),
       { method: "GET" },
     ).then(
       (page) =>
@@ -134,7 +164,7 @@ export function useProviderOptions({
             : previous,
         ),
     );
-  }, [nextCursor, factoryId, provider, resource, parent, listKey]);
+  }, [nextCursor, factoryId, provider, resource, parent, search, listKey]);
 
   const { refetch } = first;
   const pageFailed = current?.failure != null;

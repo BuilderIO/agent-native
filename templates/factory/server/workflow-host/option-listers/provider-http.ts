@@ -162,6 +162,13 @@ export function createProviderHttp(
   };
 }
 
+/** GitHub answers a quota limit with a 403, so only the body's wording or a retry hint tells it from a refused credential. */
+function namesRateLimit(json: unknown): boolean {
+  if (typeof json !== "object" || json === null) return false;
+  const { message } = json as { message?: unknown };
+  return typeof message === "string" && /rate limit/i.test(message);
+}
+
 /**
  * The parsed body of a successful answer; every other answer is a typed
  * failure. `bodyFailure` sees the body first, for a provider that reports an
@@ -182,7 +189,12 @@ export function expectJson(
       { status },
     );
   }
-  if (status === 429) {
+  if (
+    status === 429 ||
+    (status === 403 &&
+      (response.retryAfterSeconds !== undefined ||
+        namesRateLimit(response.json)))
+  ) {
     throw rateLimited(provider, response.retryAfterSeconds, status);
   }
   if (status === 401 || status === 403) {

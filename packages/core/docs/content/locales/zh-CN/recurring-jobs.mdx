@@ -242,7 +242,7 @@ export default createAgentChatPlugin({
 });
 ```
 
-未列出该标签的构建会跳过这些文件，既不读取也不写入。这样，共用同一数据库的两个部署便能拆分各自的作业。此选项只会扩大本应用拾取的文件范围。调度程序的 lease、运行历史和健康记录行仍保留在 `appId` 下，因此共用同一数据库的部署仍会轮流持有同一个 lease。如果应用将这些作业的 **Run now** 排队，请将同一列表以 `additionalJobAppIds` 形式传给 `queueAutomationRunNow`。
+未列出该标签的构建会跳过这些文件，既不认领、运行，也不写入。这样，共用同一数据库的两个部署便能拆分各自的作业。此选项只会扩大本应用拾取的文件范围。调度程序的 lease、运行历史和健康记录行仍保留在 `appId` 下，因此共用同一数据库的部署仍会轮流持有同一个 lease。如果应用将这些作业的 **Run now** 排队，请将同一列表以 `additionalJobAppIds` 形式传给 `queueAutomationRunNow`。
 
 ## 调试作业 {#debugging}
 
