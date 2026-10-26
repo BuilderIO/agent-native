@@ -309,6 +309,7 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  getScopedTransactionDbExec: () => undefined,
   withDbExec: (_exec: unknown, fn: () => unknown) => fn(),
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));

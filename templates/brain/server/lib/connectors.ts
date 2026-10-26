@@ -36,6 +36,7 @@ import {
 } from "./zoom-governance.js";
 import {
   ZoomHttpError,
+  ZoomTimeoutError,
   downloadZoomTranscript,
   getZoomMeetingRecordings,
   isReadyZoomTranscript,
@@ -210,6 +211,7 @@ interface ZoomSyncCursor {
   from?: string;
   filterKey?: string | null;
   lookbackDays?: number;
+  consecutiveTimeouts?: number;
   retry?: RetryCursor;
   transientRetryAt?: string;
   lastRunAt?: string;
@@ -3035,6 +3037,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
   }
 }
 
+const ZOOM_TIMEOUT_RETRY_MINUTES = [5, 10, 20, 40];
 const ZOOM_MAX_LOOKBACK_DAYS = 30;
 const ZOOM_DEFAULT_LOOKBACK_DAYS = 7;
 const ZOOM_DIAGNOSTIC_LIMIT = 50;
@@ -3431,10 +3434,26 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   } catch (err) {
     const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
+    const consecutiveTimeouts =
+      err instanceof ZoomTimeoutError
+        ? Math.min(
+            (cursor.consecutiveTimeouts ?? 0) + 1,
+            ZOOM_TIMEOUT_RETRY_MINUTES.length + 1,
+          )
+        : undefined;
+    const timeoutRetryMinutes = consecutiveTimeouts
+      ? ZOOM_TIMEOUT_RETRY_MINUTES[consecutiveTimeouts - 1]
+      : undefined;
     const nextCursor: ZoomSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "zoom") : cursor.retry,
-      transientRetryAt: transientRetryAt(err),
+      consecutiveTimeouts,
+      transientRetryAt:
+        timeoutRetryMinutes !== undefined
+          ? new Date(
+              Date.now() + timeoutRetryMinutes * 60 * 1_000,
+            ).toISOString()
+          : transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;

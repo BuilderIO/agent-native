@@ -8,6 +8,12 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 
 export interface ComposerModeOption {
@@ -15,7 +21,7 @@ export interface ComposerModeOption {
   value: string;
   /** Localized visible label supplied by the host. */
   label: string;
-  /** Optional localized explanation shown in the menu. */
+  /** Optional localized explanation, shown as the option's tooltip. */
   description?: string;
   /** Optional host-provided icon. */
   icon?: ReactNode;
@@ -53,7 +59,7 @@ export function ComposerModePicker({
           aria-label={`${ariaLabel}: ${selectedLabel}`}
           data-agent-composer-slot="mode-picker"
           className={cn(
-            "agent-composer-mode-picker inline-flex h-7 max-w-48 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "agent-composer-mode-picker inline-flex h-6 max-w-48 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             className,
           )}
         >
@@ -61,7 +67,7 @@ export function ComposerModePicker({
           <span className="min-w-0 truncate">{selectedLabel}</span>
           <IconChevronDown
             aria-hidden="true"
-            className="size-3 shrink-0 opacity-60"
+            className="size-4 shrink-0 opacity-60"
           />
         </button>
       </DropdownMenuTrigger>
@@ -71,27 +77,39 @@ export function ComposerModePicker({
         collisionPadding={8}
         className="agent-composer-mode-picker-menu min-w-48"
       >
-        <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
-          {options.map((option) => (
-            <DropdownMenuRadioItem
-              key={option.value}
-              value={option.value}
-              indicator="check"
-              disabled={option.disabled}
-              className="agent-composer-mode-picker-option pe-3"
-            >
-              {option.icon}
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{option.label}</span>
-                {option.description ? (
-                  <span className="mt-0.5 block whitespace-normal text-xs text-muted-foreground">
-                    {option.description}
+        {/* Hosts may render this picker outside a TooltipProvider. */}
+        <TooltipProvider>
+          <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+            {options.map((option) => {
+              const item = (
+                <DropdownMenuRadioItem
+                  key={option.value}
+                  value={option.value}
+                  indicator="check"
+                  {...(option.disabled === undefined
+                    ? {}
+                    : { disabled: option.disabled })}
+                  className="agent-composer-mode-picker-option pe-3"
+                >
+                  {option.icon}
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
                   </span>
-                ) : null}
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+                </DropdownMenuRadioItem>
+              );
+              return option.description ? (
+                <Tooltip key={option.value}>
+                  <TooltipTrigger asChild>{item}</TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-xs">
+                    {option.description}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                item
+              );
+            })}
+          </DropdownMenuRadioGroup>
+        </TooltipProvider>
       </DropdownMenuContent>
     </DropdownMenu>
   );

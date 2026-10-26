@@ -2,12 +2,13 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec, withDbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import { getFeatureFlagRulesStrict } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -22,6 +23,8 @@ const WRITER = "feature-flag:content.live-body-writer";
 let getDb: typeof import("../db/index.js").getDb;
 let schema: typeof import("../db/schema.js");
 let gate: typeof import("./live-body-writer.js");
+let bodyRevision: typeof import("./document-body-revision.js");
+let collab: typeof import("@agent-native/core/collab");
 
 function rules(targets: { emails?: string[]; orgIds?: string[] }) {
   return {
@@ -49,6 +52,7 @@ async function insertPage(
     switched?: boolean;
     bodyRevision?: number;
     collabBodyRevision?: number | null;
+    liveCopyVersion?: number | null;
     orgId?: string | null;
   } = {},
 ) {
@@ -65,9 +69,38 @@ async function insertPage(
       collabBodyRevision:
         page.collabBodyRevision === undefined ? 3 : page.collabBodyRevision,
       liveBodySwitchedAt: page.switched === false ? null : now,
+      liveCopyVersion:
+        page.liveCopyVersion === undefined ? 0 : page.liveCopyVersion,
       createdAt: now,
       updatedAt: now,
     });
+  // Its collab doc, created at version 0.
+  await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
+}
+
+// A tab's live-copy commit, which moves the page's marker and its collab
+// doc's version together.
+async function commitThroughLiveCopy(id: string) {
+  await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
+  await getDb()
+    .update(schema.documents)
+    .set({ liveCopyVersion: 1 })
+    .where(eq(schema.documents.id, id));
+}
+
+// The Content database's executor, with `commit` landing right after its
+// first statement.
+function execCommittingAfterFirstRead(commit: () => Promise<void>): DbExec {
+  const exec = getDbExec();
+  let reads = 0;
+  return {
+    ...exec,
+    execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+      const result = await exec.execute(query);
+      if (reads++ === 0) await commit();
+      return result;
+    },
+  } as DbExec;
 }
 
 beforeAll(async () => {
@@ -83,11 +116,37 @@ beforeAll(async () => {
     await import("../../shared/feature-flags.js");
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
   gate = await import("./live-body-writer.js");
+  bodyRevision = await import("./document-body-revision.js");
+  collab = await import("@agent-native/core/collab");
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
 }, 60_000);
+
+async function joinOrg(email: string, orgId: string) {
+  await getDbExec().execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: [`${orgId}:${email}`, orgId, email, "owner", Date.now()],
+  });
+}
 
 beforeEach(async () => {
   await getDb().delete(schema.documents);
+  await getDbExec()
+    .execute("DELETE FROM _collab_docs")
+    .catch((error) => {
+      // The first test runs before core creates the table.
+      if (!/_collab_docs" does not exist/.test(String(error))) throw error;
+    });
+  await getDbExec().execute("DELETE FROM org_members");
+  // Global rules first: the settings table is created by its first write.
   await setFlags({});
+  await getDbExec().execute("DELETE FROM public.settings WHERE key LIKE 'o:%'");
 });
 
 afterAll(() => {
@@ -316,11 +375,47 @@ describe("live-body writer gate", () => {
   it("follows an organization rollout for the page's organization", async () => {
     await insertPage("org-page", { orgId: ORG });
     await insertPage("personal-page");
+    await joinOrg(OWNER, ORG);
     await putOrgSetting(ORG, SHADOW, rules({ orgIds: [ORG] }));
     await putOrgSetting(ORG, WRITER, rules({ orgIds: [ORG] }));
 
     await expect(gate.liveBodyWriterGate("org-page")).resolves.toEqual({
       writePath: "live_copy",
+    });
+    await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "flag_off",
+    });
+  });
+
+  it("switches an owner's personal pages on their own enablement in one of their orgs, whoever is calling", async () => {
+    await insertPage("personal-page");
+    await joinOrg(OWNER, ORG);
+    await joinOrg(COLLABORATOR, ORG);
+    // What enable-for-current-user stores for a manager whose active org is ORG.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [OWNER] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [OWNER] }));
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR, orgId: ORG }, () =>
+        gate.liveBodyWriterGate("personal-page"),
+      ),
+    ).resolves.toEqual({ writePath: "live_copy" });
+
+    // A collaborator's own enablement does not switch the owner's page.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [COLLABORATOR] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [COLLABORATOR] }));
+    await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "flag_off",
+    });
+
+    // Nor does the owner's listing in an org they have left.
+    await putOrgSetting(ORG, SHADOW, rules({ emails: [OWNER] }));
+    await putOrgSetting(ORG, WRITER, rules({ emails: [OWNER] }));
+    await getDbExec().execute({
+      sql: "UPDATE org_members SET federation_removal_pending_at = ? WHERE email = ?",
+      args: [Date.now(), OWNER],
     });
     await expect(gate.liveBodyWriterGate("personal-page")).resolves.toEqual({
       writePath: "legacy",
@@ -344,6 +439,72 @@ describe("live-body writer gate", () => {
       writePath: "legacy",
       reason: "live_copy_behind",
     });
+  });
+
+  it("keeps a switched page on the legacy path once its live copy has moved past the stored body", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("moved", { liveCopyVersion: 0 });
+    await insertPage("never-derived", { liveCopyVersion: null });
+    // An editor update committed on main's path while the flags were off.
+    await collab.saveYDocState(
+      "moved",
+      Y.encodeStateAsUpdate(new Y.Doc()),
+      "Body",
+    );
+
+    await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await expect(gate.liveBodyWriterGate("never-derived")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+    await getDbExec().execute({
+      sql: "DELETE FROM _collab_docs WHERE doc_id = ?",
+      args: ["moved"],
+    });
+    await expect(gate.liveBodyWriterGate("moved")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "stored_body_behind",
+    });
+  });
+
+  it("answers for many pages as the gate does for each, counting a page that commits or switches between its reads", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("committing");
+    await insertPage("behind", { collabBodyRevision: 2 });
+    await insertPage("unswitched", { switched: false });
+    await insertPage("switching", { switched: false });
+
+    const ids = await gate.liveBodyWriterPageIds(
+      ["committing", "behind", "unswitched", "switching", "missing"],
+      {
+        context: {
+          kind: "transaction",
+          executor: execCommittingAfterFirstRead(async () => {
+            await commitThroughLiveCopy("committing");
+            await getDb()
+              .update(schema.documents)
+              .set({ liveBodySwitchedAt: new Date().toISOString() })
+              .where(eq(schema.documents.id, "switching"));
+          }),
+        },
+      },
+    );
+
+    expect([...ids].sort()).toEqual(["committing", "switching"]);
+    for (const id of ids) {
+      await expect(gate.liveBodyWriterGate(id)).resolves.toEqual({
+        writePath: "live_copy",
+      });
+    }
   });
 
   it("fails loudly on malformed flag state for a switched page instead of reading it as off", async () => {
@@ -392,7 +553,7 @@ describe("live-body writer gate", () => {
 
       await getDb().transaction(async (tx) => {
         const [row] = await tx
-          .select(gate.liveBodyWriterPageColumns)
+          .select(gate.liveBodyWriterPageColumns())
           .from(schema.documents)
           .where(eq(schema.documents.id, "switched"))
           .for("update");
@@ -430,6 +591,273 @@ describe("live-body writer gate", () => {
           });
         }
       });
+    });
+  });
+});
+
+describe("lockLegacyBodyWrites", () => {
+  const WRITER_FLAGS = {
+    shadow: { emails: [OWNER] },
+    writer: { emails: [OWNER] },
+  };
+
+  async function body(id: string) {
+    const [row] = await getDb()
+      .select({
+        content: schema.documents.content,
+        bodyRevision: schema.documents.bodyRevision,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    return row;
+  }
+
+  async function write(
+    ids: string[],
+    content: string,
+    options: {
+      operation: string;
+      routed?: boolean;
+      instead?: string;
+    } = {
+      operation: "test-writer",
+    },
+  ) {
+    await getDb().transaction(async (tx) => {
+      const legacy = await bodyRevision.lockLegacyBodyWrites(tx, ids, {
+        ...options,
+        content,
+      });
+      for (const id of ids) {
+        await tx
+          .update(schema.documents)
+          .set({ content, bodyRevision: legacy.bodyRevision(content) })
+          .where(eq(schema.documents.id, id));
+      }
+    });
+  }
+
+  it("bumps a legacy page's body revision only when its body changes", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("legacy", { switched: false });
+
+    await write(["legacy"], "New body");
+    expect(await body("legacy")).toEqual({
+      content: "New body",
+      bodyRevision: 4,
+    });
+    await write(["legacy"], "New body");
+    expect((await body("legacy")).bodyRevision).toBe(4);
+  });
+
+  it("refuses every page of a write when one takes body writes through its live copy", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("legacy", { switched: false });
+    await insertPage("switched");
+
+    const refused = write(["legacy", "switched"], "New body", {
+      operation: "test-writer",
+      instead: "Write it some other way.",
+    });
+
+    await expect(refused).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "switched", operation: "test-writer" },
+      message: expect.stringMatching(
+        /Retrying won't change that\. Write it some other way\.$/,
+      ),
+    });
+    await expect(refused.catch((error) => error)).resolves.toSatisfy(
+      bodyRevision.isUnsupportedBodyWriter,
+    );
+    expect(await body("legacy")).toEqual({ content: "Body", bodyRevision: 3 });
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+  });
+
+  it("refuses a routed writer's page that switched in flight as retryable", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+
+    await expect(
+      write(["switched"], "New body", {
+        operation: "test-writer",
+        routed: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+      details: { documentId: "switched", reason: "live_copy" },
+    });
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+  });
+
+  it("reads the write path on the exec a raw transaction's writer passes", async () => {
+    const { drizzleOverExec } = await import("../live-copy/exec-db.js");
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+    const reads: string[] = [];
+
+    await expect(
+      getDbExec().transaction!(async (exec) => {
+        const recorded: DbExec = {
+          execute: (statement) => {
+            reads.push(
+              typeof statement === "string" ? statement : statement.sql,
+            );
+            return exec.execute(statement);
+          },
+        };
+        await bodyRevision.lockLegacyBodyWrites(
+          drizzleOverExec(exec),
+          ["switched"],
+          {
+            operation: "test-writer",
+            routed: true,
+            exec: recorded,
+            content: "New body",
+          },
+        );
+      }),
+    ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITE_PATH_CHANGED" });
+    expect(reads).toContainEqual(expect.stringContaining("_collab_docs"));
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+  });
+
+  it("reads the live copies' versions and an owner's flags once, however many of their pages it locks", async () => {
+    const { drizzleOverExec } = await import("../live-copy/exec-db.js");
+    for (const id of ["a", "b", "c"]) await insertPage(id);
+    async function readsFor(ids: string[]) {
+      let reads = 0;
+      await getDbExec().transaction!(async (exec) => {
+        const recorded: DbExec = {
+          execute: (statement) => {
+            reads += 1;
+            return exec.execute(statement);
+          },
+        };
+        await bodyRevision.lockLegacyBodyWrites(drizzleOverExec(exec), ids, {
+          operation: "test-writer",
+          exec: recorded,
+          content: "New body",
+        });
+      });
+      return reads;
+    }
+
+    const onePage = await readsFor(["a"]);
+    expect(onePage).toBeGreaterThan(1);
+    expect(await readsFor(["a", "b", "c"])).toBe(onePage);
+  });
+
+  it("lets a writer change a switched page's metadata when its body already reads the body it writes", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+
+    await getDb().transaction(async (tx) => {
+      const legacy = await bodyRevision.lockLegacyBodyWrites(tx, ["switched"], {
+        operation: "test-writer",
+        content: "Body",
+      });
+      await tx
+        .update(schema.documents)
+        .set({
+          title: "New title",
+          content: "Body",
+          bodyRevision: legacy.bodyRevision("Body"),
+        })
+        .where(eq(schema.documents.id, "switched"));
+    });
+
+    const [page] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "switched"));
+    expect(page.title).toBe("New title");
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+    await expect(write(["switched"], "New body")).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+    });
+  });
+
+  it("checks each page against the body the writer leaves on it", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("a");
+    await insertPage("b");
+    const lock = (bodies: Record<string, string>) =>
+      getDb().transaction((tx) =>
+        bodyRevision.lockLegacyBodyWrites(tx, ["a", "b"], {
+          operation: "test-writer",
+          content: new Map(Object.entries(bodies)),
+        }),
+      );
+
+    await expect(lock({ a: "Body", b: "Body" })).resolves.toBeDefined();
+    await expect(lock({ a: "Body", b: "New body" })).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "b" },
+    });
+    await expect(lock({ a: "Body" })).rejects.toThrow(
+      "test-writer locked page b without saying what body it writes there.",
+    );
+  });
+
+  it("refuses a writer that bumps the body revision itself, even when it leaves the body as it was", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+
+    await expect(
+      getDb().transaction((tx) =>
+        bodyRevision.lockLegacyBodyWrites(tx, ["switched"], {
+          operation: "test-writer",
+          routed: true,
+          content: null,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITE_PATH_CHANGED" });
+  });
+
+  it("lets a switched page take legacy writes while its flags are off (SF-11)", async () => {
+    await insertPage("switched");
+
+    await write(["switched"], "New body");
+
+    expect(await body("switched")).toEqual({
+      content: "New body",
+      bodyRevision: 4,
+    });
+  });
+
+  it("leaves a page that doesn't exist to the writer", async () => {
+    await setFlags(WRITER_FLAGS);
+
+    await expect(write(["missing"], "New body")).resolves.toBeUndefined();
+  });
+
+  it("refuses a page on its live copy up front, before a writer changes anything outside Content", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("legacy", { switched: false });
+    await insertPage("switched");
+
+    await expect(
+      bodyRevision.assertLegacyBodyWriter("legacy", { operation: "push" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      bodyRevision.assertLegacyBodyWriter("switched", { operation: "push" }),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "switched", operation: "push" },
     });
   });
 });

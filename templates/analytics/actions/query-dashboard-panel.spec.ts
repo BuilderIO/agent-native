@@ -141,6 +141,42 @@ describe("query-dashboard-panel", () => {
     );
   });
 
+  it("caps record drill-downs and reports their over-cap refusal", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    const signal = new AbortController().signal;
+    mocks.getCredentialContext.mockReturnValue(context);
+    mocks.normalizeDashboardPanelQuery.mockReturnValue(
+      "SELECT visitor FROM events LIMIT 500",
+    );
+    mocks.resolveAnalyticsPanelSource.mockRejectedValue(
+      new BigQueryMaximumBytesBilledError(400),
+    );
+    await expect(
+      queryDashboardPanel.run(
+        {
+          source: "bigquery",
+          query: "SELECT visitor FROM events LIMIT 500",
+          purpose: "panel-drilldown",
+        },
+        { caller: "frontend", signal } as ActionRunContext,
+      ),
+    ).resolves.toEqual({
+      error: "breakdown_over_byte_cap",
+      message: expect.stringMatching(
+        /^These records would read more than 50 GiB/,
+      ),
+    });
+    expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
+      {
+        source: "bigquery",
+        query: "SELECT visitor FROM events LIMIT 500",
+        maxBytesBilled: 50 * 1024 ** 3,
+        signal,
+      },
+      context,
+    );
+  });
+
   it("reports a breakdown over its byte cap as that, not as a failed panel", async () => {
     mocks.getCredentialContext.mockReturnValue({ userEmail: "a@example.com" });
     mocks.normalizeDashboardPanelQuery.mockReturnValue("SELECT 1");

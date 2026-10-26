@@ -109,6 +109,11 @@ const CONSENT_REGION_TIME_ZONES = new Set([
   "WET",
 ]);
 
+/** For the inline bootstrap the server writes into each page. */
+export const CONSENT_REGION_TIME_ZONE_LIST: readonly string[] = [
+  ...CONSENT_REGION_TIME_ZONES,
+];
+
 export function isConsentRegionCountry(code: string | null | undefined) {
   return CONSENT_REGION_COUNTRY_CODES.has(code?.trim().toUpperCase() ?? "");
 }

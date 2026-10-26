@@ -367,7 +367,10 @@ test("Shift+A on an element that already has auto layout wraps it in a new auto-
     nav.x + nav.width / 2,
     nav.y + nav.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(center.x, center.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Navigation"]);
 
   await app.page.keyboard.press("Shift+A");

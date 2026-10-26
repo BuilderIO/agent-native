@@ -483,6 +483,17 @@ export function beginTextEditForOwner(
   }
 }
 
+/**
+ * A retry asks a mounted owner and nothing else: queuing it would replace a
+ * delivery or commit the capture already owes the next owner.
+ */
+export function requestTextEditFromOwner(
+  owner: OwnerIdentity,
+  nodeId: string,
+): boolean {
+  return owners.get(owner)?.begin(nodeId) === true;
+}
+
 export function takePendingTextCapture(
   owner: OwnerIdentity,
   nodeId: string,
@@ -654,6 +665,16 @@ export function isPendingTextRequestLive(
   nodeId: string,
 ): boolean {
   return matches(liveCapture(), owner, nodeId);
+}
+
+// Once the owner has posted the text it owes, or the commit, its begin is the
+// one that has to land; another begin would reopen the node or race the text.
+export function isPendingTextDeliveryInFlight(
+  owner: OwnerIdentity,
+  nodeId: string,
+): boolean {
+  const capture = liveCapture();
+  return matches(capture, owner, nodeId) && capture.deliveryPosted;
 }
 
 export function isPendingTextInterceptionOpen(

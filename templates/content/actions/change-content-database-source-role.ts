@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   BuilderCmsModelFieldSummary,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
@@ -32,7 +32,10 @@ import {
   updateBuilderCmsSourceReadMetadata,
   writeSourceFederation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertNotGitHubSource } from "./_document-source.js";
 import { readLocalTableEntries } from "./_local-table-source.js";
 
@@ -135,6 +138,33 @@ function sourceRole(source: SourceRecord): "primary" | "secondary" | null {
   }
 }
 
+function builderSourceReadBinding(source: SourceRecord) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source.metadataJson ?? "{}");
+  } catch {
+    fail("Builder source connection metadata is unreadable.", {
+      errorCode: "builder_source_binding_invalid",
+      statusCode: 412,
+    });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    fail("Builder source connection metadata is unreadable.", {
+      errorCode: "builder_source_binding_invalid",
+      statusCode: 412,
+    });
+  }
+  const metadata = parsed as Record<string, unknown>;
+  return {
+    expectedSourceSpace:
+      typeof metadata.builderSpacePublicKey === "string"
+        ? metadata.builderSpacePublicKey
+        : null,
+    expectedSourceConnectionId:
+      typeof metadata.connectionId === "string" ? metadata.connectionId : null,
+  };
+}
+
 async function clearSourceFederation(sourceId: string, now: string) {
   await mutateContentDatabaseSourceMetadata({
     sourceId,
@@ -235,6 +265,8 @@ export async function readBuilderCmsEntriesForRoleChange(
   args: {
     model: string;
     existingFieldPaths?: readonly string[];
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   },
   dependencies: {
     readModelFields?: typeof readBuilderCmsModelFields;
@@ -247,7 +279,11 @@ export async function readBuilderCmsEntriesForRoleChange(
   let modelFields: BuilderCmsModelFieldSummary[] = [];
   let modelFieldsError: unknown = null;
   try {
-    modelFields = await readModelFields({ model: args.model });
+    modelFields = await readModelFields({
+      model: args.model,
+      expectedSourceSpace: args.expectedSourceSpace,
+      expectedSourceConnectionId: args.expectedSourceConnectionId,
+    });
   } catch (error) {
     modelFieldsError = error;
   }
@@ -257,14 +293,23 @@ export async function readBuilderCmsEntriesForRoleChange(
       ...(args.existingFieldPaths ?? []),
       ...modelFields.map((field) => `data.${field.name}`),
     ],
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
+    requireBoundOAuth: true,
   });
   if (modelFieldsError) throw modelFieldsError;
+  if (read.state !== "live") {
+    throw new Error(
+      read.message ??
+        "Builder source could not be read for this role change; no source changes were made.",
+    );
+  }
   return { read, modelFields };
 }
 
 async function readSourceEntries(args: {
   sourceType: ContentDatabaseSourceType;
-  sourceTable: string;
+  source: SourceRecord;
   limit: number;
   offset: number;
 }): Promise<{
@@ -276,7 +321,8 @@ async function readSourceEntries(args: {
 }> {
   if (args.sourceType === "builder-cms") {
     const { read, modelFields } = await readBuilderCmsEntriesForRoleChange({
-      model: args.sourceTable,
+      model: args.source.sourceTable,
+      ...builderSourceReadBinding(args.source),
     });
     return {
       entries: read.state === "live" ? read.entries : [],
@@ -288,7 +334,7 @@ async function readSourceEntries(args: {
   }
   if (args.sourceType === "local-table") {
     const { entries, modelFields } = await readLocalTableEntries(
-      args.sourceTable,
+      args.source.sourceTable,
       { limit: args.limit, offset: args.offset },
     );
     return {
@@ -302,7 +348,7 @@ async function readSourceEntries(args: {
   if (args.sourceType === "notion-database") {
     const read = await getContentDatabaseSourceAdapter("notion-database")!.read(
       {
-        sourceTable: args.sourceTable,
+        sourceTable: args.source.sourceTable,
         limit: args.limit,
         offset: args.offset,
       },
@@ -340,7 +386,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseResponse> => {
+  run: async (args, context): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -372,7 +418,7 @@ export default defineAction({
 
       const { entries, modelFields } = await readSourceEntries({
         sourceType: normalizedType,
-        sourceTable: source.sourceTable,
+        source,
         limit: args.limit ?? 100,
         offset: args.offset ?? 0,
       });
@@ -433,6 +479,7 @@ export default defineAction({
           existingFieldPaths: existingSourceFields.map(
             (field) => field.sourceFieldKey,
           ),
+          ...builderSourceReadBinding(source),
         });
       const entries = read.state === "live" ? read.entries : [];
       await db
@@ -533,9 +580,12 @@ export default defineAction({
       await ensureDatabaseSourceProperty({ database, now });
     }
 
-    return getContentDatabaseResponse(database.id, {
-      limit: args.limit ?? 100,
-      offset: args.offset ?? 0,
-    });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, {
+        limit: args.limit ?? 100,
+        offset: args.offset ?? 0,
+      }),
+      context,
+    );
   },
 });

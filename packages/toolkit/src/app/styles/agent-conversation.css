@@ -10,8 +10,13 @@
   border: 1px solid hsl(var(--destructive) / 0.24);
   border-radius: var(--radius);
   background: hsl(var(--destructive) / 0.08);
-  color: hsl(var(--destructive-foreground));
+  color: hsl(var(--foreground));
   font-size: 12px;
+}
+
+.agent-conversation__error > svg {
+  flex-shrink: 0;
+  color: hsl(var(--destructive));
 }
 
 .agent-conversation__empty {
@@ -26,24 +31,6 @@
 
 .agent-conversation__empty span {
   color: hsl(var(--muted-foreground));
-}
-
-.agent-conversation__scroll-bottom {
-  position: absolute;
-  inset-inline-end: 18px;
-  bottom: 92px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 999px;
-  background: hsl(var(--popover));
-  color: hsl(var(--foreground));
-  box-shadow: var(--agent-kit-overlay-elevation);
-  cursor: pointer;
 }
 
 .agent-conversation-message {
@@ -404,8 +391,8 @@
 }
 
 .agent-conversation-notice--warning {
-  border-color: hsl(45 90% 50% / 0.22);
-  background: hsl(45 90% 50% / 0.07);
+  border-color: hsl(var(--agent-kit-warning) / 0.4);
+  background: hsl(var(--agent-kit-warning) / 0.1);
 }
 
 .agent-conversation-notice--error {
@@ -663,7 +650,20 @@
 
 .agent-markdown-table-wrap > table {
   min-width: 100%;
-  width: max-content;
+}
+
+/* Auto width, not max-content: short cells stay on one line and prose cells
+   (`data-prose`, set by the table renderer) wrap within the lane, down to a
+   readable width before the wrapper scrolls. Breaking anywhere would shrink
+   prose columns to one character first. */
+.agent-markdown-table-wrap :where(th, td) {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.agent-markdown-table-wrap :where(th, td)[data-prose] {
+  min-width: 12em;
+  white-space: normal;
 }
 
 .agent-markdown th,

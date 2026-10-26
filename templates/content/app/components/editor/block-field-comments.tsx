@@ -14,6 +14,7 @@ import {
 import type { CommentThread } from "@/hooks/use-comments";
 
 import {
+  commentRailThreads,
   commentThreadFieldId,
   openReviewCountsByField,
   type BlockFieldOpenCounts,
@@ -353,15 +354,10 @@ export function useBlockFieldComments({
   }, [scrollContainerRef, tabs, targetFieldId, targetKey, targetSettled]);
 
   const allThreads = threads ?? NO_THREADS;
-  const railThreads = useMemo(() => {
-    if (openFieldId === null && !allThreads.some((thread) => thread.field)) {
-      return allThreads as CommentThread[];
-    }
-    return allThreads.filter(
-      (thread) =>
-        thread.property || commentThreadFieldId(thread) === openFieldId,
-    );
-  }, [allThreads, openFieldId]);
+  const railThreads = useMemo(
+    () => commentRailThreads(allThreads as CommentThread[], openFieldId),
+    [allThreads, openFieldId],
+  );
 
   const pendingFieldId = pendingComment?.property
     ? undefined

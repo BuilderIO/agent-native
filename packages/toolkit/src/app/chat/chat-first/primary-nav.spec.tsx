@@ -24,11 +24,11 @@ describe("ChatFirstPrimaryNavigation", () => {
   });
 
   const tabByLabel = (label: string) =>
-    [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+    [...container.querySelectorAll<HTMLButtonElement>("nav button")].find(
       (tab) => tab.textContent?.includes(label),
     );
 
-  it("marks exactly one navigation tab as selected", () => {
+  it("marks exactly one navigation item as the current page", () => {
     act(() => {
       root.render(
         <ChatFirstPrimaryNavigation
@@ -41,20 +41,25 @@ describe("ChatFirstPrimaryNavigation", () => {
       );
     });
 
-    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(4);
-    const selected = container.querySelectorAll(
-      '[role="tab"][aria-selected="true"]',
-    );
+    expect(container.querySelectorAll("nav button")).toHaveLength(4);
+    expect(
+      container.querySelector('[role="tab"], [role="tablist"]'),
+    ).toBeNull();
+    const selected = container.querySelectorAll('[aria-current="page"]');
     expect(selected).toHaveLength(1);
     expect(selected[0]?.textContent).toContain("Integrations");
     expect(selected[0]?.className.split(" ")).toContain("bg-sidebar-accent");
     expect(
-      container.querySelector('[role="tab"][aria-selected="false"]')?.className,
-    ).toContain("code-agents-primary-new-chat");
-    expect(container.querySelector('[role="tablist"]')).not.toBeNull();
+      container
+        .querySelector(".code-agents-primary-new-chat")
+        ?.hasAttribute("aria-current"),
+    ).toBe(false);
+    expect(
+      container.querySelector("nav")?.getAttribute("aria-label"),
+    ).toBeTruthy();
   });
 
-  it("selects Search with the same treatment as every other tab", () => {
+  it("marks Search current with the same treatment as every other item", () => {
     act(() => {
       root.render(
         <ChatFirstPrimaryNavigation
@@ -68,13 +73,11 @@ describe("ChatFirstPrimaryNavigation", () => {
     });
 
     const search = tabByLabel("Search");
-    expect(search?.getAttribute("aria-selected")).toBe("true");
+    expect(search?.getAttribute("aria-current")).toBe("page");
     expect(search?.className.split(" ")).toContain("bg-sidebar-accent");
-    expect(
-      container.querySelectorAll('[role="tab"][aria-selected="true"]'),
-    ).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
     for (const label of ["New chat", "Integrations", "Scheduled"]) {
-      expect(tabByLabel(label)?.getAttribute("aria-selected")).toBe("false");
+      expect(tabByLabel(label)?.hasAttribute("aria-current")).toBe(false);
     }
   });
 
@@ -92,14 +95,14 @@ describe("ChatFirstPrimaryNavigation", () => {
     });
 
     const search = tabByLabel("Search");
-    expect(search?.getAttribute("aria-selected")).toBe("false");
+    expect(search?.hasAttribute("aria-current")).toBe(false);
     expect(search?.className.split(" ")).not.toContain("bg-sidebar-accent");
     expect(tabByLabel("Scheduled")?.className.split(" ")).toContain(
       "bg-sidebar-accent",
     );
   });
 
-  it("keeps every tab unselected when no surface is resolved", () => {
+  it("marks no item current when no surface is resolved", () => {
     act(() => {
       root.render(
         <ChatFirstPrimaryNavigation
@@ -111,9 +114,7 @@ describe("ChatFirstPrimaryNavigation", () => {
       );
     });
 
-    expect(
-      container.querySelectorAll('[role="tab"][aria-selected="true"]'),
-    ).toHaveLength(0);
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
   });
 
   it("calls each navigation handler, Search included", () => {
@@ -164,12 +165,10 @@ describe("ChatFirstPrimaryNavigation", () => {
     );
     expect(shell).not.toBeNull();
     expect(shell?.textContent).toContain("New chat");
-    expect(
-      container.querySelector('[role="tablist"]')?.textContent,
-    ).not.toContain("New chat");
-    expect(container.querySelector('[role="tablist"]')?.textContent).toContain(
-      "Search",
+    expect(container.querySelector("nav")?.textContent).not.toContain(
+      "New chat",
     );
+    expect(container.querySelector("nav")?.textContent).toContain("Search");
     expect(container.querySelector(".code-agents-nav-list")).not.toBeNull();
   });
 

@@ -4,6 +4,7 @@ import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
 } from "../shared/mcp-app-display.js";
+import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 
 const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
@@ -744,7 +745,7 @@ export function embedApp(
     }
 
     function installExternalEmbedRuntime(config) {
-      window.__AGENT_NATIVE_EXTERNAL_EMBED = config;
+      window[${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)}] = config;
       installReactRefreshPreambleFallback();
       try {
         if (config.target) {

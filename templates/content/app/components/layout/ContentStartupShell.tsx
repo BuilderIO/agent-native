@@ -5,6 +5,7 @@ import {
   DocumentEditorSkeleton,
   HIDDEN_IN_WIDGET_CLASS_NAME,
 } from "@/components/editor/DocumentEditorSkeleton";
+import { SuggestionReviewCardSkeleton } from "@/components/editor/SuggestionReviewCardSkeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,10 @@ export function contentStartupShowsPage(pathname: string) {
   return pathname.startsWith("/page/") || pathname.startsWith("/home");
 }
 
+function contentStartupShowsSuggestionCard(pathname: string) {
+  return pathname.startsWith("/suggestions/");
+}
+
 // What the server draws, and the app shows until the session is ready. Its
 // sidebar rows, toolbar, and page title are the app's own boxes, so nothing
 // moves when the app replaces them. It runs outside the app's providers.
@@ -47,6 +52,13 @@ export function ContentStartupShell({
   pathname: string;
   label: string;
 }) {
+  if (contentStartupShowsSuggestionCard(pathname)) {
+    return (
+      <div role="status" aria-label={label} className="bg-background p-4">
+        <SuggestionReviewCardSkeleton />
+      </div>
+    );
+  }
   return (
     <div
       role="status"

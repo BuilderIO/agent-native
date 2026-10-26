@@ -51,7 +51,6 @@ import type {
   FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
-  SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
   applyDuplicateStackHistoryChanges,
@@ -68,7 +67,6 @@ import {
 } from "@/pages/design-editor/history";
 import {
   prepareDeletedFileRestore,
-  remapHistorySelection,
   remapHistoryChange,
   remapContentHistory,
   remapGeometryHistory,
@@ -468,7 +466,7 @@ export interface UndoArgs {
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
-  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  historyOrderRef: RefObject<UndoRedoOrderKind[]>;
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
@@ -529,7 +527,7 @@ export interface UndoArgs {
       immediate?: boolean;
     },
   ) => void;
-  redoOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  redoOrderRef: RefObject<UndoRedoOrderKind[]>;
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
@@ -544,8 +542,6 @@ export interface UndoArgs {
   restoreSelectionSnapshot: (
     selection: GeometryHistorySelection | undefined,
   ) => void;
-  selectionRedoStackRef: RefObject<SelectionHistoryEntry[]>;
-  selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -641,8 +637,6 @@ export function runUndo({
   requestPendingLiveNonStyleRevert,
   requestPendingVisualStyleRevert,
   restoreSelectionSnapshot,
-  selectionRedoStackRef,
-  selectionUndoStackRef,
   setActiveFileId,
   setContentRenderRevision,
   setHoveredElement,
@@ -1336,21 +1330,6 @@ export function runUndo({
     );
     return true;
   };
-  const undoSelection = () => {
-    if (!canUseOverviewHistory) return false;
-    const entry = selectionUndoStackRef.current.pop();
-    if (!entry) return false;
-    selectionRedoStackRef.current = [
-      ...selectionRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
-    ];
-    redoOrderRef.current = [
-      ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      "selection",
-    ];
-    restoreHistorySelection(entry.before);
-    return true;
-  };
   const undoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
     const stack = fileCreationUndoStackRef.current;
@@ -1572,15 +1551,6 @@ export function runUndo({
       fileIds: ReadonlyMap<string, string>,
       restoredFilesById: ReadonlyMap<string, FileDeletionHistorySnapshot>,
     ) => {
-      const remapSelectionEntry = (item: SelectionHistoryEntry) => ({
-        ...item,
-        before: remapHistorySelection(item.before, fileIds),
-        after: remapHistorySelection(item.after, fileIds),
-      });
-      selectionUndoStackRef.current =
-        selectionUndoStackRef.current.map(remapSelectionEntry);
-      selectionRedoStackRef.current =
-        selectionRedoStackRef.current.map(remapSelectionEntry);
       const undoHistory = remapContentHistory(
         contentUndoStackRef.current,
         contentUndoSelectionStackRef.current,
@@ -1941,11 +1911,8 @@ export function runUndo({
     }
     return false;
   };
-  const undoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+  const undoByOrder = (preferred?: UndoRedoOrderKind) => {
     if (preferred === "clipboard-paste") return undoClipboardPaste();
-    if (preferred === "selection") {
-      return tryUndoActions(undoSelection, undoContent, undoGeometry);
-    }
     if (preferred === "file-deleted") {
       return tryUndoActions(
         undoFileDeletion,

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.216.0",
+  "version": "0.220.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -45,6 +45,13 @@
       "types": "./dist/app/chat/agent-sidebar-events.d.ts",
       "import": "./dist/app/chat/agent-sidebar-events.js",
       "default": "./dist/app/chat/agent-sidebar-events.js"
+    },
+    "./app/chat/ownership-history": {
+      "types": "./dist/app/chat/ownership-history/index.d.ts",
+      "browser": "./dist/app/chat/ownership-history/index.js",
+      "development": "./dist/app/chat/ownership-history/index.js",
+      "import": "./dist/app/chat/ownership-history/index.js",
+      "default": "./dist/app/chat/ownership-history/index.js"
     },
     "./app/chat": {
       "types": "./dist/app/chat/index.d.ts",
@@ -594,6 +601,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
+    "typecheck:spec": "tsc -p tsconfig.spec.json",
     "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {

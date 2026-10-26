@@ -15,6 +15,11 @@ import {
   assertSessionsTriageLabEnabled,
   type SessionsTriageLabFeature,
 } from "../server/lib/sessions-triage-lab.js";
+import {
+  MIN_PRESENTATION_MS,
+  OUTPUT_USE_APPS,
+  OUTPUT_USE_WINDOW_DAYS,
+} from "../shared/output-use.js";
 import { MAX_SESSION_EVENT_CONDITIONS } from "../shared/session-events.js";
 import {
   isSessionFrictionSort,
@@ -120,7 +125,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Return recordings, total count, and app counts rather than the legacy recordings array. Friction filters and sorts, `slow`, and `includePerformance` always return this shape.",
+        "Return recordings, total count, and app counts rather than the legacy recordings array. Friction filters and sorts, `slow`, `unused`, and `includePerformance` always return this shape.",
       ),
     status: z.enum(["active", "completed"]).optional(),
     didEvents: z
@@ -162,6 +167,12 @@ export default defineAction({
       .describe(
         "Attach each recording's speed summary as performance, plus performanceCoverageStartedAt: worst measured page-view vitals, slowRequests (null when no request was measured), maxRequestMs, atLeast (fields that hit the measurement ceiling, so each is a floor), and incomplete (some measurements failed to save, so it may be slower). performance is null when never measured. Requires the Sessions triage Lab.",
       ),
+    unused: z
+      .enum(OUTPUT_USE_APPS)
+      .optional()
+      .describe(
+        `"Made it, didn't use it": only sessions that made an output of this app and did not use it within ${OUTPUT_USE_WINDOW_DAYS} days. For slides, made = generation_completed for a deck; used = a presentation that moved forward at least one slide and lasted ${MIN_PRESENTATION_MS / 1000} s or more, or a completed export. Opening a deck, a quick present, or a copied share link is not use. Outputs made less than ${OUTPUT_USE_WINDOW_DAYS} days ago never match yet, nor does a session a failed ingest overlapped, whose outputs are unknown. The response adds \`outputs\` (each row's outputs by recording id, with outputId, madeAt, useBy, status used/unused/open/unmeasured, and a url that opens it) and \`outputCoverageStartedAt\`: null means output tracking has not started for the viewer, so read an empty result against it before calling it zero. Requires the Sessions triage Lab.`,
+      ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
   http: { method: "GET" },
@@ -180,6 +191,7 @@ export default defineAction({
     }
     if (frictionApplied || args.includeFriction) labFeatures.push("friction");
     if (args.slow || args.includePerformance) labFeatures.push("speed");
+    if (args.unused) labFeatures.push("outputs");
     if (labFeatures.length) {
       await assertSessionsTriageLabEnabled(
         scope.userEmail,
@@ -188,10 +200,11 @@ export default defineAction({
       );
     }
     const { includeFriction, ...filters } = args;
-    // The legacy array has no room for the friction or speed coverage start,
-    // and without it an empty match cannot be told apart from "not measured".
+    // The legacy array has no room for a coverage start, and without it an
+    // empty match cannot be told apart from "not measured".
     const coverageNeeded =
-      frictionApplied || Boolean(args.slow || args.includePerformance);
+      frictionApplied ||
+      Boolean(args.slow || args.includePerformance || args.unused);
     if (!args.paginated && !coverageNeeded) {
       const recordings = await listSessionRecordings(scope, filters);
       return includeFriction ? withFriction(scope, recordings) : recordings;
