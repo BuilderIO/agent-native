@@ -34,8 +34,11 @@ import { runDownloadPdf } from "../commands/download-pdf";
 import { runDownloadPng } from "../commands/download-png";
 import { runDownloadSvg } from "../commands/download-svg";
 import {
-  resolveSelectedScreensExportBounds,
+  runRenderPngCapture,
   runRenderPngBlob,
+  type RenderPngBlobArgs,
+  type PngCaptureResult,
+  type PngRenderOptions,
 } from "../commands/render-png-blob";
 import {
   runSelectAll,
@@ -860,57 +863,19 @@ export function useEditorExportAndHandoff({
     ],
   );
 
-  const resolveSelectedScreensBounds = useCallback(() => {
-    if (viewMode !== "overview") return null;
-    const iframeSizeById = new Map(
-      selectedScreenIds.flatMap((screenId) => {
-        const iframe = document.querySelector<HTMLIFrameElement>(
-          `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-        );
-        return iframe
-          ? [
-              [
-                screenId,
-                { width: iframe.clientWidth, height: iframe.clientHeight },
-              ] as const,
-            ]
-          : [];
-      }),
-    );
-    return resolveSelectedScreensExportBounds({
-      selectedScreenIds,
-      overviewScreens,
+  const pngCaptureArgs = useMemo<RenderPngBlobArgs>(
+    () => ({
+      activeCanvasSourceType,
+      designId: id,
+      fileId: activeFile?.id,
+      canEditDesign,
       canvasFrameGeometryById: exportCanvasFrameGeometryById,
-      iframeSizeById,
-    });
-  }, [
-    exportCanvasFrameGeometryById,
-    overviewScreens,
-    selectedScreenIds,
-    viewMode,
-  ]);
-
-  const renderPngBlob = useCallback(
-    async (arg0: {
-      scope: PngCaptureScope;
-      settings?: Partial<ExportSettingsValue>;
-      format?: "png" | "jpg" | "webp";
-    }): Promise<Blob> =>
-      runRenderPngBlob(
-        {
-          activeCanvasSourceType,
-          designId: id,
-          fileId: activeFile?.id,
-          canEditDesign,
-          canvasFrameGeometryById: exportCanvasFrameGeometryById,
-          overviewScreens,
-          releaseScreenFromExport,
-          resolvePngCaptureTarget,
-          selectedScreenIds,
-          viewMode,
-        },
-        arg0,
-      ),
+      overviewScreens,
+      releaseScreenFromExport,
+      resolvePngCaptureTarget,
+      selectedScreenIds,
+      viewMode,
+    }),
     [
       activeCanvasSourceType,
       id,
@@ -924,6 +889,16 @@ export function useEditorExportAndHandoff({
       selectedScreenIds,
       viewMode,
     ],
+  );
+  const renderPngCapture = useCallback(
+    (options: PngRenderOptions): Promise<PngCaptureResult> =>
+      runRenderPngCapture(pngCaptureArgs, options),
+    [pngCaptureArgs],
+  );
+  const renderPngBlob = useCallback(
+    (options: PngRenderOptions): Promise<Blob> =>
+      runRenderPngBlob(pngCaptureArgs, options),
+    [pngCaptureArgs],
   );
 
   const showRasterCaptureError = useCallback(
@@ -1126,10 +1101,7 @@ export function useEditorExportAndHandoff({
           exportTracking,
           fallbackExportName,
           pngExportingRef,
-          renderPngBlob,
-          resolveSelectedScreensBounds,
-          resolvePngCaptureTarget,
-          releaseScreenFromExport,
+          renderPngCapture,
           setPngExporting,
           showRasterCaptureError,
           t,
@@ -1141,10 +1113,7 @@ export function useEditorExportAndHandoff({
     [
       exportTracking,
       fallbackExportName,
-      renderPngBlob,
-      resolveSelectedScreensBounds,
-      resolvePngCaptureTarget,
-      releaseScreenFromExport,
+      renderPngCapture,
       t,
       triggerBlobDownload,
     ],

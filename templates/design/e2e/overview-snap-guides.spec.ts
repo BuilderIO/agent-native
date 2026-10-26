@@ -99,9 +99,7 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens);
   await expect(page.locator("[data-screen-card]").first()).toBeVisible();
 }
 

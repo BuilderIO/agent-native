@@ -200,7 +200,7 @@ import {
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
-import { ContentTableView } from "./table-view";
+import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
@@ -871,6 +871,10 @@ const CustomTable = BaseTable.extend({
         parse: {},
       },
     };
+  },
+  addProseMirrorPlugins() {
+    // Ahead of Table's own `columnResizing`, whose mousedown starts a drag.
+    return [contentTableColumnSizing(), ...(this.parent?.() ?? [])];
   },
 });
 

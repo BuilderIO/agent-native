@@ -9,7 +9,8 @@ export interface IntervalJobOptions {
 }
 
 export interface IntervalJobHandle {
-  stop(): void;
+  /** Stops scheduling and waits for any in-flight run to settle. */
+  stop(): Promise<void>;
 }
 
 export function startIntervalJob(
@@ -19,8 +20,8 @@ export function startIntervalJob(
   const engine = createPollEngine(runOnce, options);
   engine.start();
   return {
-    stop(): void {
-      engine.stop();
+    stop(): Promise<void> {
+      return engine.stop();
     },
   };
 }

@@ -1,4 +1,5 @@
 import type { FilePart } from "@agent-native/agentkit";
+import type { AppShellSkeletonLayout } from "@agent-native/toolkit/app/shared";
 import {
   COMPOSER_CONTEXT_MAX_BYTES,
   COMPOSER_CONTEXT_MAX_ITEMS,
@@ -37,11 +38,24 @@ export function isChatPathname(pathname: string): boolean {
   return pathname === NEW_CHAT_PATH || pathname.startsWith(`${NEW_CHAT_PATH}/`);
 }
 
+/** The loading shell that matches the page each path opens. */
+export function skeletonLayoutForPath(
+  pathname: string,
+): AppShellSkeletonLayout {
+  const path =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+  if (path === HOME_PATH) return "home";
+  if (path === NEW_CHAT_PATH) return "assistant-new";
+  return "assistant";
+}
+
 export function threadIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/chat\/([^/]+)/);
-  if (!match) return null;
+  const encoded = pathname.match(/^\/chat\/([^/]+)/)?.[1];
+  if (encoded === undefined) return null;
   try {
-    const value = decodeURIComponent(match[1]).trim();
+    const value = decodeURIComponent(encoded).trim();
     return value || null;
     // coercion-ok: a malformed percent-encoding is not a thread id, so the path has no thread.
   } catch {
@@ -51,7 +65,7 @@ export function threadIdFromPath(pathname: string): string | null {
 
 export type ChatInitialComposerOptions = Omit<
   PromptComposerSubmitOptions,
-  "onLocalSubmit" | "attachments"
+  "onLocalSubmit" | "attachments" | "requestMode"
 > & {
   mode?: "act" | "plan";
   references?: readonly Reference[];

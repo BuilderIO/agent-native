@@ -5,7 +5,6 @@ import { forwardRef, useEffect, useId, useRef, type ReactNode } from "react";
 import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
-import { commentThreadQuote } from "./comment-block-anchors";
 import {
   CommentAvatar,
   CommentRow,
@@ -120,6 +119,7 @@ export function CommentStackCard({
   heightId,
   threads,
   front,
+  quote,
   isActive,
   onOpen,
   onHoverChange,
@@ -131,6 +131,8 @@ export function CommentStackCard({
   heightId: string;
   threads: readonly CommentThread[];
   front: CommentThread;
+  /** The front thread's quote as the page shows it. */
+  quote: string | null;
   isActive: boolean;
   onOpen: () => void;
   onHoverChange: (hovered: boolean) => void;
@@ -157,7 +159,6 @@ export function CommentStackCard({
     : null;
   const replies = front.comments.length - 1;
   const others = threads.filter((thread) => thread !== front);
-  const quote = commentThreadQuote(front, t);
   return (
     <div
       ref={ref}

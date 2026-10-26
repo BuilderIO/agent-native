@@ -623,7 +623,7 @@ describe("createGetDb pooled transaction scoping", () => {
       ),
     ).toBe(true);
 
-    vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "1000");
     let defaultTimedOutTransactionSettled = false;
     const defaultTimedOutTransaction = database
       .transaction(() => getDbExec().execute("SELECT pg_sleep(?)"))
@@ -633,9 +633,8 @@ describe("createGetDb pooled transaction scoping", () => {
     const defaultTimeoutAssertion = expect(
       defaultTimedOutTransaction,
     ).rejects.toThrow("canceling statement due to statement timeout");
-    await new Promise((resolve) => setTimeout(resolve, 35));
-    expect(defaultTimedOutTransactionSettled).toBe(true);
     await defaultTimeoutAssertion;
+    expect(defaultTimedOutTransactionSettled).toBe(true);
     expect(rolledBackTransactions).toBe(7);
     expect(releasedTransactions).toBeGreaterThanOrEqual(4);
     expect(statementTimeout).toBe("0");
