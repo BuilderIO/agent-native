@@ -3671,15 +3671,17 @@ export async function hydrateStructuredHistoryImageReferences(
           resolutions.set(key, resolution);
           continue;
         }
+        const hydratedFailureCode: OwnedImageReadFailureCode =
+          data && mediaType ? "image-too-large" : "invalid-image";
         urlResolutions.set(hydrationKey, {
           kind: "failed",
-          code: "invalid-image",
+          code: hydratedFailureCode,
         });
         resolutions.set(key, {
           type: "text",
           text: unavailableHistoryImageText(
             part,
-            describeOwnedImageReadFailure("invalid-image"),
+            describeOwnedImageReadFailure(hydratedFailureCode),
           ),
         });
         continue;
