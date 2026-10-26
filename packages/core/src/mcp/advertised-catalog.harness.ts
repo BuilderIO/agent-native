@@ -409,6 +409,11 @@ export async function loadAppCatalogs(
 ): Promise<AppCatalog[]> {
   await assertCoreActionLoadersAreValid();
   stubPluginSideEffects();
+  // Each mount's default-plugin bootstrap runs unawaited, so they overlap, and
+  // overlapping first imports of a mocked module can resolve the real one. The
+  // real integrations plugin starts retry timers that outlive each app's
+  // database, so resolve its mock once before any plugin runs.
+  await import("../integrations/plugin.js");
   const results: AppCatalog[] = [];
   try {
     for (const appId of templateIdsWithAgentChat()) {

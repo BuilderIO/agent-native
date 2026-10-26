@@ -177,29 +177,6 @@ export class AgentToolApprovalNotFoundError extends Error {
   }
 }
 
-export async function hasPendingAgentToolApproval(
-  tx: Pick<DbExec, "execute">,
-  input: { ownerEmail: string; orgId?: string | null; threadId: string },
-): Promise<boolean> {
-  const result = await tx.execute({
-    sql: `SELECT 1 FROM agent_tool_approvals
-      WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
-        AND thread_id = ?
-        AND status = 'pending'
-        AND expires_at > ?
-      LIMIT 1`,
-    args: [
-      input.ownerEmail,
-      input.orgId ?? null,
-      input.orgId ?? null,
-      input.threadId,
-      Date.now(),
-    ],
-  });
-  return result.rows.length > 0;
-}
-
 /** Denial is a durable resolution so queued turns can resume after a pause. */
 export async function denyAgentToolApproval(input: {
   approvalId: string;
@@ -341,6 +318,76 @@ export async function isAgentToolAlwaysAllowed(
     ],
   });
   return (result.rows ?? []).length > 0;
+}
+
+export async function getPendingCurrentTurnApprovals(
+  threadId: string,
+  tx: DbExec,
+  turnId?: string,
+): Promise<Array<{ turnId: string; status: "running" | "completed" }>> {
+  const { rows } = await tx.execute({
+    // Legacy turns can tie without admission metadata; keep every unresolved pause in that group.
+    sql: `WITH turn_runs AS (
+            SELECT DISTINCT ON (COALESCE(turn_id, id))
+                   COALESCE(turn_id, id) AS turn_id, status, admission_order, started_at
+            FROM agent_runs
+            WHERE thread_id = ? AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+            ORDER BY COALESCE(turn_id, id), admission_order DESC NULLS LAST,
+                     COALESCE(continuation_order, 0) DESC, started_at DESC, id DESC
+          ), latest_admission AS (
+            SELECT turn_id, status, started_at FROM turn_runs
+            WHERE admission_order IS NOT DISTINCT FROM (
+              SELECT MAX(admission_order) FROM turn_runs
+            )
+          )
+          SELECT current_turn.turn_id, current_turn.status FROM latest_admission current_turn
+          WHERE current_turn.started_at = (SELECT MAX(started_at) FROM latest_admission)
+            AND current_turn.status IN ('running', 'completed')
+            AND (CAST(? AS TEXT) IS NULL OR current_turn.turn_id = ?)
+            AND EXISTS (
+              SELECT 1 FROM agent_tool_approvals approval
+              WHERE approval.thread_id = ? AND approval.turn_id = current_turn.turn_id
+                AND approval.status = 'pending' AND approval.expires_at > ?
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs stopped
+              WHERE stopped.thread_id = ?
+                AND stopped.turn_id = current_turn.turn_id
+                AND stopped.dispatch_mode = 'turn-abort'
+                AND stopped.status = 'aborted'
+            )`,
+    args: [
+      threadId,
+      turnId ?? null,
+      turnId ?? null,
+      threadId,
+      Date.now(),
+      threadId,
+    ],
+  });
+  return rows.map((result) => {
+    const row = result as { turn_id?: unknown; status?: unknown };
+    if (
+      typeof row.turn_id !== "string" ||
+      !row.turn_id ||
+      (row.status !== "running" && row.status !== "completed")
+    ) {
+      throw new Error(
+        "Pending approval has an invalid turn identity or status",
+      );
+    }
+    return { turnId: row.turn_id, status: row.status };
+  });
+}
+
+export async function hasPendingCurrentTurnApproval(
+  threadId: string,
+  tx: DbExec,
+  turnId?: string,
+): Promise<boolean> {
+  return (
+    (await getPendingCurrentTurnApprovals(threadId, tx, turnId)).length > 0
+  );
 }
 
 export async function resolveAgentToolApprovalTurnId(binding: {
