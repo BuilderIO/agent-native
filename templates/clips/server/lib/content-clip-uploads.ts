@@ -283,8 +283,9 @@ async function deleteBinding(id: string): Promise<void> {
 }
 
 /**
- * Marks a binding whose start failed without saying it left nothing, so the
- * next repeat starts it again under the same recording id.
+ * Marks a binding whose start failed without saying it left nothing. If it
+ * left no recording, the next repeat starts it again under the same recording
+ * id; a recording it left answers for itself.
  */
 async function markStartFailed(id: string): Promise<void> {
   const now = new Date().toISOString();
@@ -417,6 +418,8 @@ async function repeatedStart(
       status: standing.status === "ready" ? "ready" : "processing",
     });
   }
+  // An upload that ended stays ended, a marked start's included: the file
+  // starts again under a new key.
   if (standing.phase !== "uploading") return keyUsed();
   return startAnswer(
     await reissueRecordingUpload({
