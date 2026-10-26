@@ -260,6 +260,33 @@ describe("agent clip context helpers", () => {
     );
   });
 
+  it("keeps the duration marks when early chapters would fill every slot", () => {
+    const chapters = Array.from({ length: 15 }, (_, i) => ({
+      startMs: 10_000 + i * 1_000_000,
+      title: `Chapter ${i}`,
+    }));
+
+    const frames = buildRecommendedFrames({
+      durationMs: 36_000_000,
+      chapters,
+    });
+
+    expect(frames).toHaveLength(10);
+    expect(frames.map((frame) => frame.reason)).toEqual(
+      expect.arrayContaining(["25% mark", "50% mark", "75% mark"]),
+    );
+  });
+
+  it("does not reserve mark slots when it can only return one frame", () => {
+    const frames = buildRecommendedFrames({
+      durationMs: 1_800_000,
+      chapters: [{ startMs: 60_000, title: "Intro" }],
+      maxFrames: 1,
+    });
+
+    expect(frames.map((frame) => frame.reason)).toEqual(["opening frame"]);
+  });
+
   it("opens on 350 ms, not the often-black first frame", () => {
     const [first] = buildRecommendedFrames({ durationMs: 60_000 });
 
