@@ -160,18 +160,28 @@ export function formatGuidedAnswersForAgent(
       .filter((question) => question.question?.trim())
       .map((question) => [question.id, question.question.trim()] as const),
   );
-  return Object.entries(normalizeGuidedAnswers(answers))
-    .filter(([, value]) => hasGuidedAnswer(value))
-    .map(([id, value]) => {
-      const answer = Array.isArray(value) ? value.join(", ") : String(value);
+  const normalized = normalizeGuidedAnswers(answers);
+  const declaredIds = new Set((questions ?? []).map((question) => question.id));
+  // Declared question order keeps the summary in the order the user saw; skipped questions stay visible so the agent can state its assumption.
+  const ids = [...new Set([...declaredIds, ...Object.keys(normalized)])];
+  return ids
+    .flatMap((id) => {
+      const value = Object.hasOwn(normalized, id) ? normalized[id] : undefined;
       const question = questionTextById.get(id);
-      return question ? `Q: ${question}\nA: ${answer}` : `${id}: ${answer}`;
+      if (!hasGuidedAnswer(value)) {
+        if (!declaredIds.has(id)) return [];
+        return [question ? `Q: ${question}\nA: no answer` : `${id}: no answer`];
+      }
+      const answer = Array.isArray(value) ? value.join(", ") : String(value);
+      return [question ? `Q: ${question}\nA: ${answer}` : `${id}: ${answer}`];
     })
     .join("\n");
 }
 
-const SETTLED_ANSWERS_INSTRUCTION =
-  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
+export const SETTLED_ANSWERS_INSTRUCTION = [
+  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.",
+  "Open your reply with a short summary: one line per question pairing the question with the user's answer in plain words. For a question marked no answer, say so and state the assumption you will use. Then close with one line saying what you will do next.",
+].join(" ");
 
 function defaultGuidedSubmitContext(formattedAnswers: string): string {
   return [

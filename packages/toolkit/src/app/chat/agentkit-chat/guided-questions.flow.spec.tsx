@@ -624,6 +624,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(context).toContain("A: 7d");
     expect(context).not.toContain("q1: 7d");
     expect(context.toLowerCase()).toContain("settled");
+    expect(context).toContain("Open your reply with a short summary");
   });
 
   it("adds the settled instruction to custom submit contexts", async () => {

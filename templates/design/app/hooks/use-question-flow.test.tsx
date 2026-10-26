@@ -10,6 +10,7 @@ const agentkitChatMocks = vi.hoisted(() => ({
   formatGuidedAnswersForAgent: vi.fn((answers: Record<string, unknown>) =>
     JSON.stringify(answers),
   ),
+  SETTLED_ANSWERS_INSTRUCTION: "Treat every question below as settled.",
 }));
 
 vi.mock(

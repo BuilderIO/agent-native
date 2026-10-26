@@ -1,5 +1,6 @@
 import {
   formatGuidedAnswersForAgent,
+  SETTLED_ANSWERS_INSTRUCTION,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
 } from "@agent-native/toolkit/app/chat/agentkit-chat";
@@ -86,9 +87,6 @@ function existingDesignContinuationContext(
       ].join(" ")
     : "";
 }
-
-const SETTLED_ANSWERS_INSTRUCTION =
-  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
 
 function continueDesignInstruction(
   designId: string | undefined,
