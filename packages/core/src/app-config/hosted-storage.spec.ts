@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AppConfigurationError } from "./configuration-error.js";
-import { resolveHostedStorageConfig } from "./hosted-storage.js";
 import {
   defineAppConfig,
   getAppConfig,
   resetAppConfigForTests,
-} from "./store.js";
+  resolveHostedStorageConfig,
+} from "./index.js";
 
 const originalEnv = { ...process.env };
 const FIELDS = [

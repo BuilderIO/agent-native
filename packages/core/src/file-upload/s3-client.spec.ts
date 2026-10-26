@@ -10,13 +10,14 @@ vi.mock("../extensions/url-safety.js", () => ({
   ssrfSafeFetch: ssrfSafeFetchMock,
 }));
 
+// The public entry point, which Clips imports the signer from.
 import {
   fetchS3WithTimeout,
   presignS3GetUrl,
   s3ObjectUri,
   signedS3Request,
   signS3Request,
-} from "./s3-client.js";
+} from "./index.js";
 
 // The expected signatures were produced independently by the aws4 package
 // (mhart/aws4) for the same requests.
