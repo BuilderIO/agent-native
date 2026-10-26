@@ -62,7 +62,10 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
         }
         nitroApp.h3App.all(`${path}/**`, (event: any) => {
           // Like the real shim on a host with no Node request (Netlify): the
-          // handler sees only the path below its mount.
+          // handler sees only the path below its mount. These requests come
+          // through `h3App.fetch`, so `event.node` is unset and h3's
+          // `event.path` getter reads `event.url`: the handler reads the
+          // stripped path.
           if (sweepHarness.stripMountPrefix) {
             event.url.pathname = event.url.pathname.slice(path.length) || "/";
           }
