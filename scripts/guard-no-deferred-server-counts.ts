@@ -24,11 +24,15 @@
  * (`this.flush`, `queue.flush`), the functions and methods they call, names
  * bound by destructuring, and timers renamed through any chain of aliases or
  * imports (`const defer = setTimeout`, `import { setTimeout as defer }`). A
- * function a callback only defines counts where it runs: when it's handed to a
- * call such as `forEach`, or where a call to it is followed. It does not follow
- * helpers imported from other files unless their names say they track or
- * count. A timer that has to defer a count says why, on any line
- * of the timer call or the line above:
+ * function a callback only defines or passes along counts where it runs: where
+ * a call to it is followed, or when it's handed to a call that runs it (an
+ * array iteration or promise method, a promise executor, `Array.from`, or a
+ * function in the file that calls that parameter). A call that may only keep
+ * the function, such as `register(flush)`, `cache.set(key, flush)` or a helper
+ * from another file, isn't taken to run it. The guard does not follow helpers
+ * imported from other files unless their names say they track or count. A
+ * timer that has to defer a count says why, on any line of the timer call or
+ * the line above:
  *
  *   // guard:allow-deferred-count — <why the count can wait>
  */
@@ -57,6 +61,26 @@ const TIMERS = new Set([
   "queueMicrotask",
 ]);
 const TIMER_WORD = /setTimeout|setInterval|setImmediate|queueMicrotask/;
+/** Methods that run a function handed to them before they settle. */
+const RUNS_CALLBACKS = new Set([
+  "every",
+  "filter",
+  "find",
+  "findIndex",
+  "findLast",
+  "findLastIndex",
+  "flatMap",
+  "forEach",
+  "map",
+  "reduce",
+  "reduceRight",
+  "some",
+  "sort",
+  "toSorted",
+  "then",
+  "catch",
+  "finally",
+]);
 const COUNTS = new Set([
   "countOutcome",
   "countActionFailure",
@@ -298,11 +322,113 @@ function countsWhenCalled(
   return ts.isExpression(value) && countsWhenCalled(checker, value, seen);
 }
 
+/** The function this file binds to a reference, through any aliases. */
+function resolvedFunction(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen: Set<ts.Node>,
+): ts.FunctionLikeDeclaration | undefined {
+  const target = unbound(expression);
+  if (bodyOf(target)) return target as ts.FunctionLikeDeclaration;
+  if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
+    return undefined;
+  }
+  const declaration = declarationOf(checker, target);
+  if (!declaration || seen.has(declaration)) return undefined;
+  seen.add(declaration);
+  const value = boundValue(checker, declaration);
+  if (!value) return undefined;
+  if (bodyOf(value)) return value as ts.FunctionLikeDeclaration;
+  return ts.isExpression(value)
+    ? resolvedFunction(checker, value, seen)
+    : undefined;
+}
+
 /**
- * A function written into a call or `new`, such as `items.forEach(…)`,
- * `.then(…)` or a promise executor, is taken to run there.
+ * Whether a call runs the function it's handed at `index`: an array iteration
+ * or promise method, a promise executor, `Array.from`'s mapper, or a function
+ * in this file that calls that parameter. Any other call may only keep it.
  */
-function isPassedToCall(fn: ts.Node): boolean {
+function runsArgument(
+  checker: ts.TypeChecker,
+  call: ts.CallExpression | ts.NewExpression,
+  index: number,
+  seen: Set<ts.Node>,
+): boolean {
+  const callee = unwrapped(call.expression);
+  if (ts.isNewExpression(call)) {
+    return ts.isIdentifier(callee) && callee.text === "Promise";
+  }
+  if (ts.isPropertyAccessExpression(callee)) {
+    const method = callee.name.text;
+    const owner = unwrapped(callee.expression);
+    if (RUNS_CALLBACKS.has(method)) return true;
+    if (
+      ts.isIdentifier(owner) &&
+      ((owner.text === "Array" && method === "from") ||
+        (owner.text === "Promise" && method === "try"))
+    ) {
+      return true;
+    }
+  }
+  const fn = resolvedFunction(checker, callee, seen);
+  const parameter = fn?.parameters[index];
+  if (!fn?.body || !parameter || !ts.isIdentifier(parameter.name)) {
+    return false;
+  }
+  const symbol = checker.getSymbolAtLocation(parameter.name);
+  return !!symbol && runsParameter(checker, fn.body, symbol, seen);
+}
+
+function isParameterReference(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  parameter: ts.Symbol,
+): boolean {
+  return (
+    ts.isIdentifier(expression) &&
+    checker.getSymbolAtLocation(expression) === parameter
+  );
+}
+
+/** Whether this code runs the function a parameter holds. */
+function runsParameter(
+  checker: ts.TypeChecker,
+  node: ts.Node,
+  parameter: ts.Symbol,
+  seen: Set<ts.Node>,
+): boolean {
+  if (
+    ts.isCallExpression(node) &&
+    isParameterReference(checker, invoked(node.expression), parameter)
+  ) {
+    return true;
+  }
+  if (
+    (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+    node.arguments?.some(
+      (argument, index) =>
+        isParameterReference(checker, unbound(argument), parameter) &&
+        runsArgument(checker, node, index, seen),
+    )
+  ) {
+    return true;
+  }
+  return (
+    ts.forEachChild(node, (child) =>
+      ts.isFunctionLike(child) && !isRunByCall(checker, child, seen)
+        ? false
+        : runsParameter(checker, child, parameter, seen),
+    ) ?? false
+  );
+}
+
+/** Whether a function written into a call, as in `items.forEach(…)`, runs there. */
+function isRunByCall(
+  checker: ts.TypeChecker,
+  fn: ts.Node,
+  seen: Set<ts.Node>,
+): boolean {
   let node = fn;
   while (
     ts.isParenthesizedExpression(node.parent) ||
@@ -312,15 +438,16 @@ function isPassedToCall(fn: ts.Node): boolean {
     node = node.parent;
   }
   const { parent } = node;
-  return (
-    (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
-    !!parent.arguments?.some((argument) => argument === node)
-  );
+  if (!ts.isCallExpression(parent) && !ts.isNewExpression(parent)) {
+    return false;
+  }
+  const index = parent.arguments?.indexOf(node as ts.Expression) ?? -1;
+  return index >= 0 && runsArgument(checker, parent, index, seen);
 }
 
 /**
- * Whether a function passed by name, as in `items.forEach(record)` or
- * `.then(flush)`, counts when it runs there. An imported or undeclared name is
+ * Whether a function passed by name to a call that runs it, as in
+ * `items.forEach(record)` or `.then(flush)`, counts. An imported or undeclared name is
  * judged by its name, as a call is; a local one only if it holds a function,
  * so a `trackId` value passed along is not a count.
  */
@@ -363,17 +490,19 @@ function callsCount(
   }
   if (
     (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
-    node.arguments?.some((argument) =>
-      passedReferenceCounts(checker, argument, seen),
+    node.arguments?.some(
+      (argument, index) =>
+        runsArgument(checker, node, index, new Set()) &&
+        passedReferenceCounts(checker, argument, seen),
     )
   ) {
     return true;
   }
   // A function defined here counts only where it runs: when it's handed to a
-  // call, or where a call to its name is followed.
+  // call that runs it, or where a call to its name is followed.
   return (
     ts.forEachChild(node, (child) =>
-      ts.isFunctionLike(child) && !isPassedToCall(child)
+      ts.isFunctionLike(child) && !isRunByCall(checker, child, new Set())
         ? false
         : callsCount(checker, child, seen),
     ) ?? false

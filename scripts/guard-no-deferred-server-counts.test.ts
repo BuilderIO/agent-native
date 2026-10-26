@@ -201,6 +201,43 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(flagged(source), [5, 9, 10, 11, 13]);
   });
 
+  it("does not take a call that may only keep a function to run it", () => {
+    const source = [
+      "setTimeout(() => {",
+      '  const later = () => track("page_saved");',
+      "  register(later);",
+      '  cache.set("k", later);',
+      '  emitter.on("saved", () => track("page_saved"));',
+      "}, 0);",
+      "function keep(fn: () => void) {",
+      "  handlers.push(() => fn());",
+      "}",
+      'setTimeout(() => keep(() => track("page_saved")), 0);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), []);
+  });
+
+  it("follows functions handed to calls that run them", () => {
+    const source = [
+      'const record = () => track("page_saved");',
+      "function run(fn: () => void) {",
+      "  fn();",
+      "}",
+      "function each(fn: () => void) {",
+      "  [1].forEach(fn);",
+      "}",
+      "const runLater = run;",
+      'setTimeout(() => run(() => track("page_saved")), 0);',
+      "setTimeout(() => each(record), 0);",
+      "setTimeout(() => runLater(record), 0);",
+      "setTimeout(() => Array.from(ids, record), 0);",
+      "setTimeout(() => Promise.try(record), 0);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [9, 10, 11, 12, 13]);
+  });
+
   it("follows a count helper imported under another name", () => {
     const source = [
       'import { countOutcome as record } from "@agent-native/core/server";',
