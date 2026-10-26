@@ -653,6 +653,128 @@ describe("deferred server counts guard", () => {
     );
   });
 
+  it("keeps what a subclass overrides and what another file spreads", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_counters.ts",
+        [
+          'import { countOutcome } from "@agent-native/core/tracking";',
+          "export class Base {",
+          "  static record() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  }",
+          "  record() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  }",
+          "  save() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  }",
+          "}",
+          "export class Quiet extends Base {",
+          "  static record() {}",
+          "  record() {}",
+          "}",
+          "export const counters = {",
+          "  record() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  },",
+          "  trackRetry() {",
+          "    retryLater();",
+          "  },",
+          "};",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_spread.ts",
+        [
+          'import { counters } from "./_counters.js";',
+          "export const copy = { ...counters };",
+        ].join("\n"),
+      ],
+    ]);
+    const known = countingExportsOf(sources);
+    const source = [
+      'import { Base, Quiet } from "./_counters.js";',
+      'import { copy } from "./_spread.js";',
+      "setTimeout(() => Quiet.record(), 0);",
+      "setTimeout(() => new Quiet().record(), 0);",
+      "setTimeout(() => new Quiet().save(), 0);",
+      "setTimeout(() => Base.record(), 0);",
+      "setTimeout(() => copy.record(), 0);",
+      "setTimeout(() => copy.trackRetry(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, known).map((finding) => finding.line),
+      [5, 6, 7],
+    );
+  });
+
+  it("leaves names re-exported whole from an unscanned module to their names", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_barrel.ts",
+        'export * from "../shared/helpers.js";',
+      ],
+    ]);
+    assert.deepEqual(listedFiles(sources), {
+      "templates/content/actions/_barrel.ts": ["*"],
+    });
+    const source = [
+      'import { retry, trackSave } from "./_barrel.js";',
+      "setTimeout(() => trackSave(), 0);",
+      "setTimeout(() => retry(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, countingExportsOf(sources)).map(
+        (finding) => finding.line,
+      ),
+      [2],
+    );
+  });
+
+  it("follows local helpers that hand a callback on to a timer", () => {
+    const source = [
+      "const later = (fn: () => void) => setTimeout(fn, 0);",
+      "function soon(run: () => void) {",
+      "  queueMicrotask(() => run());",
+      "}",
+      "function schedule(fn: () => void) {",
+      "  later(fn);",
+      "}",
+      "function store(fn: () => void) {",
+      "  pending.push(fn);",
+      "}",
+      "function now(fn: () => void) {",
+      "  fn();",
+      "}",
+      'later(() => countOutcome("content_save_outcome_counts", {}));',
+      'soon(() => track("page_saved"));',
+      'schedule(() => countOutcome("content_save_outcome_counts", {}));',
+      'store(() => countOutcome("content_save_outcome_counts", {}));',
+      'now(() => countOutcome("content_save_outcome_counts", {}));',
+      "later(() => sweepExpired());",
+      "// guard:allow-deferred-count — a test fixture.",
+      'later(() => track("page_saved"));',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [14, 15, 16]);
+  });
+
+  it("doesn't take a function the file names setTimeout for a timer", () => {
+    const source = [
+      'import { countOutcome } from "@agent-native/core/tracking";',
+      "function setTimeout(run: () => void) {",
+      "  run();",
+      "}",
+      'setTimeout(() => countOutcome("content_save_outcome_counts", {}));',
+      'globalThis.setTimeout(() => countOutcome("content_save_outcome_counts", {}), 0);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [6]);
+  });
+
   it("allows counts inside the request and timers that do not count", () => {
     const source = [
       "try {",

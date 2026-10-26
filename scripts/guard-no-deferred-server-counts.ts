@@ -24,29 +24,32 @@
  * count helper. TypeScript resolves each name in that one file the way its
  * scope sees it, so the guard follows callbacks passed by name or as methods
  * (`this.flush`, `queue.flush`), the functions and methods they call, names
- * bound by destructuring, and timers renamed through any chain of aliases or
- * imports (`const defer = setTimeout`, `import { setTimeout as defer }`). A
- * function the file shows is judged by its body, whatever it's called, and so
- * is a function another scanned server file exports, named or default, when
- * it's imported by a relative path: `recordContentSaveOutcome` counts because
- * its own file shows it calling `countOutcome`, and so does a wrapper of it,
- * while an imported `trackRetry` whose file shows it only retrying doesn't.
- * That holds through re-exports, including `export *` and `export * as`, for
- * members of exported objects, classes and instances, with what they spread
- * or inherit (`counters.record()`, `new Reporter().record()`), and for names
- * destructured from them. A package import is judged by its name, and so is
- * a `count…` helper the repo's packages export, such as
- * `countAutomationCredentialState`, once a package file shows it counting.
- * Any other name whose function the guard can't see (a global, a parameter,
- * a factory's result, a member of an object it can't list) is judged by its
- * name. A function a callback only defines or passes along counts where it
- * runs: where a call to it is followed, or when it's handed to a call that
- * runs it (a function in the file that calls that parameter, or else an array
- * iteration or promise method, a promise executor, or `Array.from`'s mapper).
- * A call that may only keep the function, such as `register(flush)`,
- * `cache.set(key, flush)` or a helper from another file, isn't taken to run
- * it. A timer that has to defer a count says why, on any line of the timer
- * call or the line above:
+ * bound by destructuring, timers renamed through any chain of aliases or
+ * imports (`const defer = setTimeout`, `import { setTimeout as defer }`), and
+ * functions in the file that hand a callback on to a timer, as `later` does in
+ * `const later = (fn) => setTimeout(fn, 0)`; a function the file itself names
+ * `setTimeout` isn't a timer. A function the file shows is judged by its body,
+ * whatever it's called, and so is a function another scanned server file
+ * exports, named or default, when it's imported by a relative path:
+ * `recordContentSaveOutcome` counts because its own file shows it calling
+ * `countOutcome`, and so does a wrapper of it, while an imported `trackRetry`
+ * whose file shows it only retrying doesn't. That holds through re-exports,
+ * including `export *` and `export * as`, for members of exported objects,
+ * classes and instances, with what they spread or inherit and don't override
+ * (`counters.record()`, `new Reporter().record()`), and for names destructured
+ * from them. A package import is judged by its name, and so is a `count…`
+ * helper the repo's packages export, such as `countAutomationCredentialState`,
+ * once a package file shows it counting. Any other name whose function the
+ * guard can't see (a global, a parameter, a factory's result, a member of an
+ * object it can't list) is judged by its name. A function a callback only
+ * defines or passes along counts where it runs: where a call to it is
+ * followed, or when it's handed to a call that runs it (a function in the file
+ * that calls that parameter, or else an array iteration or promise method, a
+ * promise executor, or `Array.from`'s mapper). A call that may only keep the
+ * function, such as `register(flush)`, `cache.set(key, flush)` or a helper
+ * from another file, isn't taken to run it. A timer that has to defer a count,
+ * or a call to a helper that hands one on, says why, on any line of the call
+ * or the line above:
  *
  *   // guard:allow-deferred-count — <why the count can wait>
  */
@@ -397,12 +400,18 @@ function isTimerReference(
   seen: Set<ts.Node>,
 ): boolean {
   const target = unbound(expression);
-  const name = calleeName(target);
-  if (name && TIMERS.has(name)) return true;
   if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
     return false;
   }
   const declaration = declarationOf(checker, target);
+  // A timer's name is the timer, or an import of it, unless the file defines
+  // something by that name itself, such as a synchronous stand-in.
+  if (
+    TIMERS.has(calleeName(target) ?? "") &&
+    (!declaration || importBinding(declaration))
+  ) {
+    return true;
+  }
   if (!declaration || seen.has(declaration)) return false;
   seen.add(declaration);
   const source = sourceName(declaration);
@@ -788,6 +797,19 @@ function isExported(statement: ts.Statement): boolean {
   return hasModifier(statement, ts.SyntaxKind.ExportKeyword);
 }
 
+/** A member's name when it's written out: `record`, `"record"` or `0`. */
+function memberKey(
+  member: ts.ObjectLiteralElementLike | ts.ClassElement,
+): string | undefined {
+  const { name } = member;
+  return name &&
+    (ts.isIdentifier(name) ||
+      ts.isStringLiteral(name) ||
+      ts.isNumericLiteral(name))
+    ? name.text
+    : undefined;
+}
+
 function isDefault(statement: ts.Statement): boolean {
   return hasModifier(statement, ts.SyntaxKind.DefaultKeyword);
 }
@@ -810,20 +832,30 @@ export function findCountingExports(
     countsWhenCalled(scope, expression, new Set());
   const counting = new Set<string>();
 
-  // Lists under `prefix` what `from` says counts at `path` and below.
-  const copyCounting = (
+  // Lists under `prefix` what `from` lists at `path` and below, and returns
+  // the levels it lists in full: `prefix`, and for a class `prefix.prototype`.
+  const copyListed = (
     from: ReadonlySet<string>,
     path: readonly string[],
     prefix: string,
-  ) => {
+  ): Set<string> => {
+    const levels = new Set<string>();
     const at = path.join(".");
     for (const entry of from) {
-      if (entry === "*" || entry.endsWith(".")) continue;
-      if (path.length === 0) counting.add(`${prefix}.${entry}`);
-      else if (entry.startsWith(`${at}.`)) {
-        counting.add(prefix + entry.slice(at.length));
-      }
+      if (entry === "*") continue;
+      const rest =
+        path.length === 0
+          ? entry
+          : entry.startsWith(`${at}.`)
+            ? entry.slice(at.length + 1)
+            : undefined;
+      if (rest === undefined) continue;
+      if (rest === "") levels.add(prefix);
+      else if (rest === "prototype.") levels.add(`${prefix}.prototype`);
+      else counting.add(`${prefix}.${rest}`);
     }
+    if (path.length === 0 && !from.has("*")) levels.add(prefix);
+    return levels;
   };
 
   // Lists what counts among a value's members under `prefix`: an object's
@@ -852,20 +884,19 @@ export function findCountingExports(
             ? declaration
             : boundValue(checker, declaration));
         if (local) return listMembers(prefix, local, instance, seen);
-        // A value from another scanned file has what that file lists, and
-        // what it doesn't list is left to the name.
+        // A value from another scanned file has what that file lists, in
+        // full where that file says so.
         const imported = declaration
           ? declaredPath(checker, declaration, new Set())
           : valuePath(checker, value, new Set());
         const from = imported && scope.exportsOf(imported.specifier);
-        if (imported && from) {
-          copyCounting(
-            from,
-            instance ? [...imported.path, "prototype"] : imported.path,
-            prefix,
-          );
-        }
-        return levels;
+        return imported && from
+          ? copyListed(
+              from,
+              instance ? [...imported.path, "prototype"] : imported.path,
+              prefix,
+            )
+          : levels;
       }
       if (ts.isObjectLiteralExpression(value)) {
         if (!instance && listProperties(prefix, value.properties, seen)) {
@@ -876,29 +907,40 @@ export function findCountingExports(
       if (ts.isClassDeclaration(value) || ts.isClassExpression(value)) {
         const isStatic = (member: ts.ClassElement) =>
           hasModifier(member, ts.SyntaxKind.StaticKeyword);
+        const statics = value.members.filter(isStatic);
+        const members = value.members.filter((member) => !isStatic(member));
         const own = instance ? prefix : `${prefix}.prototype`;
-        if (
-          !instance &&
-          listProperties(prefix, value.members.filter(isStatic), seen)
-        ) {
+        if (!instance && listProperties(prefix, statics, seen)) {
           levels.add(prefix);
         }
-        if (
-          listProperties(
-            own,
-            value.members.filter((member) => !isStatic(member)),
-            seen,
-          )
-        ) {
-          levels.add(own);
-        }
+        if (listProperties(own, members, seen)) levels.add(own);
         const base = value.heritageClauses?.find(
           (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword,
         )?.types[0]?.expression;
         if (base) {
-          // A subclass has what its base has, and lists a level only when
-          // the base lists it too.
+          // A subclass has what its base has, except what it declares
+          // itself, and lists a level only when the base lists it too.
+          const declared = (level: string, list: readonly ts.ClassElement[]) =>
+            list.flatMap((member) => {
+              const key = memberKey(member);
+              return key ? [`${level}.${key}`] : [];
+            });
+          const overridden = [
+            ...(instance ? [] : declared(prefix, statics)),
+            ...declared(own, members),
+          ];
+          const before = new Set(counting);
           const inherited = listMembers(prefix, base, instance, seen);
+          for (const entry of counting) {
+            if (
+              !before.has(entry) &&
+              overridden.some(
+                (path) => entry === path || entry.startsWith(`${path}.`),
+              )
+            ) {
+              counting.delete(entry);
+            }
+          }
           for (const level of levels) {
             if (!inherited.has(level)) levels.delete(level);
           }
@@ -944,13 +986,7 @@ export function findCountingExports(
         }
         continue;
       }
-      const key =
-        member.name &&
-        (ts.isIdentifier(member.name) ||
-          ts.isStringLiteral(member.name) ||
-          ts.isNumericLiteral(member.name))
-          ? member.name.text
-          : undefined;
+      const key = memberKey(member);
       if (!key || ts.isGetAccessor(member) || ts.isSetAccessor(member)) {
         // A computed name or an accessor hides what's there.
         listed = false;
@@ -1119,8 +1155,8 @@ const COUNTS_ITSELF = new RegExp(
   "m",
 );
 const EXPORT_STAR = /\bexport\s*\*/;
-/** `export * from` a package or another module the guard doesn't scan. */
-const PACKAGE_STAR = /\bexport\s*\*\s*from\s*["'][^.]/;
+/** A quoted relative path, such as an import's `"./outcomes.js"`. */
+const RELATIVE_SPECIFIER = /["'](\.\.?(?:\/[^"'\n]*)?)["']/g;
 /**
  * Text that can name a count helper the way `isCountName` reads names: a count
  * helper anywhere, or a `track…` name called, imported or destructured.
@@ -1143,14 +1179,29 @@ export function countingExportsOf(
   );
   const fromPackages = new Set(["*"]);
   known.set(PACKAGE_EXPORTS, fromPackages);
-  // A file starts with what it names itself, or what it re-exports whole from
-  // a module the guard doesn't scan.
+  // The exporting files that import each scanned file, by a relative path
+  // resolved as `exportsOf` resolves it.
+  const importers = new Map<string, Set<string>>();
+  for (const [other, source] of sources) {
+    if (!EXPORTS.test(source)) continue;
+    for (const [, specifier] of source.matchAll(RELATIVE_SPECIFIER)) {
+      const target = importCandidates(other, specifier).find((candidate) =>
+        sources.has(candidate),
+      );
+      if (!target || target === other) continue;
+      const files = importers.get(target) ?? new Set<string>();
+      files.add(other);
+      importers.set(target, files);
+    }
+  }
+  // A file starts with what it names itself, or what it re-exports whole,
+  // since that may come from a module the guard doesn't scan.
   const pending = new Set(
     [...sources]
       .filter(
         ([, source]) =>
           EXPORTS.test(source) &&
-          (COUNT_WORD.test(source) || PACKAGE_STAR.test(source)),
+          (COUNT_WORD.test(source) || EXPORT_STAR.test(source)),
       )
       .map(([file]) => file),
   );
@@ -1190,45 +1241,83 @@ export function countingExportsOf(
         }
       }
     }
-    // Files that pass the exports on import their module by a path that names
-    // it. They're checked again when a counting export or member appears,
-    // when anything is dropped, or when the file gains `*`; a new `counters.`
-    // alone only answers no, which the files passing it on can leave to the
-    // name.
+    // The files importing this one are checked again when a counting export
+    // or member appears, when anything is dropped, or when the file gains
+    // `*`; a new `counters.` alone only answers no, which the files passing
+    // it on can leave to the name.
     const counting = [
       ...added.filter((name) => name !== "*" && !name.endsWith(".")),
       ...removed,
     ].map((name) => name.split(".")[0]);
     const opened = added.includes("*");
     if (counting.length === 0 && !opened) continue;
-    const stem = path.posix.basename(file).replace(/\.[^.]+$/, "");
-    const literal = (text: string) =>
-      text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const tail =
-      stem === "index"
-        ? `${literal(path.posix.basename(path.posix.dirname(file)))}(?:/index)?`
-        : literal(stem);
-    const importsModule = new RegExp(
-      `["'][^"'\\n]*/${tail}(?:\\.[cm]?[jt]sx?)?["']`,
-    );
-    for (const [other, source] of sources) {
+    for (const other of importers.get(file) ?? []) {
+      const source = sources.get(other) ?? "";
       if (
-        other !== file &&
-        EXPORTS.test(source) &&
-        importsModule.test(source) &&
-        (EXPORT_STAR.test(source) ||
-          // A name re-exported from a file with `*` is judged by its name.
-          (opened && COUNT_WORD.test(source)) ||
-          counting.some(
-            (head) =>
-              head === "*" || head === "default" || source.includes(head),
-          ))
+        EXPORT_STAR.test(source) ||
+        // A name re-exported from a file with `*` is judged by its name.
+        (opened && COUNT_WORD.test(source)) ||
+        counting.some(
+          (head) => head === "*" || head === "default" || source.includes(head),
+        )
       ) {
         pending.add(other);
       }
     }
   }
   return known;
+}
+
+/**
+ * Whether a function this file shows hands the function at parameter `index`
+ * to a timer: as the timer's callback, inside a callback that runs it, or
+ * through another local function that does, as `later` does in
+ * `const later = (fn) => setTimeout(fn, 0)`.
+ */
+function defersParameter(
+  checker: ts.TypeChecker,
+  fn: ts.FunctionLikeDeclaration,
+  index: number,
+  seen: Set<ts.Node>,
+): boolean {
+  const parameter = fn.parameters[index];
+  const symbol =
+    parameter &&
+    ts.isIdentifier(parameter.name) &&
+    checker.getSymbolAtLocation(parameter.name);
+  if (!symbol || !fn.body || seen.has(fn)) return false;
+  seen.add(fn);
+  const visit = (node: ts.Node): boolean => {
+    if (ts.isCallExpression(node)) {
+      const [callback] = node.arguments;
+      if (callback && isTimerReference(checker, node.expression, new Set())) {
+        if (refersTo(checker, callback, symbol)) return true;
+        const run = resolvedFunction(checker, callback, new Set());
+        if (run?.body && runsParameter(checker, run.body, symbol, new Set())) {
+          return true;
+        }
+      }
+      const local = resolvedFunction(checker, node.expression, new Set());
+      if (
+        local &&
+        node.arguments.some(
+          (argument, at) =>
+            refersTo(checker, argument, symbol) &&
+            defersParameter(checker, local, at, seen),
+        )
+      ) {
+        return true;
+      }
+    }
+    return (
+      ts.forEachChild(node, (child) =>
+        ts.isFunctionLike(child) && !isRunByCall(checker, child, new Set())
+          ? false
+          : visit(child),
+      ) ?? false
+    );
+  };
+  return visit(fn.body);
 }
 
 export function findDeferredCounts(
@@ -1242,13 +1331,26 @@ export function findDeferredCounts(
   const lines = source.split(/\r?\n/);
   const findings: DeferredCountFinding[] = [];
 
+  // A timer, or a function in this file that hands it on to one, given a
+  // function that counts.
+  const defersCount = (call: ts.CallExpression): boolean => {
+    const [first] = call.arguments;
+    if (first && isTimerReference(checker, call.expression, new Set())) {
+      return countsWhenCalled(scope, first, new Set());
+    }
+    const helper = resolvedFunction(checker, call.expression, new Set());
+    return (
+      !!helper &&
+      call.arguments.some(
+        (argument, index) =>
+          countsWhenCalled(scope, argument, new Set()) &&
+          defersParameter(checker, helper, index, new Set()),
+      )
+    );
+  };
+
   const visit = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      node.arguments[0] &&
-      isTimerReference(checker, node.expression, new Set()) &&
-      countsWhenCalled(scope, node.arguments[0], new Set())
-    ) {
+    if (ts.isCallExpression(node) && defersCount(node)) {
       const start =
         sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
           .line + 1;
@@ -1363,8 +1465,8 @@ function main() {
     console.error(`  ${finding.file}:${finding.line} — ${finding.snippet}`);
   }
   console.error(
-    "\nIf the count really can wait, say why on the timer call or the line\n" +
-      "above it:\n" +
+    "\nIf the count really can wait, say why on the timer call (or the call to\n" +
+      "a helper that hands it to one) or the line above it:\n" +
       "  // guard:allow-deferred-count — <why>\n",
   );
   process.exit(1);
