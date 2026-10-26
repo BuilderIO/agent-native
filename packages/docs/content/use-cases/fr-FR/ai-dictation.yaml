@@ -39,13 +39,13 @@ features:
   heading: Tout ce qu'il faut pour dicter au lieu de taper
   items:
     - title: Votre presse-papiers reste intact
-      body: Clips colle dans les applications puis remet votre presse-papiers en place, donc le lien que vous aviez copié est toujours là. Dans les terminaux, il tape le texte à la place.
+      body: "Clips colle dans les apps puis restaure votre presse-papiers : le lien copié reste là. Dans les terminaux, il tape le texte."
     - title: Un nettoyage par IA annulable
-      body: "Clips corrige les mots mal compris, les virgules et les majuscules et supprime les faux départs : automatiquement avec un moteur cloud, ou en un clic. L'original est conservé."
+      body: Clips corrige mots mal compris, virgules et majuscules, automatiquement ou en un clic. L'original est conservé.
     - title: Il apprend de vos corrections
-      body: Corrigez un mot mal compris juste après que Clips l'a collé, et l'application de bureau ajoute cette correction à votre Dictionnaire, pour que la prochaine dictée soit juste.
+      body: Corrigez un mot mal compris après le collage, et l'app de bureau l'ajoute à votre Dictionnaire pour la suite.
     - title: Mains libres pour les longs prompts
-      body: Appuyez deux fois sur votre raccourci pour continuer à écouter pendant que vous réfléchissez à voix haute, puis une fois de plus pour arrêter. Appuyez sur Échap pour jeter une dictée.
+      body: Appuyez deux fois sur le raccourci pour que Clips écoute pendant que vous réfléchissez, une fois de plus pour arrêter. Échap annule.
     - title: Collez-la à nouveau
       body: Appuyez sur Cmd+Ctrl+V pour recoller votre dernière dictée dans un autre champ de texte, pratique quand le curseur était au mauvais endroit.
     - title: Interrogez l'agent à son sujet
@@ -84,7 +84,7 @@ other_uses:
     - title: Notes de réunion par IA
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Enregistrez vos réunions depuis votre propre ordinateur et obtenez un résumé, des notes et les actions à faire.
-    - title: Outil de signalement de bugs par IA
+    - title: Rapport de bug par IA
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: Enregistrez un bug avec les logs console et réseau du navigateur, prêt pour votre agent de code.
 faqs:

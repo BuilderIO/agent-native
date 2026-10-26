@@ -41,11 +41,11 @@ features:
     - title: Sua área de transferência fica intacta
       body: O Clips cola nos apps e devolve o que estava na sua área de transferência, então o link que você copiou continua lá. Em terminais, ele digita.
     - title: Limpeza com IA que você pode desfazer
-      body: "O Clips corrige palavras mal ouvidas, vírgulas e maiúsculas e corta hesitações: automaticamente com um mecanismo na nuvem, ou com um clique. O original fica guardado."
+      body: O Clips corrige palavras mal ouvidas, vírgulas e maiúsculas, automaticamente ou com um clique. O original fica guardado.
     - title: Aprende com suas correções
       body: Corrija uma palavra mal ouvida logo depois que o Clips colar, e o app desktop adiciona essa correção ao seu Dicionário, para o próximo ditado acertar.
     - title: Mãos livres para prompts longos
-      body: Toque duas vezes no atalho para continuar ouvindo enquanto você pensa em voz alta, e toque mais uma vez para parar. Pressione Esc para descartar um ditado.
+      body: Toque duas vezes no atalho para o Clips seguir ouvindo enquanto você pensa, e de novo para parar. Esc descarta.
     - title: Cole de novo
       body: Pressione Cmd+Ctrl+V para colar seu último ditado de novo em outro campo de texto, útil quando o cursor estava no lugar errado.
     - title: Pergunte ao agente sobre ele
@@ -84,7 +84,7 @@ other_uses:
     - title: Notas de reunião com IA
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Grave suas reuniões do seu próprio computador e receba resumo, notas e itens de ação.
-    - title: Ferramenta de relatório de bugs com IA
+    - title: Relatório de bugs com IA
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: Grave um bug com os logs de console e de rede do navegador, pronto para o seu agente de código.
 faqs:

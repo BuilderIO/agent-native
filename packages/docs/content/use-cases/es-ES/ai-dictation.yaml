@@ -39,11 +39,11 @@ features:
   heading: Todo lo que necesitas para dictar en vez de escribir
   items:
     - title: Tu portapapeles no se toca
-      body: Clips pega en las aplicaciones y te devuelve el portapapeles, así que el enlace que habías copiado sigue ahí. En las terminales, escribe en lugar de pegar.
+      body: "Clips pega y restaura tu portapapeles: el enlace copiado sigue ahí. En terminales, escribe el texto."
     - title: Limpieza con IA que puedes deshacer
-      body: "Clips corrige palabras mal entendidas, comas y mayúsculas, y elimina los titubeos: automáticamente con un motor en la nube, o con un clic. El original se conserva."
+      body: Clips corrige palabras mal entendidas, comas y mayúsculas, automáticamente o con un clic. El original se conserva.
     - title: Aprende de tus correcciones
-      body: Corrige una palabra mal entendida justo después de que Clips la pegue, y la aplicación de escritorio añade esa corrección a tu Diccionario, para que el siguiente dictado la acierte.
+      body: Corrige una palabra mal entendida justo tras pegarla, y la app de escritorio la añade a tu Diccionario para acertar la próxima vez.
     - title: Manos libres para prompts largos
       body: Pulsa tu atajo dos veces para seguir escuchando mientras piensas en voz alta, y una vez más para parar. Pulsa Esc para descartar un dictado.
     - title: Pégalo otra vez
@@ -84,7 +84,7 @@ other_uses:
     - title: Notas de reuniones con IA
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Graba tus reuniones desde tu propio ordenador y obtén un resumen, notas y tareas.
-    - title: Herramienta de reporte de bugs con IA
+    - title: Reportes de bugs con IA
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: Graba un bug con los registros de consola y de red del navegador, listo para tu agente de código.
 faqs:

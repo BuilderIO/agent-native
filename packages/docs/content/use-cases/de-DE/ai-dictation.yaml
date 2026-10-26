@@ -40,10 +40,10 @@ features:
   items:
     - title: Ihre Zwischenablage bleibt erhalten
       body: Clips fügt in Apps ein und stellt Ihre Zwischenablage wieder her, der kopierte Link ist also noch da. In Terminals tippt es stattdessen.
-    - title: KI-Bereinigung, die Sie rückgängig machen können
-      body: "Clips korrigiert falsch verstandene Wörter, Kommas und Großschreibung und entfernt Fehlstarts: automatisch mit einer Cloud-Engine oder mit einem Klick. Das Original bleibt erhalten."
+    - title: Umkehrbare KI-Bereinigung
+      body: Clips korrigiert falsch verstandene Wörter, Kommas und Großschreibung, automatisch oder per Klick. Das Original bleibt erhalten.
     - title: Lernt aus Ihren Korrekturen
-      body: Korrigieren Sie ein falsch verstandenes Wort direkt nach dem Einfügen, und die Desktop-App nimmt die Korrektur in Ihr Wörterbuch auf, damit das nächste Diktat stimmt.
+      body: Korrigieren Sie ein falsch verstandenes Wort direkt nach dem Einfügen, und die Desktop-App merkt es sich im Wörterbuch.
     - title: Freihändig für lange Prompts
       body: Tippen Sie Ihr Kürzel zweimal, damit Clips weiter zuhört, während Sie laut nachdenken, und einmal, um zu stoppen. Mit Esc verwerfen Sie ein Diktat.
     - title: Erneut einfügen

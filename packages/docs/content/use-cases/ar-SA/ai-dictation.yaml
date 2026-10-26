@@ -81,10 +81,10 @@ integrations:
 other_uses:
   heading: "أشياء أخرى يمكنك فعلها مع Clips"
   cards:
-    - title: "ملاحظات الاجتماعات بالذكاء الاصطناعي"
+    - title: ملاحظات الاجتماعات الذكية
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: "سجّل اجتماعاتك من جهازك واحصل على ملخص وملاحظات وعناصر عمل."
-    - title: "أداة الإبلاغ عن الأخطاء بالذكاء الاصطناعي"
+    - title: تقارير الأخطاء الذكية
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: "سجّل الخطأ مع سجلات وحدة تحكم المتصفح والشبكة، جاهزًا لوكيل البرمجة لديك."
 faqs:
