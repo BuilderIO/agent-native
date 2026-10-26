@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -220,10 +222,12 @@ describe("Zoom metadata timeout recovery", () => {
     await assertion;
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock.mock.calls[1][0]).toBe(fetchMock.mock.calls[2][0]);
-    expect(fetchMock.mock.calls[1][1].signal).not.toBe(
-      fetchMock.mock.calls[2][1].signal,
-    );
+    const failedCall = fetchMock.mock.calls[1];
+    const retryCall = fetchMock.mock.calls[2];
+    assert(failedCall);
+    assert(retryCall);
+    expect(failedCall[0]).toBe(retryCall[0]);
+    expect(failedCall[1].signal).not.toBe(retryCall[1].signal);
     expect(onPage).toHaveBeenCalledTimes(2);
   });
 
@@ -246,7 +250,9 @@ describe("Zoom metadata timeout recovery", () => {
     await vi.runAllTimersAsync();
     await assertion;
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(false);
+    const retryCall = fetchMock.mock.calls[1];
+    assert(retryCall);
+    expect(retryCall[1].signal.aborted).toBe(false);
   });
 
   it("stops after one retry when the timeout persists", async () => {

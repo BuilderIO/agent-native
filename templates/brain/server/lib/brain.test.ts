@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const testString = (value: unknown) =>
@@ -4437,10 +4439,9 @@ describe("Brain connector smoke coverage", () => {
         status: "error",
         error: result.message,
       });
-      const cursor = JSON.parse(
-        mocks.rows.sources.find((row) => row.id === source.id)!
-          .cursorJson as string,
-      );
+      const updated = mocks.rows.sources.find((row) => row.id === source.id);
+      assert(updated);
+      const cursor = JSON.parse(updated.cursorJson as string);
       expect(cursor.from).toBe("2026-10-19");
       const retryDelay = Date.parse(cursor.transientRetryAt) - before;
       expect(retryDelay).toBeGreaterThanOrEqual(5 * 60 * 1000);
@@ -4481,7 +4482,8 @@ describe("Brain connector smoke coverage", () => {
       const result = await runConnectorSync(source as never);
 
       expect(result.status).toBe("error");
-      const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
+      const updated = mocks.rows.sources.find((row) => row.id === source.id);
+      assert(updated);
       const cursor = JSON.parse(updated.cursorJson as string);
       expect(cursor).toMatchObject({
         from: "2026-10-19",
@@ -4512,7 +4514,8 @@ describe("Brain connector smoke coverage", () => {
     const result = await runConnectorSync(source as never);
 
     expect(result.status).toBe("error");
-    const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
+    const updated = mocks.rows.sources.find((row) => row.id === source.id);
+    assert(updated);
     const cursor = JSON.parse(updated.cursorJson as string);
     expect(cursor.consecutiveTimeouts).toBeUndefined();
     expect(cursor.transientRetryAt).toBeUndefined();
@@ -4553,7 +4556,8 @@ describe("Brain connector smoke coverage", () => {
       status: "success",
       stats: { recordingListsScanned: 1 },
     });
-    const updated = mocks.rows.sources.find((row) => row.id === source.id)!;
+    const updated = mocks.rows.sources.find((row) => row.id === source.id);
+    assert(updated);
     expect(updated).toMatchObject({ status: "active", lastError: null });
     const recoveredCursor = JSON.parse(updated.cursorJson as string);
     expect(recoveredCursor.transientRetryAt).toBeUndefined();
@@ -4571,9 +4575,8 @@ describe("Brain connector smoke coverage", () => {
     const failed = await runConnectorSync(updated as never);
 
     expect(failed.status).toBe("error");
-    const failedSource = mocks.rows.sources.find(
-      (row) => row.id === source.id,
-    )!;
+    const failedSource = mocks.rows.sources.find((row) => row.id === source.id);
+    assert(failedSource);
     const failedCursor = JSON.parse(failedSource.cursorJson as string);
     expect(failedCursor.consecutiveTimeouts).toBe(1);
     const retryDelay = Date.parse(failedCursor.transientRetryAt) - before;
