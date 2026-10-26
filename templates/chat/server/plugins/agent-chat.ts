@@ -11,6 +11,7 @@ const INITIAL_TOOL_NAMES = [
   "navigate",
   "hello",
   "provider-api-request",
+  "ask-question",
 ];
 
 export default createAgentChatPlugin({
