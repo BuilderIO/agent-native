@@ -4,6 +4,7 @@ import {
   motionEaseVariableId,
   motionEaseVariableToken,
   MOTION_CURVE_PRESETS,
+  MOTION_DEFAULT_CUSTOM_BEZIER,
   MOTION_EASING_VARIABLE_MAX_COUNT,
   MOTION_SPRING_PRESETS,
   MOTION_SPRING_DEFAULT_BOUNCE,
@@ -328,7 +329,6 @@ const EASING_OPTIONS = [
   { value: "custom-spring", labelKey: "customSpring" },
 ];
 
-const CUSTOM_BEZIER_DEFAULT = "cubic-bezier(0.25, 0.1, 0.25, 1)";
 const DEFAULT_EASING = "cubic-bezier(0, 0, 0.58, 1)";
 
 const AMOUNT_FIELDS: Partial<
@@ -340,6 +340,12 @@ const AMOUNT_FIELDS: Partial<
   Size: { key: "amount", unit: "" },
   Opacity: { key: "amount", unit: "%" },
 };
+
+const SIZE_AXIS_OPTIONS = [
+  { value: "xy", labelKey: "axisBoth" },
+  { value: "x", labelKey: "axisX" },
+  { value: "y", labelKey: "axisY" },
+] as const;
 
 const CONTROL_CLASS =
   "h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]";
@@ -521,7 +527,7 @@ export function MotionNativeStyleEditor({
   return (
     <div
       aria-label={t("designEditor.motion.animationStyles.title")}
-      className="space-y-0.5"
+      className="-ml-[calc(var(--design-inspector-section-padding-inline)_+_1px)] -mr-[calc(var(--design-inspector-section-padding-inline)_-_1px)] space-y-0.5 pt-2"
       data-design-inspector-section
     >
       {targetStyles.length > 0 ? (
@@ -554,7 +560,7 @@ export function MotionNativeStyleEditor({
                   }
                 }}
               >
-                <li className="flex min-w-0 items-center gap-0.5 rounded-sm">
+                <li className="flex h-8 min-w-0 items-center gap-1 rounded-sm pl-4 pr-1">
                   <PopoverTrigger asChild>
                     <button
                       type="button"
@@ -606,14 +612,14 @@ export function MotionNativeStyleEditor({
                       align="start"
                       alignOffset={-4}
                       side="left"
-                      sideOffset={10}
+                      sideOffset={16}
                       className="w-60 p-0"
                       data-motion-native-style-settings={instance.styleKey}
                       onInteractOutside={(event) => {
                         if (
                           event.target instanceof Element &&
                           event.target.closest(
-                            "[data-motion-native-style-trigger], [data-motion-select-native-style]",
+                            "[data-motion-native-style-trigger]",
                           )
                         ) {
                           event.preventDefault();
@@ -738,6 +744,7 @@ function NativeStyleDetails({
   const amountValue = amountKey
     ? numberValue(instance.props[amountKey], amountDefault)
     : undefined;
+  const sizeAxis = stringValue(instance.props.axis, "xy");
   const delayMs = Math.round(numberValue(instance.props.delay, 0) * 1000);
   const easingValue = easingToken(instance.props.easing);
   const easingVariableId = motionEaseVariableId(easingValue);
@@ -830,6 +837,90 @@ function NativeStyleDetails({
           />
         </Field>
       ) : null}
+
+      {instance.styleKey === "Size" && customType ? (
+        <Field
+          id={`${id}-size-axis`}
+          label={t("designEditor.motion.animationStyles.axis")}
+        >
+          <SelectControl
+            id={`${id}-size-axis`}
+            label={t("designEditor.motion.animationStyles.axis")}
+            value={sizeAxis}
+            disabled={disabled}
+            options={[...SIZE_AXIS_OPTIONS]}
+            t={t}
+            onChange={(value) =>
+              onUpdateProp(instance, identity, "axis", value)
+            }
+          />
+        </Field>
+      ) : null}
+
+      {instance.styleKey === "Size" && customType
+        ? [
+            ...(sizeAxis !== "y"
+              ? [
+                  {
+                    key: "startWidth",
+                    labelKey: "startWidth",
+                    fallback: 50,
+                  },
+                  {
+                    key: "endWidth",
+                    labelKey: "endWidth",
+                    fallback: 100,
+                  },
+                ]
+              : []),
+            ...(sizeAxis !== "x"
+              ? [
+                  {
+                    key: "startHeight",
+                    labelKey: "startHeight",
+                    fallback: 50,
+                  },
+                  {
+                    key: "endHeight",
+                    labelKey: "endHeight",
+                    fallback: 100,
+                  },
+                ]
+              : []),
+          ].map((field) => {
+            const label = t(
+              `designEditor.motion.animationStyles.${field.labelKey}`,
+            );
+            const fieldId = `${id}-size-${field.key}`;
+            return (
+              <Field key={field.key} id={fieldId} label={label}>
+                <div className="flex min-w-0 items-center gap-1">
+                  <Input
+                    id={fieldId}
+                    type="number"
+                    step={1}
+                    aria-label={label}
+                    value={numberValue(
+                      instance.props[field.key],
+                      field.fallback,
+                    )}
+                    disabled={disabled}
+                    className={CONTROL_CLASS}
+                    onChange={(event) =>
+                      updateNumberProp(field.key, event.currentTarget.value)
+                    }
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 text-[10px] text-muted-foreground"
+                  >
+                    px
+                  </span>
+                </div>
+              </Field>
+            );
+          })
+        : null}
 
       {amountField && !customType && amountValue !== undefined ? (
         <Field
@@ -1662,6 +1753,11 @@ export interface MotionEasingPickerProps {
   onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   disabled: boolean;
   t: (key: string) => string;
+  mode?: "all" | "curve" | "spring";
+  side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
+  sideOffset?: number;
+  compactPopover?: boolean;
 }
 
 export function MotionEasingPicker({
@@ -1671,6 +1767,11 @@ export function MotionEasingPicker({
   onEasingVariablesChange,
   disabled,
   t,
+  mode = "all",
+  side,
+  align = "start",
+  sideOffset,
+  compactPopover = false,
 }: MotionEasingPickerProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"presets" | "libraries">("presets");
@@ -1681,8 +1782,17 @@ export function MotionEasingPicker({
   const selectedVariable = easingVariables.find(
     (variable) => variable.id === variableId,
   );
-  const selectedPreset = EASING_OPTIONS.find((option) => {
-    if (option.value === "custom-bezier") return isCustomBezier(value);
+  const pickerOptions = EASING_OPTIONS.filter((option) => {
+    if (mode === "all") return true;
+    const springOption =
+      option.value === "custom-spring" ||
+      parseSpringToken(option.value) !== null;
+    return mode === "spring" ? springOption : !springOption;
+  });
+  const selectedPreset = pickerOptions.find((option) => {
+    if (option.value === "custom-bezier") {
+      return isCustomBezier(value) || parseLinearStops(value) !== null;
+    }
     if (option.value === "custom-spring")
       return parseSpringToken(value) !== null;
     return option.value === value;
@@ -1703,9 +1813,9 @@ export function MotionEasingPicker({
   function selectPreset(option: (typeof EASING_OPTIONS)[number]) {
     const next =
       option.value === "custom-bezier"
-        ? isCustomBezier(value)
+        ? isCustomBezier(value) || parseLinearStops(value) !== null
           ? value
-          : CUSTOM_BEZIER_DEFAULT
+          : MOTION_DEFAULT_CUSTOM_BEZIER
         : option.value === "custom-spring"
           ? parseSpringToken(value)
             ? value
@@ -1760,7 +1870,12 @@ export function MotionEasingPicker({
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="bottom" className="w-60 p-2">
+      <PopoverContent
+        align={align}
+        {...(side === undefined ? {} : { side })}
+        {...(sideOffset === undefined ? {} : { sideOffset })}
+        className={compactPopover ? "max-h-[336px] w-[232px] p-2" : "w-60 p-2"}
+      >
         {view === "new-variable" ? (
           <NewEasingVariableForm
             easingVariables={easingVariables}
@@ -1783,60 +1898,65 @@ export function MotionEasingPicker({
                 setSearch("");
               }
             }}
-            className="space-y-2"
+            className={compactPopover ? "space-y-3" : "space-y-2"}
           >
             <div className="flex items-center gap-1">
-              <TabsList className="grid h-8 min-w-0 flex-1 grid-cols-2 p-0.5">
+              <TabsList
+                className={`grid ${compactPopover ? "h-6" : "h-8"} min-w-0 flex-1 grid-cols-2 p-0.5`}
+              >
                 <TabsTrigger
                   value="presets"
                   disabled={disabled}
-                  className="h-7 px-2 text-[11px]"
+                  className={`${compactPopover ? "h-5" : "h-7"} px-2 text-[11px]`}
                 >
                   {t(`${pickerKeys}.presets`)}
                 </TabsTrigger>
                 <TabsTrigger
                   value="libraries"
                   disabled={disabled}
-                  className="h-7 px-2 text-[11px]"
+                  className={`${compactPopover ? "h-5" : "h-7"} px-2 text-[11px]`}
                 >
                   {t(`${pickerKeys}.libraries`)}
                 </TabsTrigger>
               </TabsList>
-              {createAvailable ? (
+              <div className="flex shrink-0">
+                {createAvailable ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t(`${pickerKeys}.newVariable`)}
+                    title={t(`${pickerKeys}.newVariable`)}
+                    className={`${compactPopover ? "size-6" : "size-7"} shrink-0`}
+                    disabled={disabled}
+                    onClick={() => setView("new-variable")}
+                  >
+                    <IconPlus aria-hidden="true" className="size-3.5" />
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label={t(`${pickerKeys}.newVariable`)}
-                  title={t(`${pickerKeys}.newVariable`)}
-                  className="size-7 shrink-0"
+                  aria-label={t("designEditor.motion.animationStyles.close")}
+                  title={t("designEditor.motion.animationStyles.close")}
+                  className={`${compactPopover ? "size-6" : "size-7"} shrink-0`}
                   disabled={disabled}
-                  onClick={() => setView("new-variable")}
+                  onClick={closePicker}
                 >
-                  <IconPlus aria-hidden="true" className="size-3.5" />
+                  <IconX aria-hidden="true" className="size-3.5" />
                 </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("designEditor.motion.animationStyles.close")}
-                title={t("designEditor.motion.animationStyles.close")}
-                className="size-7 shrink-0"
-                disabled={disabled}
-                onClick={closePicker}
-              >
-                <IconX aria-hidden="true" className="size-3.5" />
-              </Button>
+              </div>
             </div>
 
             <TabsContent value="presets" className="mt-0 space-y-1">
               <div className="max-h-72 overflow-y-auto">
-                {EASING_OPTIONS.length > 0 ? (
-                  EASING_OPTIONS.map((option) => {
+                {pickerOptions.length > 0 ? (
+                  pickerOptions.map((option) => {
                     const selected =
                       option.value === "custom-bezier"
-                        ? isCustomBezier(value)
+                        ? isCustomBezier(value) ||
+                          parseLinearStops(value) !== null
                         : option.value === "custom-spring"
                           ? parseSpringToken(value) !== null
                           : option.value === value;
@@ -1847,15 +1967,26 @@ export function MotionEasingPicker({
                         aria-label={optionLabel(option, t)}
                         aria-pressed={selected}
                         disabled={disabled}
-                        className="flex h-8 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                        className={`relative -mx-2 flex h-8 w-[calc(100%+1rem)] items-center gap-2.5 rounded px-3 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50 ${selected ? "bg-[var(--design-editor-selection-color)]" : ""}`}
                         onClick={() => selectPreset(option)}
                       >
-                        <span
+                        <svg
                           aria-hidden="true"
-                          className={`flex size-3 shrink-0 items-center justify-center text-primary ${selected ? "opacity-100" : "opacity-0"}`}
+                          data-motion-easing-preview={option.value}
+                          viewBox="0 -1 16 18"
+                          className={`size-4 shrink-0 ${selected ? "text-foreground" : "text-muted-foreground"}`}
                         >
-                          <IconCheck className="size-3" />
-                        </span>
+                          <path
+                            d={easingPreviewPath(
+                              easingPreviewValue(option.value, value),
+                            )}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.4"
+                          />
+                        </svg>
                         <span className="truncate">
                           {optionLabel(option, t)}
                         </span>
@@ -2236,6 +2367,9 @@ function NumberField({
   );
 }
 
+type SpringDraftCommit = (persist?: boolean) => string | undefined;
+type SpringDraftCommitRef = { current: SpringDraftCommit | null };
+
 function NativeEasingCurveEditor({
   value,
   disabled,
@@ -2251,6 +2385,20 @@ function NativeEasingCurveEditor({
   const [tab, setTab] = useState<"curve" | "spring">(
     spring ? "spring" : "curve",
   );
+  const previousSpring = useRef(
+    spring
+      ? value
+      : springToken({ bounce: MOTION_SPRING_DEFAULT_BOUNCE, settle: 1 }),
+  );
+  const lastSeenSpringValueRef = useRef(spring ? value : undefined);
+  const springDraftCommitRef = useRef<SpringDraftCommit | null>(null);
+
+  useEffect(() => {
+    if (spring && value !== lastSeenSpringValueRef.current) {
+      previousSpring.current = value;
+      lastSeenSpringValueRef.current = value;
+    }
+  }, [spring, value]);
 
   return (
     <Tabs
@@ -2259,13 +2407,10 @@ function NativeEasingCurveEditor({
         if (next !== "curve" && next !== "spring") return;
         setTab(next);
         if (next === "spring" && !parseSpringToken(value)) {
-          onChange(
-            springToken({
-              bounce: MOTION_SPRING_DEFAULT_BOUNCE,
-              settle: 1,
-            }),
-          );
-        } else if (next === "curve" && parseSpringToken(value)) {
+          onChange(previousSpring.current);
+        } else if (next === "curve" && spring) {
+          previousSpring.current =
+            springDraftCommitRef.current?.(false) ?? value;
           onChange(DEFAULT_EASING);
         }
       }}
@@ -2292,7 +2437,7 @@ function NativeEasingCurveEditor({
       </TabsList>
 
       <TabsContent value="curve" className="mt-0 space-y-2">
-        <NativeBezierCurveEditor
+        <MotionBezierCurveEditor
           value={value}
           disabled={disabled}
           onChange={onChange}
@@ -2301,18 +2446,19 @@ function NativeEasingCurveEditor({
       </TabsContent>
 
       <TabsContent value="spring" className="mt-0">
-        <NativeSpringEditor
+        <MotionSpringEditor
           value={value}
           disabled={disabled}
           onChange={onChange}
           t={t}
+          draftCommitRef={springDraftCommitRef}
         />
       </TabsContent>
     </Tabs>
   );
 }
 
-function NativeBezierCurveEditor({
+export function MotionBezierCurveEditor({
   value,
   disabled,
   onChange,
@@ -2325,8 +2471,11 @@ function NativeBezierCurveEditor({
 }) {
   const id = useId();
   const parsedPoints = parseBezier(value);
-  const isLinear = value === "linear";
-  const isHold = value === "step-start";
+  const normalizedValue = value.trim().toLowerCase();
+  const isLinear = normalizedValue === "linear";
+  const isHold = normalizedValue === "step-start";
+  const isStepFunction = parseStepsPath(value);
+  const linearPoints = parseLinearStops(value);
   const points =
     parsedPoints ??
     (isLinear ? ([0, 0, 1, 1] as [number, number, number, number]) : null);
@@ -2339,29 +2488,30 @@ function NativeBezierCurveEditor({
   useEffect(() => {
     const current = parseBezier(value);
     setBezierValue(
-      value === "linear"
+      value.trim().toLowerCase() === "linear"
         ? "0, 0, 1, 1"
         : formatBezierCoordinates(current, value),
     );
   }, [value]);
 
   if (!points) {
-    if (!isHold) return null;
+    const previewLinearPoints = linearPreviewPoints(linearPoints);
+    const staticPath =
+      isStepFunction ?? pathFromLinearStops(previewLinearPoints);
+    if (!staticPath) return null;
+    const outputs = previewLinearPoints?.map((point) => point.output) ?? [0, 1];
+    const minY = 100 - Math.max(1, ...outputs) * 100;
+    const maxY = 100 - Math.min(0, ...outputs) * 100;
     return (
       <svg
-        viewBox="-6 -6 112 112"
+        viewBox={`-6 ${formatEasingNumber(minY - 6)} 112 ${formatEasingNumber(maxY - minY + 12)}`}
         role="group"
         aria-label={t("designEditor.motion.animationStyles.curvePreview")}
         data-easing-curve={value}
         className="h-52 w-full rounded border border-border bg-muted/30"
       >
         <path
-          d="M 0 100 L 100 0"
-          className="stroke-border"
-          strokeDasharray="2 3"
-        />
-        <path
-          d="M 0 100 L 0 0 L 100 0"
+          d={staticPath}
           data-curve-path
           fill="none"
           className="stroke-primary"
@@ -2640,19 +2790,98 @@ function NativeBezierCurveEditor({
   );
 }
 
-function NativeSpringEditor({
+export function MotionSpringEditor({
   value,
   disabled,
   onChange,
   t,
+  draftCommitRef,
 }: {
   value: string;
   disabled: boolean;
   onChange: (value: string) => void;
   t: (key: string) => string;
+  draftCommitRef?: SpringDraftCommitRef;
 }) {
   const spring = parseSpringToken(value);
   const springGeometry = spring ? createSpringCurveGeometry(spring) : null;
+  const [bounceDraft, setBounceDraft] = useState(() =>
+    spring ? springBounceDraft(value, spring.bounce) : "",
+  );
+  const bounceDraftRef = useRef(bounceDraft);
+  const bounceDraftEditedRef = useRef(false);
+  const lastSpringValueRef = useRef(spring ? value : undefined);
+  const currentValueRef = useRef({ value, onChange });
+  currentValueRef.current = { value, onChange };
+  const commitBounceDraftRef = useRef<SpringDraftCommit | null>(null);
+  commitBounceDraftRef.current = (persist = true) => {
+    const currentValue = currentValueRef.current.value;
+    const currentSpring = parseSpringToken(currentValue);
+    if (!currentSpring) return undefined;
+    if (!bounceDraftEditedRef.current) {
+      return lastSpringValueRef.current ?? currentValue;
+    }
+
+    const trimmed = bounceDraftRef.current.trim();
+    const bounce = Number(trimmed);
+    if (
+      !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed) ||
+      !Number.isFinite(bounce)
+    ) {
+      bounceDraftEditedRef.current = false;
+      return undefined;
+    }
+
+    const bounceToken = springToken({ bounce, settle: 1 });
+    const nextBounce = bounceToken.slice("spring(".length, -1);
+    const explicitSettle =
+      /^spring\(\s*[+-]?[\d.]+\s*,\s*([+-]?[\d.]+)\s*\)$/i.exec(
+        currentValue.trim(),
+      )?.[1];
+    const settle =
+      explicitSettle === undefined ? undefined : Number(explicitSettle);
+    const next =
+      settle !== undefined &&
+      Number.isFinite(settle) &&
+      settle >= 0.05 &&
+      settle <= 1
+        ? `spring(${nextBounce}, ${explicitSettle})`
+        : springToken({ bounce, settle: currentSpring.settle });
+    bounceDraftEditedRef.current = false;
+    if (parseSpringToken(next)?.bounce === currentSpring.bounce) {
+      const reset = springBounceDraft(currentValue, currentSpring.bounce);
+      bounceDraftRef.current = reset;
+      setBounceDraft(reset);
+      lastSpringValueRef.current = currentValue;
+      return currentValue;
+    }
+    lastSpringValueRef.current = next;
+    if (persist) currentValueRef.current.onChange(next);
+    return next;
+  };
+  if (draftCommitRef) {
+    draftCommitRef.current = commitBounceDraftRef.current;
+  }
+
+  const springBounce = spring?.bounce;
+
+  useEffect(() => {
+    const next =
+      springBounce === undefined ? "" : springBounceDraft(value, springBounce);
+    bounceDraftRef.current = next;
+    bounceDraftEditedRef.current = false;
+    if (springBounce !== undefined) lastSpringValueRef.current = value;
+    setBounceDraft(next);
+  }, [springBounce, value]);
+
+  useEffect(() => {
+    return () => {
+      if (draftCommitRef?.current === commitBounceDraftRef.current) {
+        draftCommitRef.current = null;
+      }
+      commitBounceDraftRef.current?.();
+    };
+  }, [draftCommitRef]);
 
   return (
     <div className="space-y-2">
@@ -2680,13 +2909,30 @@ function NativeSpringEditor({
           </svg>
           <CurveNumberField
             label={t("designEditor.motion.bounce")}
-            value={spring.bounce}
-            min={0}
-            max={1}
+            value={bounceDraft}
             disabled={disabled}
-            onChange={(bounce) =>
-              onChange(springToken({ bounce, settle: spring.settle }))
-            }
+            onChange={(draft) => {
+              bounceDraftRef.current = draft;
+              bounceDraftEditedRef.current = true;
+              setBounceDraft(draft);
+            }}
+            onBlur={(draft) => {
+              if (!bounceDraftEditedRef.current) return;
+              bounceDraftRef.current = draft;
+              const committed = commitBounceDraftRef.current?.();
+              if (committed === undefined) {
+                const currentValue = currentValueRef.current.value;
+                const currentSpring = parseSpringToken(currentValue);
+                if (currentSpring) {
+                  const reset = springBounceDraft(
+                    currentValue,
+                    currentSpring.bounce,
+                  );
+                  bounceDraftRef.current = reset;
+                  setBounceDraft(reset);
+                }
+              }
+            }}
           />
         </>
       ) : null}
@@ -2718,33 +2964,27 @@ function createSpringCurveGeometry(spring: {
 function CurveNumberField({
   label,
   value,
-  min,
-  max,
   disabled,
   onChange,
+  onBlur,
 }: {
   label: string;
-  value: number;
-  min: number;
-  max: number;
+  value: string;
   disabled: boolean;
-  onChange: (value: number) => void;
+  onChange: (value: string) => void;
+  onBlur: (value: string) => void;
 }) {
   return (
     <label className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
       <span className="shrink-0">{label}</span>
       <Input
-        type="number"
-        min={min}
-        max={max}
-        step={0.01}
-        value={formatEasingNumber(value)}
+        type="text"
+        inputMode="decimal"
+        value={value}
         disabled={disabled}
         className={CONTROL_CLASS}
-        onChange={(event) => {
-          const next = Number(event.currentTarget.value);
-          if (Number.isFinite(next)) onChange(next);
-        }}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onBlur={(event) => onBlur(event.currentTarget.value)}
       />
     </label>
   );
@@ -2837,12 +3077,7 @@ function concreteEasingValue(
     ? variables.find((variable) => variable.id === variableId)?.value
     : value;
   if (!concreteValue) return DEFAULT_EASING;
-  if (
-    MOTION_CURVE_PRESETS.some((preset) => preset.value === concreteValue) ||
-    MOTION_SPRING_PRESETS.some((preset) => preset.value === concreteValue) ||
-    isCustomBezier(concreteValue) ||
-    parseSpringToken(concreteValue)
-  ) {
+  if (isValidMotionEase(concreteValue)) {
     return concreteValue;
   }
   return DEFAULT_EASING;
@@ -2897,6 +3132,79 @@ function optionLabel(
   );
 }
 
+function easingPreviewValue(
+  optionValue: string,
+  selectedValue: string,
+): string {
+  if (optionValue === "custom-bezier") {
+    return isCustomBezier(selectedValue) ||
+      parseLinearStops(selectedValue) !== null
+      ? selectedValue
+      : MOTION_DEFAULT_CUSTOM_BEZIER;
+  }
+  if (optionValue === "custom-spring") {
+    return parseSpringToken(selectedValue)
+      ? selectedValue
+      : springToken({ bounce: MOTION_SPRING_DEFAULT_BOUNCE, settle: 1 });
+  }
+  return optionValue;
+}
+
+export function easingPreviewPath(value: string): string {
+  const spring = parseSpringToken(value);
+  if (spring) {
+    const samples = Array.from({ length: 13 }, (_, index) => {
+      const progress = index / 12;
+      const output = Math.max(
+        -0.15,
+        Math.min(1.15, sampleSpring(spring, progress)),
+      );
+      return `${1 + progress * 14},${14 - output * 12}`;
+    });
+    return `M${samples[0]} L${samples.slice(1).join(" L")}`;
+  }
+  const normalizedValue = value.trim().toLowerCase();
+  if (normalizedValue === "step-start") return "M1 14 V2 H15";
+  if (normalizedValue === "linear") return "M1 14 L15 2";
+  const stepsPath = parseStepsPath(value);
+  if (stepsPath) {
+    return stepsPath
+      .replace(
+        /^M\s*(-?[\d.]+)\s+(-?[\d.]+)/,
+        (_match, x, y) =>
+          `M${1 + (Number(x) / 100) * 14} ${2 + (Number(y) / 100) * 12}`,
+      )
+      .replace(
+        /\s+H\s+(-?[\d.]+)/g,
+        (_match, x) => ` H${1 + (Number(x) / 100) * 14}`,
+      )
+      .replace(
+        /\s+V\s+(-?[\d.]+)/g,
+        (_match, y) => ` V${2 + (Number(y) / 100) * 12}`,
+      );
+  }
+  const linearPoints = parseLinearStops(value);
+  if (linearPoints) {
+    const previewPoints = linearPreviewPoints(linearPoints);
+    if (!previewPoints?.length) return "";
+    const firstPoint = arrayValueAt(previewPoints, 0);
+    if (!firstPoint) return "";
+    const remainingPoints = previewPoints.slice(1);
+    const toPreviewPoint = ({ position, output }: LinearStopPoint) =>
+      `${formatEasingNumber(1 + (position / 100) * 14)} ${formatEasingNumber(14 - output * 12)}`;
+    const path = remainingPoints.map(toPreviewPoint).join(" L");
+    return path
+      ? `M${toPreviewPoint(firstPoint)} L${path}`
+      : `M${toPreviewPoint(firstPoint)}`;
+  }
+
+  const bezier =
+    parseBezier(value) ?? parseBezier(MOTION_DEFAULT_CUSTOM_BEZIER);
+  if (!bezier) return "";
+  const [x1, y1, x2, y2] = bezier;
+  return `M1 14 C${1 + x1 * 14} ${14 - y1 * 12}, ${1 + x2 * 14} ${14 - y2 * 12}, 15 2`;
+}
+
 function formatBezierToken(points: [number, number, number, number]): string {
   const token = `cubic-bezier(${points.map(formatBezierNumber).join(", ")})`;
   return (
@@ -2918,20 +3226,305 @@ function flipBezierPoints(
 function isCustomBezier(value: string): boolean {
   return (
     parseBezier(value) !== null &&
+    /^cubic-bezier\(/i.test(value.trim()) &&
     !MOTION_CURVE_PRESETS.some((preset) => preset.value === value)
   );
 }
 
 function parseBezier(value: string): [number, number, number, number] | null {
+  const normalized = value.trim().toLowerCase();
+  const aliases: Partial<Record<string, [number, number, number, number]>> = {
+    ease: [0.25, 0.1, 0.25, 1],
+    "ease-in": [0.42, 0, 1, 1],
+    "ease-out": [0, 0, 0.58, 1],
+    "ease-in-out": [0.42, 0, 0.58, 1],
+  };
+  const alias = aliases[normalized];
+  if (alias) return alias;
   const match =
-    /^cubic-bezier\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^\)]+)\)$/i.exec(
-      value,
+    /^cubic-bezier\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i.exec(
+      normalized,
     );
   if (!match) return null;
-  const points = match.slice(1).map(Number);
-  return points.length === 4 && points.every(Number.isFinite)
-    ? (points as [number, number, number, number])
-    : null;
+  const rawX1 = matchCaptureAt(match, 1);
+  const rawY1 = matchCaptureAt(match, 2);
+  const rawX2 = matchCaptureAt(match, 3);
+  const rawY2 = matchCaptureAt(match, 4);
+  if (
+    rawX1 === undefined ||
+    rawY1 === undefined ||
+    rawX2 === undefined ||
+    rawY2 === undefined
+  ) {
+    return null;
+  }
+  const points: [number, number, number, number] = [
+    Number(rawX1),
+    Number(rawY1),
+    Number(rawX2),
+    Number(rawY2),
+  ];
+  if (!points.every(Number.isFinite)) return null;
+  return points;
+}
+
+function parseStepsPath(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "step-start") return "M 0 100 V 0 H 100";
+  if (normalized === "step-end") return "M 0 100 H 100 V 0";
+  const match =
+    /^steps\(\s*(\d+)\s*(?:,\s*(jump-start|jump-end|jump-none|jump-both|start|end)\s*)?\)$/i.exec(
+      normalized,
+    );
+  if (!match) return null;
+
+  const requestedCount = Number(match[1]);
+  const position = (matchCaptureAt(match, 2) ?? "end")
+    .replace(/^start$/, "jump-start")
+    .replace(/^end$/, "jump-end");
+  if (
+    !Number.isSafeInteger(requestedCount) ||
+    requestedCount < 1 ||
+    requestedCount > 128 ||
+    (position === "jump-none" && requestedCount < 2)
+  ) {
+    return null;
+  }
+  const count = requestedCount;
+
+  const commands: string[] = [];
+  if (position === "jump-start") {
+    commands.push(`M 0 ${formatEasingNumber(100 - 100 / count)}`);
+    for (let index = 1; index < count; index += 1) {
+      commands.push(
+        `H ${formatEasingNumber((index / count) * 100)}`,
+        `V ${formatEasingNumber(100 - ((index + 1) / count) * 100)}`,
+      );
+    }
+    commands.push("H 100");
+  } else if (position === "jump-none") {
+    const intervals = Math.max(1, count - 1);
+    commands.push("M 0 100");
+    for (let index = 1; index < count; index += 1) {
+      commands.push(
+        `H ${formatEasingNumber((index / count) * 100)}`,
+        `V ${formatEasingNumber(100 - (index / intervals) * 100)}`,
+      );
+    }
+    commands.push("H 100");
+  } else if (position === "jump-both") {
+    commands.push(`M 0 ${formatEasingNumber(100 - 100 / (count + 1))}`);
+    for (let index = 1; index < count; index += 1) {
+      commands.push(
+        `H ${formatEasingNumber((index / count) * 100)}`,
+        `V ${formatEasingNumber(100 - ((index + 1) / (count + 1)) * 100)}`,
+      );
+    }
+    commands.push("H 100", "V 0");
+  } else {
+    commands.push("M 0 100");
+    for (let index = 1; index < count; index += 1) {
+      commands.push(
+        `H ${formatEasingNumber((index / count) * 100)}`,
+        `V ${formatEasingNumber(100 - (index / count) * 100)}`,
+      );
+    }
+    commands.push("H 100", "V 0");
+  }
+
+  return commands.join(" ");
+}
+
+type LinearStopPoint = { position: number; output: number };
+
+function arrayValueAt<T>(values: readonly T[], index: number): T | undefined {
+  const targetIndex = index < 0 ? values.length + index : index;
+  return values.find((_, currentIndex) => currentIndex === targetIndex);
+}
+
+function matchCaptureAt(
+  match: RegExpExecArray,
+  index: number,
+): string | undefined {
+  const capture: unknown = match[index];
+  return typeof capture === "string" ? capture : undefined;
+}
+
+function parseLinearStops(value: string): LinearStopPoint[] | null {
+  const match = /^linear\((.*)\)$/i.exec(value.trim());
+  if (!match) return null;
+  const body = matchCaptureAt(match, 1);
+  if (body === undefined) return null;
+  const number = String.raw`[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?`;
+  const stopPattern = new RegExp(
+    `^(${number})(?:\\s+(${number})%(?:\\s+(${number})%)?)?$`,
+    "i",
+  );
+  const parsedStops = body.split(",").map((entry) => {
+    const parsed = stopPattern.exec(entry.trim());
+    if (!parsed) return null;
+    const output = Number(parsed[1]);
+    const positions = [matchCaptureAt(parsed, 2), matchCaptureAt(parsed, 3)]
+      .filter((position): position is string => position !== undefined)
+      .map(Number);
+    return Number.isFinite(output) && positions.every(Number.isFinite)
+      ? { output, positions }
+      : null;
+  });
+  if (parsedStops.length < 2) return null;
+  const stops: Array<{ output: number; positions: number[] }> = [];
+  for (const stop of parsedStops) {
+    if (!stop) return null;
+    stops.push(stop);
+  }
+
+  const expanded: Array<{ position: number | null; output: number }> = [];
+  for (const stop of stops) {
+    if (stop.positions.length === 2) {
+      const firstPosition = arrayValueAt(stop.positions, 0);
+      const secondPosition = arrayValueAt(stop.positions, 1);
+      if (firstPosition === undefined || secondPosition === undefined) {
+        return null;
+      }
+      expanded.push(
+        { position: firstPosition, output: stop.output },
+        { position: secondPosition, output: stop.output },
+      );
+    } else {
+      expanded.push({
+        position: stop.positions[0] ?? null,
+        output: stop.output,
+      });
+    }
+  }
+  const firstExpandedStop = arrayValueAt(expanded, 0);
+  const lastExpandedStop = arrayValueAt(expanded, -1);
+  if (!firstExpandedStop || !lastExpandedStop) return null;
+  if (firstExpandedStop.position === null) firstExpandedStop.position = 0;
+  if (lastExpandedStop.position === null) lastExpandedStop.position = 100;
+
+  let previousKnown = 0;
+  for (let index = 1; index < expanded.length; index += 1) {
+    const currentStop = arrayValueAt(expanded, index);
+    const previousKnownStop = arrayValueAt(expanded, previousKnown);
+    if (!currentStop || !previousKnownStop) return null;
+    if (currentStop.position === null) continue;
+    const start = previousKnownStop.position;
+    if (start === null) return null;
+    if (currentStop.position < start) currentStop.position = start;
+    const end = currentStop.position;
+    const gap = index - previousKnown;
+    for (let offset = 1; offset < gap; offset += 1) {
+      const interpolatedStop = arrayValueAt(expanded, previousKnown + offset);
+      if (!interpolatedStop) return null;
+      interpolatedStop.position = start + ((end - start) * offset) / gap;
+    }
+    previousKnown = index;
+  }
+
+  const points: LinearStopPoint[] = [];
+  for (const { position, output } of expanded) {
+    if (position === null) return null;
+    points.push({ position, output });
+  }
+  return points;
+}
+
+function linearPreviewPoints(
+  points: readonly LinearStopPoint[] | null,
+): LinearStopPoint[] | null {
+  if (!points) return null;
+  if (points.length < 2) return [...points];
+
+  const first = arrayValueAt(points, 0);
+  const second = arrayValueAt(points, 1);
+  if (!first || !second) return null;
+  let preview = [...points];
+
+  if (first.position > 0) {
+    if (first.position === second.position) {
+      let firstRunEnd = 1;
+      while (firstRunEnd + 1 < points.length) {
+        const next = arrayValueAt(points, firstRunEnd + 1);
+        if (!next || next.position !== first.position) break;
+        firstRunEnd += 1;
+      }
+      preview = [
+        { position: 0, output: first.output },
+        { position: first.position, output: first.output },
+        ...points.slice(firstRunEnd),
+      ];
+    } else {
+      preview.unshift({
+        position: 0,
+        output: extrapolateLinearOutput(first, second, 0),
+      });
+    }
+  } else if (first.position === 0 && first.position === second.position) {
+    let firstRunEnd = 1;
+    while (firstRunEnd + 1 < points.length) {
+      const next = arrayValueAt(points, firstRunEnd + 1);
+      if (!next || next.position !== first.position) break;
+      firstRunEnd += 1;
+    }
+    preview = points.slice(firstRunEnd);
+  }
+
+  const last = arrayValueAt(points, -1);
+  if (!last) return null;
+  if (last.position < 100) {
+    const penultimate = arrayValueAt(points, -2);
+    if (!penultimate) return null;
+    preview.push({
+      position: 100,
+      output: extrapolateLinearOutput(penultimate, last, 100),
+    });
+  }
+
+  const curve: LinearStopPoint[] = [];
+  for (let index = 0; index < preview.length; ) {
+    let lastIndex = index;
+    const firstPoint = arrayValueAt(preview, index);
+    if (!firstPoint) return null;
+    let lastPoint = firstPoint;
+    while (lastIndex + 1 < preview.length) {
+      const next = arrayValueAt(preview, lastIndex + 1);
+      if (!next) return null;
+      if (next.position !== firstPoint.position) break;
+      lastIndex += 1;
+      lastPoint = next;
+    }
+
+    curve.push(firstPoint);
+    if (lastIndex > index && lastPoint.output !== firstPoint.output) {
+      // Intermediate equal-input stops do not contribute output values.
+      curve.push(lastPoint);
+    }
+    index = lastIndex + 1;
+  }
+
+  return curve;
+}
+
+function extrapolateLinearOutput(
+  first: LinearStopPoint,
+  second: LinearStopPoint,
+  position: number,
+): number {
+  if (first.position === second.position) return second.output;
+  const progress =
+    (position - first.position) / (second.position - first.position);
+  return first.output + progress * (second.output - first.output);
+}
+
+function pathFromLinearStops(points: LinearStopPoint[] | null): string | null {
+  if (!points) return null;
+  const pathPoints = points.map(({ position, output }, index) => {
+    const x = formatEasingNumber(position);
+    const y = formatEasingNumber(100 - output * 100);
+    return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+  });
+  return pathPoints.join(" ");
 }
 
 function parseBezierCoordinates(
@@ -2965,4 +3558,11 @@ function clampUnit(value: number): number {
 
 function formatEasingNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
+}
+
+function springBounceDraft(value: string, bounce: number): string {
+  const match = /^spring\(\s*([+-]?[\d.]+)\s*(?:,\s*[+-]?[\d.]+\s*)?\)$/i.exec(
+    value.trim(),
+  );
+  return match?.[1] ?? String(bounce);
 }

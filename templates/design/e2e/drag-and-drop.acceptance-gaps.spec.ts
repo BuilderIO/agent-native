@@ -150,7 +150,7 @@ async function file(
   return found.content as string;
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 test("free-position drag of an unselected element follows the pointer and saves left/top at the drop point", async ({
   app,
@@ -226,9 +226,7 @@ test("Option-dragging a root Screen previews, creates, and persists a duplicate"
   await page.goto(appPath(`/design/${designId}?view=overview&zoom=50`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   const fileCountBefore = await page.request
     .get(appPath(`/_agent-native/actions/get-design?id=${designId}`))
     .then((r) => r.json())
@@ -272,9 +270,7 @@ test("Option-dragging a root Screen previews, creates, and persists a duplicate"
     )
     .toBeGreaterThan(fileCountBefore);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
   const result = await page.request
     .get(appPath(`/_agent-native/actions/get-design?id=${designId}`))
     .then((r) => r.json());

@@ -2615,7 +2615,7 @@ function Card(style = { animationName: "fade" }) {
     });
   });
 
-  it("rejects React metadata-only writes without an existing style library anchor", () => {
+  it("rejects React metadata-only writes without a default-exported JSX component", () => {
     expect(() =>
       applyMotionReactSourceEdit({
         currentSource: source,
@@ -2627,7 +2627,7 @@ function Card(style = { animationName: "fade" }) {
           animationStyles,
         },
       }),
-    ).toThrow(/requires an existing managed Motion style element/);
+    ).toThrow(/require one default-exported component with a single JSX root/);
   });
 
   it("does not allow an empty-target write that only clears tracks and Text", () => {
@@ -3476,6 +3476,72 @@ function Card() {
         moduleVersionHash,
       }),
     ).toMatchObject({ status: "unsupported", code: "missing-node" });
+  });
+
+  it("allows React source capability when an existing CSS track can be cleared", () => {
+    const modulePath = "src/components/Card.tsx";
+    const moduleVersionHash = "a".repeat(64);
+    const authored = apply(source).source;
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: [],
+        modulePath,
+        moduleVersionHash,
+      }),
+    ).toEqual({
+      status: "supported",
+      modulePath,
+      moduleVersionHash,
+      targetNodeIds: [],
+    });
+  });
+
+  it("clears an existing CSS track without requiring optional metadata", () => {
+    const authored = apply(source).source;
+    const cleared = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      timeline: { ...makeTimeline(), tracks: [] },
+    }).source;
+
+    expect(readMotionReactSource(cleared, "Card.tsx")).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { tracks: [] },
+    });
+  });
+
+  it("allows metadata-only React capability when easing variables remain", () => {
+    const modulePath = "src/components/Card.tsx";
+    const moduleVersionHash = "a".repeat(64);
+    const easingVariables = [
+      { id: "gentle", name: "Gentle", value: "ease-in-out" },
+    ];
+    const authored = apply(source, { easingVariables }).source;
+    const easingOnly = applyMotionReactSourceEdit({
+      currentSource: authored,
+      expectedSource: authored,
+      preview: previewFor(authored),
+      timeline: { ...makeTimeline(), tracks: [] },
+      easingVariables,
+    }).source;
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: easingOnly,
+        targetNodeIds: [],
+        modulePath,
+        moduleVersionHash,
+      }),
+    ).toEqual({
+      status: "supported",
+      modulePath,
+      moduleVersionHash,
+      targetNodeIds: [],
+    });
   });
 
   it("rejects malformed managed styles and stale or missing metadata", () => {

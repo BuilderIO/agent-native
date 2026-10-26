@@ -3,7 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentPanel } from "./AgentPanel.js";
 
@@ -48,12 +48,20 @@ describe("AgentPanel page header share trigger", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("[]", { status: 200 })),
+    );
+  });
+
   afterEach(async () => {
     if (root) await act(async () => root?.unmount());
     container?.remove();
     root = null;
     container = null;
     localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it("renders the default icon and host-provided content through ShareButton", async () => {
@@ -80,7 +88,7 @@ describe("AgentPanel page header share trigger", () => {
       '[data-testid="share-trigger"]',
     );
     expect(defaultButton?.querySelector("svg")).not.toBeNull();
-    expect(defaultButton?.dataset.triggerClass).toContain("size-8");
+    expect(defaultButton?.dataset.triggerClass).toContain("size-6");
 
     await renderPanel(
       <span className="flex items-center gap-1.5">

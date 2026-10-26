@@ -19,6 +19,13 @@ import type { TiptapComposerHandle } from "./TiptapComposer.js";
 let container: HTMLDivElement;
 let root: Root;
 
+function popperPosition(panel: HTMLElement): { x: number; y: number } | null {
+  const match = panel.parentElement?.style.transform.match(
+    /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
+  );
+  return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+}
+
 function KeyedStaleIndexBoundary({
   resetKey,
   children,
@@ -708,17 +715,8 @@ describe("controlled composer context", () => {
     });
     const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
 
-    await act(async () => {
-      editor.focus();
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "@",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    editor.focus();
+    await typeInto(editor, "@");
 
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(
@@ -794,18 +792,13 @@ describe("controlled composer context", () => {
                 cancelable: true,
               }),
             );
-        } else {
-          editor.focus();
-          editor.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: trigger,
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
         }
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
+      if (!plusMenu) {
+        editor.focus();
+        await typeInto(editor, trigger);
+      }
       const panel = document.querySelector<HTMLElement>(
         '[data-agent-native-composer-popover="true"]',
       )!;
@@ -827,7 +820,12 @@ describe("controlled composer context", () => {
         } else {
           expect(panel.style.width).toBe(`${width}px`);
         }
-        if (!plusMenu) expect(panel.style.left).toBe("100px");
+        if (!plusMenu) {
+          await act(
+            async () => new Promise((resolve) => setTimeout(resolve, 0)),
+          );
+          expect(popperPosition(panel)?.x).toBe(100);
+        }
       }
       bounds = { ...bounds, y: window.innerHeight + 500 };
       await act(async () => observation.resize());
@@ -835,10 +833,15 @@ describe("controlled composer context", () => {
       bounds = { ...bounds, x: 120, y: 160 };
       await act(async () => window.dispatchEvent(new Event("scroll")));
       if (!plusMenu) {
-        expect(panel.style.left).toBe("120px");
-        expect(panel.style.bottom).toContain("160px");
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+        // The panel opens above the composer's top edge, with the 8px gap.
+        expect(popperPosition(panel)).toEqual({ x: 120, y: 152 });
+        expect(panel.style.maxHeight).toContain(
+          "--radix-popover-content-available-height",
+        );
+      } else {
+        expect(panel.style.maxHeight).toBe("246px");
       }
-      expect(panel.style.maxHeight).toBe(plusMenu ? "246px" : "136px");
       await act(async () =>
         editor.dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -948,6 +951,30 @@ describe("controlled composer context", () => {
     return file;
   }
 
+  it("reads composer metrics from AgentKit tokens with standalone fallbacks", async () => {
+    await mount();
+
+    const editor = container.querySelector<HTMLElement>(
+      '[data-agent-composer-slot="editor-input"]',
+    )!;
+    const send = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    )!;
+    expect(editor.className).toContain(
+      "text-[length:var(--agentkit-composer-font-size,0.875rem)]",
+    );
+    expect(editor.className).toContain(
+      "min-h-[var(--agentkit-composer-editor-min-height,3.25rem)]",
+    );
+    expect(editor.className).toContain(
+      "max-h-[var(--agentkit-composer-editor-max-height,10rem)]",
+    );
+    expect(send.className).toContain(
+      "size-[var(--agentkit-composer-primary-control-size,1.75rem)]",
+    );
+    expect(send.className).not.toContain("h-7");
+  });
+
   it("bounds the attachment strip and keeps overflow scrollable", async () => {
     await mount();
     const input =
@@ -1018,17 +1045,8 @@ describe("controlled composer context", () => {
       };
       await mount(props);
       const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-      await act(async () => {
-        editor.focus();
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
+      editor.focus();
+      await typeInto(editor, key);
       expect(
         document.querySelector('[data-agent-native-composer-popover="true"]'),
       ).not.toBeNull();
@@ -1056,17 +1074,8 @@ describe("controlled composer context", () => {
         DOMRect.fromRect({ x: 100, y: 300, width: 700, height: 150 }),
       );
     try {
-      await act(async () => {
-        editor.focus();
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "@",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
+      editor.focus();
+      await typeInto(editor, "@");
       const panel = document.querySelector<HTMLElement>(
         '[data-agent-native-composer-popover="true"]',
       )!;
@@ -1075,7 +1084,6 @@ describe("controlled composer context", () => {
         window.dispatchEvent(new Event("resize"));
       });
       expect(panel.style.width).toBe("292px");
-      expect(panel.style.left).toBe("16px");
     } finally {
       window.innerWidth = previousWidth;
       measure.mockRestore();
@@ -1103,6 +1111,83 @@ describe("controlled composer context", () => {
     );
     expect(onSubmit).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    {
+      name: "its own setup card",
+      configured: false,
+      props: {},
+      chip: false,
+    },
+    {
+      name: "a host setup card",
+      configured: false,
+      props: { showMissingApiKeySetup: false, setupCardVisible: true },
+      chip: false,
+    },
+    {
+      name: "no setup card on screen",
+      configured: false,
+      props: { showMissingApiKeySetup: false },
+      chip: true,
+    },
+    {
+      name: "a connected provider",
+      configured: true,
+      props: {},
+      chip: true,
+    },
+  ])(
+    "shows the model control beside $name: $chip",
+    async ({ configured, props, chip }) => {
+      await act(async () => {
+        root.render(
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              models: {
+                useAgentEngineConfigured: () => ({
+                  state: configured ? "configured" : "missing",
+                  missing: !configured,
+                }),
+                fetchAgentEngineConfiguredState: async () =>
+                  configured ? "configured" : "missing",
+                BuilderSetupCard: () => <div data-testid="provider-setup" />,
+              },
+            }}
+          >
+            <PromptComposer
+              onSubmit={vi.fn()}
+              requireAgentEngine
+              modelStatusChecksEnabled
+              availableModels={[
+                {
+                  engine: "openai",
+                  label: "OpenAI",
+                  models: ["gpt-5.6-luna"],
+                  configured,
+                },
+              ]}
+              selectedModel="gpt-5.6-luna"
+              selectedEngine="openai"
+              onModelChange={vi.fn()}
+              onConnectProvider={vi.fn()}
+              includeDefaultSlashSkills={false}
+              voiceEnabled={false}
+              {...props}
+            />
+          </ComposerRuntimeAdaptersProvider>,
+        );
+      });
+
+      const modelButton = container.querySelector(
+        '[data-agent-composer-slot="model-button"]',
+      );
+      expect(Boolean(modelButton)).toBe(chip);
+      if (chip && !configured) {
+        expect(modelButton?.textContent).toContain("Connect agent");
+      }
+    },
+  );
 
   it.each(["host", "provider"] as const)(
     "%s submission gating prevents sends until ready",
@@ -1173,8 +1258,9 @@ describe("controlled composer context", () => {
         expect(
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
+        // A draft can be typed before connecting; only sending is gated.
         expect(
-          container.querySelector('[contenteditable="false"]'),
+          container.querySelector('[contenteditable="true"]'),
         ).not.toBeNull();
         const uploadTrigger = container.querySelector<HTMLButtonElement>(
           'button[aria-label="Add context"]',
@@ -1185,7 +1271,7 @@ describe("controlled composer context", () => {
           container
             .querySelector('[role="textbox"]')
             ?.getAttribute("aria-disabled"),
-        ).toBe("true");
+        ).toBe("false");
         await act(async () =>
           uploadTrigger.dispatchEvent(
             new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
@@ -1204,7 +1290,8 @@ describe("controlled composer context", () => {
           ).toBe(false),
         );
         expect(onSubmit).not.toHaveBeenCalled();
-        expect(onDisabledClick).not.toHaveBeenCalled();
+        expect(onDisabledClick).toHaveBeenCalledOnce();
+        onDisabledClick.mockClear();
         blocked = false;
         await render();
       }
@@ -1575,7 +1662,7 @@ describe("controlled composer context", () => {
         expect(
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
-        expect(editor.getAttribute("contenteditable")).toBe("false");
+        expect(editor.getAttribute("contenteditable")).toBe("true");
         expect(editor.textContent).toBe("Typed while readiness was checking");
       } else {
         expect(onSubmit).not.toHaveBeenCalled();

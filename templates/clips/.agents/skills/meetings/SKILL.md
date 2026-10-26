@@ -83,7 +83,7 @@ Recording stop has several signals: conferencing-app microphone release is confi
 | `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams/Meet/Webex detection passes `source: "adhoc"` |
-| `update-meeting`          | Inline title/notes edits and owner/admin visibility changes; meeting share links include the full transcript whenever one exists |
+| `update-meeting`          | Inline title/notes edits; owner/admin changes to visibility and `shareTranscript` |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
@@ -107,12 +107,17 @@ sharing/status boundary.
 
 ## Sharing meeting notes and transcripts
 
-Meeting share links always include generated notes: the summary, key points,
-action items, and the full transcript whenever a linked transcript exists.
-There is no transcript-sharing toggle. The legacy `share_transcript` column is
-retained for database compatibility, but it is no longer a control and does not
-change the meeting share payload. Sharing a meeting still must not expose the
-linked recording's media or comments.
+Meeting share links always include the generated notes: the summary, key
+points, and action items. The full transcript appears on the share link and the
+agent link only when the meeting's `shareTranscript` is `true`. The owner sets
+it with **Transcript on the share link** under Advanced in the Share panel, or
+an admin passes `shareTranscript` to `update-meeting`.
+
+New meetings start with `shareTranscript: true`. Meetings created earlier keep
+whatever they stored, and any value other than `true` means off, so never
+backfill or default older meetings on. People invited to a meeting see its full
+transcript in Clips either way; the switch only governs the link. Sharing a
+meeting still must not expose the linked recording's media or comments.
 
 ## Cleanup credential order
 

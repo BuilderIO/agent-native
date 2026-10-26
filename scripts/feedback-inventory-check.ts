@@ -83,6 +83,16 @@ type OwnershipSkip = {
   reason: "foreign_workflow_mark" | "mag_opt_out";
 };
 
+type PersonAssignedSkip = {
+  assigneeId: string;
+  assignmentTs: string;
+};
+
+type AuthorizedRoot = {
+  channelId: string;
+  rootTs: string;
+};
+
 type ClusteredUnder = {
   channelId: string;
   rootTs: string;
@@ -154,6 +164,8 @@ type Parent = {
   threadParentTs: string;
   // Verbatim message body captured from the channel result or root thread.
   sourceText?: string;
+  // Explicitly records when Slack search returned no message body for a block-only post.
+  sourceTextUnavailableReason?: string;
   rootResolution?: RootResolution;
   // Required on root messages so administrative posts are not counted as reports.
   rootClassification?: "report" | "administrative" | "unclassified";
@@ -166,6 +178,8 @@ type Parent = {
   };
   // Attachments on this source message, preserved from Slack's read-back.
   files?: SlackFileAttachment[];
+  // Search did not return attachment metadata; files may still come from a thread read-back.
+  sourceSearchFilesUnavailableReason?: string;
   reactionChecked: boolean;
   // Exact time of the latest root reaction read-back.
   reactionReadAt?: string;
@@ -193,6 +207,8 @@ type Parent = {
   statusReply?: StatusReply;
   // A direct reaction read proves this root is held without opening its thread.
   ownershipSkip?: OwnershipSkip;
+  // A checker-verified assignment to another person that stays unclaimed.
+  personAssignedSkip?: PersonAssignedSkip;
   // Exact canonical report root that owns this duplicate's shared feedback.
   clusteredUnder?: ClusteredUnder;
   // Permanently retained marks whose formerly verified/accepted meaning changed.
@@ -424,6 +440,7 @@ type Inventory = {
   scope: {
     channelIds: string[];
     userRequest?: string;
+    authorizedRoots?: AuthorizedRoot[];
     narrowingJudgment?: {
       instruction: string;
       channelIds: string[];
@@ -545,6 +562,15 @@ function validateSourceFilesInSnapshot(
   parent: Parent,
   snapshot: ThreadSnapshot | undefined,
 ): void {
+  if (
+    parent.sourceSearchFilesUnavailableReason !== undefined &&
+    (typeof parent.sourceSearchFilesUnavailableReason !== "string" ||
+      !parent.sourceSearchFilesUnavailableReason.trim())
+  ) {
+    throw new Error(
+      `${parentName}: unavailable source-search attachment metadata needs a reason`,
+    );
+  }
   if (!snapshot) {
     if (parent.ownershipSkip) return;
     if (parent.files?.length) {
@@ -559,17 +585,45 @@ function validateSourceFilesInSnapshot(
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
   const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
+  if (parent.files === undefined && snapshotFiles?.length) {
+    throw new Error(
+      `${parentName}: preserve attachments returned by the full thread read in the inventory`,
+    );
+  }
+  const botReplyTextUnavailableInSearch = isOmittedBotReplySearchBody(
+    parent,
+    parent.sourceText ?? "",
+    snapshot,
+  );
   if (
-    JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
+    parent.files !== undefined &&
+    JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files)
   ) {
     throw new Error(
       `${parentName}: threadSnapshot attachment IDs, names, and MIME types must match the source message`,
     );
   }
+  if (parent.sourceTextUnavailableReason !== undefined) {
+    if (
+      !parent.sourceTextUnavailableReason.trim() ||
+      parent.sourceText !== ""
+    ) {
+      throw new Error(
+        `${parentName}: unavailable source text needs an empty captured body and a reason`,
+      );
+    }
+    if (snapshotText === undefined) {
+      throw new Error(
+        `${parentName}: unavailable source text needs a full thread read-back`,
+      );
+    }
+  }
   if (
     parent.sourceText !== undefined &&
+    parent.sourceTextUnavailableReason === undefined &&
     snapshotText !== undefined &&
-    !matchesSlackMessageText(parent.sourceText, snapshotText)
+    !matchesSlackMessageText(parent.sourceText, snapshotText) &&
+    !botReplyTextUnavailableInSearch
   ) {
     throw new Error(
       `${parentName}: threadSnapshot text must match the captured source message; rescan the source after edits`,
@@ -584,6 +638,56 @@ function sourceTextFromThreadSnapshot(
   if (!snapshot) return undefined;
   if (parent.ts === parent.threadParentTs) return snapshot.rootText;
   return snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
+}
+
+function isOmittedBotReplySearchBody(
+  parent: Parent,
+  capturedSearchText: string,
+  snapshot: ThreadSnapshot | undefined,
+): boolean {
+  if (
+    parent.sourceText !== "" ||
+    capturedSearchText !== "" ||
+    parent.ts === parent.threadParentTs ||
+    snapshot?.rootTs !== parent.threadParentTs
+  ) {
+    return false;
+  }
+  const reply = snapshot.replies.find((item) => item.ts === parent.ts);
+  return reply?.kind === "bot" && Boolean(reply.text.trim());
+}
+
+function isExpandedJiraIssuePreview(text: string): boolean {
+  const lines = text.trim().split(/\r?\n/);
+  if (
+    !/^\*<slack:\/\/user\?[^>\r\n]+\|@[^>\r\n]+> created a [A-Za-z]+ from this message\*$/.test(
+      lines[0] ?? "",
+    ) ||
+    !/^\*<https:\/\/[^/\r\n]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+[^|>\r\n]*\|[^>\r\n]+>\*$/.test(
+      lines[1] ?? "",
+    ) ||
+    !/^Status: \*[^*\r\n]+\*$/.test(lines[2] ?? "") ||
+    !lines[3]?.trim() ||
+    !/^https:\/\/\S+$/.test(lines[4] ?? "") ||
+    !/^Type: \*[^*\r\n]+\*$/.test(lines[5] ?? "") ||
+    !lines[6]?.trim() ||
+    !/^https:\/\/\S+$/.test(lines[7] ?? "") ||
+    !/^Assignee: \*[^*\r\n]+\*$/.test(lines[8] ?? "") ||
+    !lines[9]?.trim() ||
+    !/^https:\/\/\S+$/.test(lines[10] ?? "") ||
+    !/^Priority: \*[^*\r\n]+\*$/.test(lines[11] ?? "")
+  ) {
+    return false;
+  }
+  const trailingLines = lines.slice(12);
+  return (
+    trailingLines.length <= 2 &&
+    trailingLines.every(
+      (line) =>
+        line === "Sync thread button" ||
+        /^:bulb: Next time, ask Jira directly: .+$/.test(line),
+    )
+  );
 }
 
 function matchesSlackMessageText(
@@ -618,6 +722,12 @@ function matchesSlackMessageText(
   ) {
     return true;
   }
+  if (
+    sourceText.trim() === "" &&
+    isExpandedJiraIssuePreview(normalizedThread)
+  ) {
+    return true;
+  }
   const threadNotificationTail =
     normalizedThread.match(appNotificationTail)?.[0];
   const sourcePreviewMatchesThreadPreview =
@@ -630,7 +740,10 @@ function matchesSlackMessageText(
     return (
       textWithAppNotificationRemoved
         // Search omits the connector origin footer that thread reads append.
-        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        .replace(
+          /\n+(?:\*Sent using\*|_Sent using_|Sent using) <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i,
+          "",
+        )
         // Search can add one or more bot disclosures and a page separator that
         // the complete thread read does not include.
         .replace(/\n+---\s*$/, "")
@@ -640,9 +753,12 @@ function matchesSlackMessageText(
           "",
         )
         // App previews can follow the connector origin footer, so strip that footer again after the preview.
-        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
         .replace(
-          /\n+Reactions: [a-z0-9_+.-]+\s+\(\d+\)(?:, [a-z0-9_+.-]+\s+\(\d+\))*\s*$/i,
+          /\n+(?:\*Sent using\*|_Sent using_|Sent using) <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i,
+          "",
+        )
+        .replace(
+          /\n+Reactions: [-a-z0-9_+.:]+\s+\(\d+\)(?:, [-a-z0-9_+.:]+\s+\(\d+\))*\s*$/i,
           "",
         )
         .replace(/(?:\s+[_*]?this was sent from a bot\.?[_*]?)+\s*$/i, "")
@@ -672,6 +788,23 @@ function matchesSlackMessageText(
         .trim()
     );
   };
+  const forwardedMessagePreview = normalizedThread.match(
+    /\nForwarded message from [^\r\n]*\((https?:\/\/[^)\r\n]+)\):[\s\S]*$/i,
+  );
+  if (
+    forwardedMessagePreview &&
+    sourceText.includes(forwardedMessagePreview[1]!)
+  ) {
+    const sourcePrefix = normalizedThread.slice(
+      0,
+      forwardedMessagePreview.index,
+    );
+    const normalizeLinkedUrls = (text: string) =>
+      normalize(text).replace(/<(https?:\/\/[^|>]+)\|[^>]+>/gi, "<$1>");
+    if (normalize(sourceText) === normalizeLinkedUrls(sourcePrefix)) {
+      return true;
+    }
+  }
   if (
     sourceText === threadText ||
     normalize(sourceText, sourcePreviewMatchesThreadPreview) ===
@@ -724,6 +857,16 @@ function matchesSlackMessageText(
     sourcePreviewMatchesThreadPreview,
   );
   const normalizedThreadText = normalize(normalizedThread, true);
+  const forwardedContext =
+    /\nForwarded message from [^\n]*\(https?:\/\/[^)\n]+\): [\s\S]*— use slack_read_thread or slack_read_channel to read it in context$/.exec(
+      normalizedThread,
+    );
+  if (forwardedContext) {
+    const sourcePreview = normalizedThread
+      .slice(0, forwardedContext.index)
+      .replace(/\nReactions: [^\n]*$/, "");
+    if (normalize(sourceText) === normalize(sourcePreview)) return true;
+  }
   const groupMention = /<!subteam\^S[A-Z0-9]+(?:\|@([^>]+))?>/gi;
   const groupHandle =
     /(?<![\p{L}\p{N}_@.-])(@?[\p{L}\p{N}_.-]+)[ \t]+handle(?![\p{L}\p{N}_-])/giu;
@@ -852,12 +995,211 @@ function validateOwnershipSkipRecord(
     parent.latestOwnedReply !== undefined ||
     parent.latestRelevantHumanReply !== undefined ||
     parent.otherOwnerEvidence !== undefined ||
+    parent.personAssignedSkip !== undefined ||
     parent.historicalReactionMarks !== undefined ||
     parent.reactionDecision !== undefined
   ) {
     throw new Error(
       `${parentName}: a held thread must record only its exact root and safe-skip reason, with no inferred thread status or work evidence`,
     );
+  }
+  return true;
+}
+
+function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
+  const assigneeMention = "<@" + assigneeId + "(?:\\|[^>]+)?>";
+  const reportSubject =
+    "(?:this|the)\\s+(?:report|issue|ticket|task|action|work|root|thread)";
+  const clauses = withoutQuotedScopeContext(text)
+    .split(/[.!?;\n]+|,\s*(?=(?:but|and|however|actually|correction|sorry)\b)/i)
+    .filter((clause) => clause.trim().length > 0);
+  const negatedAssignment = new RegExp(
+    "\\b(?:i|we)\\s+(?:(?:actually|correction|sorry)\\s+)?(?:did\\s+not|didn't|do\\s+not|don't|never)\\s+assign\\s+" +
+      reportSubject +
+      "(?:\\s+to\\s+<@[^>]+>)?(?![\\w])|\\b" +
+      reportSubject +
+      "\\s+(?:is|was|has been)\\s+not\\s+assigned(?:\\s+to\\s+<@[^>]+>)?\\b",
+    "i",
+  );
+  const pronounRetraction =
+    /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
+  const bareEllipticalRetraction =
+    /^\s*(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+  const correctionCue =
+    /\b(?:actually|correction|wait|sorry|no)\b[^.!?;]{0,50}\b(?:wrong|incorrect|not right|mistake|retract(?:ed)?|withdraw(?:n)?|cancel(?:led)?|scratch that)\b/i;
+  const directEllipticalRetraction =
+    /^\s*(?:actually|correction|wait|sorry|no)[,:\s]+(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+  const ellipticalCorrectionRetraction =
+    /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:that(?:'s|\s+is)|this(?:'s|\s+is))\s+(?:wrong|incorrect|not\s+right|not\s+correct)\b[^.!?;\n]{0,40}\b(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't)\b/i;
+  let assigned = false;
+  let pendingCorrection = false;
+  let lastClauseWasAssignment = false;
+  for (const rawClause of clauses) {
+    const followsAssignment = lastClauseWasAssignment;
+    lastClauseWasAssignment = false;
+    const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
+    const hasCorrectionCue = correctionCue.test(clause);
+    if (
+      negatedAssignment.test(clause) ||
+      (assigned && pronounRetraction.test(clause)) ||
+      (assigned &&
+        (directEllipticalRetraction.test(clause) ||
+          (bareEllipticalRetraction.test(clause) &&
+            (pendingCorrection || hasCorrectionCue || followsAssignment)) ||
+          ellipticalCorrectionRetraction.test(clause)))
+    ) {
+      assigned = false;
+      pendingCorrection = false;
+      continue;
+    }
+    if (assigned && hasCorrectionCue) {
+      pendingCorrection = true;
+      continue;
+    }
+    pendingCorrection = false;
+    const directAssignment = new RegExp(
+      "^\\s*(?:i|we)\\s+assigned\\s+" +
+        reportSubject +
+        "\\s+to\\s+" +
+        assigneeMention +
+        "\\s*$",
+      "i",
+    );
+    const passiveAssignment = new RegExp(
+      "^\\s*" +
+        reportSubject +
+        "\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+" +
+        assigneeMention +
+        "\\s*$",
+      "i",
+    );
+    if (directAssignment.test(clause) || passiveAssignment.test(clause)) {
+      assigned = true;
+      lastClauseWasAssignment = true;
+    }
+  }
+  return assigned;
+}
+
+function validatePersonAssignedSkipRecord(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+  threadSnapshot: ThreadSnapshot | undefined,
+  requireFreshReads: boolean,
+): boolean {
+  const skip = parent.personAssignedSkip;
+  if (!skip) return false;
+  if (
+    !isSlackUserId(skip.assigneeId) ||
+    skip.assigneeId === sweepActorId ||
+    parent.ts !== parent.threadParentTs ||
+    parent.rootClassification !== "report" ||
+    parent.disposition !== "Skipped" ||
+    parent.ownershipSkip !== undefined ||
+    parent.clusteredUnder !== undefined ||
+    parent.otherOwnerEvidence !== undefined ||
+    parent.latestOwnedReply !== undefined ||
+    parent.statusReply !== undefined ||
+    parent.latestRelevantHumanReply != null ||
+    parent.fixedScopes !== undefined ||
+    parent.unfinishedScopes !== undefined ||
+    parent.handoff !== undefined ||
+    parent.handoffs !== undefined ||
+    parent.reporterRequests !== undefined ||
+    parent.historicalReactionMarks !== undefined ||
+    parent.reactionDecision !== undefined ||
+    parent.unreconciledTicketMark !== undefined ||
+    parent.unreconciledCheckmarkMark !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: a person-assigned skip must be an unclaimed report with no status or follow-up work`,
+    );
+  }
+
+  const workflowOwners = [
+    ...(parent.reactionOwners.eyes ?? []),
+    ...(parent.reactionOwners.white_check_mark ?? []),
+    ...(parent.reactionOwners.ticket ?? []),
+  ];
+  if (
+    workflowOwners.includes(sweepActorId) ||
+    workflowOwners.some((actorId) => actorId !== sweepActorId) ||
+    (parent.reactionOwners.mag ?? []).includes(sweepActorId)
+  ) {
+    throw new Error(
+      `${parentName}: person-assigned roots stay outside all workflow claims; use the reaction-held skip when another workflow mark or this actor's :mag: is present`,
+    );
+  }
+  if (
+    !threadSnapshot ||
+    threadSnapshot.rootTs !== parent.ts ||
+    threadSnapshot.replyCount !== threadSnapshot.replies.length
+  ) {
+    throw new Error(
+      `${parentName}: a person-assigned skip needs a complete read-back containing the exact assignment`,
+    );
+  }
+  validateThreadSnapshotStructure(
+    parentName,
+    parent.ts,
+    threadSnapshot,
+    sweepActorId,
+    requireFreshReads,
+  );
+
+  const assignmentTimestamp = slackTimestamp(
+    skip.assignmentTs,
+    `${parentName}.personAssignedSkip.assignmentTs`,
+  );
+  const rootTimestamp = slackTimestamp(parent.ts, `${parentName}.ts`);
+  let assignmentText: string | undefined;
+  let latestHumanTimestamp = rootTimestamp;
+  for (const [replyIndex, reply] of threadSnapshot.replies.entries()) {
+    const replyTimestamp = slackTimestamp(
+      reply.ts,
+      `${parentName}.threadSnapshot.replies[${replyIndex}].ts`,
+    );
+    if (reply.kind === "sweep" && reply.actorId === sweepActorId) {
+      throw new Error(
+        `${parentName}: a person-assigned skip cannot contain a reply from this actor`,
+      );
+    }
+    if (reply.kind === "human") latestHumanTimestamp = replyTimestamp;
+    if (replyTimestamp === assignmentTimestamp && reply.kind === "human") {
+      assignmentText = reply.text;
+    }
+  }
+  if (assignmentTimestamp === rootTimestamp) {
+    assignmentText = threadSnapshot.rootText;
+    if (threadSnapshot.replies.some((reply) => reply.kind === "human")) {
+      throw new Error(
+        `${parentName}: a root-level assignment is stale once a human has replied`,
+      );
+    }
+  } else if (assignmentTimestamp !== latestHumanTimestamp) {
+    throw new Error(
+      `${parentName}: the named person's assignment must be the latest human reply`,
+    );
+  }
+  if (
+    typeof assignmentText !== "string" ||
+    !messageAssignsNamedPerson(assignmentText, skip.assigneeId)
+  ) {
+    throw new Error(
+      `${parentName}: personAssignedSkip needs an exact root or latest human message assigning work to the named Slack user`,
+    );
+  }
+  if (requireFreshReads) {
+    const readAt = Date.parse(threadSnapshot.readAt);
+    if (
+      !Number.isFinite(readAt) ||
+      new Date(readAt).toISOString() !== threadSnapshot.readAt
+    ) {
+      throw new Error(
+        `${parentName}: assignment read-back needs an ISO read timestamp`,
+      );
+    }
   }
   return true;
 }
@@ -996,6 +1338,7 @@ function validatePreservedAdministrativeEye(
 
   const rootTs = slackTimestamp(parent.ts, `${parentName}.ts`);
   const latestReply = parent.latestOwnedReply;
+  const statusReply = parent.statusReply;
   const reply = latestReply
     ? threadSnapshot?.replies.find(
         (candidate) => candidate.ts === latestReply.ts,
@@ -1056,7 +1399,15 @@ function validatePreservedAdministrativeEye(
     parent.reactionOwners.eyes?.[0] ===
       sweepActorId, "exact self-owned 👀 reaction");
   require(preservation.reason === reason, "canonical preservation reason");
-  require(parent.statusReply === undefined, "no active status record");
+  if (statusReply !== undefined) {
+    require(statusReply.ts === latestReply?.ts &&
+      statusReply.threadParentTs === parent.threadParentTs &&
+      statusReply.actorId === sweepActorId &&
+      statusReply.disposition === parent.disposition &&
+      statusReply.evidence === latestReply?.text &&
+      statusReply.text ===
+        latestReply?.text, "current status record matches latest reply");
+  }
   require(parent.reactionWriteAt ===
     undefined, "no reaction written during this sweep");
   require(parent.ownershipSkip === undefined, "not a held-thread skip");
@@ -2505,17 +2856,29 @@ function replyDirectlyRequestsHandoff(text: string, handoff: Handoff): boolean {
   );
 }
 
+const explicitHandoffActions =
+  "take|handle|do|own|accept|review|investigate|fix|check|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|get (?:that|this|it) fixed";
+
 function replyExplicitlyRefusesHandoff(text: string): boolean {
   const normalized = text
     .normalize("NFKC")
     .replace(/[’‘]/g, "'")
     .toLowerCase();
-  const refusedAction =
-    "(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|commit|promise)";
+  const refusedAction = `(?:${explicitHandoffActions}|commit|promise)`;
+  const abilityRefusal = new RegExp(
+    `\\b(?:i|we)(?:'m|'re|\\s+am|\\s+are)\\s+(?:unable to|not going to be able to)\\s+${refusedAction}\\b`,
+  );
+  const hedgedAbilityRefusal =
+    /\b(?:i|we)(?:'m|\s+am)?\s+not sure\b.{0,80}\b(?:i|we)\s+(?:can|could|will|would)\b|\b(?:i|we)\s+(?:don't|do not)\s+think\b.{0,80}\b(?:i|we)\s+(?:can|could|will|would)\b/i;
+  const sameReplyRetraction =
+    /\b(?:actually|wait|sorry)\b[^.!?;\n]{0,60}\b(?:i|we)(?:'m|\s+am)?\s+(?:going to\s+)?pass\b|\b(?:actually|wait|sorry)\b[^.!?;\n]{0,60}\b(?:i|we)\s+(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not)(?=\s*[.!?;\n]|$)/i;
   return (
     new RegExp(
-      `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
+      `\\b(?:(?:i|we)\\s+(?:(?:will|can|could|would|am|are|do)\\s+)?not\\s+(?:(?:be\\s+)?able to\\s+|going to\\s+)?${refusedAction}\\b|(?:i|we)'(?:ll|m|re|d|ve)\\s+not\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|(?:can't|cannot|won't|wouldn't|shouldn't|don't|do not|will not|would not|could not)\\s+(?:(?:be\\s+)?able to\\s+)?${refusedAction}\\b|not\\s+going to\\s+${refusedAction}\\b|declin(?:e|ed|ing)\\s+(?:to\\s+)?${refusedAction}\\b)`,
     ).test(normalized) ||
+    abilityRefusal.test(normalized) ||
+    hedgedAbilityRefusal.test(normalized) ||
+    sameReplyRetraction.test(normalized) ||
     /\b(?:i|we)\s+(?:need to|have to)\s+back out\b|\b(?:i|we)\s+(?:no longer|don't|do not)\s+have\s+(?:the\s+)?(?:time|capacity|bandwidth)\b|\b(?:not sure|unsure|uncertain)\s+(?:if|whether)\s+(?:i|we)\s+(?:can|will)\b|\b(?:i|we)\s+(?:may|might)\s+not be able to\b/i.test(
       normalized,
     )
@@ -2529,16 +2892,22 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
     .toLowerCase();
   if (replyExplicitlyRefusesHandoff(normalized)) return false;
   const firstClause = normalized.split(/[.!?;\n]/, 1)[0] ?? normalized;
+  if (/\bonly\s+if\b/.test(firstClause)) return false;
+  const acceptanceClause = firstClause.replace(
+    /\bcheck\b[^.!?;]*\bif\s+(?:we|they|the team)\s+should\b/,
+    (match) => match.replace(/\bif\b/, "whether"),
+  );
   if (
     /\b(?:maybe|perhaps|possibly|might|may|could|would)\b|\b(?:if|unless|provided that|depending on)\b/.test(
-      firstClause,
+      acceptanceClause,
     )
   ) {
     return false;
   }
-  return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on)\b|(?:i|we)(?:'m|\s+am)\s+(?:also\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
-    normalized,
-  );
+  return new RegExp(
+    `\\b(?:(?:i|we)(?:'ll|\\s+will|\\s+can)\\s+(?:${explicitHandoffActions})\\b|(?:i|we)(?:'m|\\s+am)\\s+(?:also\\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|checking|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\\b|happy to (?:take|handle|do|check|test|fix|review|investigate)\\b|will do\\b|i(?:'m| am) on it\\b)`,
+    "i",
+  ).test(normalized);
 }
 
 function replyExplicitlyAcceptsRecordedHandoff(
@@ -3392,7 +3761,17 @@ function validateStatusReactionLanguage(
   unfinishedScopes: Array<{ scope: string; evidence: string }> = [],
   unfinishedScopeSummary?: string,
 ): void {
-  if (!text.includes("this was sent from a bot.")) {
+  const hasBotDisclosure =
+    text.includes("this was sent from a bot.") ||
+    text.split(/\r?\n/).some((line) =>
+      /^this was sent from a bot\.?$/i.test(
+        line
+          .trim()
+          .replace(/^[*_]+|[*_]+$/g, "")
+          .trim(),
+      ),
+    );
+  if (!hasBotDisclosure) {
     throw new Error(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
@@ -3755,12 +4134,14 @@ function validateDispositionScopes(
     ![
       "Fixed",
       "Partially fixed",
+      "Shipped",
+      "Live verified",
       "Verified locally",
       "Resolved elsewhere",
     ].includes(parent.disposition)
   ) {
     throw new Error(
-      `${parentName}: verified scope needs Fixed, Partially fixed, Verified locally, or Resolved elsewhere disposition`,
+      `${parentName}: verified scope needs Fixed, Partially fixed, Shipped, Live verified, Verified locally, or Resolved elsewhere disposition`,
     );
   }
   if (parent.disposition === "Verified locally" && !hasFixedScope) {
@@ -3791,6 +4172,7 @@ function validateOtherOwnerEvidence(
   threadSnapshot: ThreadSnapshot | undefined,
   isInScopeReport: boolean,
   hasOwnedReaction: boolean,
+  explicitlyAuthorized = false,
 ): void {
   const evidence = parent.otherOwnerEvidence;
   const otherEyeOwners = (parent.reactionOwners.eyes ?? []).filter(
@@ -3831,7 +4213,8 @@ function validateOtherOwnerEvidence(
     if (
       isInScopeReport &&
       !hasOwnedReaction &&
-      activeOtherEyeOwners.length > 0
+      activeOtherEyeOwners.length > 0 &&
+      !explicitlyAuthorized
     ) {
       throw new Error(
         `${parentName}: another actor owns this report; do not add this actor's 👀 or reply—record Owned elsewhere with current owner evidence`,
@@ -3955,8 +4338,9 @@ function validateInScopeReportOwnership(
   hasOwnedWorkflowMark: boolean,
   hasOwnershipSkip: boolean,
   isCursorOverlap: boolean,
+  hasPersonAssignedSkip = false,
 ): void {
-  if (hasOwnershipSkip || isCursorOverlap) return;
+  if (hasOwnershipSkip || isCursorOverlap || hasPersonAssignedSkip) return;
   if (parent.disposition === "Owned elsewhere" && !hasOwnedWorkflowMark) return;
   if (parent.disposition === "Clustered" && !hasOwnedWorkflowMark) {
     if (!parent.clusteredUnder) {
@@ -4611,6 +4995,7 @@ function validateSupplementalRootAudit(
   requireFreshReads: boolean,
   finalPageReadAt: number | null,
   requireSourceText = false,
+  explicitlyAuthorized = false,
 ): void {
   const parentName = `${channelName} supplemental root ${rootTs}`;
   validateSlackFiles(`${parentName}.files`, parent.files);
@@ -4699,6 +5084,9 @@ function validateSupplementalRootAudit(
     parent.reactionSummary,
     parent.reactionOwners,
   );
+  if (explicitlyAuthorized) {
+    validateAuthorizedRootTarget(parentName, parent, sweepActorId);
+  }
 
   if (
     validateOwnershipSkipRecord(
@@ -4711,26 +5099,39 @@ function validateSupplementalRootAudit(
     return;
   }
 
-  const rootReactionState = workflowReactionState(
-    parent.reactionOwners,
-    sweepActorId,
-  );
-  const hasOwnedReaction = hasWorkflowReaction(rootReactionState);
-  const preservesAdministrativeEye = validatePreservedAdministrativeEye(
+  validatePersonAssignedSkipRecord(
     parentName,
     parent,
     sweepActorId,
     threadSnapshot,
     requireFreshReads,
   );
-  if (parent.rootClassification === "administrative" && hasOwnedReaction) {
-    if (!preservesAdministrativeEye) {
-      throw new Error(
-        `${parentName}: this actor's workflow marks cannot be placed on an administrative root`,
+
+  const rootReactionState = workflowReactionState(
+    parent.reactionOwners,
+    sweepActorId,
+  );
+  const hasOwnedReaction = hasWorkflowReaction(rootReactionState);
+  const preservesAdministrativeEye = explicitlyAuthorized
+    ? false
+    : validatePreservedAdministrativeEye(
+        parentName,
+        parent,
+        sweepActorId,
+        threadSnapshot,
+        requireFreshReads,
       );
-    }
-    return;
+  if (
+    parent.rootClassification === "administrative" &&
+    hasOwnedReaction &&
+    !preservesAdministrativeEye &&
+    !parent.statusReply
+  ) {
+    throw new Error(
+      `${parentName}: this actor's workflow marks on an administrative root need a current same-thread status`,
+    );
   }
+  if (preservesAdministrativeEye) return;
   validateOtherOwnerEvidence(
     parentName,
     parent,
@@ -4739,6 +5140,7 @@ function validateSupplementalRootAudit(
     threadSnapshot,
     false,
     hasOwnedReaction,
+    explicitlyAuthorized,
   );
 
   const {
@@ -5020,7 +5422,7 @@ function validateSupplementalRootAudit(
   }
 }
 
-const MAX_READ_AGE_MS = 15 * 60 * 1000;
+const MAX_READ_AGE_MS = 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
 
 type ValidationOptions = {
@@ -5039,12 +5441,14 @@ type OrchestratorScopeConfirmation = {
   decision: "explicitly-requested";
   userRequest: string;
   channelIds: string[];
+  authorizedRoots?: AuthorizedRoot[];
 };
 
 function validateOrchestratorScopeConfirmation(
   confirmation: unknown,
   userRequest: string,
   requestedChannelIds: Set<string>,
+  authorizedRoots: AuthorizedRoot[] = [],
 ): void {
   if (confirmation === undefined) {
     throw new Error(
@@ -5071,6 +5475,35 @@ function validateOrchestratorScopeConfirmation(
       "external scope confirmation must record source=orchestrator and decision=explicitly-requested",
     );
   }
+  const confirmedAuthorizedRoots = record.authorizedRoots ?? [];
+  const rootKey = ({ channelId, rootTs }: AuthorizedRoot) =>
+    `${channelId}\u0000${rootTs}`;
+  const expectedRootKeys = authorizedRoots.map(rootKey).sort();
+  const confirmedRootKeys = Array.isArray(confirmedAuthorizedRoots)
+    ? confirmedAuthorizedRoots.map((root) => {
+        if (
+          !root ||
+          typeof root.channelId !== "string" ||
+          typeof root.rootTs !== "string"
+        ) {
+          return "";
+        }
+        return rootKey(root);
+      })
+    : [];
+  if (
+    !Array.isArray(confirmedAuthorizedRoots) ||
+    confirmedRootKeys.some((key) => !key) ||
+    new Set(confirmedRootKeys).size !== confirmedRootKeys.length ||
+    expectedRootKeys.length !== confirmedRootKeys.length ||
+    expectedRootKeys.some(
+      (key, index) => key !== confirmedRootKeys.sort()[index],
+    )
+  ) {
+    throw new Error(
+      "external scope confirmation must match the inventory's exact authorizedRoots",
+    );
+  }
   const confirmedChannelIds = record.channelIds;
   if (
     confirmedChannelIds.some(
@@ -5089,11 +5522,526 @@ function validateOrchestratorScopeConfirmation(
   }
 }
 
+function hasExplicitNoReactionRestriction(statement: string): boolean {
+  return (
+    /^(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?:\s*,?\s*please)?\s*[.!?]*\s*$/i.test(
+      statement.trim(),
+    ) ||
+    /\b(?:but|however|except)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s*(?=[,;.!?\n]|$)/i.test(
+      statement,
+    ) ||
+    /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:not\s+allowed|not\s+permitted|not\s+authorized|not\s+approved|forbidden|prohibited|disallowed)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:skip|avoid|omit|leave out)\s+(?:(?:adding|posting|sending|leaving|using)\s+)?(?:(?:the|any)\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:but|however|though|except|only)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+      statement,
+    ) ||
+    /\b(?:do\s+not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:add|post|send|leave|use|react|mark)\b[^.!?;\n]{0,80}\b(?:emojis?|reactions?|marks?)\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitNoReplyRestriction(statement: string): boolean {
+  return (
+    /(?:^|[.!?;,:]\s*|\b(?:but|however|though|except|with)\s+)(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)(?!\s+(?:are\s+)?(?:needed|necessary|required))\b/i.test(
+      statement,
+    ) ||
+    /\b(?:skip|avoid|hold\s+off\s+on|omit|leave\s+out)\s+(?:(?:the|any)\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\s+(?:are\s+)?(?:off limits|not allowed|not permitted|forbidden|prohibited|disallowed)\b/i.test(
+      statement,
+    ) ||
+    /\b(?:do not|don't|never|cannot|can't|mustn't|shouldn't)\s+(?:reply|respond|post|send|leave|write)\b[^.!?;\n]{0,80}\b(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i.test(
+      statement,
+    ) ||
+    /\bno\s+need\s+to\s+(?:do\s+)?(?:(?:the|a|any)\s+)?(?:(?:status|follow[ -]?up)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitNoWriteRestriction(statement: string): boolean {
+  return /\b(?:no|without)\s+(?:any\s+)?(?:writing|writes?)\b|\blook\s+only\b/i.test(
+    statement,
+  );
+}
+
+function hasExplicitPartialWriteRestriction(statement: string): boolean {
+  return (
+    hasExplicitNoReactionRestriction(statement) ||
+    hasExplicitNoReplyRestriction(statement) ||
+    hasExplicitNoWriteRestriction(statement) ||
+    /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b|\b(?:you\s+)?(?:(?:may|can|should|must)\s+)?only\s+(?:(?:add|post|send|leave|use)\s+)?(?:emojis?|reactions?|marks?)\b|\bnothing\s+but\s+(?:read|inspect)(?:ing)?\b/i.test(
+      statement,
+    )
+  );
+}
+
+function hasExplicitAuthorizationRevocation(text: string): boolean {
+  return (
+    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:(?:reply(?:ing)?|respond(?:ing)?|work(?:ing)?|post(?:ing)?|send(?:ing)?|react(?:ing)?|claim(?:ing)?|handle|handling|follow(?:ing)?\s+up|write|writing|edit|editing|change|changing|update|updating|touch|touching|review|reviewing|inspect|inspecting)\b|(?:the|this|that)\s+(?:work|follow[ -]?up|migration|root|thread|task|review|changes?)\b))|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send|touch(?:\s+(?:it|that|this))?))\b/i.test(
+      text,
+    ) ||
+    /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send|touch(?:\s+(?:it|that|this))?)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:(?:have|had)\s+)?(?:hereby\s+)?(?:revoke|revoked|withdraw|withdrawn|withdrew|cancel|canceled|cancelled|rescind|rescinded)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:ignore|forget)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)(?:['’]ve|\s+have)?\s+changed my mind\b/i.test(text) ||
+    /\b(?:i|we)(?:['’]m|['’]re|\s+am|\s+are)\s+(?:(?:hereby)\s+)?(?:revoke|revoked|revoking|withdraw|withdrawn|withdrew|withdrawing|cancel|canceled|cancelled|canceling|cancelling|rescind|rescinded|rescinding)\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)(?:['’]m|['’]re|\s+am|\s+are)?\s+(?:take|taking|took)\s+back\s+(?:(?:that|this|my|our|your|the)\s+)?(?:(?:earlier|previous|prior|existing|granted)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+      text,
+    ) ||
+    /\b(?:i|we)\s+(?:no longer|do not|don't|will not|won't)\s+(?:authorize|approve|permit|allow)\b/i.test(
+      text,
+    )
+  );
+}
+
+function userRequestExcludesExactRoot(
+  userRequest: string,
+  root: AuthorizedRoot,
+): boolean {
+  const exclusion =
+    /\b(?:do not|don't|never|cannot|can't|shouldn't|should not|mustn't|must not|won't)\s+(?:touch|work on|handle|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over)\b|\b(?:exclude|excluded|skip|leave out|omit|avoid)\b/i;
+  const statements =
+    withoutQuotedScopeContext(userRequest).split(/;|\n+|(?<=[.!?])\s+/);
+  return statements.some(
+    (statement) =>
+      authorizedRootPairAppears(statement, root) &&
+      !/\b(?:unless|only\s+if|provided\s+that|conditional\s+on|subject\s+to)\b/i.test(
+        statement,
+      ) &&
+      exclusion.test(statement),
+  );
+}
+
+function hasExplicitWorkflowWriteAuthorization(
+  userRequest: string,
+  roots: readonly AuthorizedRoot[],
+): boolean {
+  const requestText = withoutQuotedScopeContext(userRequest);
+  const sentences = requestText.split(/(?:[.!?;]\s+|\n+)/);
+  const hasRootExclusion = roots.some(
+    (root) =>
+      typeof root?.channelId === "string" &&
+      typeof root?.rootTs === "string" &&
+      userRequestExcludesExactRoot(requestText, root),
+  );
+  if (
+    hasRootExclusion ||
+    /\b(?:unless|only\s+if|provided\s+that|conditional\s+on|subject\s+to)\b/i.test(
+      requestText,
+    ) ||
+    /\b(?:do\s+not|don't|cannot|can't|never|not)\s+(?:to\s+)?(?:authorize|approve|permit|allow|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over|work|handle)\b/i.test(
+      requestText,
+    ) ||
+    hasExplicitAuthorizationRevocation(requestText)
+  ) {
+    return false;
+  }
+
+  const grant =
+    /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
+  const hasWriteRestriction = sentences.some(
+    hasExplicitPartialWriteRestriction,
+  );
+  const boundedGrantIndex = sentences.findIndex(
+    (sentence) =>
+      grant.test(sentence) &&
+      /\b(?:you\s+(?:may|can)\s+(?:do|claim|take over|work|handle|reconcile|reply|respond|react|mark|add|follow[ -]?ups?)|(?:authorize|approve|permit|allow)\s+you\s+(?:to\s+)?(?:claim|take over|work|handle|reconcile|reply|respond|react|mark|add|follow[ -]?ups?))\b/i.test(
+        sentence,
+      ) &&
+      /\b(?:any|all|every)\b[^.!?;\n]{0,100}\b(?:follow[ -]?ups?|replies|responses)\b/i.test(
+        sentence,
+      ) &&
+      /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(sentence) &&
+      /\b(?:status|follow[ -]?ups?)\b/i.test(sentence) &&
+      /\b(?:reply|replies|respond|post|send|follow[ -]?ups?)\b/i.test(
+        sentence,
+      ) &&
+      !hasExplicitPartialWriteRestriction(sentence),
+  );
+  const boundedFollowupAndReaction =
+    boundedGrantIndex >= 0 && !hasWriteRestriction;
+  const exactRootWriteActions =
+    !hasWriteRestriction &&
+    roots.length > 0 &&
+    roots.every(
+      (root) =>
+        typeof root?.channelId === "string" &&
+        typeof root?.rootTs === "string" &&
+        userRequestAuthorizesExactRoot(userRequest, root) &&
+        sentences.some(
+          (sentence) =>
+            userRequestAuthorizesExactRoot(sentence, root) &&
+            /\b(?:claim|take over|work on|handle|reconcile|react|reaction|emoji|emojis|mark|add)\b/i.test(
+              sentence,
+            ) &&
+            /\b(?:reply|replies|respond|post|send|status|follow[ -]?up)\b/i.test(
+              sentence,
+            ),
+        ),
+    );
+
+  return boundedFollowupAndReaction || exactRootWriteActions;
+}
+
+function hasRootPopulationRestriction(userRequest: string): boolean {
+  const population =
+    "(?:reports?|roots?|threads?|items?|assigned|unassigned|duplicates?|clustered|held|unowned|foreign|owned|administrative)";
+  const sentences =
+    withoutQuotedScopeContext(userRequest).split(/(?:[.!?;]\s+|\n+)/);
+  const populationInSentence = `[^.!?;\\n]{0,120}\\b${population}\\b`;
+  const populationAfterExclusion = new RegExp(
+    `\\b(?:skip|skipping|leave|leaving|avoid|avoiding|ignore|ignoring|exclude|excluding|omit|omitting)\\b${populationInSentence}`,
+    "i",
+  );
+  const populationAfterNegation = new RegExp(
+    `\\b(?:but\\s+not|not|no|never|neither|without)\\b${populationInSentence}`,
+    "i",
+  );
+  const negatedPopulationAction = new RegExp(
+    `\\b(?:do not|don't|never|cannot|can't|shouldn't|should not|mustn't|must not|won't)\\s+(?:touch|handle|work on|reconcile|reply to|respond to|follow up on|process|address|include)\\b${populationInSentence}`,
+    "i",
+  );
+  const passiveNegatedPopulationAction = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,80}\\b(?:should|must)\\s+not\\s+(?:be\\s+)?(?:touched|handled|worked on|reconciled|replied to|responded to|followed up on|processed|addressed|included)\\b`,
+    "i",
+  );
+  const exclusionLeavesPopulationAlone = new RegExp(
+    `\\b(?:skip|leave|avoid|ignore|exclude|omit)\\b${populationInSentence}[^.!?;\\n]{0,60}\\b(?:alone|untouched|out of scope|off limits)\\b`,
+    "i",
+  );
+  const populationMustRemainUntouched = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,80}\\b(?:must|should|need to|needs to|have to|has to|are to|is to)\\s+(?:(?:remain|stay)\\s+(?:untouched|alone)|be(?:\\s+(?:left|kept))?\\s+(?:untouched|alone))\\b`,
+    "i",
+  );
+  const populationDeclaredOutOfScope = new RegExp(
+    `\\b${population}\\b[^.!?;\\n]{0,60}\\b(?:(?:is|are|remain|stays?)\\s+)?(?:off limits|out of scope|excluded|not included|not in scope|not to be (?:handled|processed|worked on|reconciled|replied to|followed up on))\\b`,
+    "i",
+  );
+  return sentences.some(
+    (sentence) =>
+      new RegExp(
+        `\\b(?:except|excluding|exclude|other than|apart from|aside from|not including|but\\s+not)\\b[^.!?;\\n]{0,120}\\b${population}\\b`,
+        "i",
+      ).test(sentence) ||
+      new RegExp(`\\bonly\\b[^.!?;\\n]{0,100}\\b${population}\\b`, "i").test(
+        sentence,
+      ) ||
+      populationAfterExclusion.test(sentence) ||
+      populationAfterNegation.test(sentence) ||
+      negatedPopulationAction.test(sentence) ||
+      passiveNegatedPopulationAction.test(sentence) ||
+      exclusionLeavesPopulationAlone.test(sentence) ||
+      populationMustRemainUntouched.test(sentence) ||
+      populationDeclaredOutOfScope.test(sentence),
+  );
+}
+
+function hasBoundedWorkflowWriteAuthorization(userRequest: string): boolean {
+  return (
+    !hasRootPopulationRestriction(userRequest) &&
+    hasExplicitWorkflowWriteAuthorization(userRequest, [])
+  );
+}
+
+function hasBoundedAdministrativeWorkflowWriteAuthorization(
+  userRequest: string,
+): boolean {
+  const requestText = withoutQuotedScopeContext(userRequest);
+  if (!hasBoundedWorkflowWriteAuthorization(requestText)) return false;
+  const unrestrictedFollowupAndReactionGrant =
+    /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+follow[ -]?ups?\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?(?:emojis?|reactions?)\b/i.test(
+      requestText,
+    ) ||
+    /\b(?:you can|i authorize|authorized to)\s+(?:do\s+)?any\s+(?:emojis?|reactions?)\b[^.!?;\n]{0,80}\band\s+(?:any\s+)?follow[ -]?ups?\b/i.test(
+      requestText,
+    );
+  if (unrestrictedFollowupAndReactionGrant) return true;
+  const administrativePopulation =
+    "(?:administrative|admin)\\s+(?:posts?|roots?|messages?)";
+  const statements = requestText.split(/(?:[.!?;]\s+|\n+)/);
+  const inclusionBeforePopulation = new RegExp(
+    "\\b(?:all|any|every|including|include|includes|cover(?:s|ed|ing)?|extend(?:s|ed|ing)?\\s+to|appl(?:y|ies|ied)\\s+to|in[ -]scope|authoriz(?:e|es|ed)|permit(?:s|ted)?)\\b[^.!?;\\n]{0,160}\\b" +
+      administrativePopulation +
+      "\\b",
+    "i",
+  );
+  const inclusionAfterPopulation = new RegExp(
+    "\\b" +
+      administrativePopulation +
+      "\\b[^.!?;\\n]{0,80}\\b(?:included|in[ -]scope|covered|authorized|permitted)\\b",
+    "i",
+  );
+  const exclusionOfPopulation = new RegExp(
+    "\\b(?:but\\s+not|not|no|never|except|excluding|exclude|skip|leave|avoid|ignore|omit|off limits|out of scope|not included|not in scope)\\b[^.!?;\\n]{0,120}\\b" +
+      administrativePopulation +
+      "\\b",
+    "i",
+  );
+
+  return statements.some(
+    (statement) =>
+      (inclusionBeforePopulation.test(statement) ||
+        inclusionAfterPopulation.test(statement)) &&
+      !exclusionOfPopulation.test(statement),
+  );
+}
+
+function validateAuthorizedRootsDeclaration(
+  scope: Inventory["scope"],
+  confirmation: unknown,
+  requestedChannelIds: Set<string>,
+): Set<string> {
+  const entries = scope.authorizedRoots ?? [];
+  if (!Array.isArray(entries)) {
+    throw new Error(
+      "scope.authorizedRoots must be an array of exact Slack roots",
+    );
+  }
+  if (entries.length === 0) return new Set();
+  if (typeof scope.userRequest === "string") {
+    const excludedRoot = entries.find(
+      (root) =>
+        root &&
+        typeof root.channelId === "string" &&
+        typeof root.rootTs === "string" &&
+        userRequestExcludesExactRoot(scope.userRequest!, root),
+    );
+    if (excludedRoot) {
+      throw new Error(
+        "scope.userRequest explicitly excludes an authorized root",
+      );
+    }
+  }
+  const hasBoundedWriteAuthorization =
+    typeof scope.userRequest === "string" &&
+    hasBoundedWorkflowWriteAuthorization(scope.userRequest);
+  if (
+    typeof scope.userRequest !== "string" ||
+    !scope.userRequest.trim() ||
+    !hasExplicitWorkflowWriteAuthorization(scope.userRequest, entries)
+  ) {
+    throw new Error(
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+  }
+
+  const rootKeys = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    if (
+      !entry ||
+      typeof entry.channelId !== "string" ||
+      !requestedChannelIds.has(entry.channelId) ||
+      typeof entry.rootTs !== "string"
+    ) {
+      throw new Error(
+        `scope.authorizedRoots[${index + 1}] must name a requested channel and exact root timestamp`,
+      );
+    }
+    const timestamp = slackTimestamp(
+      entry.rootTs,
+      `scope.authorizedRoots[${index + 1}].rootTs`,
+    );
+    if (slackTimestampFromMicros(timestamp) !== entry.rootTs) {
+      throw new Error(
+        `scope.authorizedRoots[${index + 1}].rootTs must use the exact six-digit Slack timestamp`,
+      );
+    }
+    const key = `${entry.channelId}\u0000${entry.rootTs}`;
+    if (rootKeys.has(key)) {
+      throw new Error("scope.authorizedRoots cannot contain duplicate roots");
+    }
+    if (
+      !hasBoundedWriteAuthorization &&
+      !userRequestAuthorizesExactRoot(scope.userRequest, entry)
+    ) {
+      throw new Error(
+        `scope.userRequest must explicitly authorize work on exact root ${entry.channelId} ${entry.rootTs}`,
+      );
+    }
+    rootKeys.add(key);
+  }
+  validateOrchestratorScopeConfirmation(
+    confirmation,
+    scope.userRequest.trim(),
+    requestedChannelIds,
+    entries,
+  );
+  return rootKeys;
+}
+
+function escapeRegularExpression(value: string): string {
+  return Array.from(value, (character) =>
+    ".+*?^$()[]{}|\\".includes(character) ? "\\" + character : character,
+  ).join("");
+}
+
+function authorizedRootPairAppears(
+  statement: string,
+  root: AuthorizedRoot,
+): boolean {
+  const channelId = escapeRegularExpression(root.channelId);
+  const timestamp = escapeRegularExpression(root.rootTs);
+  const compactTimestamp = escapeRegularExpression(
+    root.rootTs.replace(".", ""),
+  );
+  const connector =
+    "(?:[\\s,:/#()\\-]*(?:(?:slack|root|thread|message|channel|timestamp|ts|in|at|for)\\b[\\s,:/#()\\-]*){0,4})";
+  const exactPair = new RegExp(
+    "\\b" +
+      channelId +
+      "\\b" +
+      connector +
+      timestamp +
+      "(?!\\d)|" +
+      timestamp +
+      "(?!\\d)" +
+      connector +
+      "\\b" +
+      channelId +
+      "\\b",
+    "i",
+  );
+  const slackPermalink = new RegExp(
+    "/archives/" + channelId + "/p" + compactTimestamp + "(?!\\d)",
+    "i",
+  );
+  return exactPair.test(statement) || slackPermalink.test(statement);
+}
+
+function userRequestAuthorizesExactRoot(
+  userRequest: string,
+  root: AuthorizedRoot,
+): boolean {
+  const action =
+    "(?:(?:read|inspect)\\s+and\\s+)?(?:work(?:\\s+on)?|handle|reconcile|take over|follow up(?:\\s+with)?)";
+  const explicitAuthorization = new RegExp(
+    "^\\s*(?:i|we)\\s+(?:(?:explicitly|hereby)\\s+)?(?:authorize|approve|permit)\\s+(?:you\\s+to\\s+)?" +
+      action +
+      "\\b",
+    "i",
+  );
+  const grantedPermission = new RegExp(
+    "^\\s*(?:i|we)\\s+(?:give|grant)\\s+(?:you\\s+)?permission\\s+to\\s+" +
+      action +
+      "\\b|^\\s*(?:you may|you can|go ahead and)\\s+" +
+      action +
+      "\\b|^\\s*you have my permission to\\s+" +
+      action +
+      "\\b",
+    "i",
+  );
+  const authorizationLimit =
+    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+  const directlyAttachedQualifier =
+    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
+  const workAuthorizationLanguage =
+    /\b(?:work|handle|reconcile|take over|follow up|claim(?:ing)?|reply(?:ing)?|read|inspect|authorize|permission)\b/i;
+  const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  if (
+    hasExplicitAuthorizationRevocation(unquotedRequest) ||
+    userRequestExcludesExactRoot(unquotedRequest, root)
+  ) {
+    return false;
+  }
+  const statements = unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/);
+  let searchOffset = 0;
+  return statements.some((statement, statementIndex) => {
+    const statementStart = unquotedRequest.indexOf(statement, searchOffset);
+    if (statementStart < 0) return false;
+    searchOffset = statementStart + statement.length;
+    if (
+      !(
+        explicitAuthorization.test(statement) ||
+        grantedPermission.test(statement)
+      ) ||
+      !authorizedRootPairAppears(statement, root)
+    ) {
+      return false;
+    }
+    if (
+      authorizationLimit.test(statement) ||
+      hasExplicitPartialWriteRestriction(statement)
+    ) {
+      return false;
+    }
+    return !statements
+      .slice(statementIndex + 1)
+      .some(
+        (followingStatement) =>
+          directlyAttachedQualifier.test(followingStatement) ||
+          hasExplicitPartialWriteRestriction(followingStatement) ||
+          hasExplicitAuthorizationRevocation(followingStatement) ||
+          (authorizationLimit.test(followingStatement) &&
+            workAuthorizationLanguage.test(followingStatement)),
+      );
+  });
+}
+
+function validateAuthorizedRootTarget(
+  parentName: string,
+  parent: Parent,
+  sweepActorId: string,
+): void {
+  if (
+    parent.ts !== parent.threadParentTs ||
+    (parent.rootClassification !== "report" &&
+      parent.rootClassification !== "administrative") ||
+    parent.personAssignedSkip !== undefined ||
+    parent.ownershipSkip !== undefined
+  ) {
+    throw new Error(
+      `${parentName}: explicit authorization applies only to an exact classified root without a held-thread or person-assignment skip`,
+    );
+  }
+  if (!(parent.reactionOwners.eyes ?? []).includes(sweepActorId)) {
+    throw new Error(
+      `${parentName}: explicitly authorized work needs this actor's exact root 👀 and current status`,
+    );
+  }
+}
+
+function validateBoundedAdministrativeRootAuthorization(
+  parentName: string,
+  parent: Parent,
+  userRequest: string,
+  authorizedRoot: AuthorizedRoot,
+): void {
+  if (
+    parent.rootClassification === "administrative" &&
+    hasBoundedWorkflowWriteAuthorization(userRequest) &&
+    !hasBoundedAdministrativeWorkflowWriteAuthorization(userRequest) &&
+    !userRequestAuthorizesExactRoot(userRequest, authorizedRoot)
+  ) {
+    throw new Error(
+      `${parentName}: a bounded report-wide grant does not authorize administrative roots unless the request explicitly includes administrative posts`,
+    );
+  }
+}
+
 function withoutQuotedScopeContext(userRequest: string): string {
   return userRequest
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`\n]*`/g, " ")
     .replace(/^\s*>[^\n]*$/gm, " ")
+    .replace(/(^|[\s([{=:,])'[^'\n]*'/gm, "$1 ")
     .replace(/"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)|‘[^’\n]*(?:’|$)/g, " ");
 }
 
@@ -5302,7 +6250,7 @@ function validateReadAt(
   }
   const age = Date.now() - readAt;
   if (age > MAX_READ_AGE_MS) {
-    throw new Error(`${label} is older than 15 minutes; ${nextAction}`);
+    throw new Error(`${label} is older than 60 minutes; ${nextAction}`);
   }
   if (age < -MAX_FUTURE_SKEW_MS) {
     throw new Error(
@@ -6281,64 +7229,52 @@ function parseFormattedSlackThreadMessage(
   }
 
   const actorId = actorIdMatch[1]!;
-  const lines = match[3]!.split(/\r?\n/);
+  const lines = stripConnectorSlackThreadTrailers(match[3]!).split(/\r?\n/);
   const files: SlackFileAttachment[] = [];
   const workflowReactionNames = new Set<string>();
   const metadataLines = new Set<string>();
+  const appNotificationLines: string[] = [];
   while (lines.length > 0) {
     const tail = lines.at(-1)!;
     if (tail.startsWith("Files: ")) {
-      const value = tail.slice("Files: ".length);
-      const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
-      const fileMatches = [...value.matchAll(filePattern)];
-      if (
-        fileMatches.length === 0 ||
-        fileMatches.map((file) => file[0]).join("") !== value
-      ) {
-        break;
-      }
+      const parsedFiles = parseFormattedSlackFileMetadata(tail);
+      if (!parsedFiles) break;
       if (metadataLines.has("Files")) {
         throw new Error(
           `${label}: ambiguous repeated Files line in formatted Slack message`,
         );
       }
       metadataLines.add("Files");
-      for (const file of fileMatches) {
-        files.push({ id: file[2]!, name: file[1]!, mimeType: file[3]! });
-      }
+      files.push(...parsedFiles);
       lines.pop();
       continue;
     }
     if (tail.startsWith("Reactions: ")) {
-      const reactionMatches = [
-        ...tail
-          .slice("Reactions: ".length)
-          .matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi),
-      ];
-      const reactionValue = tail.slice("Reactions: ".length);
-      if (
-        reactionMatches.length === 0 ||
-        reactionMatches.map((reaction) => reaction[0]).join("") !==
-          reactionValue
-      ) {
-        break;
-      }
+      const parsedReactions = parseFormattedSlackReactionMetadata(tail);
+      if (!parsedReactions) break;
       if (metadataLines.has("Reactions")) {
         throw new Error(
           `${label}: ambiguous repeated Reactions line in formatted Slack message`,
         );
       }
       metadataLines.add("Reactions");
-      for (const reaction of reactionMatches) {
+      for (const reaction of parsedReactions) {
         if (
-          reaction[1] === "eyes" ||
-          reaction[1] === "white_check_mark" ||
-          reaction[1] === "ticket"
+          reaction === "eyes" ||
+          reaction === "white_check_mark" ||
+          reaction === "ticket"
         ) {
-          workflowReactionNames.add(reaction[1]);
+          workflowReactionNames.add(reaction);
         }
       }
       lines.pop();
+      continue;
+    }
+    const appNotificationIndex = lines.findIndex((line) =>
+      /^App notification from App \([^)]+\):/i.test(line),
+    );
+    if (appNotificationIndex >= 0) {
+      appNotificationLines.push(...lines.splice(appNotificationIndex));
       continue;
     }
     break;
@@ -6351,11 +7287,77 @@ function parseFormattedSlackThreadMessage(
       actorId.startsWith("B") ||
       /\[BOT\]\s*$/.test(match[1]!) ||
       /botuser-|@slack-bots\.com/i.test(match[1]!),
-    text: lines.join("\n"),
+    text: [...lines, ...appNotificationLines].join("\n"),
     threadParentTs: rootTs,
     files: exactSlackFiles(files, `${label}.files`),
     workflowReactionNames: [...workflowReactionNames].sort(),
   };
+}
+
+function parseFormattedSlackFileMetadata(
+  line: string,
+): SlackFileAttachment[] | undefined {
+  if (!line.startsWith("Files: ")) return undefined;
+  const value = line.slice("Files: ".length);
+  const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
+  const matches = [...value.matchAll(filePattern)];
+  if (
+    matches.length === 0 ||
+    matches.map((file) => file[0]).join("") !== value
+  ) {
+    return undefined;
+  }
+  return matches.map((file) => ({
+    id: file[2]!,
+    name: file[1]!,
+    mimeType: file[3]!,
+  }));
+}
+
+function parseFormattedSlackReactionMetadata(
+  line: string,
+): string[] | undefined {
+  if (!line.startsWith("Reactions: ")) return undefined;
+  const value = line.slice("Reactions: ".length);
+  const matches = [...value.matchAll(/([-a-z0-9_+.:]+)\s+\(\d+\)(?:, |$)/gi)];
+  if (
+    matches.length === 0 ||
+    matches.map((reaction) => reaction[0]).join("") !== value
+  ) {
+    return undefined;
+  }
+  return matches.map((reaction) => reaction[1]!);
+}
+
+function stripConnectorSlackThreadTrailers(body: string): string {
+  let text = body;
+  const appNotification =
+    /\n+App notification from App \(https?:\/\/[^)\r\n]+\):[\s\S]*$/i.exec(
+      text,
+    );
+  if (appNotification) {
+    const beforeNotification = text.slice(0, appNotification.index);
+    const lastLine = beforeNotification.split(/\r?\n/).at(-1)?.trim() ?? "";
+    if (
+      parseFormattedSlackFileMetadata(lastLine) ||
+      parseFormattedSlackReactionMetadata(lastLine)
+    ) {
+      text = beforeNotification;
+    }
+  }
+
+  const forwardedPreview =
+    /\nForwarded message from [^\r\n]+\s+\(https?:\/\/[^)\r\n]+\):[\s\S]*?\s+\u2014 use slack_read_thread or slack_read_channel to read it in context\s*$/i.exec(
+      text,
+    );
+  if (forwardedPreview) {
+    const beforePreview = text.slice(0, forwardedPreview.index);
+    const lastLine = beforePreview.split(/\r?\n/).at(-1)?.trim() ?? "";
+    if (parseFormattedSlackReactionMetadata(lastLine)) {
+      text = beforePreview;
+    }
+  }
+  return text;
 }
 
 function parseFormattedSlackThreadResponse(
@@ -6403,12 +7405,22 @@ function parseFormattedSlackThreadResponse(
       /\n\nNo thread mes{2,3}ages?(?:\s+in this thread)?[.!]?\s*$/i.exec(
         afterParent,
       );
-    if (!noReplies) {
+    if (noReplies) {
+      parentSection = afterParent.slice(0, noReplies.index);
+    } else if (
+      /^There are no more messages in this thread\.?$/i.test(pagination)
+    ) {
+      if (/(?:^|\n\n)--- Reply \d+ of \d+ ---\n/.test(afterParent)) {
+        throw new Error(
+          `${path}: formatted reply blocks are missing the thread replies header`,
+        );
+      }
+      parentSection = afterParent;
+    } else {
       throw new Error(
         `${path}: formatted Slack thread response does not explicitly report zero replies`,
       );
     }
-    parentSection = afterParent.slice(0, noReplies.index);
     replySections = [];
     replyCount = 0;
   }
@@ -7084,10 +8096,25 @@ function validateSourceReceipt(
               `${parentName}: attachment IDs, names, and MIME types must match the raw source listing`,
             );
           }
-        } else if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
-          throw new Error(
-            `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
-          );
+          if (parent.sourceSearchFilesUnavailableReason !== undefined) {
+            throw new Error(
+              `${parentName}: sourceSearchFilesUnavailableReason must not be set when the raw search returned attachment metadata`,
+            );
+          }
+        } else {
+          if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
+            throw new Error(
+              `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
+            );
+          }
+          if (
+            typeof parent.sourceSearchFilesUnavailableReason !== "string" ||
+            !parent.sourceSearchFilesUnavailableReason.trim()
+          ) {
+            throw new Error(
+              `${parentName}: record why the raw source search omitted attachment metadata`,
+            );
+          }
         }
       }
     }
@@ -7152,8 +8179,22 @@ function sourceTextMatchesCapturedSearch(
   capturedSearchText: string,
   snapshot: ThreadSnapshot | undefined,
 ): boolean {
+  if (parent.sourceTextUnavailableReason !== undefined) {
+    const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
+    return (
+      parent.sourceText === "" &&
+      capturedSearchText.trim() === "" &&
+      parent.sourceTextUnavailableReason.trim() !== "" &&
+      typeof threadText === "string" &&
+      threadText.trim() !== ""
+    );
+  }
+
   if (parent.sourceText === capturedSearchText) {
     if (parent.sourceText.trim() !== "") return true;
+    if (isOmittedBotReplySearchBody(parent, capturedSearchText, snapshot)) {
+      return true;
+    }
     if (parent.ownershipSkip) return snapshot === undefined;
     const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
     return (
@@ -7161,6 +8202,23 @@ function sourceTextMatchesCapturedSearch(
       (threadText.trim() === "" ||
         matchesSlackMessageText(parent.sourceText, threadText))
     );
+  }
+
+  if (
+    typeof parent.sourceText === "string" &&
+    parent.sourceText.trim() !== "" &&
+    capturedSearchText.trim() !== ""
+  ) {
+    const comparableSourceText = parent.sourceText.replace(
+      /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i,
+      "",
+    );
+    if (
+      matchesSlackMessageText(comparableSourceText, capturedSearchText) ||
+      matchesSlackMessageText(capturedSearchText, comparableSourceText)
+    ) {
+      return true;
+    }
   }
 
   const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
@@ -7205,9 +8263,16 @@ function validateRootClassificationJudgment(
 ): void {
   if (!required) return;
   const judgment = parent.rootClassificationJudgment;
+  const sourceTextMatchesRecord =
+    parent.sourceTextUnavailableReason === undefined
+      ? parent.sourceText === sourceText
+      : parent.sourceText === "" &&
+        parent.sourceTextUnavailableReason.trim() !== "" &&
+        typeof sourceText === "string" &&
+        sourceText.trim() !== "";
   if (
     typeof sourceText !== "string" ||
-    parent.sourceText !== sourceText ||
+    !sourceTextMatchesRecord ||
     !judgment ||
     judgment.actorId !== sweepActorId ||
     judgment.decision !== parent.rootClassification ||
@@ -7241,8 +8306,12 @@ function validateRootClassificationText(
     );
   }
   if (
-    typeof parent.sourceText !== "string" ||
-    !matchesSlackMessageText(parent.sourceText, snapshot.rootText)
+    parent.sourceTextUnavailableReason !== undefined
+      ? parent.sourceText !== "" ||
+        !parent.sourceTextUnavailableReason.trim() ||
+        snapshot.rootText.trim() === ""
+      : typeof parent.sourceText !== "string" ||
+        !matchesSlackMessageText(parent.sourceText, snapshot.rootText)
   ) {
     throw new Error(
       `${parentName}: classified source text must match the complete thread root text`,
@@ -7630,9 +8699,15 @@ function validateOwnedMarkSearches(
       ) {
         throw new Error(`${label}: owned-mark cursor chain is incomplete`);
       }
-      const firstRowMismatchIndex = page.rows.findIndex(
-        (row, index) => !isDeepStrictEqual(row, rawPage.rows[index]),
-      );
+      const firstRowMismatchIndex = page.rows.findIndex((row, index) => {
+        const rawRow = rawPage.rows[index];
+        return (
+          !rawRow ||
+          row.ts !== rawRow.ts ||
+          row.root !== rawRow.root ||
+          row.text !== rawRow.text
+        );
+      });
       const firstRow =
         firstRowMismatchIndex === -1
           ? undefined
@@ -7755,6 +8830,8 @@ function validateOwnedMarkSearches(
         usedPageLimitRecoveries.add(recoveryIndex);
         activeBefore = before;
         expectedCursor = null;
+        // Cursor tokens can restart when a capped search resumes from a new before bound.
+        seenCursors.clear();
       }
 
       for (const row of page.rows) {
@@ -7899,6 +8976,7 @@ function validateInventory(
     | {
         channelIds?: unknown;
         userRequest?: unknown;
+        authorizedRoots?: unknown;
         narrowingJudgment?: unknown;
       }
     | undefined;
@@ -7916,6 +8994,27 @@ function validateInventory(
     );
   }
   const requestedChannelIds = new Set(scope.channelIds as string[]);
+  const authorizedRootKeys = validateAuthorizedRootsDeclaration(
+    scope as Inventory["scope"],
+    options.scopeConfirmation,
+    requestedChannelIds,
+  );
+  const hasBoundedWriteAuthorization =
+    typeof scope.userRequest === "string" &&
+    hasBoundedWorkflowWriteAuthorization(scope.userRequest);
+  const includesAdministrativeRootsInBoundedGrant =
+    typeof scope.userRequest === "string" &&
+    hasBoundedAdministrativeWorkflowWriteAuthorization(scope.userRequest);
+  const authorizedRootKeysInScope = new Set<string>();
+  const inScopeRootEyeKeys = new Set<string>();
+  const isBoundedEyeRootInGrantedPopulation = (
+    root: Parent,
+    key: string,
+  ): boolean =>
+    root.rootClassification === "report" ||
+    (root.rootClassification === "administrative" &&
+      (includesAdministrativeRootsInBoundedGrant ||
+        authorizedRootKeys.has(key)));
 
   slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -8260,6 +9359,7 @@ function validateInventory(
     const seenCursors = new Set<string>();
     const uniqueInWindow = new Set<string>();
     const parentsByTimestamp = new Map<string, Parent>();
+    const inWindowRootReferences = new Set<string>();
     let oldestSourceTimestamp: bigint | null = null;
 
     for (const [pageIndex, page] of channel.pages.entries()) {
@@ -8377,6 +9477,8 @@ function validateInventory(
         usedPageLimitRecoveries.add(recoveryIndex);
         expectedCursor = null;
         activeBefore = before;
+        // Cursor tokens can restart when a capped search resumes from a new before bound.
+        seenCursors.clear();
       } else if (cursor !== expectedCursor || before !== activeBefore) {
         throw new Error(
           `${pageName}: cursor and before bound do not continue the current source slice`,
@@ -8485,7 +9587,12 @@ function validateInventory(
             parentName,
             parent,
             inventory.sweepActorId,
-            parent.sourceText,
+            parent.sourceTextUnavailableReason !== undefined
+              ? sourceTextFromThreadSnapshot(
+                  parent,
+                  threadSnapshots.get(parent.threadParentTs),
+                )
+              : parent.sourceText,
             options.requireSourceText === true,
           );
           validateRootClassificationText(
@@ -8524,6 +9631,11 @@ function validateInventory(
           );
         }
         const isRootMessage = timestamp === threadParentTimestamp;
+        if (!isRootMessage && parent.personAssignedSkip) {
+          throw new Error(
+            `${parentName}: personAssignedSkip belongs only on the exact root row`,
+          );
+        }
         const hasOwnershipSkip = validateOwnershipSkipRecord(
           parentName,
           parent,
@@ -8607,6 +9719,37 @@ function validateInventory(
           parent.reactionOwners,
           inventory.sweepActorId,
         );
+        const rootKey = `${channel.channelId}\u0000${slackTimestampFromMicros(threadParentTimestamp)}`;
+        if (timestamp >= channelCutoff) {
+          inWindowRootReferences.add(rootKey);
+        }
+        const isAuthorizedRoot =
+          isRootMessage && authorizedRootKeys.has(rootKey);
+        const hasPersonAssignedSkip =
+          isRootMessage &&
+          validatePersonAssignedSkipRecord(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+            threadSnapshot,
+            options.requireFreshReads === true,
+          );
+        if (isAuthorizedRoot) {
+          validateAuthorizedRootTarget(
+            parentName,
+            parent,
+            inventory.sweepActorId,
+          );
+          validateBoundedAdministrativeRootAuthorization(
+            parentName,
+            parent,
+            scope.userRequest as string,
+            {
+              channelId: channel.channelId,
+              rootTs: slackTimestampFromMicros(threadParentTimestamp),
+            },
+          );
+        }
         if (!isRootMessage) {
           validateLegacyReplyReactionReadback(
             parentName,
@@ -8620,15 +9763,16 @@ function validateInventory(
         const ownsEye = rootWorkflowState.eyes;
         const hasCheckmark = rootWorkflowState.white_check_mark;
         const hasTicket = rootWorkflowState.ticket;
-        const preservesAdministrativeEye = isRootMessage
-          ? validatePreservedAdministrativeEye(
-              parentName,
-              parent,
-              inventory.sweepActorId,
-              threadSnapshot,
-              options.requireFreshReads === true,
-            )
-          : false;
+        const preservesAdministrativeEye =
+          isRootMessage && !isAuthorizedRoot
+            ? validatePreservedAdministrativeEye(
+                parentName,
+                parent,
+                inventory.sweepActorId,
+                threadSnapshot,
+                options.requireFreshReads === true,
+              )
+            : false;
         const historicalMarks = parent.historicalReactionMarks ?? [];
         const hasHistoricalCheckmark = historicalMarks.some(
           (mark) => mark.emoji === "white_check_mark",
@@ -8640,6 +9784,7 @@ function validateInventory(
           isRootMessage &&
           hasWorkflowReaction(rootWorkflowState) &&
           !hasOwnershipSkip &&
+          !hasPersonAssignedSkip &&
           !preservesAdministrativeEye;
         let fixedScopes: NonNullable<Parent["fixedScopes"]> = [];
         let fixedScopeNames = new Set<string>();
@@ -8652,6 +9797,13 @@ function validateInventory(
           const isInScopeReport =
             timestamp >= channelCutoff &&
             parent.rootClassification === "report";
+          const isInScopeAuthorizedRoot =
+            timestamp >= channelCutoff &&
+            (parent.rootClassification === "report" ||
+              parent.rootClassification === "administrative");
+          if (isAuthorizedRoot && isInScopeAuthorizedRoot) {
+            authorizedRootKeysInScope.add(rootKey);
+          }
           if (isInScopeReport && !hasOwnershipSkip) {
             validateThreadSnapshotStructure(
               parentName,
@@ -8664,10 +9816,11 @@ function validateInventory(
           if (
             parent.rootClassification === "administrative" &&
             hasWorkflowReaction(rootWorkflowState) &&
-            !preservesAdministrativeEye
+            !preservesAdministrativeEye &&
+            !parent.statusReply
           ) {
             throw new Error(
-              `${parentName}: this actor's workflow marks cannot be placed on an administrative root`,
+              `${parentName}: this actor's workflow marks on an administrative root need a current same-thread status`,
             );
           }
           validateOtherOwnerEvidence(
@@ -8678,6 +9831,7 @@ function validateInventory(
             threadSnapshot,
             isInScopeReport,
             reconcilesOwnedStatus,
+            isAuthorizedRoot,
           );
           if (isInScopeReport) {
             validateInScopeReportOwnership(
@@ -8687,6 +9841,7 @@ function validateInventory(
               hasWorkflowReaction(rootWorkflowState),
               hasOwnershipSkip,
               isCursorOverlap,
+              hasPersonAssignedSkip,
             );
           }
           const scopeEvidence = validateScopeEvidence(parentName, parent);
@@ -9060,6 +10215,26 @@ function validateInventory(
       );
     }
 
+    for (const root of parentsByTimestamp.values()) {
+      if (
+        root.ts !== root.threadParentTs ||
+        !root.reactionOwners.eyes?.length
+      ) {
+        continue;
+      }
+      const key =
+        `${channel.channelId}\u0000` +
+        slackTimestampFromMicros(
+          slackTimestamp(root.ts, `${name} root ${root.ts}.ts`),
+        );
+      if (
+        inWindowRootReferences.has(key) &&
+        isBoundedEyeRootInGrantedPopulation(root, key)
+      ) {
+        inScopeRootEyeKeys.add(key);
+      }
+    }
+
     const supplementalRoots = new Set<string>();
     for (const [rootIndex, root] of (channel.threadRoots ?? []).entries()) {
       const rootTime = slackTimestamp(
@@ -9115,6 +10290,9 @@ function validateInventory(
         options.requireFreshReads === true,
         finalPageReadAt,
         options.requireSourceText === true,
+        authorizedRootKeys.has(
+          `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`,
+        ),
       );
     }
     if (auditedSupplementalRoots.size !== supplementalRoots.size) {
@@ -9261,7 +10439,13 @@ function validateInventory(
             `${name}: every raw thread page for owned root ${rootAudit.ts} must follow the exhaustive owned-mark searches`,
           );
         }
-        if (rootAudit.rootClassification === "administrative") {
+        const rootAuditIsAuthorized = authorizedRootKeys.has(
+          `${channel.channelId}\u0000${rootTs}`,
+        );
+        if (
+          rootAudit.rootClassification === "administrative" &&
+          !rootAuditIsAuthorized
+        ) {
           if (
             validatePreservedAdministrativeEye(
               `${name} owned root ${rootAudit.ts}`,
@@ -9273,9 +10457,11 @@ function validateInventory(
           ) {
             continue;
           }
-          throw new Error(
-            `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
-          );
+          if (!rootAudit.statusReply) {
+            throw new Error(
+              `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
+            );
+          }
         }
       }
     }
@@ -9305,6 +10491,22 @@ function validateInventory(
         throw new Error(
           `${name} source ${parent.ts}: threadParentTs does not resolve to an in-page root or verified threadRoots entry`,
         );
+      }
+    }
+    for (const rootAudit of channel.threadRootAudits ?? []) {
+      const rootTimestamp = slackTimestamp(
+        rootAudit.ts,
+        `${name}.authorizedRoot.ts`,
+      ).toString();
+      if (referencedSupplementalRoots.has(rootTimestamp)) {
+        const key = `${channel.channelId}\u0000${slackTimestampFromMicros(BigInt(rootTimestamp))}`;
+        if (
+          rootAudit.reactionOwners.eyes?.length &&
+          isBoundedEyeRootInGrantedPopulation(rootAudit, key)
+        ) {
+          inScopeRootEyeKeys.add(key);
+        }
+        if (authorizedRootKeys.has(key)) authorizedRootKeysInScope.add(key);
       }
     }
     if (referencedSupplementalRoots.size !== supplementalRoots.size) {
@@ -9552,6 +10754,24 @@ function validateInventory(
     );
   }
 
+  const unauthorizedRootTargets = [...authorizedRootKeys].filter(
+    (rootKey) => !authorizedRootKeysInScope.has(rootKey),
+  );
+  if (unauthorizedRootTargets.length > 0) {
+    throw new Error(
+      `scope.authorizedRoots must point to in-window roots or older roots linked by an in-window reply: ${unauthorizedRootTargets.join(", ")}`,
+    );
+  }
+  if (hasBoundedWriteAuthorization) {
+    const omittedEyeRoots = [...inScopeRootEyeKeys].filter(
+      (rootKey) => !authorizedRootKeys.has(rootKey),
+    );
+    if (omittedEyeRoots.length > 0) {
+      throw new Error(
+        `a bounded direct grant must list every in-scope root with a root-level 👀 in scope.authorizedRoots: ${omittedEyeRoots.join(", ")}`,
+      );
+    }
+  }
   validateClusteredRootLinks(inventory);
 
   const inventoryChannelIds = [...channelIds].sort();
@@ -9631,6 +10851,7 @@ function validateInventory(
       options.scopeConfirmation,
       userRequest,
       requestedChannelIds,
+      (scope.authorizedRoots ?? []) as AuthorizedRoot[],
     );
     summaries.push(
       `External orchestrator confirmation matches narrowed request and channel IDs for ${[
@@ -10237,7 +11458,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         type: "text",
         text: JSON.stringify({
           messages:
-            "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.500000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: agent-native (B_AGENT) [BOT]\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.500000\nVerified status\nReactions: eyes (1)\nFiles: report.png (ID: FTEST1, image/png, 1 KB)",
+            "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.500000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: agent-native (B_AGENT) [BOT]\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.500000\nVerified status\nApp notification from App (Build): Summary\nReactions: eyes (1), +1::skin-tone-2 (1)\nFiles: report.png (ID: FTEST1, image/png, 1 KB)",
           pagination_info: "There are no more messages in this thread.",
         }),
       },
@@ -10255,7 +11476,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     parsedFormattedThread.messages.length !== 2 ||
     parsedFormattedThread.messages[1]?.actorId !== "B_AGENT" ||
     parsedFormattedThread.messages[1]?.files[0]?.id !== "FTEST1" ||
-    parsedFormattedThread.messages[1]?.text !== "Verified status"
+    parsedFormattedThread.messages[1]?.text !==
+      "Verified status\nApp notification from App (Build): Summary"
   ) {
     throw new Error(
       "Feedback inventory checker self-test failed to parse a formatted Slack thread response",
@@ -10287,6 +11509,62 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to parse a formatted zero-reply thread",
     );
   }
+  const formattedNoRepliesFromPagination = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.601000\nRoot report",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test connector zero-reply pagination",
+    "8.601000",
+  );
+  if (
+    !formattedNoRepliesFromPagination.exhausted ||
+    formattedNoRepliesFromPagination.replyCount !== 0 ||
+    formattedNoRepliesFromPagination.messages.length !== 1 ||
+    formattedNoRepliesFromPagination.messages[0]?.text !== "Root report"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse connector pagination for a zero-reply thread",
+    );
+  }
+  let replyMarkersWithoutHeaderRejected = false;
+  try {
+    parseRawThreadResponse(
+      {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              messages:
+                "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.602000\nRoot report\n\n--- Reply 1 of 1 ---\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.602000\nReply text",
+              pagination_info: "There are no more messages in this thread.",
+            }),
+          },
+        ],
+      },
+      "self-test reply markers without a header",
+      "8.602000",
+    );
+  } catch (error) {
+    replyMarkersWithoutHeaderRejected =
+      error instanceof Error &&
+      error.message.includes(
+        "formatted reply blocks are missing the thread replies header",
+      );
+  }
+  if (!replyMarkersWithoutHeaderRejected) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to reject reply blocks without a thread replies header",
+    );
+  }
   try {
     parseRawThreadResponse(
       {
@@ -10296,7 +11574,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             text: JSON.stringify({
               messages:
                 "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.605000\nRoot report",
-              pagination_info: "There are no more messages in this thread.",
+              pagination_info: "Pagination status unavailable",
             }),
           },
         ],
@@ -10370,6 +11648,34 @@ if (args[0] === "--self-test" && args.length === 1) {
   ) {
     throw new Error(
       "Feedback inventory checker self-test stripped message text that resembled connector metadata",
+    );
+  }
+  const connectorThreadTrailers = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.800000\nSlides report\nReactions: eyes (1)\nForwarded message from Reporter (https://example.com/slack/thread): forwarded context\n• Extra context\nMore context — use slack_read_thread or slack_read_channel to read it in context\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.800000\nClip link\nReactions: gratitude-thank-you (1)\nFiles: Screenshot.png (ID: FTEST2, image/png, 124 KB)\nApp notification from App (https://example.com/clip): [no preview available]",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test connector Slack thread trailers",
+    "8.800000",
+  );
+  if (
+    connectorThreadTrailers.messages[0]?.text !== "Slides report" ||
+    connectorThreadTrailers.messages[0]?.workflowReactionNames.join(",") !==
+      "eyes" ||
+    connectorThreadTrailers.messages[1]?.text !== "Clip link" ||
+    connectorThreadTrailers.messages[1]?.files[0]?.id !== "FTEST2" ||
+    connectorThreadTrailers.messages[1]?.files[0]?.mimeType !== "image/png"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test did not strip connector trailers while preserving reactions and attachments",
     );
   }
 
@@ -10911,6 +12217,10 @@ if (args[0] === "--self-test" && args.length === 1) {
   }
   for (const [text, action] of [
     ["I'll test this later today", "test this later today"],
+    [
+      "I'll check in the framework if we should add support for that",
+      "check in the Framework if we should add support for that",
+    ],
     ["I'll supersede #7524", "supersede #7524"],
     [
       "And then I'm also working on having it ask up front whether you want a local or hosted setup",
@@ -10934,10 +12244,44 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I might test this later today",
     "I may expand it to be all apps",
     "I won't supersede #7524",
+    "I'll get that fixed. Actually, I can't get that fixed this week.",
+    "I'll check the framework, but only if we should add support for that",
   ]) {
     if (replyExplicitlyAcceptsHandoff(text)) {
       throw new Error(
         `Feedback inventory checker self-test failed: a tentative handoff was accepted (${text}).`,
+      );
+    }
+  }
+  for (const [text, action] of [
+    ["I'll take it. Actually, I'm going to pass.", "take it"],
+    ["I'll handle it. Actually, I can't.", "handle it"],
+  ] as const) {
+    const handoff: Handoff = { scope: "self-test", owner: "Alex", action };
+    if (
+      !replyExplicitlyRefusesHandoff(text) ||
+      replyExplicitlyAcceptsRecordedHandoff(text, handoff)
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test accepted a handoff after a same-reply retraction (${text}).`,
+      );
+    }
+  }
+  for (const text of [
+    "I won't be able to take it.",
+    "I'm not able to take this.",
+    "I'm unable to take this.",
+    "I'm not going to be able to take this.",
+    "I'm unable to take this, but I'll handle the docs.",
+    "I'm not sure we can fix this, but I'll fix the bug.",
+    "I don't think I can take this, but I'll handle the docs.",
+  ]) {
+    if (
+      !replyExplicitlyRefusesHandoff(text) ||
+      replyExplicitlyAcceptsHandoff(text)
+    ) {
+      throw new Error(
+        `Feedback inventory checker self-test failed: ability-based handoff refusal was not recognized (${text}).`,
       );
     }
   }
@@ -12836,6 +14180,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     clusteredUnder: undefined,
                     reactionSummary: "eyes (1): USWEEPER",
                     reactionOwners: { eyes: ["USWEEPER"] },
+                    statusReply: undefined,
                   }
                 : parent,
             ),
@@ -15534,7 +16879,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "other actors' marks do not replace this actor's eye on open report":
       "every unheld in-scope report needs this actor's current root 👀 and same-thread status, or verified owner/canonical evidence",
     "administrative manifest roots cannot carry this actor's workflow marks":
-      "this actor's workflow marks cannot be placed on an administrative root",
+      "this actor's workflow marks on an administrative root need a current same-thread status",
     "owned marks need a fresh full-thread read":
       "read the complete Slack thread again and record its threadSnapshot",
     "a newer thread reply invalidates the recorded snapshot":
@@ -15661,7 +17006,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "supplemental root cannot mark an owned report Owned elsewhere":
       "Owned elsewhere needs another actor's root 👀 and their current same-thread status",
     "administrative supplemental roots cannot carry this actor's workflow marks":
-      "this actor's workflow marks cannot be placed on an administrative root",
+      "this actor's workflow marks on an administrative root need a current same-thread status",
     "preserved administrative supplemental root cannot carry an unreconciled ticket":
       "invalid preserved administrative 👀 evidence (no unreconciled 🎫 mark)",
     "preserved administrative supplemental root cannot carry an unreconciled checkmark":
@@ -15811,6 +17156,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       decision: "explicitly-requested",
       userRequest: inventory.scope.userRequest,
       channelIds: [...inventory.scope.channelIds],
+      authorizedRoots: [...(inventory.scope.authorizedRoots ?? [])],
     };
   };
   const validateTestInventory = (
@@ -16588,7 +17934,972 @@ if (args[0] === "--self-test" && args.length === 1) {
           permalink: sourcePermalink(targetRootTs),
         },
       }));
-    validateTestInventory(clusteredRoot(valid, "10.000000"));
+    const unownedClusteredRoot = clusteredRoot(valid, "10.000000");
+    validateTestInventory(unownedClusteredRoot);
+    expectFocusedFailure(
+      "unowned Clustered duplicate cannot have this actor's status",
+      () =>
+        validateInScopeReportOwnership(
+          "C_TEST root 11.000000",
+          {
+            ...unownedClusteredRoot.channels[0]!.pages[0]!.parents[0]!,
+            statusReply: {
+              ts: "13.000000",
+              threadParentTs: "11.000000",
+              actorId: "USWEEPER",
+              disposition: "Clustered",
+              evidence: "the duplicate is linked to the canonical report",
+              text: "Clustered: the duplicate is linked to the canonical report.",
+            },
+          },
+          false,
+          false,
+          false,
+          false,
+        ),
+      "an unowned Clustered report cannot carry this actor's status reply",
+    );
+
+    const personAssignedRoot = withPageRoot(valid, "11.000000", (parent) => ({
+      ...parent,
+      sourceText: "I assigned this report to <@UOTHER>.",
+      disposition: "Skipped",
+      latestRelevantHumanReply: undefined,
+      latestOwnedReply: undefined,
+      statusReply: undefined,
+      reactionSummary: "none",
+      reactionOwners: {},
+      reactionDecision: undefined,
+      clusteredUnder: undefined,
+      personAssignedSkip: {
+        assigneeId: "UOTHER",
+        assignmentTs: "11.000000",
+      },
+    }));
+    validateTestInventory(personAssignedRoot);
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I did not assign the migration, but I assigned this report to <@UOTHER>.",
+      })),
+    );
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I assigned this report to <@UOTHER>. Did you ask me to run the migration? I did not.",
+      })),
+    );
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I assigned this report to <@UOTHER>. Reviewed the logs and I did not.",
+      })),
+    );
+    expectFocusedFailure(
+      "person-assigned skip without a named assignment",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "This report was not assigned to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "person-assigned proof must bind the assignment to the named person",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER2>. Thanks <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "negated assignment is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I did not assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "same-message assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not assign it.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "same-message exact assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "elliptical assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, that's wrong — I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "unrelated work cannot establish a report assignment",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned the API migration to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "the assigning actor is not the named assignee",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "<@UOTHER> assigned this report to <@USWEEPER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "future assignment wording is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I will assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "conditional assignment wording is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "If approved, I would assign this report to <@UOTHER>.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+
+    const authorizedMagRoot = (() => {
+      const userRequest =
+        "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim, add its reaction, and send a same-thread status reply despite its :mag: hold.";
+      const inventory = structuredClone(valid);
+      inventory.scope.userRequest = userRequest;
+      inventory.scope.narrowingJudgment!.instruction = userRequest;
+      inventory.scope.authorizedRoots = [
+        { channelId: "C_TEST", rootTs: "10.000000" },
+      ];
+      inventory.channels[0]!.pages[0]!.parents =
+        inventory.channels[0]!.pages[0]!.parents.map((parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                reactionSummary:
+                  "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; mag (1): USWEEPER",
+                reactionOwners: {
+                  ...parent.reactionOwners,
+                  mag: ["USWEEPER"],
+                },
+              }
+            : parent,
+        );
+      return inventory;
+    })();
+    validateTestInventory(authorizedMagRoot);
+    const broadFollowupAndEmojiAuthorization =
+      structuredClone(authorizedMagRoot);
+    broadFollowupAndEmojiAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Anything that says you can't is wrong; please correct it.";
+    broadFollowupAndEmojiAuthorization.scope.narrowingJudgment!.instruction =
+      broadFollowupAndEmojiAuthorization.scope.userRequest;
+    validateTestInventory(broadFollowupAndEmojiAuthorization);
+    const assignedForeignEyeRoot = structuredClone(authorizedMagRoot);
+    assignedForeignEyeRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like.";
+    assignedForeignEyeRoot.scope.narrowingJudgment!.instruction =
+      assignedForeignEyeRoot.scope.userRequest;
+    assignedForeignEyeRoot.channels[0]!.pages[0]!.parents =
+      assignedForeignEyeRoot.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "10.000000"
+          ? {
+              ...parent,
+              sourceText: "I assigned this report to <@UOTHER>.",
+              reactionSummary:
+                "eyes (2): UOTHER, USWEEPER; white_check_mark (1): USWEEPER",
+              reactionOwners: {
+                eyes: ["UOTHER", "USWEEPER"],
+                white_check_mark: ["USWEEPER"],
+              },
+            }
+          : parent,
+      );
+    validateTestInventory(assignedForeignEyeRoot);
+    const excludedAssignedRoot = structuredClone(assignedForeignEyeRoot);
+    excludedAssignedRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like, except reports assigned to another person.";
+    excludedAssignedRoot.scope.narrowingJudgment!.instruction =
+      excludedAssignedRoot.scope.userRequest;
+    expectFocusedFailure(
+      "bounded write grant does not cover an explicitly excluded assigned report",
+      () => validateTestInventory(excludedAssignedRoot),
+      "scope.userRequest must explicitly authorize work on exact root",
+    );
+    const unassignedOnlyRoot = structuredClone(assignedForeignEyeRoot);
+    unassignedOnlyRoot.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like, but only for unassigned reports.";
+    unassignedOnlyRoot.scope.narrowingJudgment!.instruction =
+      unassignedOnlyRoot.scope.userRequest;
+    expectFocusedFailure(
+      "bounded write grant does not cover a root outside an only-population qualifier",
+      () => validateTestInventory(unassignedOnlyRoot),
+      "scope.userRequest must explicitly authorize work on exact root",
+    );
+    for (const [restriction, label, expectedDiagnostic] of [
+      [
+        "Skip anything assigned to someone else.",
+        "skip assigned roots",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Leave assigned reports alone.",
+        "leave assigned reports alone",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Don't touch assigned reports.",
+        "don't touch assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      ],
+      [
+        "But not assigned reports.",
+        "but not assigned reports",
+        "scope.userRequest",
+      ],
+      [
+        "Do not process assigned reports.",
+        "do not process assigned reports",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports are off limits.",
+        "assigned reports are off limits",
+        "scope.userRequest",
+      ],
+      [
+        "You can do any followups and emojis you like, aside from reports assigned to another person.",
+        "aside from assigned reports",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports are not to be handled.",
+        "assigned reports are not to be handled",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports should not be handled.",
+        "assigned reports should not be handled",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports must not be handled.",
+        "assigned reports must not be handled",
+        "scope.userRequest",
+      ],
+      [
+        "Assigned reports must remain untouched.",
+        "assigned reports must remain untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports must be left untouched.",
+        "assigned reports must be left untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports must stay untouched.",
+        "assigned reports must stay untouched",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "Assigned reports must be left alone.",
+        "assigned reports must be left alone",
+        "scope.userRequest must explicitly authorize work on exact root",
+      ],
+      [
+        "You should not handle assigned reports.",
+        "should not handle assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      ],
+      [
+        "You must not handle assigned reports.",
+        "must not handle assigned reports",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      ],
+    ] as const) {
+      const excludedPopulationRoot = structuredClone(assignedForeignEyeRoot);
+      excludedPopulationRoot.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. ${restriction}`;
+      excludedPopulationRoot.scope.narrowingJudgment!.instruction =
+        excludedPopulationRoot.scope.userRequest;
+      expectFocusedFailure(
+        `bounded write grant does not cover an excluded population: ${label}`,
+        () => validateTestInventory(excludedPopulationRoot),
+        expectedDiagnostic,
+      );
+    }
+    const directWorkAuthorization = structuredClone(authorizedMagRoot);
+    directWorkAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can work on Slack root C_TEST 10.000000, including the claim and same-thread status reply.";
+    directWorkAuthorization.scope.narrowingJudgment!.instruction =
+      directWorkAuthorization.scope.userRequest;
+    validateTestInventory(directWorkAuthorization);
+    const unrelatedFollowUpAuthorization = structuredClone(authorizedMagRoot);
+    unrelatedFollowUpAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply. Let me know if you have questions.";
+    unrelatedFollowUpAuthorization.scope.narrowingJudgment!.instruction =
+      unrelatedFollowUpAuthorization.scope.userRequest;
+    validateTestInventory(unrelatedFollowUpAuthorization);
+
+    const deniedAuthorization = structuredClone(authorizedMagRoot);
+    deniedAuthorization.scope.userRequest =
+      "I do not authorize you to claim root 10.000000 or post its status reply despite its :mag: hold.";
+    deniedAuthorization.scope.narrowingJudgment!.instruction =
+      deniedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "negated request cannot authorize a held root",
+      () => validateTestInventory(deniedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    const incompleteAndConditionalAuthorizations = [
+      [
+        "read-only authorization cannot unlock held-root work",
+        "I authorize you to read Slack root C_TEST 10.000000.",
+      ],
+      [
+        "reply-only authorization cannot unlock held-root work",
+        "I authorize you to reply to Slack root C_TEST 10.000000.",
+      ],
+      [
+        "conditional work authorization cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 only if it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on when cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 when it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on as long as cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 as long as it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on after cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 after it is assigned to you.",
+      ],
+      [
+        "work authorization conditioned on once cannot unlock a held root",
+        "I authorize you to work on Slack root C_TEST 10.000000 once it is assigned to you.",
+      ],
+      [
+        "a later condition cannot qualify held-root authorization",
+        "I authorize you to work on Slack root C_TEST 10.000000. Only if it is assigned to you.",
+      ],
+      [
+        "negated conditional reply cannot authorize a held root",
+        "Do not reply unless you can reply in Slack root C_TEST 10.000000.",
+      ],
+    ] as const;
+    for (const [name, userRequest] of incompleteAndConditionalAuthorizations) {
+      const incompleteAuthorization = structuredClone(authorizedMagRoot);
+      incompleteAuthorization.scope.userRequest = userRequest;
+      incompleteAuthorization.scope.narrowingJudgment!.instruction =
+        userRequest;
+      expectFocusedFailure(
+        name,
+        () => validateTestInventory(incompleteAuthorization),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      );
+    }
+
+    for (const [name, userRequest, expectedDiagnostic] of [
+      [
+        "trailing read-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply, read-only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing no-write qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply, with no writes.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing claim-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim-only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing claim only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing reply-only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply-only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing reply only qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing only after claim cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, claim it only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "trailing only after reply cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, reply to it only.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+      [
+        "just claim qualifier cannot authorize full held-root work",
+        "I authorize you to work on Slack root C_TEST 10.000000, just claim it.",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+      ],
+    ] as const) {
+      const incompleteAuthorization = structuredClone(authorizedMagRoot);
+      incompleteAuthorization.scope.userRequest = userRequest;
+      incompleteAuthorization.scope.narrowingJudgment!.instruction =
+        userRequest;
+      expectFocusedFailure(
+        name,
+        () => validateTestInventory(incompleteAuthorization),
+        expectedDiagnostic,
+      );
+    }
+
+    const crossPairedAuthorization = structuredClone(authorizedMagRoot);
+    crossPairedAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 11.000000 and Slack root C_OTHER 10.000000, including claims and same-thread status replies.";
+    crossPairedAuthorization.scope.narrowingJudgment!.instruction =
+      crossPairedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "cross-paired channel and timestamp cannot authorize a held root",
+      () => validateTestInventory(crossPairedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+
+    const quotedAuthorization = structuredClone(authorizedMagRoot);
+    quotedAuthorization.scope.userRequest =
+      "The quoted instruction was 'I authorize you to read and work on Slack root C_TEST 10.000000'.";
+    quotedAuthorization.scope.narrowingJudgment!.instruction =
+      quotedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "straight-single-quoted authorization cannot authorize a held root",
+      () => validateTestInventory(quotedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    const authorizationForDifferentRoot = structuredClone(authorizedMagRoot);
+    authorizationForDifferentRoot.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "11.000000" },
+    ];
+    expectFocusedFailure(
+      "authorization for one exact root cannot unlock another",
+      () => validateTestInventory(authorizationForDifferentRoot),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
+    );
+    for (const [exclusion, label] of [
+      ["don't touch", "contraction"],
+      ["should not touch", "should not"],
+      ["must not touch", "must not"],
+    ] as const) {
+      const explicitlyExcludedRoot = structuredClone(authorizedMagRoot);
+      explicitlyExcludedRoot.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but ${exclusion} C_TEST 10.000000.`;
+      explicitlyExcludedRoot.scope.narrowingJudgment!.instruction =
+        explicitlyExcludedRoot.scope.userRequest;
+      expectFocusedFailure(
+        `an exact-root exclusion blocks a preceding broad authorization (${label})`,
+        () => validateTestInventory(explicitlyExcludedRoot),
+        "scope.userRequest explicitly excludes an authorized root",
+      );
+    }
+    const anaphoricRootExclusion = structuredClone(authorizedMagRoot);
+    anaphoricRootExclusion.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, don't touch it.";
+    anaphoricRootExclusion.scope.narrowingJudgment!.instruction =
+      anaphoricRootExclusion.scope.userRequest;
+    expectFocusedFailure(
+      "an anaphoric no-touch retraction blocks an exact-root grant",
+      () => validateTestInventory(anaphoricRootExclusion),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const readOnlyAuthorization = structuredClone(authorizedMagRoot);
+    readOnlyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect root 10.000000.";
+    readOnlyAuthorization.scope.narrowingJudgment!.instruction =
+      readOnlyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "read-only permission cannot authorize a claim or status write",
+      () => validateTestInventory(readOnlyAuthorization),
+      "read-only, conditional, or negated permission is insufficient",
+    );
+    const conditionalAuthorization = structuredClone(authorizedMagRoot);
+    conditionalAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. Do not claim or reply unless you can claim and reply in C_TEST root 10.000000.";
+    conditionalAuthorization.scope.narrowingJudgment!.instruction =
+      conditionalAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "conditional permission cannot authorize a claim or status write",
+      () => validateTestInventory(conditionalAuthorization),
+      "read-only, conditional, or negated permission is insufficient",
+    );
+    const boundedAuthorization = structuredClone(authorizedMagRoot);
+    boundedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.";
+    boundedAuthorization.scope.narrowingJudgment!.instruction =
+      boundedAuthorization.scope.userRequest;
+    validateTestInventory(boundedAuthorization);
+
+    const administrativeBoundedAuthorization =
+      structuredClone(boundedAuthorization);
+    const administrativeParent =
+      administrativeBoundedAuthorization.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "11.000000",
+      )!;
+    const administrativeStatusText =
+      "In progress: the administrative root still needs verification. No :white_check_mark: — no root scope has passed verification. No :ticket: — no separate human/team action remains unfinished. this was sent from a bot.";
+    administrativeParent.sourceText =
+      "System announcement: synthetic maintenance window.";
+    administrativeParent.rootClassification = "administrative";
+    administrativeParent.rootClassificationReason =
+      "Synthetic administrative post";
+    administrativeParent.rootClassificationJudgment = {
+      actorId: "USWEEPER",
+      decision: "administrative",
+      rationale: "A system announcement is not product feedback.",
+    };
+    administrativeParent.clusteredUnder = undefined;
+    administrativeParent.disposition = "In progress";
+    administrativeParent.reactionSummary = "eyes (1): USWEEPER";
+    administrativeParent.reactionOwners = { eyes: ["USWEEPER"] };
+    administrativeParent.latestOwnedReply = {
+      ts: "13.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      text: administrativeStatusText,
+    };
+    administrativeParent.reactionDecision = {
+      checkmark: {
+        state: "none",
+        reason: "No root scope has passed verification",
+      },
+      ticket: {
+        state: "none",
+        reason: "No distinct human handoff is assigned",
+      },
+    };
+    administrativeParent.statusReply = {
+      ts: "13.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "In progress",
+      evidence: "The administrative root still needs verification",
+      publicEvidenceSummary: "The administrative root still needs verification",
+      text: administrativeStatusText,
+    };
+    administrativeBoundedAuthorization.scope.authorizedRoots!.push({
+      channelId: "C_TEST",
+      rootTs: "11.000000",
+    });
+    expectFocusedFailure(
+      "a report-wide bounded grant cannot authorize an administrative root",
+      () => validateTestInventory(administrativeBoundedAuthorization),
+      "a bounded report-wide grant does not authorize administrative roots",
+    );
+    const quotedAdministrativeExampleAuthorization = structuredClone(
+      administrativeBoundedAuthorization,
+    );
+    const quotedAdministrativeExampleRequest = `${administrativeBoundedAuthorization.scope.userRequest} The quoted example is "You can do any followups and emojis you like for all administrative posts."`;
+    quotedAdministrativeExampleAuthorization.scope.userRequest =
+      quotedAdministrativeExampleRequest;
+    quotedAdministrativeExampleAuthorization.scope.narrowingJudgment!.instruction =
+      quotedAdministrativeExampleRequest;
+    expectFocusedFailure(
+      "quoted example text cannot authorize an administrative root",
+      () => validateTestInventory(quotedAdministrativeExampleAuthorization),
+      "a bounded report-wide grant does not authorize administrative roots",
+    );
+    const administrativePostsIncludedRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim any followups, send same-thread status replies, and add emojis for all reports and administrative posts.";
+    const administrativePostsIncludedAuthorization = structuredClone(
+      administrativeBoundedAuthorization,
+    );
+    administrativePostsIncludedAuthorization.scope.userRequest =
+      administrativePostsIncludedRequest;
+    administrativePostsIncludedAuthorization.scope.narrowingJudgment!.instruction =
+      administrativePostsIncludedRequest;
+    validateTestInventory(administrativePostsIncludedAuthorization);
+
+    const omittedBoundedEyeRoot = structuredClone(boundedAuthorization);
+    omittedBoundedEyeRoot.channels[0]!.pages[0]!.parents =
+      omittedBoundedEyeRoot.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "11.000000"
+          ? {
+              ...parent,
+              reactionSummary: "eyes (1): UOTHER",
+              reactionOwners: { eyes: ["UOTHER"] },
+            }
+          : parent,
+      );
+    expectFocusedFailure(
+      "bounded authorization lists every in-scope root-level eye",
+      () => validateTestInventory(omittedBoundedEyeRoot),
+      "a bounded direct grant must list every in-scope root with a root-level 👀 in scope.authorizedRoots",
+    );
+
+    const authorizedBoundedDuplicate = structuredClone(boundedAuthorization);
+    authorizedBoundedDuplicate.scope.authorizedRoots!.push({
+      channelId: "C_TEST",
+      rootTs: "11.000000",
+    });
+    authorizedBoundedDuplicate.channels[0]!.pages[0]!.parents =
+      authorizedBoundedDuplicate.channels[0]!.pages[0]!.parents.map((parent) =>
+        parent.ts === "11.000000"
+          ? {
+              ...parent,
+              reactionSummary: "eyes (2): UOTHER, USWEEPER",
+              reactionOwners: { eyes: ["UOTHER", "USWEEPER"] },
+              latestRelevantHumanReply: {
+                ts: "12.000000",
+                actorId: "UOTHER",
+                text: "This duplicate is already linked to the canonical report.",
+              },
+              latestOwnedReply: {
+                ts: "13.000000",
+                threadParentTs: "11.000000",
+                actorId: "USWEEPER",
+                text: "Clustered: this duplicate is tracked by canonical root 10.000000. No :white_check_mark: — no separate verified scope applies. No :ticket: — no separate human action remains. this was sent from a bot.",
+              },
+              reactionDecision: {
+                checkmark: {
+                  state: "none",
+                  reason:
+                    "No separate verified scope applies to this duplicate",
+                },
+                ticket: {
+                  state: "none",
+                  reason: "No separate human action remains",
+                },
+              },
+              statusReply: {
+                ts: "13.000000",
+                threadParentTs: "11.000000",
+                actorId: "USWEEPER",
+                disposition: "Clustered",
+                evidence:
+                  "This duplicate is tracked by canonical root 10.000000",
+                text: "Clustered: this duplicate is tracked by canonical root 10.000000. No :white_check_mark: — no separate verified scope applies. No :ticket: — no separate human action remains. this was sent from a bot.",
+              },
+            }
+          : parent,
+      );
+    validateTestInventory(authorizedBoundedDuplicate);
+    for (const restriction of [
+      "This is read-only.",
+      "No reactions.",
+      "No replies.",
+      "No status replies.",
+      "No status updates.",
+      "Reactions are not allowed.",
+      "Skip reactions.",
+      "Avoid reactions.",
+      "Skip the replies.",
+      "Hold off on replies.",
+      "Replies are off limits.",
+      "Nothing but read.",
+      "Do not leave status replies.",
+      "No writing except reactions.",
+      "Look only, no writes.",
+      "Don't touch it.",
+      "No need to do the status reply.",
+      "Leave out emojis.",
+      "You may only add reactions.",
+    ]) {
+      const earlierRestriction = structuredClone(authorizedMagRoot);
+      earlierRestriction.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. ${restriction} You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.`;
+      earlierRestriction.scope.narrowingJudgment!.instruction =
+        earlierRestriction.scope.userRequest;
+      expectFocusedFailure(
+        `a preceding ${restriction.toLowerCase()} restriction blocks later broad write authorization`,
+        () => validateTestInventory(earlierRestriction),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      );
+
+      const restrictedExactRootGrant = structuredClone(authorizedMagRoot);
+      restrictedExactRootGrant.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. ${restriction} I authorize you to work on Slack root C_TEST 10.000000, including the root claim, same-thread status reply, and reactions.`;
+      restrictedExactRootGrant.scope.narrowingJudgment!.instruction =
+        restrictedExactRootGrant.scope.userRequest;
+      expectFocusedFailure(
+        `a preceding ${restriction.toLowerCase()} restriction blocks exact-root write authorization`,
+        () => validateTestInventory(restrictedExactRootGrant),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      );
+    }
+
+    const unrelatedFollowupCannotExtendReadOnlyAuthorization =
+      structuredClone(authorizedMagRoot);
+    unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect Slack root C_TEST 10.000000. Any followups and emojis are fine.";
+    unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.narrowingJudgment!.instruction =
+      unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "unrelated follow-up wording cannot turn a read-only grant into write authorization",
+      () =>
+        validateTestInventory(
+          unrelatedFollowupCannotExtendReadOnlyAuthorization,
+        ),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const boundedWordingCannotExpandReadOnlyGrant =
+      structuredClone(authorizedMagRoot);
+    boundedWordingCannotExpandReadOnlyGrant.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect Slack root C_TEST 10.000000, and any followups and emojis are fine.";
+    boundedWordingCannotExpandReadOnlyGrant.scope.narrowingJudgment!.instruction =
+      boundedWordingCannotExpandReadOnlyGrant.scope.userRequest;
+    expectFocusedFailure(
+      "same-sentence follow-up wording cannot turn a read-only grant into write authorization",
+      () => validateTestInventory(boundedWordingCannotExpandReadOnlyGrant),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const noReactionAuthorization = structuredClone(authorizedMagRoot);
+    noReactionAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions.";
+    noReactionAuthorization.scope.narrowingJudgment!.instruction =
+      noReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "no-reaction restriction blocks exact-root write authorization",
+      () => validateTestInventory(noReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const inlineNoReplyAuthorization = structuredClone(authorizedMagRoot);
+    inlineNoReplyAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, and add emojis but without any status replies.";
+    inlineNoReplyAuthorization.scope.narrowingJudgment!.instruction =
+      inlineNoReplyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "inline no-reply qualifier blocks exact-root write authorization",
+      () => validateTestInventory(inlineNoReplyAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const inlineNoReactionAuthorization = structuredClone(authorizedMagRoot);
+    inlineNoReactionAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply, but no reactions.";
+    inlineNoReactionAuthorization.scope.narrowingJudgment!.instruction =
+      inlineNoReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "inline no-reaction qualifier blocks exact-root write authorization",
+      () => validateTestInventory(inlineNoReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const separateNoReactionAuthorization = structuredClone(authorizedMagRoot);
+    separateNoReactionAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions, please.";
+    separateNoReactionAuthorization.scope.narrowingJudgment!.instruction =
+      separateNoReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "polite separate no-reaction restriction blocks exact-root authorization",
+      () => validateTestInventory(separateNoReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const unrelatedNoReactionText = structuredClone(authorizedMagRoot);
+    unrelatedNoReactionText.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions are needed for the demo.";
+    unrelatedNoReactionText.scope.narrowingJudgment!.instruction =
+      unrelatedNoReactionText.scope.userRequest;
+    validateTestInventory(unrelatedNoReactionText);
+
+    const unrelatedStopByText = structuredClone(authorizedMagRoot);
+    unrelatedStopByText.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop by the front desk after the demo.";
+    unrelatedStopByText.scope.narrowingJudgment!.instruction =
+      unrelatedStopByText.scope.userRequest;
+    validateTestInventory(unrelatedStopByText);
+
+    const stoppedReplyAuthorization = structuredClone(authorizedMagRoot);
+    stoppedReplyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop replying on this root.";
+    stoppedReplyAuthorization.scope.narrowingJudgment!.instruction =
+      stoppedReplyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "stop-reply instruction cancels an exact-root write grant",
+      () => validateTestInventory(stoppedReplyAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const stoppedMigrationAuthorization = structuredClone(authorizedMagRoot);
+    stoppedMigrationAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop the migration.";
+    stoppedMigrationAuthorization.scope.narrowingJudgment!.instruction =
+      stoppedMigrationAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "stop-work instruction cancels an exact-root write grant",
+      () => validateTestInventory(stoppedMigrationAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const revokedAuthorization = structuredClone(authorizedMagRoot);
+    revokedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, don't do that.";
+    revokedAuthorization.scope.narrowingJudgment!.instruction =
+      revokedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "later revocation cancels an exact-root write authorization",
+      () => validateTestInventory(revokedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    for (const revocation of [
+      "Actually, I withdraw this authorization.",
+      "Actually, I cancel my authorization.",
+      "Actually, I withdraw my earlier authorization.",
+      "Actually, I revoke the previous approval.",
+      "Actually, I'm withdrawing my authorization.",
+      "Actually, I take back that approval.",
+      "Actually, I revoke your permission.",
+      "Actually, I'm revoking my approval.",
+      "Actually, I revoked this authorization.",
+      "Actually, I have withdrawn my approval.",
+      "Actually, ignore my previous authorization.",
+      "Actually, forget that approval.",
+      "Actually, I changed my mind, don't do that.",
+      "Actually, I no longer authorize this.",
+    ]) {
+      const withdrawnAuthorization = structuredClone(authorizedMagRoot);
+      withdrawnAuthorization.scope.userRequest = `Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. ${revocation}`;
+      withdrawnAuthorization.scope.narrowingJudgment!.instruction =
+        withdrawnAuthorization.scope.userRequest;
+      expectFocusedFailure(
+        `later revocation cancels exact-root write authorization: ${revocation}`,
+        () => validateTestInventory(withdrawnAuthorization),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      );
+    }
+
+    const revokedBoundedAuthorization = structuredClone(authorizedMagRoot);
+    revokedBoundedAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim held roots, send same-thread status replies, add reactions, and do any followups with emojis. Scratch that.";
+    revokedBoundedAuthorization.scope.narrowingJudgment!.instruction =
+      revokedBoundedAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "later revocation cancels a bounded write authorization",
+      () => validateTestInventory(revokedBoundedAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const permalinkOnlyRequest =
+      "I authorize you to work on Slack permalink https://slack.com/archives/C_TEST/p10000000, including the root claim and same-thread status reply despite its :mag: hold.";
+    if (
+      !hasExplicitWorkflowWriteAuthorization(permalinkOnlyRequest, [
+        { channelId: "C_TEST", rootTs: "10.000000" },
+      ])
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected an exact-root grant expressed only as a Slack permalink.",
+      );
+    }
+
+    expectFocusedFailure(
+      "authorized root needs its separate orchestrator confirmation",
+      () => validateInventory(withTestThreadSnapshots(authorizedMagRoot)),
+      "provide a separate orchestrator confirmation file",
+    );
+    expectFocusedFailure(
+      "authorization confirmation must match exact root set",
+      () =>
+        validateTestInventory(authorizedMagRoot, {
+          scopeConfirmation: {
+            ...scopeConfirmationForTestInventory(authorizedMagRoot)!,
+            authorizedRoots: [],
+          },
+        }),
+      "external scope confirmation must match the inventory's exact authorizedRoots",
+    );
+
+    const activeOtherOwner = withTestThreadSnapshots(withOtherOwnerRoot());
+    const activeOtherOwnerRoot = {
+      ...activeOtherOwner.channels[0]!.pages[0]!.parents.find(
+        (parent) => parent.ts === "10.000000",
+      )!,
+      disposition: "In progress",
+      otherOwnerEvidence: undefined,
+    };
+    const activeOtherOwnerSnapshot =
+      activeOtherOwner.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === "10.000000",
+      )!;
+    expectFocusedFailure(
+      "active other owner blocks an unauthorized claim",
+      () =>
+        validateOtherOwnerEvidence(
+          "C_TEST root 10.000000",
+          activeOtherOwnerRoot,
+          "USWEEPER",
+          "10.000000",
+          activeOtherOwnerSnapshot,
+          true,
+          false,
+        ),
+      "another actor owns this report",
+    );
+    validateOtherOwnerEvidence(
+      "C_TEST root 10.000000",
+      activeOtherOwnerRoot,
+      "USWEEPER",
+      "10.000000",
+      activeOtherOwnerSnapshot,
+      true,
+      false,
+      true,
+    );
 
     const ownedClusteredStatus: StatusReply = {
       ts: "13.000000",
@@ -16785,6 +19096,21 @@ if (args[0] === "--self-test" && args.length === 1) {
       text: caseInsensitiveRoot.statusReply.text,
     };
     validateTestInventory(caseInsensitiveVerification);
+    for (const disposition of ["Shipped", "Live verified"] as const) {
+      const verifiedDisposition = structuredClone(caseInsensitiveVerification);
+      const verifiedRoot =
+        verifiedDisposition.channels[0]!.pages[0]!.parents.find(
+          (parent) => parent.ts === "10.000000",
+        )!;
+      verifiedRoot.disposition = disposition;
+      verifiedRoot.statusReply!.disposition = disposition;
+      verifiedRoot.statusReply!.text = verifiedRoot.statusReply!.text.replace(
+        /^Fixed:/,
+        `${disposition}:`,
+      );
+      verifiedRoot.latestOwnedReply!.text = verifiedRoot.statusReply!.text;
+      validateTestInventory(verifiedDisposition);
+    }
     validateTestInventory(
       withSweepOwnedParent({
         latestRelevantHumanReply: {
@@ -19317,6 +21643,99 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateTestInventory(
       withTestThreadSnapshots(preservedAdministrativeEyeInventory),
     );
+    const reportOnlyBoundedAdministrativeSweep = structuredClone(
+      preservedAdministrativeEyeInventory,
+    );
+    const reportOnlyBoundedRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.";
+    reportOnlyBoundedAdministrativeSweep.scope.userRequest =
+      reportOnlyBoundedRequest;
+    reportOnlyBoundedAdministrativeSweep.scope.narrowingJudgment!.instruction =
+      reportOnlyBoundedRequest;
+    reportOnlyBoundedAdministrativeSweep.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+    ];
+    validateTestInventory(reportOnlyBoundedAdministrativeSweep);
+
+    const currentAdministrativeStatus = structuredClone(
+      preservedAdministrativeEyeInventory,
+    );
+    const currentAdministrativeRoot =
+      currentAdministrativeStatus.channels[0]!.pages[0]!.parents[0]!;
+    delete currentAdministrativeRoot.preservedAdministrativeEye;
+    currentAdministrativeRoot.statusReply = {
+      ts: "12.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "Skipped",
+      evidence: preservedAdministrativeStatus,
+      text: preservedAdministrativeStatus,
+    };
+    currentAdministrativeRoot.reactionDecision = {
+      checkmark: {
+        state: "none",
+        reason: "No product behavior change was verified",
+      },
+      ticket: {
+        state: "none",
+        reason: "No separate human action is pending",
+      },
+    };
+    validateTestInventory(withTestThreadSnapshots(currentAdministrativeStatus));
+    const includedAdministrativePostsRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim any followups, send same-thread status replies, and add emojis for all reports and administrative posts.";
+    const omittedIncludedAdministrativeRoot = structuredClone(
+      currentAdministrativeStatus,
+    );
+    omittedIncludedAdministrativeRoot.scope.userRequest =
+      includedAdministrativePostsRequest;
+    omittedIncludedAdministrativeRoot.scope.narrowingJudgment!.instruction =
+      includedAdministrativePostsRequest;
+    omittedIncludedAdministrativeRoot.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+    ];
+    expectFocusedFailure(
+      "an explicitly included administrative root is required in bounded authorization",
+      () => validateTestInventory(omittedIncludedAdministrativeRoot),
+      "a bounded direct grant must list every in-scope root with a root-level 👀 in scope.authorizedRoots",
+    );
+    const includedAuthorizedAdministrativeRoot = structuredClone(
+      omittedIncludedAdministrativeRoot,
+    );
+    includedAuthorizedAdministrativeRoot.scope.authorizedRoots!.push({
+      channelId: "C_TEST",
+      rootTs: "11.000000",
+    });
+    validateTestInventory(includedAuthorizedAdministrativeRoot);
+    const unrestrictedAdministrativeGrant = structuredClone(
+      currentAdministrativeStatus,
+    );
+    const unquotedUnrestrictedWorkflowRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Anything that says you can't is wrong; please correct it.";
+    unrestrictedAdministrativeGrant.scope.userRequest =
+      unquotedUnrestrictedWorkflowRequest;
+    unrestrictedAdministrativeGrant.scope.narrowingJudgment!.instruction =
+      unquotedUnrestrictedWorkflowRequest;
+    unrestrictedAdministrativeGrant.scope.authorizedRoots = [
+      { channelId: "C_TEST", rootTs: "10.000000" },
+      { channelId: "C_TEST", rootTs: "11.000000" },
+    ];
+    validateTestInventory(unrestrictedAdministrativeGrant);
+    const quotedBroadGrantDoesNotAuthorizeAdministrativeRoot = structuredClone(
+      administrativeBoundedAuthorization,
+    );
+    quotedBroadGrantDoesNotAuthorizeAdministrativeRoot.scope.userRequest = `${administrativeBoundedAuthorization.scope.userRequest} “You can do any followups and emojis you like.”`;
+    quotedBroadGrantDoesNotAuthorizeAdministrativeRoot.scope.narrowingJudgment!.instruction =
+      quotedBroadGrantDoesNotAuthorizeAdministrativeRoot.scope.userRequest;
+    expectFocusedFailure(
+      "quoted broad-grant example cannot authorize an administrative root",
+      () =>
+        validateTestInventory(
+          quotedBroadGrantDoesNotAuthorizeAdministrativeRoot,
+        ),
+      "a bounded report-wide grant does not authorize administrative roots",
+    );
+
     const preservedStatusVariants = [
       preservedAdministrativeStatus,
       [
@@ -19356,6 +21775,47 @@ if (args[0] === "--self-test" && args.length === 1) {
     ).channels[0]!.threadSnapshots!.find(
       (snapshot) => snapshot.rootTs === "11.000000",
     )!;
+    const preservedAdministrativeStatusRecord = {
+      ts: "12.000000",
+      threadParentTs: "11.000000",
+      actorId: "USWEEPER",
+      disposition: "Skipped" as const,
+      evidence: preservedAdministrativeStatus,
+      text: preservedAdministrativeStatus,
+    };
+    if (
+      !validatePreservedAdministrativeEye(
+        "self-test preserved administrative root",
+        {
+          ...preservedAdministrativeRoot,
+          statusReply: preservedAdministrativeStatusRecord,
+        },
+        "USWEEPER",
+        preservedAdministrativeSnapshot,
+      )
+    ) {
+      throw new Error(
+        "self-test rejected a current status record for a preserved administrative eye",
+      );
+    }
+    expectFocusedFailure(
+      "preserved administrative eye with a stale status record",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            statusReply: {
+              ...preservedAdministrativeStatusRecord,
+              evidence: "An older status that no longer matches the thread.",
+              text: "An older status that no longer matches the thread.",
+            },
+          },
+          "USWEEPER",
+          preservedAdministrativeSnapshot,
+        ),
+      "current status record matches latest reply",
+    );
     const preservedReplyWithoutEyeExplanation =
       preservedAdministrativeStatus.replace(
         "The existing :eyes: is retained as history; no active work is claimed.",
@@ -19562,7 +22022,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
           true,
         ),
-      "is older than 15 minutes",
+      "is older than 60 minutes",
     );
     const paginatedSummary = validateTestInventory({
       ...valid,
@@ -19779,17 +22239,19 @@ if (args[0] === "--self-test" && args.length === 1) {
           pages: channel.pages.map((page) => ({
             ...page,
             readAt: pageReadAt,
-            parents: page.parents.map((parent) =>
-              parent.ts === parent.threadParentTs
+            parents: page.parents.map((parent) => ({
+              ...parent,
+              sourceSearchFilesUnavailableReason:
+                "The synthetic Slack search fixture omitted attachment metadata.",
+              ...(parent.ts === parent.threadParentTs
                 ? {
-                    ...parent,
                     reactionReadAt:
                       pageReadAt === undefined
                         ? undefined
                         : new Date(Date.parse(pageReadAt) + 1).toISOString(),
                   }
-                : parent,
-            ),
+                : {}),
+            })),
           })),
           threadRootAudits: channel.threadRootAudits?.map((parent) => ({
             ...parent,
@@ -19882,6 +22344,48 @@ if (args[0] === "--self-test" && args.length === 1) {
         ]),
       ),
     });
+    const rawThreadPagesFor = (inventory: Inventory): RawThreadPages =>
+      Object.fromEntries(
+        inventory.channels.map((channel) => [
+          sourceReceiptChannelName(channel),
+          Object.fromEntries(
+            (channel.threadSnapshots ?? []).map((snapshot) => [
+              snapshot.rootTs,
+              [
+                {
+                  cursor: null,
+                  nextCursor: null,
+                  exhausted: true,
+                  readAt: snapshot.readAt,
+                  replyCount: snapshot.replyCount,
+                  messages: [
+                    {
+                      ts: snapshot.rootTs,
+                      actorId: "U_REPORTER",
+                      isBot: false,
+                      text: snapshot.rootText as string,
+                      threadParentTs: snapshot.rootTs,
+                      files: snapshot.rootFiles ?? [],
+                      replyCount: snapshot.replyCount,
+                    },
+                    ...snapshot.replies.map((reply) => ({
+                      ts: reply.ts,
+                      actorId: reply.actorId,
+                      isBot: reply.kind === "bot",
+                      text: reply.text,
+                      threadParentTs: snapshot.rootTs,
+                      files: reply.files ?? [],
+                      workflowReactionNames: Object.keys(
+                        reply.workflowReactionOwners,
+                      ),
+                    })),
+                  ],
+                },
+              ],
+            ]),
+          ),
+        ]),
+      ) as RawThreadPages;
     const rawSourcePagesFor = (receipt: SourceReceipt): RawSourcePages =>
       Object.fromEntries(
         Object.entries(receipt.channels).map(([name, channel]) => {
@@ -19912,6 +22416,25 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     const completeSourceReceipt = sourceReceiptFor(receiptFreshInventory);
     const completeRawSourcePages = rawSourcePagesFor(completeSourceReceipt);
+    const missingFilesUnavailableReason = structuredClone(
+      receiptFreshInventory,
+    );
+    delete missingFilesUnavailableReason.channels[0]!.pages[0]!.parents[0]!
+      .sourceSearchFilesUnavailableReason;
+    const missingReasonReceipt = sourceReceiptFor(
+      missingFilesUnavailableReason,
+    );
+    expectFocusedFailure(
+      "raw source search omitted attachment metadata without a recorded reason",
+      () =>
+        validateSourceReceipt(
+          missingFilesUnavailableReason,
+          missingReasonReceipt,
+          rawSourcePagesFor(missingReasonReceipt),
+          true,
+        ),
+      "record why the raw source search omitted attachment metadata",
+    );
     const connectorOmissionInventory: Inventory = {
       ...receiptFreshInventory,
       channels: receiptFreshInventory.channels.map((channel) => ({
@@ -19952,6 +22475,97 @@ if (args[0] === "--self-test" && args.length === 1) {
       .find((parent) => parent.ts === "10.000000");
     if (!connectorOmissionRoot) {
       throw new Error("self-test omission fixture lost its root row");
+    }
+    const unavailableBodySnapshot =
+      connectorOmissionInventory.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === connectorOmissionRoot.threadParentTs,
+      );
+    if (!unavailableBodySnapshot) {
+      throw new Error("self-test omission fixture lost its thread snapshot");
+    }
+    const unavailableBodySource: Parent = {
+      ...connectorOmissionRoot,
+      sourceText: "",
+      sourceTextUnavailableReason:
+        "Slack search omitted the block-only message body",
+    };
+    if (
+      !sourceTextMatchesCapturedSearch(
+        unavailableBodySource,
+        "",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        { ...unavailableBodySource, sourceTextUnavailableReason: "   " },
+        "",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        { ...unavailableBodySource, sourceTextUnavailableReason: undefined },
+        "",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        unavailableBodySource,
+        "captured search body",
+        unavailableBodySnapshot,
+      ) ||
+      sourceTextMatchesCapturedSearch(unavailableBodySource, "", undefined)
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to constrain block-only source text to an empty search body, reason, and exact non-empty thread snapshot.",
+      );
+    }
+    if (
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText: "The `report` remains visible &gt; hidden.",
+        },
+        "The report remains visible > hidden.",
+        undefined,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected equivalent Slack search formatting",
+      );
+    }
+    if (
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText:
+            "I’m looking into this for you\nCancel button\nThe report remains open.",
+        },
+        "The report remains open.",
+        undefined,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected the Slack thread UI prefix",
+      );
+    }
+    const threadOnlyMetadataText =
+      "The `report` remains visible &gt; hidden.\nReactions: eyes (1)\nApp notification from App (https://example.com): [no preview available]";
+    if (
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText: threadOnlyMetadataText,
+        },
+        "The report remains visible > hidden.",
+        {
+          rootTs: connectorOmissionRoot.threadParentTs,
+          readAt: freshSnapshotReadAt,
+          replyCount: 0,
+          rootText: threadOnlyMetadataText,
+          replies: [],
+        },
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected full-thread text that resolves omitted search metadata",
+      );
     }
     if (
       sourceTextMatchesCapturedSearch(
@@ -20064,6 +22678,140 @@ if (args[0] === "--self-test" && args.length === 1) {
         receiptFreshInventory,
       ),
     });
+    const blockOnlyRootTs = "10.000000";
+    const blockOnlyThreadText = "Block-only report text from the full thread.";
+    const blockOnlyInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages
+          .filter((page) =>
+            page.parents.some((parent) => parent.ts === blockOnlyRootTs),
+          )
+          .map((page) => ({
+            ...page,
+            messageCount: 1,
+            sourceTimestamps: [blockOnlyRootTs],
+            parents: page.parents
+              .filter((parent) => parent.ts === blockOnlyRootTs)
+              .map((parent) => ({
+                ...parent,
+                sourceText: "",
+                sourceTextUnavailableReason:
+                  "Slack search omitted the block-only message body",
+                rootClassificationJudgment: {
+                  actorId: receiptFreshInventory.sweepActorId,
+                  decision: "report",
+                  rationale:
+                    "The complete thread body describes a product behavior report.",
+                },
+              })),
+          })),
+        threadSnapshots: channel.threadSnapshots
+          ?.filter((snapshot) => snapshot.rootTs === blockOnlyRootTs)
+          .map((snapshot) => ({
+            ...snapshot,
+            rootText: blockOnlyThreadText,
+          })),
+        threadRootAudits: [],
+      })),
+    };
+    const validateWithReceipt = (
+      inventory: Inventory,
+      rawSourcePages?: RawSourcePages,
+    ) => {
+      const receipt = sourceReceiptFor(inventory);
+      validateInventory(inventory, {
+        requireFreshReads: true,
+        requireSourceText: true,
+        sourceReceipt: receipt,
+        rawSourcePages: rawSourcePages ?? rawSourcePagesFor(receipt),
+        rawThreadPages: rawThreadPagesFor(inventory),
+        scopeConfirmation: scopeConfirmationForTestInventory(inventory),
+      });
+    };
+    validateWithReceipt(blockOnlyInventory);
+    expectFocusedFailure(
+      "block-only source text needs its exact full-thread snapshot",
+      () => {
+        const withoutSnapshot: Inventory = {
+          ...blockOnlyInventory,
+          channels: blockOnlyInventory.channels.map((channel) => ({
+            ...channel,
+            threadSnapshots: channel.threadSnapshots?.filter(
+              (snapshot) => snapshot.rootTs !== blockOnlyRootTs,
+            ),
+          })),
+        };
+        validateWithReceipt(withoutSnapshot);
+      },
+      "record this actor's human report/admin judgment and rationale against the exact source text",
+    );
+    expectFocusedFailure(
+      "block-only source text cannot replace a non-empty search result",
+      () => {
+        const receipt = sourceReceiptFor(blockOnlyInventory);
+        const nonEmptySearch = rawSourcePagesFor(receipt);
+        const rowIndex = nonEmptySearch["test-channel"]![0]!.rows.findIndex(
+          (row) => row.ts === blockOnlyRootTs,
+        );
+        if (rowIndex === -1) {
+          throw new Error("self-test block-only fixture lost its root row");
+        }
+        nonEmptySearch["test-channel"]![0]!.rows[rowIndex] = {
+          ...nonEmptySearch["test-channel"]![0]!.rows[rowIndex]!,
+          text: "a non-empty captured search result",
+          rawText: "a non-empty captured search result",
+        };
+        validateWithReceipt(blockOnlyInventory, nonEmptySearch);
+      },
+      "must match the captured Slack result",
+    );
+    expectFocusedFailure(
+      "block-only source text without an unavailable reason is rejected",
+      () => {
+        const missingReason: Inventory = {
+          ...blockOnlyInventory,
+          channels: blockOnlyInventory.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== blockOnlyRootTs) return parent;
+                const {
+                  sourceTextUnavailableReason: _reason,
+                  ...withoutReason
+                } = parent;
+                return withoutReason;
+              }),
+            })),
+          })),
+        };
+        validateWithReceipt(missingReason);
+      },
+      "classified source text must match the complete thread root text",
+    );
+    expectFocusedFailure(
+      "block-only source text with a blank unavailable reason is rejected",
+      () => {
+        const blankReason: Inventory = {
+          ...blockOnlyInventory,
+          channels: blockOnlyInventory.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) =>
+                parent.ts === blockOnlyRootTs
+                  ? { ...parent, sourceTextUnavailableReason: "   " }
+                  : parent,
+              ),
+            })),
+          })),
+        };
+        validateWithReceipt(blankReason);
+      },
+      "record this actor's human report/admin judgment and rationale against the exact source text",
+    );
 
     const heldPageRoot = withPageRoot(
       receiptFreshInventory,
@@ -20239,6 +22987,95 @@ if (args[0] === "--self-test" && args.length === 1) {
       rawSourcePages: rawSourcePagesFor(recoverySliceReceipt),
       scopeConfirmation: scopeConfirmationForTestInventory(
         recoverySliceInventory,
+      ),
+    });
+    const repeatedCursorRestartInventory: Inventory = {
+      ...recoverySliceInventory,
+      channels: recoverySliceInventory.channels.map((channel) => {
+        const page = channel.pages[0]!;
+        const [clusteredRoot, fixedRoot] = page.parents;
+        const heldRoot = channel.pages[1]!.parents[0];
+        const boundaryBefore = slackTimestampFromMicros(
+          slackTimestamp(fixedRoot!.ts, "self-test repeated cursor boundary") -
+            1n,
+        );
+        const makePage = (
+          readAt: string,
+          cursor: string | null,
+          before: string,
+          nextCursor: string | null,
+          exhausted: boolean,
+          parent: Parent,
+        ): SearchPage => ({
+          ...page,
+          readAt,
+          cursor,
+          before,
+          nextCursor,
+          exhausted,
+          messageCount: 1,
+          sourceTimestamps: [parent.ts],
+          parents: [parent],
+        });
+        const restartedHeldRoot = {
+          ...heldRoot!,
+          ts: "9.400000",
+          threadParentTs: "9.400000",
+          rootResolution: {
+            evidence: "slack_message.thread_ts",
+            sourceThreadTs: null,
+            rootTs: "9.400000",
+          },
+          reactionReadAt: recoveryReactionReadAt,
+        };
+        return {
+          ...channel,
+          pages: [
+            makePage(
+              new Date(now - 9_000).toISOString(),
+              null,
+              channel.scanQuery.before!,
+              "reused-cursor",
+              false,
+              clusteredRoot!,
+            ),
+            makePage(
+              cappedPageReadAt,
+              "reused-cursor",
+              channel.scanQuery.before!,
+              "capped-page",
+              false,
+              fixedRoot!,
+            ),
+            makePage(
+              recoveryPageReadAt,
+              null,
+              boundaryBefore,
+              "reused-cursor",
+              false,
+              { ...heldRoot!, reactionReadAt: recoveryReactionReadAt },
+            ),
+            makePage(
+              new Date(now - 5_000).toISOString(),
+              "reused-cursor",
+              boundaryBefore,
+              null,
+              true,
+              restartedHeldRoot,
+            ),
+          ],
+        };
+      }),
+    };
+    const repeatedCursorRestartReceipt = sourceReceiptFor(
+      repeatedCursorRestartInventory,
+    );
+    validateInventory(repeatedCursorRestartInventory, {
+      requireFreshReads: true,
+      sourceReceipt: repeatedCursorRestartReceipt,
+      rawSourcePages: rawSourcePagesFor(repeatedCursorRestartReceipt),
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        repeatedCursorRestartInventory,
       ),
     });
 
@@ -20647,7 +23484,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
         ),
         diagnostic:
-          "older than 15 minutes; read the complete thread again after the final channel scan",
+          "older than 60 minutes; read the complete thread again after the final channel scan",
       },
       {
         name: "thread snapshot predates the final page",
@@ -20827,7 +23664,14 @@ if (args[0] === "--self-test" && args.length === 1) {
               readAt: ownershipReadAt,
               messageCount: 1,
               sourceTimestamps: ["10.000000"],
-              rows: [{ ts: "10.000000", root: "10.000000", text: "report" }],
+              rows: [
+                {
+                  ts: "10.000000",
+                  root: "10.000000",
+                  text: "report",
+                  rawText: "report\nReactions: eyes (1)",
+                },
+              ],
             },
           ],
         ]),
@@ -21139,6 +23983,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             sourceText: parent.ownershipSkip
               ? ambiguousHeldSearchMessage.rawText
               : "",
+            ...(parent.ownershipSkip
+              ? { sourceSearchFilesUnavailableReason: undefined }
+              : {}),
             ...(parent.ownershipSkip &&
             ambiguousHeldSearchMessage.filesMetadata !== undefined
               ? { files: ambiguousHeldSearchMessage.filesMetadata }
@@ -21206,6 +24053,44 @@ if (args[0] === "--self-test" && args.length === 1) {
       ),
     });
     expectFocusedFailure(
+      "search result omitted attachment metadata present in the full thread",
+      () =>
+        validateSourceFilesInSnapshot(
+          "search result omitted attachment metadata present in the full thread",
+          {
+            ts: "11.000000",
+            threadParentTs: "11.000000",
+            sourceSearchFilesUnavailableReason:
+              "The search response omitted attachment metadata.",
+          },
+          {
+            rootTs: "11.000000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootFiles: [sourceAttachmentFixture],
+            replies: [],
+          },
+        ),
+      "preserve attachments returned by the full thread read in the inventory",
+    );
+    validateSourceFilesInSnapshot(
+      "search omitted file metadata but inventory preserved the thread read",
+      {
+        ts: "11.000000",
+        threadParentTs: "11.000000",
+        files: [sourceAttachmentFixture],
+        sourceSearchFilesUnavailableReason:
+          "The search response omitted attachment metadata.",
+      },
+      {
+        rootTs: "11.000000",
+        readAt: freshSnapshotReadAt,
+        replyCount: 0,
+        rootFiles: [sourceAttachmentFixture],
+        replies: [],
+      },
+    );
+    expectFocusedFailure(
       "source attachment list differs from the full thread read",
       () =>
         validateSourceFilesInSnapshot(
@@ -21247,7 +24132,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     const heldAttachmentInventory = withPageRoot(
       heldPageRootWithoutThread,
       "11.000000",
-      (parent) => ({ ...parent, files: [sourceAttachmentFixture] }),
+      (parent) => ({
+        ...parent,
+        files: [sourceAttachmentFixture],
+        sourceSearchFilesUnavailableReason: undefined,
+      }),
     );
     const heldAttachmentReceipt = sourceReceiptFor(heldAttachmentInventory);
     const heldAttachmentRawPages = rawSourcePagesFor(heldAttachmentReceipt);
@@ -21300,7 +24189,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ),
           },
         ),
-      "older than 15 minutes",
+      "older than 60 minutes",
     );
     const staleHeldSupplementalRoot: Inventory = {
       ...heldSupplementalRoot,
@@ -21321,7 +24210,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             staleHeldSupplementalRoot,
           ),
         }),
-      "older than 15 minutes",
+      "older than 60 minutes",
     );
     expectFocusedFailure(
       "source request missing the frozen upper bound",
@@ -21372,6 +24261,98 @@ if (args[0] === "--self-test" && args.length === 1) {
       throw new Error(
         "Feedback inventory checker self-test lost a recovered owned root mark",
       );
+    }
+    const reusedOwnedMarkCursor = "reused-owned-cursor";
+    const repeatedCursorOwnedMarkPages: OwnedMarkSearchPage[] = [
+      {
+        cursor: null,
+        before: ownershipChannel.scanQuery.before,
+        nextCursor: reusedOwnedMarkCursor,
+        exhausted: false,
+        readAt: new Date(now - 2_600).toISOString(),
+        messageCount: 1,
+        rows: [{ ts: "11.000000", root: "11.000000", text: "newer report" }],
+      },
+      {
+        cursor: reusedOwnedMarkCursor,
+        before: ownershipChannel.scanQuery.before,
+        nextCursor: "owned-cap",
+        exhausted: false,
+        readAt: ownedMarkCappedPageReadAt,
+        messageCount: 1,
+        rows: ownedMarkCappedRows,
+      },
+      {
+        cursor: null,
+        before: "10.999998",
+        nextCursor: reusedOwnedMarkCursor,
+        exhausted: false,
+        readAt: new Date(now - 2_100).toISOString(),
+        messageCount: 1,
+        rows: ownedMarkResumedRows,
+      },
+      {
+        cursor: reusedOwnedMarkCursor,
+        before: "10.999998",
+        nextCursor: null,
+        exhausted: true,
+        readAt: ownedMarkResumedPageReadAt,
+        messageCount: 1,
+        rows: [{ ts: "10.400000", root: "10.400000", text: "older report" }],
+      },
+    ];
+    const ownedMarkRecovery = cappedOwnedMarkSearches.find(
+      (search) => search.emoji === "eyes",
+    )?.pageLimitRecoveries?.[0];
+    if (!ownedMarkRecovery) {
+      throw new Error("self-test owned-mark cap fixture lost its recovery");
+    }
+    const repeatedCursorOwnedMarkSearches = ownershipSearches.map((search) =>
+      search.emoji === "eyes"
+        ? {
+            ...search,
+            pages: repeatedCursorOwnedMarkPages,
+            pageLimitRecoveries: [ownedMarkRecovery],
+          }
+        : search,
+    );
+    const repeatedCursorOwnedMarkRawPages: RawOwnedMarkSearchPages = {
+      ...ownershipPages,
+      [ownershipChannel.channelName]: {
+        ...ownershipPages[ownershipChannel.channelName]!,
+        eyes: repeatedCursorOwnedMarkPages.map((page) => ({
+          ...page,
+          sourceTimestamps: page.rows.map((row) => row.ts),
+          rows: page.rows.map((row) => ({ ...row, rawText: row.text })),
+        })),
+      },
+    };
+    const repeatedCursorOwnedMarkResult = validateOwnedMarkSearches(
+      {
+        ...ownershipChannel,
+        ownedMarkSearches: repeatedCursorOwnedMarkSearches,
+      },
+      ownershipChannel.channelName,
+      valid.sweepActorId,
+      now - 3_000,
+      repeatedCursorOwnedMarkRawPages,
+      true,
+    );
+    for (const timestamp of [
+      "11.000000",
+      "10.999999",
+      "10.500000",
+      "10.400000",
+    ]) {
+      const ts = slackTimestamp(
+        timestamp,
+        "self-test reused owned-mark cursor",
+      ).toString();
+      if (repeatedCursorOwnedMarkResult.eyes.get(ts) !== ts) {
+        throw new Error(
+          "Feedback inventory checker self-test lost an owned mark across a reused recovery cursor",
+        );
+      }
     }
     if (
       parseStructuredJsonTextBlock("ordinary text block", "self-test") !==
@@ -21873,6 +24854,95 @@ if (args[0] === "--self-test" && args.length === 1) {
         },
       ],
     };
+    const omittedBotReplyParent: Parent = {
+      ...connectorOmissionRoot,
+      ts: "10.100000",
+      threadParentTs: "10.000000",
+      sourceText: "",
+    };
+    const omittedBotReplySnapshot: ThreadSnapshot = {
+      ...ownedThreadSnapshot,
+      replies: [
+        {
+          ...ownedThreadSnapshot.replies[0]!,
+          actorId: "B_AGENT",
+          kind: "bot",
+          text: "Created an issue.",
+        },
+      ],
+    };
+    const omittedBotReplyReceiptInventory: Inventory = {
+      ...connectorOmissionInventory,
+      channels: connectorOmissionInventory.channels.map((channel) => {
+        const pages = channel.pages.map((page) => {
+          if (!page.parents.some((parent) => parent.ts === "10.000000")) {
+            return page;
+          }
+          const parents = [...page.parents, omittedBotReplyParent].sort(
+            (left, right) =>
+              slackTimestamp(right.ts, "self-test bot reply ordering") >
+              slackTimestamp(left.ts, "self-test bot reply ordering")
+                ? 1
+                : -1,
+          );
+          return {
+            ...page,
+            messageCount: parents.length,
+            sourceTimestamps: parents.map((parent) => parent.ts),
+            parents,
+          };
+        });
+        return {
+          ...channel,
+          pages,
+          threadSnapshots: [
+            ...(channel.threadSnapshots ?? []).filter(
+              (snapshot) => snapshot.rootTs !== "10.000000",
+            ),
+            omittedBotReplySnapshot,
+          ],
+        };
+      }),
+    };
+    const omittedBotReplyReceipt = sourceReceiptFor(
+      omittedBotReplyReceiptInventory,
+    );
+    validateSourceReceipt(
+      omittedBotReplyReceiptInventory,
+      omittedBotReplyReceipt,
+      rawSourcePagesFor(omittedBotReplyReceipt),
+      true,
+    );
+    expectFocusedFailure(
+      "omitted human reply body cannot use the bot search exemption",
+      () => {
+        const nonBotInventory: Inventory = {
+          ...omittedBotReplyReceiptInventory,
+          channels: omittedBotReplyReceiptInventory.channels.map((channel) => ({
+            ...channel,
+            threadSnapshots: channel.threadSnapshots?.map((snapshot) =>
+              snapshot.rootTs === "10.000000"
+                ? {
+                    ...snapshot,
+                    replies: snapshot.replies.map((reply) => ({
+                      ...reply,
+                      kind: "human" as const,
+                    })),
+                  }
+                : snapshot,
+            ),
+          })),
+        };
+        const receipt = sourceReceiptFor(nonBotInventory);
+        validateSourceReceipt(
+          nonBotInventory,
+          receipt,
+          rawSourcePagesFor(receipt),
+          true,
+        );
+      },
+      "text must match the captured Slack result",
+    );
     validateRootClassificationText(
       "search rendering removed inline-code delimiters",
       {
@@ -21910,8 +24980,31 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Status reply. this was sent from a bot.\n\nThis was sent from a bot\nApp notification from App (<https://example.com/pull/1|example.com/pull/1>): Summary\n\n• Same detail\n\nThis was sent from a bot";
     const appPreviewThreadText =
       "Status reply. this was sent from a bot.\n\n_This was sent from a bot_\nApp notification from App (<https://example.com/pull/1|example.com/pull/1>): _Summary_\n\n• Same detail\n*This was sent from a bot*\nApp notification from App (https://example.com/pull/1): *Summary*\n\n• Same detail";
+    const quotedSlide =
+      String.fromCharCode(96) + "slides" + String.fromCharCode(96);
+    const forwardedSearchText =
+      quotedSlide +
+      " - worth considering having a different (optional?) starting point for slides? ive heard this from a number of folks across the company";
+    const forwardedThreadText =
+      forwardedSearchText +
+      "\nReactions: eyes (1)\nForwarded message from David Dolnick (https://builder-internal.slack.com/archives/C031KN4SE4T/p1792792043169309?thread_ts=1792792043.169309&cid=C031KN4SE4T): One of the most valuable lessons I've learned recently was from @someone — use slack_read_thread or slack_read_channel to read it in context";
     const jiraExpandedPreview =
       "*<slack://user?team=TFAKE&amp;id=UFAKE|@Example User> created a Bug from this message*\n*<https://example.atlassian.net/browse/ABC-123?atlOrigin=fake|ABC-123 [Example] Investigate issue>*\nStatus: *Open*\nType: *Bug*\nAssignee: *Unassigned*";
+    const jiraRichExpandedPreview = [
+      "*<slack://user?team=TFAKE&amp;id=UFAKE|@Example User> created a Bug from this message*",
+      "*<https://example.atlassian.net/browse/ABC-123?atlOrigin=fake|ABC-123 [Example] Investigate issue>*",
+      "Status: *Open*",
+      "Bug",
+      "https://assets.example.test/jira-issuetype/bug.png",
+      "Type: *Bug*",
+      "Unassigned",
+      "https://assets.example.test/icons/unknown-user.png",
+      "Assignee: *Unassigned*",
+      "Medium",
+      "https://assets.example.test/jira-priority/medium.png",
+      "Priority: *Medium*",
+      "Sync thread button",
+    ].join("\n");
     const blockOnlyBotMessage =
       "A rendered bot response with complete content.\nOpen thread button";
     const blockOnlyButtonFooter = "Open thread button";
@@ -21925,6 +25018,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       !matchesSlackMessageText(
         "Status reply. this was sent from a bot.",
         "Status reply. this was sent from a bot.\n\n*Sent using* <@U09M7FX8WDN|ChatGPT>",
+      ) ||
+      !matchesSlackMessageText(
+        "Status reply. this was sent from a bot.\n\nThis was sent from a bot\nSent using <@U09M7FX8WDN|ChatGPT>",
+        "Status reply. this was sent from a bot.\n\n_This was sent from a bot_\n_Sent using_ <@U09M7FX8WDN|ChatGPT>",
       ) ||
       !matchesSlackMessageText(
         " Status reply. this was sent from a bot.\n\n---",
@@ -21979,7 +25076,13 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Status reply.\n\nApp notification from App (Builder):\nSame preview.",
       ) ||
       !matchesSlackMessageText(appPreviewSearchText, appPreviewThreadText) ||
+      !matchesSlackMessageText(forwardedSearchText, forwardedThreadText) ||
       !matchesSlackMessageText("", jiraExpandedPreview) ||
+      !matchesSlackMessageText("", jiraRichExpandedPreview) ||
+      matchesSlackMessageText(
+        "",
+        jiraRichExpandedPreview + "\nUnrelated trailing content",
+      ) ||
       matchesSlackMessageText("", blockOnlyBotMessage) ||
       !matchesSlackMessageText("", blockOnlyButtonFooter) ||
       !matchesSlackMessageText("", blockOnlyIntakeForm) ||
@@ -22142,6 +25245,45 @@ if (args[0] === "--self-test" && args.length === 1) {
         ],
       },
     );
+    validateSourceFilesInSnapshot(
+      "thread read appended a forwarded-link preview",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText:
+          "Is this the same error? <https://slack.example/archives/C123/p456>",
+        files: [],
+      },
+      {
+        ...ownedThreadSnapshot,
+        replies: [
+          {
+            ...ownedThreadSnapshot.replies[0]!,
+            text: "Is this the same error? <https://slack.example/archives/C123/p456|https://slack.example/archives/C123/p456>\nForwarded message from Alex (https://slack.example/archives/C123/p456): linked message preview",
+          },
+        ],
+      },
+    );
+    validateSourceFilesInSnapshot(
+      "public search omitted a bot reply body",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText: "",
+        files: [],
+      },
+      {
+        ...ownedThreadSnapshot,
+        replies: [
+          {
+            ...ownedThreadSnapshot.replies[0]!,
+            actorId: "U_TEST_BOT",
+            kind: "bot",
+            text: "Captured bot response.",
+          },
+        ],
+      },
+    );
     expectFocusedFailure(
       "empty captured reply text mismatches the complete thread read",
       () =>
@@ -22156,6 +25298,18 @@ if (args[0] === "--self-test" && args.length === 1) {
           ownedThreadSnapshot,
         ),
       "threadSnapshot text must match the captured source message",
+    );
+    validateSourceFilesInSnapshot(
+      "self-test block-only search result",
+      {
+        ts: "10.100000",
+        threadParentTs: "10.000000",
+        sourceText: "",
+        sourceTextUnavailableReason:
+          "Slack search returned an empty Text field for this Jira app block; the full thread read contains the rendered issue.",
+        files: [],
+      },
+      ownedThreadSnapshot,
     );
     expectFocusedFailure(
       "newer sweep-authored reply cannot pass with stale source text",
@@ -22552,6 +25706,118 @@ if (args[0] === "--self-test" && args.length === 1) {
       );
     }
 
+    const administrativeRecoveryStatus = [
+      "Skipped: the scheduled recovery run passed its threshold, so this production health notice has no active product issue.",
+      "No :white_check_mark: — no product fix or verified behavior change is in scope.",
+      "No :ticket: — no separate human action is pending.",
+      "this was sent from a bot.",
+    ].join("\n\n");
+    const administrativeStatusSearches = integratedSearches.map((search) => {
+      const rows =
+        search.emoji === "eyes"
+          ? [{ ts: "10.000000", root: "10.000000", text: "recovery" }]
+          : [];
+      return {
+        ...search,
+        pages: search.pages.map((page) => ({
+          ...page,
+          messageCount: rows.length,
+          sourceTimestamps: rows.map((row) => row.ts),
+          rows,
+        })),
+      };
+    });
+    const administrativeStatusOwnedPages: RawOwnedMarkSearchPages = {
+      [ownershipChannel.channelName]: Object.fromEntries(
+        administrativeStatusSearches.map((search) => [
+          search.emoji,
+          search.pages.map((page) => ({
+            cursor: page.cursor,
+            before: page.before,
+            nextCursor: page.nextCursor,
+            exhausted: page.exhausted,
+            readAt: page.readAt,
+            messageCount: page.messageCount,
+            sourceTimestamps: page.sourceTimestamps,
+            rows: page.rows,
+          })),
+        ]),
+      ) as RawOwnedMarkSearchPages[string],
+    };
+    const administrativeStatusBase = withPageRoot(
+      integratedInventory,
+      "10.000000",
+      (parent) => ({
+        ...parent,
+        rootClassification: "administrative",
+        rootClassificationReason:
+          "Scheduled production recovery notice, not product feedback",
+        rootClassificationJudgment: {
+          actorId: valid.sweepActorId,
+          decision: "administrative",
+          rationale:
+            "Automated production health recovery notice with no active product issue.",
+        },
+        disposition: "Skipped",
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: [valid.sweepActorId] },
+        reactionDecision: {
+          checkmark: {
+            state: "none",
+            reason: "No product change is in scope for this recovery notice.",
+          },
+          ticket: {
+            state: "none",
+            reason: "No separate human action is pending.",
+          },
+        },
+        fixedScopes: undefined,
+        unfinishedScopes: undefined,
+        handoff: undefined,
+        handoffs: undefined,
+        reporterRequests: undefined,
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: valid.sweepActorId,
+          disposition: "Skipped",
+          evidence: administrativeRecoveryStatus,
+          text: administrativeRecoveryStatus,
+        },
+        latestOwnedReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: valid.sweepActorId,
+          text: administrativeRecoveryStatus,
+        },
+        latestRelevantHumanReply: null,
+        ownershipSkip: undefined,
+        preservedAdministrativeEye: undefined,
+      }),
+    );
+    const administrativeStatusInventory: Inventory = {
+      ...administrativeStatusBase,
+      channels: administrativeStatusBase.channels.map((channel) => ({
+        ...channel,
+        ownedMarkSearches: administrativeStatusSearches,
+        threadSnapshots: channel.threadSnapshots?.map((snapshot) => ({
+          ...snapshot,
+          replies: snapshot.replies.map((reply) =>
+            reply.ts === "12.000000"
+              ? { ...reply, text: administrativeRecoveryStatus }
+              : reply,
+          ),
+        })),
+      })),
+    };
+    validateInventory(administrativeStatusInventory, {
+      ...integratedOptions,
+      rawOwnedMarkPages: administrativeStatusOwnedPages,
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        administrativeStatusInventory,
+      ),
+    });
+
     const preservedAdministrativeReadAt = new Date(
       Date.parse(ownershipReadAt) + 2_000,
     ).toISOString();
@@ -22875,9 +26141,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "owned-mark result is older than the fixed source-window lower bound",
     );
 
-    console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 55} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
-    );
+    console.log("Feedback inventory checker self-test passed.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Feedback inventory checker self-test failed: ${message}`);
@@ -22898,10 +26162,10 @@ if (
   args.length > 4
 ) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope)",
+    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope or exact-root authorization)",
   );
   console.error(
-    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"]}',
+    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"],"authorizedRoots":[{"channelId":"<channel ID>","rootTs":"<exact Slack root timestamp>"}]}',
   );
   process.exit(2);
 }

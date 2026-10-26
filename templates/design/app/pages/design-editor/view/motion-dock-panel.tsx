@@ -65,6 +65,7 @@ export function renderMotionDockPanel({
     motionPlayhead,
     setMotionPlayhead,
     handleMotionDockLiveStateChange,
+    registerMotionEasingSelectionClear,
     motionSelectedTarget,
     motionNativeStyles,
     setMotionNativeStyles,
@@ -216,6 +217,7 @@ export function renderMotionDockPanel({
           playhead={motionPlayhead}
           onPlayheadChange={setMotionPlayhead}
           onLiveStateChange={handleMotionDockLiveStateChange}
+          onRegisterEasingSelectionClear={registerMotionEasingSelectionClear}
           livePlayheadRef={motionLivePlayheadRef}
           selectedTarget={motionSelectedTarget}
           layerSidebarInset={layerSidebarInset}

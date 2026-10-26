@@ -3,10 +3,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import type { DocumentPropertyType } from "../shared/api.js";
 import {
   applyContentPersonalNavigationPatch,
   contentPersonalNavigationPatchSchema,
 } from "../shared/content-personal-navigation-patch.js";
+import { contentDatabaseChangedDateFilterValueError } from "../shared/database-query.js";
 import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import {
   assertContentDatabaseViewerAccess,
@@ -17,6 +19,7 @@ import {
   personalDatabaseViewSettingKey,
   personalViewOverridesSchema,
 } from "./_content-database-personal-view.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 export function personalSidebarOrderItemIds(
@@ -207,9 +210,53 @@ export default defineAction({
     }
     if (overrides) {
       const requested = overrides;
+      // Only date values are checked: an override can still name a property
+      // deleted since it was saved, so unknown keys pass as before.
+      const typeById = new Map(
+        (
+          await db
+            .select({
+              id: schema.documentPropertyDefinitions.id,
+              type: schema.documentPropertyDefinitions.type,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            )
+        ).map((definition) => [
+          definition.id,
+          definition.type as DocumentPropertyType,
+        ]),
+      );
+      const [database] = await db
+        .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      const sharedFilters = new Map(
+        parseDatabaseViewConfig(database?.viewConfigJson).views.map((view) => [
+          view.id,
+          view.filters,
+        ]),
+      );
       const { value } = await mutateSetting(async (tx, current) => {
         const currentOverrides =
           current === null ? null : personalViewOverridesSchema.parse(current);
+        // Filters already in the same shared View or saved here for it
+        // before pass, so an old unreadable date doesn't block other changes.
+        for (const view of requested.views) {
+          const dateError = contentDatabaseChangedDateFilterValueError(
+            view.filters,
+            [
+              ...(sharedFilters.get(view.id) ?? []),
+              ...(currentOverrides?.views.find((saved) => saved.id === view.id)
+                ?.filters ?? []),
+            ],
+            (key) => typeById.get(key),
+          );
+          if (dateError) {
+            fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+          }
+        }
         const requestedItemIds = [
           ...new Set([
             ...personalSidebarOrderItemIds(requested),

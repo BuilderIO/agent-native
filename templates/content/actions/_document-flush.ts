@@ -134,6 +134,7 @@ async function openEditors(
   bounded: <T>(promise: Promise<T>) => Promise<T>,
 ): Promise<Candidate[]> {
   return (await bounded(loadAwarenessRowsStrict(documentId)))
+    .filter((row) => !row.cleared)
     .map(candidate)
     .filter((value): value is Candidate => value !== null);
 }

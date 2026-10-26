@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   hasCollabState: vi.fn(),
   resolveAccess: vi.fn(),
   assertAccess: vi.fn(),
+  readCollabBody: vi.fn(async (event: { body?: unknown }) => event.body ?? {}),
   postAwareness: vi.fn(async () => ({ ok: true })),
   getActiveUsers: vi.fn(async () => ({ users: [] })),
   getCollabState: vi.fn(async () => ({ state: "" })),
@@ -44,6 +45,10 @@ vi.mock("h3", () => ({
 vi.mock("../collab/awareness.js", () => ({
   postAwareness: mocks.postAwareness,
   getActiveUsers: mocks.getActiveUsers,
+}));
+vi.mock("../collab/payload.js", () => ({
+  DEFAULT_COLLAB_MAX_PAYLOAD_BYTES: 2 * 1024 * 1024,
+  readCollabBody: mocks.readCollabBody,
 }));
 vi.mock("../collab/emitter.js", () => ({
   getCollabEmitter: () => mocks.emitter,
@@ -360,6 +365,82 @@ describe("collab lazy source seeding", () => {
 
     await expect(handler(makeEvent())).resolves.toEqual({ error: "Not found" });
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("allows viewers to post resource awareness within the payload limit", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { ownerEmail: "owner@example.com", orgId: "org-1" },
+    });
+    const handler = await mountCollabHandler({
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => "design-1",
+      },
+    });
+    const event = makeEvent();
+    event.method = "POST";
+    event.url = new URL("http://localhost/design-file-1/awareness");
+    event.headers.set("content-length", "128");
+
+    await expect(handler(event)).resolves.toEqual({ ok: true });
+
+    expect(mocks.resolveAccess).toHaveBeenCalledWith(
+      "design",
+      "design-1",
+      undefined,
+      { skipResourceBody: true },
+    );
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.postAwareness).toHaveBeenCalledOnce();
+    expect(event.context._collabAwarenessScope).toEqual({
+      resourceType: "design",
+      resourceId: "design-1",
+      owner: "owner@example.com",
+      orgId: "org-1",
+    });
+    expect(event.context._collabMaxPayloadBytes).toBe(2 * 1024 * 1024);
+  });
+
+  it("accepts a stale awareness clear after its resource is deleted", async () => {
+    const handler = await mountCollabHandler({
+      maxPayloadBytes: 64,
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => null,
+      },
+    });
+    const event = makeEvent();
+    event.method = "POST";
+    event.url = new URL("http://localhost/design-file-1/awareness");
+    event.body = { state: null };
+
+    await expect(handler(event)).resolves.toBeNull();
+
+    expect(event.status).toBe(204);
+    expect(mocks.readCollabBody).toHaveBeenCalledWith(event);
+    expect(event.context._collabMaxPayloadBytes).toBe(64);
+    expect(mocks.postAwareness).not.toHaveBeenCalled();
+  });
+
+  it("keeps presence writes to a deleted resource as not found", async () => {
+    const handler = await mountCollabHandler({
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => null,
+      },
+    });
+    const event = makeEvent();
+    event.method = "POST";
+    event.url = new URL("http://localhost/design-file-1/awareness");
+    event.body = { state: JSON.stringify({ visible: true }) };
+
+    await expect(handler(event)).resolves.toEqual({ error: "Not found" });
+
+    expect(event.status).toBe(404);
+    expect(mocks.postAwareness).not.toHaveBeenCalled();
   });
 
   it("maps a JSON collab id back to its source row", async () => {
