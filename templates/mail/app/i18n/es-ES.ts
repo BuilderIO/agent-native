@@ -792,6 +792,8 @@ const messages = {
       notFoundTitle: "No se encontró el borrador",
       threadUnavailable:
         "No se pudieron cargar los mensajes anteriores de esta conversación.",
+      threadLookupFailed:
+        "No se encontró la conversación a la que pertenece esta respuesta, así que aún no se puede enviar.",
       earlierMessages: "Mensajes anteriores ({{count}})",
       deleted: "Borrador eliminado.",
     },

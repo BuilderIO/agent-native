@@ -738,6 +738,7 @@ const messages = {
       loadFailed: "无法加载此草稿。",
       notFoundTitle: "找不到草稿",
       threadUnavailable: "无法加载此对话中较早的邮件。",
+      threadLookupFailed: "找不到此回复所属的对话，暂时无法发送。",
       earlierMessages: "较早的邮件（{{count}}）",
       deleted: "草稿已删除。",
     },

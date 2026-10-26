@@ -765,6 +765,8 @@ const messages = {
       loadFailed: "이 초안을 불러오지 못했습니다.",
       notFoundTitle: "초안을 찾을 수 없음",
       threadUnavailable: "이 대화의 이전 메시지를 불러오지 못했습니다.",
+      threadLookupFailed:
+        "이 답장이 속한 대화를 찾지 못해 아직 보낼 수 없습니다.",
       earlierMessages: "이전 메시지 ({{count}})",
       deleted: "초안을 삭제했습니다.",
     },

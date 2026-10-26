@@ -803,6 +803,8 @@ const messages = {
       notFoundTitle: "Entwurf nicht gefunden",
       threadUnavailable:
         "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
+      threadLookupFailed:
+        "Die Unterhaltung zu dieser Antwort wurde nicht gefunden, daher kann sie noch nicht gesendet werden.",
       earlierMessages: "Frühere Nachrichten ({{count}})",
       deleted: "Entwurf gelöscht.",
     },

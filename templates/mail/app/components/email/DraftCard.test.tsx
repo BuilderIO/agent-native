@@ -428,10 +428,13 @@ describe("DraftCard", () => {
     warn.mockRestore();
   });
 
-  it("keeps a reply in its own thread when the lookup fails", () => {
+  it("holds Send after a failed lookup until a retry finds the thread", () => {
     mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
-    mockUseEmail.mockReturnValue({ data: undefined, isError: true });
-    const { rerender } = render(<DraftCard draftId="reply-draft" />);
+    const refetch = vi.fn();
+    mockUseEmail.mockReturnValue({ data: undefined, isError: true, refetch });
+    const { getByRole, queryByRole, rerender } = render(
+      <DraftCard draftId="reply-draft" />,
+    );
 
     // The message ID is only a guess at the thread, good for showing it.
     expect(mockUseThreadMessages).toHaveBeenLastCalledWith(
@@ -439,15 +442,29 @@ describe("DraftCard", () => {
       "agent@example.com",
     );
     expect(composeProps.current?.activeDraft?.replyToThreadId).toBeUndefined();
-    expect(composeProps.current?.sendDisabled).toBe(false);
+    expect(composeProps.current?.sendDisabled).toBe(true);
+    expect(getByRole("alert").textContent).toContain(
+      "mail.draftCard.threadLookupFailed",
+    );
 
-    // A later answer can't move a reply that may already be scheduled.
+    fireEvent.click(getByRole("button", { name: "mail.error.tryAgain" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+
     mockUseEmail.mockReturnValue({
       data: { threadId: "thread-1" },
       isError: false,
+      refetch,
     });
     rerender(<DraftCard draftId="reply-draft" />);
-    expect(composeProps.current?.activeDraft?.replyToThreadId).toBeUndefined();
+    expect(composeProps.current?.activeDraft?.replyToThreadId).toBe("thread-1");
+    expect(composeProps.current?.sendDisabled).toBe(false);
+    expect(queryByRole("alert")).toBeNull();
+
+    // The answer sticks, so a reply that may be scheduled keeps its thread.
+    mockUseEmail.mockReturnValue({ data: undefined, isError: true, refetch });
+    rerender(<DraftCard draftId="reply-draft" />);
+    expect(composeProps.current?.activeDraft?.replyToThreadId).toBe("thread-1");
+    expect(composeProps.current?.sendDisabled).toBe(false);
   });
 
   it("says so when a delete doesn't stick, without telling the model", async () => {

@@ -766,6 +766,8 @@ const messages = {
       notFoundTitle: "Draft not found",
       threadUnavailable:
         "Couldn't load the earlier messages in this conversation.",
+      threadLookupFailed:
+        "Couldn't find the conversation this reply belongs to, so it can't be sent yet.",
       earlierMessages: "Earlier messages ({{count}})",
       deleted: "Draft deleted.",
     },
