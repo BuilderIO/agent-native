@@ -9012,6 +9012,48 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("keeps an explicitly rejected 409 out of the submitted-run receipt path", async () => {
+    const subscribeToRun = vi.fn(async function* () {
+      yield {
+        ...protocolEvent(1, { type: "run.started" }),
+        threadId: "thread-1",
+        runId: "run-unrelated",
+      };
+    });
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        async startRun() {
+          throw Object.assign(
+            new Error("The approved tool call is no longer pending"),
+            {
+              code: "approved_tool_call_not_pending",
+              status: 409,
+              submittedRunId: "run-unrelated",
+            },
+          );
+        },
+        subscribeToRun,
+      },
+    });
+
+    try {
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Continue",
+          queueWhileRunning: false,
+        }),
+      ).rejects.toMatchObject({
+        code: "approved_tool_call_not_pending",
+        status: 409,
+      });
+      expect(subscribeToRun).not.toHaveBeenCalled();
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("reconnects when a queue append returns a submitted-run busy receipt", async () => {
     const finishRun = Promise.withResolvers<void>();
     const subscriptionStarted = Promise.withResolvers<void>();
