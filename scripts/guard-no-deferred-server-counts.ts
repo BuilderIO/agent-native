@@ -7,8 +7,10 @@
  * instance next thaws, or never. Content's save-outcome and editor-mount counters both
  * deferred their count this way.
  *
- * `countOutcome` only bumps an in-memory window, so call it in the request and
- * keep it from changing the response:
+ * `countOutcome` bumps an in-memory window and, for the first hit in a window,
+ * hands one event to each analytics provider's `track()`, which the built-in
+ * providers only queue; nothing waits for delivery. So call it in the request
+ * and keep it from changing the response:
  *
  *   try {
  *     countOutcome("<thing>_counts", dimensions);
@@ -24,9 +26,12 @@
  * (`this.flush`, `queue.flush`), the functions and methods they call, names
  * bound by destructuring, and timers renamed through any chain of aliases or
  * imports (`const defer = setTimeout`, `import { setTimeout as defer }`). A
- * function the file shows is judged by its body, whatever it's called; a name
- * whose function the file can't see (an import, a global, a parameter, a
- * factory's result) is judged by its name. A function a callback only defines
+ * function the file shows is judged by its body, whatever it's called, and so
+ * is a function another scanned server file exports, when it's imported by a
+ * relative path: `recordContentSaveOutcome` counts because its own file shows
+ * it calling `countOutcome`, and so does a wrapper of it. A name whose function
+ * the guard can't see (a package import, a global, a parameter, a factory's
+ * result) is judged by its name. A function a callback only defines
  * or passes along counts where it runs: where a call to it is followed, or
  * when it's handed to a call that runs it (a function in the file that calls
  * that parameter, or else an array iteration or promise method, a promise
@@ -118,9 +123,83 @@ function isCountName(name: string): boolean {
 }
 
 /**
+ * The exports of scanned server files that count when called, by the file's
+ * repo-relative path.
+ */
+export type CountingExports = ReadonlyMap<string, ReadonlySet<string>>;
+
+const NO_EXPORTS: ReadonlySet<string> = new Set();
+
+/** What a file's names resolve to. */
+interface FileScope {
+  sourceFile: ts.SourceFile;
+  checker: ts.TypeChecker;
+  /** The counting exports of the module a specifier names. */
+  exportsOf: (specifier: string) => ReadonlySet<string>;
+}
+
+/** The paths a relative import could name, as `.js` names a `.ts` file. */
+export function importCandidates(
+  fromFile: string,
+  specifier: string,
+): string[] {
+  if (!specifier.startsWith(".")) return [];
+  const joined = path.posix.normalize(
+    path.posix.join(path.posix.dirname(fromFile), specifier),
+  );
+  const stem = joined.replace(/\.(?:[cm]?[jt]s|[jt]sx)$/, "");
+  return [
+    joined,
+    ...[".ts", ".tsx", ".mts", ".cts", ".js", ".mjs"].map((ext) => stem + ext),
+    `${joined}/index.ts`,
+    `${joined}/index.tsx`,
+  ];
+}
+
+function parse(file: string, source: string): ts.SourceFile {
+  const tsx = /\.[cm]?[jt]sx$/.test(file);
+  return ts.createSourceFile(
+    tsx ? "/guarded.tsx" : "/guarded.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    tsx ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
+/**
+ * A file's scope, reading other files' exports from `known` as it grows.
+ * `scopes` keeps each file's checker for the next pass over it; every scope in
+ * it must have been made with the same `known`.
+ */
+function fileScope(
+  file: string,
+  source: string,
+  known: CountingExports,
+  scopes?: Map<string, FileScope>,
+): FileScope {
+  const cached = scopes?.get(file);
+  if (cached) return cached;
+  const sourceFile = parse(file, source);
+  const scope: FileScope = {
+    sourceFile,
+    checker: fileChecker(sourceFile),
+    exportsOf: (specifier) => {
+      for (const candidate of importCandidates(file, specifier)) {
+        const names = known.get(candidate);
+        if (names) return names;
+      }
+      return NO_EXPORTS;
+    },
+  };
+  scopes?.set(file, scope);
+  return scope;
+}
+
+/**
  * A type checker over this one file, so a name resolves to the declaration its
  * scope sees, and `this.flush` or `queue.flush` to the method. Imports stay
- * unresolved, so helpers from other files are judged by name.
+ * unresolved; `FileScope.exportsOf` answers for other scanned files.
  */
 function fileChecker(sourceFile: ts.SourceFile): ts.TypeChecker {
   const host: ts.CompilerHost = {
@@ -300,34 +379,72 @@ function invoked(expression: ts.Expression): ts.Expression {
 }
 
 /**
+ * The module and export a reference imports, as in `import { record } from
+ * "./outcomes.js"` or `outcomes.record` from `import * as outcomes`.
+ */
+function importedExport(
+  checker: ts.TypeChecker,
+  target: ts.Identifier | ts.PropertyAccessExpression,
+  declaration: ts.Declaration | undefined,
+): { specifier: string; name: string } | undefined {
+  if (declaration && ts.isImportSpecifier(declaration)) {
+    const module = declaration.parent.parent.parent.moduleSpecifier;
+    return ts.isStringLiteral(module)
+      ? {
+          specifier: module.text,
+          name: (declaration.propertyName ?? declaration.name).text,
+        }
+      : undefined;
+  }
+  if (
+    ts.isPropertyAccessExpression(target) &&
+    ts.isIdentifier(target.expression)
+  ) {
+    const namespace = declarationOf(checker, target.expression);
+    if (namespace && ts.isNamespaceImport(namespace)) {
+      const module = namespace.parent.parent.moduleSpecifier;
+      return ts.isStringLiteral(module)
+        ? { specifier: module.text, name: target.name.text }
+        : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Whether calling this reference tracks or counts. A function the file shows,
  * through any aliases, is judged by its body, so a local `trackRetry` that
- * only retries isn't a count. Otherwise the names it goes by decide:
- * `import { countOutcome as record }`, `const { trackEvent } = analytics`, a
- * `trackSave` a factory returns.
+ * only retries isn't a count; so is one another scanned server file exports.
+ * Otherwise the names it goes by decide: `import { countOutcome as record }`,
+ * `const { trackEvent } = analytics`, a `trackSave` a factory returns.
  */
 function countsWhenCalled(
-  checker: ts.TypeChecker,
+  scope: FileScope,
   expression: ts.Expression,
   seen: Set<ts.Node>,
 ): boolean {
+  const { checker } = scope;
   const names: string[] = [];
   let target = invoked(expression);
   for (;;) {
     const body = bodyOf(target);
-    if (body) return callsCount(checker, body, seen);
+    if (body) return callsCount(scope, body, seen);
     if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
       break;
     }
     names.push(calleeName(target) ?? "");
     const declaration = declarationOf(checker, target);
+    const imported = importedExport(checker, target, declaration);
+    if (imported && scope.exportsOf(imported.specifier).has(imported.name)) {
+      return true;
+    }
     if (!declaration) break;
     if (seen.has(declaration)) return false;
     seen.add(declaration);
     names.push(sourceName(declaration) ?? "");
     const value = boundValue(checker, declaration);
     const valueBody = value && bodyOf(value);
-    if (valueBody) return callsCount(checker, valueBody, seen);
+    if (valueBody) return callsCount(scope, valueBody, seen);
     if (!value || !ts.isExpression(value)) break;
     target = invoked(value);
   }
@@ -486,25 +603,26 @@ function isRunByCall(
  * where `callsCount` walks into it.)
  */
 function passedReferenceCounts(
-  checker: ts.TypeChecker,
+  scope: FileScope,
   argument: ts.Expression,
   seen: Set<ts.Node>,
 ): boolean {
   const target = unbound(argument);
   return (
     (ts.isIdentifier(target) || ts.isPropertyAccessExpression(target)) &&
-    countsWhenCalled(checker, target, seen)
+    countsWhenCalled(scope, target, seen)
   );
 }
 
 function callsCount(
-  checker: ts.TypeChecker,
+  scope: FileScope,
   node: ts.Node,
   seen: Set<ts.Node>,
 ): boolean {
+  const { checker } = scope;
   if (
     ts.isCallExpression(node) &&
-    countsWhenCalled(checker, node.expression, seen)
+    countsWhenCalled(scope, node.expression, seen)
   ) {
     return true;
   }
@@ -513,7 +631,7 @@ function callsCount(
     node.arguments?.some(
       (argument, index) =>
         runsArgument(checker, node, index, new Set()) &&
-        passedReferenceCounts(checker, argument, seen),
+        passedReferenceCounts(scope, argument, seen),
     )
   ) {
     return true;
@@ -524,26 +642,145 @@ function callsCount(
     ts.forEachChild(node, (child) =>
       ts.isFunctionLike(child) && !isRunByCall(checker, child, new Set())
         ? false
-        : callsCount(checker, child, seen),
+        : callsCount(scope, child, seen),
     ) ?? false
   );
+}
+
+function isExported(statement: ts.Statement): boolean {
+  return (
+    ts.canHaveModifiers(statement) &&
+    !!ts
+      .getModifiers(statement)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+  );
+}
+
+/**
+ * The names this file exports that count when called: exported functions and
+ * consts, and re-exports, given what `known` says other files export.
+ */
+export function findCountingExports(
+  file: string,
+  source: string,
+  known: CountingExports = new Map(),
+  scopes?: Map<string, FileScope>,
+): string[] {
+  const scope = fileScope(file, source, known, scopes);
+  const { sourceFile } = scope;
+  const counts = (name: ts.Identifier) =>
+    countsWhenCalled(scope, name, new Set());
+  const counting = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (isExported(statement) && ts.isFunctionDeclaration(statement)) {
+      if (statement.name && counts(statement.name)) {
+        counting.add(statement.name.text);
+      }
+    } else if (isExported(statement) && ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && counts(declaration.name)) {
+          counting.add(declaration.name.text);
+        }
+      }
+    } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
+      const module = statement.moduleSpecifier;
+      const from =
+        module && ts.isStringLiteral(module)
+          ? scope.exportsOf(module.text)
+          : undefined;
+      const clause = statement.exportClause;
+      if (!clause && from) {
+        for (const name of from) counting.add(name);
+      } else if (clause && ts.isNamedExports(clause)) {
+        for (const element of clause.elements) {
+          const local = (element.propertyName ?? element.name).text;
+          const declaration =
+            !from &&
+            symbolDeclaration(
+              scope.checker,
+              scope.checker.getExportSpecifierLocalTargetSymbol(element),
+            );
+          const name = declaration
+            ? ts.getNameOfDeclaration(declaration)
+            : undefined;
+          if (
+            from
+              ? from.has(local)
+              : !!name && ts.isIdentifier(name) && counts(name)
+          ) {
+            counting.add(element.name.text);
+          }
+        }
+      }
+    }
+  }
+  return [...counting].sort();
+}
+
+const EXPORTS = /\bexport\b/;
+const EXPORT_STAR = /\bexport\s*\*/;
+/**
+ * Text that can name a count helper the way `isCountName` reads names: a count
+ * helper anywhere, or a `track…` name called, imported or destructured.
+ */
+const COUNT_WORD = new RegExp(
+  `\\b(?:${[...COUNTS].join("|")})\\b|\\btrack(?:[A-Z]\\w*)?(?:\\s*[(:,}]|\\s+as\\b)`,
+);
+
+/**
+ * The counting exports across these files (repo-relative path to source),
+ * worked to a fixpoint so a wrapper of a counting export counts too.
+ */
+export function countingExportsOf(
+  sources: ReadonlyMap<string, string>,
+  scopes?: Map<string, FileScope>,
+): CountingExports {
+  const known = new Map<string, Set<string>>();
+  const pending = new Set(
+    [...sources]
+      .filter(([, source]) => EXPORTS.test(source) && COUNT_WORD.test(source))
+      .map(([file]) => file),
+  );
+  while (pending.size > 0) {
+    const [file] = pending;
+    pending.delete(file);
+    const names = findCountingExports(
+      file,
+      sources.get(file) ?? "",
+      known,
+      scopes,
+    );
+    const added = names.filter((name) => !known.get(file)?.has(name));
+    if (added.length === 0) continue;
+    known.set(file, new Set(names));
+    // A file that passes the exports on imports their module by a path that
+    // names it, then names the exports or re-exports them all.
+    const stem = path.posix.basename(file).replace(/\.[^.]+$/, "");
+    const module =
+      stem === "index" ? path.posix.basename(path.posix.dirname(file)) : stem;
+    for (const [other, source] of sources) {
+      if (
+        other !== file &&
+        EXPORTS.test(source) &&
+        source.includes(module) &&
+        (EXPORT_STAR.test(source) ||
+          added.some((name) => source.includes(name)))
+      ) {
+        pending.add(other);
+      }
+    }
+  }
+  return known;
 }
 
 export function findDeferredCounts(
   file: string,
   source: string,
+  known: CountingExports = new Map(),
+  scopes?: Map<string, FileScope>,
 ): DeferredCountFinding[] {
-  const kind = /\.[cm]?tsx$|\.[cm]?jsx$/.test(file)
-    ? ts.ScriptKind.TSX
-    : ts.ScriptKind.TS;
-  const sourceFile = ts.createSourceFile(
-    kind === ts.ScriptKind.TSX ? "/guarded.tsx" : "/guarded.ts",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    kind,
-  );
-  const checker = fileChecker(sourceFile);
+  const scope = fileScope(file, source, known, scopes);
+  const { sourceFile, checker } = scope;
   const lines = source.split(/\r?\n/);
   const findings: DeferredCountFinding[] = [];
 
@@ -552,7 +789,7 @@ export function findDeferredCounts(
       ts.isCallExpression(node) &&
       node.arguments[0] &&
       isTimerReference(checker, node.expression, new Set()) &&
-      countsWhenCalled(checker, node.arguments[0], new Set())
+      countsWhenCalled(scope, node.arguments[0], new Set())
     ) {
       const start =
         sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
@@ -603,21 +840,24 @@ function main() {
     process.exit(GUARD_EXIT_COULD_NOT_RUN);
   }
 
-  let inspected = 0;
-  const findings: DeferredCountFinding[] = [];
+  const sources = new Map<string, string>();
   for (const rel of files) {
-    let source: string;
     try {
-      source = readFileSync(path.join(rootDir, rel), "utf8");
+      sources.set(rel, readFileSync(path.join(rootDir, rel), "utf8"));
     } catch (error) {
       console.error(
         `${GUARD_NAME}: could not read ${rel}: ${(error as Error).message}`,
       );
       process.exit(GUARD_EXIT_COULD_NOT_RUN);
     }
-    inspected += 1;
+  }
+  const inspected = sources.size;
+  const scopes = new Map<string, FileScope>();
+  const known = countingExportsOf(sources, scopes);
+  const findings: DeferredCountFinding[] = [];
+  for (const [rel, source] of sources) {
     if (!TIMER_WORD.test(source)) continue;
-    findings.push(...findDeferredCounts(rel, source));
+    findings.push(...findDeferredCounts(rel, source, known, scopes));
   }
 
   if (findings.length === 0) {

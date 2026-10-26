@@ -31,8 +31,10 @@ export default defineAction({
   run: async (args) => {
     await assertDocumentMutationAccess(args.id, "viewer", "id");
     // Count inside the request: a serverless instance can freeze before a
-    // timer runs. countOutcome only bumps an in-memory window, and the editor
-    // never waits for this answer.
+    // timer runs. countOutcome bumps an in-memory window and, for the first
+    // hit in a window, calls each analytics provider's track(), which the
+    // built-in providers only queue. Nothing waits for delivery, and the
+    // editor never waits for this answer.
     try {
       countOutcome("content_editor_mount_counts", {
         outcome: args.outcome,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  countingExportsOf,
   findDeferredCounts,
   isServerSourcePath,
 } from "./guard-no-deferred-server-counts.js";
@@ -303,6 +304,78 @@ describe("deferred server counts guard", () => {
     ].join("\n");
 
     assert.deepEqual(flagged(source), [3]);
+  });
+
+  it("follows count helpers another server file exports", () => {
+    const known = new Map([
+      [
+        "templates/content/actions/_content-save-outcomes.ts",
+        new Set(["recordContentSaveOutcome"]),
+      ],
+    ]);
+    const source = [
+      'import { recordContentSaveOutcome, boundedContentSaveReason } from "./_content-save-outcomes.js";',
+      'import * as outcomes from "./_content-save-outcomes.js";',
+      'import { recordContentSaveOutcome as recordElsewhere } from "../../mail/actions/_content-save-outcomes.js";',
+      "setTimeout(() => recordContentSaveOutcome({}), 0);",
+      "setTimeout(() => outcomes.recordContentSaveOutcome({}), 0);",
+      "setTimeout(() => boundedContentSaveReason(error), 0);",
+      "setTimeout(() => recordElsewhere({}), 0);",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, known).map((finding) => finding.line),
+      [4, 5],
+    );
+  });
+
+  it("finds the exports that count, through wrappers and re-exports", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_outcomes.ts",
+        [
+          'import { countOutcome } from "@agent-native/core/tracking";',
+          "export function recordOutcome(outcome: string) {",
+          "  try {",
+          '    countOutcome("content_save_outcome_counts", { outcome });',
+          "  } catch {}",
+          "}",
+          "export function boundedReason(error: unknown) {",
+          "  return String(error);",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/server/lib/outcome-wrappers.ts",
+        [
+          'import { recordOutcome } from "../../actions/_outcomes.js";',
+          'export const recordSaved = () => recordOutcome("saved");',
+          "export { recordOutcome as recordAgain };",
+          'export { boundedReason } from "../../actions/_outcomes.js";',
+        ].join("\n"),
+      ],
+      [
+        "templates/content/server/lib/index.ts",
+        'export * from "./outcome-wrappers.js";',
+      ],
+    ]);
+
+    assert.deepEqual(
+      Object.fromEntries(
+        [...countingExportsOf(sources)].map(([file, names]) => [
+          file,
+          [...names].sort(),
+        ]),
+      ),
+      {
+        "templates/content/actions/_outcomes.ts": ["recordOutcome"],
+        "templates/content/server/lib/outcome-wrappers.ts": [
+          "recordAgain",
+          "recordSaved",
+        ],
+        "templates/content/server/lib/index.ts": ["recordAgain", "recordSaved"],
+      },
+    );
   });
 
   it("allows counts inside the request and timers that do not count", () => {
