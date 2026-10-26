@@ -4416,7 +4416,7 @@ export function VisualEditor({
     requestCollabSync,
     onBaseAwareReconcile,
     onBaseAwareMerge: documentId
-      ? (outcome) => reportEditorMerge(documentId, outcome)
+      ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
       : undefined,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot

@@ -12,17 +12,18 @@ describe("editor merge counts", () => {
     vi.restoreAllMocks();
     vi.resetAllMocks();
   });
-  it("counts each outcome within the request, without the page's identity", async () => {
-    for (const outcome of ["kept_all", "set_aside"] as const) {
+  it("counts each outcome and path within the request, without the page's identity", async () => {
+    const counted = [
+      { outcome: "kept_all", path: "open_editor" },
+      { outcome: "set_aside", path: "save_rebase" },
+    ] as const;
+    for (const dimensions of counted) {
       await expect(
-        action.run({ id: "page", outcome }, { caller: "frontend" }),
+        action.run({ id: "page", ...dimensions }, { caller: "frontend" }),
       ).resolves.toEqual({ recorded: true });
     }
     expect(countOutcome.mock.calls).toEqual(
-      ["kept_all", "set_aside"].map((outcome) => [
-        "content_editor_merge_counts",
-        { outcome },
-      ]),
+      counted.map((dimensions) => ["content_editor_merge_counts", dimensions]),
     );
     expect(access).toHaveBeenCalledWith("page", "viewer", "id");
   });
@@ -31,13 +32,20 @@ describe("editor merge counts", () => {
       throw new Error("telemetry failed");
     });
     await expect(
-      action.run({ id: "page", outcome: "set_aside" }, { caller: "frontend" }),
+      action.run(
+        { id: "page", outcome: "set_aside", path: "open_editor" },
+        { caller: "frontend" },
+      ),
     ).resolves.toEqual({ recorded: true });
     expect(countOutcome).toHaveBeenCalledOnce();
   });
-  it("rejects outcomes outside the bounded set", () => {
-    expect(
-      action.schema.safeParse({ id: "page", outcome: "dropped" }).success,
-    ).toBe(false);
+  it("rejects outcomes and paths outside the bounded sets", () => {
+    for (const args of [
+      { id: "page", outcome: "dropped", path: "open_editor" },
+      { id: "page", outcome: "kept_all", path: "server" },
+      { id: "page", outcome: "kept_all" },
+    ]) {
+      expect(action.schema.safeParse(args).success).toBe(false);
+    }
   });
 });

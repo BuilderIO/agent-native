@@ -272,6 +272,93 @@ describe("document save ownership after a rejected CAS", () => {
     });
   });
 
+  it("reports each merge of a save over a newer body as kept_all or set_aside", async () => {
+    const owner = (localDraft: string) => ({
+      version: 1,
+      current: () => ({ version: 1, content: localDraft }),
+      canPreferLive: () => true,
+      confirm: vi.fn(),
+    });
+    const onMerge = vi.fn();
+    const overlapping = original.replace("inspect", "discuss");
+    await saveDocumentWithRebase({
+      base,
+      content: overlapping,
+      persist: vi
+        .fn()
+        .mockResolvedValueOnce({ conflict: true, document: winner })
+        .mockResolvedValueOnce({ ...winner, content: overlapping }),
+      owner: owner(overlapping),
+      onMerge,
+    });
+    const suffixed = `${original} Peer suffix.`;
+    await saveDocumentWithRebase({
+      base,
+      content: suffixed,
+      persist: vi
+        .fn()
+        .mockResolvedValueOnce({ conflict: true, document: winner })
+        .mockResolvedValueOnce({ ...winner, content: draft }),
+      owner: owner(suffixed),
+      onMerge,
+    });
+
+    expect(onMerge.mock.calls).toEqual([[{ setAside: 1 }], [{ setAside: 0 }]]);
+  });
+
+  it("does not report a displaced save or a newer revision with the base's body", async () => {
+    const onMerge = vi.fn();
+    const localDraft = original.replace("inspect", "discuss");
+    await saveDocumentWithRebase({
+      base,
+      content: localDraft,
+      persist: vi.fn().mockResolvedValue({ conflict: true, document: winner }),
+      owner: {
+        version: 1,
+        current: () => ({ version: 1, content: localDraft }),
+        canPreferLive: () => false,
+        confirm: vi.fn(),
+      },
+      onMerge,
+    });
+    const retitled = { ...winner, content: original, title: "Renamed" };
+    await saveDocumentWithRebase({
+      base,
+      content: draft,
+      persist: vi
+        .fn()
+        .mockResolvedValueOnce({ conflict: true, document: retitled })
+        .mockResolvedValueOnce({ ...retitled, content: draft }),
+      onMerge,
+    });
+
+    expect(onMerge).not.toHaveBeenCalled();
+  });
+
+  it("saves the same merge when the merge report throws", async () => {
+    const localDraft = `${original} Peer suffix.`;
+    const merged = `${accepted} Peer suffix.`;
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: winner })
+      .mockResolvedValueOnce({ ...winner, content: merged });
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist,
+        onMerge: () => {
+          throw new Error("telemetry failed");
+        },
+      }),
+    ).resolves.toMatchObject({ status: "saved", content: merged });
+    expect(persist).toHaveBeenNthCalledWith(2, merged, {
+      content: winner.content,
+      updatedAt: winner.updatedAt,
+    });
+  });
+
   it("does not mistake matching content for confirmation of an unsaved title", async () => {
     const document = { ...winner, content: draft, title: "Old title" };
     const saved = { ...document, title: "New title" };

@@ -44,6 +44,7 @@ export async function saveDocumentWithRebase({
   confirmsWrite = () => true,
   canContinue = () => true,
   owner,
+  onMerge,
 }: {
   base: DocumentContentBase;
   content: string;
@@ -70,6 +71,12 @@ export async function saveDocumentWithRebase({
     canPreferLive: (winner: Document) => boolean;
     confirm: (content: string) => void;
   };
+  /**
+   * Called after each merge of the save over a newer body, with how many of
+   * that body's changes the merge set aside. For counting: it cannot change
+   * the save, even by throwing.
+   */
+  onMerge?: (outcome: { setAside: number }) => void;
 }): Promise<RebasedDocumentSaveResult> {
   let attemptedBase = base;
   let candidate = content;
@@ -126,28 +133,36 @@ export async function saveDocumentWithRebase({
     try {
       contentSchema ??= getSchema(createVisualEditorExtensions());
       const localDoc = contentSchema.nodeFromJSON(nfmToDoc(candidate));
-      let plan = planDocReconcile(
-        localDoc,
-        contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
-        contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
+      const baseDoc = contentSchema.nodeFromJSON(
+        nfmToDoc(attemptedBase.content),
       );
+      const winnerDoc = contentSchema.nodeFromJSON(nfmToDoc(winner.content));
+      let plan = planDocReconcile(localDoc, baseDoc, winnerDoc);
       if (
         plan.status === "conflict" &&
         owner &&
         ownsCurrentSnapshot() &&
         owner.canPreferLive(winner)
       ) {
-        plan = planDocReconcile(
-          localDoc,
-          contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
-          contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
-          { overlapPolicy: "prefer-live" },
-        );
+        plan = planDocReconcile(localDoc, baseDoc, winnerDoc, {
+          overlapPolicy: "prefer-live",
+        });
       } else if (plan.status === "conflict" && owner) {
         if (!ownsCurrentSnapshot()) {
           return { status: "superseded", document: winner };
         }
         return { status: "displaced", document: winner, localDraft: candidate };
+      }
+      // A newer revision with the base's body brought nothing to merge.
+      if (
+        (plan.status === "applied" || plan.status === "noop") &&
+        !winnerDoc.eq(baseDoc)
+      ) {
+        try {
+          onMerge?.({ setAside: plan.setAside });
+        } catch {
+          // coercion-ok: counting a merge never changes the save.
+        }
       }
       if (plan.status === "applied") {
         candidate = docToNfm(plan.mergedDoc.toJSON());

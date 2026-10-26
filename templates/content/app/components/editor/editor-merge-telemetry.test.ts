@@ -7,17 +7,17 @@ describe("editor merge reports", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
-  it("reports each merge after it, as kept_all or set_aside", async () => {
+  it("reports each merge after it, as kept_all or set_aside, with its path", async () => {
     vi.useFakeTimers();
     const report = vi.fn();
     const reportMerge = createEditorMergeReporter(report);
-    reportMerge("page", { setAside: 0 });
-    reportMerge("page", { setAside: 2 });
+    reportMerge("page", "open_editor", { setAside: 0 });
+    reportMerge("page", "save_rebase", { setAside: 2 });
     expect(report).not.toHaveBeenCalled();
     await vi.runAllTimersAsync();
     expect(report.mock.calls.map(([event]) => event)).toEqual([
-      { id: "page", outcome: "kept_all" },
-      { id: "page", outcome: "set_aside" },
+      { id: "page", outcome: "kept_all", path: "open_editor" },
+      { id: "page", outcome: "set_aside", path: "save_rebase" },
     ]);
   });
   it("does not throw into the merge when scheduling fails", () => {
@@ -29,7 +29,9 @@ describe("editor merge reports", () => {
     try {
       const report = vi.fn();
       expect(() =>
-        createEditorMergeReporter(report)("page", { setAside: 0 }),
+        createEditorMergeReporter(report)("page", "open_editor", {
+          setAside: 0,
+        }),
       ).not.toThrow();
       expect(report).not.toHaveBeenCalled();
     } finally {
@@ -50,7 +52,9 @@ describe("editor merge reports", () => {
         throw new Error("telemetry failed");
       });
     const reportMerge = createEditorMergeReporter(report);
-    for (let i = 0; i < 3; i++) reportMerge("page", { setAside: 0 });
+    for (let i = 0; i < 3; i++) {
+      reportMerge("page", "open_editor", { setAside: 0 });
+    }
     await vi.runAllTimersAsync();
     expect(report).toHaveBeenCalledTimes(3);
     settle();

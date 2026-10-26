@@ -156,7 +156,7 @@ describe("VisualEditor merge counts", () => {
 
     expect(shownBody()).toBe(canonicalizeNfm(agentAppended.content));
     expect(report.mock.calls.map(([event]) => event)).toEqual([
-      { id: "page", outcome: "kept_all" },
+      { id: "page", outcome: "kept_all", path: "open_editor" },
     ]);
   });
 
@@ -184,7 +184,7 @@ describe("VisualEditor merge counts", () => {
       local,
     ]);
     expect(report.mock.calls.map(([event]) => event)).toEqual([
-      { id: "page", outcome: "set_aside" },
+      { id: "page", outcome: "set_aside", path: "open_editor" },
     ]);
   });
 });

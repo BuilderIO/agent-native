@@ -1,19 +1,32 @@
 import { callAction } from "@agent-native/core/client/hooks";
-import type { EditorMergeOutcome } from "@shared/editor-merge-outcomes";
+import type {
+  EditorMergeOutcome,
+  EditorMergePath,
+} from "@shared/editor-merge-outcomes";
 
-type MergeReport = { id: string; outcome: EditorMergeOutcome };
+type MergeReport = {
+  id: string;
+  outcome: EditorMergeOutcome;
+  path: EditorMergePath;
+};
 
 /**
- * Counts each newer saved body an open editor merges. It reports after the
- * merge, off the merge's own task, and a failed or slow report changes nothing.
+ * Counts each merge of a newer saved body, in an open editor or in a save
+ * rebased over it. It reports after the merge, off the merge's own task, and a
+ * failed or slow report changes nothing.
  */
 export function createEditorMergeReporter(
   report: (event: MergeReport) => unknown,
 ) {
-  return (documentId: string, { setAside }: { setAside: number }) => {
+  return (
+    documentId: string,
+    path: EditorMergePath,
+    { setAside }: { setAside: number },
+  ) => {
     const event: MergeReport = {
       id: documentId,
       outcome: setAside > 0 ? "set_aside" : "kept_all",
+      path,
     };
     try {
       setTimeout(() => {
