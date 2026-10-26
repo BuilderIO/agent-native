@@ -247,6 +247,8 @@ export function useEditorClipboard({
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
+  const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
+  applyFileContentUpdateRef.current = applyFileContentUpdate;
   const { runtimeStructureInsertRevisionRef, selectionRevisionRef } =
     editorToolsAndVectors;
   const {
@@ -1074,6 +1076,7 @@ export function useEditorClipboard({
           activeFile,
           activeFileIdRef,
           applyFileContentUpdate,
+          applyFileContentUpdateRef,
           applyLocalContentUpdate,
           boardFileId,
           canEditDesign,
@@ -1176,6 +1179,7 @@ export function useEditorClipboard({
           activeFile,
           activeFileIdRef,
           applyFileContentUpdate,
+          applyFileContentUpdateRef,
           applyLocalContentUpdate,
           boardFileId,
           canEditDesign,

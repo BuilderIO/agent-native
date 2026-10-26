@@ -1055,72 +1055,89 @@ export function useEditorToolsAndVectors({
 
   const handleVectorCornerRadiusChange = useCallback(
     (radius: number, phase: "preview" | "commit") => {
-      setVectorEditingState((current) => {
-        if (!current || current.selectedAnchorIndex === null) return current;
-        const nextPath = setPenNodeCornerRadius(
-          current.path,
-          current.selectedAnchorIndex,
-          radius,
-        );
-        if (!nextPath) return current;
-        if (
-          (current.path.nodes[current.selectedAnchorIndex]?.cornerRadius ??
-            0) ===
-          (nextPath.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0)
-        ) {
-          return current;
-        }
-        if (phase === "commit") {
-          const baseContent = getScreenContent(current.screenId);
-          if (!baseContent) {
-            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return { ...current, path: nextPath, pendingCommit: false };
-          }
-          const sourcePath = penPathForVectorEditCommit(
-            nextPath,
-            current.sourceOffset,
-            current.sourceMapping,
-          );
-          const nextContent = writeBackVectorEditedPenPath(
-            baseContent,
-            current.nodeId,
-            sourcePath,
-          );
-          if (nextContent === null) {
-            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return { ...current, path: nextPath, pendingCommit: false };
-          }
-          if (nextContent !== baseContent) {
-            const publication = applyFileContentUpdate(
-              current.screenId,
-              nextContent,
-              {
-                skipPreview: current.screenId !== activeFile?.id,
-                historyBeforeContent: baseContent,
-                deferWhenLinkedMutationPending: true,
-              },
-            );
-            if (publication.status !== "accepted") {
-              vectorCommitOutcomeRef.current = publication.status;
-              if (publication.status === "refused") {
-                toast.error(t("editPanel.shaders.saveFailed"));
-              }
-              return {
-                ...current,
+      const current = vectorEditingState;
+      if (!current || current.selectedAnchorIndex === null) return;
+      const nextPath = setPenNodeCornerRadius(
+        current.path,
+        current.selectedAnchorIndex,
+        radius,
+      );
+      if (!nextPath) return;
+      if (
+        (current.path.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0) ===
+        (nextPath.nodes[current.selectedAnchorIndex]?.cornerRadius ?? 0)
+      ) {
+        return;
+      }
+
+      const updatePath = (pendingCommit?: boolean) => {
+        setVectorEditingState((latest) =>
+          latest?.layerId === current.layerId &&
+          latest.screenId === current.screenId
+            ? {
+                ...latest,
                 path: nextPath,
-                pendingCommit: publication.status === "deferred",
-              };
-            }
+                pendingCommit: pendingCommit ?? latest.pendingCommit,
+              }
+            : latest,
+        );
+      };
+
+      if (phase === "commit") {
+        vectorCommitOutcomeRef.current = "accepted";
+        const baseContent = getScreenContent(current.screenId);
+        if (!baseContent) {
+          vectorCommitOutcomeRef.current = "refused";
+          toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+          updatePath(false);
+          return;
+        }
+        const sourcePath = penPathForVectorEditCommit(
+          nextPath,
+          current.sourceOffset,
+          current.sourceMapping,
+        );
+        const nextContent = writeBackVectorEditedPenPath(
+          baseContent,
+          current.nodeId,
+          sourcePath,
+        );
+        if (nextContent === null) {
+          vectorCommitOutcomeRef.current = "refused";
+          toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+          updatePath(false);
+          return;
+        }
+        if (nextContent !== baseContent) {
+          const publication = applyFileContentUpdate(
+            current.screenId,
+            nextContent,
+            {
+              skipPreview: current.screenId !== activeFile?.id,
+              historyBeforeContent: baseContent,
+              deferWhenLinkedMutationPending: true,
+            },
+          );
+          vectorCommitOutcomeRef.current = publication.status;
+          if (publication.status === "refused") {
+            toast.error(t("editPanel.shaders.saveFailed"));
+          }
+          if (publication.status !== "accepted") {
+            updatePath(publication.status === "deferred");
+            return;
           }
         }
-        return {
-          ...current,
-          path: nextPath,
-          pendingCommit: phase === "commit" ? false : current.pendingCommit,
-        };
-      });
+      }
+
+      updatePath(phase === "commit" ? false : undefined);
     },
-    [activeFile?.id, applyFileContentUpdate, getScreenContent, t],
+    [
+      activeFile?.id,
+      applyFileContentUpdate,
+      getScreenContent,
+      t,
+      vectorEditingState,
+    ],
   );
 
   useEffect(() => {
