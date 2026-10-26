@@ -738,7 +738,7 @@ const messages = {
     openInCodex: "Codex에서 열기",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
-      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 미디어를 가져올 수 없다고 설명하세요. 새 링크로 해결되지 않습니다. failureKind=processing이면 nextStep를 따르세요. 이것이 클립 누락이나 잘못된 링크를 뜻하지는 않습니다. failureKind=expired이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요.",
+      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 미디어를 가져올 수 없다고 설명하세요. 새 링크로 해결되지 않습니다. failureKind=processing이면 nextStep를 따르세요. 이것이 클립 누락이나 잘못된 링크를 뜻하지는 않습니다. failureKind=expired이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요. 도구가 이미지를 반환하거나 이 링크를 열 수 없다면, 도구의 한계이며 Clips 오류가 아니라고 알려 주세요.",
     agentTokenDescription:
       "이 클립은 공개 상태가 아니므로 에이전트용 임시 읽기 전용 링크입니다. 2시간 후 만료됩니다.",
     agentPublicDescription:
@@ -753,12 +753,16 @@ const messages = {
     chooseFile: "파일 선택",
     remove: "제거",
     downloadMp4: "MP4 다운로드",
-    embedsNeedPublic: "퍼가기에는 공개 클립이 필요합니다",
-    embedPublicDescription:
-      "이 클립은 현재 {{visibility}}입니다. 삽입된 iframe은 익명으로 로드되므로 시청자가 볼 수 있도록 클립을 공개해야 합니다.",
-    makingPublic: "공개하는 중…",
-    makePublic: "공개",
     askOwnerPublic: "소유자에게 공개하도록 요청하세요.",
+    advanced: "고급",
+    passwordSet: "비밀번호 설정됨",
+    noPassword: "비밀번호 없음",
+    linkExpires: "링크 만료",
+    expiresOn: "{{date}}에 만료",
+    neverExpires: "만료 없음",
+    embedNeedsLinkAccess:
+      "임베드된 플레이어는 로그인 없이 로드되므로 링크가 있는 모든 사용자가 볼 수 있을 때만 재생됩니다.",
+    changeGeneralAccess: "일반 접근 권한 변경",
     responsive: "반응형(16:9)",
     fixedSize: "고정 크기",
     embedIframeTitle: "Clips 동영상",
@@ -1323,12 +1327,13 @@ const messages = {
     actionItems: "작업 항목",
     sharedContent: "공유 콘텐츠",
     summaryIncluded: "요약, 핵심 포인트 및 작업 항목",
-    includeTranscript: "전체 스크립트 포함",
-    includeTranscriptDescription:
-      "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
     transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
-    agentLinkDescription:
-      "이 임시 링크를 사용하면 회의 메모를 공개하지 않고 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
+    transcriptOnShareLink: "공유 링크에 스크립트 표시",
+    transcriptOnShareLinkDescription:
+      "초대한 사용자는 Clips에서 항상 스크립트를 볼 수 있습니다.",
+    linkShowsTranscript: "링크에 스크립트 포함",
+    linkShowsNotesOnly: "링크에 메모만 표시",
+    copyAgentLink: "에이전트 링크 복사",
     transcript: "스크립트",
     copyTranscript: "스크립트 복사",
     transcriptCopied: "스크립트가 복사되었습니다",

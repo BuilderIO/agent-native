@@ -6856,10 +6856,15 @@ describe("createAgentNativeAgentKitTransport", () => {
       threadId: "thread-queue",
       messageId: "queued-two",
     });
+    await transport.reorderQueuedMessages?.({
+      threadId: "thread-queue",
+      messageIds: ["queued-one", "queued-three"],
+    });
 
     expect(queueWrites).toEqual([
       { type: "moveToTop", messageId: "queued-three" },
       { type: "cancel", messageId: "queued-two" },
+      { type: "reorder", messageIds: ["queued-one", "queued-three"] },
     ]);
     await transport.dispose();
   });
@@ -7523,6 +7528,71 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("restores a queued image turn kept only at the top level when the snapshot merges root messages", async () => {
+    const threadId = "thread-queued-image-root";
+    const uploadUrl =
+      "https://cdn.example.com/objects/7d3f1a2b-4c5d-4e6f-8a9b-0c1d2e3f4a5b";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active"))
+          return json({ active: false, status: "idle" });
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "user-first",
+                  role: "user",
+                  content: [{ type: "text", text: "First image" }],
+                },
+              },
+              {
+                message: {
+                  id: "user-queued-image",
+                  role: "user",
+                  content: [{ type: "text", text: "Queued image" }],
+                  attachments: [
+                    {
+                      type: "image",
+                      name: "queued.png",
+                      contentType: "image/png",
+                      status: { type: "complete" },
+                      content: [{ type: "image", image: uploadUrl }],
+                    },
+                  ],
+                },
+              },
+            ],
+            agentKit: {
+              _mergeRootMessages: true,
+              messages: [
+                {
+                  id: "user-first",
+                  role: "user",
+                  parts: [{ type: "text", text: "First image" }],
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+    try {
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      const queued = snapshot?.messages.find(
+        (message) => message.id === "user-queued-image",
+      );
+      expect(queued?.parts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "file", url: uploadUrl }),
+        ]),
+      );
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("drops an exact same-run server mirror without collapsing AgentKit messages", async () => {
     const threadId = "thread-server-reply-mirror";
     const runId = "run-server-reply-mirror";
@@ -7767,6 +7837,87 @@ describe("createAgentNativeAgentKitTransport", () => {
           { type: "text", text: "Done." },
         ],
       },
+    ]);
+    await transport.dispose();
+  });
+
+  it("names the tool calls each restored reasoning part introduced", async () => {
+    const threadId = "thread-reasoning-tool-order";
+    const toolCall = (toolCallId: string) => ({
+      type: "tool-call",
+      toolCallId,
+      toolName: "web-search",
+      args: { query: toolCallId },
+      result: "ok",
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: "server-run-1",
+                    role: "assistant",
+                    content: [
+                      toolCall("call-before"),
+                      { type: "reasoning", text: "**Searching** first." },
+                      toolCall("call-1"),
+                      toolCall("call-2"),
+                      { type: "reasoning", text: "**Reading** next." },
+                      { type: "reasoning", text: "**Reading** pages." },
+                      toolCall("call-3"),
+                      { type: "reasoning", text: "**Answering**." },
+                      { type: "text", text: "Done." },
+                    ],
+                    status: { type: "complete", reason: "stop" },
+                    metadata: { runId: "run-1" },
+                  },
+                },
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "assistant-1",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Done." }],
+                    metadata: { runId: "run-1" },
+                  },
+                ],
+              },
+            }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(
+      snapshot?.messages[0]?.parts.filter((part) => part.type === "reasoning"),
+    ).toEqual([
+      {
+        type: "reasoning",
+        text: "**Searching** first.",
+        visibility: "summary",
+        toolCallIds: ["call-1", "call-2"],
+      },
+      { type: "reasoning", text: "**Reading** next.", visibility: "summary" },
+      {
+        type: "reasoning",
+        text: "**Reading** pages.",
+        visibility: "summary",
+        toolCallIds: ["call-3"],
+      },
+      { type: "reasoning", text: "**Answering**.", visibility: "summary" },
     ]);
     await transport.dispose();
   });

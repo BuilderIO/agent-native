@@ -2257,57 +2257,32 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designGlobalSetup,
-    /^const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;$/m,
-    "the initial composer probe must leave a bounded Vite recovery window",
-  );
-  assert.match(
-    designGlobalSetup,
-    /^const HOME_RECOVERY_RETRY_BUDGET_MS = 2 \* 60_000;$/m,
-    "the initial Home attempt must reserve time for Vite recovery and composer readiness",
-  );
-  assert.match(
-    designGlobalSetup,
-    /^const HOME_WARMUP_BUDGET_MS = 6 \* 60_000;$/m,
+    /^const HOME_WARMUP_BUDGET_MS = 3 \* 60_000;$/m,
     "Home warmup must reserve bounded time for Vite recovery",
   );
   assert.match(
     designGlobalSetup,
-    /const homeRecoveryDeadline =\s*homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;/,
-    "Home warmup must reserve the retry budget before the first navigation",
+    /^const EDITOR_WARMUP_BUDGET_MS = 3 \* 60_000;$/m,
+    "editor warmup must reserve bounded time for a cold compile",
   );
   assert.match(
     designGlobalSetup,
-    /const homeInitialNavigationDeadline =\s*homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;/,
-    "the first navigation and composer probe must leave the full retry budget",
+    /^const WARMUP_ATTEMPT_MS = 2 \* 60_000;$/m,
+    "one warmup attempt must leave the rest of its budget for another",
+  );
+  assert.match(
+    designGlobalSetup,
+    /while \(Date\.now\(\) < deadline\) \{\s*try \{\s*await page\.goto\(url, \{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(deadline, WARMUP_ATTEMPT_MS\),\s*\}\);\s*await ready\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(deadline, WARMUP_ATTEMPT_MS\),\s*\}\);/,
+    "a warmup attempt that a Vite reload or abort cuts short must navigate again until its deadline",
   );
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
-        /homeComposer\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(\s*(homeRecoveryDetectionDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
+        /await warmupFailure\(\s*warmupPage,\s*`\$\{baseURL\}\/(home|design\/\$\{designId\})`/g,
       ),
-    ].map(([, deadline, budget]) => [deadline, budget]),
-    [
-      ["homeRecoveryDetectionDeadline", "HOME_RECOVERY_DETECTION_BUDGET_MS"],
-      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
-    ],
-    "the first composer probe must leave the remaining home budget for recovery",
-  );
-  assert.deepEqual(
-    [
-      ...designGlobalSetup.matchAll(
-        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeInitialNavigationDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
-      ),
-    ].map(([, deadline, budget]) => [deadline, budget]),
-    [
-      ["homeInitialNavigationDeadline", "HOME_INITIAL_NAVIGATION_BUDGET_MS"],
-      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
-    ],
-    "the first Home navigation must leave bounded time for recovery",
-  );
-  assert.match(
-    designGlobalSetup,
-    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeRecoveryDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
-    "the composer probe window must start after navigation so a slow cold route does not consume it",
+    ].map(([, route]) => route),
+    ["home", "design/${designId}"],
+    "Home and the editor must both warm through the retrying probe",
   );
   assert.match(
     changedSpecRegressions,
@@ -4619,6 +4594,70 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
   }
 });
 
+test("runs the execution-lease model check for its model, script, and covered code", () => {
+  for (const path of [
+    "verification/execution-lease/ExecutionLease.tla",
+    "verification/execution-lease/manifest.json",
+    "scripts/verify-execution-lease.ts",
+    "packages/core/src/agent/run-store.ts",
+    "packages/core/src/agent/production-agent.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.verify_execution_lease,
+      true,
+      path,
+    );
+  }
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/agent/run-store.test.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.verify_execution_lease,
+      false,
+      path,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks
+      .verify_execution_lease,
+    true,
+    "full run",
+  );
+});
+
+test("mutation-tests Core source only, never specs, declarations, templates, or the CLI", () => {
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/client/hooks/index.tsx",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.core_mutation, true, path);
+  }
+  for (const path of [
+    "packages/core/src/feature-flags/registry.test.ts",
+    "packages/core/src/client/hooks/index.spec.tsx",
+    "packages/core/src/types.d.ts",
+    "packages/core/src/templates/chat/actions/x.ts",
+    "packages/core/src/cli/create.ts",
+    "templates/chat/actions/x.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.core_mutation,
+      false,
+      path,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths(["packages/core/package.json"]).checks.core_mutation,
+    false,
+  );
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks.core_mutation,
+    true,
+    "full run",
+  );
+});
+
 test(
   "pre-install scope tests pass without workspace dependencies",
   { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
@@ -4639,6 +4678,8 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/lib/mutation-scope.ts",
+        "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",

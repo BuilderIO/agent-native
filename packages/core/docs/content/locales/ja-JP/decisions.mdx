@@ -1,0 +1,121 @@
+---
+title: "判断"
+description: "@agent-native/core/decisions による、機能対応を考慮した分類とスコアリング。"
+---
+
+# 判断
+
+`@agent-native/core/decisions` は、構造化された質問を機能対応に応じて分類・採点する `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>` をエクスポートします。呼び出し側が確認できる結果を返します。後続の操作を実行したり、承認したりすることはありません。
+
+## 入力と質問
+
+decide() は ownerEmail、入力パーツの配列、名前付きの質問、任意の実行設定を受け取ります。入力パーツにはテキスト、構造化 JSON、画像 URL を指定できます。
+
+input には文字列をそのまま渡すこともできます。
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+`input` と `questions` を JSON にシリアライズした合計サイズは 256 KiB 以下である必要があります。
+
+質問には name と instructions を指定します。質問の種類によって追加フィールドが決まります。
+
+| 種類        | 追加フィールド                                      | 目的                             |
+| ----------- | --------------------------------------------------- | -------------------------------- |
+| `predicate` | なし                                                | 指定した条件を評価する           |
+| `choice`    | `choices`: 説明付きの文字列値                       | 指定した値から選ぶ               |
+| `score`     | `levels`: ラベルと説明を持つ2〜10個の順序付きレベル | 指定した尺度上に入力を位置付ける |
+
+choices の各項目は `{ value: string, description: string }` の形です。score の各レベルは `{ label: string, description: string }` の形です。
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+この例では、選択質問とスコア質問を1回の呼び出しで行います。スコアは5段階で、サポートされる2〜10段階の範囲内です。
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+引数オブジェクトには次のフィールドがあります。
+
+- **ownerEmail**: 意思決定の設定を解決するためのワークスペース所有者のメールアドレス。
+- **input**: 評価するテキスト、JSON、画像 URL のパーツ。
+- **questions**: predicate、choice、score の名前付き質問。
+- **options**: signal、timeoutMs、providers、cacheKey の任意設定。
+
+成功時の result.status は ok です。結果には provider、model、質問名をキーとする answers が含まれ、cached と usage は任意です。not_configured には missing_credentials という理由と providers の一覧が含まれます。failed には型付きの理由が含まれ、provider と questionNames が付く場合があります。キャッシュは cacheKey を指定した場合にのみ有効です。キャッシュキーには owner、組織、provider、model、cacheKey、input、questions が含まれます。メモリー上のキャッシュは60秒で期限切れとなり、最大256件です。
+
+## 機能対応に応じた provider のサポート
+
+質問のサポート状況は provider と model によって異なる場合があります。decide() は機能対応を考慮するため、すべての provider がすべての質問形式をサポートすると想定しないでください。provider、model、質問形式の組み合わせは、検証後に限って案内してください。成功結果から回答した provider と model を確認できます。
+
+provider の既定順はワークスペースごとの設定ではなく、デプロイ全体で共有されるアプリ構成から取得されます。このデプロイが提供するすべてのワークスペースで同じ順序が使われ、呼び出しごとに `options.providers` で上書きできます。既定では Builder Jev、個人用 Jev キー、OpenAI の順に試します。provider がひとつも設定されていない場合、`decide()` は `not_configured` を返します。共有アプリ構成の `decisions.providerOrder` が Jev と OpenAI の既定順を制御します。`decisions.timeoutMs` は 1 回の決定に使える合計時間です。認証情報の取得と provider の実行を含み、すべての provider 試行で共有されます。環境変数のエイリアスは `DECISIONS_PROVIDER_ORDER`（カンマ区切り）と `DECISIONS_TIMEOUT_MS` です。provider ごとのしきい値やキャッシュキーには provider と model の両方を含め、ある model の調整値や結果を別の model で再利用しないようにします。
+プロバイダーの機能は経路によって異なります。Builder Jev プロキシでは `predicate` と `choice` が検証済みです。Jev の `score` は未検証のままで、機能フラグにより無効です。score の質問では `decide()` は Jev をスキップし、次に設定されたプロバイダーを試します。`getDecisionsStatus()` は機能の検証状態と有効かどうかを返します。状態確認はキャンセルを受け付け、利用可否の確認に設定済みの `decisions.timeoutMs` の時間枠を使います。期限までに確認が終わらないプロバイダーは `unknown` として返されます。OpenAI Decisions API は 2～10 個の順序付きレベルを使う score の質問をサポートしており、ドキュメントに記載された形式の fixture でリクエストとレスポンスの変換をテストします。
+
+decide() は呼び出し側が解釈する分類またはスコアを返します。アプリケーションデータを変更する場合は、別途認可された action を使用してください。

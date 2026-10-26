@@ -114,6 +114,11 @@ export const FACTORY_TEMPLATE_SHARED_SKILLS = [
   ...FACTORY_TEMPLATE_LOCAL_SKILLS,
 ] as const;
 
+export const COMMUNITY_TEMPLATE_SHARED_SKILLS = [
+  ...DOMAIN_TEMPLATE_SHARED_SKILLS,
+  "turn-into-app",
+] as const;
+
 export const FRAMEWORK_TEMPLATE_SHARED_SKILLS = [
   "a2a-protocol",
   "actions",

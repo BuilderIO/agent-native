@@ -1,7 +1,9 @@
 import type { AgentMessage } from "@agent-native/agentkit/protocol";
+import { FrameworkRouteError } from "@agent-native/core/client/agent-chat";
 import { describe, expect, it } from "vitest";
 
 import {
+  agentKitDevCheckpointRestoreErrorMessage,
   shouldLoadAgentKitDevCheckpoints,
   shouldOfferAgentKitDevCheckpointRestore,
 } from "./history.js";
@@ -81,5 +83,46 @@ describe("shouldLoadAgentKitDevCheckpoints", () => {
         false,
       );
     }
+  });
+});
+
+describe("agentKitDevCheckpointRestoreErrorMessage", () => {
+  const t = (key: string, values?: Record<string, unknown>) =>
+    values ? `${key}:${JSON.stringify(values)}` : key;
+
+  it("shows the server's reason when the restore was refused", () => {
+    const error = new FrameworkRouteError({
+      route: "checkpoints/restore",
+      kind: "http",
+      status: 404,
+      serverMessage: "No checkpoint was saved for this turn.",
+      message: "No checkpoint was saved for this turn.",
+    });
+    expect(agentKitDevCheckpointRestoreErrorMessage(error, t)).toBe(
+      "No checkpoint was saved for this turn.",
+    );
+  });
+
+  it("falls back to the status, and to the request copy when unreachable", () => {
+    const http = new FrameworkRouteError({
+      route: "checkpoints/restore",
+      kind: "http",
+      status: 500,
+      message: "failed",
+    });
+    expect(agentKitDevCheckpointRestoreErrorMessage(http, t)).toBe(
+      'agentChat.message.restoreFailed:{"status":500}',
+    );
+    const network = new FrameworkRouteError({
+      route: "checkpoints/restore",
+      kind: "network",
+      message: "Could not reach checkpoints/restore.",
+    });
+    expect(agentKitDevCheckpointRestoreErrorMessage(network, t)).toBe(
+      "agentChat.message.restoreRequestFailed",
+    );
+    expect(agentKitDevCheckpointRestoreErrorMessage(new Error("boom"), t)).toBe(
+      "agentChat.message.restoreRequestFailed",
+    );
   });
 });

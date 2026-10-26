@@ -323,6 +323,58 @@ describe("database-scoped document properties", () => {
     ).rejects.toThrow(`No access to document ${missingDocumentId}`);
   });
 
+  it("reports the property it created or updated", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Tabbed row" });
+    const database = await createDatabase({});
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("item"),
+      ownerEmail: OWNER,
+      databaseId: database.databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const runAsOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+
+    const created = await runAsOwner(() =>
+      configureDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: database.databaseId,
+        name: "Notes",
+        type: "blocks",
+      }),
+    );
+    const [definition] = await db
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyDefinitions.databaseId,
+            database.databaseId,
+          ),
+          eq(schema.documentPropertyDefinitions.name, "Notes"),
+        ),
+      );
+    expect(definition?.id).toBeTruthy();
+    expect(created).toMatchObject({ propertyId: definition!.id });
+
+    const renamed = await runAsOwner(() =>
+      configureDocumentPropertyAction.run({
+        id: definition!.id,
+        documentId: rowDocumentId,
+        databaseId: database.databaseId,
+        name: "Research",
+        type: "blocks",
+      }),
+    );
+    expect(renamed).toMatchObject({ propertyId: definition!.id });
+  });
+
   it("clears deleted column presentation state without dropping hidden columns", async () => {
     const db = getDb();
     const database = await createDatabase({});

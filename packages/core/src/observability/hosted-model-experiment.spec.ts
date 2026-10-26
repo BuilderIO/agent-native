@@ -16,7 +16,8 @@ const base = {
   engineName: "builder",
   defaultModel: "gpt-6-luna",
   model: "gpt-6-luna",
-  effort: "high",
+  // An effort the user never chose is not sent, so it reaches the run unset.
+  effort: undefined,
 };
 
 function userInArm(treatment: boolean): string {
@@ -93,6 +94,12 @@ describe("hosted model experiment", () => {
     expect(
       resolveHostedModelExperiment({ ...base, userEmail, effort: "low" }),
     ).toBeNull();
+    expect(
+      resolveHostedModelExperiment({ ...base, userEmail, effort: "high" }),
+    ).toBeNull();
+    expect(
+      resolveHostedModelExperiment({ ...base, userEmail, effort: "auto" }),
+    ).toMatchObject({ treatment: true });
     expect(
       resolveHostedModelExperiment({
         ...base,

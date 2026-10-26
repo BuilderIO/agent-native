@@ -115,6 +115,53 @@ afterAll(async () => {
 });
 
 describe("task execution leases", () => {
+  it("admits a model step again only for the same tool and arguments hash", async () => {
+    const threadId = "thread-step-intent-identity";
+    const turnId = "turn-step-intent-identity";
+    const runId = "run-step-intent-identity";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const intent = {
+      ...fence,
+      stepId: "model-step:intent-identity",
+      operationId: "model-step:intent-identity",
+      toolName: "create-deck",
+      inputJson: JSON.stringify({
+        argumentsHash: "hash-a",
+        input: { title: "Q3 plan", theme: "dark" },
+      }),
+      replayPolicy: "retry-safe" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await expect(beginAgentExecutionStep(intent)).resolves.toEqual({
+        status: "execute",
+        wasDispatched: false,
+      });
+      await expect(
+        beginAgentExecutionStep({
+          ...intent,
+          inputJson: JSON.stringify({
+            argumentsHash: "hash-a",
+            input: { theme: "dark", title: "Q3 plan" },
+          }),
+        }),
+      ).resolves.toEqual({ status: "execute", wasDispatched: false });
+      await expect(
+        beginAgentExecutionStep({
+          ...intent,
+          inputJson: JSON.stringify({
+            argumentsHash: "hash-b",
+            input: { title: "Q3 plan", theme: "dark" },
+          }),
+        }),
+      ).rejects.toThrow("was retried with a different intent");
+      await expect(
+        beginAgentExecutionStep({ ...intent, toolName: "delete-deck" }),
+      ).rejects.toThrow("was retried with a different intent");
+    });
+  });
+
   it("reopens a persisted dispatch after cancellation before action invocation", async () => {
     const threadId = "thread-cancel-before-invocation";
     const turnId = "turn-cancel-before-invocation";

@@ -4730,6 +4730,23 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  // The server half of adopting a newer saved body, for one editor: it takes
+  // the editor's proposal as the live doc and returns it.
+  const fakeSnapshotAdoptionServer = () =>
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const proposal =
+        String(input).includes("adopt-document-snapshot") &&
+        typeof init?.body === "string"
+          ? /"adoptionUpdateBase64":"([^"]+)"/.exec(init.body)?.[1]
+          : undefined;
+      return new Response(
+        JSON.stringify(
+          proposal ? { status: "adopted", stateBase64: proposal } : {},
+        ),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
   it("keeps exact A restored after a recent A-to-B edit with a trailing empty block", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -4787,6 +4804,7 @@ describe("VisualEditor markdown round-tripping", () => {
         ),
       );
 
+    const adoptionServer = fakeSnapshotAdoptionServer();
     try {
       act(() => {
         root.render(
@@ -4945,6 +4963,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
     } finally {
+      adoptionServer.mockRestore();
       await act(async () => root.unmount());
       queryClient.clear();
       ydoc.destroy();

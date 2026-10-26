@@ -6,6 +6,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  connectPreferencesPath,
+  writeConnectClientPreferences,
+} from "./connect.js";
+import {
   addAgentNativeSkill,
   AGENT_NATIVE_SKILL_METADATA_FILE,
   CONNECTION_REFERENCE_MD,
@@ -892,6 +896,284 @@ describe("agent-native skills", () => {
       "--scope",
       "project",
     ]);
+  });
+
+  it("says the browser sign-in is optional before it starts", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+
+    await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code,codex,cowork",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        runConnect: async () => {},
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(connectLog[0]).toBe(
+      "Codex and Claude Cowork need a one-time sign-in in your browser. " +
+        "It's optional: Assets is already installed, so you can press " +
+        "Ctrl+C to skip it and finish later with: npx @agent-native/core@latest " +
+        "connect https://assets.agent-native.com --client claude-code,codex,cowork " +
+        "--scope project",
+    );
+  });
+
+  it("skips one sign-in on Ctrl+C and still installs the other selected skills", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    let skipSignIn: (() => void) | undefined;
+    const stopListening = vi.fn();
+    const exitCodeBefore = process.exitCode;
+    const runConnect = vi.fn(async () => {
+      if (runConnect.mock.calls.length === 1) {
+        skipSignIn?.();
+        // runConnect marks the aborted sign-in as failed.
+        process.exitCode = 1;
+      }
+    });
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      await runSkills(["add", "--client", "codex", "--scope", "project"], {
+        baseDir: root,
+        isInteractive: () => true,
+        promptSkills: async () => ["assets", "content"],
+        promptGithubAction: async () => false,
+        connectLog: (message) => connectLog.push(message),
+        listenForSignInSkip: (skip) => {
+          skipSignIn = skip;
+          return stopListening;
+        },
+        runConnect,
+        runCommand: async () => 0,
+      });
+
+      expect(connectLog).toContain(
+        "Sign-in skipped. Assets is installed; to finish the sign-in later, " +
+          "run: npx @agent-native/core@latest connect " +
+          "https://assets.agent-native.com --client codex --scope project",
+      );
+      expect(runConnect).toHaveBeenCalledTimes(2);
+      expect(runConnect.mock.calls[1]?.[0]?.[0]).toContain("content");
+      expect(
+        fs.existsSync(
+          path.join(root, ".agents", "skills", "content", "SKILL.md"),
+        ),
+      ).toBe(true);
+      expect(stopListening).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBe(exitCodeBefore);
+    } finally {
+      process.exitCode = exitCodeBefore;
+    }
+  });
+
+  it("keeps a finished sign-in when Ctrl+C only cuts short an optional step", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    let skipSignIn: (() => void) | undefined;
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        listenForSignInSkip: (skip) => {
+          skipSignIn = skip;
+          return () => {};
+        },
+        // The sign-in finishes, then Ctrl+C lands during an optional step
+        // that runConnect treats as best-effort.
+        runConnect: async () => {
+          skipSignIn?.();
+        },
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(result.connected).toBe(true);
+    expect(connectLog.some((line) => line.startsWith("Sign-in skipped"))).toBe(
+      false,
+    );
+  });
+
+  it("clears the waiting line when Ctrl+C lands after the sign-in finished", async () => {
+    const root = tmpDir();
+    let skipSignIn: (() => void) | undefined;
+    const isTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const write = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          connectLog: () => {},
+          listenForSignInSkip: (skip) => {
+            skipSignIn = skip;
+            return () => {};
+          },
+          runConnect: async () => {
+            skipSignIn?.();
+          },
+          runCommand: async () => 0,
+        },
+      );
+
+      expect(result.connected).toBe(true);
+      expect(write).toHaveBeenCalledWith("\r\x1b[K");
+    } finally {
+      if (isTTY) Object.defineProperty(process.stdout, "isTTY", isTTY);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("reports a sign-in that fails without throwing as not connected", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    const exitCodeBefore = process.exitCode;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          connectLog: (message) => connectLog.push(message),
+          listenForSignInSkip: () => () => {},
+          // runConnect reports a failed sign-in through the exit code and
+          // returns normally.
+          runConnect: async () => {
+            process.exitCode = 1;
+          },
+          runCommand: async () => 0,
+        },
+      );
+
+      const connectCommand =
+        "npx @agent-native/core@latest connect " +
+        "https://assets.agent-native.com --client codex --scope project";
+      expect(result.connected).toBe(false);
+      expect(result.connectCommand).toBe(connectCommand);
+      expect(connectLog).toContain(
+        "Could not finish authentication automatically (sign-in failed). " +
+          `Run it later with: ${connectCommand}`,
+      );
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = exitCodeBefore;
+    }
+  });
+
+  it("stops polling for the browser sign-in once Ctrl+C skips it", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    let skipSignIn: (() => void) | undefined;
+    const exitCodeBefore = process.exitCode;
+    let polls = 0;
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    vi.stubEnv("AGENT_NATIVE_NO_OPEN", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/connect/device/start")) {
+          return json({
+            device_code: "device-code",
+            user_code: "ABCD-EFGH",
+            verification_uri: "https://assets.agent-native.com/connect",
+            verification_uri_complete:
+              "https://assets.agent-native.com/connect?code=ABCD-EFGH",
+            interval: 1,
+            expires_in: 600,
+          });
+        }
+        if (url.endsWith("/connect/device/poll")) {
+          polls += 1;
+          skipSignIn?.();
+          return json({ status: "pending" });
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          isInteractive: () => true,
+          connectLog: (message) => connectLog.push(message),
+          listenForSignInSkip: (skip) => {
+            skipSignIn = skip;
+            return () => {};
+          },
+          runCommand: async () => 0,
+        },
+      );
+
+      expect(polls).toBe(1);
+      expect(result.connected).toBe(false);
+      expect(connectLog.at(-1)).toMatch(
+        /^Sign-in skipped\. Assets is installed/,
+      );
+      expect(process.exitCode).toBe(exitCodeBefore);
+    } finally {
+      process.exitCode = exitCodeBefore;
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("accepts image-generation aliases for the built-in Assets skill", async () => {
@@ -1858,6 +2140,7 @@ describe("agent-native skills", () => {
         isInteractive: () => true,
         promptClients,
         promptScope: async () => "user",
+        detectInstalledClients: () => ["claude-code", "codex"],
         runConnect,
         runCommand: async (cmd, args, options) => {
           commands.push({ cmd, args, stdio: options?.stdio });
@@ -1869,10 +2152,6 @@ describe("agent-native skills", () => {
       expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual([
         "claude-code",
         "codex",
-        "cowork",
-        "cursor",
-        "opencode",
-        "github-copilot",
       ]);
       expect(
         promptClients.mock.calls[0]?.[0].options.map((o) => o.value),
@@ -2676,6 +2955,75 @@ describe("agent-native skills", () => {
         path.join(root, ".agents", "skills", "visual-recap", "SKILL.md"),
       ),
     ).toBe(true);
+  });
+
+  it("preselects only Claude Code when no client is installed", async () => {
+    const root = tmpDir();
+    fs.rmSync(connectPreferencesPath(), { force: true });
+    const promptClients = vi.fn(async () => ["claude-code" as const]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "assets"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptClients,
+      promptScope: async () => "project",
+      detectInstalledClients: () => [],
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual([
+      "claude-code",
+    ]);
+  });
+
+  it("preselects the clients saved last time over the installed ones", async () => {
+    const root = tmpDir();
+    writeConnectClientPreferences(["cursor"]);
+    const promptClients = vi.fn(async () => ["cursor" as const]);
+    const detectInstalledClients = vi.fn(() => ["claude-code" as const]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "assets"], {
+      baseDir: root,
+      isInteractive: () => true,
+      promptClients,
+      promptScope: async () => "project",
+      detectInstalledClients,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptClients.mock.calls[0]?.[0].initialClients).toEqual(["cursor"]);
+    expect(detectInstalledClients).not.toHaveBeenCalled();
+    fs.rmSync(connectPreferencesPath(), { force: true });
+  });
+
+  it("installs for the user account without asking when run from the home directory", async () => {
+    const home = os.homedir();
+    const promptScope = vi.fn(async () => "project" as const);
+    const log: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["add", "assets", "--client", "claude-code"], {
+      baseDir: home,
+      isInteractive: () => true,
+      log: (message) => log.push(message),
+      promptScope,
+      runConnect: async () => {},
+      runCommand: async () => 0,
+    });
+
+    expect(promptScope).not.toHaveBeenCalled();
+    expect(log).toContain(
+      "Installing for your user account, so the skills work in every folder.",
+    );
+    expect(fs.existsSync(path.join(home, ".mcp.json"))).toBe(false);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf-8"))
+        .mcpServers["agent-native-assets"].url,
+    ).toBe("https://assets.agent-native.com/mcp");
   });
 
   it("does not prompt for scope when --scope is explicit", async () => {
