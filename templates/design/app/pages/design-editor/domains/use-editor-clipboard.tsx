@@ -408,13 +408,12 @@ export function useEditorClipboard({
   const visibleCanvasRectRef = useRef<(() => VisibleCanvasRect | null) | null>(
     null,
   );
-  const getFreshActivePreviewContent = useCallback(
-    () =>
-      livePreviewContentRef.current?.fileId === activeFile?.id
-        ? livePreviewContentRef.current.content
-        : null,
-    [activeFile?.id],
-  );
+  const getFreshActivePreviewContent = useCallback(() => {
+    const livePreviewContent = livePreviewContentRef.current;
+    return livePreviewContent && livePreviewContent.fileId === activeFile?.id
+      ? livePreviewContent.content
+      : null;
+  }, [activeFile?.id]);
 
   const getSelectedLayerSnapshots = useCallback(
     (

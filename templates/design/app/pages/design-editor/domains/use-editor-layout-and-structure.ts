@@ -524,8 +524,9 @@ export function useEditorLayoutAndStructure({
   );
 
   const handleAlignSelection = useCallback(
-    (edge: DesignHotkeyAlignEdge) =>
-      runAlignSelection(
+    (edge: DesignHotkeyAlignEdge) => {
+      if (!activeFile) return;
+      return runAlignSelection(
         {
           activeFile,
           boardFileId,
@@ -546,7 +547,8 @@ export function useEditorLayoutAndStructure({
           viewModeRef,
         },
         edge,
-      ),
+      );
+    },
     [
       activeFile,
       boardFileId,
@@ -593,8 +595,9 @@ export function useEditorLayoutAndStructure({
   );
 
   const handleDistributeSelection = useCallback(
-    (axis: DesignHotkeyDistributeAxis) =>
-      runDistributeSelection(
+    (axis: DesignHotkeyDistributeAxis) => {
+      if (!activeFile) return;
+      return runDistributeSelection(
         {
           activeFile,
           boardFileId,
@@ -612,7 +615,8 @@ export function useEditorLayoutAndStructure({
           viewModeRef,
         },
         axis,
-      ),
+      );
+    },
     [
       activeFile,
       boardFileId,
@@ -703,41 +707,40 @@ export function useEditorLayoutAndStructure({
     [getScreenGroupFootprint, handleGeometryCommit, overviewScreens],
   );
 
-  const handleTidyUp = useCallback(
-    () =>
-      runTidyUp({
-        activeFile,
-        boardFileId,
-        boardFrameGeometry,
-        canEditDesign,
-        commitNodePositions,
-        designDataJsonRef,
-        getActiveFileSelectedNodeIds,
-        getFreshActiveContent,
-        getScreenGroupFootprint,
-        handleGeometryCommit,
-        measureSelection: measureAlignSelection,
-        overviewScreens,
-        overviewSelectedScreenIds,
-        t,
-        viewModeRef,
-      }),
-    [
+  const handleTidyUp = useCallback(() => {
+    if (!activeFile) return;
+    return runTidyUp({
       activeFile,
       boardFileId,
       boardFrameGeometry,
       canEditDesign,
       commitNodePositions,
+      designDataJsonRef,
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       getScreenGroupFootprint,
       handleGeometryCommit,
-      measureAlignSelection,
+      measureSelection: measureAlignSelection,
       overviewScreens,
       overviewSelectedScreenIds,
       t,
-    ],
-  );
+      viewModeRef,
+    });
+  }, [
+    activeFile,
+    boardFileId,
+    boardFrameGeometry,
+    canEditDesign,
+    commitNodePositions,
+    getActiveFileSelectedNodeIds,
+    getFreshActiveContent,
+    getScreenGroupFootprint,
+    handleGeometryCommit,
+    measureAlignSelection,
+    overviewScreens,
+    overviewSelectedScreenIds,
+    t,
+  ]);
 
   const canSuggestAutoLayout = useMemo(() => {
     if (!canEditDesign || !activeFile || viewMode !== "single") return false;
@@ -783,22 +786,9 @@ export function useEditorLayoutAndStructure({
     viewMode,
   ]);
 
-  const handleSuggestAutoLayout = useCallback(
-    () =>
-      runSuggestAutoLayout({
-        activeCanvasSourceType,
-        activeFile,
-        canEditDesign,
-        designSourceType,
-        getActiveFileSelectedNodeIds,
-        getFreshActiveContent,
-        measureLayoutFrame,
-        runtimeLayerSnapshotsById,
-        setAutoLayoutSuggestionPreview,
-        t,
-        viewModeRef,
-      }),
-    [
+  const handleSuggestAutoLayout = useCallback(() => {
+    if (!activeFile) return;
+    return runSuggestAutoLayout({
       activeCanvasSourceType,
       activeFile,
       canEditDesign,
@@ -807,9 +797,21 @@ export function useEditorLayoutAndStructure({
       getFreshActiveContent,
       measureLayoutFrame,
       runtimeLayerSnapshotsById,
+      setAutoLayoutSuggestionPreview,
       t,
-    ],
-  );
+      viewModeRef,
+    });
+  }, [
+    activeCanvasSourceType,
+    activeFile,
+    canEditDesign,
+    designSourceType,
+    getActiveFileSelectedNodeIds,
+    getFreshActiveContent,
+    measureLayoutFrame,
+    runtimeLayerSnapshotsById,
+    t,
+  ]);
 
   const handleApplyAutoLayoutSuggestion = useCallback(() => {
     const preview = autoLayoutSuggestionPreview;
@@ -863,67 +865,66 @@ export function useEditorLayoutAndStructure({
     t,
   ]);
 
-  const handleAddAutoLayout = useCallback(
-    () =>
-      runAddAutoLayout({
-        activeFile,
-        applyFileContentUpdate,
-        applyLocalContentUpdate,
-        canEditDesign,
-        collectSizeHints: (nodeIds, projection) =>
-          collectLiveSizeHints(
-            nodeIds,
-            projection,
-            activeFile && activeBreakpointWidthStateRef.current !== undefined
-              ? getBreakpointIframeId(
-                  activeFile.id,
-                  activeBreakpointWidthStateRef.current,
-                )
-              : (activeFile?.id ?? ""),
-            boardFileId,
-          ),
-        codeLayerOwnerByNodeIdRef,
-        designSourceType,
-        effectiveCodeLayerStateRef,
-        files,
-        getActiveFileSelectedNodeIds,
-        getFreshActiveContent,
-        getScreenContent,
-        measureLayoutFrame,
-        measureSelection: measureAlignSelection,
-        overviewScreens,
-        overviewSelectedScreenIds,
-        runtimeLayerSnapshotsById,
-        selectedElement,
-        selectedLayerIdsState,
-        sendRuntimeLayerSemanticHandoff,
-        setSelectedElement,
-        setSelectedLayerIdsState,
-        t,
-        viewModeRef,
-      }),
-    [
+  const handleAddAutoLayout = useCallback(() => {
+    if (!activeFile) return;
+    return runAddAutoLayout({
       activeFile,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       canEditDesign,
+      collectSizeHints: (nodeIds, projection) =>
+        collectLiveSizeHints(
+          nodeIds,
+          projection,
+          activeFile && activeBreakpointWidthStateRef.current !== undefined
+            ? getBreakpointIframeId(
+                activeFile.id,
+                activeBreakpointWidthStateRef.current,
+              )
+            : (activeFile?.id ?? ""),
+          boardFileId,
+        ),
+      codeLayerOwnerByNodeIdRef,
       designSourceType,
+      effectiveCodeLayerStateRef,
+      files,
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       getScreenContent,
-      activeBreakpointWidthStateRef,
-      boardFileId,
-      measureAlignSelection,
       measureLayoutFrame,
+      measureSelection: measureAlignSelection,
       overviewScreens,
       overviewSelectedScreenIds,
       runtimeLayerSnapshotsById,
       selectedElement,
       selectedLayerIdsState,
       sendRuntimeLayerSemanticHandoff,
+      setSelectedElement,
+      setSelectedLayerIdsState,
       t,
-    ],
-  );
+      viewModeRef,
+    });
+  }, [
+    activeFile,
+    applyFileContentUpdate,
+    applyLocalContentUpdate,
+    canEditDesign,
+    designSourceType,
+    getActiveFileSelectedNodeIds,
+    getFreshActiveContent,
+    getScreenContent,
+    activeBreakpointWidthStateRef,
+    boardFileId,
+    measureAlignSelection,
+    measureLayoutFrame,
+    overviewScreens,
+    overviewSelectedScreenIds,
+    runtimeLayerSnapshotsById,
+    selectedElement,
+    selectedLayerIdsState,
+    sendRuntimeLayerSemanticHandoff,
+    t,
+  ]);
 
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);

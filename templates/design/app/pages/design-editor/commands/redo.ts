@@ -142,7 +142,7 @@ function currentFrameGeometry(
 
 export interface RedoArgs {
   activeEditorDragRef: RefObject<boolean>;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,

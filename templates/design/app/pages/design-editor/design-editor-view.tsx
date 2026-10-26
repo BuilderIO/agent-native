@@ -814,9 +814,8 @@ export function renderDesignEditorView({
   });
   const activeRuntimeSourceLocationSnapshotFailed =
     activeRuntimeProjectionEligible &&
-    runtimeLayerSnapshotReadiness !== null &&
-    runtimeLayerSnapshotReadiness.screenId === activeFileId &&
-    runtimeLayerSnapshotReadiness.readiness.status === "error";
+    runtimeLayerSnapshotReadiness?.screenId === activeFileId &&
+    runtimeLayerSnapshotReadiness?.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
   const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({

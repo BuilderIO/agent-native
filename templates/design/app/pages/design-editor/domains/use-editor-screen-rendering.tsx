@@ -558,10 +558,10 @@ export function useEditorScreenRendering({
         return false;
       }
       if (patch.content === content) return true;
-      applyFileContentUpdate(screenId, patch.content, {
+      const publication = applyFileContentUpdate(screenId, patch.content, {
         skipPreview: true,
       });
-      return true;
+      return publication.status === "accepted";
     },
     [
       activeCanvasSourceType,

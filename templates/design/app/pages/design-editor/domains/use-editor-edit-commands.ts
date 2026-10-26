@@ -516,8 +516,12 @@ export function useEditorEditCommands({
           deletedFileSnapshots: FileDeletionHistorySnapshot[],
         ) => void;
       },
-    ) =>
-      runDeleteFiles(
+    ) => {
+      if (!activeFile) {
+        options?.onMutationSettled?.([], filesToDelete, []);
+        return Promise.resolve();
+      }
+      return runDeleteFiles(
         {
           activeFile,
           canvasFrameGeometryById,
@@ -560,7 +564,8 @@ export function useEditorEditCommands({
         },
         filesToDelete,
         options,
-      ),
+      );
+    },
     [
       activeFile,
       canvasFrameGeometryById,
@@ -806,6 +811,7 @@ export function useEditorEditCommands({
           return;
         }
       }
+      if (!activeFile) return;
       return runChangeSelectedZIndex(
         {
           activeFile,
@@ -904,8 +910,9 @@ export function useEditorEditCommands({
   }, [restoreSelectionChrome]);
 
   const handleNudgeSelection = useCallback(
-    (direction: "up" | "right" | "down" | "left", largeStep: boolean) =>
-      runNudgeSelection(
+    (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
+      if (!activeFile) return;
+      return runNudgeSelection(
         {
           activeFile,
           applyLinkedComponentEdit,
@@ -934,7 +941,8 @@ export function useEditorEditCommands({
         },
         direction,
         largeStep,
-      ),
+      );
+    },
     [
       activeCanvasSourceType,
       activeFile,

@@ -1110,38 +1110,37 @@ export function useEditorModes({
       t,
     ],
   );
-  const handleEnterHotkey = useCallback(
-    () =>
-      runEnterHotkey({
-        SINGLE_MODE_TEXT_TAGS,
-        activeFile,
-        activeFileId,
-        boardFileId,
-        codeLayerOwnerByNodeIdRef,
-        enterVectorEditForSelection,
-        getProjectionContentForScreen,
-        overviewSelectedScreenIds,
-        selectedElement,
-        selectCodeLayerNodesForHotkey,
-        selectedLayerIdsState,
-        setActiveFileId,
-        setSelectedLayerIdsState,
-        viewMode,
-      }),
-    [
+  const handleEnterHotkey = useCallback(() => {
+    if (!activeFile) return;
+    return runEnterHotkey({
       SINGLE_MODE_TEXT_TAGS,
-      activeFile?.id,
+      activeFile,
       activeFileId,
       boardFileId,
+      codeLayerOwnerByNodeIdRef,
       enterVectorEditForSelection,
       getProjectionContentForScreen,
       overviewSelectedScreenIds,
       selectedElement,
       selectCodeLayerNodesForHotkey,
       selectedLayerIdsState,
+      setActiveFileId,
+      setSelectedLayerIdsState,
       viewMode,
-    ],
-  );
+    });
+  }, [
+    SINGLE_MODE_TEXT_TAGS,
+    activeFile?.id,
+    activeFileId,
+    boardFileId,
+    enterVectorEditForSelection,
+    getProjectionContentForScreen,
+    overviewSelectedScreenIds,
+    selectedElement,
+    selectCodeLayerNodesForHotkey,
+    selectedLayerIdsState,
+    viewMode,
+  ]);
 
   useEffect(() => {
     const getPreviewIframe = () =>

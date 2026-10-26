@@ -28,7 +28,7 @@ import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface PasteToReplaceArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {

@@ -381,7 +381,7 @@ function fileDeletionRestoreClaims(
 
 export interface UndoArgs {
   activeEditorDragRef: RefObject<boolean>;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -919,7 +919,7 @@ export function runUndo({
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       "clipboard-paste",
     ];
-    if (clipboardPasteUndo.fileId === activeFile.id) {
+    if (clipboardPasteUndo.fileId === activeFile?.id) {
       const selection = clipboardPasteUndo.selectionBefore
         ? resolveLocalHistorySelection(
             clipboardPasteUndo.selectionBefore,

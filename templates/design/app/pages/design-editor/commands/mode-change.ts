@@ -19,7 +19,7 @@ import type {
 } from "@/pages/design-editor/types";
 
 export interface ModeChangeArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   annotateLab: AnnotateLabStatus;
   canEditDesign: boolean;
   hasPendingVisualEdits?: boolean;

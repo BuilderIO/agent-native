@@ -486,8 +486,9 @@ export function useEditorToolsAndVectors({
       options?: {
         reparentTargetIdentity?: ScreenProjectionNodeIdentity;
       },
-    ) =>
-      runCreatePrimitive(
+    ) => {
+      if (!activeFile) return false;
+      return runCreatePrimitive(
         {
           activeBreakpointWidthState,
           activeFile,
@@ -509,7 +510,8 @@ export function useEditorToolsAndVectors({
         screenId,
         primitive,
         options,
-      ),
+      );
+    },
     [
       activeBreakpointWidthState,
       activeFile?.id,
@@ -1022,10 +1024,15 @@ export function useEditorToolsAndVectors({
             return current;
           }
           if (nextContent !== baseContent) {
-            applyFileContentUpdate(current.screenId, nextContent, {
-              skipPreview: current.screenId !== activeFile?.id,
-              historyBeforeContent: baseContent,
-            });
+            const publication = applyFileContentUpdate(
+              current.screenId,
+              nextContent,
+              {
+                skipPreview: current.screenId !== activeFile?.id,
+                historyBeforeContent: baseContent,
+              },
+            );
+            if (publication.status !== "accepted") return current;
           }
         }
         return { ...current, path: nextPath };

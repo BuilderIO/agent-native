@@ -257,6 +257,8 @@ export function renderSingleScreenCanvas({
   const { handleIframeHotkey, handleKScaleStyleBatchChange } =
     editorScreenRendering;
 
+  if (!activeFile) return null;
+
   const visibleCursorOthers = multiplayerCursors
     ? othersWithAgentCursor
     : othersWithAgentCursor.filter((other) => other.isAgent);

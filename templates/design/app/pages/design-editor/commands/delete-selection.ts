@@ -58,7 +58,7 @@ export interface DeleteSelectionArgs {
   activeBreakpointUpperBoundPx: number | null;
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   boardFileId?: string | null;
   boardSelectionWorldBounds?: {
     screenId: string;
@@ -193,6 +193,7 @@ export function runDeleteSelection({
   viewModeRef,
 }: DeleteSelectionArgs) {
   trace("structure", "delete", { layers: selectedLayerIdsState.length });
+  if (!activeFile) return;
   if (!canEditDesign && !canEditLiveScreen) return;
   const snapshots = getSelectedLayerSnapshots();
   const candidates =

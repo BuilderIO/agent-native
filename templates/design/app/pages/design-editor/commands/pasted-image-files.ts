@@ -18,6 +18,8 @@ import {
   cloneHtmlLayerAtPosition,
   insertClonedHtmlLayers,
 } from "@/pages/design-editor/clone-and-pen-edit";
+import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { escapeHtmlAttributeValue } from "@/pages/design-editor/dom-utils";
 import {
@@ -238,7 +240,7 @@ export function replacePastedMediaSource(
 }
 
 export interface PastedImageFilesArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -251,7 +253,7 @@ export interface PastedImageFilesArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult | void;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -265,7 +267,7 @@ export interface PastedImageFilesArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult | void;
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
@@ -365,7 +367,7 @@ export function runPastedImageFiles(
   files: File[],
   target?: PastedImageFilesTarget | PastedImageFilesClientAnchor,
 ) {
-  if (files.length === 0 || !canEditDesign) return false;
+  if (files.length === 0 || !canEditDesign || !activeFile) return false;
 
   const insertFilesAtPoint = (
     targetFileId: string,
@@ -373,13 +375,15 @@ export function runPastedImageFiles(
   ) => {
     const applyDurableContent = (nextContent: string) => {
       if (targetFileId === activeFile?.id) {
-        applyLocalContentUpdate(nextContent, {
+        const publication = applyLocalContentUpdate(nextContent, {
           forcePreviewFullDocument: true,
         });
+        return !publication || publication.status === "accepted";
       } else {
-        applyFileContentUpdate(targetFileId, nextContent, {
+        const publication = applyFileContentUpdate(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
         });
+        return !publication || publication.status === "accepted";
       }
     };
 
@@ -411,7 +415,10 @@ export function runPastedImageFiles(
         toast.error(t("designEditor.toasts.duplicateElementFailed"));
         return true;
       }
-      applyDurableContent(inserted.content);
+      if (!applyDurableContent(inserted.content)) {
+        toast.error(t("common.genericError"));
+        return true;
+      }
       selectInsertedLayers(
         targetFileId,
         inserted.content,
@@ -528,7 +535,13 @@ export function runPastedImageFiles(
                     preserveIncomingNodeIds: true,
                   },
                 )?.content ?? durableContent);
-          if (nextContent !== durableContent) applyDurableContent(nextContent);
+          if (
+            nextContent !== durableContent &&
+            !applyDurableContent(nextContent)
+          ) {
+            toast.error(t("common.genericError"));
+            continue;
+          }
           if (!durableMediaUrl && targetFileId === activeFile?.id) {
             replacePreviewContent(currentContent, null, {
               forceFullDocument: true,
