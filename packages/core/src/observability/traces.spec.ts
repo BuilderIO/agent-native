@@ -3412,7 +3412,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         {
           name: "mutate",
           status: "error",
-          error_class: "tool_error",
+          error_class: "input_invalid",
         },
         {
           name: "legacy-read",

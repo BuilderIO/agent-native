@@ -277,8 +277,26 @@ type GenerationToolCall = {
   started_offset_ms: number;
   duration_ms: number;
   status: "success" | "error";
-  error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_class:
+    | "tool_error"
+    | "legacy_inferred_error"
+    | "interrupted"
+    | ToolFailureClass
+    | null;
 };
+
+export type ToolFailureClass = "input_invalid" | "edit_anchor_miss";
+
+// Read from the result text because the tool-done event carries no class.
+// Patterns match what the action layer and Slides edit tools actually return.
+function classifyToolFailure(result: unknown): ToolFailureClass | null {
+  if (typeof result !== "string") return null;
+  if (result.includes("Invalid action parameters")) return "input_invalid";
+  if (/matched no text|text not found in slide/.test(result)) {
+    return "edit_anchor_miss";
+  }
+  return null;
+}
 
 function prepareCapturedModelInput(messages: unknown): unknown {
   return redactSensitiveFields(toPostHogMessages(messages));
@@ -1081,6 +1099,10 @@ export async function instrumentAgentLoop(opts: {
         const persistedErrorMessage = isError
           ? (toolErrorMessage ?? toolErrorSignature(event.result))
           : null;
+        const errorClass = !isError
+          ? null
+          : (classifyToolFailure(event.result) ??
+            (explicitError ? "tool_error" : "legacy_inferred_error"));
 
         if (
           counter !== undefined &&
@@ -1092,21 +1114,13 @@ export async function instrumentAgentLoop(opts: {
             started_offset_ms: Math.max(0, pending.startMs - runStart),
             duration_ms: Math.max(0, finishedAt - pending.startMs),
             status: isError ? "error" : "success",
-            error_class: !isError
-              ? null
-              : explicitError
-                ? "tool_error"
-                : "legacy_inferred_error",
+            error_class: errorClass,
           });
         }
 
         recordAgentToolCall({
           toolName: event.tool,
-          errorType: !isError
-            ? undefined
-            : explicitError
-              ? "tool_error"
-              : "legacy_inferred_error",
+          errorType: errorClass ?? undefined,
         });
 
         const otelEndResult = {
@@ -1146,12 +1160,7 @@ export async function instrumentAgentLoop(opts: {
         const toolSpanId = pending?.spanId ?? spanId();
         const modelCallId = pending?.callId ?? event.id;
         if (modelCallId) toolSpanCallId.set(toolSpanId, modelCallId);
-        if (isError) {
-          toolSpanErrorClass.set(
-            toolSpanId,
-            explicitError ? "tool_error" : "legacy_inferred_error",
-          );
-        }
+        if (errorClass) toolSpanErrorClass.set(toolSpanId, errorClass);
         const span: TraceSpan = {
           id: toolSpanId,
           runId,
