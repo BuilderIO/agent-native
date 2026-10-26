@@ -162,6 +162,11 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     return { iframe, frameRect };
   }
 
+  function frameWindowOf(iframe: HTMLIFrameElement) {
+    if (!iframe.contentWindow) throw new Error("Expected the screen frame");
+    return iframe.contentWindow;
+  }
+
   async function applyTicks(surface: HTMLElement, ticks: WheelTick[]) {
     await act(async () => {
       for (const tick of ticks) surface.dispatchEvent(trustedWheel(tick));
@@ -437,7 +442,8 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         />,
       );
     });
-    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]')!;
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    if (!surface) throw new Error("Expected the canvas surface");
     await applyTicks(surface, [{ deltaY: -6, ctrlKey: true }]);
 
     const heldFrames: FrameRequestCallback[] = [];
@@ -456,20 +462,21 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
       });
       // The step's frame was requested first; the commit's came due after the
       // delay and runs while the step is still queued.
-      const [stepFrame, ...laterFrames] = heldFrames;
+      const stepFrames = heldFrames.slice(0, 1);
+      const laterFrames = heldFrames.slice(1);
+      expect(stepFrames).toHaveLength(1);
       await act(async () => {
         laterFrames.forEach((callback) => callback(performance.now()));
       });
       expect(onZoomChange).not.toHaveBeenCalled();
-      expect(
-        container.querySelector<HTMLElement>(
-          "[data-multi-screen-canvas-world]",
-        )!.style.willChange,
-      ).toBe("transform");
+      const world = container.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      );
+      expect(world?.style.willChange).toBe("transform");
 
       requestFrame.mockRestore();
       await act(async () => {
-        stepFrame(performance.now());
+        stepFrames.forEach((callback) => callback(performance.now()));
       });
     } finally {
       requestFrame.mockRestore();
@@ -547,7 +554,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   it("answers a screen's wheel and keeps the full travel of folded steps", async () => {
     const surface = await renderSurface();
     const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
-    const replies = vi.spyOn(iframe.contentWindow!, "postMessage");
+    const replies = vi.spyOn(frameWindowOf(iframe), "postMessage");
     const before = readView(container);
 
     await postScreenWheel(iframe, {
@@ -595,7 +602,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   it("ignores a screen's wheel whose numbers are not finite, and still answers it", async () => {
     const surface = await renderSurface();
     const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
-    const replies = vi.spyOn(iframe.contentWindow!, "postMessage");
+    const replies = vi.spyOn(frameWindowOf(iframe), "postMessage");
     const before = readView(container);
 
     for (const bad of [

@@ -298,9 +298,11 @@ describe("DesignCanvas in Edit: the bridge that forwards a pinch", () => {
       ),
     );
     const iframe = previewIframe();
-    const post = vi.spyOn(iframe!.contentWindow!, "postMessage");
+    const frameWindow = iframe?.contentWindow;
+    if (!iframe || !frameWindow) throw new Error("Expected the preview frame");
+    const post = vi.spyOn(frameWindow, "postMessage");
     await act(async () => {
-      iframe!.dispatchEvent(new Event("load"));
+      iframe.dispatchEvent(new Event("load"));
     });
     const install = post.mock.calls.find(
       ([message]) =>

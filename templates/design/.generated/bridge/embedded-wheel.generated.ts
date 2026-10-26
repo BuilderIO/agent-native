@@ -146,7 +146,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         sendWheel(wheel);
         return;
       }
-      var pending = pendingWheels[pendingWheels.length - 1];
+      var pending = pendingWheels.length > 0 ? pendingWheels[pendingWheels.length - 1] : null;
       if (pending && pending.steps < 32 && pending.deltaMode === wheel.deltaMode && pending.ctrlKey === wheel.ctrlKey && pending.metaKey === wheel.metaKey && pending.shiftKey === wheel.shiftKey && pending.altKey === wheel.altKey) {
         pending.deltaX += wheel.deltaX;
         pending.deltaY += wheel.deltaY;

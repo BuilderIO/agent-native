@@ -82,6 +82,7 @@ const read = (page: Page, index = -1) =>
     const posted = (window as unknown as { __posted: ForwardedWheel[] })
       .__posted;
     const step = posted[index < 0 ? posted.length + index : index];
+    if (!step) throw new Error("No posted step to answer");
     window.postMessage(
       { type: "embedded-canvas-wheel-read", seq: step.seq },
       "*",

@@ -236,7 +236,8 @@ declare var __INTERACTION_MODE__: boolean;
       sendWheel(wheel);
       return;
     }
-    var pending = pendingWheels[pendingWheels.length - 1];
+    var pending =
+      pendingWheels.length > 0 ? pendingWheels[pendingWheels.length - 1] : null;
     // The host bounds a step's pan by 32 wheels' worth, so a longer wait
     // queues further steps rather than folding travel it would clip.
     if (
