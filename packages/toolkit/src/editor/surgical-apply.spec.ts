@@ -463,6 +463,80 @@ describe("reconcileDocAgainstBase", () => {
     },
   );
 
+  it.each(["prefer-live", "conflict"] as const)(
+    "treats a local insertion inside a server replacement as an overlap (%s)",
+    (overlapPolicy) => {
+      const local = "Alpha\n\nBravo\n\nLocal\n\nCharlie\n\nDelta";
+      const editor = makeEditor(local);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "Alpha\n\nBravo\n\nCharlie\n\nDelta"),
+          parse(editor, "Alpha\n\nBravo and Charlie\n\nDelta"),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject(
+          overlapPolicy === "prefer-live"
+            ? { status: "noop", setAside: 1 }
+            : { status: "conflict" },
+        );
+        expect(md(editor)).toBe(local);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each(
+    (["prefer-live", "conflict"] as const).flatMap((overlapPolicy) => [
+      {
+        overlapPolicy,
+        name: "a local deletion and insertion beside server replacements",
+        base: "Alpha\n\nBravo\n\nCharlie\n\nDelta\n\nEcho",
+        live: "Alpha\n\nCharlie\n\nDelta\n\nLocal\n\nEcho",
+        server:
+          "Start\n\nAlpha\n\nBravo\n\nCharlie server\n\nDelta server\n\nEcho",
+        merged:
+          "Start\n\nAlpha\n\nCharlie server\n\nDelta server\n\nLocal\n\nEcho",
+      },
+      {
+        overlapPolicy,
+        name: "a local insertion after a block the server deleted",
+        base: "Alpha\n\nBravo\n\nCharlie",
+        live: "Alpha\n\nBravo\n\nLocal\n\nCharlie",
+        server: "Alpha\n\nCharlie",
+        merged: "Alpha\n\nLocal\n\nCharlie",
+      },
+      {
+        overlapPolicy,
+        name: "a server insertion after a block the tab deleted",
+        base: "Alpha\n\nBravo\n\nCharlie",
+        live: "Alpha\n\nCharlie",
+        server: "Alpha\n\nBravo\n\nInserted\n\nCharlie",
+        merged: "Alpha\n\nInserted\n\nCharlie",
+      },
+    ]),
+  )(
+    "merges $name ($overlapPolicy)",
+    ({ overlapPolicy, base, live, server, merged }) => {
+      const editor = makeEditor(live);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe(merged);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it("fails closed when repeated blocks make alignment ambiguous", () => {
     const editor = makeEditor("Same\n\nLocal\n\nSame");
     try {
