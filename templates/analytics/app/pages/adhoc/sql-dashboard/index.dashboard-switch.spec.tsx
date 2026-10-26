@@ -115,7 +115,12 @@ const mocks = vi.hoisted(() => ({
       options?: { onError?: () => void },
     ) => void,
   },
-  chatContext: { selectedPanelId: null, selectPanelForChat: () => {} },
+  chatContext: {
+    selectedPanelId: null,
+    selectedPanelIds: [] as string[],
+    selectPanelForChat: () => {},
+    panelSelectionTarget: () => null,
+  },
   collab: {
     ydoc: null as unknown,
     awareness: null,
@@ -232,6 +237,7 @@ vi.mock("@/components/dashboard/DashboardHistoryPanel", () => ({
 
 vi.mock("@/hooks/use-dashboard-chat-context", () => ({
   useDashboardChatContext: () => mocks.chatContext,
+  useDashboardPanelSelectable: () => false,
 }));
 
 vi.mock("@/hooks/use-dashboard-revisions", () => ({

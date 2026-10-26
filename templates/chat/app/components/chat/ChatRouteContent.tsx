@@ -14,6 +14,10 @@ import {
 } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell/header-actions";
+import {
   AgentMessageView,
   AgentRunFailure,
   AgentConnectionRequestCard,
@@ -24,6 +28,7 @@ import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
+  useAgentThreadSelector,
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/toolkit/app/agentkit/react/context";
@@ -37,21 +42,35 @@ import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/questions";
+import { isClientDraftThread } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
 import {
   findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/suggestions";
 import {
   BuilderSetupCard,
+  IMPLEMENT_PLAN_PROMPT,
+  PlanModeCallout,
+  getReplyRequestMode,
   isMissingLlmProviderRunError,
 } from "@agent-native/toolkit/app/chat/chat/run-recovery";
-import type {
-  PromptComposerFile,
-  PromptComposerSubmitOptions,
-  Reference,
-} from "@agent-native/toolkit/composer";
-import { IconLayoutSidebarRight, IconX } from "@tabler/icons-react";
 import {
+  ThreadContextRing,
+  threadHasFinishedReply,
+} from "@agent-native/toolkit/app/context-xray";
+import {
+  ComposerNotice,
+  type PromptComposerFile,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/composer";
+import {
+  IconAlertTriangle,
+  IconLayoutSidebarRight,
+  IconX,
+} from "@tabler/icons-react";
+import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -73,6 +92,7 @@ import { consumeChatHomeThreadId } from "@/lib/chat-home-thread";
 import {
   clearFailedChatHandoff,
   chatThreadPath,
+  NEW_CHAT_PATH,
   readFailedChatHandoff,
   type ChatInitialComposerOptions,
   type FailedChatHandoffClearResult,
@@ -317,7 +337,7 @@ function ChatThreadRouteContent({
 
   return (
     <div
-      className="relative flex h-full min-h-0 overflow-hidden bg-background"
+      className="relative flex h-full min-h-0 overflow-clip bg-background"
       data-agent-chat-workspace-state={workspaceOpen ? "open" : "closed"}
     >
       <div
@@ -400,6 +420,13 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatContextRing({ threadId }: { threadId: string }) {
+  const enabled = useAgentThreadSelector((thread) =>
+    threadHasFinishedReply(thread.messages),
+  );
+  return <ThreadContextRing threadId={threadId} enabled={enabled} />;
 }
 
 function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
@@ -740,9 +767,15 @@ function ChatRunFailure({
         />
         {retryError?.runId === runId &&
         retryError.code === "attachment_id_unavailable" ? (
-          <p role="alert" className="mt-2 px-3 text-sm text-destructive">
+          <ComposerNotice
+            inline
+            tone="warning"
+            role="alert"
+            noticeId="chat-retry-attachment-unavailable"
+            className="mt-2"
+          >
             {t("chat.retryAttachmentUnavailable")}
-          </p>
+          </ComposerNotice>
         ) : null}
       </>
     );
@@ -957,6 +990,26 @@ function ChatLifecycleTracking({ threadId }: { threadId: string }) {
 
 function ChatAgentFooter({ children }: { children: ReactNode }) {
   const { controller, threadId } = useAgentKit();
+  const thread = useAgentThread();
+  const control = useAgentKitControl(threadId);
+  const latestReply = [...thread.messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const planReady =
+    !hasActiveAgentRuns(thread) &&
+    getReplyRequestMode(thread.messages, latestReply) === "plan";
+  const implementPlan = useCallback(() => {
+    const metadata = { mode: "act", requestMode: "act" } as const;
+    void Promise.resolve(
+      control.sendMessage({
+        text: IMPLEMENT_PLAN_PROMPT,
+        options: { mode: "act", metadata },
+        metadata,
+      }),
+    ).catch((error: unknown) =>
+      toast.error(error instanceof Error ? error.message : String(error)),
+    );
+  }, [control]);
   const submitAnswers = useCallback(
     async ({ formattedAnswers }: { formattedAnswers: string }) => {
       await controller.sendMessage({ threadId, text: formattedAnswers });
@@ -1010,6 +1063,7 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
           />
         </div>
       ) : null}
+      {planReady ? <PlanModeCallout onImplementPlan={implementPlan} /> : null}
       {children}
     </div>
   );
@@ -1157,6 +1211,7 @@ function ChatCanvas({
   onRecoverySubmitAccepted: () => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   const { threadId } = useAgentKit();
   const thread = useAgentThread();
   const control = useAgentKitControl(threadId);
@@ -1166,6 +1221,12 @@ function ChatCanvas({
   });
   const hasConversation = thread.messages.length > 0;
   const activeAtSubmit = hasActiveAgentRuns(thread);
+  // A thread created on this client stays a draft until the server lists it,
+  // so a refresh or the sidebar's New chat shows a new chat, not a missing one.
+  const isDraftThread = useMemo(
+    () => isClientDraftThread(threadId),
+    [threadId],
+  );
 
   const retryInitialDraft = useCallback(
     async (
@@ -1187,7 +1248,7 @@ function ChatCanvas({
       const requestText = context
         ? appendAgentChatContextToMessage(text, context)
         : text;
-      const runMode = recoveryOptions.mode ?? "act";
+      const runMode = options.requestMode ?? recoveryOptions.mode ?? "act";
       const model = options.model ?? recoveryOptions.model;
       const engine = options.engine ?? recoveryOptions.engine;
       const effort = options.effort ?? recoveryOptions.effort;
@@ -1293,120 +1354,152 @@ function ChatCanvas({
     if (!hasConversation) setWorkspaceOpen(false);
   }, [hasConversation, setWorkspaceOpen]);
 
-  const toolbar = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          data-agent-page-workspace-toggle=""
-          aria-label={t("settings.workspaceTitle")}
-          aria-expanded={workspaceOpen}
-          onClick={() => setWorkspaceOpen((open) => !open)}
-        >
-          <IconLayoutSidebarRight className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{t("settings.workspaceTitle")}</TooltipContent>
-    </Tooltip>
+  const toolbar = useMemo(
+    () => (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-6"
+            data-agent-page-workspace-toggle=""
+            aria-label={t("settings.workspaceTitle")}
+            aria-expanded={workspaceOpen}
+            onClick={() => setWorkspaceOpen((open) => !open)}
+          >
+            <IconLayoutSidebarRight className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t("settings.workspaceTitle")}</TooltipContent>
+      </Tooltip>
+    ),
+    [setWorkspaceOpen, t, workspaceOpen],
   );
+  const chatTitle = thread.thread?.title?.trim() || APP_TITLE;
 
   return (
-    <AgentKitChat
-      className="h-full"
-      title={thread.thread?.title?.trim() || APP_TITLE}
-      toolbar={toolbar}
-      emptyComposerPlacement="center"
-      composerProps={{
-        requireAgentEngine: true,
-        ...(initialText === undefined ? {} : { initialText }),
-        ...(initialTextKey === undefined ? {} : { initialTextKey }),
-        ...(recoveryOptions
-          ? {
-              mode: recoveryOptions.mode ?? "act",
-              ...(recoveryOptions.model === undefined
-                ? {}
-                : { selectedModel: recoveryOptions.model }),
-              ...(recoveryOptions.engine === undefined
-                ? {}
-                : { selectedEngine: recoveryOptions.engine }),
-              ...(recoveryOptions.effort === undefined
-                ? {}
-                : { selectedEffort: recoveryOptions.effort }),
-              ...(recoveryOptions.contextItems === undefined
-                ? {}
-                : { contextItems: recoveryOptions.contextItems }),
-              onModeChange: (mode: "act" | "plan") =>
-                onRecoveryOptionsChange({ mode }),
-              onModelChange: (model: string, engine: string) =>
-                onRecoveryOptionsChange({ model, engine }),
-              onEffortChange: (
-                effort: NonNullable<ChatInitialComposerOptions["effort"]>,
-              ) => onRecoveryOptionsChange({ effort }),
-              onRemoveContextItem: (key: string) =>
-                onRecoveryOptionsChange(
-                  recoveryOptions.contextItems === undefined
-                    ? {}
-                    : {
-                        contextItems: recoveryOptions.contextItems.filter(
-                          (item) => item.key !== key,
-                        ),
-                      },
-                ),
-              onTextChange: (text: string) => onRecoveryDraftChange({ text }),
-              toolbarSlot: (
-                <>
-                  {recoveryDraftUnsaved ? (
-                    <p
-                      className="px-2 text-xs text-destructive"
-                      data-testid="chat-recovery-draft-unsaved"
-                      role="status"
-                    >
-                      {t("chat.recoveryDraftUnsaved")}
-                    </p>
-                  ) : null}
-                  <RecoveryIncludedSources
-                    references={recoveryOptions.references ?? []}
-                    attachments={recoveryOptions.uploadedAttachments ?? []}
-                    onRemoveReference={(index) =>
-                      onRecoveryOptionsChange(
-                        recoveryOptions.references === undefined
-                          ? {}
-                          : {
-                              references: recoveryOptions.references.filter(
-                                (_reference, candidate) => candidate !== index,
-                              ),
-                            },
-                      )
-                    }
-                    onRemoveAttachment={(index) =>
-                      onRecoveryOptionsChange(
-                        recoveryOptions.uploadedAttachments === undefined
-                          ? {}
-                          : {
-                              uploadedAttachments:
-                                recoveryOptions.uploadedAttachments.filter(
-                                  (_attachment, candidate) =>
+    <>
+      <ChatHeaderPublisher
+        title={hasConversation ? chatTitle : null}
+        actions={toolbar}
+      />
+      <AgentKitChat
+        className="h-full"
+        title={chatTitle}
+        toolbar={toolbar}
+        emptyComposerPlacement="center"
+        expectExistingThread={!isDraftThread}
+        onStartNewChat={() => void navigate(NEW_CHAT_PATH)}
+        composerProps={{
+          requireAgentEngine: true,
+          contextUsageSlot: <ChatContextRing threadId={threadId} />,
+          ...(initialText === undefined ? {} : { initialText }),
+          ...(initialTextKey === undefined ? {} : { initialTextKey }),
+          ...(recoveryOptions
+            ? {
+                ...(recoveryOptions.model === undefined
+                  ? {}
+                  : { selectedModel: recoveryOptions.model }),
+                ...(recoveryOptions.engine === undefined
+                  ? {}
+                  : { selectedEngine: recoveryOptions.engine }),
+                ...(recoveryOptions.effort === undefined
+                  ? {}
+                  : { selectedEffort: recoveryOptions.effort }),
+                ...(recoveryOptions.contextItems === undefined
+                  ? {}
+                  : { contextItems: recoveryOptions.contextItems }),
+                onModelChange: (model: string, engine: string) =>
+                  onRecoveryOptionsChange({ model, engine }),
+                onEffortChange: (
+                  effort: NonNullable<ChatInitialComposerOptions["effort"]>,
+                ) => onRecoveryOptionsChange({ effort }),
+                onRemoveContextItem: (key: string) =>
+                  onRecoveryOptionsChange(
+                    recoveryOptions.contextItems === undefined
+                      ? {}
+                      : {
+                          contextItems: recoveryOptions.contextItems.filter(
+                            (item) => item.key !== key,
+                          ),
+                        },
+                  ),
+                onTextChange: (text: string) => onRecoveryDraftChange({ text }),
+                toolbarSlot: (
+                  <>
+                    {recoveryDraftUnsaved ? (
+                      <p
+                        className="agent-kit-tone-warning flex items-center gap-1.5 px-2 text-xs"
+                        data-testid="chat-recovery-draft-unsaved"
+                        role="status"
+                      >
+                        <IconAlertTriangle
+                          className="size-4 shrink-0"
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                        {t("chat.recoveryDraftUnsaved")}
+                      </p>
+                    ) : null}
+                    <RecoveryIncludedSources
+                      references={recoveryOptions.references ?? []}
+                      attachments={recoveryOptions.uploadedAttachments ?? []}
+                      onRemoveReference={(index) =>
+                        onRecoveryOptionsChange(
+                          recoveryOptions.references === undefined
+                            ? {}
+                            : {
+                                references: recoveryOptions.references.filter(
+                                  (_reference, candidate) =>
                                     candidate !== index,
                                 ),
-                            },
-                      )
-                    }
-                  />
-                </>
-              ),
-              onSubmit: retryInitialDraft,
-            }
-          : {}),
-        stopButton,
-        queueWhileRunning: true,
-        autoFocus: true,
-        plusMenuMode: "full",
-        voiceEnabled: true,
-        includeDefaultSlashCommands: false,
-        includeDefaultSlashSkills: false,
-      }}
-    />
+                              },
+                        )
+                      }
+                      onRemoveAttachment={(index) =>
+                        onRecoveryOptionsChange(
+                          recoveryOptions.uploadedAttachments === undefined
+                            ? {}
+                            : {
+                                uploadedAttachments:
+                                  recoveryOptions.uploadedAttachments.filter(
+                                    (_attachment, candidate) =>
+                                      candidate !== index,
+                                  ),
+                              },
+                        )
+                      }
+                    />
+                  </>
+                ),
+                onSubmit: retryInitialDraft,
+              }
+            : {}),
+          stopButton,
+          queueWhileRunning: true,
+          autoFocus: true,
+          plusMenuMode: "full",
+          voiceEnabled: true,
+          includeDefaultSlashCommands: false,
+          includeDefaultSlashSkills: false,
+        }}
+      />
+    </>
   );
 }
+
+// Phones show these in the Layout app bar instead of the AgentKit header. The
+// header hooks notify on every render, so this stays memoized: streamed deltas
+// re-render ChatCanvas and must not repaint the app bar.
+const ChatHeaderPublisher = memo(function ChatHeaderPublisher({
+  title,
+  actions,
+}: {
+  title: string | null;
+  actions: ReactNode;
+}) {
+  useSetPageTitle(title);
+  useSetHeaderActions(actions);
+  return null;
+});

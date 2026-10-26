@@ -987,6 +987,8 @@ const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
   "context-evict",
   "context-restore",
   "context-report",
+  "context-compact",
+  "context-compaction-get",
 ]);
 
 const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [

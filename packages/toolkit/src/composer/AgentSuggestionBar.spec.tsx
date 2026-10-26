@@ -71,11 +71,16 @@ describe("AgentSuggestionBar", () => {
     expect(buttons[0]?.className).toContain("rounded-full");
     expect(buttons[0]?.className).toContain("whitespace-nowrap");
     expect(buttons[0]?.className).not.toContain("max-w-");
-    expect(buttons[0]?.className).toContain("text-foreground/80");
+    expect(buttons[0]?.className).toContain("text-foreground");
+    expect(buttons[0]?.className).not.toContain("text-foreground/80");
+    expect(buttons[0]?.className).toContain("border-border");
+    expect(buttons[0]?.className).toContain("hover:bg-accent");
+    expect(buttons[0]?.className).toContain("focus-visible:ring-inset");
     expect(buttons[0]?.querySelector("span")?.className).not.toContain(
       "truncate",
     );
-    expect(buttons[0]?.className).toContain("bg-muted/55");
+    expect(buttons[0]?.className).toContain("bg-transparent");
+    expect(buttons[0]?.className).not.toContain("bg-muted/55");
     const scroller = container.querySelector(
       '[data-agent-suggestion-scroller="true"]',
     );
@@ -112,7 +117,7 @@ describe("AgentSuggestionBar", () => {
       container.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
     ).toHaveLength(3);
     expect(track?.className).toContain("flex-nowrap");
-    expect(track?.className).toContain("h-7");
+    expect(track?.className).toContain("h-6");
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
@@ -132,6 +137,6 @@ describe("AgentSuggestionBar", () => {
       '[data-agent-suggestion-track="true"]',
     );
     expect(track?.className).toContain("flex-nowrap");
-    expect(track?.className).toContain("h-7");
+    expect(track?.className).toContain("h-6");
   });
 });

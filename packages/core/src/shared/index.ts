@@ -10,6 +10,17 @@ export {
   stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
+export {
+  AGENT_SELECTION_CONTEXT_KEY_PREFIX,
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  formatAgentSelectionPreamble,
+  isAgentSelectionContextKey,
+  parseAgentSelectionContextKey,
+  type AgentSelectionReference,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "./agent-selection.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
   ACTION_BROWSER_PERSIST_ALLOW,
@@ -77,6 +88,7 @@ export {
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type ReasoningEffort,

@@ -176,6 +176,26 @@ function importsModule(text: string, base: string): boolean {
   ).test(text);
 }
 
+const SOURCE_TEXT_READ =
+  /new URL\(\s*["'][^"']+\.tsx?["']\s*,\s*import\.meta\.url/;
+const RELATIVE_SPECIFIER =
+  /(?:\bfrom|\bimport)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g;
+
+/**
+ * Whether a spec can run against Stryker's sandbox copy of Core. A spec that
+ * reads a source file's text sees the instrumented rewrite, and a relative
+ * import that leaves Core (`../../../agentkit/src/...`) does not resolve from
+ * the sandbox; either fails the dry run, which aborts every mutant.
+ */
+function runsInSandbox(text: string, directory: string): boolean {
+  if (SOURCE_TEXT_READ.test(text)) return false;
+  for (const [, specifier] of text.matchAll(RELATIVE_SPECIFIER)) {
+    if (specifier === undefined) continue;
+    if (path.posix.join(directory, specifier).startsWith("../")) return false;
+  }
+  return true;
+}
+
 /**
  * The specs that exercise each mutated file, relative to Core. The first
  * choice is a spec named after the file: for `src/a2a/task-store.ts`,
@@ -185,8 +205,9 @@ function importsModule(text: string, base: string): boolean {
  * exists does a same-directory spec or test count, if its text imports or
  * re-exports `./task-store` (optionally `.js` or `.ts`). `readFile` takes a
  * path relative to Core and must throw on failure: an empty string would look
- * like a spec that does not import the module. Returns the mutated files with
- * no such spec under `missing`.
+ * like a spec that does not import the module. Specs that cannot run in the
+ * sandbox are never selected. Returns the mutated files with no such spec
+ * under `missing`.
  */
 export function namedSpecs(
   specs: readonly string[],
@@ -207,18 +228,21 @@ export function namedSpecs(
         (entry) => SOURCE_FILE.test(entry) && !TEST_FILE.test(entry),
       ),
     );
-    let selected = entries.filter(
-      (entry) =>
-        entry.startsWith(`${base}.`) &&
-        TEST_FILE.test(entry) &&
-        !namesSiblingSource(entry, base, sources),
-    );
+    const tests = entries
+      .filter((entry) => TEST_FILE.test(entry))
+      .map((entry) => ({ entry, text: readFile(`${directory}/${entry}`) }))
+      .filter(({ text }) => runsInSandbox(text, directory));
+    let selected = tests
+      .filter(
+        ({ entry }) =>
+          entry.startsWith(`${base}.`) &&
+          !namesSiblingSource(entry, base, sources),
+      )
+      .map(({ entry }) => entry);
     if (selected.length === 0) {
-      selected = entries.filter(
-        (entry) =>
-          TEST_FILE.test(entry) &&
-          importsModule(readFile(`${directory}/${entry}`), base),
-      );
+      selected = tests
+        .filter(({ text }) => importsModule(text, base))
+        .map(({ entry }) => entry);
     }
     if (selected.length === 0) missing.push(file);
     for (const entry of selected) include.add(`${directory}/${entry}`);

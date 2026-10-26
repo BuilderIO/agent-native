@@ -460,6 +460,21 @@ function withPreservedTrailingParagraph(
   return newDoc.copy(newDoc.content.addToEnd(oldLast!.type.create()));
 }
 
+/** The doc `applyDocSurgically` would leave, or why it would not change one. */
+export function surgicalApplyTarget(
+  oldDoc: ProseMirrorNode,
+  newDoc: ProseMirrorNode,
+): ProseMirrorNode | "noop" | "failed" {
+  if (
+    newDoc.type.schema !== oldDoc.type.schema ||
+    newDoc.type !== oldDoc.type
+  ) {
+    return "failed";
+  }
+  const target = withPreservedTrailingParagraph(oldDoc, newDoc);
+  return diffTopLevel(oldDoc, target) ? target : "noop";
+}
+
 export function applyDocSurgically(
   editor: Editor,
   newDoc: ProseMirrorNode,

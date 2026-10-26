@@ -68,13 +68,12 @@ import {
   AppSidebarHeader,
   openCommandMenu,
 } from "@agent-native/toolkit/app/shared";
+import { ChatHistoryMenuItem } from "@agent-native/toolkit/chat-history";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconApps,
   IconBrandSlack,
   IconBrandTelegram,
-  IconCopy,
-  IconEye,
   IconHierarchy2,
   IconMessageQuestion,
   IconBroadcast,
@@ -833,14 +832,10 @@ function DispatchChatsSection({
             unpin: t("agentChat.contextXray.unpin"),
             delete: t("extensions.delete"),
           }}
-          renderAdditionalRowActions={(item, closeMenu) => (
+          renderAdditionalRowActions={(item) => (
             <>
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
+              <ChatHistoryMenuItem
+                onSelect={() => {
                   void writeClipboardText(item.id).then((copied) => {
                     toast[copied ? "success" : "error"](
                       copied
@@ -850,16 +845,11 @@ function DispatchChatsSection({
                   });
                 }}
               >
-                <IconCopy size={13} strokeWidth={1.8} />
-                <span>{chatFirstCopy("copySessionId")}</span>
-              </button>
+                {chatFirstCopy("copySessionId")}
+              </ChatHistoryMenuItem>
               {!chatFirstEmbedded ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="an-chat-history-row__menu-item"
-                  onClick={() => {
-                    closeMenu();
+                <ChatHistoryMenuItem
+                  onSelect={() => {
                     emitChatFirstSessionWatch({
                       sessionId: item.id,
                       title: item.titleText,
@@ -868,9 +858,8 @@ function DispatchChatsSection({
                     });
                   }}
                 >
-                  <IconEye size={13} strokeWidth={1.8} />
-                  <span>{chatFirstCopy("watchSession")}</span>
-                </button>
+                  {chatFirstCopy("watchSession")}
+                </ChatHistoryMenuItem>
               ) : null}
             </>
           )}
@@ -901,14 +890,10 @@ function DispatchChatsSection({
             unpin: t("agentChat.contextXray.unpin"),
             delete: t("extensions.delete"),
           }}
-          renderAdditionalRowActions={(item, closeMenu) => (
+          renderAdditionalRowActions={(item) => (
             <>
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
+              <ChatHistoryMenuItem
+                onSelect={() => {
                   void writeClipboardText(item.id).then((copied) => {
                     toast[copied ? "success" : "error"](
                       copied
@@ -918,16 +903,11 @@ function DispatchChatsSection({
                   });
                 }}
               >
-                <IconCopy size={13} strokeWidth={1.8} />
-                <span>{chatFirstCopy("copySessionId")}</span>
-              </button>
+                {chatFirstCopy("copySessionId")}
+              </ChatHistoryMenuItem>
               {chatFirstMode && !chatFirstEmbedded ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="an-chat-history-row__menu-item"
-                  onClick={() => {
-                    closeMenu();
+                <ChatHistoryMenuItem
+                  onSelect={() => {
                     emitChatFirstSessionWatch({
                       sessionId: item.id,
                       title: item.titleText,
@@ -936,9 +916,8 @@ function DispatchChatsSection({
                     });
                   }}
                 >
-                  <IconEye size={13} strokeWidth={1.8} />
-                  <span>{chatFirstCopy("watchSession")}</span>
-                </button>
+                  {chatFirstCopy("watchSession")}
+                </ChatHistoryMenuItem>
               ) : null}
             </>
           )}
