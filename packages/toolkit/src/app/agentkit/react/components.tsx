@@ -2263,6 +2263,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   isCurrentSegment = true,
   messageId,
   foldedReasoningMessageId,
+  summarizesTurn = false,
 }: {
   runId?: RunId;
   afterSequence?: number;
@@ -2273,6 +2274,8 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   messageId?: string;
   /** A saved reply whose reasoning before its answer joins this group. */
   foldedReasoningMessageId?: string;
+  /** This segment is its run's whole turn, so it shows a row with no work. */
+  summarizesTurn?: boolean;
 }) {
   const { threadId, slots, registry, labels, formatWorkedForDuration } =
     useAgentKit();
@@ -2572,12 +2575,40 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       (afterSequence === undefined &&
         run !== undefined &&
         ["completed", "failed", "cancelled"].includes(run.status)));
+  const formatDuration = (ms: number) =>
+    formatWorkedForDuration?.(ms) ??
+    formatAgentKitDuration(ms, {
+      hour: labels.durationHourShort,
+      minute: labels.durationMinuteShort,
+      second: labels.durationSecondShort,
+    });
   if (
     activityItems.length === 0 &&
     durableToolResults.length === 0 &&
     !activelyWorking
   ) {
-    return null;
+    const runFinished = run
+      ? ["completed", "failed", "cancelled"].includes(run.status)
+      : hasTerminalRunEvent;
+    // Untimed or under a second, a bare "Worked" would read as instant.
+    if (
+      !summarizesTurn ||
+      !runFinished ||
+      durationMs === undefined ||
+      durationMs < 1_000
+    ) {
+      return null;
+    }
+    return (
+      <AgentWorkDisclosure
+        label={workedSummaryLabel(durationMs, labels, formatDuration)}
+        icon={<IconClock aria-hidden="true" className="agentkit-icon" />}
+        expandable={false}
+        {...(messageId === undefined ? {} : { messageId })}
+      >
+        {null}
+      </AgentWorkDisclosure>
+    );
   }
   const currentActivity = activelyWorking
     ? (latestRunningUsefulActivity?.activity ??
@@ -2619,13 +2650,6 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   });
   const steps = agentWorkSteps(workItems);
   const hasExpandableActivity = steps.length > 0;
-  const formatDuration = (ms: number) =>
-    formatWorkedForDuration?.(ms) ??
-    formatAgentKitDuration(ms, {
-      hour: labels.durationHourShort,
-      minute: labels.durationMinuteShort,
-      second: labels.durationSecondShort,
-    });
   const failedCount = steps.reduce((sum, step) => sum + step.failedCount, 0);
   const reasoningMessageIds = activityItems.flatMap((activity) => {
     const entry = reasoningEntries.get(activity.id);
@@ -3351,7 +3375,8 @@ function AgentWorkDisclosure({
     />
   ) : undefined;
   // The row stays one mounted trigger from "Thinking" through the first
-  // activity, so it never flickers; until then it is not a tab stop.
+  // activity, so it never flickers; until then it is not a tab stop. Finished
+  // work with nothing to expand is text, not a disabled button.
   const disclosure = (
     <div
       ref={handoff.inPlaceRef}
@@ -3362,6 +3387,7 @@ function AgentWorkDisclosure({
       data-handoff={handoff.leavingHeight ? "enter" : undefined}
     >
       <AgentKitDisclosureSummary
+        as={expandable || running ? "button" : "static"}
         className="agentkit-activities-summary"
         rowClassName="agentkit-activities-row"
         open={open}
@@ -8295,6 +8321,7 @@ export function AgentKitChat({
     throughSequence,
     messageId,
     foldedReasoningMessageId,
+    summarizesTurn,
   }: {
     runId: RunId;
     anchor: string;
@@ -8302,6 +8329,7 @@ export function AgentKitChat({
     throughSequence?: number | undefined;
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
+    summarizesTurn?: boolean | undefined;
   }) => {
     const key = `run-work:${threadId}:${runId}:${anchor}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
@@ -8313,6 +8341,7 @@ export function AgentKitChat({
         throughSequence,
         messageId,
         foldedReasoningMessageId,
+        summarizesTurn,
       ],
       () =>
         renderRunWorkElement({
@@ -8323,6 +8352,7 @@ export function AgentKitChat({
           throughSequence,
           messageId,
           foldedReasoningMessageId,
+          summarizesTurn,
         }),
     );
   };
@@ -8334,6 +8364,7 @@ export function AgentKitChat({
     throughSequence,
     messageId,
     foldedReasoningMessageId,
+    summarizesTurn,
   }: {
     key: string;
     resetKey: string;
@@ -8342,6 +8373,7 @@ export function AgentKitChat({
     throughSequence?: number | undefined;
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
+    summarizesTurn?: boolean | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
       <AgentCollaborationFeed
@@ -8362,6 +8394,7 @@ export function AgentKitChat({
         isCurrentSegment={throughSequence === undefined}
         messageId={messageId}
         foldedReasoningMessageId={foldedReasoningMessageId}
+        summarizesTurn={summarizesTurn}
       />
     </AgentKitSurfaceBoundary>
   );
@@ -8535,10 +8568,21 @@ export function AgentKitChat({
       isAssistantBoundary && runId
         ? previousSegmentEndByRun.get(runId)
         : undefined;
+    // A turn that only answered still gets one "Worked for" row: it is the
+    // run's only reply, nothing ran after it, and it shows no reasoning row.
+    const summarizesTurn = Boolean(
+      isAssistantBoundary &&
+      runId &&
+      previousAssistant === undefined &&
+      lastAssistantMessagesByRun.get(runId)?.id === message.id &&
+      !hasRunWork(runId, sequence) &&
+      !hasVisibleReasoning(message),
+    );
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
-      hasRunWork(runId, previousAssistant?.sequence, sequence),
+      (summarizesTurn ||
+        hasRunWork(runId, previousAssistant?.sequence, sequence)),
     );
     // A saved reply's reasoning before its answer joins the work group above
     // it, so the turn shows one disclosure; the stream did not place it there.
@@ -8556,6 +8600,7 @@ export function AgentKitChat({
           throughSequence: sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
+          summarizesTurn,
         }),
       );
     }
