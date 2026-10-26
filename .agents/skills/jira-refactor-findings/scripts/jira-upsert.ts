@@ -1,6 +1,7 @@
 // The only script that writes refactor findings to Jira. Two inputs, one path:
 //   --plan <file>               a finished plan
-//   --key KEY --system <system> a hot system already covered by KEY (no plan)
+//   --key KEY --system <system> a hot system already covered by KEY (no plan);
+//                               needs evidence on KEY's paths, or --files
 // Outcomes, idempotent on re-run:
 //   no ticket        → create (Pod, label, plan attached, run link)
 //   open ticket      → sighting; comment (+ updated plan) at most once per cooldown
@@ -48,9 +49,11 @@ import {
 } from "./jira.ts";
 
 const USAGE = `jira-upsert --plan <file> [--key ENG-123 | --distinct-from ENG-1,ENG-2] [--apply] [--run-url <url> | --no-run-url] [--force-comment] [--over-cap]
-jira-upsert --run <id> --key ENG-123 --system <system in targets.json> [--source <bug url or ref> --source-title "<title>" --note "<how>"] [--apply]
+jira-upsert --run <id> --key ENG-123 --system <system in targets.json> [--files a,b] [--source <bug url or ref> --source-title "<title>" --note "<how>"] [--apply]
   Plan mode matches by fingerprint, then by overlap (fingerprint anchor, same or nested system, shared files).
-  Overlapping tickets must be judged: --key if the plan is that ticket, --distinct-from if it is a different root problem.`;
+  Overlapping tickets must be judged: --key if the plan is that ticket, --distinct-from if it is a different root problem.
+  A system sighting needs some of the system's evidence files (window fix and mega-PR files, or focus files in a bug run) on the
+  ticket's paths. --files attributes more of them to the ticket and adds them to its paths; nothing else widens them.`;
 
 interface Subject {
   runId: string;
@@ -256,6 +259,21 @@ async function sightSystem(
       `${key} was resolved (${finding.resolution ?? finding.status}); a hot system after a fix is a recurrence. Write a plan and upsert it, which opens a linked recurrence ticket.`,
     );
   }
+  const attributed = argList(args, "files");
+  const notEvidence = attributed.filter(
+    (f) => !target.evidenceFiles.includes(f),
+  );
+  if (notEvidence.length) {
+    throw new ScriptError(
+      `--files takes ${system}'s evidence files in run ${id} (its window fix and mega-PR files, or the focus files in a bug run); not evidence: ${notEvidence.join(", ")}`,
+    );
+  }
+  const covered = target.evidenceFiles.filter((f) => finding.paths.includes(f));
+  if (covered.length === 0 && attributed.length === 0) {
+    throw new ScriptError(
+      `${key}'s paths cover none of ${system}'s ${target.evidenceFiles.length} evidence files in run ${id}. Read their diffs: pass --files <files> if they are ${key}'s root problem, plan them under a new slug if not, or record a decision when there is nothing to investigate.`,
+    );
+  }
   const summary = `${target.verdict}, score ${target.score}, ${target.windowCommits ?? "n/a"} window commits, ${target.lookbackFixes} lookback fixes; weekly fixes ${target.weeklyFixes.join(" → ")}`;
   const lead: AdfNode[] = source
     ? [
@@ -281,7 +299,7 @@ async function sightSystem(
     base: {
       fingerprint: finding.fingerprint ?? `fsys:${system}:external`,
       systems: [system],
-      paths: target.files,
+      paths: attributed,
     },
     lead,
     bugSource: source,
@@ -290,7 +308,19 @@ async function sightSystem(
     const comment =
       Boolean(source) || commentDue(finding, jira.config.sightingCooldownDays);
     console.log(
-      JSON.stringify({ dryRun: true, key, system, comment, summary }, null, 2),
+      JSON.stringify(
+        {
+          dryRun: true,
+          key,
+          system,
+          comment,
+          summary,
+          covered: covered.length,
+          attributed,
+        },
+        null,
+        2,
+      ),
     );
     return;
   }

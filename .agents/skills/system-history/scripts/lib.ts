@@ -9,6 +9,7 @@ export interface HistoryConfig {
   reFixDays: number;
   minWindowCommits: number;
   maxHotSystems: number;
+  megaPrNotes: number;
   systemDepth: Record<string, number>;
   ignoreSubjects: string[];
   ignorePaths: string[];
