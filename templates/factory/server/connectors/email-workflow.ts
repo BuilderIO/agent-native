@@ -154,9 +154,9 @@ function plainWord(value: unknown): string | undefined {
 }
 
 interface ProviderReply {
-  provider?: string;
-  error?: string;
-  message?: string;
+  provider?: string | undefined;
+  error?: string | undefined;
+  message?: string | undefined;
 }
 
 /**

@@ -51,7 +51,11 @@ function matches(option: ProviderOption, search: string): boolean {
 export async function listProviderOptions(
   lister: OptionLister,
   http: ProviderHttp,
-  request: { parent?: string; search?: string; cursor?: string },
+  request: {
+    parent?: string | undefined;
+    search?: string | undefined;
+    cursor?: string | undefined;
+  },
 ): Promise<OptionPage> {
   const search = request.search?.trim().toLowerCase();
   if (!search) {

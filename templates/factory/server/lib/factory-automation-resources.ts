@@ -36,10 +36,9 @@ function jobBelongsToFactory(path: string, factoryId: string): boolean {
 // `factory`. A workflow job's own appId is neither, so it is checked as the
 // file it would be without one: same folder, same organization owner.
 function isFactoryJob(meta: JobFrontmatter, resource: Resource): boolean {
+  const { appId, ...withoutAppId } = meta;
   const recoverable =
-    meta.appId?.trim() === WORKFLOW_JOB_APP_ID
-      ? { ...meta, appId: undefined }
-      : meta;
+    appId?.trim() === WORKFLOW_JOB_APP_ID ? withoutAppId : meta;
   return (
     recoveredFactoryOwnerOrgId(recoverable, resource.path, resource.owner) !==
     null

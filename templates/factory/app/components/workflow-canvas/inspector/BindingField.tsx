@@ -139,7 +139,7 @@ function ResourceControl({
   onChange,
 }: {
   id: string;
-  picker?: PickerKind;
+  picker?: PickerKind | undefined;
   text: string;
   context: FormContext;
   onChange: (value: string) => void;

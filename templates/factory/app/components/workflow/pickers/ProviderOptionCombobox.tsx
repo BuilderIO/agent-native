@@ -132,13 +132,13 @@ function Combobox({
   invalid,
   mapTarget,
 }: {
-  id?: string;
+  id?: string | undefined;
   factoryId: string;
   kind: PickerKind;
   value: string;
   onChange: (value: string) => void;
-  invalid?: boolean;
-  mapTarget?: MapTargetProps;
+  invalid?: boolean | undefined;
+  mapTarget?: MapTargetProps | undefined;
 }) {
   const s = usePickerStrings();
   const mark = useInvalidMark(invalid);

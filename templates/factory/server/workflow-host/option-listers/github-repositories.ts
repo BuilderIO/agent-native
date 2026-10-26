@@ -53,7 +53,8 @@ export const githubRepositories: OptionLister = {
         ...(tags.length > 0 ? { tags } : {}),
       };
     });
-    const more = /rel="next"/.test(response.headers.link ?? "");
+    const link = response.headers.link;
+    const more = !!link && /rel="next"/.test(link);
     return { options, ...(more ? { nextCursor: String(page + 1) } : {}) };
   },
 };

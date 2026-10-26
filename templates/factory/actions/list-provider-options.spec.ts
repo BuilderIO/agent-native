@@ -35,12 +35,16 @@ type Input = {
   cursor?: string;
 };
 
-const run = (input: Input): Promise<Record<string, any>> =>
-  (
-    action as unknown as {
-      run: (i: unknown, c: unknown) => Promise<Record<string, any>>;
-    }
-  ).run({ factoryId: "f1", ...input }, context);
+// `defineAction` is mocked to a pass-through, so the strict output check it applies is repeated here.
+const run = async (input: Input): Promise<Record<string, any>> => {
+  const definition = action as unknown as {
+    run: (i: unknown, c: unknown) => Promise<unknown>;
+    outputSchema: { parse: (result: unknown) => Record<string, any> };
+  };
+  return definition.outputSchema.parse(
+    await definition.run({ factoryId: "f1", ...input }, context),
+  );
+};
 
 interface Failure extends Error {
   errorCode: string;

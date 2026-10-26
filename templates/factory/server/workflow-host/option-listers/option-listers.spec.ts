@@ -80,8 +80,8 @@ describe("slack channels", () => {
       { value: "C2", label: "#random", hint: "C2", tags: ["bot_not_member"] },
     ]);
     expect(page.nextCursor).toBe("next-page");
-    expect(calls[0].path).toBe("/conversations.list");
-    expect(calls[0].query).toMatchObject({
+    expect(calls[0]?.path).toBe("/conversations.list");
+    expect(calls[0]?.query).toMatchObject({
       limit: "100",
       exclude_archived: "true",
       cursor: "page-two",
@@ -216,13 +216,13 @@ describe("sentry organizations and projects", () => {
       },
       { value: "builder/api", label: "api", hint: "builder/api" },
     ]);
-    expect(calls[0].path).toBe("/organizations/builder/projects/");
+    expect(calls[0]?.path).toBe("/organizations/builder/projects/");
   });
 
   it("encodes the organization into the path", async () => {
     const { http, calls } = serving(answer([]));
     await sentryProjects.list(http, { parent: "a b" });
-    expect(calls[0].path).toBe("/organizations/a%20b/projects/");
+    expect(calls[0]?.path).toBe("/organizations/a%20b/projects/");
   });
 
   it("refuses a project list without an organization", async () => {
@@ -285,8 +285,8 @@ describe("github repositories", () => {
       { value: "acme/docs", label: "acme/docs" },
     ]);
     expect(page.nextCursor).toBe("3");
-    expect(calls[0].path).toBe("/user/repos");
-    expect(calls[0].query).toMatchObject({ per_page: "100", page: "2" });
+    expect(calls[0]?.path).toBe("/user/repos");
+    expect(calls[0]?.query).toMatchObject({ per_page: "100", page: "2" });
   });
 
   it("ends with no cursor on the last page, and on an empty account", async () => {

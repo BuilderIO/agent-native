@@ -1560,12 +1560,13 @@ describe("validateWorkflowGraph", () => {
     });
 
     it("refuses a field it does not return, and lists the ones it does", () => {
-      const [issue, ...rest] = reading("nodes.check.pullRequest.number");
-      expect(rest).toEqual([]);
+      const issues = reading("nodes.check.pullRequest.number");
+      expect(issues).toHaveLength(1);
+      const issue = issues[0];
       expect(issue).toMatchObject({ code: "bad_reference", nodeId: "send" });
-      expect(issue.detail).toContain('"pullRequest"');
-      expect(issue.detail).toContain("builder.check");
-      expect(issue.detail).toContain("state, prNumber, hasPullRequest");
+      expect(issue?.detail).toContain('"pullRequest"');
+      expect(issue?.detail).toContain("builder.check");
+      expect(issue?.detail).toContain("state, prNumber, hasPullRequest");
     });
 
     it("leaves a graph saved before outputs were declared alone when the check is off", () => {

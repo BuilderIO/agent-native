@@ -18,6 +18,13 @@ import {
   OptionListError,
 } from "../server/workflow-host/option-listers/types.js";
 
+const optionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+  hint: z.string().optional(),
+  tags: z.array(z.enum(["private", "bot_not_member", "archived"])).optional(),
+});
+
 const FAILURE_STATUS = {
   credential_missing: 412,
   rate_limited: 429,
@@ -87,6 +94,12 @@ export default defineAction({
       .max(500)
       .optional()
       .describe("The nextCursor of the previous page; omit for the first."),
+  }),
+  outputSchema: z.object({
+    provider: z.enum(["slack", "sentry", "github"]),
+    resource: z.string(),
+    options: z.array(optionSchema),
+    nextCursor: z.string().optional(),
   }),
   http: { method: "GET" },
   readOnly: true,

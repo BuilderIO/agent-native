@@ -51,10 +51,10 @@ interface OptionListErrorDetails {
 export class OptionListError extends Error {
   readonly code: OptionFailureCode;
   readonly provider: OptionProvider;
-  readonly reason?: CredentialReason;
-  readonly scope?: string;
-  readonly retryAfterSeconds?: number;
-  readonly status?: number;
+  readonly reason?: CredentialReason | undefined;
+  readonly scope?: string | undefined;
+  readonly retryAfterSeconds?: number | undefined;
+  readonly status?: number | undefined;
   readonly retryable: boolean;
 
   constructor(

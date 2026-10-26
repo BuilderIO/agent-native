@@ -97,6 +97,8 @@ export function NodeDetailsName({
             setDraft(title);
             leaveField(event.currentTarget);
             break;
+          case null:
+            break;
         }
       }}
     />

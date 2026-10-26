@@ -56,9 +56,9 @@ export function providerOptionsRequest({
   factoryId: string;
   provider: string;
   resource: string;
-  parent?: string;
-  search?: string;
-  cursor?: string;
+  parent?: string | undefined;
+  search?: string | undefined;
+  cursor?: string | undefined;
 }): Record<string, string> {
   return {
     factoryId,
@@ -98,8 +98,8 @@ export function useProviderOptions({
   factoryId: string;
   kind: PickerKind;
   resource: PickerResource;
-  parent?: string;
-  search?: string;
+  parent?: string | undefined;
+  search?: string | undefined;
   enabled: boolean;
 }): ProviderOptionsState {
   const { provider } = kind;

@@ -397,6 +397,12 @@ Run the job.`),
       jobBelongsToApp(workflowJob, "factory", [" factory-workflows "]),
     ).toBe(true);
     expect(jobBelongsToApp(workflowJob, "factory", ["calendar"])).toBe(false);
+    expect(
+      jobBelongsToApp(workflowJob, "factory", [
+        "calendar",
+        "factory-workflows",
+      ]),
+    ).toBe(true);
     expect(jobBelongsToApp(workflowJob, null, ["factory-workflows"])).toBe(
       false,
     );
