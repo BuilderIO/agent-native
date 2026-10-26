@@ -1532,6 +1532,23 @@ describe("buildUserContentWithAttachments", () => {
     ).toContainEqual(expect.objectContaining({ type: "image" }));
   });
 
+  it("keeps a corrupt oversized inline image from failing the whole batch", async () => {
+    const corrupt = {
+      type: "image" as const,
+      name: "bad.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${Buffer.alloc(MAX_INLINE_IMAGE_BASE64_CHARS, 7).toString("base64")}`,
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(downscaleOversizedInlineImages([corrupt])).resolves.toEqual([
+        corrupt,
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("does not send display-only chat attachments to the model", () => {
     expect(
       buildUserContentWithAttachments({

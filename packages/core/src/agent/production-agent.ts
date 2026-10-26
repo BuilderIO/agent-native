@@ -2999,33 +2999,59 @@ export function isAgentModelVisionCapable(
  * Clones rather than mutates: the attachment's `url` still points at the
  * full-size original, which stays usable as an asset.
  */
+async function downscaleInlineImageBase64(
+  base64: string,
+  mediaType: string,
+): Promise<{ base64: string; mediaType: string } | null> {
+  if (
+    base64.length <= MAX_INLINE_IMAGE_BASE64_CHARS ||
+    !normalizeImageMediaType(mediaType)
+  ) {
+    return null;
+  }
+  try {
+    // Budget in decoded bytes so the re-encoded base64 always passes the inline limit.
+    const resized = await downscaleImageToFit({
+      data: Buffer.from(base64, "base64"),
+      maxBytes: (MAX_INLINE_IMAGE_BASE64_CHARS / 4) * 3,
+    });
+    if (!resized) return null;
+    return {
+      base64: Buffer.from(resized.data).toString("base64"),
+      mediaType: resized.mimeType,
+    };
+  } catch (err) {
+    // The unchanged oversized image falls through to the size-note path.
+    console.warn(
+      "[agent-native] inline image downscale failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
 export async function downscaleOversizedInlineImages(
   attachments: AgentChatAttachment[],
 ): Promise<AgentChatAttachment[]> {
-  return Promise.all(
-    attachments.map(async (att) => {
-      if (att.type !== "image" || !att.data) return att;
-      const parsed = parseBase64DataUrl(att.data);
-      if (
-        !parsed ||
-        parsed.data.length <= MAX_INLINE_IMAGE_BASE64_CHARS ||
-        !normalizeImageMediaType(parsed.mediaType)
-      ) {
-        return att;
-      }
-      // Budget in decoded bytes so the re-encoded base64 always passes the inline limit.
-      const resized = await downscaleImageToFit({
-        data: Buffer.from(parsed.data, "base64"),
-        maxBytes: (MAX_INLINE_IMAGE_BASE64_CHARS / 4) * 3,
-      });
-      if (!resized) return att;
-      return {
-        ...att,
-        data: `data:${resized.mimeType};base64,${Buffer.from(resized.data).toString("base64")}`,
-        contentType: resized.mimeType,
-      };
-    }),
-  );
+  // Sequential: each resize decodes a full-size image, so concurrency multiplies native memory.
+  const out: AgentChatAttachment[] = [];
+  for (const att of attachments) {
+    const parsed =
+      att.type === "image" && att.data ? parseBase64DataUrl(att.data) : null;
+    const resized = parsed
+      ? await downscaleInlineImageBase64(parsed.data, parsed.mediaType)
+      : null;
+    out.push(
+      resized
+        ? {
+            ...att,
+            data: `data:${resized.mediaType};base64,${resized.base64}`,
+            contentType: resized.mediaType,
+          }
+        : att,
+    );
+  }
+  return out;
 }
 
 export function buildUserContentWithAttachments(opts: {
@@ -3662,10 +3688,14 @@ export async function hydrateStructuredHistoryImageReferences(
         const parsed = parseBase64DataUrl(result.dataUrl);
         const mediaType = normalizeImageMediaType(result.mediaType);
         if (parsed && mediaType) {
+          const resized = await downscaleInlineImageBase64(
+            parsed.data,
+            mediaType,
+          );
           const resolution = {
             type: "image" as const,
-            data: parsed.data,
-            mediaType,
+            data: resized?.base64 ?? parsed.data,
+            mediaType: normalizeImageMediaType(resized?.mediaType) ?? mediaType,
           };
           urlResolutions.set(hydrationKey, { kind: "image", resolution });
           resolutions.set(key, resolution);
@@ -14814,7 +14844,9 @@ export function createProductionAgentHandler(
       if (Array.isArray(modelPreparedContext.contextAttachments)) {
         requestContextAttachments = [
           ...requestContextAttachments,
-          ...modelPreparedContext.contextAttachments,
+          ...(await downscaleOversizedInlineImages(
+            modelPreparedContext.contextAttachments,
+          )),
         ];
       }
       if (typeof modelPreparedContext.contextNote === "string") {
