@@ -2160,8 +2160,8 @@ const RETRY_BASE_DELAY_MS = 2000;
 
 /**
  * A customer key's 429 is that key's per-minute quota, so seconds-apart
- * retries (in-turn or whole-turn) only re-hit it; wait only when the provider
- * says how long.
+ * retries only re-hit it: the turn waits once, and only when the provider says
+ * how long, and is never rerun whole.
  */
 export function isCustomerKeyRateLimit(
   err: unknown,

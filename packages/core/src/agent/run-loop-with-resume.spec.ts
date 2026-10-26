@@ -985,28 +985,35 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
-  it("does not rerun the turn for a customer-key 429 without Retry-After", async () => {
-    let attempts = 0;
-    mockRunAgentLoop.mockImplementation(async () => {
-      attempts++;
-      throw new EngineError("429 status code (no body)", {
-        errorCode: "http_429",
-        statusCode: 429,
+  it.each([
+    ["without", undefined],
+    ["with", 5_000],
+  ])(
+    "does not rerun the turn for a customer-key 429 %s Retry-After",
+    async (_label, retryAfterMs) => {
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+          retryAfterMs,
+        });
       });
-    });
-    const opts = makeOpts(
-      [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      new AbortController().signal,
-    );
-    tagEngineCredentialOwner(opts.engine, "customer");
+      const opts = makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      );
+      tagEngineCredentialOwner(opts.engine, "customer");
 
-    await expect(
-      runAgentLoopDirectWithSoftTimeout(opts, 60_000, {
-        backgroundFunction: true,
-      }),
-    ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
-    expect(attempts).toBe(1);
-  });
+      await expect(
+        runAgentLoopDirectWithSoftTimeout(opts, 60_000, {
+          backgroundFunction: true,
+        }),
+      ).rejects.toThrow(PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE);
+      expect(attempts).toBe(1);
+    },
+  );
 
   it("keeps the provider rate-limit terminal when a 429 hits the loop-attempt cap", async () => {
     let attempts = 0;

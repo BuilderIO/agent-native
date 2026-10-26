@@ -928,28 +928,23 @@ export function credentialOwnerForEntry(
 ): EngineCredentialOwner | undefined {
   if (entry.name === "builder") return "builder";
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) return "customer";
-  // Only a stored, scoped credential proves the customer owns the key; a
-  // host-supplied key with no provenance may be the deployment's own. A vault
-  // value equal to the deployment key is dropped (apiKey undefined) so the
-  // engine uses the env key, even though its provenance stays scoped.
-  if (apiKey !== undefined && provenance && provenance.scope !== "deployment") {
-    return "customer";
-  }
   const envVar = entry.requiredEnvVars[0];
-  if (!envVar) return undefined;
-  // keyBelongsToDeployment treats a missing key as deployment-owned for
-  // endpoint safety; here it is deployment-owned only if the engine will
-  // actually fall back to a usable deployment key.
+  // With no key the engine falls back to the deployment key, if one is usable.
   if (apiKey === undefined) {
-    return config.allowEnvFallback !== false &&
+    return envVar &&
+      config.allowEnvFallback !== false &&
       canUseDeployCredentialFallbackForRequest(envVar) &&
       readDeployCredentialEnv(envVar)
       ? "deployment"
       : undefined;
   }
-  return keyBelongsToDeployment(apiKey, provenance, envVar)
-    ? "deployment"
-    : undefined;
+  // The key's value wins over its provenance: a scoped vault entry holding the
+  // deployment key is still funded by the deployment.
+  if (envVar && isDeploymentCredential(envVar, apiKey)) return "deployment";
+  // Only a stored, scoped credential proves the customer owns the key; a
+  // host-supplied key with no provenance may be the deployment's own.
+  if (!provenance) return undefined;
+  return provenance.scope === "deployment" ? "deployment" : "customer";
 }
 
 async function createEngineForEntry(

@@ -539,10 +539,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
         backgroundRateLimitContinuations,
       );
       const rateLimitRetryFitsBudget =
-        !(
-          isCustomerKeyRateLimit(err, opts.engine) &&
-          err.retryAfterMs === undefined
-        ) &&
+        // The in-turn loop already spent the one Retry-After wait a customer
+        // key gets; rerunning the turn would reset that budget.
+        !isCustomerKeyRateLimit(err, opts.engine) &&
         attempts < maxRunLoopContinuations &&
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
