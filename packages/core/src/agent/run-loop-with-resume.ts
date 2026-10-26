@@ -12,6 +12,7 @@ import {
   runAgentLoop,
   mergeAgentLoopUsage,
   appendAgentLoopContinuation,
+  isCustomerKeyRateLimit,
   isResumableEngineError,
   isTransientProviderRateLimitError,
   continuationReasonForResumableError,
@@ -587,6 +588,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
         backgroundRateLimitContinuations,
       );
       const rateLimitRetryFitsBudget =
+        // The in-turn loop already spent the one Retry-After wait a customer
+        // key gets; rerunning the turn would reset that budget.
+        !isCustomerKeyRateLimit(err, opts.engine) &&
         attempts < maxRunLoopContinuations &&
         backgroundRateLimitContinuations <
           MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
