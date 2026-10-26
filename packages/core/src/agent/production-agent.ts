@@ -4502,12 +4502,13 @@ const MAX_CONTINUATION_CHECKPOINT_CHARS = 12_000;
 
 // Whether the client still shows reply text: a `clear` discards everything before it.
 export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (event.type === "clear") return false;
-    if (event.type === "text" && event.text.trim().length > 0) return true;
+  let visible = false;
+  for (const event of events) {
+    if (event.type === "clear") visible = false;
+    else if (event.type === "text" && event.text.trim().length > 0)
+      visible = true;
   }
-  return false;
+  return visible;
 }
 
 export function hasCompletedSideEffect(
@@ -4705,14 +4706,14 @@ export function isResumableStreamFailure(
 // visible would be lost, and a completed side effect's tool cards must stay. Not
 // recorded in `events`: with no visible text there is nothing for it to reset, and
 // recording it would hide the action-preparation state a continuation reads.
-export function clearUnseenDraft(
+export async function clearUnseenDraft(
   events: readonly AgentChatEvent[],
-  emit: (event: AgentChatEvent) => void,
+  emit: (event: AgentChatEvent) => void | Promise<void>,
   noSideEffectsInLedger: boolean,
-): void {
+): Promise<void> {
   if (!noSideEffectsInLedger || turnHasVisibleText(events)) return;
   if (hasCompletedSideEffect(events)) return;
-  emit({ type: "clear" });
+  await emit({ type: "clear" });
 }
 
 export function continuationReasonForResumableError(
@@ -8101,9 +8102,9 @@ export async function runAgentLoop(opts: {
     // A restart repeats only what this attempt streamed; earlier rounds stay in history.
     const attemptHasText = () => streamedAssistantText.trim().length > 0;
     // A clear wipes the reply, so it is sent only when nothing the client shows would be lost.
-    const sendClear = () => {
+    const sendClear = async () => {
       if (!(opts.hasVisibleTurnText?.() ?? attemptHasText())) {
-        send({ type: "clear" });
+        await send({ type: "clear" });
       }
     };
     const streamedAssistantToolCalls: import("./engine/types.js").EngineToolCallPart[] =
@@ -8581,7 +8582,7 @@ export async function runAgentLoop(opts: {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
               contextMessages = trimmed;
-              sendClear();
+              await sendClear();
               continue;
             }
           }
@@ -8606,7 +8607,7 @@ export async function runAgentLoop(opts: {
               label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err, engine) + 1})`,
             });
           }
-          sendClear();
+          await sendClear();
           await retryDelay(retry, signal, retryAfterMs);
           continue;
         }
@@ -8635,7 +8636,7 @@ export async function runAgentLoop(opts: {
               type: "activity",
               label: "Model is rate limited — switching to a backup model",
             });
-            sendClear();
+            await sendClear();
             model = fallbackModel;
             usage.inputTokens = 0;
             usage.outputTokens = 0;
@@ -11663,6 +11664,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       addUsage(nextUsage);
     } catch (err) {
       if (
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while runAgentLoop awaits; TS keeps the loop-condition narrowing
         opts.signal.aborted ||
         !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
       )
@@ -11682,7 +11684,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     }
 
     lastAttemptWasUnfinishedContinuation = true;
-    clearUnseenDraft(localTurnEvents, opts.send, true);
+    await clearUnseenDraft(localTurnEvents, opts.send, true);
     appendContinuationCheckpoint(
       opts.messages,
       localTurnEvents.slice(attemptStartIndex),
