@@ -4579,3 +4579,44 @@ describe("AgentEngine registry", () => {
     });
   });
 });
+
+describe("credentialOwnerForEntry", () => {
+  const entry = (name: string, requiredEnvVars: string[] = []) =>
+    ({ name, requiredEnvVars }) as any;
+
+  it("tags the user's ChatGPT plan engine as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("chatgpt-subscription"),
+        undefined,
+        undefined,
+        {},
+      ),
+    ).toBe("customer");
+  });
+
+  it("leaves a missing key unowned when the engine cannot fall back", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        undefined,
+        undefined,
+        { allowEnvFallback: false },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("tags a scoped stored key as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        "sk-test",
+        { scope: "org", scopeId: "org-1" },
+        {},
+      ),
+    ).toBe("customer");
+  });
+});

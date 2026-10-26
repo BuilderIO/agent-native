@@ -919,22 +919,33 @@ async function apiKeyBelongsToDifferentProvider(
 
 type CredentialResolutionMode = "explicit" | "automatic";
 
-function credentialOwnerForEntry(
+/** @internal exported for unit tests only */
+export function credentialOwnerForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   provenance: CredentialProvenance | undefined,
+  config: Record<string, unknown>,
 ): EngineCredentialOwner | undefined {
   if (entry.name === "builder") return "builder";
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) return "customer";
   // Only a stored, scoped credential proves the customer owns the key; a
   // host-supplied key with no provenance may be the deployment's own.
   if (provenance && provenance.scope !== "deployment") return "customer";
-  if (
-    entry.requiredEnvVars.length > 0 &&
-    keyBelongsToDeployment(apiKey, provenance, entry.requiredEnvVars[0])
-  ) {
-    return "deployment";
+  const envVar = entry.requiredEnvVars[0];
+  if (!envVar) return undefined;
+  // keyBelongsToDeployment treats a missing key as deployment-owned for
+  // endpoint safety; here it is deployment-owned only if the engine will
+  // actually fall back to a usable deployment key.
+  if (apiKey === undefined) {
+    return config.allowEnvFallback !== false &&
+      canUseDeployCredentialFallbackForRequest(envVar) &&
+      readDeployCredentialEnv(envVar)
+      ? "deployment"
+      : undefined;
   }
-  return undefined;
+  return keyBelongsToDeployment(apiKey, provenance, envVar)
+    ? "deployment"
+    : undefined;
 }
 
 async function createEngineForEntry(
@@ -1148,12 +1159,14 @@ async function engineCreateConfigForEntry(
       };
     }
   }
+  const config = engineCreateConfig(entry, matchingApiKey, safeExtra);
   return {
-    config: engineCreateConfig(entry, matchingApiKey, safeExtra),
+    config,
     credentialOwner: credentialOwnerForEntry(
       entry,
       matchingApiKey,
       matchingApiKeyProvenance,
+      config,
     ),
   };
 }
