@@ -45,6 +45,19 @@ Helper invariants, checked in the same runs:
   reaping may terminalize a run. Run admission also has pending-inbox and
   pending-approval gates that the model omits, so `InsertRun` is an
   over-approximation. These changes do not add an unfenced step-journal write.
+- A run stopped by request saves its completion under a fence with
+  `outlivesStop` (`run-manager.ts` `withWorkerFence`), which
+  `lockAndAssertCurrentExecutionFences` accepts while the lease row still names
+  the run and generation, however expired. Writes in that callback pass this
+  check when they go through `withFencedExecutionWrite`, such as the
+  chat-thread projection (`updateThreadData`) and background-worker run
+  diagnostics (`recordRunDiagnostic`); none of the framework's own writes in
+  the callback is a step-journal write or an action effect, so `Current` stays
+  the fence for every modelled action. Writes that bypass the helper are not fence-checked
+  and are outside the model, such as completing the tracked progress run
+  (`completeProgressRun`) and whatever app-supplied completion hooks do. A claim
+  replaces owner and generation under the same row lock, so the stopped run's
+  save cannot land in a successor's turn.
 - Not covered: thread content folding, liveness (an abandoned run is
   eventually reaped or resumed), lock-order deadlocks, the team queue, and A2A
   task leases beyond their revoke.

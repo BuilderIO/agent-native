@@ -64,7 +64,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "987a1891f8b2df71f827f7d5f89bfbe870b7384d",
+    "syncCommit": "eb7f093f35e5212b2f5ce1ca0b9f5bef80df8349",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -194,7 +194,7 @@
       {
         "file": "packages/core/src/agent/execution-fence.ts",
         "name": "lockAndAssertCurrentExecutionFences",
-        "sha256": "49db08ccca30f65fe25e1702e91b8be238a8e7e0121c81ecaf1290a6317d0a71"
+        "sha256": "14275075908e01dd143ff3054343b5fc7dec85001f5d2c78ba4852b14a6c1d8a"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",

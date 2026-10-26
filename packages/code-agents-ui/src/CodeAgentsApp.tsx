@@ -19,6 +19,7 @@ import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   AgentKitChat,
   AgentKitRoot,
+  AgentKitTranscriptSkeleton,
   AgentMessageActions,
   AgentMessageView,
   useAgentKit,
@@ -59,6 +60,7 @@ import {
   type BuilderConnectFlow,
   type BuilderConnectTransport,
 } from "@agent-native/toolkit/app/settings";
+import { ChatHistoryMenuItem } from "@agent-native/toolkit/chat-history/ChatHistoryList";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconAlertCircle,
@@ -74,7 +76,6 @@ import {
   IconDeviceMobile,
   IconDeviceDesktop,
   IconDots,
-  IconEye,
   IconFolder,
   IconFolderPlus,
   IconGitBranch,
@@ -2735,14 +2736,10 @@ export default function CodeAgentsApp({
   }, [host, loadRuns, portalTransferBusy, portalTransferRequest]);
 
   const handleRailAdditionalRowActions = useCallback(
-    (item: ChatHistoryItem, closeMenu: () => void) => (
+    (item: ChatHistoryItem) => (
       <>
-        <button
-          type="button"
-          role="menuitem"
-          className="an-chat-history-row__menu-item"
-          onClick={() => {
-            closeMenu();
+        <ChatHistoryMenuItem
+          onSelect={() => {
             void writeClipboardText(item.id).then((copied) => {
               toast(
                 copied ? "Session ID copied" : "Could not copy session ID",
@@ -2751,15 +2748,10 @@ export default function CodeAgentsApp({
             });
           }}
         >
-          <IconCopy size={13} strokeWidth={1.8} />
-          <span>Copy session ID</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          className="an-chat-history-row__menu-item"
-          onClick={() => {
-            closeMenu();
+          Copy session ID
+        </ChatHistoryMenuItem>
+        <ChatHistoryMenuItem
+          onSelect={() => {
             const run = runsRef.current.find(
               (candidate) => candidate.id === item.id,
             );
@@ -2773,29 +2765,17 @@ export default function CodeAgentsApp({
             });
           }}
         >
-          <IconEye size={13} strokeWidth={1.8} />
-          <span>
-            {watchedSessionTargetRef.current?.sessionId === item.id
-              ? "Keep watching session"
-              : "Watch and message session"}
-          </span>
-        </button>
+          {watchedSessionTargetRef.current?.sessionId === item.id
+            ? "Keep watching session"
+            : "Watch and message session"}
+        </ChatHistoryMenuItem>
         {host.transferRun &&
         runsRef.current.some(
           (run) => run.id === item.id && !isPortalCodeAgentRun(run),
         ) ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="an-chat-history-row__menu-item"
-            onClick={() => {
-              closeMenu();
-              requestPortalTransfer(item.id);
-            }}
-          >
-            <IconRoute size={13} strokeWidth={1.8} />
-            <span>Move to Portal</span>
-          </button>
+          <ChatHistoryMenuItem onSelect={() => requestPortalTransfer(item.id)}>
+            Move to Portal
+          </ChatHistoryMenuItem>
         ) : null}
       </>
     ),
@@ -2871,7 +2851,7 @@ export default function CodeAgentsApp({
             }
             loading={loading}
             loadingLabel={<RunListSkeleton />}
-            emptyLabel="No chats yet."
+            emptyLabel={t("agentChat.history.empty")}
             onSelect={handleRailSelect}
             onOpen={handleRailOpen}
             onTogglePin={handleRailTogglePin}
@@ -3992,6 +3972,7 @@ function CodeAgentComposer({
   showModelSelector = true,
   plusMenuModeOverride,
   draftScopeOverride,
+  clearOnSubmitImmediately,
   terminalModeControl,
 }: {
   prompt: string;
@@ -4027,6 +4008,8 @@ function CodeAgentComposer({
   showModelSelector?: boolean;
   plusMenuModeOverride?: "full" | "upload-only";
   draftScopeOverride?: string;
+  /** Clear the draft on submit; a failed send restores it. */
+  clearOnSubmitImmediately?: boolean;
 }) {
   const t = useT();
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
@@ -4193,6 +4176,7 @@ function CodeAgentComposer({
       terminalModeControl={terminalModeControl}
       voiceEnabled
       preserveDraftOnSubmit={false}
+      clearOnSubmitImmediately={clearOnSubmitImmediately}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
       onDisabledClick={onDisabledClick}
@@ -5086,7 +5070,7 @@ function SearchChatsPanel({
 
       {error && (
         <div className="code-agents-transcript__error">
-          <IconAlertCircle size={15} strokeWidth={1.8} />
+          <IconAlertCircle size={16} strokeWidth={1.8} />
           <span>{error}</span>
         </div>
       )}
@@ -5752,14 +5736,12 @@ function TranscriptPanel({
     <div className="code-agents-transcript">
       {error && (
         <div className="code-agents-transcript__error">
-          <IconAlertCircle size={15} strokeWidth={1.8} />
+          <IconAlertCircle size={16} strokeWidth={1.8} />
           <span>{error}</span>
         </div>
       )}
       {loading && events.length === 0 ? (
-        <div className="code-agents-transcript__empty">
-          Loading transcript...
-        </div>
+        <AgentKitTranscriptSkeleton />
       ) : (
         <>
           <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
@@ -5780,6 +5762,7 @@ function TranscriptPanel({
               <AgentKitChat
                 className="code-agents-transcript__assistant"
                 emptyComposerPlacement="bottom"
+                expectExistingThread
                 toolbar={
                   onForkChat ? (
                     <CodeAgentKitForkToolbar onFork={onForkChat} />
@@ -5957,6 +5940,7 @@ function CodeAgentKitComposerSlot({ threadId }: { threadId: string }) {
       onDisabledClick={chat.onDisabledClick}
       plusMenuModeOverride="upload-only"
       draftScopeOverride={`agent-native-code:follow-up:${threadId}`}
+      clearOnSubmitImmediately
     />
   );
 }

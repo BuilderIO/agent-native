@@ -17,7 +17,7 @@
   --secondary: 0 0% 95%;
   --secondary-foreground: 0 0% 15%;
   --muted: 0 0% 95%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 43%;
   --accent: 0 0% 95%;
   --accent-foreground: 0 0% 15%;
   --destructive: 0 91% 71%;
@@ -27,14 +27,14 @@
   --ring: 0 0% 40%;
   --radius: 0.5rem;
   --sidebar-background: 0 0% 97%;
-  --sidebar-foreground: 0 0% 45%;
+  --sidebar-foreground: 0 0% 43%;
   --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
-  --chat-sidebar-width: 17.25rem;
+  --chat-sidebar-width: 17.5rem;
   --chat-sidebar-content-inset: 0.5rem;
   --chat-sidebar-row-padding: 0.75rem;
   --chat-sidebar-title-fade: 1.25rem;
@@ -42,7 +42,16 @@
 
 .chat-layout-shell {
   --agent-layout-left-drawer-expanded-width: var(--chat-sidebar-width);
+  --agent-layout-left-drawer-collapsed-width: 3rem;
   --agent-native-lower-surface: var(--agent-kit-nav-surface);
+}
+
+/* Phones get one app bar: the layout bar carries the thread title and
+   toolbar, so the AgentKit header would stack a second 48px bar. */
+@media (max-width: 47.99rem) {
+  [data-chat-header-in-app-bar="true"] .agentkit-chat-header {
+    display: none;
+  }
 }
 
 .agentkit-chat-empty-copy {
@@ -58,7 +67,11 @@
 }
 
 .agent-kit-chat-footer-stack {
-  inline-size: min(100%, 47rem);
+  /* Matches the transcript text lane (the lane minus its 1rem padding). */
+  inline-size: min(
+    100%,
+    calc(var(--agent-kit-conversation-max-width, 47rem) - 2rem)
+  );
   margin-inline: auto;
   pointer-events: auto;
 }
@@ -85,7 +98,7 @@
   padding: 8px
     calc(var(--chat-sidebar-content-inset) + var(--chat-sidebar-row-padding))
     5px;
-  color: hsl(var(--sidebar-foreground) / 0.66);
+  color: hsl(var(--sidebar-foreground));
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0;
@@ -97,17 +110,36 @@
   border-radius: calc(var(--radius) + 2px);
 }
 
+.chat-sidebar-history.an-chat-history--rail .an-chat-history__skeleton-row {
+  min-height: 32px;
+  margin-inline: var(--chat-sidebar-content-inset);
+  padding-inline: var(--chat-sidebar-row-padding);
+}
+
 .chat-sidebar-history.an-chat-history--rail .an-chat-history-row__button {
-  min-height: 34px;
-  padding-block: 7px;
+  min-height: 32px;
+  padding-block: 6px;
   padding-inline: var(--chat-sidebar-row-padding);
   color: hsl(var(--sidebar-foreground));
 }
 
+/* The ⋯ trigger sits 3px in from the row edge and is 24px wide, so it
+   reaches 15px into the title line past the row padding. */
+.chat-sidebar-history.an-chat-history--rail {
+  --an-chat-history-menu-clearance: calc(
+    1.6875rem - var(--chat-sidebar-row-padding)
+  );
+}
+
+/* Pinned rows hide their trigger until hover here, so they fade only then. */
 .chat-sidebar-history.an-chat-history--rail
-  .an-chat-history-row--has-menu
-  .an-chat-history-row__button {
-  padding-inline-end: calc(var(--chat-sidebar-row-padding) + 1.5rem);
+  .an-chat-history-row--pinned:not(
+    :hover,
+    :focus-within,
+    .an-chat-history-row--menu-open
+  )
+  .an-chat-history-row__topline {
+  mask-image: none;
 }
 
 .chat-sidebar-history .an-chat-history-row__title {
@@ -157,10 +189,6 @@
   .chat-sidebar-thread-title__content {
   animation: chat-sidebar-title-reveal
     var(--chat-sidebar-title-duration, 1800ms) ease-in-out 350ms;
-}
-
-.chat-sidebar-thread-details {
-  border-color: hsl(var(--sidebar-border));
 }
 
 .chat-sidebar-history.an-chat-history--rail

@@ -1,0 +1,121 @@
+---
+title: "决策"
+description: "使用 @agent-native/core/decisions 进行能力感知的分类与评分。"
+---
+
+# 决策
+
+`@agent-native/core/decisions` 导出 `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`，用于对结构化问题进行能力感知的分类与评分。它会返回结果供调用方查看，但不会执行或授权后续操作。
+
+## 输入与问题
+
+decide() 接受 ownerEmail、输入部分数组、命名问题和可选执行设置。输入部分可以包含文本、结构化 JSON 或图片 URL：
+
+也可以直接将字符串作为 input 传入。
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+`input` 和 `questions` 序列化为 JSON 后的总大小不得超过 256 KiB。
+
+每个问题都有 name 和 instructions。问题类型决定了额外字段：
+
+| 类型        | 额外字段                           | 用途                   |
+| ----------- | ---------------------------------- | ---------------------- |
+| `predicate` | 无                                 | 评估指定的谓词         |
+| `choice`    | `choices`：带说明的字符串值        | 从提供的值中选择       |
+| `score`     | `levels`：2 到 10 个有序标签及说明 | 将输入放到给定的量表上 |
+
+choices 项的形状为 `{ value: string, description: string }`。score 等级的形状为 `{ label: string, description: string }`。
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+此示例在一次调用中同时提出选择问题和评分问题。评分使用五个有序等级，处于支持的 2 到 10 个等级范围内。
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+参数对象包含以下字段：
+
+- **ownerEmail**: 用于解析决策配置的工作区所有者邮箱。
+- **input**: 要评估的文本、JSON 或图片 URL 部分。
+- **questions**: 命名的 predicate、choice 或 score 问题。
+- **options**: 可选的 signal、timeoutMs、providers 或 cacheKey 设置。
+
+成功时 result.status 为 ok。结果包含 provider、model 和按问题名称索引的 answers，cached 和 usage 为可选字段。not_configured 包含 missing_credentials 原因和 providers 列表。failed 包含类型化原因，并可能包含 provider 和 questionNames。只有提供 cacheKey 时才会启用缓存。缓存键的范围包括 owner、组织、provider、model、cacheKey、input 和 questions。内存缓存有效期为 60 秒，最多保存 256 个条目。
+
+## 能力感知的提供方支持
+
+不同提供方和模型支持的问题类型可能不同。decide() 会考虑能力，因此不要假定所有提供方都支持所有问题类型。只有在验证后，才能宣传某个提供方、模型和问题类型组合。成功结果会标明作答的提供方和模型。
+
+默认的提供方顺序来自部署共享的应用配置，而不是每个工作区单独的设置。该部署服务的所有工作区都使用相同顺序，除非调用通过 `options.providers` 覆盖。默认先尝试 Builder Jev、个人 Jev 密钥，然后是 OpenAI。如果没有配置任何提供方，`decide()` 会返回 `not_configured`。共享应用配置中的 `decisions.providerOrder` 字段控制 Jev 和 OpenAI 的默认顺序。`decisions.timeoutMs` 设置单次决策的总时间预算，包括凭据查找和提供方执行。所有提供方尝试共享此预算。对应的环境变量别名为 `DECISIONS_PROVIDER_ORDER`（逗号分隔）和 `DECISIONS_TIMEOUT_MS`。按提供方设置的阈值或缓存键必须同时包含提供方和模型，避免将一个模型的校准结果或缓存结果用于另一个模型。
+提供方能力取决于调用路由。Builder Jev 代理已验证支持 `predicate` 和 `choice`。Jev `score` 尚未验证，并由能力标志保持禁用；对于 score 问题，`decide()` 会跳过 Jev 并继续尝试下一个已配置的提供方。`getDecisionsStatus()` 会返回能力的验证状态以及各项能力是否启用。状态查询会响应取消，并使用配置的 `decisions.timeoutMs` 预算检查提供方就绪状态；期限结束时仍在检查的提供方会返回 `unknown`。OpenAI Decisions API 支持使用 2–10 个有序级别的 score 问题；文档格式的 fixtures 覆盖了请求和响应映射。
+
+decide() 返回由调用方解释的分类或分数。若要进一步更改应用数据，请使用单独且经过授权的 action。

@@ -5195,6 +5195,7 @@ const JOURNAL_EVENT_STRING_FIELDS = {
   tripwire: ["reason"],
   auto_continue: ["reason"],
   clear: [],
+  user_message: ["continuationMessageId"],
 } satisfies Record<AgentChatEvent["type"], readonly string[]>;
 
 function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
@@ -5254,6 +5255,13 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
       );
     case "approval_required":
       return isJournalObject(value.input);
+    case "user_message":
+      return (
+        isJournalObject(value.message) &&
+        typeof value.message.id === "string" &&
+        typeof value.message.text === "string" &&
+        typeof value.message.createdAt === "string"
+      );
     case "agent_call_activity":
       return isJournalObject(value.snapshot);
     case "agent_call_progress":
@@ -5769,6 +5777,25 @@ export async function ensureTerminalRunEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
   return appendTerminalRunEvent(runId, event);
+}
+
+/** Hands a terminal run's thread save to the stale-run projection retry. */
+export async function markRunThreadProjectionPending(
+  runId: string,
+): Promise<void> {
+  await ensureRunTables();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_pending = TRUE,
+              thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
+          WHERE id = ? AND status <> 'running'`,
+    args: [runId],
+  });
+  if (rowsAffected !== 1) {
+    throw new Error(
+      `Run ${runId} did not retain its thread projection retry marker`,
+    );
+  }
 }
 
 /**

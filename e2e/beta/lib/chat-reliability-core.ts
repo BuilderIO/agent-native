@@ -9,7 +9,7 @@
 export const RELIABILITY_TAG = "[chat-reliability]";
 
 /**
- * Apps that run the whole reliability set (8 turns each). Every other chat app
+ * Apps that run the whole reliability set (9 turns each). Every other chat app
  * runs only the refresh-mid-run smoke (1 turn). Widening this list is a spend
  * decision, the same way `CHAT_APPS` in fleet.ts is.
  */
@@ -421,9 +421,10 @@ export interface TrafficEntry {
   query: string;
   status: number | null;
   failure?: string;
-  /** From the request body of a turn POST. */
+  /** From the request body that submitted this message. */
   threadId?: string;
   messageId?: string;
+  queueMutationType?: string;
   queuedState?: string;
   queuedMessageId?: string;
   queuedThreadId?: string;
@@ -455,6 +456,14 @@ export function isTurnPost(entry: TrafficEntry): boolean {
   return (
     entry.method === "POST" &&
     entry.path.replace(/\/+$/, "").endsWith(TURN_PATH)
+  );
+}
+
+export function isQueuedMessageAppendPost(entry: TrafficEntry): boolean {
+  return (
+    entry.method === "POST" &&
+    entry.queueMutationType === "append" &&
+    /^\/_agent-native\/agent-chat\/threads\/[^/]+\/queued\/?$/.test(entry.path)
   );
 }
 
@@ -966,6 +975,30 @@ export interface ActiveRunView {
   detail: string;
 }
 
+function inspectRunDiagnostic(value: unknown): {
+  stage: string | null;
+  evidence: string | null;
+} {
+  if (typeof value !== "string") return { stage: null, evidence: null };
+  const parsed = parseJson(value);
+  const diagnostic = parsed.ok ? asRecord(parsed.value) : null;
+  const stage = diagnostic?.stage;
+  const safeStage =
+    typeof stage === "string" && /^[a-z][a-z_]*$/.test(stage) ? stage : null;
+  const detail = diagnostic?.detail;
+  const safeEvidence =
+    typeof detail === "string"
+      ? [
+          ...detail.matchAll(
+            /(?:^|\s)(window=\d+|dispatch=(?:none|background(?:-processing)?|inline)|redispatchable=[01]|sinceHeartbeat=\d+|sinceProgress=\d+|hbAheadOfProgress=-?\d+|runAge=\d+|inFlight=[01]|inFlightFor=\d+|priorDiag=[a-z_]+|priorWorker=[a-z_]+|declined reason=[a-z_]+)/g,
+          ),
+        ]
+          .map((match) => match[1])
+          .join(" ") || null
+      : null;
+  return { stage: safeStage, evidence: safeEvidence };
+}
+
 /** Reads `GET /runs/active?threadId=`: `active:false` is the server saying idle. */
 export function inspectActiveRun(body: unknown): ActiveRunView {
   const record = asRecord(body);
@@ -975,11 +1008,18 @@ export function inspectActiveRun(body: unknown): ActiveRunView {
       detail: `unexpected body ${JSON.stringify(body)?.slice(0, 200)}`,
     };
   }
+  const diagStage = inspectRunDiagnostic(record.diagStage);
   const detail = JSON.stringify({
     active: record.active,
     status: record.status,
     terminalReason: record.terminalReason ?? null,
     runId: record.runId ?? null,
+    dispatchMode: record.dispatchMode ?? null,
+    diagStage: diagStage.stage,
+    diagEvidence: diagStage.evidence,
+    workerStage: inspectRunDiagnostic(record.workerStage).stage,
+    heartbeatAt: record.heartbeatAt ?? null,
+    lastProgressAt: record.lastProgressAt ?? null,
   });
   return { kind: record.active ? "active" : "idle", detail };
 }

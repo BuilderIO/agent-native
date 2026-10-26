@@ -13,7 +13,7 @@ import {
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BOARD = "__board__.html";
 
-test.use({ viewport: { width: 1440, height: 1000 } });
+test.use({ viewport: { width: 1480, height: 1000 } });
 
 const EMPTY_SCREEN = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff;min-height:800px">

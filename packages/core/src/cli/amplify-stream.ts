@@ -54,7 +54,10 @@ export function parseAmplifyStreamArgs(
       options.skipRelease = true;
       continue;
     }
-    const valueFlags: Record<string, keyof AmplifyStreamOptions> = {
+    const valueFlags: Record<
+      string,
+      Exclude<keyof AmplifyStreamOptions, "skipRelease">
+    > = {
       "--amplify-app-id": "amplifyAppId",
       "--branch": "branch",
       "--region": "region",

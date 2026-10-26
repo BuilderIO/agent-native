@@ -11,6 +11,7 @@ import {
   createError,
   defineEventHandler,
   mockEvent,
+  getResponseStatus,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -68,6 +69,7 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
   isAgentChatDurableBackgroundEnabled,
@@ -136,13 +138,13 @@ import {
   readBackgroundRunClaim,
   retryRunThreadProjection,
 } from "../agent/run-store.js";
-import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
+import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
 } from "../agent/runtime-context.js";
 import {
-  buildAssistantMessage,
+  buildAssistantTurnSegments,
   buildUserMessage,
   applySubmittedUserMessage,
   containsInlineAttachmentPayload,
@@ -347,6 +349,8 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+// Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
+const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
 
 type AgentChatRunTrackingSource = Pick<
   TrackingMeta,
@@ -2348,6 +2352,7 @@ export function createAgentChatPlugin(
           workspaceAppsEnabled: input.workspaceAppsEnabled,
           apiKey: credentials.apiKey,
           personalApiKey: credentials.personalApiKey,
+          directApiKey: credentials.directApiKey,
           builderAuth: credentials.builderAuth,
           appDiscoveryOnly: true,
         });
@@ -4082,19 +4087,22 @@ export function createAgentChatPlugin(
               ? Math.max(0, Date.now() - run.startedAt)
               : undefined,
         } as const;
-        const assistantMsg =
+        const assistantTurn: ReturnType<typeof buildAssistantTurnSegments> & {
+          parentId?: string;
+        } =
           runThreadId && run.turnId
-            ? await buildAssistantMessageFromRunJournal({
+            ? await buildAssistantTurnFromRunJournal({
                 threadId: runThreadId,
                 turnId: run.turnId,
                 runId: run.runId,
                 runEvents: run.events ?? [],
                 options: assistantOptions,
               })
-            : buildAssistantMessage(run.events ?? [], run.runId, {
+            : buildAssistantTurnSegments(run.events, run.runId, {
                 ...assistantOptions,
                 turnId: run.turnId,
               });
+        const assistantMsg = assistantTurn.assistant;
         const runContext = getRequestRunContext();
         const failureCode =
           run.status === "errored"
@@ -4117,7 +4125,10 @@ export function createAgentChatPlugin(
           options?.appId,
           trackingSource,
         );
-        if (!assistantMsg) {
+        if (
+          !assistantMsg &&
+          assistantTurn.steered.every(({ assistant }) => !assistant)
+        ) {
           trackAgentChatRunLifecycle(
             "run_no_reply",
             runThreadId || undefined,
@@ -4152,7 +4163,14 @@ export function createAgentChatPlugin(
               let repo = JSON.parse(thread.threadData || "{}");
               if (!Array.isArray(repo.messages)) repo.messages = [];
 
-              repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
+              repo = foldAgentChatRunCompletion(
+                repo,
+                assistantMsg,
+                assistantTurn.parentId
+                  ? { ...run, parentId: assistantTurn.parentId }
+                  : run,
+                assistantTurn.steered,
+              );
 
               // Store debug metadata so we can inspect what the LLM actually
               // received (system prompt, model, engine) when diagnosing issues.
@@ -8484,13 +8502,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               } else if (
                 (record?.type === "remove" ||
                   record?.type === "cancel" ||
-                  record?.type === "moveToTop") &&
+                  record?.type === "moveToTop" ||
+                  record?.type === "steer") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
                 mutation = {
                   type: record.type,
                   messageId: record.messageId,
+                };
+              } else if (
+                record?.type === "reorder" &&
+                Array.isArray(record.messageIds) &&
+                record.messageIds.length <= MAX_REORDER_QUEUED_MESSAGE_IDS &&
+                record.messageIds.every(
+                  (id: unknown) => typeof id === "string" && id.length > 0,
+                ) &&
+                new Set(record.messageIds).size === record.messageIds.length
+              ) {
+                mutation = {
+                  type: "reorder",
+                  messageIds: record.messageIds as string[],
                 };
               } else if (
                 (record?.type === "claim" || record?.type === "release") &&
@@ -8561,7 +8593,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   };
                 }
                 if (
-                  mutation.type === "claim" &&
+                  (mutation.type === "claim" || mutation.type === "steer") &&
                   error instanceof Error &&
                   error.message ===
                     `Unknown queued message: ${mutation.messageId}`
@@ -8593,6 +8625,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   error: "Queue item is being promoted",
                   code: "queue_item_busy",
                   retryable: true,
+                };
+              }
+              if (result.queueOrderStale) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue changed before it could be reordered",
+                  code: "queue_order_stale",
+                  retryable: false,
                 };
               }
               if (
@@ -9897,6 +9937,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (expectsBackgroundRuntime) {
             runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
+          let stopBackgroundSetupHeartbeat = true;
+          const reportFailureFinalizationError = (error: unknown) => {
+            console.error(
+              "[agent-chat] _process-run failure finalization failed:",
+              error,
+            );
+            captureError(error, {
+              route: AGENT_CHAT_PROCESS_RUN_PATH,
+              method: getMethod(event),
+              userAgent: getHeader(event, "user-agent"),
+              tags: {
+                source: "agent-chat-bg-worker",
+                phase: "process-run-finalization",
+              },
+              extra: {
+                runId: prepared.runId,
+              },
+            });
+          };
 
           try {
             // DIAGNOSTIC: load the run-store diagnostic recorder only after the
@@ -9999,7 +10058,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
             await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
-            return await invokeAgentChatHandler(event);
+            const result = await invokeAgentChatHandler(event);
+            const responseStatus = getResponseStatus(event);
+            if (responseStatus >= 400) {
+              const responseCode =
+                result &&
+                typeof result === "object" &&
+                "code" in result &&
+                typeof result.code === "string"
+                  ? result.code
+                  : undefined;
+              try {
+                await finalizeClaimedAgentChatProcessRunFailure(
+                  prepared.runId,
+                  new Error(
+                    `Background worker returned HTTP ${responseStatus}${responseCode ? ` code=${responseCode}` : ""}`,
+                  ),
+                );
+              } catch (error) {
+                stopBackgroundSetupHeartbeat = false;
+                reportFailureFinalizationError(error);
+              }
+            }
+            return result;
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
             captureError(err, {
@@ -10014,13 +10095,32 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            await finalizeClaimedAgentChatProcessRunFailure(
-              prepared.runId,
-              err,
-            );
+            try {
+              await finalizeClaimedAgentChatProcessRunFailure(
+                prepared.runId,
+                err,
+              );
+            } catch (finalizationError) {
+              stopBackgroundSetupHeartbeat = false;
+              reportFailureFinalizationError(finalizationError);
+            }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           } finally {
+            const setupCleanup = (event as any).context?.[
+              AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD
+            ];
+            if ((event as any).context) {
+              delete (event as any).context[
+                AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD
+              ];
+            }
+            if (
+              stopBackgroundSetupHeartbeat &&
+              typeof setupCleanup === "function"
+            ) {
+              setupCleanup();
+            }
             if (expectsBackgroundRuntime) {
               if (hadExpectedRuntimeMarker) {
                 runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ =
