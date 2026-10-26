@@ -411,7 +411,7 @@ export function runPastedImageFiles(
     localPoint: { x: number; y: number } | (() => { x: number; y: number }),
   ) => {
     const applyDurableContent = (nextContent: string) => {
-      if (isTargetFileActive(targetFileId)) {
+      if (targetFileId === activeFile.id) {
         const publication = applyLocalContentUpdate(nextContent, {
           forcePreviewFullDocument: true,
         });
@@ -441,9 +441,10 @@ export function runPastedImageFiles(
         ? buildPastedSvgLayer(markup, svgLayerName(file.name))
         : null;
       if (!layer) return false;
-      const baseContent = isTargetFileActive(targetFileId)
-        ? getFreshActiveContent()
-        : (getScreenContent(targetFileId) ?? "");
+      const baseContent =
+        targetFileId === activeFile.id
+          ? getFreshActiveContent()
+          : (getScreenContent(targetFileId) ?? "");
       const inserted = insertClonedHtmlLayers(baseContent, [layer.html], {
         positions: [{ ...topLeftFor(layer), space: "visual" }],
       });
@@ -471,9 +472,10 @@ export function runPastedImageFiles(
           toast.error(t("common.genericError"));
           continue;
         }
-        const baseContent = isTargetFileActive(targetFileId)
-          ? getFreshActiveContent()
-          : (getScreenContent(targetFileId) ?? "");
+        const baseContent =
+          targetFileId === activeFile.id
+            ? getFreshActiveContent()
+            : (getScreenContent(targetFileId) ?? "");
         const nodeId = uniqueLayerId("pasted-image");
         const previewUrl =
           typeof URL.createObjectURL === "function"
@@ -528,14 +530,16 @@ export function runPastedImageFiles(
 
         try {
           const imageUrl = await uploadMediaFileForHtml(file);
-          const durableContent = isTargetFileActive(targetFileId)
-            ? getFreshActiveContent()
-            : (getScreenContent(targetFileId) ?? "");
+          const durableContent =
+            targetFileId === activeFile.id
+              ? getFreshActiveContent()
+              : (getScreenContent(targetFileId) ?? "");
           const durableMediaUrl =
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
-          const activePreviewContent = isTargetFileActive(targetFileId)
-            ? (getFreshActivePreviewContent?.() ?? null)
-            : null;
+          const activePreviewContent =
+            targetFileId === activeFile.id && isTargetFileActive(targetFileId)
+              ? (getFreshActivePreviewContent?.() ?? null)
+              : null;
           const deletedWhilePending =
             activePreviewContent !== null &&
             !activePreviewContent.includes(`"${insertedNodeId}"`);
@@ -588,9 +592,10 @@ export function runPastedImageFiles(
             insertedNodeId,
           ]);
         } catch {
-          const currentContent = isTargetFileActive(targetFileId)
-            ? getFreshActiveContent()
-            : (getScreenContent(targetFileId) ?? "");
+          const currentContent =
+            targetFileId === activeFile.id
+              ? getFreshActiveContent()
+              : (getScreenContent(targetFileId) ?? "");
           if (isTargetFileActive(targetFileId)) {
             replacePreviewContent(currentContent, null, {
               forceFullDocument: true,
