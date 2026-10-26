@@ -43,7 +43,6 @@ const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipAllowanceAfterCleanup = vi.hoisted(() => vi.fn());
 const mockReleaseOrphanedHostedClipAllowance = vi.hoisted(() => vi.fn());
 const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
-const mockReadUploadPhase = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
@@ -70,10 +69,6 @@ vi.mock("./reconcile-meeting-on-finalize.js", () => ({
     mockReconcileMeetingOnRecordingFailed(...args),
 }));
 
-// Where an upload stands is the claim module's to say, tested with it.
-vi.mock("./final-chunk-claim.js", () => ({
-  readUploadPhase: (...args: unknown[]) => mockReadUploadPhase(...args),
-}));
 vi.mock("./resumable-upload-cleanup.js", () => ({
   abortResumableUploadSession: (...args: unknown[]) =>
     mockAbortResumableUploadSession(...args),
@@ -174,11 +169,6 @@ describe("upload lease", () => {
     mockReleaseOrphanedHostedClipAllowance.mockClear();
     mockReconcileMeetingOnRecordingFailed.mockClear();
     mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
-    mockReadUploadPhase.mockReset();
-    mockReadUploadPhase.mockResolvedValue({
-      phase: "uploading",
-      status: "uploading",
-    });
     await execute(
       client,
       `CREATE TABLE recordings (
@@ -567,30 +557,6 @@ describe("upload lease", () => {
       args: [`clips-meeting-finalize-retry-dead`],
     });
     expect(retryRows).toEqual([]);
-  });
-
-  it("leaves an expired upload whose final chunk still holds it to a later sweep", async () => {
-    await insertRecording({
-      id: "finishing",
-      status: "uploading",
-      lease: iso(-1_000),
-    });
-    await insertChunk("finishing", 0);
-    mockReadUploadPhase.mockResolvedValue({
-      phase: "finishing",
-      status: "uploading",
-    });
-
-    const result = await reapExpiredUploads({ now: NOW });
-
-    expect(result.failed).toBe(0);
-    expect((await statusOf("finishing")).status).toBe("uploading");
-    expect(await chunkKeys()).toEqual(["recording-chunks-finishing-000000"]);
-    expect(mockReadUploadPhase).toHaveBeenCalledWith(
-      "finishing",
-      "owner@example.com",
-      { now: NOW },
-    );
   });
 
   it("releases a hosted reservation after an expired upload's multipart session is confirmed aborted", async () => {

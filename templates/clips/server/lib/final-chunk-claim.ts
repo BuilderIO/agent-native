@@ -1,8 +1,8 @@
 /**
  * Where a Content page's upload stands, for every path that has to know: a
- * repeated start, a cancel, the Content chunk route and the lease reaper.
- * It is kept in three places, the final chunk's claim, the upload state and
- * the recording row, and only `phaseOf` reads them together.
+ * repeated start, a cancel and the Content chunk route. It is kept in three
+ * places, the final chunk's claim, the upload state and the recording row,
+ * and only `phaseOf` reads them together.
  *
  * The final chunk claims the upload before Clips takes its bytes, and writes
  * where the upload went into the upload state before it gives the claim up.
@@ -10,6 +10,13 @@
  * claim is live. The claim and the cancel write the upload state with a
  * compare-and-swap, so a cancel that read it before a claim fails its own
  * and reads again.
+ *
+ * The lease reaper reads none of this: the row's lease decides between it
+ * and a final chunk. Before it claims, the final chunk renews the lease of a
+ * row still uploading to outlast the claim, and the reaper fails only a row
+ * whose lease ran out, each in one conditional update. So either the reaper
+ * failed the row first and the final chunk finds it ended, or the reaper
+ * leaves it.
  */
 import crypto from "node:crypto";
 
@@ -18,7 +25,7 @@ import {
   compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../db/index.js";
@@ -140,6 +147,32 @@ export async function readUploadPhase(
   };
 }
 
+/**
+ * Keeps the row's lease for at least a claim's life, while it is uploading.
+ * False once something else ended or finished it.
+ */
+async function holdLease(
+  recordingId: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  const lease = schema.recordings.uploadLeaseExpiresAt;
+  const until = new Date(Date.now() + FINAL_CHUNK_CLAIM_TTL_MS).toISOString();
+  const held = await getDb()
+    .update(schema.recordings)
+    .set({
+      uploadLeaseExpiresAt: sql`CASE WHEN ${lease} > ${until} THEN ${lease} ELSE ${until} END`,
+    })
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        eq(schema.recordings.status, "uploading"),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    )
+    .returning({ id: schema.recordings.id });
+  return held.length > 0;
+}
+
 function contention(): never {
   throw createError({
     statusCode: 503,
@@ -149,8 +182,9 @@ function contention(): never {
 
 /**
  * Claims the upload for its final chunk, before Clips takes the bytes, while
- * it is `uploading`; an expired claim counts as none. Otherwise the phase it
- * is in, which the chunk is answered with, and null once it is gone.
+ * it is `uploading`; an expired claim counts as none. The row's lease is
+ * renewed first, so the reaper can't fail it under the claim. Otherwise the
+ * phase it is in, which the chunk is answered with, and null once it is gone.
  */
 export async function claimFinalChunk(
   recordingId: string,
@@ -167,6 +201,10 @@ export async function claimFinalChunk(
     if (!row) return null;
     const phase = phaseOf(current, uploadState, row, Date.now());
     if (phase !== "uploading") return { phase, status: row.status };
+    // A lease renewed for a claim that then loses its compare-and-swap only
+    // runs two minutes longer, which nothing needs undone. One that finds no
+    // row uploading reads again, to answer how it ended.
+    if (!(await holdLease(recordingId, ownerEmail))) continue;
     // The upload state changes too, so a cancel that read it before this
     // claim fails its own compare-and-swap and reads the claim.
     const claimed = await compareAndSetManyAppState([
