@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -50,11 +51,6 @@ const todaysStack = {
   in_app: "Keep the notes together.",
 };
 const replacementItems: Record<string, string[]> = {
-  "ai-meeting-notes": [
-    "**Typing notes while half-listening** leaves gaps, and whoever takes them misses part of the conversation.",
-    "**A separate note-taker, like Granola,** transcribes and summarizes, but its notes live apart from your screen recordings and dictations.",
-    "**A shared doc nobody opens again** is where decisions, owners, and dates usually get lost.",
-  ],
   "ask-your-database-in-plain-english": [
     "**Routing every question to whoever writes SQL,** then waiting for the answer.",
     "**A BI tool, like Looker,** covers the questions someone planned for, and new ones wait for a data request.",
@@ -127,8 +123,6 @@ const replacementItems: Record<string, string[]> = {
   ],
 };
 const replacementConclusions: Record<string, string> = {
-  "ai-meeting-notes":
-    "Clips doesn't replace your calendar or your video call app. Meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings.",
   "ask-your-database-in-plain-english":
     "Your database stays where it is. Analytics connects to PostgreSQL, answers plain-English questions about your tables, and keeps the answers in dashboards your team can open.",
   "bug-reports-with-console-logs":
@@ -703,14 +697,14 @@ describe("campaign content", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("validates all fifteen use cases and eleven articles through bundled and disk loaders without warnings", () => {
+  it("validates every use case and eleven articles through bundled and disk loaders without warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const bundled = loadCampaignContent();
     const disk = loadCampaignContentFromDisk(
-      new URL("..", import.meta.url).pathname,
+      fileURLToPath(new URL("..", import.meta.url)),
     );
-    expect(bundled.useCases).toHaveLength(15);
+    expect(bundled.useCases).toHaveLength(14);
     expect(bundled.articles).toHaveLength(11);
     expect(
       bundled.articles.map(({ slug, topic, apps }) => ({ slug, topic, apps })),
@@ -794,7 +788,6 @@ describe("campaign content", () => {
         item.todays_stack?.items.length,
       ]),
     ).toEqual([
-      ["ai-meeting-notes", "What changes for every meeting", 3],
       [
         "ask-your-database-in-plain-english",
         "What changes for data questions",
@@ -821,9 +814,9 @@ describe("campaign content", () => {
     const slugs = bundled.useCases.map((item) => item.slug);
     expect(slugs).toEqual(Object.keys(replacementItems));
     expect(
-      bundled.useCases.find((item) => item.slug === "ai-meeting-notes")
+      bundled.useCases.find((item) => item.slug === "design-brief-to-prototype")
         ?.next_jobs,
-    ).toEqual(["crm-and-call-questions", "dictate-instead-of-typing"]);
+    ).toEqual(["landing-page-prototypes", "wireframe-before-agent-builds"]);
     for (const item of bundled.useCases) {
       expect(item.todays_stack?.items, item.slug).toEqual(
         replacementItems[item.slug].map((text) => ({ text })),
@@ -851,7 +844,11 @@ describe("campaign content", () => {
       ).toBe(3);
       expect(item.next_jobs?.length, item.slug).toBeGreaterThan(0);
       for (const next of item.next_jobs!) {
-        expect(slugs, `${item.slug} → ${next}`).toContain(next);
+        // A next job may already be a new-style page.
+        expect(
+          [...slugs, ...bundled.useCasePages.map((page) => page.slug)],
+          `${item.slug} → ${next}`,
+        ).toContain(next);
         expect(next).not.toBe(item.slug);
       }
     }
@@ -954,6 +951,7 @@ describe("campaign content", () => {
       fs.mkdirSync(path.join(root, "content", "articles"));
       expect(loadCampaignContentFromDisk(root)).toEqual({
         useCases: [],
+        useCasePages: [],
         articles: [],
       });
       fs.writeFileSync(

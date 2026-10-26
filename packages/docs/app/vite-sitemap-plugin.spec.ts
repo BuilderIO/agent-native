@@ -172,10 +172,13 @@ describe("docs agent web generation", () => {
     expect(
       campaignPages.filter((page) => page.path.includes("/topic/")),
     ).toHaveLength(summaries.length);
+    // Only translated use-case pages have localized addresses.
     for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
       expect(
-        campaignPages.some((page) =>
-          page.path.startsWith(`/${locale.toLowerCase()}/`),
+        campaignPages.some(
+          (page) =>
+            page.path.startsWith(`/${locale.toLowerCase()}/`) &&
+            !page.path.includes("/use-cases/"),
         ),
       ).toBe(false);
     expect(campaignPages.some((page) => page.path.includes("/category/"))).toBe(

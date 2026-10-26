@@ -170,6 +170,8 @@ function ToolLogo({
       title={name}
       width={28}
       height={28}
+      loading="lazy"
+      decoding="async"
       className={`size-7 object-contain ${
         mono || (!link && mcpIntegrationLogoNeedsDarkModeFilter(id))
           ? "invert [.light_&]:invert-0"

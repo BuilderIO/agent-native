@@ -25,17 +25,25 @@ export function loadCampaignContentFromDisk(rootDir: string): CampaignContent {
       });
     }
   }
-  const localeFolders = fs
-    .readdirSync(path.resolve(rootDir, "content", "use-cases"), {
-      withFileTypes: true,
-    })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join("use-cases", entry.name));
+  // Translated use-case pages live in one folder per locale.
+  function localeFolders(): string[] {
+    const dir = path.resolve(rootDir, "content", "use-cases");
+    try {
+      return fs
+        .readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join("use-cases", entry.name));
+    } catch (cause) {
+      throw new Error(`Unable to enumerate/read campaign content in ${dir}`, {
+        cause,
+      });
+    }
+  }
   return parseCampaignContent({
     useCases: readSources("use-cases", ".yaml"),
     useCaseTranslations: Object.assign(
       {},
-      ...localeFolders.map((folder) => readSources(folder, ".yaml")),
+      ...localeFolders().map((folder) => readSources(folder, ".yaml")),
     ),
     articles: readSources("articles", ".md"),
   });
