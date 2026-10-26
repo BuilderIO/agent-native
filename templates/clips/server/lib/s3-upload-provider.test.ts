@@ -350,7 +350,11 @@ describe("s3FileUploadProvider", () => {
     // The workspace saved a bucket this process can't decrypt.
     mockReadAppSecret.mockImplementation(
       async ({ key, scope, scopeId }: Record<string, string>) => {
-        if (key === "S3_BUCKET" && scope === "workspace" && scopeId === "org-1") {
+        if (
+          key === "S3_BUCKET" &&
+          scope === "workspace" &&
+          scopeId === "org-1"
+        ) {
           throw Object.assign(new Error("unreadable"), {
             errorCode: "app_secret_unreadable",
           });
