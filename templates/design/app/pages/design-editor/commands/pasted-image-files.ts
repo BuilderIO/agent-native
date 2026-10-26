@@ -373,6 +373,10 @@ export function runPastedImageFiles(
 ) {
   if (files.length === 0 || !canEditDesign || !activeFile) return false;
 
+  const isTargetFileActive = (fileId: string) =>
+    activeFileIdRef
+      ? activeFileIdRef.current === fileId
+      : activeFile.id === fileId;
   const activeFileIdAtStart = activeFileIdRef?.current;
   let expectedSelectionRevision = selectionRevisionRef?.current;
   let lastSelectedFileIdByThisPaste: string | null = null;
@@ -407,7 +411,7 @@ export function runPastedImageFiles(
     localPoint: { x: number; y: number } | (() => { x: number; y: number }),
   ) => {
     const applyDurableContent = (nextContent: string) => {
-      if (targetFileId === activeFile?.id) {
+      if (isTargetFileActive(targetFileId)) {
         const publication = applyLocalContentUpdate(nextContent, {
           forcePreviewFullDocument: true,
         });
@@ -437,10 +441,9 @@ export function runPastedImageFiles(
         ? buildPastedSvgLayer(markup, svgLayerName(file.name))
         : null;
       if (!layer) return false;
-      const baseContent =
-        targetFileId === activeFile?.id
-          ? getFreshActiveContent()
-          : (getScreenContent(targetFileId) ?? "");
+      const baseContent = isTargetFileActive(targetFileId)
+        ? getFreshActiveContent()
+        : (getScreenContent(targetFileId) ?? "");
       const inserted = insertClonedHtmlLayers(baseContent, [layer.html], {
         positions: [{ ...topLeftFor(layer), space: "visual" }],
       });
@@ -468,10 +471,9 @@ export function runPastedImageFiles(
           toast.error(t("common.genericError"));
           continue;
         }
-        const baseContent =
-          targetFileId === activeFile?.id
-            ? getFreshActiveContent()
-            : (getScreenContent(targetFileId) ?? "");
+        const baseContent = isTargetFileActive(targetFileId)
+          ? getFreshActiveContent()
+          : (getScreenContent(targetFileId) ?? "");
         const nodeId = uniqueLayerId("pasted-image");
         const previewUrl =
           typeof URL.createObjectURL === "function"
@@ -518,7 +520,7 @@ export function runPastedImageFiles(
                   ),
               ).find((media) => media.getAttribute("src") === previewUrl)
                 ?.dataset.agentNativeNodeId ?? nodeId);
-        if (previewUrl && targetFileId === activeFile?.id) {
+        if (previewUrl && isTargetFileActive(targetFileId)) {
           replacePreviewContent(previewContent, null, {
             forceFullDocument: true,
           });
@@ -526,16 +528,14 @@ export function runPastedImageFiles(
 
         try {
           const imageUrl = await uploadMediaFileForHtml(file);
-          const durableContent =
-            targetFileId === activeFile?.id
-              ? getFreshActiveContent()
-              : (getScreenContent(targetFileId) ?? "");
+          const durableContent = isTargetFileActive(targetFileId)
+            ? getFreshActiveContent()
+            : (getScreenContent(targetFileId) ?? "");
           const durableMediaUrl =
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
-          const activePreviewContent =
-            targetFileId === activeFile?.id
-              ? (getFreshActivePreviewContent?.() ?? null)
-              : null;
+          const activePreviewContent = isTargetFileActive(targetFileId)
+            ? (getFreshActivePreviewContent?.() ?? null)
+            : null;
           const deletedWhilePending =
             activePreviewContent !== null &&
             !activePreviewContent.includes(`"${insertedNodeId}"`);
@@ -571,7 +571,7 @@ export function runPastedImageFiles(
             nextContent !== durableContent &&
             !applyDurableContent(nextContent)
           ) {
-            if (targetFileId === activeFile.id) {
+            if (isTargetFileActive(targetFileId)) {
               replacePreviewContent(durableContent, null, {
                 forceFullDocument: true,
               });
@@ -579,7 +579,7 @@ export function runPastedImageFiles(
             toast.error(t("common.genericError"));
             continue;
           }
-          if (!durableMediaUrl && targetFileId === activeFile?.id) {
+          if (!durableMediaUrl && isTargetFileActive(targetFileId)) {
             replacePreviewContent(currentContent, null, {
               forceFullDocument: true,
             });
@@ -588,11 +588,10 @@ export function runPastedImageFiles(
             insertedNodeId,
           ]);
         } catch {
-          const currentContent =
-            targetFileId === activeFile?.id
-              ? getFreshActiveContent()
-              : (getScreenContent(targetFileId) ?? "");
-          if (targetFileId === activeFile?.id) {
+          const currentContent = isTargetFileActive(targetFileId)
+            ? getFreshActiveContent()
+            : (getScreenContent(targetFileId) ?? "");
+          if (isTargetFileActive(targetFileId)) {
             replacePreviewContent(currentContent, null, {
               forceFullDocument: true,
             });
