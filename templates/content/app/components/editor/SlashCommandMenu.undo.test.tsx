@@ -41,7 +41,8 @@ function collabEditor() {
 }
 
 function firstBlock(editor: Editor) {
-  const node = editor.state.doc.firstChild!;
+  const node = editor.state.doc.firstChild;
+  if (!node) throw new Error("the document has no blocks");
   return `${node.type.name}: ${node.textContent}`;
 }
 
@@ -129,7 +130,9 @@ describe("slash command undo", () => {
       expect(container.querySelector(".slash-command-menu")).not.toBeNull();
       // A person pauses before picking the command, which ends the undo
       // step that holds the typed query.
-      yUndoPluginKey.getState(editor.state)!.undoManager.stopCapturing();
+      const undoState = yUndoPluginKey.getState(editor.state);
+      if (!undoState) throw new Error("the editor has no Yjs undo history");
+      undoState.undoManager.stopCapturing();
 
       await pressEnter();
       expect(firstBlock(editor)).toBe(`heading: ${PARAGRAPH}`);
