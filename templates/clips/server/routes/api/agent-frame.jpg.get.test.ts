@@ -13,8 +13,7 @@ const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockLoadStoredAgentFrame = vi.hoisted(() => vi.fn());
-const mockIsRecommendedAgentFrame = vi.hoisted(() => vi.fn());
-const mockStoreAgentFrame = vi.hoisted(() => vi.fn());
+const mockFillRecommendedAgentFrames = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
     class VideoFrameExtractionError extends Error {
@@ -67,9 +66,10 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 vi.mock("../../lib/agent-frame-store.js", () => ({
   loadStoredAgentFrame: (...args: unknown[]) =>
     mockLoadStoredAgentFrame(...args),
-  isRecommendedAgentFrame: (...args: unknown[]) =>
-    mockIsRecommendedAgentFrame(...args),
-  storeAgentFrame: (...args: unknown[]) => mockStoreAgentFrame(...args),
+  fillRecommendedAgentFrames: (...args: unknown[]) =>
+    mockFillRecommendedAgentFrames(...args),
+  clampAgentFrameAtMs: (atMs: number, durationMs: number) =>
+    durationMs > 0 ? Math.min(atMs, Math.max(0, durationMs - 1)) : atMs,
 }));
 vi.mock("../../lib/video-frame.js", () => ({
   extractJpegFrameFromFile: (...args: unknown[]) =>
@@ -148,8 +148,7 @@ describe("agent-frame.jpg route", () => {
     mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
     mockLoadStoredAgentFrame.mockResolvedValue(null);
-    mockIsRecommendedAgentFrame.mockResolvedValue(false);
-    mockStoreAgentFrame.mockResolvedValue(undefined);
+    mockFillRecommendedAgentFrames.mockResolvedValue(undefined);
     mockCleanupMediaFile.mockResolvedValue(undefined);
     mockEnsureRecordingThumbnail.mockResolvedValue({
       recordingId: "rec-1",
@@ -340,48 +339,20 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
   });
 
-  it("falls back to extraction when the stored frame lookup throws", async () => {
-    mockLoadStoredAgentFrame.mockRejectedValue(new Error("db down"));
-
-    const event = makeEvent({ id: "rec-1", atMs: "2000" });
-    const result = await handler(event as never);
-
-    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
-    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
-  });
-
-  it("stores a freshly extracted recommended frame", async () => {
-    mockIsRecommendedAgentFrame.mockResolvedValue(true);
-
+  it("fills every recommended frame from the one download on a miss", async () => {
     const event = makeEvent({ id: "rec-1", atMs: "3000" });
     await handler(event as never);
 
-    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
-      { userEmail: "owner@example.com", orgId: undefined },
-      expect.any(Function),
-    );
-    expect(mockStoreAgentFrame).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "rec-1" }),
-      3000,
-      new Uint8Array([1, 2, 3]),
-    );
-  });
-
-  it("does not store a frame outside the recommended list", async () => {
-    const event = makeEvent({ id: "rec-1", atMs: "4000" });
-    const result = await handler(event as never);
-
-    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
-    expect(mockStoreAgentFrame).not.toHaveBeenCalled();
-  });
-
-  it("serves the frame even when persisting it fails", async () => {
-    mockIsRecommendedAgentFrame.mockRejectedValue(new Error("db down"));
-
-    const event = makeEvent({ id: "rec-1", atMs: "5000" });
-    const result = await handler(event as never);
-
-    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+    const [recording, extract, known] =
+      mockFillRecommendedAgentFrames.mock.calls[0];
+    expect(recording).toMatchObject({ id: "rec-1" });
+    expect(known).toEqual({ atMs: 3000, frame: new Uint8Array([1, 2, 3]) });
+    await extract(7000);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith({
+      mediaPath: "/tmp/recording.webm",
+      atMs: 7000,
+    });
   });
 
   it("caches anonymous public frames without shared caching", async () => {

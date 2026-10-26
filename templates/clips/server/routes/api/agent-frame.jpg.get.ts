@@ -24,9 +24,9 @@ import {
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
 import {
-  isRecommendedAgentFrame,
+  clampAgentFrameAtMs,
+  fillRecommendedAgentFrames,
   loadStoredAgentFrame,
-  storeAgentFrame,
 } from "../../lib/agent-frame-store.js";
 import {
   ensureRecordingThumbnail,
@@ -111,9 +111,11 @@ function applyFrameHeaders(event: H3Event) {
 
 async function persistDefaultThumbnailIfMissing(
   access: PublicAgentAccess,
+  requestedMs: number,
   frame: Uint8Array,
   mimeType: string,
 ): Promise<void> {
+  if (requestedMs !== RECORDING_THUMBNAIL_AT_MS) return;
   if (access.recording.thumbnailUrl) return;
   try {
     await runWithRequestContext(
@@ -131,46 +133,6 @@ async function persistDefaultThumbnailIfMissing(
     );
   } catch (err: unknown) {
     console.warn("[agent-frame] thumbnail persistence skipped", {
-      recordingId: access.recording.id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-async function loadStoredFrameOrNull(
-  access: PublicAgentAccess,
-  atMs: number,
-): Promise<Uint8Array | null> {
-  try {
-    return await loadStoredAgentFrame(access.recording, atMs);
-  } catch (err: unknown) {
-    console.warn("[agent-frame] stored frame lookup failed", {
-      recordingId: access.recording.id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
-async function storeRecommendedFrame(
-  access: PublicAgentAccess,
-  atMs: number,
-  frame: Uint8Array,
-): Promise<void> {
-  try {
-    if (await isRecommendedAgentFrame(access.recording, atMs)) {
-      // The frame belongs to the clip's owner, not to the agent asking: the
-      // upload resolves storage and quota from the owner's context.
-      await runWithRequestContext(
-        {
-          userEmail: access.recording.ownerEmail,
-          orgId: access.recording.orgId ?? undefined,
-        },
-        () => storeAgentFrame(access.recording, atMs, frame),
-      );
-    }
-  } catch (err: unknown) {
-    console.warn("[agent-frame] frame persistence skipped", {
       recordingId: access.recording.id,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -279,10 +241,7 @@ export default defineEventHandler(async (event: H3Event) => {
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const atMs =
-    durationMs > 0
-      ? Math.min(requestedMs, Math.max(0, durationMs - 1))
-      : requestedMs;
+  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -291,28 +250,28 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const access = accessResult.access;
   const cacheable = isPubliclyCacheableFrame(access);
+  const storedMimeType =
+    recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-      await persistDefaultThumbnailIfMissing(
-        access,
-        new Uint8Array(cached),
-        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
-      );
-    }
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      new Uint8Array(cached),
+      storedMimeType,
+    );
     applyFrameHeaders(event);
     return cached;
   }
 
-  const stored = await loadStoredFrameOrNull(access, atMs);
+  const stored = await loadStoredAgentFrame(recording, atMs);
   if (stored) {
-    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-      await persistDefaultThumbnailIfMissing(
-        access,
-        stored,
-        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
-      );
-    }
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      stored,
+      storedMimeType,
+    );
     applyFrameHeaders(event);
     return Buffer.from(stored);
   }
@@ -325,19 +284,23 @@ export default defineEventHandler(async (event: H3Event) => {
         atMs,
       });
 
-      if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-        await persistDefaultThumbnailIfMissing(
-          access,
-          resolved.frame,
-          media.mimeType,
-        );
-      }
+      await persistDefaultThumbnailIfMissing(
+        access,
+        requestedMs,
+        resolved.frame,
+        media.mimeType,
+      );
 
       if (resolved.atMs !== atMs) {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
-      await storeRecommendedFrame(access, atMs, resolved.frame);
+      await fillRecommendedAgentFrames(
+        recording,
+        (frameAtMs) =>
+          extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
+        { atMs, frame: resolved.frame },
+      );
       applyFrameHeaders(event);
       const buffer = Buffer.from(resolved.frame);
       if (cacheable) setCachedFrame(key, buffer);
