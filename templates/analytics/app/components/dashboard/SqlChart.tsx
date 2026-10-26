@@ -2875,8 +2875,9 @@ function TableRenderer({
           TABLE_HEAD_CELL_CLASS,
           "px-3",
           numberColumns.has(col.key) ? "text-right" : "text-left",
+          // No `relative` for the resize handle: the sticky header already
+          // anchors it, and twMerge would drop `sticky` for it.
           sortable && "cursor-pointer select-none hover:text-foreground",
-          resizable && "relative",
         )}
         onClick={(event) => {
           // The second click of a double-click renames the column and must not

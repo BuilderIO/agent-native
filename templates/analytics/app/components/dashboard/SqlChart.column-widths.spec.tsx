@@ -211,6 +211,22 @@ describe("SqlChart table column widths", () => {
     ]);
   });
 
+  it("keeps resizable headers sticky", async () => {
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={TABLE}
+          resultOverride={{ rows: ROWS }}
+          onSaveColumns={() => {}}
+        />,
+      );
+    });
+    expect(separators()).not.toHaveLength(0);
+    const classes = nameHeader().classList;
+    expect(classes.contains("sticky")).toBe(true);
+    expect(classes.contains("relative")).toBe(false);
+  });
+
   it("draws a viewer's own width over the saved one", async () => {
     await act(async () => {
       root.render(
