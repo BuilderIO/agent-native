@@ -484,7 +484,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           )
         : {};
       const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
-      const toolVisibility = toolUiMeta.visibility;
+      const toolVisibility = entry.mcpApp?.visibility ?? toolUiMeta.visibility;
       const isAppOnlyVisibility =
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&

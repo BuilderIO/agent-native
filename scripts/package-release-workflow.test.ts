@@ -2440,6 +2440,16 @@ fi
       });
     });
 
+    it("exposes a Beta-only snapshot input, empty by default", () => {
+      assert.deepEqual(inputs.betaTag, {
+        description:
+          "Beta-only snapshot identifier (lowercase letters, digits, and hyphens): publish under dev-<value> and rebuild Beta Workspace without stable publication or production deploys",
+        required: false,
+        type: "string",
+        default: "",
+      });
+    });
+
     it("only runs on a manual dispatch with a non-empty devTag", () => {
       assert(devSnapshot);
       assert.match(
@@ -2447,8 +2457,28 @@ fi
         /github\.event_name == 'workflow_dispatch'/,
       );
       assert.match(String(devSnapshot.if), /inputs\.devTag != ''/);
+      assert.match(String(devSnapshot.if), /inputs\.betaTag != ''/);
       assert.doesNotMatch(String(devSnapshot.if), /needs\.verify-stable-merge/);
       assert.equal(devSnapshot.needs, undefined);
+
+      const conflictingInputs = (devSnapshot.steps as Workflow[]).find(
+        (step) => step.name === "Reject conflicting snapshot inputs",
+      );
+      assert(conflictingInputs);
+      assert.equal(
+        conflictingInputs.if,
+        "${{ inputs.betaTag != '' && inputs.devTag != '' }}",
+      );
+
+      const betaTagValidation = (devSnapshot.steps as Workflow[]).find(
+        (step) => step.name === "Validate Beta tag casing",
+      );
+      assert(betaTagValidation);
+      assert.equal(betaTagValidation.if, "${{ inputs.betaTag != '' }}");
+      assert.equal(
+        (betaTagValidation.env as Workflow).DEV_TAG,
+        "${{ inputs.betaTag }}",
+      );
     });
 
     it("is not gated to main and does not depend on verify-stable-merge", () => {
@@ -2463,17 +2493,26 @@ fi
       );
       assert(prepare);
       assert.match(String(prepare.run), /prepare-dev-snapshot\.ts/);
+      assert.equal(
+        (prepare.env as Workflow).DEV_TAG,
+        "${{ inputs.betaTag || inputs.devTag }}",
+      );
 
+      const prepareIndex = steps.indexOf(prepare);
       const version = steps.find(
         (step) => step.name === "Create dev snapshot versions",
       );
       assert(version);
+      assert.equal(
+        (version.env as Workflow).DEV_TAG,
+        "${{ steps.snapshot_tag.outputs.value }}",
+      );
+
       assert.match(
         String(version.run),
         /changeset version --snapshot "\$DEV_TAG"/,
       );
 
-      const prepareIndex = steps.indexOf(prepare);
       const versionIndex = steps.indexOf(version);
       assert(prepareIndex < versionIndex);
     });
@@ -2487,7 +2526,7 @@ fi
       assert.equal(publish.id, "publish");
       assert.equal(
         (publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG,
-        "dev-${{ inputs.devTag }}",
+        "dev-${{ steps.snapshot_tag.outputs.value }}",
       );
       assert.equal(publish.run, "node scripts/changeset-publish-sequential.ts");
       assert.doesNotMatch(
@@ -2522,6 +2561,8 @@ fi
 
     it("has its own concurrency lane keyed by branch and tag", () => {
       const group = String((workflow.concurrency as Workflow).group);
+      assert.match(group, /inputs\.betaTag/);
+      assert.match(group, /format\('beta-\{0\}', inputs\.betaTag\)/);
       assert.match(group, /inputs\.devTag/);
       assert.match(group, /format\('dev-\{0\}', inputs\.devTag\)/);
       assert.match(group, /stable-preparation/);
@@ -2531,11 +2572,49 @@ fi
     it("gates the stable release job off when devTag is set", () => {
       const release = jobs.release as Workflow;
       assert.match(String(release.if), /!inputs\.devTag/);
+      assert.match(String(release.if), /!inputs\.betaTag/);
     });
 
     it("excludes dev snapshot dispatches from downstream notification", () => {
       const notify = jobs["notify-downstream"] as Workflow;
       assert.match(String(notify.if), /!inputs\.devTag/);
+      assert.match(String(notify.if), /!inputs\.betaTag/);
+    });
+
+    it("requests the existing Beta-only Workspace rebuild after verifying fresh package tags", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const token = steps.find(
+        (step) =>
+          step.name === "Generate Builder Workspace Beta workflow token",
+      );
+      assert(token);
+      assert.equal(token.if, "${{ inputs.betaTag != '' }}");
+      assert.equal((token.with as Workflow)["permission-contents"], "write");
+
+      const betaDispatch = steps.find(
+        (step) => step.name === "Request Beta-only Builder Workspace rebuild",
+      );
+      assert(betaDispatch);
+      assert.equal(betaDispatch.if, "${{ inputs.betaTag != '' }}");
+      assert.match(
+        String(betaDispatch.run),
+        /@agent-native\/core @agent-native\/dispatch/,
+      );
+      assert.match(String(betaDispatch.run), /npm view/);
+      assert.match(String(betaDispatch.run), /dev-\$DEV_TAG/);
+      assert.match(
+        String(betaDispatch.run),
+        /event_type:"agent-native-beta-published"/,
+      );
+      assert.match(String(betaDispatch.run), /dispatch_dist_tag:\$tag/);
+      assert.match(
+        String(betaDispatch.run),
+        /builder-agent-native-workspace\/dispatches/,
+      );
+      assert.doesNotMatch(
+        String(betaDispatch.run),
+        /release-everything|deploy-production/,
+      );
     });
   });
 });

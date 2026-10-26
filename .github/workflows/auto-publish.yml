@@ -2,7 +2,7 @@ name: Publish packages
 run-name: >-
   ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
 
-# npm packages have two separate release trains:
+# npm packages have separate release trains:
 #
 #   1. Every three hours, a scheduled run publishes a `nightly` snapshot of
 #      `main` when a publishable path (the `push.paths` list) changed since
@@ -11,6 +11,9 @@ run-name: >-
 #   2. A maintainer dispatches this workflow with a patch/minor/major choice.
 #      That creates the normal all-package Version Packages PR. Its marked
 #      merge is the only path that publishes a stable release.
+#   3. A maintainer dispatches with betaTag to publish a dev snapshot and ask
+#      Builder Workspace's Beta-only workflow to build with that dist-tag.
+#      This path does not publish stable packages or deploy production sites.
 #
 # Stable release merges produce a `[stable-release]`-marked commit. The
 # workflow verifies that marker belongs to the bot-owned release PR before
@@ -19,7 +22,7 @@ run-name: >-
 # Desktop-app publishing is OUT of changesets - it ships binaries via
 # electron-builder, not npm. Production desktop releases are dispatched from
 # `desktop-release.yml`; pushes to main only feed the Nightly desktop train.
-# npm trusted publishers are registered against this workflow file, so both
+# npm trusted publishers are registered against this workflow file, so all
 # package trains intentionally keep this workflow path.
 
 on:
@@ -73,6 +76,11 @@ on:
         required: false
         type: string
         default: ""
+      betaTag:
+        description: "Beta-only snapshot identifier (lowercase letters, digits, and hyphens): publish under dev-<value> and rebuild Beta Workspace without stable publication or production deploys"
+        required: false
+        type: string
+        default: ""
       coordinator_run_id:
         description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
@@ -82,7 +90,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && inputs.devTag) && format('dev-{0}', inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && inputs.betaTag) && format('beta-{0}', inputs.betaTag) || (github.event_name == 'workflow_dispatch' && inputs.devTag) && format('dev-{0}', inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
   cancel-in-progress: false
 
 jobs:
@@ -344,8 +352,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-dev-snapshot:
-    name: Publish dev snapshot
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.devTag != '' }}
+    name: Publish dev or Beta snapshot
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.devTag != '' || inputs.betaTag != '') }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -355,6 +363,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Generate Builder Workspace Beta workflow token
+        id: workspace_beta_token
+        if: ${{ inputs.betaTag != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: |
+            builder-agent-native-workspace
+          permission-contents: write
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -367,14 +387,37 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Validate dev tag and prepare a changeset
+      - name: Reject conflicting snapshot inputs
+        if: ${{ inputs.betaTag != '' && inputs.devTag != '' }}
+        run: |
+          echo "::error::Set betaTag or devTag, not both."
+          exit 1
+
+      - name: Validate Beta tag casing
+        if: ${{ inputs.betaTag != '' }}
         env:
-          DEV_TAG: ${{ inputs.devTag }}
-        run: pnpm exec tsx scripts/prepare-dev-snapshot.ts "$DEV_TAG"
+          DEV_TAG: ${{ inputs.betaTag }}
+        run: |
+          set -euo pipefail
+          normalized_tag="$(printf '%s' "$DEV_TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+          if [ "$normalized_tag" != "$DEV_TAG" ]; then
+            echo "::error::betaTag must be lowercase and must not contain surrounding whitespace."
+            exit 1
+          fi
+
+      - name: Validate dev tag and prepare a changeset
+        id: snapshot_tag
+        env:
+          DEV_TAG: ${{ inputs.betaTag || inputs.devTag }}
+        run: |
+          set -euo pipefail
+          snapshot_tag="$(printf '%s' "$DEV_TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+          pnpm exec tsx scripts/prepare-dev-snapshot.ts "$snapshot_tag"
+          echo "value=$snapshot_tag" >> "$GITHUB_OUTPUT"
 
       - name: Create dev snapshot versions
         env:
-          DEV_TAG: ${{ inputs.devTag }}
+          DEV_TAG: ${{ steps.snapshot_tag.outputs.value }}
         run: |
           pnpm changeset version --snapshot "$DEV_TAG"
           # Link snapshot-rewritten plain ranges, as in the nightly job.
@@ -386,14 +429,14 @@ jobs:
       - name: Publish dev snapshot packages sequentially
         id: publish
         env:
-          AGENT_NATIVE_NPM_DIST_TAG: dev-${{ inputs.devTag }}
+          AGENT_NATIVE_NPM_DIST_TAG: dev-${{ steps.snapshot_tag.outputs.value }}
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
         run: node scripts/changeset-publish-sequential.ts
 
       - name: Summarize dev snapshot publish
         env:
-          DEV_DIST_TAG: dev-${{ inputs.devTag }}
+          DEV_DIST_TAG: dev-${{ steps.snapshot_tag.outputs.value }}
           PUBLISHED_PACKAGES: ${{ steps.publish.outputs.published-packages }}
         run: |
           set -euo pipefail
@@ -410,6 +453,67 @@ jobs:
               '.[] | "- `pnpm add \(.name)@\($tag)` (resolves to \(.version))"'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Request Beta-only Builder Workspace rebuild
+        if: ${{ inputs.betaTag != '' }}
+        env:
+          WORKSPACE_TOKEN: ${{ steps.workspace_beta_token.outputs.token }}
+          DEV_TAG: ${{ steps.snapshot_tag.outputs.value }}
+          PUBLISHED_PACKAGES: ${{ steps.publish.outputs.published-packages }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${WORKSPACE_TOKEN:?Builder Workspace token is required for Beta rebuilds}"
+
+          if ! printf '%s' "$PUBLISHED_PACKAGES" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::Published package list is not a JSON array."
+            exit 1
+          fi
+
+          for package in @agent-native/core @agent-native/dispatch; do
+            published_version="$(printf '%s' "$PUBLISHED_PACKAGES" | jq -r --arg name "$package" '.[] | select(.name == $name) | .version' | head -n 1)"
+            if [ -z "$published_version" ] || [ "$published_version" = "null" ]; then
+              echo "::error::Beta rebuild requires a new $package package in this publish."
+              exit 1
+            fi
+            tagged_version="$(npm view "$package@dev-$DEV_TAG" version --prefer-online)"
+            if [ "$tagged_version" != "$published_version" ]; then
+              echo "::error::$package dev-$DEV_TAG resolves to $tagged_version, expected $published_version."
+              exit 1
+            fi
+          done
+
+          payload="$(jq -cn \
+            --arg tag "dev-$DEV_TAG" \
+            --arg run "$RUN_URL" \
+            '{event_type:"agent-native-beta-published",client_payload:{ref:"main",dispatch_dist_tag:$tag,sourceRunUrl:$run}}')"
+          response_file="$RUNNER_TEMP/workspace-beta-dispatch-response"
+          delay=2
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $WORKSPACE_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              --data "$payload" \
+              'https://api.github.com/repos/BuilderIO/builder-agent-native-workspace/dispatches')" || status=000
+            if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Requested a Beta-only Builder Workspace rebuild with dev-$DEV_TAG on attempt $attempt."
+              echo "Beta Workspace rebuild requested with npm dist-tag \`dev-$DEV_TAG\`." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [[ "$status" != 000 && ! "$status" =~ ^5[0-9][0-9]$ ]]; then
+              echo "Builder Workspace Beta workflow dispatch failed with HTTP $status:" >&2
+              cat "$response_file" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep "$delay"
+              delay=$((delay * 2))
+            fi
+          done
+
+          echo "Builder Workspace Beta workflow dispatch failed after 5 attempts (last HTTP $status)." >&2
+          exit 1
+
   release:
     name: Prepare or publish stable npm packages
     needs: [verify-stable-merge, deploy-gate]
@@ -417,7 +521,7 @@ jobs:
     # Version Packages PR, and a skipped need would otherwise skip this job. The
     # verifier must still have succeeded, and a publishing push must have
     # passed the gate.
-    if: ${{ !cancelled() && needs.verify-stable-merge.result == 'success' && !inputs.redispatchDownstream && !inputs.devTag && needs.verify-stable-merge.outputs.verified == 'true' && (github.event_name != 'push' || needs.deploy-gate.result == 'success') }}
+    if: ${{ !cancelled() && needs.verify-stable-merge.result == 'success' && !inputs.redispatchDownstream && !inputs.devTag && !inputs.betaTag && needs.verify-stable-merge.outputs.verified == 'true' && (github.event_name != 'push' || needs.deploy-gate.result == 'success') }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -631,6 +735,7 @@ jobs:
     if: |
       always() &&
       !inputs.devTag &&
+      !inputs.betaTag &&
       (
         inputs.redispatchDownstream ||
         github.event_name == 'workflow_dispatch' ||
