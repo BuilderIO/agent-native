@@ -276,9 +276,9 @@ async function resolveBucketScope(): Promise<ResolvedBucket | null> {
 
 /**
  * A saved storage setting this process can't decrypt (its encryption key
- * changed, for example) reads as missing. That could send blobs to other
- * storage, or store them unencrypted in a bucket with a public URL, so the
- * put fails instead.
+ * changed, for example) fails the put, even in a scope the lookup passed over.
+ * Skipping it could send blobs to other storage, or store them unencrypted in
+ * a bucket with a public URL.
  */
 function assertStorageSettingsDecrypt(): void {
   const undecryptable = undecryptableSecretKeysForRequest();

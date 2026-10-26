@@ -1,12 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
-  MAX_AGENT_REQUEST_ATTACHMENTS,
+  parseQueueMessageInput,
+  persistableFilePart,
+  fingerprintAgentSubmissionAttachment,
+  submissionAttachmentsMatch,
+  type AgentQueuedMessage,
+  type AgentRequestAttachment,
+  type AgentRunOptions,
+  type AgentSubmissionReference,
   type AgentSubmissionPayload,
   type AgentSuggestion,
+  type FilePart,
 } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -40,6 +49,7 @@ import {
   isAgentActionStopError,
   isAgentConnectionRequiredError,
   actionCallIntent,
+  ActionInputValidationError,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -47,6 +57,7 @@ import {
   preparedCallArguments,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
+  resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
   type PreparedActionCall,
@@ -100,6 +111,7 @@ import {
   type OwnedImageReadFailureCode,
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { uploadFile } from "../file-upload/registry.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import {
   derivedTool,
@@ -116,7 +128,14 @@ import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
-import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import {
+  isHostedModelExperimentEnabled,
+  resolveHostedModelExperiment,
+} from "../observability/hosted-model-experiment.js";
+import {
+  isFirstPartyHostedAgentNative,
+  shouldInferSentimentForTurn,
+} from "../observability/sentiment.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -132,6 +151,7 @@ import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
   isAgentChatAiSetupRequiredError,
 } from "../server/agent-chat-ai-setup.js";
+import { finalizeClaimedAgentChatProcessRunFailure } from "../server/agent-chat/process-run-failure.js";
 import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
   preloadJevContextWithStatus,
@@ -231,6 +251,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
@@ -249,6 +270,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
+import { getEngineCredentialOwner } from "./engine/credential-owner.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
@@ -336,6 +358,7 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
   resolveFallbackModel,
@@ -374,13 +397,14 @@ import {
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
-import type { ActiveRun } from "./run-manager.js";
+import type { ActiveRun, StartedRun } from "./run-manager.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,
   beginAgentExecutionStep,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
+  resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
   recordLateAgentExecutionStepOutcome,
   type AgentExecutionStepIntent,
@@ -390,6 +414,7 @@ import {
   AgentTurnInitiatorUnavailableError,
   insertRun,
   insertRunEvent,
+  isRunAborted,
   isTurnAborted,
   markRunAborted,
   updateRunHeartbeat,
@@ -402,9 +427,11 @@ import {
   recordRunDiagnostic,
   countRunsForTurn,
   RUN_DIAG_STAGE,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
+import { setRunTurnIdHeader } from "./run-turn-id-header.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   claimSetupResume,
@@ -415,6 +442,8 @@ import { normalizeSubmissionDeadlineMetadata } from "./submission-deadline.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  ensureAgentToolApprovalTable,
+  hasPendingCurrentTurnApproval,
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
@@ -423,9 +452,10 @@ import { toolCallInputSignature } from "./tool-call-input-signature.js";
 import {
   ambiguousLegacyCallEffectKey,
   findAmbiguousLegacyJournalEntryForCall,
-  findInterruptedJournalEntryForCall,
+  findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
   journalEntriesRepresentedInHistory,
@@ -470,6 +500,8 @@ import {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
+  type ToolErrorClass,
+  type UnknownWriteCause,
 } from "./types.js";
 import {
   mergeFinalResponseGuards,
@@ -504,6 +536,9 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
+export const BACKGROUND_SETUP_HEARTBEAT_MAX_MS =
+  BACKGROUND_PROCESSING_RUN_STALE_MS;
+export const BACKGROUND_SETUP_FINALIZATION_MAX_MS = 10_000;
 const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
@@ -767,10 +802,8 @@ async function getOwnerApiKeyDetailed(
     }
   } catch {
     lookupFailed = true;
-    if (syntheticTraffic) {
-      reportLookupFailure();
-      return undefined;
-    }
+    reportLookupFailure();
+    return undefined;
   }
   if (syntheticTraffic || personalRestricted) {
     reportLookupFailure();
@@ -835,12 +868,15 @@ export async function getOwnerJevApiKey(
 async function getOwnerJevApiKeyCredential(
   ownerEmail: string | null | undefined,
 ): Promise<{
-  credential: { apiKey: string; source: "user" | "deployment" } | null;
+  credential: {
+    apiKey: string;
+    source: "user" | "org" | "workspace" | "deployment";
+  } | null;
   lookupFailed: boolean;
 }> {
   if (!ownerEmail) return { credential: null, lookupFailed: false };
   const cacheKey = [
-    "jev-source-v1",
+    "jev-source-v2",
     ownerEmail,
     getRequestOrgId() ?? `solo:${ownerEmail}`,
     getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
@@ -853,26 +889,33 @@ async function getOwnerJevApiKeyCredential(
     const apiKey = cached.value.slice(separator + 1);
     return {
       credential:
-        (source === "user" || source === "deployment") && apiKey
+        (source === "user" ||
+          source === "org" ||
+          source === "workspace" ||
+          source === "deployment") &&
+        apiKey
           ? { apiKey, source }
           : null,
       lookupFailed: false,
     };
   }
-  let lookupFailed = false;
-  const value = await getOwnerApiKey("jev", ownerEmail, {
+  const lookupState: { failed: boolean } = { failed: false };
+  const ownerCredential = await getOwnerApiKeyDetailed("jev", ownerEmail, {
     onLookupFailure: () => {
-      lookupFailed = true;
+      lookupState.failed = true;
     },
   });
-  if (value) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, `user:${value}`);
+  if (ownerCredential) {
+    const source = ownerCredential.credentialProvenance.scope;
+    if (!lookupState.failed) {
+      writeOptionalKeyCache(cacheKey, `${source}:${ownerCredential.apiKey}`);
+    }
     return {
-      credential: { apiKey: value, source: "user" },
-      lookupFailed,
+      credential: { apiKey: ownerCredential.apiKey, source },
+      lookupFailed: lookupState.failed,
     };
   }
-  if (lookupFailed) return { credential: null, lookupFailed: true };
+  if (lookupState.failed) return { credential: null, lookupFailed: true };
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -884,22 +927,21 @@ async function getOwnerJevApiKeyCredential(
       value: deployKey,
     }))
   ) {
-    if (!lookupFailed) {
-      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
-    }
+    writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
     return {
       credential: { apiKey: deployKey, source: "deployment" },
       lookupFailed: false,
     };
   }
 
-  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  writeOptionalKeyCache(cacheKey, undefined);
   return { credential: null, lookupFailed: false };
 }
 
 export interface JevContextCredentials {
   apiKey: string | undefined;
   personalApiKey: string | undefined;
+  directApiKey?: string;
   builderAuth: BuilderGatewayAuth | null;
   apiKeyLookupFailed?: boolean;
   builderAuthLookupFailed?: boolean;
@@ -924,6 +966,11 @@ export async function getJevContextCredentials(
     apiKey: credential?.apiKey,
     personalApiKey:
       credential?.source === "user" ? credential.apiKey : undefined,
+    ...(credential &&
+    credential.source !== "deployment" &&
+    credential.source !== "user"
+      ? { directApiKey: credential.apiKey }
+      : {}),
     builderAuth: builderAuthLookup.builderAuth,
     ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
     ...(builderAuthLookup.lookupFailed
@@ -959,11 +1006,23 @@ const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
 export async function getOwnerApiKeyForEngine(
   engineName: string,
   ownerEmail: string | null | undefined,
+  options?: {
+    allowDeploymentFallback?: boolean;
+    onLookupFailure?: () => void;
+  },
 ): Promise<ResolvedOwnerApiKey> {
+  const lookupState: { failed: boolean } = { failed: false };
+  const reportLookupFailure = (): void => {
+    if (lookupState.failed) return;
+    lookupState.failed = true;
+    options?.onLookupFailure?.();
+  };
   try {
     const provider = engineToProvider(engineName);
     const envVar = PROVIDER_TO_ENV[provider];
-    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail);
+    const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail, {
+      onLookupFailure: reportLookupFailure,
+    });
     if (ownerKey) {
       return {
         apiKey: ownerKey.apiKey,
@@ -971,7 +1030,12 @@ export async function getOwnerApiKeyForEngine(
         credentialProvenance: ownerKey.credentialProvenance,
       };
     }
-    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+    if (
+      lookupState.failed ||
+      options?.allowDeploymentFallback === false ||
+      !envVar ||
+      !canUseDeployCredentialFallbackForRequest(envVar)
+    ) {
       return NO_OWNER_API_KEY;
     }
     const envKey = readDeployCredentialEnv(envVar);
@@ -987,6 +1051,7 @@ export async function getOwnerApiKeyForEngine(
     }
     return NO_OWNER_API_KEY;
   } catch {
+    reportLookupFailure();
     return NO_OWNER_API_KEY;
   }
 }
@@ -1144,6 +1209,54 @@ function runSlotBusy(
     retryable: true,
     activeRunId,
   };
+}
+
+function queuedSubmissionResponse(
+  event: Parameters<typeof setResponseStatus>[0],
+  message: AgentQueuedMessage,
+  activeRunId?: string | null,
+) {
+  setResponseStatus(event, 202);
+  setResponseHeader(event, "Content-Type", "application/json");
+  return {
+    state: "queued" as const,
+    message,
+    ...(activeRunId ? { activeRunId } : {}),
+  };
+}
+
+const QUEUED_REASONING_EFFORTS = new Set<
+  NonNullable<AgentRunOptions["reasoningEffort"]>
+>(["none", "minimal", "low", "medium", "high", "xhigh"]);
+
+function effectiveQueuedRunOptions(
+  options: AgentRunOptions | undefined,
+  model: unknown,
+  effort: unknown,
+  mode: AgentExecutionMode | undefined,
+): AgentRunOptions | undefined {
+  const effective = options ? { ...options } : undefined;
+  let result = effective;
+  if (typeof model === "string" && model.trim()) {
+    result ??= {};
+    result.model = model;
+  }
+  if (
+    typeof effort === "string" &&
+    QUEUED_REASONING_EFFORTS.has(
+      effort as NonNullable<AgentRunOptions["reasoningEffort"]>,
+    )
+  ) {
+    result ??= {};
+    result.reasoningEffort = effort as NonNullable<
+      AgentRunOptions["reasoningEffort"]
+    >;
+  }
+  if (mode !== undefined) {
+    result ??= {};
+    result.mode = mode;
+  }
+  return result;
 }
 
 /**
@@ -1574,7 +1687,7 @@ Hard rules:
 - Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, send messages or tasks to external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
-- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
+- Plan mode covers only this message. End with the plan and do not carry it out; the user starts implementation with the Implement button or their next message.`;
 
 const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "refresh-screen",
@@ -2066,6 +2179,7 @@ export interface ProductionAgentOptions {
     send: (event: AgentChatEvent) => void,
     threadId: string,
     runId: string,
+    turnId: string,
   ) => void | Promise<void>;
   /**
    * Called when the run's engine, model, and effort resolve, and again before
@@ -2171,7 +2285,28 @@ export async function runCompletionCallbackWithDatabaseRetry(
 const BUILDER_GATEWAY_ERROR_MAX_RETRIES = 1;
 const RETRY_BASE_DELAY_MS = 2000;
 
-function maxRetriesForError(err: unknown): number {
+/**
+ * A customer key's 429 is that key's per-minute quota, so seconds-apart
+ * retries only re-hit it: the turn waits once, and only when the provider says
+ * how long, and is never rerun whole.
+ */
+export function isCustomerKeyRateLimit(
+  err: unknown,
+  engine: AgentEngine | undefined,
+): err is EngineError {
+  if (!(err instanceof EngineError)) return false;
+  const code = (err.errorCode ?? "").toLowerCase();
+  return (
+    (err.statusCode === 429 || code === "http_429") &&
+    getEngineCredentialOwner(engine) === "customer"
+  );
+}
+
+/** @internal exported for unit tests only */
+export function maxRetriesForError(err: unknown, engine?: AgentEngine): number {
+  if (isCustomerKeyRateLimit(err, engine)) {
+    return err.retryAfterMs !== undefined ? 1 : 0;
+  }
   if (err instanceof EngineError) {
     const code = (err.errorCode ?? "").toLowerCase();
     if (code === "builder_gateway_error") {
@@ -2226,6 +2361,7 @@ const VISIBLE_RETRY_THRESHOLD_MS = 10_000;
  */
 const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
+const MAX_CONSECUTIVE_MAX_TOKENS_CONTINUATIONS = 3;
 const TRUNCATED_TOOL_CALL_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
@@ -4363,6 +4499,72 @@ export type AgentLoopContinuationReason =
   | "no_progress"
   | "rate_limited";
 
+const MAX_CONTINUATION_CHECKPOINT_CHARS = 12_000;
+
+// Whether the client still shows reply text: a `clear` discards everything before it.
+export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
+  let visible = false;
+  for (const event of events) {
+    if (event.type === "clear") visible = false;
+    else if (event.type === "text" && event.text.trim().length > 0)
+      visible = true;
+  }
+  return visible;
+}
+
+export function hasCompletedSideEffect(
+  events: readonly AgentChatEvent[],
+): boolean {
+  return events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+}
+
+// Earlier tool rounds are already in the message history; only the round that was
+// interrupted needs to be checkpointed.
+function interruptedRoundText(events: readonly AgentChatEvent[]): string {
+  let text = "";
+  for (const event of events) {
+    if (
+      event.type === "clear" ||
+      event.type === "tool_start" ||
+      event.type === "tool_done"
+    ) {
+      text = "";
+    } else if (event.type === "text") {
+      text += event.text;
+    }
+  }
+  return text.trim();
+}
+
+// Continuations must carry the streamed prefix: the client keeps it visible, so a
+// model that is not shown it re-answers from the start and the reply repeats.
+export function appendContinuationCheckpoint(
+  messages: EngineMessage[],
+  events: readonly AgentChatEvent[],
+): void {
+  const text = interruptedRoundText(events);
+  if (!text) return;
+  // Code points, not UTF-16 units, so the cut never leaves a lone surrogate.
+  const boundedText =
+    text.length > MAX_CONTINUATION_CHECKPOINT_CHARS
+      ? `[checkpoint truncated]\n${[...text].slice(-MAX_CONTINUATION_CHECKPOINT_CHARS).join("")}`
+      : text;
+  messages.push({
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: `${AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT}\n\n<interrupted-assistant-prefix>\n${boundedText}\n</interrupted-assistant-prefix>`,
+      },
+    ],
+  });
+}
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
@@ -4487,6 +4689,38 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
     return true;
   if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
+}
+
+// A restart is skipped once this attempt has streamed text, so every error it would
+// have retried must also be resumable; otherwise the run ends where it used to recover.
+export function isResumableStreamFailure(
+  err: unknown,
+  attemptEvents: readonly AgentChatEvent[],
+): boolean {
+  return (
+    isResumableEngineError(err) ||
+    (turnHasVisibleText(attemptEvents) && isRetryableError(err))
+  );
+}
+
+// Reads the live flag; a signal can abort while a loop body awaits, but TS keeps
+// the loop condition's `!signal.aborted` narrowing for direct property reads.
+export function isSignalAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
+// A clear wipes whatever the client shows for the reply. Only safe when nothing
+// visible would be lost, and a completed side effect's tool cards must stay. Not
+// recorded in `events`: with no visible text there is nothing for it to reset, and
+// recording it would hide the action-preparation state a continuation reads.
+export async function clearUnseenDraft(
+  events: readonly AgentChatEvent[],
+  emit: (event: AgentChatEvent) => void | Promise<void>,
+  noSideEffectsInLedger: boolean,
+): Promise<void> {
+  if (!noSideEffectsInLedger || turnHasVisibleText(events)) return;
+  if (hasCompletedSideEffect(events)) return;
+  await emit({ type: "clear" });
 }
 
 export function continuationReasonForResumableError(
@@ -4829,6 +5063,7 @@ function* historyToolResults(
             : {}),
           readOnly: readOnlyCalls.has(callPart),
           dedupe: actions[callPart.name]?.dedupe !== false,
+          input: callPart.input,
         },
       };
     }
@@ -5089,6 +5324,9 @@ export interface TerminalActionStop {
   transcriptMessage?: string;
   errorCode?: string;
   details?: string;
+  /** For `write_tool_outcome_unknown`: the call held back, and why. */
+  blockedTool?: string;
+  blockedBy?: UnknownOutcomeCause;
 }
 
 const LOOP_BREAKER_STOP_CODES = new Set([
@@ -5103,37 +5341,181 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
 }
 
 /**
- * Earlier calls whose outcome is unknown, counted by tool and by the exact
- * arguments each was prepared with. Any of them holds back every later write
- * of its tool, whatever its arguments; a read only when it is prepared
- * exactly as one of them was, which a call recorded without an identity
- * never is.
+ * Earlier calls whose outcome is unknown, counted by tool, by the exact
+ * arguments each was prepared with, by the arguments the model sent, and by
+ * tool again for those recorded without an identity. A call prepared exactly
+ * as one of them was stops the turn: running it again could apply it twice.
+ * So does a write sent with the same arguments, which a default can prepare
+ * differently, and any write of a tool with an unidentified one, which it may
+ * repeat. A write of the tool with other arguments is declined, and the turn
+ * goes on.
  */
 interface UnknownOutcomes {
   tools: Map<string, number>;
   calls: Map<string, number>;
+  inputs: Map<string, number>;
+  unidentified: Map<string, number>;
+  /**
+   * What made one unknown, under each key it is counted by in `calls`,
+   * `inputs` and `unidentified`, so a call names the cause of the earlier
+   * call it repeats, not of another call of its tool. `null` where calls
+   * sharing a key recorded different causes: none speaks for the key.
+   */
+  causes: Map<string, UnknownOutcomeCause | null>;
+  /**
+   * Keys a call was noted under with no cause, where no other source
+   * describes that call. A call with a cause beside it makes the key
+   * ambiguous.
+   */
+  uncaused: Set<string>;
+  /**
+   * Causes another source gave for a call this one counted, by its prepared
+   * or sent arguments: they fill in that key where this source recorded
+   * none and it counts only that call.
+   */
+  restated: Map<string, UnknownOutcomeCause>;
 }
+
+function recordUnknownCause(
+  causes: Map<string, UnknownOutcomeCause | null>,
+  key: string,
+  cause: UnknownOutcomeCause | null,
+): void {
+  const recorded = causes.get(key);
+  causes.set(key, recorded === undefined || recorded === cause ? cause : null);
+}
+
+/** The keys an unknown outcome is counted, and its cause recorded, under. */
+function unknownOutcomeKeys(
+  tool: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): { call?: string; input?: string; unidentified?: string } {
+  return {
+    ...(argumentsHash
+      ? { call: preparedToolCallKey(tool, argumentsHash) }
+      : { unidentified: tool }),
+    ...(input !== undefined ? { input: toolCallCacheKey(tool, input) } : {}),
+  };
+}
+
+type UnknownOutcomeCause = UnknownWriteCause;
 
 function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
   argumentsHash: string | undefined,
+  /** `undefined` when nothing recorded why. */
+  cause: UnknownOutcomeCause | undefined,
+  input?: unknown,
+  /**
+   * Another source describes the same call, as the history does a call the
+   * journal recorded: a cause missing here says nothing about its cause.
+   */
+  describedElsewhere = false,
 ): void {
   outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
-  if (!argumentsHash) return;
-  const key = preparedToolCallKey(tool, argumentsHash);
-  outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
+  const keys = unknownOutcomeKeys(tool, argumentsHash, input);
+  for (const [kind, map] of [
+    ["call", outcomes.calls],
+    ["input", outcomes.inputs],
+    ["unidentified", outcomes.unidentified],
+  ] as const) {
+    const key = keys[kind];
+    if (key === undefined) continue;
+    map.set(key, (map.get(key) ?? 0) + 1);
+    const causeKey = `${kind}:${key}`;
+    if (describedElsewhere) {
+      // Only its own key: a shared one may hold another call's.
+      if (cause && kind !== "unidentified") {
+        outcomes.restated.set(causeKey, cause);
+      }
+    } else if (cause) {
+      recordUnknownCauseBeside(outcomes, causeKey, cause);
+    } else {
+      markUncaused(outcomes, causeKey);
+    }
+  }
+}
+
+function markUncaused(outcomes: UnknownOutcomes, causeKey: string): void {
+  outcomes.uncaused.add(causeKey);
+  if (outcomes.causes.has(causeKey)) outcomes.causes.set(causeKey, null);
+}
+
+function recordUnknownCauseBeside(
+  outcomes: UnknownOutcomes,
+  causeKey: string,
+  cause: UnknownOutcomeCause | null,
+): void {
+  if (cause === null || outcomes.uncaused.has(causeKey)) {
+    outcomes.causes.set(causeKey, null);
+  } else {
+    recordUnknownCause(outcomes.causes, causeKey, cause);
+  }
+}
+
+/**
+ * Why a repeat of a call whose outcome is unknown did not run; `cause`
+ * `undefined` when the attempts it counts do not share one.
+ */
+function unknownRepeatResult(
+  tool: string,
+  cause: UnknownOutcomeCause | undefined,
+  times?: number,
+): string {
+  const count = times === undefined ? "" : ` ${times} time(s)`;
+  const happened =
+    cause === undefined
+      ? `has ${times ?? 1} earlier attempt(s) whose outcome is unknown`
+      : cause === "rejection"
+        ? `failed${count} without confirming whether it saved changes`
+        : cause === "unattributed"
+          ? `ran${count}, but I could not confirm what it changed`
+          : times === undefined
+            ? "was interrupted and its result is unknown"
+            : `was interrupted${count}, and I could not recover its result`;
+  return (
+    `The ${tool} action ${happened}. ` +
+    "I stopped without running it again. Check whether it completed before asking me to retry."
+  );
+}
+
+/** Why a write of a tool with an unknown earlier call did not run. */
+function unknownSiblingResult(tool: string): string {
+  return `Not run: an earlier ${tool} call in this turn may have already applied, and its result is unknown. Running ${tool} again could apply the change twice. Check the current state with a read, then tell the user what you found instead of calling ${tool} again in this turn.`;
 }
 
 function noUnknownOutcomes(): UnknownOutcomes {
-  return { tools: new Map(), calls: new Map() };
+  return {
+    tools: new Map(),
+    calls: new Map(),
+    inputs: new Map(),
+    unidentified: new Map(),
+    causes: new Map(),
+    uncaused: new Set(),
+    restated: new Map(),
+  };
 }
 
 /** Each count in `from` that is larger than the one in `into`. */
 function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
-  for (const kind of ["tools", "calls"] as const) {
+  for (const kind of ["tools", "calls", "inputs", "unidentified"] as const) {
     for (const [key, count] of from[kind]) {
       into[kind].set(key, Math.max(into[kind].get(key) ?? 0, count));
+    }
+  }
+  for (const [key, cause] of from.causes) {
+    recordUnknownCauseBeside(into, key, cause);
+  }
+  for (const key of from.uncaused) markUncaused(into, key);
+  for (const [key, cause] of from.restated) {
+    // Only for the one call it restates: another call under the same key
+    // may have no cause, or another.
+    const [kind, ...rest] = key.split(":");
+    const counted = kind === "call" ? into.calls : into.inputs;
+    if (!into.causes.has(key) && (counted.get(rest.join(":")) ?? 0) <= 1) {
+      into.causes.set(key, cause);
     }
   }
 }
@@ -5151,11 +5533,22 @@ function seedUnknownOutcomes(
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
-  interrupted: readonly { tool: string; argumentsHash?: string }[],
+  interrupted: readonly {
+    tool: string;
+    argumentsHash?: string;
+    input?: unknown;
+    unknownCause?: UnknownOutcomeCause;
+  }[],
 ): void {
   const fromJournal = noUnknownOutcomes();
   for (const entry of interrupted) {
-    noteUnknownOutcome(fromJournal, entry.tool, entry.argumentsHash);
+    noteUnknownOutcome(
+      fromJournal,
+      entry.tool,
+      entry.argumentsHash,
+      entry.unknownCause,
+      entry.input,
+    );
   }
   mergeUnknownOutcomes(outcomes, fromJournal);
   if (!isInternalContinuationTurn(messages)) return;
@@ -5196,6 +5589,9 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
+        part.unknownCause,
+        call.input,
+        effect !== undefined,
       );
     }
   }
@@ -5214,8 +5610,10 @@ function seedUnknownOutcomes(
     }
   }
 
-  const ambiguousUnknownCalls = new Set<
-    Extract<EngineContentPart, { type: "tool-call" }>
+  // Each call, with the cause its results recorded, when they agree.
+  const ambiguousUnknownCalls = new Map<
+    Extract<EngineContentPart, { type: "tool-call" }>,
+    UnknownOutcomeCause | undefined
   >();
   for (const message of turnMessages) {
     if (message.role === "assistant") continue;
@@ -5235,15 +5633,26 @@ function seedUnknownOutcomes(
       const namedCandidates = candidates.filter(
         (call) => call.name === part.toolName,
       );
-      for (const call of namedCandidates.length > 0
-        ? namedCandidates
-        : candidates) {
-        if (!readOnlyCalls.has(call)) ambiguousUnknownCalls.add(call);
+      const owners = namedCandidates.length > 0 ? namedCandidates : candidates;
+      // The result is one candidate's; its cause can stand only where every
+      // candidate shares the keys it would be recorded under.
+      const ownerInputs = new Set(
+        owners.map((call) => toolCallCacheKey(call.name, call.input)),
+      );
+      const partCause = ownerInputs.size === 1 ? part.unknownCause : undefined;
+      for (const call of owners) {
+        if (readOnlyCalls.has(call)) continue;
+        const cause = ambiguousUnknownCalls.has(call)
+          ? ambiguousUnknownCalls.get(call) === partCause
+            ? partCause
+            : undefined
+          : partCause;
+        ambiguousUnknownCalls.set(call, cause);
       }
     }
   }
-  for (const call of ambiguousUnknownCalls) {
-    noteUnknownOutcome(fromHistory, call.name, undefined);
+  for (const [call, cause] of ambiguousUnknownCalls) {
+    noteUnknownOutcome(fromHistory, call.name, undefined, cause, call.input);
   }
 
   mergeUnknownOutcomes(outcomes, fromHistory);
@@ -6639,7 +7048,10 @@ async function prepareToolCall(
   try {
     return await Promise.race([
       toolCallIntent(entry, input).then(
-        (intent): PreparedToolCall => ({ status: "prepared", intent }),
+        (intent): PreparedToolCall => ({
+          status: "prepared",
+          intent,
+        }),
       ),
       stopped,
     ]);
@@ -6652,6 +7064,23 @@ async function prepareToolCall(
 /** Whether an intent is a valid read: an invalid call never runs as one. */
 function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
   return intent?.valid === true && intent.readOnly === true;
+}
+
+function isBoundedTaskWait(toolName: string, input: unknown): boolean {
+  if (toolName !== "agent-teams" || !input || typeof input !== "object") {
+    return false;
+  }
+  const args = input as Record<string, unknown>;
+  // Only these operations honor the task reader's bounded wait contract.
+  return (
+    (args.action === "status" || args.action === "read-result") &&
+    typeof args.taskId === "string" &&
+    args.taskId.trim().length > 0 &&
+    typeof args.waitMs === "number" &&
+    Number.isInteger(args.waitMs) &&
+    args.waitMs > 0 &&
+    args.waitMs <= 20_000
+  );
 }
 
 function normalizeOptionalToolPlaceholders(
@@ -6865,6 +7294,44 @@ function notifyModelInputObserver(
   }
 }
 
+export type QueuedRunInterruptBoundaryResult = "none" | "aborted" | "pending";
+
+export function createRunSafeBoundaryGuards(input: {
+  signal: AbortSignal;
+  flushEvents: () => Promise<void>;
+  interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+}): {
+  beforeModelDispatch: BeforeModelDispatch;
+  beforeWrite: () => Promise<void>;
+} {
+  return {
+    beforeModelDispatch: async <T>(dispatch: () => T) => {
+      await input.flushEvents();
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
+        return { started: false as const };
+      }
+      return { started: true as const, value: dispatch() };
+    },
+    beforeWrite: async () => {
+      await input.flushEvents();
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
+        throw new Error("Run aborted at a safe boundary");
+      }
+    },
+  };
+}
+
+export async function confirmQueuedRunInterrupt(input: {
+  abort: () => Promise<boolean>;
+  defer: () => Promise<unknown>;
+}): Promise<Exclude<QueuedRunInterruptBoundaryResult, "none">> {
+  if (await input.abort()) return "aborted";
+  await input.defer();
+  return "pending";
+}
+
 export async function runAgentLoop(opts: {
   engine: AgentEngine;
   model: string;
@@ -6872,6 +7339,9 @@ export async function runAgentLoop(opts: {
   tools: EngineTool[];
   availableTools?: EngineTool[];
   messages: EngineMessage[];
+  // Restarting the model call would repeat text the client already shows. Without a
+  // turn-level view, the attempt's own streamed text decides.
+  hasVisibleTurnText?: () => boolean;
   structuredHistoryImages?: {
     history: AgentChatStructuredMessage[];
     resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>;
@@ -7035,6 +7505,65 @@ export async function runAgentLoop(opts: {
       opts.onOutcome?.(outcome);
     } catch {
       // Outcome observers are telemetry/protocol adapters and cannot alter the run.
+    }
+  };
+  // Send now delivers a queued message into this run: after the tool results
+  // it waited for and before the next model request, as user text the
+  // provider reads alongside those results.
+  const deliverSteeredMessagesAtToolBoundary = async (
+    toolResultParts: EngineContentPart[],
+  ) => {
+    if (signal.aborted) return;
+    const threadId = opts.threadId;
+    const runId = opts.runId;
+    if (!threadId || !runId) return;
+    const { claimSteeredQueuedMessages } =
+      await import("../chat-threads/store.js");
+    let delivered: Awaited<ReturnType<typeof claimSteeredQueuedMessages>>;
+    try {
+      delivered = await claimSteeredQueuedMessages(threadId, runId);
+    } catch (error) {
+      // The claim is one transaction, so a failure leaves the message queued
+      // and on screen; it sends at a later boundary or after this reply.
+      console.warn(
+        "[agent-chat] Send now delivery skipped at a tool boundary:",
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
+    for (const { queued, record } of delivered) {
+      toolResultParts.push(
+        ...buildUserContentWithAttachments({
+          text: queued.text,
+          attachments: queuedPromotionAttachments(
+            queued.attachments ?? [],
+            (queued.requestAttachments ?? []) as Record<string, unknown>[],
+          ),
+          vision: isAgentModelVisionCapable(
+            model,
+            engine.capabilities.vision === true,
+          ),
+        }),
+      );
+      await send({
+        type: "user_message",
+        message: record.message,
+        continuationMessageId: record.continuationMessageId,
+      });
+    }
+  };
+  const deferSteeredMessagesPastFinalResponse = async () => {
+    if (!opts.threadId || !opts.runId) return;
+    const { deferSteeredQueuedMessages } =
+      await import("../chat-threads/store.js");
+    try {
+      await deferSteeredQueuedMessages(opts.threadId);
+    } catch (error) {
+      // Only the row's label depends on this; the message still sends next.
+      console.warn(
+        "[agent-chat] Send now row could not be marked for after this reply:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
@@ -7292,6 +7821,11 @@ export async function runAgentLoop(opts: {
   const journalEntriesAmbiguous = toolCallJournal
     ? journalEntriesAmbiguousInHistory(toolCallJournal, journalHistory)
     : new Set<string>();
+  const unseenFinishedJournalSteps = (toolCallJournal?.completed ?? []).filter(
+    (entry) =>
+      !journalEntriesAlreadyRepresented.has(entry.key) &&
+      !journalEntriesAmbiguous.has(entry.key),
+  );
   const journaledPriorToolCalls =
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
@@ -7401,6 +7935,10 @@ export async function runAgentLoop(opts: {
     priorCallIdentities,
   );
   const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
+  // A recovered retry (a team attempt after a crash, an A2A redelivery)
+  // re-plans from the task text, so a repeated write gets a new step id and
+  // only these journal entries show it may already have run. Approval
+  // continuations stay out: their paused call is interrupted by design.
   seedUnknownOutcomes(
     unknownOutcomes,
     messages,
@@ -7408,30 +7946,30 @@ export async function runAgentLoop(opts: {
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
-    internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
+    internalContinuationTurn || opts.recoverCompletedExecutionSteps === true
+      ? (toolCallJournal?.interrupted ?? [])
+      : [],
   );
   if (internalContinuationTurn) {
     for (const entry of toolCallJournal?.completed ?? []) {
       if (!journalEntriesAmbiguous.has(entry.key)) continue;
-      unknownOutcomes.tools.set(
+      const seeded = noUnknownOutcomes();
+      noteUnknownOutcome(
+        seeded,
         entry.tool,
-        Math.max(unknownOutcomes.tools.get(entry.tool) ?? 0, 1),
+        entry.argumentsHash,
+        undefined,
+        entry.input,
       );
-      if (entry.argumentsHash) {
-        const key = preparedToolCallKey(entry.tool, entry.argumentsHash);
-        unknownOutcomes.calls.set(
-          key,
-          Math.max(unknownOutcomes.calls.get(key) ?? 0, 1),
-        );
-      }
+      mergeUnknownOutcomes(unknownOutcomes, seeded);
     }
   }
-  // Names a caller shares between its own loops hold back writes, as before.
+  // Names a caller shares between its own loops carry no identity, so they
+  // hold back every write of the tool.
   for (const tool of opts.unknownWriteToolNames ?? []) {
-    unknownOutcomes.tools.set(
-      tool,
-      Math.max(unknownOutcomes.tools.get(tool) ?? 0, 1),
-    );
+    const seeded = noUnknownOutcomes();
+    noteUnknownOutcome(seeded, tool, undefined, undefined, undefined, true);
+    mergeUnknownOutcomes(unknownOutcomes, seeded);
   }
   const {
     sameArguments: repeatedToolErrors,
@@ -7484,6 +8022,8 @@ export async function runAgentLoop(opts: {
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
+  let preserveReasoningEffortForEmptyResponseRetries = false;
+  let consecutiveMaxTokensContinuations = 0;
   let truncatedToolCallRetries = 0;
   let iterations = 0;
   let endedAtLoopLimit = false;
@@ -7503,6 +8043,8 @@ export async function runAgentLoop(opts: {
       error: stop.message,
       errorCode: stop.errorCode ?? "tool_failed",
       ...(stop.details ? { details: stop.details } : {}),
+      ...(stop.blockedTool ? { blockedTool: stop.blockedTool } : {}),
+      ...(stop.blockedBy ? { blockedBy: stop.blockedBy } : {}),
       recoverable: false,
     });
   };
@@ -7571,6 +8113,14 @@ export async function runAgentLoop(opts: {
 
     let assistantContent: EngineContentPart[] | undefined;
     let streamedAssistantText = "";
+    // A restart repeats only what this attempt streamed; earlier rounds stay in history.
+    const attemptHasText = () => streamedAssistantText.trim().length > 0;
+    // A clear wipes the reply, so it is sent only when nothing the client shows would be lost.
+    const sendClear = async () => {
+      if (!(opts.hasVisibleTurnText?.() ?? attemptHasText())) {
+        await send({ type: "clear" });
+      }
+    };
     const streamedAssistantToolCalls: import("./engine/types.js").EngineToolCallPart[] =
       [];
     let terminalStopReason:
@@ -8042,11 +8592,11 @@ export async function runAgentLoop(opts: {
           break;
         }
         if (isContextTooLongError(err)) {
-          if (retry === 0) {
+          if (retry === 0 && !attemptHasText()) {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
               contextMessages = trimmed;
-              send({ type: "clear" });
+              await sendClear();
               continue;
             }
           }
@@ -8057,8 +8607,10 @@ export async function runAgentLoop(opts: {
         }
         const retryAfterMs =
           err instanceof EngineError ? err.retryAfterMs : undefined;
+        // Text this attempt streamed would repeat on restart; the run loop resumes from it.
         if (
-          retry < maxRetriesForError(err) &&
+          !attemptHasText() &&
+          retry < maxRetriesForError(err, engine) &&
           isRetryableError(err) &&
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
@@ -8066,14 +8618,15 @@ export async function runAgentLoop(opts: {
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
               type: "activity",
-              label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err) + 1})`,
+              label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err, engine) + 1})`,
             });
           }
-          send({ type: "clear" });
+          await sendClear();
           await retryDelay(retry, signal, retryAfterMs);
           continue;
         }
         if (
+          !attemptHasText() &&
           !fallbackModelAttempted &&
           isTransientProviderRateLimitError(err) &&
           hasBudgetForEngineRetry(budgetStartedAt, 0)
@@ -8097,7 +8650,7 @@ export async function runAgentLoop(opts: {
               type: "activity",
               label: "Model is rate limited — switching to a backup model",
             });
-            send({ type: "clear" });
+            await sendClear();
             model = fallbackModel;
             usage.inputTokens = 0;
             usage.outputTokens = 0;
@@ -8106,7 +8659,7 @@ export async function runAgentLoop(opts: {
             usage.model = fallbackModel;
             // The sibling shares the throttled quota, so it gets this one
             // attempt; a fresh retry budget only re-hits the same limit.
-            retry = maxRetriesForError(err) - 1;
+            retry = maxRetriesForError(err, engine) - 1;
             continue;
           }
         }
@@ -8246,13 +8799,8 @@ export async function runAgentLoop(opts: {
     const historyIndexByCall = new Map(
       allToolCallParts.map((toolCall, index) => [toolCall, index]),
     );
-    const logicalExecutionStepIds = new Map(
-      toolCallParts.map((toolCall, index) => [
-        toolCall,
-        `model-step:${createHash("sha256")
-          .update(`${durableStepCheckpointId}:${index}`)
-          .digest("hex")}`,
-      ]),
+    const toolCallIndexes = new Map(
+      toolCallParts.map((toolCall, index) => [toolCall, index]),
     );
     const historyToolCallByCall = new Map(
       toolCallParts.map((toolCall) => [
@@ -8350,20 +8898,44 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
-      if (followUpResults.length > 0)
-        messages.push({ role: "user", content: followUpResults });
-      if (terminalStopReason === "max_tokens") {
-        flushUnstreamedAssistantText();
-        appendAgentLoopContinuation(messages, "max_tokens");
-        continue;
-      }
-
+      await deferSteeredMessagesPastFinalResponse();
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
+      if (followUpResults.length > 0)
+        messages.push({ role: "user", content: followUpResults });
+      if (terminalStopReason === "max_tokens") {
+        if (hasEmptyFinalResponse) {
+          preserveReasoningEffortForEmptyResponseRetries = true;
+        } else if (
+          consecutiveMaxTokensContinuations <
+          MAX_CONSECUTIVE_MAX_TOKENS_CONTINUATIONS
+        ) {
+          consecutiveMaxTokensContinuations += 1;
+          flushUnstreamedAssistantText();
+          appendAgentLoopContinuation(messages, "max_tokens");
+          continue;
+        } else {
+          flushUnstreamedAssistantText();
+          terminalActionStop = {
+            message:
+              "This response kept reaching the output-token limit after several continuations and may be incomplete. Ask for a shorter or narrower answer.",
+            errorCode: "max_tokens_continuation_limit",
+          };
+          sendTerminalActionStop(terminalActionStop);
+          break;
+        }
+      } else {
+        consecutiveMaxTokensContinuations = 0;
+      }
+      if (followUpResults.length > 0 && terminalStopReason === "tool_use") {
+        if (streamedAssistantText) send({ type: "clear" });
+        continue;
+      }
       if (
         followUpResults.length > 0 &&
-        (terminalStopReason === "tool_use" || hasEmptyFinalResponse)
+        hasEmptyFinalResponse &&
+        terminalStopReason !== "max_tokens"
       ) {
         flushUnstreamedAssistantText();
         continue;
@@ -8372,11 +8944,23 @@ export async function runAgentLoop(opts: {
         completedFollowUpSuggestions = undefined;
         if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
           emptyFinalResponseRetries += 1;
+          const previousMaxOutputTokens = resolveMaxOutputTokensForEngine(
+            engine.name,
+            effectiveMaxOutputTokens,
+            model,
+          );
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          effectiveReasoningEffort = stepDownReasoningEffort(
-            effectiveReasoningEffort,
-          );
+          if (
+            !preserveReasoningEffortForEmptyResponseRetries ||
+            effectiveMaxOutputTokens <= previousMaxOutputTokens
+          ) {
+            // With no effort chosen the provider ran at its own default, so
+            // step down from that documented level when the catalog knows it.
+            effectiveReasoningEffort = stepDownReasoningEffort(
+              effectiveReasoningEffort ?? getProviderDefaultEffort(model),
+            );
+          }
           send({ type: "clear" });
           appendAgentLoopContinuation(messages, "max_tokens");
           continue;
@@ -8479,6 +9063,8 @@ export async function runAgentLoop(opts: {
         }
       }
       emptyFinalResponseRetries = 0;
+      preserveReasoningEffortForEmptyResponseRetries = false;
+      consecutiveMaxTokensContinuations = 0;
       effectiveMaxOutputTokens = opts.maxOutputTokens;
       effectiveReasoningEffort = opts.reasoningEffort;
       if (loopBreakerCloseout) loopBreakerStopped = true;
@@ -8487,6 +9073,8 @@ export async function runAgentLoop(opts: {
 
     finalGuardRetries = 0;
     emptyFinalResponseRetries = 0;
+    preserveReasoningEffortForEmptyResponseRetries = false;
+    consecutiveMaxTokensContinuations = 0;
 
     const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
     if (toolCallTruncatedByOutputCap) {
@@ -8505,6 +9093,11 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    // Tool closures set the stop, so control flow still reads it as null here.
+    const actionStopRequested = () => requestedActionStop !== null;
+    let requestedActionStopTranscriptSent = false;
+    const approvalTranscriptCallIds = new Set<string>();
+    const sentApprovalTranscriptTexts = new Set<string>();
     let requestedConnection:
       | {
           requestId: string;
@@ -8624,11 +9217,13 @@ export async function runAgentLoop(opts: {
         actionEntry && intent?.valid
           ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
           : false;
-      const repeatGuardStopFromThisCall = noteRepeatedToolCall(
-        toolCall.name,
-        toolCall.input,
-        toolCall.id,
-      );
+      const repeatGuardStopFromThisCall =
+        actionIsReadOnly &&
+        actionEntry?.dedupe === false &&
+        intent?.valid === true &&
+        isBoundedTaskWait(toolCall.name, preparedCallArguments(intent))
+          ? null
+          : noteRepeatedToolCall(toolCall.name, toolCall.input, toolCall.id);
       const rollbackRepeatedToolCall = () => {
         const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const repeatCall = inFlightRepeatToolCalls.get(toolCall.id);
@@ -8657,10 +9252,15 @@ export async function runAgentLoop(opts: {
       let toolDoneEmitted = false;
       let toolDonePersistenceFailed = false;
       let executionStepFinalizationAttempted = false;
+      let executionStepDispatched = false;
+      let executionStepDispatchWrite: Promise<void> | undefined;
       let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
       const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
+      // Unset when nothing recorded why, so the call cannot overwrite a cause
+      // another call recorded under a key they share.
+      let unknownOutcomeCause: UnknownOutcomeCause | undefined;
       const ranEffect = (settled: Parameters<typeof invocationEffect>[2]) =>
         actionInvoked && actionEntry
           ? invocationEffect(actionEntry, actionExecutionOutcome, {
@@ -8679,7 +9279,13 @@ export async function runAgentLoop(opts: {
         // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
           opts.unknownWriteToolNames?.add(toolCall.name);
-          noteUnknownOutcome(unknownOutcomes, toolCall.name, argumentsHash);
+          noteUnknownOutcome(
+            unknownOutcomes,
+            toolCall.name,
+            argumentsHash,
+            unknownOutcomeCause,
+            toolCall.input,
+          );
         }
         // A write that errored after it was invoked may still have committed,
         // retry-safe or not, so cached reads of its target are stale.
@@ -8698,6 +9304,9 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(event.outcomeUnknown && unknownOutcomeCause
+              ? { unknownCause: unknownOutcomeCause }
+              : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
@@ -8884,6 +9493,7 @@ export async function runAgentLoop(opts: {
       const declineToolCall = (
         guidance: string,
         isError = false,
+        errorClass?: ToolErrorClass,
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -8901,6 +9511,7 @@ export async function runAgentLoop(opts: {
             result,
             isError: true,
             completedSideEffect: false,
+            ...(errorClass ? { errorClass } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9021,6 +9632,7 @@ export async function runAgentLoop(opts: {
             toolCallTruncatedByOutputCap,
           ),
           true,
+          "input_invalid",
         );
       }
       const rawToolInputError = validateRawToolInput(
@@ -9037,6 +9649,7 @@ export async function runAgentLoop(opts: {
             toolCallTruncatedByOutputCap,
           ),
           true,
+          "input_invalid",
         );
       }
       if (!intent?.valid) {
@@ -9051,7 +9664,11 @@ export async function runAgentLoop(opts: {
           },
           intent?.error,
         );
-        return declineToolCall(thrownToolResult(intent?.error), true);
+        return declineToolCall(
+          thrownToolResult(intent?.error),
+          true,
+          "input_invalid",
+        );
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -9107,6 +9724,21 @@ export async function runAgentLoop(opts: {
           }
         }
         if (mustApprove) {
+          const approvalCallMessage = [...messages]
+            .reverse()
+            .find(
+              (message) =>
+                message.role === "assistant" &&
+                message.content.some(
+                  (part) =>
+                    part.type === "tool-call" && part.id === toolCall.id,
+                ),
+            );
+          if (!approvalCallMessage) {
+            throw new Error(
+              `Approval call ${toolCall.id} is missing from assistant history.`,
+            );
+          }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
           await send({
@@ -9151,8 +9783,27 @@ export async function runAgentLoop(opts: {
           }
           const result =
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
-            `NOT execute — a human must approve this specific call before it ` +
-            `can run. The turn is paused; do not retry.`;
+            `NOT execute. The turn is paused until this specific call is ` +
+            `approved; do not retry it before then. Once approved, re-emit ` +
+            `this exact call once so it can run, then summarize its result.`;
+          requestedActionStop ??= {
+            message: `Waiting for your approval to run ${toolCall.name}.`,
+            errorCode: "needs-approval",
+          };
+          const transcriptText = `Waiting for your approval to run ${toolCall.name}.`;
+          // Keep the note with its tool call so the next turn can pair the result.
+          if (!approvalTranscriptCallIds.has(toolCall.id)) {
+            approvalCallMessage.content.push({
+              type: "text",
+              text: transcriptText,
+            });
+            approvalTranscriptCallIds.add(toolCall.id);
+          }
+          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
+            await send({ type: "text", text: transcriptText });
+            sentApprovalTranscriptTexts.add(transcriptText);
+          }
+          requestedActionStopTranscriptSent = true;
           await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
@@ -9164,10 +9815,6 @@ export async function runAgentLoop(opts: {
           });
           recordToolResult(result, false);
           turnYieldedToUser = true;
-          requestedActionStop ??= {
-            message: `Waiting for your approval to run ${toolCall.name}.`,
-            errorCode: "needs-approval",
-          };
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -9178,27 +9825,47 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      const DEFAULT_TOOL_RESULT_CHARS = 50_000;
       const toolTimeoutMs = toolTimeoutMsFor(actionEntry);
-      const configuredToolMaxResultChars =
-        actionEntry.maxResultChars ??
-        opts.toolLimits?.maxResultChars ??
-        DEFAULT_TOOL_RESULT_CHARS;
-      const toolMaxResultChars =
-        typeof opts.toolLimits?.hardMaxResultChars === "number"
-          ? Math.min(
-              configuredToolMaxResultChars,
-              opts.toolLimits.hardMaxResultChars,
-            )
-          : configuredToolMaxResultChars;
+      const toolMaxResultChars = resolveToolMaxResultChars(
+        actionEntry,
+        opts.toolLimits,
+      );
 
       const executionFence = currentExecutionFence();
+      const toolCallIndex = toolCallIndexes.get(originalToolCall);
+      // A continuation re-asks the model from the same checkpoint and may
+      // reorder or replace its calls, so a step is named by the call itself;
+      // the occurrence count only separates identical calls in one response.
+      // Every earlier call was prepared before this one runs. A step named
+      // under another scheme is found through the run ledger, whose tool_start
+      // persists before any dispatch.
       const logicalExecutionStepId =
-        logicalExecutionStepIds.get(originalToolCall);
-      const interruptedStep =
+        toolCallIndex === undefined
+          ? undefined
+          : `model-step:${createHash("sha256")
+              .update(
+                JSON.stringify([
+                  durableStepCheckpointId,
+                  toolCall.name,
+                  argumentsHash,
+                  toolCallParts.slice(0, toolCallIndex).filter((earlier) => {
+                    const earlierPrepared = toolCallIntents.get(earlier);
+                    return (
+                      earlier.name === toolCall.name &&
+                      earlierPrepared?.status === "prepared" &&
+                      earlierPrepared.intent.valid &&
+                      earlierPrepared.intent.argumentsHash === argumentsHash
+                    );
+                  }).length,
+                ]),
+              )
+              .digest("hex")}`;
+      // The ledger names the step whichever scheme recorded it.
+      const journaledStep =
         executionFence && toolCallJournal
-          ? findInterruptedJournalEntryForCall(
+          ? findUnresolvedJournalStepForCall(
               toolCallJournal,
+              unseenFinishedJournalSteps,
               toolCall.name,
               argumentsHash,
               toolCall.input,
@@ -9206,7 +9873,7 @@ export async function runAgentLoop(opts: {
             )
           : undefined;
       const legacyInterruptedStep =
-        executionFence && toolCallJournal && !interruptedStep
+        executionFence && toolCallJournal && !journaledStep
           ? findInterruptedLegacyJournalEntryForCall(
               toolCallJournal,
               toolCall.name,
@@ -9222,7 +9889,7 @@ export async function runAgentLoop(opts: {
           ? legacyInterruptedStep.stepId
           : undefined;
       const interruptedStepId =
-        interruptedStep?.executionStepId ?? legacyInterruptedStepId;
+        journaledStep?.executionStepId ?? legacyInterruptedStepId;
       const ambiguousLegacyInterruptedWrite =
         !actionIsReadOnly && legacyInterruptedStep.status === "ambiguous";
       executionStepId = executionFence
@@ -9383,9 +10050,43 @@ export async function runAgentLoop(opts: {
         return replayDurableExecutionStep(executionStepAdmission.resultJson);
       }
       if (executionStepAdmission?.status === "unknown") {
-        const result =
-          `The ${toolCall.name} action was interrupted and its result is unknown. ` +
-          "I stopped without running it again. Check whether it completed before asking me to retry.";
+        // The step records no cause. Its own journal entry may; then its
+        // prepared arguments; then its sent arguments, only when one earlier
+        // call sent them, so they can only be this call prepared anew. A key
+        // with no single cause stops the search.
+        const inputKey = toolCallCacheKey(toolCall.name, toolCall.input);
+        const keyedCause = (key: string) =>
+          unknownOutcomes.causes.has(key)
+            ? unknownOutcomes.causes.get(key)
+            : unknownOutcomes.uncaused.has(key)
+              ? null
+              : undefined;
+        const [recordedCause, attempts] = (
+          [
+            () => [journaledStep?.unknownCause, 1],
+            () => [
+              keyedCause(`call:${preparedCallKey}`),
+              unknownOutcomes.calls.get(preparedCallKey),
+            ],
+            () =>
+              (unknownOutcomes.inputs.get(inputKey) ?? 0) <= 1
+                ? [keyedCause(`input:${inputKey}`), 1]
+                : [undefined, undefined],
+          ] as Array<
+            () => [UnknownOutcomeCause | null | undefined, number | undefined]
+          >
+        )
+          .map((read) => read())
+          .find(([cause]) => cause !== undefined) ?? [undefined, undefined];
+        unknownOutcomeCause = recordedCause ?? undefined;
+        // Attempts that disagree get no cause-specific wording.
+        const result = unknownRepeatResult(
+          toolCall.name,
+          recordedCause === null
+            ? undefined
+            : (unknownOutcomeCause ?? "interruption"),
+          recordedCause === null ? attempts : undefined,
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9407,6 +10108,8 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message: result,
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: toolCall.name,
+          blockedBy: unknownOutcomeCause ?? "interruption",
         };
         return {
           type: "tool-result" as const,
@@ -9487,11 +10190,30 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      // An unknown write cannot become fresh work merely by rewording its
-      // arguments, or by eliding its tool pair from the replayed history.
-      const priorInterruptionsBeforeStepReplay = actionIsReadOnly
-        ? (unknownOutcomes.calls.get(preparedCallKey) ?? 0)
-        : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
+      // Running an unknown call again exactly as it was prepared could apply
+      // it twice. A write with no identity to compare cannot be told from a
+      // repeat, whatever its arguments, nor can one whose tool pair was
+      // elided from the replayed history.
+      const repeatKeys = {
+        call: preparedCallKey,
+        input: toolCallCacheKey(toolCall.name, toolCall.input),
+        unidentified: toolCall.name,
+      };
+      const repeated = (
+        [
+          ["call", unknownOutcomes.calls],
+          ["input", unknownOutcomes.inputs],
+          ["unidentified", unknownOutcomes.unidentified],
+        ] as const
+      ).filter(
+        ([kind, map]) =>
+          (!actionIsReadOnly || kind === "call") &&
+          (map.get(repeatKeys[kind]) ?? 0) > 0,
+      );
+      const priorInterruptionsBeforeStepReplay = Math.max(
+        0,
+        ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
+      );
       const priorInterruptions = ambiguousLegacyWrite
         ? Math.max(1, priorInterruptionsBeforeStepReplay)
         : (interruptedCallMatchesStep ||
@@ -9501,10 +10223,23 @@ export async function runAgentLoop(opts: {
           ? 0
           : priorInterruptionsBeforeStepReplay;
 
+      // Another write of a tool whose earlier call may have applied could
+      // apply the same change twice, so it does not run; the turn goes on,
+      // and only an exact repeat stops it.
+      if (
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        priorInterruptionsBeforeStepReplay === 0 &&
+        (unknownOutcomes.tools.get(toolCall.name) ?? 0) > 0
+      ) {
+        return declineToolCall(unknownSiblingResult(toolCall.name), true);
+      }
+
       if (priorInterruptions > 0) {
-        // Only a result recorded for these exact arguments is recovered. Any
-        // other leaves the earlier attempt unknown, so the call stops below
-        // instead of running again.
+        // Only a result recorded for these exact arguments is recovered, so
+        // a result found is the interrupted call's own. Any other leaves the
+        // earlier attempt unknown, so the call stops below instead of
+        // running again.
         const ledgerResult =
           !ambiguousLegacyWrite && opts.threadId && !executionStepIntent
             ? await waitForInterruptedToolLedgerEntry({
@@ -9573,9 +10308,30 @@ export async function runAgentLoop(opts: {
             content: result,
           };
         }
-        const result =
-          `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
-          `I stopped without running it again. Check whether it completed before asking me to retry.`;
+        // The most specific key matched speaks for the call's cause; a
+        // broader one can name a different call that shares it. The count
+        // is every attempt the guard held back for, any of which may have
+        // saved changes.
+        const [specific] = repeated;
+        // `null` when attempts under the key disagree; `undefined` when none
+        // recorded a cause, which reads as an interruption.
+        const specificCause = specific
+          ? unknownOutcomes.causes.get(
+              `${specific[0]}:${repeatKeys[specific[0]]}`,
+            )
+          : undefined;
+        const blockedBy = specificCause ?? "interruption";
+        // Its cause speaks for the count only when the key has one and every
+        // attempt counted is under it.
+        const causeCoversCount =
+          specific !== undefined &&
+          specificCause !== null &&
+          specific[1].get(repeatKeys[specific[0]]) === priorInterruptions;
+        const result = unknownRepeatResult(
+          toolCall.name,
+          causeCoversCount ? blockedBy : undefined,
+          priorInterruptions,
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9597,6 +10353,8 @@ export async function runAgentLoop(opts: {
             `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
             `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: toolCall.name,
+          blockedBy,
         };
         return {
           type: "tool-result" as const,
@@ -9638,6 +10396,7 @@ export async function runAgentLoop(opts: {
         if (cacheKey && cachedResult) {
           if (executionStepIntent) {
             await markAgentExecutionStepDispatched(executionStepIntent);
+            executionStepDispatched = true;
           }
           const previousResult = cachedResult.content;
           const visible = isCachedToolResultVisibleInContext(
@@ -9739,6 +10498,8 @@ export async function runAgentLoop(opts: {
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
         let toolResultLost = false;
+        // It returned an error result rather than throwing one.
+        let toolReportedError = false;
         let toolErrorCode: string | undefined;
         let toolErrorDetailsLine = "";
         let mcpApp:
@@ -9789,7 +10550,12 @@ export async function runAgentLoop(opts: {
               throw new Error("Run aborted");
             }
             if (executionStepIntent) {
-              await markAgentExecutionStepDispatched(executionStepIntent);
+              executionStepDispatchWrite = markAgentExecutionStepDispatched(
+                executionStepIntent,
+              ).then(() => {
+                executionStepDispatched = true;
+              });
+              await executionStepDispatchWrite;
             }
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
@@ -9823,6 +10589,7 @@ export async function runAgentLoop(opts: {
               signal,
               actionName: toolCall.name,
               toolCallId: toolCall.id,
+              maxResultChars: toolMaxResultChars,
               ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
             };
             actionInvoked = true;
@@ -9991,6 +10758,7 @@ export async function runAgentLoop(opts: {
             (mcpResult.raw as Record<string, unknown>).isError === true
           ) {
             isError = true;
+            toolReportedError = true;
           }
           mcpApp = mcpResult?.mcpApp;
           let resultForAgent: unknown = rawForAgent;
@@ -10140,8 +10908,9 @@ export async function runAgentLoop(opts: {
             throw err;
           }
           thrown = err;
+          toolReportedError = false;
           toolResultLost =
-            signal.aborted ||
+            (signal.aborted && actionInvoked) ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
@@ -10155,9 +10924,22 @@ export async function runAgentLoop(opts: {
         const call = actionExecutionOutcome.record;
         const { effect: callEffect, changed: callChanged } = ranEffect(
           isError
-            ? { failed: { error: thrown, lost: toolResultLost } }
+            ? {
+                failed: {
+                  error: thrown,
+                  lost: toolResultLost,
+                  reported: toolReportedError,
+                },
+              }
             : { receipt },
         );
+        const toolErrorClass: ToolErrorClass | undefined = !isError
+          ? undefined
+          : thrown instanceof ActionInputValidationError
+            ? "input_invalid"
+            : callEffect === "none" && !actionIsReadOnly
+              ? "rejected"
+              : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -10225,9 +11007,17 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        if (executionStepIntent) {
+        if (
+          executionStepIntent &&
+          (executionStepDispatched || executionStepDispatchWrite)
+        ) {
           executionStepFinalizationAttempted = true;
-          if (toolResultLost || callEffect === "unknown") {
+          if (!actionInvoked) {
+            // The dispatch marker can persist while cancellation wins; it does
+            // not prove the action handler started.
+            await executionStepDispatchWrite?.catch(() => {});
+            await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
+          } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
           } else {
             await completeAgentExecutionStep(
@@ -10261,6 +11051,11 @@ export async function runAgentLoop(opts: {
         }
 
         toolDonePersistenceFailed = true;
+        unknownOutcomeCause = toolResultLost
+          ? "interruption"
+          : isError
+            ? "rejection"
+            : "unattributed";
         await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
@@ -10269,6 +11064,7 @@ export async function runAgentLoop(opts: {
           result,
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
+          ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"
@@ -10314,6 +11110,7 @@ export async function runAgentLoop(opts: {
       } finally {
         if (!toolDoneEmitted && !toolDonePersistenceFailed) {
           const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
+          unknownOutcomeCause = "interruption";
           toolDonePersistenceFailed = true;
           await emitToolDone({
             type: "tool_done",
@@ -10357,10 +11154,13 @@ export async function runAgentLoop(opts: {
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
         return null;
       }
+      // Journal steps are claimed in call order, which a batch's concurrent
+      // awaits would not keep.
       if (
         toolCallJournal &&
-        findInterruptedJournalEntryForCall(
+        hasJournalStepForCall(
           toolCallJournal,
+          unseenFinishedJournalSteps,
           toolCall.name,
           prepared?.status === "prepared" && prepared.intent.valid
             ? prepared.intent.argumentsHash
@@ -10462,6 +11262,9 @@ export async function runAgentLoop(opts: {
     await flushParallelBatch();
 
     messages.push({ role: "user", content: toolResultParts });
+    if (!actionStopRequested()) {
+      await deliverSteeredMessagesAtToolBoundary(toolResultParts);
+    }
     if (requestedActionStop) {
       const stop = requestedActionStop as TerminalActionStop;
       if (isLoopBreakerStop(stop)) {
@@ -10482,7 +11285,7 @@ export async function runAgentLoop(opts: {
       terminalActionStop = stop;
       if (requestedConnection) {
         send({ type: "connection_required", ...requestedConnection });
-      } else {
+      } else if (!requestedActionStopTranscriptSent) {
         sendTerminalActionStop(stop);
       }
       break;
@@ -10896,10 +11699,15 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         budgetStartedAt,
         send,
         finalResponseGuardRequestText,
+        hasVisibleTurnText: () => turnHasVisibleText(localTurnEvents),
       });
       addUsage(nextUsage);
     } catch (err) {
-      if (opts.signal.aborted || !isResumableEngineError(err)) throw err;
+      if (
+        isSignalAborted(opts.signal) ||
+        !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
+      )
+        throw err;
       if (
         !resumeResumableErrorsInProcess &&
         remainingRunBudgetMs(budgetStartedAt) <
@@ -10915,16 +11723,11 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     }
 
     lastAttemptWasUnfinishedContinuation = true;
-    const attemptEvents = localTurnEvents.slice(attemptStartIndex);
-    const completedSideEffect = attemptEvents.some(
-      (event) =>
-        event.type === "tool_done" &&
-        event.completedSideEffect === true &&
-        event.isError !== true,
+    await clearUnseenDraft(localTurnEvents, opts.send, true);
+    appendContinuationCheckpoint(
+      opts.messages,
+      localTurnEvents.slice(attemptStartIndex),
     );
-    if (!completedSideEffect) {
-      opts.send({ type: "clear" });
-    }
     const actionPreparationTool =
       lastUnfinishedPreparingActionToolFromEvents(localTurnEvents);
     appendAgentLoopContinuation(opts.messages, continuationReason, {
@@ -11183,6 +11986,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   continuationCount: number;
   runsInBackgroundFunction: boolean;
   backgroundRuntimeDetail?: string;
+  onSetupDeadline?: (stopHeartbeat: () => void) => void;
   deps?: {
     recordRunDiagnostic?: typeof recordRunDiagnostic;
     insertRun?: typeof insertRun;
@@ -11191,7 +11995,14 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     isTurnAborted?: typeof isTurnAborted;
     markRunAborted?: typeof markRunAborted;
   };
-}): Promise<{ claimed: true } | { claimed: false; skipped: string }> {
+}): Promise<
+  | {
+      claimed: true;
+      setupDeadlineExceeded: () => boolean;
+      stopSetupHeartbeat: () => void;
+    }
+  | { claimed: false; skipped: string }
+> {
   const record = opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic;
   const insert = opts.deps?.insertRun ?? insertRun;
   const claim = opts.deps?.claimBackgroundRun ?? claimBackgroundRun;
@@ -11211,11 +12022,15 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   let preclaimHeartbeatInFlight = false;
   let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let setupHeartbeatDeadline: ReturnType<typeof setTimeout> | undefined;
+  let setupHeartbeatStarted = false;
+  let setupDeadlineExceeded = false;
   const preclaimHeartbeatStartedAt = Date.now();
   const heartbeatWhileUnclaimed = () => {
     if (
+      !setupHeartbeatStarted &&
       Date.now() - preclaimHeartbeatStartedAt >=
-      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+        BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
     ) {
       stopPreclaimHeartbeat();
       return;
@@ -11233,6 +12048,37 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       clearInterval(preclaimHeartbeatTimer);
       preclaimHeartbeatTimer = undefined;
     }
+    if (setupHeartbeatDeadline !== undefined) {
+      clearTimeout(setupHeartbeatDeadline);
+      setupHeartbeatDeadline = undefined;
+    }
+  };
+  const keepSetupAlive = () => {
+    // Keep the run fresh until handoff, then fail setup if handoff never arrives.
+    setupHeartbeatStarted = true;
+    if (preclaimHeartbeatTimer === undefined) {
+      preclaimHeartbeatTimer = setInterval(
+        heartbeatWhileUnclaimed,
+        BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+      );
+    }
+    setupHeartbeatDeadline = setTimeout(() => {
+      setupHeartbeatDeadline = undefined;
+      setupDeadlineExceeded = true;
+      if (!opts.onSetupDeadline) {
+        stopPreclaimHeartbeat();
+        return;
+      }
+      try {
+        opts.onSetupDeadline(stopPreclaimHeartbeat);
+      } catch (error) {
+        stopPreclaimHeartbeat();
+        console.error(
+          "[agent-chat] background setup deadline handler failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }, BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
   };
 
   preclaimHeartbeatTimer = setInterval(
@@ -11240,6 +12086,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   );
   heartbeatWhileUnclaimed();
+  let startupHeartbeatHandedOff = false;
   try {
     await record(
       opts.runId,
@@ -11270,21 +12117,29 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }
 
     const won = await claim(opts.runId);
-    stopPreclaimHeartbeat();
     if (!won) {
+      stopPreclaimHeartbeat();
       await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
       return { claimed: false, skipped: "already-claimed" };
     }
 
+    keepSetupAlive();
     await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
     await heartbeat(opts.runId).catch(() => {});
     if (await turnAborted(threadId, turnId)) {
       await abortRun(opts.runId, "user").catch(() => {});
       return { claimed: false, skipped: "turn-aborted" };
     }
-    return { claimed: true };
+    startupHeartbeatHandedOff = true;
+    return {
+      claimed: true,
+      setupDeadlineExceeded: () => setupDeadlineExceeded,
+      stopSetupHeartbeat: stopPreclaimHeartbeat,
+    };
   } finally {
-    stopPreclaimHeartbeat();
+    if (!startupHeartbeatHandedOff && !setupDeadlineExceeded) {
+      stopPreclaimHeartbeat();
+    }
   }
 }
 
@@ -11363,10 +12218,141 @@ async function readTurnStartedAt(
 interface AdmittedQueuedMessagePromotion {
   id: string;
   text: string;
+  interruptActiveRun?: true;
   attachments?: unknown[];
   requestAttachments?: Record<string, unknown>[];
+  references?: AgentSubmissionReference[];
   metadata?: Record<string, unknown>;
-  options?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}
+
+interface QueueableAttachments {
+  attachments: FilePart[];
+  requestAttachments: AgentRequestAttachment[];
+}
+
+function requestAttachmentIndexes(
+  submission: AgentSubmissionPayload,
+  attachments: AgentChatAttachment[],
+): Set<number> | null {
+  const unmatched = new Set(attachments.map((_, index) => index));
+  for (const identity of submission.attachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
+        identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+  }
+
+  const requestIndexes = new Set<number>();
+  for (const identity of submission.requestAttachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        attachments[index]?.type === "image" &&
+        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
+          identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+    requestIndexes.add(match);
+  }
+  return requestIndexes;
+}
+
+async function queueableAttachments(
+  attachments: AgentChatAttachment[],
+  ownerEmail: string | null,
+  requestAttachmentIndexes: ReadonlySet<number>,
+): Promise<QueueableAttachments | null> {
+  const files: FilePart[] = [];
+  const requestFiles: AgentRequestAttachment[] = [];
+  for (const [index, attachment] of attachments.entries()) {
+    if (attachment.displayOnly === true) continue;
+    if (
+      attachment.type !== "image" &&
+      attachment.type !== "file" &&
+      attachment.type !== "document"
+    ) {
+      return null;
+    }
+    if (typeof attachment.name !== "string") {
+      return null;
+    }
+    const record = attachment as AgentChatAttachment & {
+      id?: unknown;
+      fileId?: unknown;
+      storageUploadFailed?: unknown;
+    };
+    const mediaType =
+      typeof attachment.contentType === "string" && attachment.contentType
+        ? attachment.contentType
+        : typeof attachment.mediaType === "string"
+          ? attachment.mediaType
+          : undefined;
+    const inlineData =
+      typeof attachment.data === "string"
+        ? attachment.data
+        : typeof attachment.text === "string"
+          ? `data:${mediaType ?? "text/plain"};base64,${Buffer.from(attachment.text, "utf8").toString("base64")}`
+          : typeof attachment.url === "string" &&
+              attachment.url.startsWith("data:")
+            ? attachment.url
+            : undefined;
+    let part = persistableFilePart({
+      type: "file",
+      name: attachment.name,
+      ...(mediaType ? { mediaType } : {}),
+      ...(typeof attachment.url === "string" ? { url: attachment.url } : {}),
+      ...(typeof record.fileId === "string"
+        ? { fileId: record.fileId }
+        : typeof record.id === "string"
+          ? { fileId: record.id }
+          : {}),
+    });
+    if (
+      !part.fileId &&
+      inlineData &&
+      (!part.url || !record.uploadProvider || record.storageUploadFailed)
+    ) {
+      const parsedData = parseBase64DataUrl(inlineData);
+      if (parsedData) {
+        const uploaded = await uploadFile({
+          data: new Uint8Array(Buffer.from(parsedData.data, "base64")),
+          filename: attachment.name,
+          mimeType: mediaType ?? parsedData.mediaType,
+          ownerEmail: ownerEmail ?? undefined,
+        });
+        if (uploaded) {
+          attachment.url = uploaded.url;
+          attachment.uploadProvider = uploaded.provider;
+          part = persistableFilePart({
+            type: "file",
+            name: attachment.name,
+            ...(mediaType ? { mediaType } : {}),
+            url: uploaded.url,
+          });
+        }
+      }
+    }
+    if (requestAttachmentIndexes.has(index)) {
+      if (!part.url || !hasDurableAttachmentUrl(part.url)) return null;
+      const referenceUrl = attachment.referenceUrl;
+      if (referenceUrl && !hasDurableAttachmentUrl(referenceUrl)) return null;
+      requestFiles.push({
+        type: "image",
+        name: attachment.name,
+        ...(mediaType ? { contentType: mediaType } : {}),
+        url: part.url,
+        ...(referenceUrl ? { referenceUrl } : {}),
+      });
+      continue;
+    }
+    if (!part.url && !part.fileId) return null;
+    files.push(part);
+  }
+  return { attachments: files, requestAttachments: requestFiles };
 }
 
 function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
@@ -11378,9 +12364,7 @@ function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
 function validateQueuedPromotionRequestAttachments(
   value: unknown,
 ): Record<string, unknown>[] | null {
-  if (!Array.isArray(value) || value.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
-    return null;
-  }
+  if (!Array.isArray(value)) return null;
 
   let totalDataChars = 0;
   const attachments: Record<string, unknown>[] = [];
@@ -11437,7 +12421,8 @@ function validateQueuedPromotionRequestAttachments(
   return attachments;
 }
 
-async function readAdmittedQueuedMessagePromotion(opts: {
+/** @internal exported for unit tests only */
+export async function readAdmittedQueuedMessagePromotion(opts: {
   ownerEmail: string | null;
   orgId: string | null;
   threadId?: string;
@@ -11516,6 +12501,9 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   const options = hasOwn(queuedMessage, "options")
     ? queuedMessage.options
     : undefined;
+  const references = hasOwn(queuedMessage, "references")
+    ? queuedMessage.references
+    : undefined;
   if (
     (attachments !== undefined && !Array.isArray(attachments)) ||
     (Array.isArray(attachments) &&
@@ -11528,16 +12516,28 @@ async function readAdmittedQueuedMessagePromotion(opts: {
     (metadata !== undefined &&
       (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
     (options !== undefined &&
-      (!options || typeof options !== "object" || Array.isArray(options)))
+      (!options || typeof options !== "object" || Array.isArray(options))) ||
+    (references !== undefined && !Array.isArray(references))
   ) {
     return null;
   }
+  parseQueueMessageInput(
+    { ...queuedMessage, threadId: opts.threadId },
+    "queuedMessagePromotion",
+    { allowLegacyQueueCount: true },
+  );
 
   return {
     id: messageId,
     text: queuedMessage.text,
+    ...(queuedMessage.interruptActiveRun === true
+      ? { interruptActiveRun: true as const }
+      : {}),
     ...(Array.isArray(attachments) ? { attachments } : {}),
     ...(requestAttachments ? { requestAttachments } : {}),
+    ...(Array.isArray(references)
+      ? { references: references as AgentSubmissionReference[] }
+      : {}),
     ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
     ...(options ? { options: options as Record<string, unknown> } : {}),
   };
@@ -11643,6 +12643,7 @@ export function queuedPromotionAttachments(
         : {}),
       ...(data ? { data } : {}),
       ...(imageUrl ? { url: imageUrl } : {}),
+      ...(referenceUrl ? { referenceUrl } : {}),
       ...(fileId ? { id: fileId } : {}),
     } as AgentChatAttachment;
     const replacementIndex =
@@ -11733,6 +12734,7 @@ export interface ChainServerDrivenContinuationDeps {
   setRunError?: typeof setRunError;
   recordRunDiagnostic?: typeof recordRunDiagnostic;
   markBackgroundContinuationChunkTerminal?: typeof markBackgroundContinuationChunkTerminal;
+  isRunAborted?: typeof isRunAborted;
   generateRunId?: typeof generateRunId;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -11820,6 +12822,7 @@ export async function chainServerDrivenContinuation(opts: {
     markBackgroundContinuationChunkTerminal:
       opts.deps?.markBackgroundContinuationChunkTerminal ??
       markBackgroundContinuationChunkTerminal,
+    isRunAborted: opts.deps?.isRunAborted ?? isRunAborted,
     generateRunId: opts.deps?.generateRunId ?? generateRunId,
     sleep:
       opts.deps?.sleep ??
@@ -11937,9 +12940,25 @@ export async function chainServerDrivenContinuation(opts: {
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+  const markRunsAbortedOrThrow = async (...runIds: string[]) => {
+    const results = await Promise.allSettled(
+      runIds.map(async (targetRunId) => {
+        if (await d.markRunAborted(targetRunId, "user")) return true;
+        return await d.isRunAborted(targetRunId);
+      }),
+    );
+    const failedRunIds = results.flatMap((result, index) =>
+      result.status === "fulfilled" && result.value ? [] : [runIds[index]!],
+    );
+    if (failedRunIds.length > 0) {
+      throw new Error(
+        `Could not confirm durable abort for continuation run(s): ${failedRunIds.join(", ")}`,
+      );
+    }
+  };
   try {
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      await d.markRunAborted(runId, "user").catch(() => {});
+      await markRunsAbortedOrThrow(runId);
       return;
     }
     await d
@@ -11981,9 +13000,10 @@ export async function chainServerDrivenContinuation(opts: {
       );
     }
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      if (nextRowInserted)
-        await d.markRunAborted(nextRunId, "user").catch(() => {});
-      await d.markRunAborted(runId, "user").catch(() => {});
+      await markRunsAbortedOrThrow(
+        ...(nextRowInserted ? [nextRunId] : []),
+        runId,
+      );
       return;
     }
     const continuationTerminalEvent = {
@@ -11999,6 +13019,10 @@ export async function chainServerDrivenContinuation(opts: {
       throw new Error(
         `Could not release run ${runId} for continuation ${nextRunId}`,
       );
+    }
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
+      if (nextRowInserted) await markRunsAbortedOrThrow(nextRunId);
+      return;
     }
     run.continuationTerminalEvent = continuationTerminalEvent;
     const dispatchBody = nextRowInserted
@@ -12334,6 +13358,7 @@ export function createProductionAgentHandler(
       model: submittedModel,
       engine: submittedEngine,
       effort: submittedEffort,
+      options: submittedRunOptions,
       browserTabId,
       scope,
       harness: submittedHarness,
@@ -12348,6 +13373,12 @@ export function createProductionAgentHandler(
     let requestModel = submittedModel;
     let requestEngine = submittedEngine;
     let requestEffort = submittedEffort;
+    let requestOptions =
+      submittedRunOptions &&
+      typeof submittedRunOptions === "object" &&
+      !Array.isArray(submittedRunOptions)
+        ? (submittedRunOptions as AgentRunOptions)
+        : undefined;
     let internalContinuation = submittedInternalContinuation;
     let requestHarness = submittedHarness;
     let requestSkipPendingSelectionContext = skipPendingSelectionContext;
@@ -12412,7 +13443,68 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 400);
         return { error: "submissionPayload does not match this message" };
       }
-      submissionPayload = candidate;
+      let validatedSubmissionPayload: AgentSubmissionPayload | undefined;
+      try {
+        validatedSubmissionPayload = parseQueueMessageInput(
+          {
+            threadId: candidate.threadId,
+            id: candidate.id,
+            text: candidate.text,
+            submissionPayload: candidate,
+          },
+          "submissionPayload",
+        ).submissionPayload;
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      if (!validatedSubmissionPayload) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      submissionPayload = validatedSubmissionPayload;
+      if (
+        validatedSubmissionPayload.text !==
+          (typeof message === "string" ? message : "") ||
+        !isDeepStrictEqual(
+          validatedSubmissionPayload.references ?? [],
+          submittedReferences,
+        ) ||
+        !isDeepStrictEqual(
+          validatedSubmissionPayload.options ?? {},
+          requestOptions ?? {},
+        )
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "submissionPayload does not match this message" };
+      }
+    }
+    let requestMode: AgentExecutionMode =
+      body.mode === "plan" || requestOptions?.mode === "plan" ? "plan" : "act";
+    requestOptions = effectiveQueuedRunOptions(
+      requestOptions,
+      requestModel,
+      requestEffort,
+      body.mode !== undefined || requestOptions?.mode !== undefined
+        ? requestMode
+        : undefined,
+    );
+    if (submissionPayload) {
+      const metadata =
+        submissionPayload.metadata === undefined && requestEngine === undefined
+          ? undefined
+          : {
+              ...submissionPayload.metadata,
+              ...(requestEngine === undefined ? {} : { engine: requestEngine }),
+            };
+      submissionPayload = {
+        ...submissionPayload,
+        ...(requestOptions === undefined ? {} : { options: requestOptions }),
+        ...(metadata === undefined ? {} : { metadata }),
+      };
+      requestMetadata = normalizeSubmissionDeadlineMetadata(
+        submissionPayload.metadata,
+      );
     }
 
     const backgroundRunMarker =
@@ -12480,6 +13572,9 @@ export function createProductionAgentHandler(
     const priorNoProgressCount = priorContinuationState.noProgressCount;
     const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
+    let stopBackgroundSetupHeartbeat: (() => void) | undefined;
+    let backgroundSetupDeadlineExceeded: (() => boolean) | undefined;
+    let backgroundSetupStartedRun: StartedRun | undefined;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
         runId: bgRunId,
@@ -12492,11 +13587,65 @@ export function createProductionAgentHandler(
         continuationCount: backgroundContinuationCount,
         runsInBackgroundFunction,
         backgroundRuntimeDetail,
+        onSetupDeadline: (stopSetupHeartbeat) => {
+          backgroundSetupStartedRun?.abort.abort();
+          const finalizationTimeout = setTimeout(() => {
+            captureError(
+              new Error("Background setup failure finalization timed out"),
+              {
+                route: "/_agent-native/agent-chat",
+                aiTraceId: bgRunId,
+                tags: {
+                  source: "agent-chat",
+                  failureClass: "background-setup-timeout-finalization",
+                },
+                extra: {
+                  runId: bgRunId,
+                  finalizationTimeoutMs: BACKGROUND_SETUP_FINALIZATION_MAX_MS,
+                },
+              },
+            );
+            stopSetupHeartbeat();
+          }, BACKGROUND_SETUP_FINALIZATION_MAX_MS);
+          void finalizeClaimedAgentChatProcessRunFailure(
+            bgRunId,
+            new Error("Background worker setup heartbeat deadline exceeded"),
+          )
+            .catch((error) => {
+              captureError(error, {
+                route: "/_agent-native/agent-chat",
+                aiTraceId: bgRunId,
+                tags: {
+                  source: "agent-chat",
+                  failureClass: "background-setup-timeout-finalization",
+                },
+                extra: { runId: bgRunId },
+              });
+            })
+            .finally(() => {
+              clearTimeout(finalizationTimeout);
+              stopSetupHeartbeat();
+            });
+        },
       });
       if (!earlyClaim.claimed) {
         return { ok: true, skipped: earlyClaim.skipped };
       }
       backgroundRunClaimedEarly = true;
+      backgroundSetupDeadlineExceeded = earlyClaim.setupDeadlineExceeded;
+      (event as any).context[AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD] =
+        () => {
+          if (
+            !backgroundSetupStartedRun &&
+            !earlyClaim.setupDeadlineExceeded()
+          ) {
+            earlyClaim.stopSetupHeartbeat();
+          }
+        };
+      if (earlyClaim.setupDeadlineExceeded()) {
+        return { ok: true, skipped: "setup-deadline" };
+      }
+      stopBackgroundSetupHeartbeat = earlyClaim.stopSetupHeartbeat;
     }
     let dispatchToBackground =
       !isBackgroundWorker &&
@@ -12535,7 +13684,6 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    let requestMode: AgentExecutionMode = body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
     let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -12545,6 +13693,20 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
+    const submissionAttachmentsAreConsistent =
+      submissionPayload !== undefined &&
+      submissionAttachmentsMatch(submissionPayload, requestAttachments);
+    if (submissionPayload && !submissionAttachmentsAreConsistent) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
+    const submissionRequestAttachmentIndexes = submissionPayload
+      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+      : new Set<number>();
+    if (!submissionRequestAttachmentIndexes) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -12564,6 +13726,245 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
+    const busySubmissionQueueEligible = Boolean(
+      submissionPayload &&
+      agentKitMessageId &&
+      threadId &&
+      ownerEmail &&
+      !internalContinuation &&
+      !continueOf &&
+      !queuedMessageId &&
+      !queuedMessageClaimId &&
+      !isBackgroundWorker &&
+      submittedInternalContinuation !== true &&
+      typeof requestedAutoContinueOfRunId !== "string" &&
+      typeof requestedContinueOfRunId !== "string" &&
+      !hasOwn(body, "approvedToolCalls") &&
+      !hasOwn(body, "approvedToolCallAskIds") &&
+      !hasOwn(body, "resume"),
+    );
+    const busySubmissionAttachmentsAreQueueable = requestAttachments.every(
+      (attachment) =>
+        attachment.displayOnly === true ||
+        ((attachment.type === "image" ||
+          attachment.type === "file" ||
+          attachment.type === "document") &&
+          typeof attachment.name === "string"),
+    );
+    const tryAdmitBusySubmission = async (): Promise<unknown | null> => {
+      if (
+        !submissionPayload ||
+        !agentKitMessageId ||
+        !threadId ||
+        !ownerEmail ||
+        internalContinuation ||
+        continueOf ||
+        queuedMessageId ||
+        queuedMessageClaimId ||
+        isBackgroundWorker ||
+        submittedInternalContinuation === true ||
+        typeof requestedAutoContinueOfRunId === "string" ||
+        typeof requestedContinueOfRunId === "string" ||
+        hasOwn(body, "approvedToolCalls") ||
+        hasOwn(body, "approvedToolCallAskIds") ||
+        hasOwn(body, "resume")
+      ) {
+        return null;
+      }
+
+      const { resolveThreadAccess } = await import("../chat-threads/store.js");
+      const accessibleThread = await resolveThreadAccess(
+        ownerEmail,
+        threadId,
+        "editor",
+        { orgId: getRequestOrgId() ?? undefined },
+      );
+      if (!accessibleThread) {
+        setResponseStatus(event, 404);
+        return { error: "Thread not found" };
+      }
+      const attachmentsForQueue = await queueableAttachments(
+        requestAttachments,
+        ownerEmail,
+        submissionRequestAttachmentIndexes,
+      );
+      if (!attachmentsForQueue) {
+        if (
+          requestAttachments.some(
+            (attachment) =>
+              attachment.displayOnly !== true &&
+              (attachment.type === "image" ||
+                attachment.type === "file" ||
+                attachment.type === "document"),
+          )
+        ) {
+          setResponseStatus(event, 503);
+          return {
+            error: "The attachment could not be saved for later delivery",
+            code: "queued_attachment_reference_unavailable",
+            retryable: true,
+          };
+        }
+        return null;
+      }
+      const queueText =
+        typeof message === "string" && message.trim()
+          ? message
+          : "Use the attached context.";
+      let parsedMessage: ReturnType<typeof parseQueueMessageInput>;
+      try {
+        parsedMessage = parseQueueMessageInput(
+          {
+            threadId,
+            id: agentKitMessageId,
+            text: queueText,
+            ...(attachmentsForQueue.attachments.length
+              ? { attachments: attachmentsForQueue.attachments }
+              : {}),
+            ...(attachmentsForQueue.requestAttachments.length
+              ? { requestAttachments: attachmentsForQueue.requestAttachments }
+              : {}),
+            ...(submittedReferences.length
+              ? { references: submittedReferences }
+              : {}),
+            ...(requestMetadata ? { metadata: requestMetadata } : {}),
+            ...(requestOptions ? { options: requestOptions } : {}),
+            ...(submissionPayload.interruptActiveRun === true
+              ? { interruptActiveRun: true }
+              : {}),
+          },
+          "agentChatSubmission",
+        );
+      } catch {
+        setResponseStatus(event, 400);
+        return {
+          error: "This submission cannot be saved for later delivery",
+          code: "queued_submission_invalid",
+          retryable: false,
+        };
+      }
+      if (!parsedMessage.text.trim()) {
+        setResponseStatus(event, 400);
+        return {
+          error: "This submission cannot be saved for later delivery",
+          code: "queued_submission_invalid",
+          retryable: false,
+        };
+      }
+
+      const { mutateThreadQueuedMessages, QueuedSubmissionAdmissionError } =
+        await import("../chat-threads/store.js");
+      const requestContext = getRequestContext();
+      const actor = {
+        email: requestContext?.userEmail ?? ownerEmail,
+        ...(requestContext?.authUserId
+          ? { authUserId: requestContext.authUserId }
+          : {}),
+        ...(requestContext?.identityAuthenticatedAtMs !== undefined
+          ? {
+              identityAuthenticatedAtMs:
+                requestContext.identityAuthenticatedAtMs,
+            }
+          : {}),
+        ...(requestContext?.userName ? { name: requestContext.userName } : {}),
+        orgId: requestContext?.orgId ?? null,
+        orgScope: requestContext?.orgScope ?? null,
+        anonymous: requestContext?.agentRunAnonymous === true,
+      };
+      const queuedMessage: AgentQueuedMessage = {
+        ...parsedMessage,
+        id: agentKitMessageId,
+        threadId,
+        createdAt: new Date().toISOString(),
+        ...(attachmentsForQueue.attachments.length
+          ? { attachments: attachmentsForQueue.attachments }
+          : {}),
+        ...(attachmentsForQueue.requestAttachments.length
+          ? { requestAttachments: attachmentsForQueue.requestAttachments }
+          : {}),
+      };
+      let result;
+      try {
+        result = await mutateThreadQueuedMessages(
+          threadId,
+          {
+            type: "append",
+            message: queuedMessage,
+            hashInput: submissionPayload,
+          },
+          { actor },
+        );
+      } catch (error) {
+        if (!(error instanceof QueuedSubmissionAdmissionError)) throw error;
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID is no longer available for submission",
+          code: error.code,
+          retryable: false,
+        };
+      }
+      if (!result) return null;
+      if (result.receiptUnavailable) {
+        setResponseStatus(event, 503);
+        return {
+          error: "The queued submission receipt could not be saved",
+          code: "queued_submission_receipt_unavailable",
+          retryable: true,
+        };
+      }
+      if (result.receiptConflict) {
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID was already used for a different submission",
+          code: "queued_message_id_conflict",
+          retryable: false,
+        };
+      }
+      if (result.submissionExpired) {
+        setResponseStatus(event, 409);
+        return {
+          error: "This submission expired before it could be queued",
+          code: "submission_expired",
+          retryable: false,
+        };
+      }
+      if (result.alreadySubmitted && result.submittedRunId) {
+        const stream = subscribeToRun(result.submittedRunId, 0);
+        if (!stream) {
+          setResponseStatus(event, 503);
+          return {
+            error: "The accepted submission run is no longer replayable",
+            code: "queued_message_run_unavailable",
+            retryable: true,
+          };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", result.submittedRunId);
+        setRunTurnIdHeader(event, getRun(result.submittedRunId)?.turnId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
+      if (!result.message) {
+        setResponseStatus(event, 503);
+        return {
+          error: "The queued submission receipt could not be read",
+          code: "queued_submission_receipt_unavailable",
+          retryable: true,
+        };
+      }
+      return queuedSubmissionResponse(
+        event,
+        {
+          ...result.message,
+          id: agentKitMessageId,
+          threadId,
+          createdAt: result.message.createdAt ?? queuedMessage.createdAt,
+        } as AgentQueuedMessage,
+        await getSlotHoldingRunId(threadId),
+      );
+    };
     if (
       submissionPayload &&
       ownerEmail &&
@@ -12575,6 +13976,7 @@ export function createProductionAgentHandler(
     ) {
       const {
         getQueuedSubmissionReceipt,
+        getQueuedSubmissionReceiptStatus,
         hashQueuedSubmissionPayload,
         resolveThreadAccess,
       } = await import("../chat-threads/store.js");
@@ -12616,8 +14018,26 @@ export function createProductionAgentHandler(
             retryable: false,
           };
         }
-        if (receipt.state === "submitted") {
-          if (!receipt.submittedRunId) {
+        let receiptState = receipt.state;
+        let submittedRunId = receipt.submittedRunId;
+        if (receipt.state === "queued") {
+          const status = await getQueuedSubmissionReceiptStatus(
+            threadId,
+            receipt.messageId,
+          );
+          if (!status) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt could not be read",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          receiptState = status.state;
+          submittedRunId = status.submittedRunId;
+        }
+        if (receiptState === "submitted") {
+          if (!submittedRunId) {
             setResponseStatus(event, 503);
             return {
               error: "The accepted submission has no replayable run",
@@ -12625,7 +14045,7 @@ export function createProductionAgentHandler(
               retryable: true,
             };
           }
-          const stream = subscribeToRun(receipt.submittedRunId, 0);
+          const stream = subscribeToRun(submittedRunId, 0);
           if (!stream) {
             setResponseStatus(event, 503);
             return {
@@ -12637,12 +14057,32 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Content-Type", "text/event-stream");
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
-          setResponseHeader(event, "X-Run-Id", receipt.submittedRunId);
+          setResponseHeader(event, "X-Run-Id", submittedRunId);
+          setRunTurnIdHeader(event, getRun(submittedRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
-        if (receipt.state === "queued") {
-          return runSlotBusy(event, null);
+        if (receiptState === "queued") {
+          if (!receipt.message) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt has no replayable message",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          return queuedSubmissionResponse(
+            event,
+            {
+              ...receipt.message,
+              id: receipt.messageId,
+              threadId,
+              createdAt:
+                receipt.message.createdAt ??
+                new Date(receipt.createdAt).toISOString(),
+            } as AgentQueuedMessage,
+            await getSlotHoldingRunId(threadId),
+          );
         }
         setResponseStatus(event, 409);
         return {
@@ -12795,6 +14235,11 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const isAuthorizedApprovalContinuation = Boolean(
+      submittedInternalContinuation === true &&
+      requestedApprovedToolCallAskIds?.length &&
+      resolvedApprovalTurnId,
+    );
     // The continuation marker is client-controlled. Defer setup admission only
     // for automatic successors when the named stop and turn can be checked
     // under the run-slot lock. A user's manual Continue starts new work and
@@ -12835,7 +14280,8 @@ export function createProductionAgentHandler(
         admittedQueuedMessage.requestAttachments,
       );
       hasAttachments = requestAttachments.length > 0;
-      requestReferences = [];
+      requestReferences = admittedQueuedMessage.references ?? [];
+      requestOptions = promotionOptions;
       requestHistory = [];
       requestStructuredHistory = undefined;
       internalContinuation = false;
@@ -12871,6 +14317,7 @@ export function createProductionAgentHandler(
       mutableBody.history = requestHistory;
       delete mutableBody.structuredHistory;
       mutableBody.metadata = requestMetadata;
+      mutableBody.options = requestOptions;
       mutableBody.model = requestModel;
       if (requestEngine === undefined) {
         delete mutableBody.engine;
@@ -12884,7 +14331,6 @@ export function createProductionAgentHandler(
       delete mutableBody.continueOfRunId;
       delete mutableBody.harness;
       delete mutableBody.parentId;
-      delete mutableBody.options;
       delete mutableBody.skipPendingSelectionContext;
     }
     const recordUnstartedTurn = async (failure: {
@@ -12973,6 +14419,14 @@ export function createProductionAgentHandler(
       }
     }
     setupMark("aiGate");
+    if (hasOwn(body, "queuedMessageClaimId") && !admittedQueuedMessage) {
+      setResponseStatus(event, 409);
+      return {
+        error: "This queued message can no longer be promoted",
+        code: "queued_message_claim_invalid",
+        retryable: false,
+      };
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -13190,6 +14644,27 @@ export function createProductionAgentHandler(
     }
     workerStep("db_request_ctx");
 
+    if (
+      hasAttachments &&
+      threadId &&
+      !isBackgroundWorker &&
+      requestAttachments.some(
+        (attachment) =>
+          attachment.displayOnly !== true &&
+          (attachment.type === "image" ||
+            attachment.type === "file" ||
+            attachment.type === "document"),
+      )
+    ) {
+      const activeRunId = await getSlotHoldingRunId(threadId);
+      if (
+        activeRunId &&
+        (!busySubmissionQueueEligible || !busySubmissionAttachmentsAreQueueable)
+      ) {
+        return runSlotBusy(event, activeRunId);
+      }
+    }
+
     workerStep("attach_start");
     if (
       hasAttachments &&
@@ -13199,13 +14674,6 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
-      // A busy thread refuses this message (409) and the client sends it again
-      // once the thread frees up; uploading first would store every
-      // attachment again on each refusal.
-      if (threadId && !isBackgroundWorker) {
-        const activeRunId = await getSlotHoldingRunId(threadId);
-        if (activeRunId) return runSlotBusy(event, activeRunId);
-      }
       try {
         attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
         const preUpload = await preUploadAttachments({
@@ -13227,6 +14695,14 @@ export function createProductionAgentHandler(
         requestMessage = requestMessage
           ? `${requestMessage}\n\n${describeAttachmentPreUploadWarning()}`
           : describeAttachmentPreUploadWarning();
+      }
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, activeRunId);
+        }
       }
     }
 
@@ -13338,9 +14814,45 @@ export function createProductionAgentHandler(
       // observability tables are unavailable during startup or migration.
     }
 
+    // Unlike the DB experiment above, this runs even when the client pinned the
+    // default model: chat clients always send the default, so keying off the
+    // resolved default is what lets the arm reach real traffic. A DB experiment
+    // that did not override the model is an unrelated assignment, so it does not
+    // block this one. Durable chat workers re-enter here and must resolve the
+    // same arm from the same request, so no background-worker check goes here.
+    const hostedModelExperiment =
+      modelSelectionSource !== "experiment"
+        ? resolveHostedModelExperiment({
+            enabled: isHostedModelExperimentEnabled({
+              setting: getAppConfig().observability.hostedModelExperiment,
+              firstParty: isFirstPartyHostedAgentNative(),
+            }),
+            userEmail: ownerEmail,
+            engineName: engine.name,
+            defaultModel: engine.defaultModel,
+            model: effectiveModel,
+            effort: isReasoningEffort(requestEffort)
+              ? requestEffort
+              : options.reasoningEffort,
+          })
+        : null;
+    if (hostedModelExperiment) {
+      experimentAssignments = [
+        ...experimentAssignments,
+        hostedModelExperiment.assignment,
+      ];
+      if (hostedModelExperiment.treatment) {
+        effectiveModel = normalizeModelForEngine(
+          engine,
+          hostedModelExperiment.model,
+        );
+        modelSelectionSource = "experiment";
+      }
+    }
+
     const reasoningEffort = resolveAgentRequestReasoningEffort({
       model: effectiveModel,
-      requestEffort,
+      requestEffort: hostedModelExperiment?.effort ?? requestEffort,
       configuredEffort: options.reasoningEffort,
     });
     const modelSupportsVision = isAgentModelVisionCapable(
@@ -13951,6 +15463,7 @@ export function createProductionAgentHandler(
         deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
@@ -13967,6 +15480,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
+        directApiKey: jevContextCredentials.directApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
@@ -14198,8 +15712,26 @@ export function createProductionAgentHandler(
       }
       let slot;
       try {
+        const runThreadId = threadId;
+        const shouldPreserveQueuedOrder = Boolean(
+          !isAuthorizedApprovalContinuation &&
+          !queuedMessageId &&
+          !queuedMessageClaimId &&
+          !isBackgroundWorker,
+        );
+        const queuedSubmissionStore = shouldPreserveQueuedOrder
+          ? await import("../chat-threads/store.js")
+          : undefined;
+        if (ownerEmail && !isAuthorizedApprovalContinuation) {
+          await ensureAgentToolApprovalTable();
+        }
+        // The inbox read runs under the slot lock, but its schema must be ready first.
+        await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
+          ...(admittedQueuedMessage?.interruptActiveRun === true
+            ? { interruptApprovalPause: true }
+            : {}),
           ...(turnInitiator ? { turnInitiator } : {}),
           replayCompletedTurn:
             typeof requestTurnId === "string" &&
@@ -14214,6 +15746,23 @@ export function createProductionAgentHandler(
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
+          ...(queuedSubmissionStore
+            ? {
+                hasPendingQueuedSubmission: (tx) =>
+                  queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                    tx,
+                    runThreadId,
+                  ),
+              }
+            : {}),
+          ...(ownerEmail &&
+          !isAuthorizedApprovalContinuation &&
+          admittedQueuedMessage?.interruptActiveRun !== true
+            ? {
+                hasPendingApproval: (tx) =>
+                  hasPendingCurrentTurnApproval(runThreadId, tx),
+              }
+            : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -14245,11 +15794,21 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        // The client leaves a replay's turn out unless named here, and this
+        // replay was found by its turn, so the stored turn is known.
+        setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
+        if (slot.queuedSubmissionPending) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, null);
+        }
+        const queued = await tryAdmitBusySubmission();
+        if (queued !== null) return queued;
         return runSlotBusy(event, slot.activeRunId);
       }
       foregroundRunRowInserted = true;
@@ -14395,17 +15954,28 @@ export function createProductionAgentHandler(
               ),
             },
           );
-          const context = buildTurnResumeContext({
-            messages: resumed,
-            journal:
-              journalRead.status === "read"
-                ? journalRead.toolCallJournal
-                : null,
-            ...(shouldRecoverCompletedExecutionSteps &&
+          const journal =
+            journalRead.status === "read" ? journalRead.toolCallJournal : null;
+          const context =
+            shouldRecoverCompletedExecutionSteps &&
             journalRead.status === "read"
-              ? { events: journalRead.events }
-              : {}),
-          });
+              ? buildTurnResumeContext({
+                  messages: resumed,
+                  journal,
+                  events: journalRead.events,
+                  steeredUserContent: (message) =>
+                    buildUserContentWithAttachments({
+                      text: message.text,
+                      ...(message.attachments === undefined
+                        ? {}
+                        : { attachments: message.attachments }),
+                      vision: isAgentModelVisionCapable(
+                        effectiveModel,
+                        engine.capabilities.vision === true,
+                      ),
+                    }),
+                })
+              : buildTurnResumeContext({ messages: resumed, journal });
           appendAgentLoopContinuation(context.messages, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
             ...(context.journalNote
@@ -14525,6 +16095,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
@@ -14643,6 +16214,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", runId);
+          setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
           return stream;
         }
@@ -14962,14 +16534,103 @@ export function createProductionAgentHandler(
       },
     );
 
+    if (backgroundSetupDeadlineExceeded?.()) {
+      return { ok: true, skipped: "setup-deadline" };
+    }
+
     const startedRun = startRun(
       runId,
       effectiveThreadId,
       async (rawSend, signal, control) => {
+        if (backgroundSetupDeadlineExceeded?.()) return;
         const send = (event: AgentChatEvent) => {
           rawSend(event);
           updateTrackedProgressFromEvent(event);
         };
+        const interruptQueuedRunAtBoundary =
+          async (): Promise<QueuedRunInterruptBoundaryResult> => {
+            if (!threadId) return "none";
+            const {
+              clearQueuedSubmissionInterruptRun,
+              listQueuedSubmissionReceipts,
+              mutateThreadQueuedMessages,
+              recordQueuedSubmissionInterruptRun,
+              retryQueuedSubmissionReceipt,
+            } = await import("../chat-threads/store.js");
+            const pending = await listQueuedSubmissionReceipts({
+              limit: 25,
+              threadId,
+              interruptActiveRun: true,
+            });
+            for (const receipt of pending) {
+              if (receipt.message?.interruptActiveRun !== true) continue;
+              const claimId = randomUUID();
+              let claimed = false;
+              try {
+                const claim = await mutateThreadQueuedMessages(threadId, {
+                  type: "claimFromInbox",
+                  receipt,
+                  claimId,
+                });
+                if (!claim?.claimedMessage) continue;
+                claimed = true;
+                if (
+                  receipt.interruptRunId &&
+                  receipt.interruptRunId !== runId
+                ) {
+                  const { getRunById } = await import("./run-store.js");
+                  const interruptedRun = await getRunById(
+                    receipt.interruptRunId,
+                  );
+                  if (interruptedRun?.status === "running") continue;
+                  const cleared = await clearQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId: receipt.interruptRunId,
+                    claimId,
+                  });
+                  if (!cleared) continue;
+                }
+                if (
+                  !(await recordQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId,
+                    claimId,
+                  }))
+                ) {
+                  continue;
+                }
+                const aborted = await confirmQueuedRunInterrupt({
+                  abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
+                  defer: () =>
+                    retryQueuedSubmissionReceipt(
+                      threadId,
+                      receipt.messageId,
+                      Date.now() + 10_000,
+                      { claimId },
+                    ),
+                });
+                if (aborted === "pending") return "pending";
+              } finally {
+                if (claimed) {
+                  await mutateThreadQueuedMessages(threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                }
+              }
+              return "aborted";
+            }
+            return "none";
+          };
+        const { beforeModelDispatch, beforeWrite } =
+          createRunSafeBoundaryGuards({
+            signal,
+            flushEvents: control.flushEvents,
+            interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+          });
 
         if (selfChainBudget?.skipToBoundary) {
           await recordRunDiagnostic(
@@ -15004,7 +16665,12 @@ export function createProductionAgentHandler(
         }
 
         if (options.onRunStart) {
-          await options.onRunStart(send, threadId ?? runId, runId);
+          await options.onRunStart(
+            send,
+            threadId ?? runId,
+            runId,
+            effectiveTurnId,
+          );
         }
 
         const unknownOutcomes = noUnknownOutcomes();
@@ -15096,7 +16762,8 @@ export function createProductionAgentHandler(
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
                   durableStepIdForToolCall: namespacedDurableStepId,
-                  beforeWrite: control.flushEvents,
+                  beforeModelDispatch,
+                  beforeWrite,
                   unknownOutcomes,
                   internalContinuation,
                   ...(shouldRecoverCompletedExecutionSteps
@@ -15299,7 +16966,8 @@ export function createProductionAgentHandler(
             : {}),
           systemSections: contextXraySystemSections,
           actions: requestActions,
-          beforeWrite: control.flushEvents,
+          beforeModelDispatch,
+          beforeWrite,
           unknownOutcomes,
           internalContinuation,
           send,
@@ -15500,6 +17168,7 @@ export function createProductionAgentHandler(
                 loopOpts: agentLoopOpts,
                 runId,
                 threadId: threadId ?? null,
+                turnId: effectiveTurnId,
                 userId: ownerEmail,
                 config: obsConfig,
                 spanName:
@@ -15613,19 +17282,27 @@ export function createProductionAgentHandler(
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
         executionLease: true,
+        // An anonymous run is not a user; `run_started` does not name one either.
+        userId: turnInitiator?.anonymous
+          ? undefined
+          : (ownerEmail ?? undefined),
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
-        // No userId here: `ownerEmail` is the only identity known at this
-        // scope and is PII (email), which the terminal event must not carry.
         model: effectiveModel,
         engineName: engine.name,
         attemptCount: backgroundContinuationCount,
       },
     );
+    backgroundSetupStartedRun = startedRun;
+    void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());
 
     if (isBackgroundWorker) {
-      await startedRun.finalized;
-      return { ok: true, runId };
+      try {
+        await startedRun.finalized;
+        return { ok: true, runId };
+      } finally {
+        stopBackgroundSetupHeartbeat?.();
+      }
     }
 
     const stream = subscribeToRun(runId, 0);
@@ -15638,6 +17315,7 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
+    setRunTurnIdHeader(event, effectiveTurnId);
     setResponseHeader(
       event,
       "X-Dispatch-Mode",

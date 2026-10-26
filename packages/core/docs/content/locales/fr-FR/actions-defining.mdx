@@ -88,9 +88,9 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "Ce qui se passe en cas de décalage de sortie.",
         },
         {
@@ -98,7 +98,14 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
           type: "TReturn",
           optional: true,
           description:
-            "Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback ».",
+            "Obsolète. Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback ».",
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "L’ensemble fermé des codes d’erreur de l’action, issu de defineActionErrors. Voir Déclarer des codes d’erreur ci-dessous.",
         },
         {
           name: "mcpOutputSchema",
@@ -240,24 +247,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+Le type de retour de l’action vient de `outputSchema`, et `run` doit renvoyer une valeur que le schéma accepte : un résultat qui s’écarte du schéma est donc une erreur de compilation avant d’être une erreur d’exécution.
+
 `outputErrorStrategy` contrôle ce qui se passe en cas de décalage :
 
-| Stratégie    | Comportement en cas de décalage                                                                         |
-| ------------ | ------------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **Par défaut.** `console.warn` les problèmes et renvoie le résultat **original** inchangé. Non cassant. |
-| `"strict"`   | Lève une erreur claire, pour qu’un bug dans l’action soit facile à remarquer.                           |
-| `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat invalide.                             |
+| Stratégie    | Comportement en cas de décalage                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **Par défaut.** Lève `ActionOutputContractError`, pour qu’un bug dans l’action échoue bruyamment.                                       |
+| `"warn"`     | `console.warn` les problèmes et renvoie le résultat **original** inchangé. À utiliser le temps de corriger un schéma.                   |
+| `"fallback"` | **Obsolète.** Renvoie `outputFallback` à la place du résultat invalide, que les appelants ne peuvent pas distinguer d’un vrai résultat. |
 
 Quand `run()` réussit, le framework renvoie la valeur validée, de sorte que les valeurs par défaut ou les coercions de `outputSchema` s’appliquent, de la même manière que pour l’entrée. Quand vous ne passez pas de `outputSchema`, la valeur de retour reste inchangée.
 
 La vérification stricte s’exécute après `run()`, donc l’erreur (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) décrit ce qui s’est déjà produit : `effect` vaut `"committed"` dès qu’une écriture est entrée dans son handler, dans l’appel lui-même ou dans une action qu’il a appelée (même depuis une action en lecture seule), et l’appelant ne doit pas la relancer ; sinon il vaut `"none"`. Le message ne cite que les chemins de champs déclarés et les codes de problème, jamais les valeurs renvoyées.
+
+### Déclarer des codes d’erreur {#error-codes}
+
+`defineActionErrors` déclare l’ensemble fermé des `errorCode` avec lesquels une action échoue. Ses fonctions `fail` et `noWrite` n’acceptent que ces codes, donc un code mal orthographié ne compile pas, et le passer comme `errors` publie les codes en tant que `errorCodes` sur la définition.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### Annoncer le contrat via MCP {#mcp-output-schema}
 
@@ -385,14 +418,15 @@ Une coupure réseau, une page d’erreur HTML d’un proxy et une simple ligne d
 
 ### Ce que produit chaque levée {#failure-shapes}
 
-| Levé depuis `run()`                             | Statut HTTP        | Corps de la réponse                          | Remonté au suivi d’erreurs |
-| ----------------------------------------------- | ------------------ | -------------------------------------------- | -------------------------- |
-| `fail(msg)`                                     | 400                | `{ error: msg, errorCode: "action_failed" }` | Non                        |
-| `fail(msg, { errorCode, statusCode, details })` | votre `statusCode` | `{ error, errorCode, details }`              | Non                        |
-| `new ActionContractError(msg, { errorCode })`   | 409                | `{ error, errorCode, details }`              | Non                        |
-| `new AgentActionStopError(msg)`                 | 500                | `{ error: msg }`                             | Non                        |
-| `new Error(msg)`                                | 500                | `{ error: "Internal server error" }`         | Oui                        |
-| Entrée qui échoue au `schema`                   | 400                | `{ error: "Invalid action parameters..." }`  | Non                        |
+| Levé depuis `run()`                                                   | Statut HTTP        | Corps de la réponse                            | Remonté au suivi d’erreurs |
+| --------------------------------------------------------------------- | ------------------ | ---------------------------------------------- | -------------------------- |
+| `fail(msg)`                                                           | 400                | `{ error: msg, errorCode: "action_failed" }`   | Non                        |
+| `fail(msg, { errorCode, statusCode, details })`                       | votre `statusCode` | `{ error, errorCode, details }`                | Non                        |
+| `new ActionContractError(msg, { errorCode })`                         | 409                | `{ error, errorCode, details }`                | Non                        |
+| `new AgentActionStopError(msg)`                                       | 500                | `{ error: msg }`                               | Non                        |
+| Interblocage PostgreSQL (`40P01`) ou échec de sérialisation (`40001`) | 409                | `{ error, errorCode: "transaction_conflict" }` | Non                        |
+| `new Error(msg)`                                                      | 500                | `{ error: "Internal server error" }`           | Oui                        |
+| Entrée qui échoue au `schema`                                         | 400                | `{ error: "Invalid action parameters..." }`    | Non                        |
 
 `AgentActionStopError` est celle à lever quand l’agent doit terminer son tour plutôt que lire l’échec et réessayer. `ActionContractError` est ce que `fail()` lève pour vous, donc ne l’utilisez directement que si 409 est le statut voulu.
 

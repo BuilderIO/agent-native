@@ -5,8 +5,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentChatDataChartLayout } from "../../../agentkit/react/data-chart-layout.js";
 import { createToolkitI18nCatalog } from "../../../i18n.js";
-import type { DataWidgetAction } from "./data-widget-types.js";
+import type {
+  DataWidgetAction,
+  DataWidgetChartAction,
+  DataWidgetDisplayAction,
+} from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +28,7 @@ vi.mock("../../../../hooks/use-toast.js", () => ({ toast: mocks.toast }));
 vi.mock("./DataChartRenderer.js", () => ({
   DataChartRenderer: ({
     chart,
+    layout,
   }: {
     chart: {
       contentHeight?: number;
@@ -30,6 +36,7 @@ vi.mock("./DataChartRenderer.js", () => ({
       labelFontFamily?: string;
       labelFontSize?: number;
     };
+    layout?: AgentChatDataChartLayout;
   }) => (
     <div
       data-testid="chart-surface"
@@ -37,6 +44,8 @@ vi.mock("./DataChartRenderer.js", () => ({
       data-content-padding={chart.contentPadding}
       data-label-font-family={chart.labelFontFamily}
       data-label-font-size={chart.labelFontSize}
+      data-layout-label-font-family={layout?.labelFontFamily}
+      data-layout-label-font-size={layout?.labelFontSize}
     />
   ),
 }));
@@ -45,7 +54,33 @@ const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 const initialBasePath = process.env.VITE_APP_BASE_PATH;
 const roots: Root[] = [];
 
-async function renderWidget(chartActions?: DataWidgetAction[]) {
+async function renderWidget(
+  chartActions?: DataWidgetChartAction[],
+  displayActions: DataWidgetDisplayAction[] = [
+    {
+      id: "details",
+      type: "link",
+      label: "Open details",
+      href: "/reports/1/details",
+    },
+    {
+      id: "query",
+      type: "copy",
+      label: "Copy query",
+      text: "select count(*)",
+    },
+    {
+      id: "unsafe",
+      type: "link",
+      label: "Unsafe",
+      href: "javascript:alert(1)",
+    },
+  ],
+  sampled = false,
+  chartDataCount = 1,
+  truncated = false,
+  layout?: AgentChatDataChartLayout,
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -63,7 +98,12 @@ async function renderWidget(chartActions?: DataWidgetAction[]) {
             title: "Responses by day",
             xKey: "day",
             series: [{ key: "count", label: "Responses" }],
-            data: [{ day: "Mon", count: 2 }],
+            data: Array.from({ length: chartDataCount }, (_, index) => ({
+              day: `Day ${index}`,
+              count: index,
+            })),
+            sampled,
+            truncated,
             actions: chartActions,
           }}
           display={{
@@ -79,27 +119,9 @@ async function renderWidget(chartActions?: DataWidgetAction[]) {
               },
               { id: "local", label: "Local data" },
             ],
-            actions: [
-              {
-                id: "details",
-                type: "link",
-                label: "Open details",
-                href: "/reports/1/details",
-              },
-              {
-                id: "query",
-                type: "copy",
-                label: "Copy query",
-                text: "select count(*)",
-              },
-              {
-                id: "unsafe",
-                type: "link",
-                label: "Unsafe",
-                href: "javascript:alert(1)",
-              },
-            ],
+            actions: displayActions,
           }}
+          layout={layout}
         />
       </AgentNativeI18nProvider>,
     );
@@ -171,6 +193,109 @@ describe("DataChartWidget display contract", () => {
     expect(window.location.search).toBe("?tab=chart");
   });
 
+  it("opts into responsive chart sizing and quiet controls", async () => {
+    const container = await renderWidget(
+      [
+        {
+          id: "explore",
+          label: "Explore",
+          href: "/explore",
+          icon: "explore",
+          presentation: "icon",
+        },
+      ],
+      undefined,
+      false,
+      1,
+      false,
+      {
+        maxWidth: 720,
+        labelFontFamily: "IBM Plex Sans",
+        labelFontSize: 14,
+        titleFontFamily: "IBM Plex Sans",
+        titleFontSize: 14,
+        titleFontWeight: 400,
+        titleLineHeight: 20,
+        titleTone: "muted",
+        actionsVariant: "quiet",
+      },
+    );
+    const card = container.querySelector<HTMLElement>(".my-4");
+    const title = card?.querySelector<HTMLElement>(".border-b .min-w-0");
+    const chart = container.querySelector<HTMLElement>(
+      '[data-testid="chart-surface"]',
+    );
+    const primary = Array.from(container.querySelectorAll("a")).find((link) =>
+      link.textContent?.includes("Open report"),
+    );
+    const explore = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Explore"]',
+    );
+
+    expect(card?.style.width).toBe("100%");
+    expect(card?.style.maxWidth).toBe("720px");
+    expect(card?.style.marginInline).toBe("auto");
+    expect(title?.style.fontFamily).toContain("IBM Plex Sans");
+    expect(title?.style.fontSize).toBe("14px");
+    expect(title?.style.fontWeight).toBe("400");
+    expect(title?.style.lineHeight).toBe("20px");
+    expect(title?.classList.contains("text-muted-foreground")).toBe(true);
+    expect(chart?.dataset.layoutLabelFontFamily).toBe("IBM Plex Sans");
+    expect(chart?.dataset.layoutLabelFontSize).toBe("14");
+    expect(primary?.classList.contains("border")).toBe(false);
+    expect(explore?.classList.contains("border")).toBe(false);
+    expect(explore?.classList.contains("size-7")).toBe(true);
+    const chartActions = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Chart actions"]',
+    );
+    expect(chartActions).not.toBeNull();
+    expect(chartActions?.classList.contains("size-7")).toBe(true);
+    expect(chartActions?.classList.contains("border")).toBe(false);
+  });
+
+  it("announces incomplete chart data and stays quiet for complete data", async () => {
+    const cappedContainer = await renderWidget(
+      undefined,
+      undefined,
+      false,
+      201,
+    );
+    const cappedDisclosure = cappedContainer.querySelector('[role="status"]');
+
+    expect(cappedDisclosure?.textContent).toBe(
+      "This chart shows only some of the available rows.",
+    );
+
+    const sampledContainer = await renderWidget(undefined, undefined, true);
+    expect(sampledContainer.querySelector('[role="status"]')?.textContent).toBe(
+      "This chart shows only some of the available rows.",
+    );
+
+    const sampledAndCappedContainer = await renderWidget(
+      undefined,
+      undefined,
+      true,
+      201,
+    );
+    expect(
+      sampledAndCappedContainer.querySelector('[role="status"]')?.textContent,
+    ).toBe("This chart shows only some of the available rows.");
+
+    const clampedContainer = await renderWidget(
+      undefined,
+      undefined,
+      true,
+      200,
+      true,
+    );
+    expect(clampedContainer.querySelector('[role="status"]')?.textContent).toBe(
+      "This chart shows only some of the available rows.",
+    );
+
+    const completeContainer = await renderWidget();
+    expect(completeContainer.querySelector('[role="status"]')).toBeNull();
+  });
+
   it("opens overflow links and copies the requested text", async () => {
     const container = await renderWidget();
     const menu = await openActionsMenu(container);
@@ -238,6 +363,51 @@ describe("DataChartWidget display contract", () => {
     expect(
       menu?.querySelector('a[href="/mounted/notebooks/new"] svg'),
     ).not.toBeNull();
+  });
+
+  it("renders an icon action directly with an accessible label", async () => {
+    const container = await renderWidget([
+      {
+        label: "Download image",
+        href: "/reports/1/image",
+        icon: "camera",
+        presentation: "icon",
+      },
+    ]);
+    const directAction = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Download image"]',
+    );
+    const menu = await openActionsMenu(container);
+
+    expect(directAction?.getAttribute("href")).toBe("/mounted/reports/1/image");
+    expect(directAction?.getAttribute("title")).toBe("Download image");
+    expect(directAction?.querySelector("svg")).not.toBeNull();
+    expect(menu?.textContent).not.toContain("Download image");
+    expect(menu?.textContent).toContain("Open details");
+    expect(menu?.textContent).toContain("Copy query");
+  });
+
+  it("hides the overflow control when all actions are direct icons", async () => {
+    const container = await renderWidget(
+      [],
+      [
+        {
+          id: "direct-download",
+          type: "link",
+          label: "Download image",
+          href: "/reports/1/image",
+          icon: "camera",
+          presentation: "icon",
+        },
+      ],
+    );
+
+    expect(
+      container.querySelector('a[aria-label="Download image"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Chart actions"]'),
+    ).toBeNull();
   });
 
   it("keeps chart actions as links when payload metadata includes a type", async () => {

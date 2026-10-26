@@ -1,3 +1,4 @@
+import { keepsPixelGrid, roundGeometryStylesPx } from "@shared/canvas-math";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import type { InteractionState } from "@shared/interaction-states";
@@ -122,12 +123,22 @@ export function runCommitStylesToSelectedLayers(
   pendingUndoGestureId?: string,
 ) {
   if (!canEditDesign) return false;
-  const entries = Object.entries(styles).filter(
-    ([, value]) => value !== undefined,
+  const candidateTargets = targetsOverride ?? selectedLayerTargetsRef.current;
+  // One patch serves every target, so positions keep their precision only
+  // when every target sits in a block that leaves the pixel grid.
+  const offGrid = candidateTargets.every(
+    (target) =>
+      !keepsPixelGrid(target.elementInfo.positionContainingBlockTransform),
   );
+  const entries = Object.entries(
+    roundGeometryStylesPx(styles, {
+      containingBlockTransform: offGrid
+        ? candidateTargets[0]?.elementInfo.positionContainingBlockTransform
+        : undefined,
+    }),
+  ).filter(([, value]) => value !== undefined);
   if (entries.length === 0) return false;
   const effectiveLayerState = effectiveCodeLayerStateRef.current;
-  const candidateTargets = targetsOverride ?? selectedLayerTargetsRef.current;
   const targets = candidateTargets.filter(
     (target) =>
       !effectiveLayerState.lockedIds.has(target.fileId) &&

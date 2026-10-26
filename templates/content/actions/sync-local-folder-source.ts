@@ -8,7 +8,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertLocalFileLinkable } from "../server/lib/live-body-writer.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -24,7 +25,10 @@ import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
-import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import {
+  lockDatabaseMemberships,
+  lockExistingDatabaseMemberships,
+} from "./_database-membership-lock.js";
 import {
   LOCAL_FOLDER_SOURCE_TYPE,
   localFolderObservedRevision,
@@ -32,6 +36,7 @@ import {
   localFolderSourceIdentityFromMetadata,
   normalizeLocalFolderSourceIdentity,
 } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -488,7 +493,21 @@ export default defineAction({
     };
     classifyPlans(initialSnapshot);
 
-    if (!dryRun) {
+    const rebindsExistingPage = (plan: (typeof plans)[number]) =>
+      !!plan.existing &&
+      !plan.conflict &&
+      !plan.keepContent &&
+      (plan.applyIncoming ||
+        plan.existing.sourcePath !== plan.file.path ||
+        plan.existing.sourceRootPath !== target.source.sourceTable);
+
+    if (dryRun) {
+      // The sync refuses as a whole when it would link a page switched to its
+      // live copy, so its preview does too.
+      for (const plan of plans) {
+        if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
+      }
+    } else {
       await db.transaction(async (tx: any) => {
         const claimedSources = await tx
           .update(schema.contentDatabaseSources)
@@ -517,6 +536,36 @@ export default defineAction({
           (row) => !currentDocumentIds.has(row.documentId),
         );
         classifyPlans(transactionSnapshot);
+        // The pages' Files memberships, then the pages, each by id, as a save
+        // takes them: the writes below update pages before the memberships.
+        const existingPageIds = plans
+          .filter((plan) => !plan.conflict && plan.existing)
+          .map((plan) => plan.id);
+        const writtenPageIds = [
+          ...existingPageIds,
+          ...missingRows.map((row) => row.documentId),
+        ];
+        // Add a missing Files membership before locking any page. A page has
+        // one per Files database, so once this transaction holds or inserts
+        // it, a concurrent insert waits on this one; if it were added after
+        // the pages, the later membership lock would wait on its writer.
+        await ensureDocumentsFilesMembership(tx, existingPageIds, now);
+        if (writtenPageIds.length > 0) {
+          const memberships = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(
+              and(
+                eq(schema.contentDatabaseItems.databaseId, target.database.id),
+                inArray(schema.contentDatabaseItems.documentId, writtenPageIds),
+              ),
+            );
+          await lockExistingDatabaseMemberships(tx, [
+            ...memberships.map((membership: { id: string }) => membership.id),
+            ...missingRows.map((row) => row.databaseItemId),
+          ]);
+          await lockDocumentRows(tx, writtenPageIds);
+        }
         for (const plan of plans) {
           if (plan.conflict) {
             const changeSetId = opaqueId(
@@ -633,11 +682,8 @@ export default defineAction({
               ownerEmail: userEmail,
               orgId: target.database.orgId,
             });
-          } else if (
-            plan.applyIncoming ||
-            plan.existing.sourcePath !== plan.file.path ||
-            plan.existing.sourceRootPath !== target.source.sourceTable
-          ) {
+          } else if (rebindsExistingPage(plan)) {
+            await assertLocalFileLinkable(plan.id, { transaction: tx });
             const versionId = opaqueId(
               "content_document_version",
               `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
@@ -660,14 +706,20 @@ export default defineAction({
                 updatedAt: now,
               })
               .onConflictDoNothing();
+            const legacy = plan.applyIncoming
+              ? await lockLegacyBodyWrites(tx, [plan.id], {
+                  operation: "sync-local-folder-source",
+                  content: plan.file.content,
+                })
+              : undefined;
             const reboundDocuments = await tx
               .update(schema.documents)
               .set({
-                ...(plan.applyIncoming
+                ...(legacy
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
-                      bodyRevision: bodyRevisionForContent(plan.file.content),
+                      bodyRevision: legacy.bodyRevision(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,

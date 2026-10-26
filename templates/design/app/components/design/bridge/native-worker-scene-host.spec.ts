@@ -5,14 +5,22 @@ import type {
   EffectDefinition,
   EffectInstance,
 } from "../../../../shared/native-effects";
+import {
+  NativeSourceCapabilityError,
+  NativeSourceError,
+} from "./native-source-provider";
+import { nativeWorkerTextureSizeValid } from "./native-worker-gpu";
 import type { NativeWorkerSourceRecord } from "./native-worker-protocol";
 import {
   NativeWorkerSceneHost,
+  NativeWorkerSceneSourceError,
   nativeWorkerDefinitions,
   nativeWorkerOutputRecords,
   nativeWorkerOutputSceneRecords,
+  planNativeWorkerSceneGeometry,
   type NativeWorkerSceneEntry,
 } from "./native-worker-scene-host";
+import { NativeWorkerSourceSnapshot } from "./native-worker-source-snapshot";
 
 afterEach(() => vi.useRealTimers());
 
@@ -171,6 +179,26 @@ describe("native worker record dimensions", () => {
 });
 
 describe("native worker camera coverage", () => {
+  it("fits full-screen preview density to the worker texture contract", () => {
+    const viewport = { x: 0, y: 0, width: 2560, height: 1440 };
+    const large = planNativeWorkerSceneGeometry({ viewport, pixelRatio: 2 });
+    expect(large.viewport).toBe(viewport);
+    expect(large.pixelRatio).toBeLessThan(2);
+    expect(nativeWorkerTextureSizeValid(large.width, large.height)).toBe(true);
+    expect(large.width).toBe(Math.ceil(viewport.width * large.pixelRatio));
+    expect(large.height).toBe(Math.ceil(viewport.height * large.pixelRatio));
+
+    const ordinary = planNativeWorkerSceneGeometry({
+      viewport: { x: 0, y: 0, width: 1280, height: 900 },
+      pixelRatio: 2,
+    });
+    expect(ordinary.pixelRatio).toBe(2);
+    expect([ordinary.width, ordinary.height]).toEqual([2560, 1800]);
+    expect(() =>
+      planNativeWorkerSceneGeometry({ viewport, pixelRatio: Number.NaN }),
+    ).toThrow("The native worker viewport has invalid geometry.");
+  });
+
   it("retains a committed scene only while viewport, density, source and targets still match", () => {
     vi.stubGlobal("innerWidth", 1044);
     vi.stubGlobal("innerHeight", 1042);
@@ -218,6 +246,12 @@ describe("native worker camera coverage", () => {
       rootWidth: 1044,
       rootHeight: 1042,
       targetEpochs: new Map([["fill", { source: 5, authored: 2 }]]),
+      get authoredPayloads(): Map<
+        string,
+        { payload: string; definitionHash: string }
+      > {
+        return this.payloads;
+      },
       payloads: new Map([
         [
           "fill",
@@ -228,10 +262,12 @@ describe("native worker camera coverage", () => {
         ],
       ]),
     };
+    let compact = false;
     const host = Object.create(
       NativeWorkerSceneHost.prototype,
     ) as NativeWorkerSceneHost;
     Object.assign(host, {
+      sceneCadence: () => ({ frameRateTarget: 60, compact }),
       visible: true,
       disposed: false,
       dirty: false,
@@ -248,6 +284,10 @@ describe("native worker camera coverage", () => {
     });
     const crop = { x: 80, y: 60, width: 300, height: 250 };
     try {
+      expect(host.retainsPreviewViewport(crop, 1)).toBe(true);
+      compact = true;
+      expect(host.retainsPreviewViewport(crop, 1)).toBe(false);
+      compact = false;
       expect(host.retainsPreviewViewport(crop, 1)).toBe(true);
       expect(
         host.retainsPreviewViewport(
@@ -385,6 +425,12 @@ describe("native worker camera coverage", () => {
       rootHeight: 1042,
       targetEpochs: new Map([["fill", { source: 5, authored: 2 }]]),
       rootRecords: [],
+      get authoredPayloads(): Map<
+        string,
+        { payload: string; definitionHash: string }
+      > {
+        return this.payloads;
+      },
       payloads: new Map([
         [
           "fill",
@@ -410,6 +456,7 @@ describe("native worker camera coverage", () => {
       disposed: false,
       capturingExport: false,
       preparingExport: false,
+      sceneCadence: () => ({ frameRateTarget: 60, compact: false }),
       provider: {
         sourceEpoch: () => sourceEpoch,
         authoredSourceEpoch: () => 3,
@@ -574,6 +621,7 @@ describe("native worker camera coverage", () => {
       rootHeight: 800,
       targetEpochs,
       rootRecords,
+      authoredPayloads: payloads,
       payloads,
     };
     const cameraPublication = { ...previous, generation: 5 };
@@ -691,19 +739,33 @@ describe("native worker camera coverage", () => {
     }
   });
 
-  it("uses the full publish path after changed provenance or a target error", () => {
+  it("retires direct presentations before a validated worker commit", () => {
     const root = document.createElement("section");
     const source = document.createElement("div");
     root.append(source);
     document.body.append(root);
     root.setAttribute("data-an-native-scene-suppressed", "");
     root.setAttribute("data-an-native-authored-opacity", "1");
+    root.style.opacity = "1";
     document.documentElement.setAttribute("data-an-native-scene-managed", "");
     const target = document.createElement("div");
     target.setAttribute("data-an-native-status", "error");
     target.setAttribute("data-an-native-backend", "webgpu-worker");
     target.setAttribute("data-an-native-error", "worker-failed");
-    const instance = { id: "fill" } as EffectInstance;
+    target.setAttribute("data-an-native-fill-instance", "fill");
+    const instance = {
+      id: "fill",
+      nodeId: "fill",
+      placement: "fill",
+    } as EffectInstance;
+    const entry = {
+      instance,
+      definition: {} as EffectDefinition,
+      definitionHash: "definition-1",
+      target,
+    };
+    const marker = document.createElement("canvas");
+    marker.style.visibility = "hidden";
     const previousPayload = JSON.stringify({
       ...instance,
       params: { amount: 0.5 },
@@ -720,6 +782,12 @@ describe("native worker camera coverage", () => {
       rootHeight: 800,
       targetEpochs: new Map([["fill", { source: 5, authored: 2 }]]),
       rootRecords: [{ node: source }],
+      get authoredPayloads(): Map<
+        string,
+        { payload: string; definitionHash: string }
+      > {
+        return this.payloads;
+      },
       payloads: new Map([
         ["fill", { payload: previousPayload, definitionHash: "definition-1" }],
       ]),
@@ -728,12 +796,29 @@ describe("native worker camera coverage", () => {
       ...previous,
       generation: 5,
       rootRecords: [{ node: source }],
+      get authoredPayloads(): Map<
+        string,
+        { payload: string; definitionHash: string }
+      > {
+        return this.payloads;
+      },
       payloads: new Map([
         ["fill", { payload: nextPayload, definitionHash: "definition-1" }],
       ]),
     };
     const canvas = document.createElement("canvas");
     const onCommitted = vi.fn();
+    const beforeCommit = vi.fn(() => {
+      root.removeAttribute("data-an-native-scene-suppressed");
+      root.removeAttribute("data-an-native-authored-opacity");
+      document.documentElement.removeAttribute("data-an-native-scene-managed");
+      target.removeAttribute("data-an-native-status");
+      target.removeAttribute("data-an-native-backend");
+      target.removeAttribute("data-an-native-fill-instance");
+      marker.style.visibility = "hidden";
+    });
+    const hasPresentationToRetire = vi.fn().mockReturnValue(true);
+    const onFailure = vi.fn();
     const requestUpdate = vi.fn();
     const host = Object.create(
       NativeWorkerSceneHost.prototype,
@@ -747,8 +832,9 @@ describe("native worker camera coverage", () => {
         sourceEpoch: () => 7,
         authoredSourceEpoch: () => 3,
       },
-      entries: [{ target }],
-      targets: new Map(),
+      entries: [entry],
+      targets: new Map([["fill", { entry, marker }]]),
+      markedTargets: new Set([target]),
       suppressed: new Set([root]),
       staged: new Map([[5, changed]]),
       scenes: new Map([
@@ -775,7 +861,9 @@ describe("native worker camera coverage", () => {
         },
       ]),
       onCommitted,
-      onFailure: vi.fn(),
+      hasPresentationToRetire,
+      beforeCommit,
+      onFailure,
       requestUpdate,
     });
     const publish = (generation: number, messagePayload: string) => {
@@ -810,16 +898,57 @@ describe("native worker camera coverage", () => {
       });
     };
     const matches = vi.spyOn(root, "matches");
+    const setTargetAttribute = vi.spyOn(target, "setAttribute");
     try {
       publish(5, "mismatched-payload");
       expect(requestUpdate).toHaveBeenCalledOnce();
       expect(host.committedScene()?.scene.generation).toBe(4);
       expect(onCommitted).not.toHaveBeenCalled();
+      expect(beforeCommit).not.toHaveBeenCalled();
+      expect(root.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(true);
       expect(waiterResolve).not.toHaveBeenCalled();
 
+      root.style.opacity = "";
+      root.removeAttribute("data-an-native-authored-opacity");
       publish(5, nextPayload);
-      expect(matches).toHaveBeenCalledOnce();
+      expect(beforeCommit).not.toHaveBeenCalled();
+      expect(onCommitted).not.toHaveBeenCalled();
+      expect(onFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "worker-scene-opacity-unreadable" }),
+      );
+      expect(root.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(true);
+
+      root.style.opacity = "1";
+      root.setAttribute("data-an-native-authored-opacity", "1");
+      publish(5, nextPayload);
+      expect(beforeCommit).toHaveBeenCalledOnce();
+      expect(hasPresentationToRetire).toHaveBeenCalledTimes(2);
+      expect(matches).toHaveBeenCalledTimes(2);
+      expect(onCommitted).toHaveBeenCalledWith(
+        changed,
+        expect.objectContaining({ contentChanged: true }),
+      );
+      expect(setTargetAttribute).toHaveBeenCalledWith(
+        "data-an-native-status",
+        "ready",
+      );
       expect(target.getAttribute("data-an-native-status")).toBe("ready");
+      expect(target.getAttribute("data-an-native-backend")).toBe(
+        "webgpu-worker",
+      );
+      expect(target.getAttribute("data-an-native-fill-instance")).toBe("fill");
+      expect(marker.style.visibility).toBe("visible");
+      expect(root.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+      expect(root.getAttribute("data-an-native-authored-opacity")).toBe("1");
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(true);
       expect(target.hasAttribute("data-an-native-error")).toBe(false);
       expect(host.committedScene()?.scene.generation).toBe(5);
       expect(onCommitted).toHaveBeenCalledWith(
@@ -872,6 +1001,7 @@ describe("native worker camera coverage", () => {
       pendingAssetRevisions: new Map(),
       assetRevisions: new Map(),
       worker: { sendScene, setVisible: vi.fn(), dispose: vi.fn() },
+      inputAssets: { dispose: vi.fn() },
       clock: () => ({ playing: true, timeSeconds: 0, speed: 1 }),
       getClockOrigin: () => 100,
       sceneGeometry: () => ({
@@ -915,6 +1045,12 @@ describe("native worker camera coverage", () => {
             authoredEpoch: 3,
             clockIdentity: { origin: 100, sourcePlaying: true },
             rootRecords: [],
+            get authoredPayloads(): Map<
+              string,
+              { payload: string; definitionHash: string }
+            > {
+              return this.payloads;
+            },
             payloads: new Map(),
           },
         };
@@ -983,6 +1119,12 @@ describe("native worker camera coverage", () => {
           sourceEpoch: 8,
           authoredEpoch: 4,
           rootRecords: [],
+          get authoredPayloads(): Map<
+            string,
+            { payload: string; definitionHash: string }
+          > {
+            return this.payloads;
+          },
           payloads: new Map(),
         },
       };
@@ -1192,6 +1334,21 @@ describe("hidden native worker export", () => {
       scene,
       assets: [],
       publication: {
+        get authoredPayloads(): Map<
+          string,
+          { payload: string; definitionHash: string }
+        > {
+          return this.payloads;
+        },
+        payloads: new Map([
+          [
+            "fill",
+            {
+              payload: JSON.stringify(instance),
+              definitionHash: "definition-1",
+            },
+          ],
+        ]),
         targetEpochs: new Map([["fill", { source: 6, authored: 3 }]]),
       },
     });
@@ -1212,7 +1369,7 @@ describe("hidden native worker export", () => {
       captureSnapshot,
       requestUpdate: vi.fn(),
     });
-    return { host, instance, provider, exportScene, captureSnapshot };
+    return { host, instance, provider, scene, exportScene, captureSnapshot };
   }
 
   const options = {
@@ -1231,6 +1388,16 @@ describe("hidden native worker export", () => {
     expect(exportScene).toHaveBeenCalledOnce();
   });
 
+  it("exports hidden scenes with suspended targets while retaining their authored provenance", async () => {
+    const { host, scene, exportScene } = fixture();
+    scene.instances = [];
+    scene.targets = [];
+    await expect(host.captureExportScene(options)).resolves.toMatchObject({
+      previewGeneration: null,
+    });
+    expect(exportScene).toHaveBeenCalledOnce();
+  });
+
   it("rejects an edited native payload during hidden capture", async () => {
     const { host, instance, captureSnapshot, exportScene } = fixture();
     captureSnapshot.mockImplementation(async () => {
@@ -1245,6 +1412,21 @@ describe("hidden native worker export", () => {
         },
         assets: [],
         publication: {
+          get authoredPayloads(): Map<
+            string,
+            { payload: string; definitionHash: string }
+          > {
+            return this.payloads;
+          },
+          payloads: new Map([
+            [
+              "fill",
+              {
+                payload: JSON.stringify(instance),
+                definitionHash: "definition-1",
+              },
+            ],
+          ]),
           targetEpochs: new Map([["fill", { source: 6, authored: 3 }]]),
         },
       };
@@ -1273,4 +1455,429 @@ describe("hidden native worker export", () => {
       code: "composition-preview-stale",
     });
   });
+});
+
+describe("native worker zero-area targets", () => {
+  it("suspends empty targets without blocking siblings and captures them after resize", async () => {
+    const style = vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      getPropertyValue: () => "",
+      boxShadow: "none",
+      outlineStyle: "none",
+      backgroundImage: "none",
+      backgroundColor: "rgba(0, 0, 0, 0)",
+      opacity: "1",
+      transform: "none",
+      translate: "none",
+      rotate: "none",
+      scale: "none",
+      filter: "none",
+      perspective: "none",
+      isolation: "auto",
+      mixBlendMode: "normal",
+      overflow: "visible",
+      overflowX: "visible",
+      overflowY: "visible",
+    } as unknown as CSSStyleDeclaration);
+    vi.stubGlobal("scrollX", 0);
+    vi.stubGlobal("scrollY", 0);
+    const receiver = vi
+      .spyOn(NativeWorkerSourceSnapshot.prototype, "receiver")
+      .mockResolvedValue({ maskAssetId: "mask" });
+    const targets = [
+      document.createElement("div"),
+      document.createElement("div"),
+    ];
+    let emptyWidth = 0;
+    let visibleWidth = 100;
+    targets.forEach((target, index) => {
+      target.getBoundingClientRect = () =>
+        new DOMRect(0, 0, index ? emptyWidth : visibleWidth, 80);
+      document.body.append(target);
+    });
+    const entries = targets.map((target, index) => ({
+      target,
+      definitionHash: "definition",
+      definition: {
+        id: "effect",
+        version: 1,
+        resources: [],
+        passes: [],
+      } as unknown as EffectDefinition,
+      instance: {
+        id: `effect-${index}`,
+        nodeId: `node-${index}`,
+        placement: "layer",
+      } as EffectInstance,
+    }));
+    const provider = () => ({
+      sourceEpoch: () => 1,
+      authoredSourceEpoch: () => 1,
+      setDensity: vi.fn(),
+      readScene: vi.fn().mockResolvedValue([]),
+      needsContinuousFrames: () => false,
+      replaySafety: async () => "static",
+      readReceiverCoverage: vi.fn().mockResolvedValue({}),
+    });
+    const providers = entries.map(provider);
+    const host = Object.create(
+      NativeWorkerSceneHost.prototype,
+    ) as NativeWorkerSceneHost;
+    Object.assign(host, {
+      disposed: false,
+      generation: 0,
+      entries,
+      canvas: document.createElement("canvas"),
+      assetRevisions: new Map(),
+      committedFrameTimes: [],
+      staged: new Map(),
+      scenes: new Map(),
+      suppressed: new Set(),
+      publicationWaiters: new Set(),
+      onFailure: vi.fn(),
+      requestUpdate: vi.fn(),
+      onCommitted: vi.fn(),
+      worker: { sceneId: "scene" },
+      provider: provider(),
+      targets: new Map(
+        entries.map((entry, index) => [
+          entry.instance.id,
+          {
+            entry,
+            provider: providers[index],
+            marker: document.createElement("canvas"),
+            captureScope: index,
+          },
+        ]),
+      ),
+      layout: (target: HTMLElement) => ({
+        width: target.getBoundingClientRect().width,
+        height: 80,
+        offsetLeft: 0,
+        offsetTop: 0,
+        transform: "none",
+        transformOrigin: "0px 0px",
+        translate: "none",
+        rotate: "none",
+        scale: "none",
+      }),
+      sceneGeometry: () => ({
+        viewport: { x: 0, y: 0, width: 300, height: 200 },
+        pixelRatio: 1,
+      }),
+      sceneCadence: () => ({ frameRateTarget: 60, compact: false }),
+      clock: () => ({ playing: true, timeSeconds: 0, speed: 1 }),
+      getClockOrigin: () => 0,
+    });
+    const capture = (options?: object) =>
+      (
+        host as unknown as {
+          captureSnapshot(options?: object): Promise<{
+            scene: {
+              instances: EffectInstance[];
+              targets: { instanceId: string }[];
+            };
+            publication: {
+              payloads: Map<
+                string,
+                { payload: string; definitionHash: string }
+              >;
+              authoredPayloads: Map<string, unknown>;
+              generation: number;
+              sourceEpoch: number;
+            };
+          }>;
+        }
+      ).captureSnapshot(options);
+    const publish = (captured: Awaited<ReturnType<typeof capture>>) => {
+      const internals = host as unknown as {
+        staged: Map<number, unknown>;
+        scenes: Map<number, unknown>;
+        onCommitted: ReturnType<typeof vi.fn>;
+        requestUpdate: ReturnType<typeof vi.fn>;
+        committed: unknown;
+        publish(message: object): void;
+      };
+      internals.staged.set(
+        captured.publication.generation,
+        captured.publication,
+      );
+      internals.scenes.set(captured.publication.generation, captured.scene);
+      internals.publish({
+        generation: captured.publication.generation,
+        sourceEpoch: captured.publication.sourceEpoch,
+        timeSeconds: 0,
+        presentedAtMs: captured.publication.generation * 16,
+        committedInstances: [...captured.publication.payloads].map(
+          ([instanceId, payload]) => ({ instanceId, ...payload, localTime: 0 }),
+        ),
+      });
+      expect(internals.committed).toBe(captured.publication);
+      expect(internals.onCommitted).toHaveBeenCalled();
+      expect(internals.requestUpdate).not.toHaveBeenCalled();
+    };
+    try {
+      const first = await capture();
+      expect(first.scene.instances.map(({ id }) => id)).toEqual(["effect-0"]);
+      expect(first.scene.targets.map(({ instanceId }) => instanceId)).toEqual([
+        "effect-0",
+      ]);
+      expect(first.publication.authoredPayloads.size).toBe(2);
+      expect(first.publication.payloads.size).toBe(1);
+      const suspendedResolve = vi.fn();
+      (
+        host as unknown as { publicationWaiters: Set<unknown> }
+      ).publicationWaiters.add({
+        instanceId: "effect-1",
+        payload: JSON.stringify(entries[1]!.instance),
+        definitionHash: "definition",
+        minimumGeneration: first.publication.generation,
+        expectedTimeSeconds: null,
+        timer: 0,
+        resolve: suspendedResolve,
+      });
+      publish(first);
+      expect(suspendedResolve).toHaveBeenCalledOnce();
+      expect(providers[1]!.readReceiverCoverage).not.toHaveBeenCalled();
+      emptyWidth = 120;
+      const resumed = await capture();
+      expect(resumed.scene.instances.map(({ id }) => id)).toEqual([
+        "effect-0",
+        "effect-1",
+      ]);
+      expect(resumed.scene.targets.map(({ instanceId }) => instanceId)).toEqual(
+        ["effect-0", "effect-1"],
+      );
+      expect(providers[1]!.readReceiverCoverage).toHaveBeenCalledOnce();
+      publish(resumed);
+      emptyWidth = 0;
+      const exported = await capture({
+        cropRect: { x: 0, y: 0, width: 300, height: 200 },
+        pixelRatio: 2,
+      });
+      expect(exported.scene.instances.map(({ id }) => id)).toEqual([
+        "effect-0",
+      ]);
+      emptyWidth = 0;
+      visibleWidth = 0;
+      const collapsed = await capture();
+      expect(collapsed.scene.instances).toEqual([]);
+      expect(collapsed.scene.targets).toEqual([]);
+      expect(collapsed.publication.authoredPayloads.size).toBe(2);
+      expect(collapsed.publication.payloads.size).toBe(0);
+      publish(collapsed);
+      visibleWidth = 100;
+      expect((await capture()).scene.instances.map(({ id }) => id)).toEqual([
+        "effect-0",
+      ]);
+      for (const invalid of [Number.NaN, -1, 100000]) {
+        emptyWidth = invalid;
+        await expect(capture()).rejects.toMatchObject({
+          code: "worker-target-geometry-invalid",
+        });
+      }
+    } finally {
+      targets.forEach((target) => target.remove());
+      style.mockRestore();
+      receiver.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("native worker authored scene dependencies", () => {
+  it("routes optional scene capture limitations while keeping each effect's own captures strict", async () => {
+    const style = vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      getPropertyValue: () => "",
+      backgroundImage: "none",
+      backgroundColor: "rgba(0, 0, 0, 0)",
+      boxShadow: "none",
+      outlineStyle: "none",
+      opacity: "1",
+      transform: "none",
+      translate: "none",
+      rotate: "none",
+      scale: "none",
+      filter: "none",
+      perspective: "none",
+      isolation: "auto",
+      mixBlendMode: "normal",
+      overflowX: "visible",
+      overflowY: "visible",
+    } as unknown as CSSStyleDeclaration);
+    vi.stubGlobal("scrollX", 0);
+    vi.stubGlobal("scrollY", 0);
+    const receiver = vi
+      .spyOn(NativeWorkerSourceSnapshot.prototype, "receiver")
+      .mockResolvedValue({ maskAssetId: "mask" });
+    const target = document.createElement("div");
+    target.getBoundingClientRect = () => new DOMRect(0, 0, 1200, 1200);
+    document.body.append(target);
+    const instance = {
+      id: "mesh",
+      nodeId: "mesh",
+      placement: "fill",
+    } as EffectInstance;
+    const definition = {
+      id: "mesh",
+      version: 1,
+      kind: "generator",
+      resources: [],
+      passes: [],
+    } as unknown as EffectDefinition;
+    const entry = { instance, definition, target, definitionHash: "mesh" };
+    const capability = new NativeSourceCapabilityError(
+      "source-webfont-style",
+      "This text style needs browser-shaped glyph capture.",
+    );
+    const provider = () => ({
+      setDensity: vi.fn(),
+      sourceEpoch: () => 1,
+      authoredSourceEpoch: () => 1,
+      needsContinuousFrames: () => false,
+      replaySafety: async () => "immutable",
+      readScene: vi.fn().mockResolvedValue([]),
+      readReceiverCoverage: vi.fn().mockResolvedValue({}),
+    });
+    const root = provider();
+    const own = provider();
+    root.readScene.mockRejectedValue(capability);
+    const host = Object.create(
+      NativeWorkerSceneHost.prototype,
+    ) as NativeWorkerSceneHost;
+    Object.assign(host, {
+      disposed: false,
+      generation: 0,
+      entries: [entry],
+      assetRevisions: new Map(),
+      canvas: document.createElement("canvas"),
+      worker: { sceneId: "scene" },
+      provider: root,
+      targets: new Map([
+        [
+          "mesh",
+          {
+            entry,
+            provider: own,
+            marker: document.createElement("canvas"),
+            captureScope: 1,
+          },
+        ],
+      ]),
+      sceneGeometry: () => ({
+        viewport: { x: 0, y: 0, width: 1200, height: 1200 },
+        pixelRatio: 1,
+      }),
+      layout: () => ({
+        width: 1200,
+        height: 1200,
+        offsetLeft: 0,
+        offsetTop: 0,
+        transform: "none",
+        transformOrigin: "0px 0px",
+        translate: "none",
+        rotate: "none",
+        scale: "none",
+      }),
+      fillPhases: vi.fn().mockResolvedValue(undefined),
+    });
+    const capture = (options?: object) =>
+      (
+        host as unknown as {
+          captureSnapshot(options?: object): Promise<unknown>;
+        }
+      ).captureSnapshot(options);
+    try {
+      await expect(capture()).rejects.toMatchObject({
+        code: "worker-scene-source-unsupported",
+        captureFailure: capability,
+      });
+      await expect(capture()).rejects.toBeInstanceOf(
+        NativeWorkerSceneSourceError,
+      );
+      await expect(
+        capture({
+          cropRect: { x: 0, y: 0, width: 1200, height: 1200 },
+          pixelRatio: 1,
+        }),
+      ).rejects.toBe(capability);
+      for (const placement of ["fill", "layer", "backdrop"] as const) {
+        instance.placement = placement;
+        await expect(capture()).rejects.toBeInstanceOf(
+          NativeWorkerSceneSourceError,
+        );
+        root.readScene.mockClear();
+        own.readReceiverCoverage.mockRejectedValue(capability);
+        await expect(capture()).rejects.toBe(capability);
+        expect(root.readScene).not.toHaveBeenCalled();
+        own.readReceiverCoverage.mockResolvedValue({});
+      }
+      instance.placement = "fill";
+      for (const failure of [
+        new NativeSourceError("source-epoch-stale", "Source changed"),
+        new Error("unexpected source failure"),
+      ]) {
+        root.readScene.mockRejectedValue(failure);
+        await expect(capture()).rejects.toBe(failure);
+      }
+      root.readScene.mockRejectedValue(capability);
+      root.readScene.mockClear();
+      own.readReceiverCoverage.mockRejectedValue(capability);
+      await expect(capture()).rejects.toBe(capability);
+      expect(root.readScene).not.toHaveBeenCalled();
+    } finally {
+      target.remove();
+      style.mockRestore();
+      receiver.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("native worker capture retirement", () => {
+  it.each(["active", "disposed", "retained"] as const)(
+    "does not publish a late capture failure from a %s scene",
+    async (lifecycle) => {
+      let reject!: (error: Error) => void;
+      const pending = new Promise<void>((_resolve, fail) => {
+        reject = fail;
+      });
+      const failure = new NativeSourceError(
+        "source-disposed",
+        "The source provider was disposed.",
+      );
+      const onFailure = vi.fn();
+      const host = Object.create(
+        NativeWorkerSceneHost.prototype,
+      ) as NativeWorkerSceneHost;
+      Object.assign(host, {
+        disposed: false,
+        holdingLastFrame: false,
+        updating: false,
+        dirty: true,
+        visible: true,
+        capturingExport: false,
+        assetRevisions: new Map(),
+        sendSnapshot: vi.fn().mockReturnValue(pending),
+        onFailure,
+        clearCameraSubmission: vi.fn(),
+        publicationWaiters: new Set(),
+        targets: new Map(),
+        suppressed: new Set(),
+        worker: { dispose: vi.fn() },
+        inputAssets: { dispose: vi.fn() },
+        provider: { dispose: vi.fn() },
+        canvas: document.createElement("canvas"),
+      });
+      const update = (
+        host as unknown as { updateLoop(): Promise<void> }
+      ).updateLoop();
+      if (lifecycle === "disposed") host.dispose();
+      if (lifecycle === "retained") host.holdLastFrame();
+      reject(failure);
+      await update;
+      if (lifecycle === "active")
+        expect(onFailure).toHaveBeenCalledWith(failure);
+      else expect(onFailure).not.toHaveBeenCalled();
+    },
+  );
 });

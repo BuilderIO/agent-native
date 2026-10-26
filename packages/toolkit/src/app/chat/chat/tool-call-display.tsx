@@ -30,23 +30,34 @@ import { cn } from "@agent-native/toolkit/utils";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
   IconAlertTriangle,
+  IconArrowFork,
+  IconBrain,
   IconCheck,
-  IconChevronRight,
+  IconClock,
   IconCopy,
   IconCode,
   IconTerminal2,
   IconDatabase,
   IconSearch,
   IconFileCode,
+  IconTool,
 } from "@tabler/icons-react";
 import React, {
   useState,
   useEffect,
   useCallback,
+  useId,
   useLayoutEffect,
   useRef,
 } from "react";
 
+import { AgentKitDisclosureSummary } from "../../agentkit/react/components.js";
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
+import {
+  workedForRowChevronStyle,
+  workedForRowSummaryStyle,
+  type AgentChatWorkedForRowLayout,
+} from "../../agentkit/react/transcript-layout.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
@@ -73,7 +84,10 @@ import {
   IntegrationToolBadge,
   resolveToolIntegration,
 } from "./tool-integration.js";
-import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  resolveToolRenderer,
+  type ToolRendererContext,
+} from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
@@ -482,9 +496,11 @@ function ToolOutputPopover({
 }
 
 export function AnimatedCollapse({
+  id,
   open,
   children,
 }: {
+  id?: string;
   open: boolean;
   children: React.ReactNode;
 }) {
@@ -506,6 +522,7 @@ export function AnimatedCollapse({
 
   return (
     <div
+      id={id}
       className="agent-chat-collapse"
       data-state={open ? "open" : "closed"}
       aria-hidden={!open}
@@ -630,6 +647,7 @@ export function ToolCallDisplay({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -641,12 +659,16 @@ export function ToolCallDisplay({
   repeatCount,
   isLatestRunning = isRunning,
   isActiveTail,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
 }: {
   toolName: string;
   toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -662,6 +684,9 @@ export function ToolCallDisplay({
   };
   repeatCount?: number;
   isActiveTail?: boolean;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
@@ -738,6 +763,7 @@ export function ToolCallDisplay({
       argsText={argsText}
       args={args}
       result={result}
+      status={status}
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={effectiveIsRunning}
@@ -748,6 +774,9 @@ export function ToolCallDisplay({
       approval={approval}
       repeatCount={repeatCount}
       context={builderContext}
+      workedForRowLayout={workedForRowLayout}
+      dataChartLayout={dataChartLayout}
+      formatWorkedForDuration={formatWorkedForDuration}
     />,
   );
 }
@@ -760,6 +789,7 @@ function ToolCallDisplayGeneric({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -770,12 +800,16 @@ function ToolCallDisplayGeneric({
   approval,
   repeatCount,
   context,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
 }: {
   toolName: string;
   toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -791,6 +825,9 @@ function ToolCallDisplayGeneric({
   };
   repeatCount?: number;
   context?: string;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
@@ -799,6 +836,7 @@ function ToolCallDisplayGeneric({
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
   const [expanded, setExpanded] = useState(false);
   const [outputOpen, setOutputOpen] = useState(false);
+  const contentId = useId();
   const agentName = toolName.startsWith("agent:")
     ? toolName.slice(6)
     : typeof args.agent === "string"
@@ -902,8 +940,10 @@ function ToolCallDisplayGeneric({
     args,
     resultText: result,
     resultJson: parsedResult,
+    status,
     isRunning,
     isActiveTail,
+    dataChartLayout,
     ...(typeof toolCallId === "string"
       ? { widgetId: `${toolCallId}:chat-ui` }
       : {}),
@@ -974,6 +1014,8 @@ function ToolCallDisplayGeneric({
             ? structuredMeta.agentDurationMs
             : agentActivity?.durationMs
         }
+        workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
       />
     );
   }
@@ -987,95 +1029,76 @@ function ToolCallDisplayGeneric({
             <McpAppRenderer app={mcpApp} className="mb-1.5" />
           </div>
         )}
-      <button
-        type="button"
-        onClick={() => canExpand && setExpanded(!isExpanded)}
-        aria-expanded={canExpand ? isExpanded : undefined}
-        className={cn(
-          "agent-kit-density flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground transition-colors",
-          canExpand && "hover:text-foreground",
-          isRunning && "text-muted-foreground",
-        )}
-      >
-        <span
-          className={cn(
-            "relative flex shrink-0 items-center justify-center",
-            integration ? "size-5" : "size-4",
-          )}
-        >
-          {integration ? (
+      <AgentKitDisclosureSummary
+        rowClassName="agentkit-activity-row agent-kit-density text-muted-foreground"
+        open={isExpanded}
+        onToggle={() => setExpanded(!isExpanded)}
+        expandable={canExpand}
+        as={canExpand ? "button" : "static"}
+        controls={isExpanded ? contentId : undefined}
+        icon={
+          integration ? (
             <IntegrationToolBadge integration={integration} />
           ) : isRunning ? (
-            <CubeLoader aria-hidden="true" className="size-3.5" />
-          ) : isUnknownOutcome ? (
-            <IconAlertTriangle className="size-3.5 text-muted-foreground" />
+            <CubeLoader aria-hidden="true" className="size-4" />
+          ) : isUnknownOutcome || isError ? (
+            <IconAlertTriangle
+              aria-hidden="true"
+              className="agentkit-icon text-[hsl(var(--agent-kit-warning))]"
+            />
           ) : (
-            <>
-              <ToolIcon
-                className={cn(
-                  "size-3.5 transition-opacity",
-                  canExpand && "group-hover/tool:opacity-0",
-                )}
-              />
-              {canExpand && (
-                <IconChevronRight
-                  className={cn(
-                    "absolute size-3.5 opacity-0 transition-[opacity,transform] group-hover/tool:opacity-100",
-                    isExpanded && "rotate-90",
-                  )}
-                />
-              )}
-            </>
-          )}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 truncate font-normal",
-            (isActiveTail || (integration && isRunning)) &&
-              "agent-running-shimmer",
-          )}
-        >
-          {displayName}
-        </span>
-        {rowContext ? (
-          <AgentActivityObject
-            object={{
-              kind: rowContext.kind,
-              label: rowContext.text,
-              mono: rowContext.mono,
-            }}
-            className="agent-kit-activity-object-boundary ms-auto shrink"
-          />
-        ) : null}
-        {repeatCount && repeatCount > 1 && (
+            <ToolIcon aria-hidden="true" className="agentkit-icon" />
+          )
+        }
+        label={
           <span
-            className="agent-kit-micro-copy shrink-0 rounded border border-border/60 px-1.5 py-0.5 leading-none text-muted-foreground"
-            title={t("agentChat.tool.repeated", { count: repeatCount })}
-          >
-            {repeatCount}x
-          </span>
-        )}
-        {integration && isUnknownOutcome ? (
-          <IconAlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
-        ) : null}
-        {integration && canExpand ? (
-          <IconChevronRight
-            aria-hidden="true"
             className={cn(
-              "size-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover/tool:opacity-100 group-focus-within/tool:opacity-100",
-              isExpanded && "rotate-90 opacity-100",
+              "min-w-0 truncate font-normal",
+              (isActiveTail || (integration && isRunning)) &&
+                "agent-running-shimmer",
             )}
-          />
-        ) : null}
-      </button>
+          >
+            {displayName}
+          </span>
+        }
+        meta={
+          <>
+            {rowContext ? (
+              <AgentActivityObject
+                object={{
+                  kind: rowContext.kind,
+                  label: rowContext.text,
+                  mono: rowContext.mono,
+                }}
+                className="agent-kit-activity-object-boundary ms-auto shrink"
+              />
+            ) : null}
+            {repeatCount && repeatCount > 1 ? (
+              <span
+                className="agent-kit-micro-copy shrink-0 rounded border border-border/60 px-1.5 py-0.5 leading-none text-muted-foreground"
+                title={t("agentChat.tool.repeated", { count: repeatCount })}
+              >
+                {repeatCount}x
+              </span>
+            ) : null}
+            {integration && isUnknownOutcome ? (
+              <IconAlertTriangle
+                aria-hidden="true"
+                className="agentkit-icon text-[hsl(var(--agent-kit-warning))]"
+              />
+            ) : null}
+          </>
+        }
+      />
       <AnimatedCollapse
+        id={contentId}
         open={
           isExpanded &&
           !isAgentCall &&
           (hasArgs || result !== undefined || isError)
         }
       >
-        <div className={cn("mt-1 space-y-2", !embeddedInWorkSummary && "pl-5")}>
+        <div className={cn("mt-1 space-y-2", !embeddedInWorkSummary && "ps-6")}>
           {inputPayload && (
             <SimpleCodeViewer
               text={inputPayload.text}
@@ -1114,7 +1137,7 @@ function ToolCallDisplayGeneric({
           role="status"
           className={cn(
             "text-xs text-muted-foreground",
-            !embeddedInWorkSummary && "ps-5",
+            !embeddedInWorkSummary && "ps-6",
           )}
         >
           {t("agentChat.tool.interrupted")}
@@ -1142,6 +1165,8 @@ function AgentCallCell({
   isError,
   errorText,
   durationMs,
+  workedForRowLayout,
+  formatWorkedForDuration,
 }: {
   agentName: string;
   toolCallId?: string;
@@ -1152,10 +1177,13 @@ function AgentCallCell({
   isError: boolean;
   errorText?: string;
   durationMs?: number;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(!isError);
+  const contentId = useId();
   useLayoutEffect(() => {
     if (isError) setOpen(false);
   }, [isError]);
@@ -1171,7 +1199,6 @@ function AgentCallCell({
   const finalText = isError
     ? ""
     : responseText || (inlineSegments.length ? "" : activity?.responseText);
-  const work = activeReasoning.length || toolCount || inlineSegments.length;
   const workItemCount = Math.max(
     activeReasoning.length,
     toolCount,
@@ -1182,54 +1209,64 @@ function AgentCallCell({
     : isRunning
       ? t("agentChat.tool.askingAgent", { agent: agentName })
       : t("agentChat.tool.askedAgent", { agent: agentName });
-  const workContent = work ? (
-    <div className="space-y-1">
-      {Array.from({ length: workItemCount }, (_, index) => {
-        const reasoningText = activeReasoning[index];
-        const segment = inlineSegments[index];
-        const tool = activity?.toolCalls?.[index];
-        return (
-          <React.Fragment key={`activity-${index}`}>
-            {reasoningText && (
-              <ReasoningCell
-                text={reasoningText}
-                isStreaming={
-                  isRunning &&
-                  activity?.activePhase === "reasoning" &&
-                  index === activeReasoning.length - 1
-                }
-                defaultOpen={index === activeReasoning.length - 1}
-                collapseWhenReplaced={index < toolCount}
-              />
-            )}
-            {segment && (
-              <div className="pb-1">
-                <SmoothMarkdownText
-                  text={segment}
-                  streaming={
-                    isRunning &&
-                    activity?.activePhase === "responding" &&
-                    index === inlineSegments.length - 1
-                  }
-                  resetKey={`agent-response-${responseKey}-${index}`}
-                  statusType={isRunning ? "running" : "complete"}
-                />
-              </div>
-            )}
-            {tool && (
-              <AgentActivityToolCallRow
-                tool={tool}
-                isActiveTail={
-                  isRunning &&
-                  tool.status === "running" &&
-                  index === activity.toolCalls.length - 1
-                }
-              />
-            )}
-          </React.Fragment>
-        );
-      })}
-    </div>
+  const workItems: ToolActivityListItem[] = [];
+  for (let index = 0; index < workItemCount; index++) {
+    const reasoningText = activeReasoning[index];
+    const segment = inlineSegments[index];
+    const tool = activity?.toolCalls.at(index);
+    if (reasoningText) {
+      workItems.push({
+        key: `reasoning-${index}`,
+        node: (
+          <ReasoningCell
+            text={reasoningText}
+            isStreaming={
+              isRunning &&
+              activity?.activePhase === "reasoning" &&
+              index === activeReasoning.length - 1
+            }
+            defaultOpen={index === activeReasoning.length - 1}
+            collapseWhenReplaced={index < toolCount}
+          />
+        ),
+      });
+    }
+    if (segment) {
+      workItems.push({
+        key: `segment-${index}`,
+        node: (
+          <div className="pb-1">
+            <SmoothMarkdownText
+              text={segment}
+              streaming={
+                isRunning &&
+                activity?.activePhase === "responding" &&
+                index === inlineSegments.length - 1
+              }
+              resetKey={`agent-response-${responseKey}-${index}`}
+              statusType={isRunning ? "running" : "complete"}
+            />
+          </div>
+        ),
+      });
+    }
+    if (tool) {
+      workItems.push({
+        key: `tool-${index}`,
+        node: (
+          <AgentActivityToolCallRow
+            tool={tool}
+            isActiveTail={
+              isRunning && tool.status === "running" && index === toolCount - 1
+            }
+          />
+        ),
+      });
+    }
+  }
+  // A running call keeps every row so the live tail stays in view.
+  const workContent = workItems.length ? (
+    <ToolActivityList items={workItems} collapse={!isRunning} />
   ) : null;
   const progressState = progress?.state.replaceAll(/[-_]+/g, " ");
   const progressText =
@@ -1246,35 +1283,45 @@ function AgentCallCell({
       : null;
   return (
     <div className="group/tool my-0.5 w-full">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="agent-kit-density flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground transition-colors hover:text-foreground"
-      >
-        {isRunning ? (
-          <CubeLoader aria-hidden="true" className="size-3.5" />
-        ) : (
-          <IconChevronRight
-            className={cn("size-3.5 transition-transform", open && "rotate-90")}
-          />
-        )}
-        <span
-          className={cn(
-            "min-w-0 truncate font-normal",
-            isRunning && "agent-running-shimmer",
-          )}
-        >
-          {label}
-        </span>
-      </button>
-      <AnimatedCollapse open={open}>
+      <AgentKitDisclosureSummary
+        className="agent-kit-density text-muted-foreground"
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+        controls={open ? contentId : undefined}
+        icon={
+          isRunning ? (
+            <CubeLoader aria-hidden="true" className="size-4" />
+          ) : isError ? (
+            <IconAlertTriangle
+              aria-hidden="true"
+              className="agentkit-icon text-[hsl(var(--agent-kit-warning))]"
+            />
+          ) : (
+            <IconArrowFork aria-hidden="true" className="agentkit-icon" />
+          )
+        }
+        label={
+          <span
+            className={cn(
+              "min-w-0 truncate font-normal",
+              isRunning && "agent-running-shimmer",
+            )}
+          >
+            {label}
+          </span>
+        }
+      />
+      <AnimatedCollapse id={contentId} open={open}>
         <div className="pt-1">
           {workContent &&
             (isRunning ? (
               workContent
             ) : (
-              <WorkedForSummary durationMs={durationMs}>
+              <WorkedForSummary
+                durationMs={durationMs}
+                layout={workedForRowLayout}
+                formatWorkedForDuration={formatWorkedForDuration}
+              >
                 {workContent}
               </WorkedForSummary>
             ))}
@@ -1311,6 +1358,74 @@ function AgentCallCell({
   );
 }
 
+const TOOL_ACTIVITY_LIST_PREVIEW_COUNT = 8;
+
+type ToolActivityListItem = { key: string; node: React.ReactNode };
+
+function ToolActivityList({
+  items,
+  collapse,
+}: {
+  items: ToolActivityListItem[];
+  collapse: boolean;
+}) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  const listRef = useRef<HTMLOListElement>(null);
+  const revealFocusRef = useRef(false);
+  const hiddenCount =
+    collapse && !expanded
+      ? Math.max(0, items.length - TOOL_ACTIVITY_LIST_PREVIEW_COUNT)
+      : 0;
+  const visible = hiddenCount
+    ? items.slice(0, TOOL_ACTIVITY_LIST_PREVIEW_COUNT)
+    : items;
+  useEffect(() => {
+    if (!expanded || !revealFocusRef.current) return;
+    revealFocusRef.current = false;
+    // The Show more row unmounts on click, so focus moves to the first row
+    // it revealed instead of dropping to the document.
+    const row = listRef.current?.children[TOOL_ACTIVITY_LIST_PREVIEW_COUNT];
+    if (!(row instanceof HTMLElement)) return;
+    const target = row.querySelector<HTMLElement>(
+      "button:not([tabindex='-1']), a[href], [tabindex]:not([tabindex='-1'])",
+    );
+    if (target) {
+      target.focus();
+      return;
+    }
+    row.tabIndex = -1;
+    row.focus();
+  }, [expanded]);
+  return (
+    <ol ref={listRef} role="list" className="m-0 list-none space-y-1 p-0">
+      {visible.map((item) => (
+        <li key={item.key}>{item.node}</li>
+      ))}
+      {hiddenCount ? (
+        <li>
+          <button
+            type="button"
+            className="agentkit-disclosure-summary agent-kit-density text-muted-foreground"
+            onClick={() => {
+              revealFocusRef.current = true;
+              setExpanded(true);
+            }}
+          >
+            <span
+              className="agentkit-disclosure-icon-slot"
+              aria-hidden="true"
+            />
+            <span className="agentkit-disclosure-label">
+              {t("agentChat.activity.showMore", { count: hiddenCount })}
+            </span>
+          </button>
+        </li>
+      ) : null}
+    </ol>
+  );
+}
+
 function AgentActivityToolCallRow({
   tool,
   isActiveTail,
@@ -1332,32 +1447,8 @@ function AgentActivityToolCallRow({
     tool.input ? parseJsonText(tool.input) : undefined,
   );
   const ToolIcon = resolveToolIcon(tool.name);
-  const row = (
-    <>
-      <span
-        className={cn(
-          "flex shrink-0 items-center justify-center",
-          integration ? "size-5" : "size-4",
-        )}
-      >
-        {integration ? (
-          <IntegrationToolBadge integration={integration} />
-        ) : isRunning ? (
-          <CubeLoader aria-hidden="true" className="size-3.5" />
-        ) : (
-          <ToolIcon className="size-3.5" />
-        )}
-      </span>
-      <span
-        className={cn(
-          "min-w-0 truncate font-normal",
-          isActiveTail && "agent-running-shimmer",
-        )}
-      >
-        {toolLabel(t, tool.name)}
-      </span>
-    </>
-  );
+  const failed = tool.status === "failed";
+  const contentId = useId();
 
   return (
     <ToolActivityPresentation
@@ -1366,37 +1457,50 @@ function AgentActivityToolCallRow({
       toolCallId={tool.id}
       suppressLongRunningHint
     >
-      {tool.status === "failed" ? (
-        <div>
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            aria-expanded={open}
-            className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {row}
-            <IconChevronRight
-              aria-hidden="true"
+      <div className="my-0.5">
+        <AgentKitDisclosureSummary
+          className="agent-kit-density text-muted-foreground"
+          open={open}
+          onToggle={() => setOpen((value) => !value)}
+          expandable={failed}
+          as={failed ? "button" : "static"}
+          controls={open ? contentId : undefined}
+          icon={
+            integration ? (
+              <IntegrationToolBadge integration={integration} />
+            ) : isRunning ? (
+              <CubeLoader aria-hidden="true" className="size-4" />
+            ) : failed ? (
+              <IconAlertTriangle
+                aria-hidden="true"
+                className="agentkit-icon text-[hsl(var(--agent-kit-warning))]"
+              />
+            ) : (
+              <ToolIcon aria-hidden="true" className="agentkit-icon" />
+            )
+          }
+          label={
+            <span
               className={cn(
-                "size-3.5 transition-transform",
-                open && "rotate-90",
+                "min-w-0 truncate font-normal",
+                isActiveTail && "agent-running-shimmer",
               )}
-            />
-          </button>
-          <AnimatedCollapse open={open}>
+            >
+              {toolLabel(t, tool.name)}
+            </span>
+          }
+        />
+        {failed ? (
+          <AnimatedCollapse id={contentId} open={open}>
             <div
               {...SESSION_REPLAY_MASK_PROPS}
-              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+              className="ms-6 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
             >
               {failureDetails}
             </div>
           </AnimatedCollapse>
-        </div>
-      ) : (
-        <div className="agent-kit-density my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-muted-foreground">
-          {row}
-        </div>
-      )}
+        ) : null}
+      </div>
     </ToolActivityPresentation>
   );
 }
@@ -1669,6 +1773,7 @@ export function ReasoningCell({
   autoCollapse = false,
   collapseWhenReplaced = false,
   durationMs,
+  inline = false,
 }: {
   text: string;
   isStreaming?: boolean;
@@ -1677,6 +1782,8 @@ export function ReasoningCell({
   autoCollapse?: boolean;
   collapseWhenReplaced?: boolean;
   durationMs?: number | null;
+  /** Inside a work step, whose title is already the disclosure. */
+  inline?: boolean;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
@@ -1684,6 +1791,7 @@ export function ReasoningCell({
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
   const startOpen = display === "expanded" ? (defaultOpen ?? true) : false;
   const [open, setOpen] = useState(startOpen);
+  const contentId = useId();
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const previousDisplayRef = useRef(display);
@@ -1711,6 +1819,19 @@ export function ReasoningCell({
 
   if (display === "hidden") return null;
   if (!trimmed && !isStreaming) return null;
+  if (inline) {
+    return trimmed ? (
+      <div className="agent-reasoning-markdown agent-kit-density leading-relaxed text-muted-foreground">
+        <SmoothMarkdownText
+          text={trimmed}
+          streaming={isStreaming}
+          animateStreaming={false}
+          resetKey="reasoning"
+          statusType={isStreaming ? "running" : "complete"}
+        />
+      </div>
+    ) : null;
+  }
 
   const label = isStreaming
     ? t("agentChat.status.thinking")
@@ -1723,29 +1844,25 @@ export function ReasoningCell({
 
   return (
     <div className={cn("w-full", embeddedInWorkSummary ? "my-0" : "my-0.5")}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <IconChevronRight
-          className={cn(
-            "size-3.5 shrink-0 transition-transform",
-            open && "rotate-90",
-          )}
-        />
-        {isStreaming ? (
-          <span className="agent-thinking-indicator__text">{label}</span>
-        ) : (
-          <span>{label}</span>
-        )}
-      </button>
-      <AnimatedCollapse open={open}>
+      <AgentKitDisclosureSummary
+        className="agent-kit-density text-muted-foreground"
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        controls={open ? contentId : undefined}
+        icon={<IconBrain aria-hidden="true" className="agentkit-icon" />}
+        label={
+          isStreaming ? (
+            <span className="agent-thinking-indicator__text">{label}</span>
+          ) : (
+            <span>{label}</span>
+          )
+        }
+      />
+      <AnimatedCollapse id={contentId} open={open}>
         <div
           className={cn(
             "pb-1",
-            !embeddedInWorkSummary && "ps-5",
+            !embeddedInWorkSummary && "ps-6",
             showTail && "reasoning-cell-tail",
           )}
         >
@@ -1822,16 +1939,21 @@ export function WorkedForSummary({
   defaultOpen = false,
   autoCollapse = false,
   children,
+  layout,
+  formatWorkedForDuration,
 }: {
   durationMs?: number | null;
   isRunning?: boolean;
   defaultOpen?: boolean;
   autoCollapse?: boolean;
   children: React.ReactNode;
+  layout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(defaultOpen);
+  const contentId = useId();
 
   useEffect(() => {
     if (defaultOpen) {
@@ -1845,29 +1967,33 @@ export function WorkedForSummary({
     ? t("agentChat.status.working")
     : durationMs != null && durationMs >= 1000
       ? t("agentChat.tool.workedFor", {
-          duration: formatDuration(durationMs),
+          duration: (formatWorkedForDuration ?? formatDuration)(durationMs),
         })
       : t("agentChat.tool.worked");
 
   return (
     <div className="my-1 w-full">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <span className={cn(isRunning && "agent-running-shimmer")}>
-          {label}
-        </span>
-        <IconChevronRight
-          className={cn(
-            "size-3.5 shrink-0 transition-transform",
-            open && "rotate-90",
-          )}
-        />
-      </button>
-      <AnimatedCollapse open={open}>
+      <AgentKitDisclosureSummary
+        className="agent-kit-density text-muted-foreground"
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        controls={open ? contentId : undefined}
+        style={workedForRowSummaryStyle(layout)}
+        chevronStyle={workedForRowChevronStyle(layout)}
+        icon={
+          isRunning ? (
+            <CubeLoader aria-hidden="true" className="size-4" />
+          ) : (
+            <IconClock aria-hidden="true" className="agentkit-icon" />
+          )
+        }
+        label={
+          <span className={cn(isRunning && "agent-running-shimmer")}>
+            {label}
+          </span>
+        }
+      />
+      <AnimatedCollapse id={contentId} open={open}>
         <WorkSummaryContentContext.Provider value>
           <div className="pt-1">{children}</div>
         </WorkSummaryContentContext.Provider>
@@ -1887,6 +2013,7 @@ export function RanToolsSummary({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const contentId = useId();
   const label = t("agentChat.tool.ranTools", { count: toolCount });
 
   return (
@@ -1894,21 +2021,15 @@ export function RanToolsSummary({
       className="agent-tool-summary my-1 w-full"
       data-agent-tool-summary={motionKey}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <span className="agent-tool-summary__label">{label}</span>
-        <IconChevronRight
-          className={cn(
-            "size-3.5 shrink-0 transition-transform",
-            open && "rotate-90",
-          )}
-        />
-      </button>
-      <AnimatedCollapse open={open}>
+      <AgentKitDisclosureSummary
+        className="agent-kit-density text-muted-foreground"
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        controls={open ? contentId : undefined}
+        icon={<IconTool aria-hidden="true" className="agentkit-icon" />}
+        label={<span className="agent-tool-summary__label">{label}</span>}
+      />
+      <AnimatedCollapse id={contentId} open={open}>
         <div className="pt-1">{children}</div>
       </AnimatedCollapse>
     </div>

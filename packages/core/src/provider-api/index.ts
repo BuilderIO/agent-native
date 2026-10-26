@@ -68,6 +68,7 @@ export {
   assertCanMutateCustomProviderScope,
   CustomProviderAuthError,
 } from "./custom-registry.js";
+import { setBodyValueAtPath } from "./request-body.js";
 
 export const PROVIDER_API_IDS = [
   "amplitude",
@@ -1348,7 +1349,14 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/drive/api/reference/rest/v3"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "dispatch", "analytics"],
+    templateUses: [
+      "brain",
+      "content",
+      "slides",
+      "slides-2",
+      "dispatch",
+      "analytics",
+    ],
     examples: [
       { label: "List files", method: "GET", path: "/files" },
       { label: "Get file metadata", method: "GET", path: "/files/{fileId}" },
@@ -1404,7 +1412,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     specUrls: ["https://slides.googleapis.com/$discovery/rest?version=v1"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "dispatch"],
+    templateUses: ["brain", "content", "slides", "slides-2", "dispatch"],
     examples: [
       {
         label: "Get presentation with slides and speaker notes",
@@ -2296,7 +2304,7 @@ export async function executeProviderApiRequest(
         query: queryWithCursor,
       });
       const bodyWithCursor = extra?.bodyCursor
-        ? setValueAtPath(
+        ? setBodyValueAtPath(
             substituteUnknown(args.body, placeholders),
             extra.bodyCursor.path,
             extra.bodyCursor.value,
@@ -3321,7 +3329,7 @@ async function executeCustomProviderApiRequest(
         query: queryWithCursor,
       });
       const bodyWithCursor = extra?.bodyCursor
-        ? setValueAtPath(
+        ? setBodyValueAtPath(
             args.body,
             extra.bodyCursor.path,
             extra.bodyCursor.value,
@@ -6257,10 +6265,22 @@ function prepareBody(
   headers: Record<string, string>,
 ): BodyInit | undefined {
   if (body === undefined || body === null) return undefined;
-  if (typeof body === "string") return body;
   const hasContentType = Object.keys(headers).some(
     (name) => name.toLowerCase() === "content-type",
   );
+  if (typeof body === "string") {
+    let isJson = false;
+    try {
+      JSON.parse(body);
+      isJson = true;
+    } catch {
+      // coercion-ok: JSON.parse is a probe; a throw means plain text, which keeps its existing content type.
+    }
+    if (isJson && !hasContentType) {
+      headers["Content-Type"] = "application/json";
+    }
+    return body;
+  }
   if (!hasContentType) headers["Content-Type"] = "application/json";
   return JSON.stringify(body);
 }
@@ -6671,28 +6691,6 @@ function mergeQueryObjects(
     return { ...(base as Record<string, unknown>), ...extra };
   }
   return extra;
-}
-
-function setValueAtPath(base: unknown, path: string, value: unknown): unknown {
-  const root =
-    base && typeof base === "object" && !Array.isArray(base)
-      ? { ...(base as Record<string, unknown>) }
-      : {};
-  const parts = path.split(".").filter(Boolean);
-  if (!parts.length) return root;
-
-  let current: Record<string, unknown> = root;
-  for (const part of parts.slice(0, -1)) {
-    const existing = current[part];
-    const next =
-      existing && typeof existing === "object" && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    current[part] = next;
-    current = next;
-  }
-  current[parts[parts.length - 1]!] = value;
-  return root;
 }
 
 function clampTimeout(timeoutMs: number | undefined): number {

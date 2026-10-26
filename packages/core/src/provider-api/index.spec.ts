@@ -142,6 +142,7 @@ const {
   createProviderApiRuntime,
   getProviderApiConfig,
   isValidProviderApiBaseUrl,
+  listProviderApiIdsForTemplateUse,
   resolveProviderApiOAuthAccessToken,
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
@@ -171,6 +172,19 @@ describe("provider API base URL validation", () => {
     ["not a URL", false],
   ])("validates Gong base URL %s", (value, expected) => {
     expect(isValidProviderApiBaseUrl("gong", value)).toBe(expected);
+  });
+});
+
+describe("provider API template-use allow-list", () => {
+  it("supports Slides 2 with its own template-use id", () => {
+    expect(listProviderApiIdsForTemplateUse("slides-2")).toEqual([
+      "google_drive",
+      "google_slides",
+    ]);
+    expect(listProviderApiIdsForTemplateUse("slides")).toEqual([
+      "google_drive",
+      "google_slides",
+    ]);
   });
 });
 
@@ -4772,7 +4786,10 @@ describe("provider API runtime", () => {
         provider: "pylon",
         method: "POST",
         path: "/issues/search",
-        body: { limit: 500 },
+        body: JSON.stringify({
+          limit: 500,
+          filter: { status: "open" },
+        }),
         fetchAllPages: {
           cursorPath: "pagination.cursor",
           cursorBodyPath: "cursor",
@@ -4787,6 +4804,61 @@ describe("provider API runtime", () => {
 
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
       headers: expect.objectContaining({ "Content-Type": "application/json" }),
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      limit: 500,
+      filter: { status: "open" },
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      limit: 500,
+      filter: { status: "open" },
+      cursor: "page-2",
+    });
+  });
+
+  it("treats an empty-string body as an empty body on body-cursor pagination", async () => {
+    resolveCredential.mockResolvedValue("pylon-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: "issue-1" }],
+            pagination: { cursor: "page-2" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ id: "issue-2" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["pylon"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "pylon",
+        method: "POST",
+        path: "/issues/search",
+        body: "",
+        fetchAllPages: {
+          cursorPath: "pagination.cursor",
+          cursorBodyPath: "cursor",
+          itemsPath: "data",
+          maxPages: 2,
+        },
+      }),
+    ).resolves.toMatchObject({ pagesRead: 2 });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      cursor: "page-2",
     });
   });
 

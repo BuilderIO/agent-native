@@ -143,7 +143,10 @@ async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(centre.x, centre.y);
+  await app.page.keyboard.up(MOD);
   await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
 }
 

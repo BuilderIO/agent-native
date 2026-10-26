@@ -14,6 +14,7 @@ import test from "node:test";
 import {
   classifyChangedPaths,
   readChangedPaths,
+  readDeletedPaths,
   readSameDirectoryPureDesignSpecRenames,
 } from "./ci-change-scope.ts";
 
@@ -62,10 +63,17 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
         headSha,
         repoPath,
       );
+      const deletedPaths = readDeletedPaths(baseSha, headSha, repoPath);
       return {
         changedPaths,
         pureRenames,
-        scope: classifyChangedPaths(changedPaths, pureRenames),
+        deletedPaths,
+        scope: classifyChangedPaths(
+          changedPaths,
+          pureRenames,
+          repoPath,
+          deletedPaths,
+        ),
       };
     };
 
@@ -78,7 +86,7 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     assert.deepEqual(pureRename.scope.designCanvasE2eSpecs, [pureRenamePath]);
     assert.deepEqual(pureRename.scope.designCanvasE2eDiagnosticSpecs, []);
     assert.deepEqual(pureRename.changedPaths, [pureRenamePath]);
-    assert.equal(pureRename.scope.checks.design_canvas_core_regression, true);
+    assert.equal(pureRename.scope.checks.design_canvas_core_regression, false);
 
     const editedRenamePath = "templates/design/e2e/renamed-title.spec.ts";
     const editedRenameHead = commitFromBase(
@@ -159,6 +167,18 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     assert.deepEqual(titleEdit.scope.designCanvasE2eDiagnosticSpecs, [
       sourcePath,
     ]);
+
+    const deletedSpecHead = commitFromBase("delete Design spec", () => {
+      rmSync(sourceFile);
+    });
+    const deletedSpec = scopeFor(deletedSpecHead);
+    assert.deepEqual(deletedSpec.deletedPaths, [sourcePath]);
+    assert.deepEqual(deletedSpec.scope.designCanvasE2eSpecs, [sourcePath]);
+    assert.deepEqual(deletedSpec.scope.designCanvasE2eDiagnosticSpecs, [
+      sourcePath,
+    ]);
+    assert.equal(deletedSpec.scope.checks.design_canvas_broad_workflows, false);
+    assert.deepEqual(deletedSpec.scope.designCanvasBroadWorkflowShards, []);
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
   }
@@ -188,8 +208,8 @@ test("classification retains the path but excludes supplied pure renames", () =>
   );
   assert.equal(
     pureRenameScope.checks.design_canvas_core_regression,
-    true,
-    "the required Design regression gate must still run for a renamed spec",
+    false,
+    "a pure spec rename should not launch the broad Design regression suite",
   );
   assert.equal(
     pureRenameScope.checks.design_canvas_broad_workflows,

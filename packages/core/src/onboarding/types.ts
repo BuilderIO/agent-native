@@ -49,12 +49,24 @@ export type OnboardingMethod =
       kind: "file-storage";
     });
 
+/** The checklist a step belongs to when it does not name one: credential and connection setup. */
+export const DEFAULT_ONBOARDING_CHECKLIST = "setup";
+
 export interface OnboardingStep {
   id: string;
   title: string;
   description: string;
   order: number;
   required?: boolean;
+  /**
+   * Named checklist the step belongs to. The setup checklist (the default)
+   * and a progress checklist such as `getting-started` never share rows:
+   * each is served only when asked for by name.
+   */
+  checklist?: string;
+  /** In-app path a progress row opens so the user can complete the step. */
+  href?: string;
+  /** Progress steps that need no setup form pass an empty list. */
   methods: OnboardingMethod[];
   isAvailable?: (
     context?: OnboardingResolveContext,
@@ -77,6 +89,7 @@ export interface OnboardingStepStatus {
   order: number;
   required: boolean;
   complete: boolean;
+  href?: string;
   methods: OnboardingMethod[];
 }
 

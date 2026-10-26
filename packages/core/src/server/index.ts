@@ -211,6 +211,19 @@ export {
   requestJevThroughBuilder,
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
+export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export type {
+  DecideOptions,
+  DecideResult,
+  DecisionAnswer,
+  DecisionFailureReason,
+  DecisionInput,
+  DecisionInputPart,
+  DecisionProvider,
+  DecisionQuestion,
+  DecisionResult,
+  DecisionsStatus,
+} from "../decisions/types.js";
 export {
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
@@ -748,6 +761,9 @@ export {
 } from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
@@ -974,3 +990,4 @@ export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
+export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";

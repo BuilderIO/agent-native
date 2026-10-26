@@ -4,7 +4,7 @@ const shaderState = vi.hoisted(() => ({
   inFlight: false,
 }));
 
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: () => shaderState.inFlight,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));

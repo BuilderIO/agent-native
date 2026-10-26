@@ -45,6 +45,30 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   recap, unless the current request explicitly authorizes commenting on that
   exact PR. Review, monitor, fix, push, or merge authorization alone does not
   authorize comments.
+- On a contributor-owned PR, begin an authorized reply by thanking the author
+  for the PR or their substantive update since the last message. If the author
+  has not made a substantive update since then, do not reply again. Never write
+  “I have no further feedback” or another vague closing; state the disposition,
+  exact next action, and who owns it. If the next step is an unresolved
+  product, UX, or app-owner decision, do not post a status comment asking for
+  or announcing that review; keep the thread silent and record the gate in the
+  ship ledger and final recap. For a contributor thread silenced by that gate,
+  an internal decision does not count as an author update, and an author update
+  made while the decision is pending does not qualify for a follow-up. Wait
+  until the decision is resolved and the contributor makes a substantive
+  update after resolution; then thank them for that update and state the
+  resolved disposition, exact next action, and owner. Never comment that a
+  product owner needs to review a PR.
+- On the active user's own PR, disposition a substantive reviewer update after
+  its fix or terminal disposition. Begin by thanking them for that update; if
+  they have not made a new substantive review update since the last reply, do
+  not reply again to the same feedback. Add a concise top-level recap when
+  feedback appears only in a review body. If disposition depends on an
+  unresolved decision, leave the item active and the thread silent; it is
+  neither fixed nor skipped while that gate is open. Once resolved, record the
+  disposition and send one thanks-first reply if that feedback has not already
+  received a reply. Do not repeat an earlier reply unless the reviewer makes a
+  new substantive update.
 - Before asking for any approval during a resumed shipment, inspect the
   current task transcript for the user's authorization. Record its exact PR,
   repository, branch, and allowed endpoint there once; reuse it across replies,
@@ -399,17 +423,54 @@ Follow review-latest-feedback for ownership, claims, reporter replies, and the
 exact disposition vocabulary; follow babysit-pr for review comments and merge
 blocking. Use the connected Slack integration for any Slack work; never use
 computer use, a browser, screenshots, or UI automation to operate Slack.
-Shipping does not independently take ownership of new Slack feedback. For
-feedback already owned by review-latest-feedback, keep all reactions in place:
-never remove or clean them up; add `✅` when accepted scope is complete and
-verified, and `🎫` only for distinct remaining work needing follow-up or an
-owner. Follow that skill's concise reply format: what changed, what remains,
-and for beta app fixes in an open PR, that beta should follow soon after merge.
-Do not send a routine second reply to announce merge or live beta; keep
-publisher status in the ship ledger and correct a material availability
-change. Do not send Slack replies or reactions as a routine ship step unless
-review-latest-feedback was requested or already owns the action. This does not
-widen existing write authorization.
+Shipping does not independently take ownership of new Slack feedback, except
+when the user explicitly authorizes the full follow-up work defined in
+review-latest-feedback. Require an exact-root grant naming the channel and
+timestamp or permalink, or a bounded grant covering both replies and reactions;
+reaction-only or other partial permission is insufficient. Preserve existing
+marks and record the authorization and exact roots. Before
+the ship handoff and final disposition, enumerate every in-scope root with this
+actor's `👀`, `✅`, or `🎫`; each eligible owned root must have a current
+same-actor status after the latest human reply. Record held-thread skips,
+person-assigned skips, and unowned canonical-linked `Clustered` roots in the
+coverage count without claiming or replying on them only when they are outside
+the direct user authorization. For roots covered by a bounded grant, record
+each exact root, add this actor's `👀` where needed, and require current
+same-thread status after the latest human reply, including person-assigned,
+duplicate, and foreign-marked roots. When Steve says all Slack items were
+replied to, count every bounded-inventory root with a root-level `👀`, regardless
+of who added it, and require that same-thread status. Exclude `✅`/`🎫`-only
+roots from that reply count; include them in the status gate. Report eye-owned
+roots and gated skips separately. Before final disposition, run
+`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages .tmp/feedback-scope-confirmation.json`
+against the final read-backs for this fixed sweep and require exit 0. Continue
+reconciling any covered root the checker reports without a current status or
+complete read-back. If merge advances an
+eye-owned status from local verification to fixed or partially fixed, send one
+concise same-thread update with the PR link; never imply publication or live
+behavior without separate verification.
+Use `👀` for a claimed or handled root, `✅` for verified scope, and `🎫` for a
+distinct pending action and owner. Keep `👀` on each root handled in an
+authorized sweep; use `🎫` only for a real outstanding human action, not merely
+to show that a root has not yet been reviewed. Keep accurate marks as history. After a fresh
+reaction read, remove and record this actor's stale or misapplied mark. Change
+another actor's mark only when a direct user grant covers that root and
+reaction change; a bounded grant needs no separate per-reaction confirmation.
+Use root reactions as item-level coverage: after handling an in-scope root, add
+and read back this actor's `👀`. If a distinct human action remains, add and
+read back `🎫` as well, and name that action and its owner in the same-thread
+status. Do not use `🎫` as a generic seen marker or as a substitute for `👀` on
+a handled root.
+Keep each Slack reply to one short sentence in plain, non-technical
+language, followed by the exact bot disclosure `this was sent from a bot.` Say
+what changed. If `🎫` is used, briefly name what still needs investigation or
+action and its owner when known. Do not explain absent reactions or include
+implementation, CI, or publisher details. Normal `/ship` does not monitor beta
+publication or send beta timing updates. When beta verification is explicitly
+requested or a concrete beta-specific risk applies, use `/ship-and-monitor`;
+only the assigned check owner may send a post-merge update under the [beta
+update guidance](../review-latest-feedback/references/slack-reaction-replies.md#beta-updates-for-assigned-checks).
+Keep publisher details in the ship ledger.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship

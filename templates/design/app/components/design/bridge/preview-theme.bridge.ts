@@ -311,7 +311,7 @@ import {
       return evaluate(this.media);
     }
 
-    addEventListener(
+    override addEventListener(
       type: string,
       callback: EventListenerOrEventListenerObject | null,
       options?: boolean | AddEventListenerOptions,

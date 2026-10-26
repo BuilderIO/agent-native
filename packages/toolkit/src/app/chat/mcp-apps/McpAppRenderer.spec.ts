@@ -141,8 +141,8 @@ describe("McpAppRenderer security helpers", () => {
     ).toEqual({ clipboardWrite: {} });
   });
 
-  it("defaults to 650px and caps reported height to the visible viewport", () => {
-    expect(DEFAULT_MCP_APP_IFRAME_HEIGHT).toBe(650);
+  it("defaults to the 220px minimum and caps reported height to the visible viewport", () => {
+    expect(DEFAULT_MCP_APP_IFRAME_HEIGHT).toBe(220);
     expect(clampMcpAppHeight(1200, 700)).toBe(700);
     expect(clampMcpAppHeight(420, 700)).toBe(420);
     expect(clampMcpAppHeight(120, 700)).toBe(220);
@@ -219,7 +219,7 @@ describe("McpAppRenderer security helpers", () => {
       root.render(React.createElement(McpAppRenderer, { app: payload }));
     });
 
-    expect(container.textContent).toContain("Loading MCP App");
+    expect(container.textContent).toContain("Loading app");
     const iframe = container.querySelector("iframe");
     expect(iframe).not.toBeNull();
 
@@ -263,7 +263,7 @@ describe("McpAppRenderer security helpers", () => {
       root.render(React.createElement(McpAppRenderer, { app: payload }));
     });
 
-    expect(container.textContent).toContain("Loading MCP App");
+    expect(container.textContent).toContain("Loading app");
     const iframe = container.querySelector("iframe");
     expect(iframe?.contentWindow).toBeTruthy();
 
@@ -281,7 +281,7 @@ describe("McpAppRenderer security helpers", () => {
       );
     });
 
-    expect(container.textContent).not.toContain("Loading MCP App");
+    expect(container.textContent).not.toContain("Loading app");
 
     await act(async () => {
       vi.advanceTimersByTime(MCP_APP_INITIALIZE_TIMEOUT_MS + 1);

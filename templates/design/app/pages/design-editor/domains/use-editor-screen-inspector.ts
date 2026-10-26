@@ -2,10 +2,7 @@ import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
-import {
-  rewriteSelectionFillStyles,
-  selectionColorTargets,
-} from "@/components/design/edit-panel/document-colors";
+import { selectionColorTargets } from "@/components/design/edit-panel/document-colors";
 import {
   type SelectionColorScope,
   type ScreenGeometrySelection,
@@ -45,7 +42,6 @@ import {
   queueServerFirstSourcePublication,
 } from "../commands/queue-server-first-source-publication";
 import {
-  restoreSelectionColorPreview,
   runSelectionColorChange,
   type SelectionColorPreviewHistoryEntry,
   type SelectionColorPickerSessionEntry,
@@ -77,7 +73,6 @@ import { resolveOverviewScreenSourceType } from "../pending-edits";
 import { openPreviewUrl } from "../preview-navigation";
 import { DEFAULT_STATES_PANEL_BREAKPOINTS } from "../screen-command-utils";
 import { getSelectedScreenGeometryForInspector } from "../selection-state";
-import { prepareCanonicalSourceContent } from "../source-publication";
 import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -162,7 +157,7 @@ export function useEditorScreenInspector({
     recordContentHistoryEntry,
   } = editorHistory;
   const {
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     canEditDesign,
     visualEditSnapshotPublicationState,
     canEditPublicLiveScreenUrl,
@@ -729,7 +724,13 @@ export function useEditorScreenInspector({
   const handleScreenGeometryChange = useCallback(
     (
       screenId: string,
-      next: Partial<{ x: number; y: number; width: number; height: number }>,
+      next: Partial<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        rotation: number;
+      }>,
     ) => {
       const before = getCanvasFrameGeometry(designDataJsonRef.current);
       const screenIndex = overviewScreens.findIndex(
@@ -751,6 +752,7 @@ export function useEditorScreenInspector({
           ...current,
           ...(next.x !== undefined ? { x: next.x } : {}),
           ...(next.y !== undefined ? { y: next.y } : {}),
+          ...(next.rotation !== undefined ? { rotation: next.rotation } : {}),
           ...(next.width !== undefined
             ? {
                 width: Math.max(
@@ -1161,174 +1163,6 @@ export function useEditorScreenInspector({
     [getFreshSelectionColorScopes],
   );
 
-  const handleGroupFillStylesChange = useCallback(
-    (styles: Record<string, string>, meta?: StyleChangeMeta) => {
-      if (!canEditDesign) return false;
-      const serverFirst =
-        meta?.requirePersistedSourceAcceptance === true &&
-        meta.phase !== "preview" &&
-        meta.phase !== "cancel";
-      if (!serverFirst) {
-        for (const [
-          fileId,
-          session,
-        ] of selectionColorPickerSessionRef.current) {
-          selectionColorPickerSessionRef.current.set(fileId, {
-            ...session,
-            invalidated: true,
-          });
-          if (selectionColorPreviewHistoryRef.current.get(fileId)?.from) {
-            selectionColorPreviewHistoryRef.current.delete(fileId);
-          }
-        }
-      }
-      if (meta?.phase === "cancel") {
-        const scopesByFile = new Map<
-          string,
-          ReturnType<typeof getFreshSelectionColorScopes>
-        >();
-        for (const scope of getFreshSelectionColorScopes()) {
-          scopesByFile.set(scope.fileId, [
-            ...(scopesByFile.get(scope.fileId) ?? []),
-            scope,
-          ]);
-        }
-        let restored = true;
-        for (const [scopeFileId, scopes] of scopesByFile) {
-          if (!selectionColorPreviewHistoryRef.current.has(scopeFileId))
-            continue;
-          const content = scopes[0]?.content;
-          const result = restoreSelectionColorPreview(
-            {
-              activeFileId: activeFile?.id,
-              applyFileContentUpdate,
-              previewHistoryRef: selectionColorPreviewHistoryRef,
-            },
-            scopeFileId,
-            scopes.every((scope) => scope.content === content)
-              ? content
-              : undefined,
-          );
-          if (result !== "accepted") restored = false;
-        }
-        return restored;
-      }
-      const currentScopes = serverFirst
-        ? (meta.capturedSelectionColorScopeIdentities ?? []).flatMap(
-            (identity) => {
-              const content = getScreenContent(identity.fileId);
-              if (!content || externalPreviewUrlForContent(content) !== null) {
-                return [];
-              }
-              return [
-                {
-                  ...identity,
-                  content,
-                  source: codeLayerSourceForScreen(identity.fileId),
-                },
-              ];
-            },
-          )
-        : getFreshSelectionColorScopes();
-      const result = rewriteSelectionFillStyles(currentScopes, styles);
-      if (result.status !== "applied") {
-        toast.error(t("designEditor.toasts.groupFillApplyFailed"), {
-          duration: 4000,
-        });
-        console.warn("Group Fill update was refused:", result.message);
-        return false;
-      }
-
-      const previewOnly = meta?.phase === "preview";
-      for (const update of result.updates) {
-        const beforeContent = currentScopes.find(
-          (scope) => scope.fileId === update.fileId,
-        )?.content;
-        if (beforeContent === undefined) continue;
-        if (serverFirst) {
-          const pickerSessionAtQueue =
-            selectionColorPickerSessionRef.current.get(update.fileId);
-          const previewHistoryAtQueue =
-            selectionColorPreviewHistoryRef.current.get(update.fileId);
-          queueAcceptedSourcePublication(
-            update.fileId,
-            update.content,
-            beforeContent,
-            () => {
-              if (
-                selectionColorPickerSessionRef.current.get(update.fileId) ===
-                pickerSessionAtQueue
-              ) {
-                selectionColorPickerSessionRef.current.delete(update.fileId);
-              }
-              if (
-                selectionColorPreviewHistoryRef.current.get(update.fileId) ===
-                previewHistoryAtQueue
-              ) {
-                selectionColorPreviewHistoryRef.current.delete(update.fileId);
-              }
-            },
-          );
-          continue;
-        }
-
-        const previousPreview = selectionColorPreviewHistoryRef.current.get(
-          update.fileId,
-        );
-        if (previousPreview && previousPreview.after !== beforeContent) {
-          selectionColorPreviewHistoryRef.current.delete(update.fileId);
-        }
-        const activePreview = selectionColorPreviewHistoryRef.current.get(
-          update.fileId,
-        );
-        const applyResult = applyFileContentUpdate(
-          update.fileId,
-          update.content,
-          {
-            forcePreviewFullDocument: update.fileId === activeFile?.id,
-            persist: !previewOnly,
-            recordHistory: !previewOnly,
-            historyBeforeContent: previewOnly
-              ? undefined
-              : activePreview?.before,
-          },
-        );
-        if (
-          previewOnly &&
-          (applyResult?.status === "accepted" ||
-            applyResult?.status === "deferred")
-        ) {
-          selectionColorPreviewHistoryRef.current.set(update.fileId, {
-            before: activePreview?.before ?? beforeContent,
-            after:
-              applyResult.status === "accepted"
-                ? applyResult.content
-                : prepareCanonicalSourceContent(update.content, {
-                    fileId: update.fileId,
-                  }).content,
-          });
-        } else if (
-          !previewOnly &&
-          (applyResult?.status === "accepted" ||
-            applyResult?.status === "deferred")
-        ) {
-          selectionColorPreviewHistoryRef.current.delete(update.fileId);
-        }
-      }
-      return true;
-    },
-    [
-      activeFile?.id,
-      applyFileContentUpdate,
-      canEditDesign,
-      codeLayerSourceForScreen,
-      getFreshSelectionColorScopes,
-      getScreenContent,
-      queueAcceptedSourcePublication,
-      t,
-    ],
-  );
-
   const handleSelectionColorTarget = useCallback(
     (color: string) => {
       const targets = selectionColorTargets(
@@ -1337,7 +1171,7 @@ export function useEditorScreenInspector({
       );
       if (targets.length === 0) return;
 
-      recordSelectionHistoryAroundChange(() => {
+      applySelectionChange(() => {
         const nextLayerIds: string[] = [];
         const nextScreenIds: string[] = [];
         const addUnique = (ids: string[], id: string) => {
@@ -1435,7 +1269,7 @@ export function useEditorScreenInspector({
       codeLayerOwnerByNodeId,
       getFreshSelectionColorScopes,
       handleZoomToSelectionFit,
-      recordSelectionHistoryAroundChange,
+      applySelectionChange,
       selectedElement,
     ],
   );
@@ -1604,7 +1438,6 @@ export function useEditorScreenInspector({
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,
-    handleGroupFillStylesChange,
     handleSelectionColorTarget,
     activeScreenPreviewUrl,
     statesPanelProps,

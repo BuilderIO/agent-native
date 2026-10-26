@@ -1,10 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+
 const store = new Map<string, { value: unknown }>();
 const readAppSecret = vi.fn();
 const deleteAppSecret = vi.fn();
+const isMissingAppSecretsTableError = vi.fn();
 
-vi.mock("../secrets/storage.js", () => ({ readAppSecret, deleteAppSecret }));
+vi.mock("../secrets/storage.js", () => ({
+  readAppSecret,
+  deleteAppSecret,
+  isMissingAppSecretsTableError,
+}));
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
@@ -36,6 +43,8 @@ beforeEach(() => {
   readAppSecret.mockReset();
   readAppSecret.mockResolvedValue(null);
   deleteAppSecret.mockReset();
+  isMissingAppSecretsTableError.mockReset();
+  isMissingAppSecretsTableError.mockReturnValue(false);
   resolveOrgIdForEmail = async () => null;
   readOrgMemberRole.mockReset();
   readOrgMemberRole.mockResolvedValue("member");
@@ -568,6 +577,60 @@ describe("credentials encryption at rest", () => {
     expect(readAppSecret).toHaveBeenCalledTimes(1);
   });
 
+  it("does not fall through to a legacy credential when an app secret cannot be decrypted", async () => {
+    store.set("o:org-1:credential:GONG_ACCESS_KEY", {
+      value: "stale-legacy-token",
+    });
+    readAppSecret.mockRejectedValue(new AppSecretDecryptionError());
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("GONG_ACCESS_KEY", {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        credentialScope: "org",
+      }),
+    ).rejects.toBeInstanceOf(AppSecretDecryptionError);
+  });
+
+  it("does not treat a transient app-secret store failure as a missing credential", async () => {
+    const error = new Error("database connection timed out");
+    store.set("u:member@example.test:credential:STRIPE_KEY", {
+      value: "stale-legacy-token",
+    });
+    readAppSecret.mockRejectedValue(error);
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("STRIPE_KEY", {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toBe(error);
+    expect(isMissingAppSecretsTableError).toHaveBeenCalledWith(error);
+  });
+
+  it("keeps the legacy credential fallback when the app-secrets table is missing", async () => {
+    const error = Object.assign(
+      new Error('relation "app_secrets" does not exist'),
+      { code: "42P01" },
+    );
+    store.set("u:member@example.test:credential:STRIPE_KEY", {
+      value: "legacy-token",
+    });
+    readAppSecret.mockRejectedValue(error);
+    isMissingAppSecretsTableError.mockReturnValue(true);
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("STRIPE_KEY", {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe("legacy-token");
+    expect(isMissingAppSecretsTableError).toHaveBeenCalledWith(error);
+  });
+
   it("puts the org's credential ahead of an owner's or admin's own, keeping theirs as the fallback", async () => {
     const rows: Record<string, string> = {
       "user:boss@example.test:STRIPE_KEY": "personal-token",
@@ -601,6 +664,53 @@ describe("credentials encryption at rest", () => {
     await expect(resolveCredentialDetailed("STRIPE_KEY", ctx)).rejects.toThrow(
       "db query timed out",
     );
+  });
+
+  it("does not let an unreadable personal key block an owner or admin's org credential", async () => {
+    readOrgMemberRole.mockResolvedValue("admin");
+    readAppSecret.mockImplementation(async (ref: any) => {
+      if (ref.scope === "user") throw new AppSecretDecryptionError(ref);
+      return ref.scope === "org"
+        ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
+        : null;
+    });
+    const { resolveCredentialDetailed } = await import("./index.js");
+
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toMatchObject({ value: "shared-org-token", scope: "org" });
+    expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
+      "user",
+      "org",
+    ]);
+  });
+
+  it("does not fall through to an org key when a member's personal key is unreadable", async () => {
+    const error = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@example.test",
+    });
+    readOrgMemberRole.mockResolvedValue("member");
+    readAppSecret.mockImplementation(async (ref: any) => {
+      if (ref.scope === "user") throw error;
+      return ref.scope === "org"
+        ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
+        : null;
+    });
+    const { resolveCredentialDetailed } = await import("./index.js");
+
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toBe(error);
+    expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual([
+      "user",
+    ]);
   });
 
   it("returns undefined when the encryption key rotated (cannot decrypt)", async () => {

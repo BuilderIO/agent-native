@@ -260,7 +260,7 @@ describe("S3 private blob providers", () => {
         region: "auto",
       },
     });
-    // The workspace's saved bucket reads as missing.
+    // A saved bucket setting this request couldn't decrypt.
     undecryptableKeysMock.mockReturnValue(new Set(["S3_BUCKET"]));
 
     await expect(

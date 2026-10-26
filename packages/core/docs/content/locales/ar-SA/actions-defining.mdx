@@ -87,9 +87,9 @@ description: "تشريح defineAction(): المخطط، وrun، وإعداد HTT
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "ما الذي يحدث عند عدم تطابق الإخراج.",
         },
         {
@@ -97,7 +97,14 @@ description: "تشريح defineAction(): المخطط، وrun، وإعداد HTT
           type: "TReturn",
           optional: true,
           description:
-            'تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".',
+            'مُهمَل. تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "المجموعة المغلقة من رموز الخطأ الخاصة بالـ action، من defineActionErrors. راجع إعلان رموز الخطأ أدناه.",
         },
         {
           name: "mcpOutputSchema",
@@ -238,24 +245,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+يأتي نوع القيمة المرجعة للـ action من `outputSchema`، ويجب أن تُرجع `run` قيمة يقبلها المخطط، لذا فإن النتيجة التي تنحرف عن المخطط تكون خطأ في الترجمة قبل أن تكون خطأ في وقت التشغيل.
+
 `outputErrorStrategy` controls what happens on a mismatch:
 
-| الاستراتيجية | السلوك عند عدم التطابق                                                                         |
-| ------------ | ---------------------------------------------------------------------------------------------- |
-| `"warn"`     | **الافتراضي.** ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. غير معطِّل. |
-| `"strict"`   | يطرح خطأ واضحًا، بحيث يسهل ملاحظة أي خلل في الـ action.                                        |
-| `"fallback"` | يُرجع قيمة `outputFallback` المقدَّمة بدلاً من النتيجة غير الصالحة.                            |
+| الاستراتيجية | السلوك عند عدم التطابق                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **الافتراضي.** يطرح `ActionOutputContractError`، بحيث يفشل أي خلل في الـ action بوضوح.                         |
+| `"warn"`     | ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. استخدمه أثناء إصلاح المخطط.                |
+| `"fallback"` | **مُهمَل.** يُرجع `outputFallback` بدلاً من النتيجة غير الصالحة، ولا يستطيع المستدعون تمييزها عن نتيجة حقيقية. |
 
 عندما تنجح `run()`، يُرجع إطار العمل القيمة التي تم التحقق من صحتها، بحيث تسري أي قيم افتراضية أو تحويلات على `outputSchema`، بالطريقة نفسها التي تسري بها على المدخل. عندما لا تمرّر `outputSchema`، تبقى القيمة المرجعة دون تغيير.
 
 يجري التحقق الصارم بعد `run()`، لذا يصف الخطأ (`ActionOutputContractError`، `errorCode: "output_contract_violation"`) ما حدث بالفعل: تكون قيمة `effect` هي `"committed"` بمجرد أن تدخل عملية كتابة إلى معالجها، في الاستدعاء نفسه أو في action استدعاها (حتى من action للقراءة فقط)، ويجب ألا يعيد المستدعون محاولتها؛ وفي غير ذلك تكون `"none"`. لا تذكر الرسالة سوى مسارات الحقول المعلنة ورموز المشكلات، ولا تتضمن القيم المُعادة أبدًا.
+
+### إعلان رموز الخطأ {#error-codes}
+
+يعلن `defineActionErrors` المجموعة المغلقة من قيم `errorCode` التي قد تفشل بها الـ action. لا تقبل الدالتان `fail` و`noWrite` سوى هذه الرموز، لذا لا يُترجَم رمز مكتوب بشكل خاطئ، ويؤدي تمريرها بوصفها `errors` إلى نشر الرموز بوصفها `errorCodes` على التعريف.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### إعلان العقد عبر MCP {#mcp-output-schema}
 
@@ -383,14 +416,15 @@ const reply = useActionMutation("reply-to-email", {
 
 ### ما ينتجه كل طرح {#failure-shapes}
 
-| مطروح من `run()`                                | حالة HTTP                   | جسم الاستجابة                                | مُبلَّغ إلى تتبّع الأخطاء |
-| ----------------------------------------------- | --------------------------- | -------------------------------------------- | ------------------------- |
-| `fail(msg)`                                     | 400                         | `{ error: msg, errorCode: "action_failed" }` | لا                        |
-| `fail(msg, { errorCode, statusCode, details })` | الـ `statusCode` الذي تحدده | `{ error, errorCode, details }`              | لا                        |
-| `new ActionContractError(msg, { errorCode })`   | 409                         | `{ error, errorCode, details }`              | لا                        |
-| `new AgentActionStopError(msg)`                 | 500                         | `{ error: msg }`                             | لا                        |
-| `new Error(msg)`                                | 500                         | `{ error: "Internal server error" }`         | نعم                       |
-| مدخل يفشل في `schema`                           | 400                         | `{ error: "Invalid action parameters..." }`  | لا                        |
+| مطروح من `run()`                                             | حالة HTTP                   | جسم الاستجابة                                  | مُبلَّغ إلى تتبّع الأخطاء |
+| ------------------------------------------------------------ | --------------------------- | ---------------------------------------------- | ------------------------- |
+| `fail(msg)`                                                  | 400                         | `{ error: msg, errorCode: "action_failed" }`   | لا                        |
+| `fail(msg, { errorCode, statusCode, details })`              | الـ `statusCode` الذي تحدده | `{ error, errorCode, details }`                | لا                        |
+| `new ActionContractError(msg, { errorCode })`                | 409                         | `{ error, errorCode, details }`                | لا                        |
+| `new AgentActionStopError(msg)`                              | 500                         | `{ error: msg }`                               | لا                        |
+| حالة deadlock في PostgreSQL (`40P01`) أو فشل تسلسل (`40001`) | 409                         | `{ error, errorCode: "transaction_conflict" }` | لا                        |
+| `new Error(msg)`                                             | 500                         | `{ error: "Internal server error" }`           | نعم                       |
+| مدخل يفشل في `schema`                                        | 400                         | `{ error: "Invalid action parameters..." }`    | لا                        |
 
 اطرح `AgentActionStopError` عندما ينبغي للوكيل إنهاء دوره بدل قراءة الفشل والمحاولة مجددًا. أما `ActionContractError` فهو ما يطرحه `fail()` نيابة عنك، فلا تستخدمه مباشرة إلا حين تكون 409 هي الحالة المطلوبة.
 

@@ -80,6 +80,13 @@ class BackgroundAgentSessionHttpError extends Error {
 }
 
 async function responseError(response: Response): Promise<Error> {
+  return responseErrorFor(response, "Background agent session");
+}
+
+async function responseErrorFor(
+  response: Response,
+  requestName: string,
+): Promise<Error> {
   const body = await response
     .json()
     .catch(() => null as { error?: unknown } | null);
@@ -89,7 +96,7 @@ async function responseError(response: Response): Promise<Error> {
       : "";
   return new BackgroundAgentSessionHttpError(
     response.status,
-    `Background agent session was rejected (HTTP ${response.status})${detail}`,
+    `${requestName} was rejected (HTTP ${response.status})${detail}`,
   );
 }
 
@@ -341,4 +348,34 @@ export async function cancelBackgroundAgentSession(options: {
   if (!turnResponse.ok) {
     throw await responseError(turnResponse);
   }
+}
+
+export type AgentRunThreadProjectionRetryState =
+  | "already_projected"
+  | "projected"
+  | "deferred";
+
+export async function retryAgentRunThreadProjection(
+  runId: string,
+): Promise<{ state: AgentRunThreadProjectionRetryState }> {
+  const response = await fetch(
+    agentNativePath(
+      `/_agent-native/agent-chat/runs/${encodeURIComponent(runId)}/retry-projection`,
+    ),
+    { method: "POST", credentials: "same-origin" },
+  );
+  if (!response.ok) {
+    throw await responseErrorFor(response, "Run projection retry");
+  }
+  const body = (await response.json()) as {
+    state?: unknown;
+  };
+  if (
+    body.state !== "already_projected" &&
+    body.state !== "projected" &&
+    body.state !== "deferred"
+  ) {
+    throw new Error("Run projection retry returned an invalid response");
+  }
+  return { state: body.state };
 }

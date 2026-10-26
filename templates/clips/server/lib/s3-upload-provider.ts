@@ -9,7 +9,7 @@ import {
   type PrivateBlobHandle,
   type PrivateBlobProvider,
 } from "@agent-native/core/private-blob";
-import { hasAppSecret, readAppSecret } from "@agent-native/core/secrets";
+import { readAppSecret } from "@agent-native/core/secrets";
 import {
   getAppConfig,
   getRequestOrgId,
@@ -197,12 +197,21 @@ function readS3ConfigForMode(
   return mode === "hosted" ? readHostedClipS3Config() : readS3Config();
 }
 
+/** Core's error for a saved secret this process can't decrypt. */
+function isUnreadableSecretError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
+  );
+}
+
 /**
  * A workspace's logo storage comes from one place: the settings it saved,
  * when it saved any, else the deployment's env. Mixing them field by field
  * could send the deployment's keys to an endpoint the workspace chose. A
- * saved setting that can't be read (its encryption key changed, for example)
- * leaves no logo storage, rather than passing for unsaved.
+ * saved setting that can't be decrypted (its encryption key changed, for
+ * example) leaves no logo storage, rather than passing for unsaved.
  */
 async function readOrganizationLogoS3Config(
   organizationId: string,
@@ -211,14 +220,18 @@ async function readOrganizationLogoS3Config(
   let unreadable = false;
   await Promise.all(
     S3_SECRET_KEYS.map(async (key) => {
-      const ref = {
-        key,
-        scope: "workspace" as const,
-        scopeId: organizationId,
-      };
-      const value = cleanValue((await readAppSecret(ref))?.value);
-      if (value) saved.set(key, value);
-      else if (await hasAppSecret(ref)) unreadable = true;
+      try {
+        const secret = await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: organizationId,
+        });
+        const value = cleanValue(secret?.value);
+        if (value) saved.set(key, value);
+      } catch (error) {
+        if (!isUnreadableSecretError(error)) throw error;
+        unreadable = true;
+      }
     }),
   );
   if (unreadable) return null;

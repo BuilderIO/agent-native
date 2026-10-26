@@ -394,52 +394,40 @@ describe("revisioned document edit mutation", () => {
     );
   });
 
-  it.each(["slow", "rejected", "throwing"] as const)(
-    "keeps save settlement and ordering independent of %s telemetry",
-    async (failure) => {
-      const order: string[] = [];
-      let releaseTelemetry: (() => void) | undefined;
-      countOutcome.mockImplementation(() => {
-        order.push("telemetry");
-        if (failure === "throwing") throw new Error("telemetry failed");
-        if (failure === "rejected")
-          return Promise.reject(new Error("telemetry failed"));
-        return new Promise<void>((resolve) => {
-          releaseTelemetry = resolve;
-        });
-      });
-      const input = {
-        documentId: DOCUMENT_ID,
-        baseRevision: documentRevisionToken(0, "alpha beta"),
-        idempotencyKey: "telemetry-independent",
-        edits: [{ find: "alpha", replace: "omega" }],
-        ctx,
-      };
-      const first = await mutateDocumentBody(input);
-      order.push("save_settled");
-      expect(order).toEqual(["save_settled"]);
-      await deliverTelemetry();
-      expect(order).toEqual(["save_settled", "telemetry"]);
-      const replay = await mutateDocumentBody(input);
-      expect(first.receipt).toMatchObject({
-        outcome: "applied",
-        bodyRevision: { before: 0, after: 1 },
-      });
-      expect(replay.receipt).toMatchObject({
-        receiptId: first.receipt.receiptId,
-        idempotency: { result: "replayed" },
-      });
-      expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
-        2,
-      );
-      expect(
-        await getDb().select().from(schema.documentEditReceipts),
-      ).toHaveLength(1);
-      releaseTelemetry?.();
-      await deliverTelemetry();
-      releaseTelemetry?.();
-    },
-  );
+  it("counts within the save and settles it the same when telemetry throws", async () => {
+    const order: string[] = [];
+    countOutcome.mockImplementation(() => {
+      order.push("telemetry");
+      throw new Error("telemetry failed");
+    });
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha beta"),
+      idempotencyKey: "telemetry-independent",
+      edits: [{ find: "alpha", replace: "omega" }],
+      ctx,
+    };
+    const first = await mutateDocumentBody(input);
+    order.push("save_settled");
+    // oracle-change: the count now runs before the save returns.
+    expect(order).toEqual(["telemetry", "save_settled"]);
+    const replay = await mutateDocumentBody(input);
+    expect(first.receipt).toMatchObject({
+      outcome: "applied",
+      bodyRevision: { before: 0, after: 1 },
+    });
+    expect(replay.receipt).toMatchObject({
+      receiptId: first.receipt.receiptId,
+      idempotency: { result: "replayed" },
+    });
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      2,
+    );
+    expect(
+      await getDb().select().from(schema.documentEditReceipts),
+    ).toHaveLength(1);
+    await deliverTelemetry();
+  });
 
   it("retains the exact save error when telemetry fails", async () => {
     const saveError = new Error("creative-context validation failed");
@@ -458,8 +446,6 @@ describe("revisioned document edit mutation", () => {
         ctx,
       }),
     ).rejects.toBe(saveError);
-    expect(countOutcome).not.toHaveBeenCalled();
-    await deliverTelemetry();
     expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
       "content_save_outcome_counts",
       {
@@ -523,7 +509,7 @@ describe("revisioned document edit mutation", () => {
     ).toBe(true);
   });
 
-  it("preserves a middle-key stale edit when two intervening writers touched one passage", async () => {
+  it("displaces a middle-key stale edit to History when two intervening writers touched one passage", async () => {
     const db = getDb();
     await db
       .update(schema.documents)
@@ -552,10 +538,16 @@ describe("revisioned document edit mutation", () => {
     };
     const first = await mutateDocumentBody(middle);
     const retry = await mutateDocumentBody(middle);
-    expect(first.receipt.outcome).toBe("preservation-required");
+    // The merge resolves "m" against every writer that touched the passage
+    // (#6721's contract), so "m" loses to both: to "z" by key on the same base,
+    // and to "a" because "a" was authored on a newer base. The passage keeps
+    // "zulu apple" and the stale edit goes to History, not to a chooser.
+    expect(first.receipt.outcome).toBe("displaced-preserved");
+    expect(first.preservationRequired).toBeUndefined();
+    expect(first.receipt.displacedCheckpointId).toEqual(expect.any(String));
     expect(retry.receipt.idempotency.result).toBe("replayed");
-    expect(retry.preservationRequired?.checkpointId).toBe(
-      first.preservationRequired?.checkpointId,
+    expect(retry.receipt.displacedCheckpointId).toBe(
+      first.receipt.displacedCheckpointId,
     );
     const [document] = await db
       .select()

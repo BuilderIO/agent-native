@@ -13,15 +13,16 @@ metadata:
 
 # Turn Into App
 
-Give a proven workflow the face of an app and the brain of an agent. The first
-screen shows the user's world, populated. Controls on those objects hand work
-to the in-app agent, the object shows it is working, and the result lands back
-in the UI. A form under a stepper bar is the failure to prevent.
+Give a proven workflow an Agent-Native app face and agent brain. Start with
+populated domain screens. Object controls send work to the agent; the object
+shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ## Host, source, and when to ask
 
 ### Classify the host
 
+- Local scaffolding needs Node.js 22.22.0 or newer (including npm/npx) and
+  pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
   that checkout with steps 1-6. Never call `start-workspace-app-creation` or
@@ -105,19 +106,28 @@ opens on a mapping or setup screen.
 
 ## Workflow
 
-Copy this checklist and keep it current. Pace: aim for about 45 minutes; note
-the start time (`date`), and if 35 minutes have passed when the review starts,
-run one pass and list the open criteria.
+Copy and update this checklist. Aim for 45 minutes; note the start time
+(`date`). If review starts after 35 minutes, run one pass and list open criteria.
 
 ```text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided, brief posted with App design
+- [ ] 2 Design decided; brief, App design, and time estimate shown
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
 - [ ] 6 Typecheck, doctor, build; final report with evidence labels
 ```
+
+Resume an unfinished run instead of starting a second app. When the working
+directory holds an app this skill started for the same source (a completed
+scaffold or actions, but no review screenshots), verify the completed stages
+from its git status, brief, schema, and actions. Open your first message with
+what exists, the next stage, and the estimated active work, for example:
+"Found a half-built app in this folder from an earlier run that stopped
+partway. The data model and actions are done, so I'll pick up from there:
+screens next, then checks. About 10 more minutes." Resume at the first
+unverified stage without rerunning scaffolding or replacing completed work.
 
 ### 1. Write the source brief
 
@@ -154,19 +164,18 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Post the brief once, with its
-App design, before the first scaffold command, as a checkpoint, and continue
-without waiting.
+repeated title, or stat strip over visible data. Before the first scaffold
+command, show the brief with its App design in your message (a saved file is
+not shown), then continue without waiting.
 
 ### 3. Create the real scaffold
 
-Before the first command, say once what the run executes (install, scaffold,
-checks, a dev server, a headless browser), so permission prompts do not read
-as trouble.
+Before the first command, name the steps (install, scaffold, checks, dev server,
+headless browser) and estimate work time from the source and host. Separate
+external setup waits, so delays are expected.
 
-Choose a short slug and never overwrite an existing app. For a standalone app,
-run from the directory that should contain it (the app is its own git
-repository; say so when it sits inside another checkout):
+Choose a short slug and never overwrite an app. Run standalone creation from
+its parent directory, noting that the nested app is its own Git repository:
 
 ```bash
 npx --yes @agent-native/core@latest create <slug> --standalone --template chat
@@ -182,11 +191,10 @@ from the workspace root:
 pnpm exec agent-native add-app <slug> --template chat
 ```
 
-Read the generated `AGENTS.md`, and its `build-an-app` skill when the scaffold
-ships one. Where that guidance skips the design record, screenshots, or build,
-leaves `DESIGN.md` alone, says not to set `AUTH_DISABLED`, or says to stop the
-dev server, this skill's steps win for this run. Use another first-party
-template only when it materially fits.
+Read the generated `AGENTS.md` and any `build-an-app` skill. This skill
+overrides guidance that skips the design record, screenshots, or build; leaves
+`DESIGN.md` unchanged; omits `AUTH_DISABLED` or says not to set it; or stops
+the dev server. Use another first-party template only if it materially fits.
 
 If a scaffold or install step fails, times out (no output for 5 minutes), or is
 denied, the app does not exist yet. Retry once where a retry could help, then

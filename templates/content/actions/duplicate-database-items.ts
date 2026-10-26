@@ -23,7 +23,10 @@ import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -326,26 +329,29 @@ export default defineAction({
     const duplicatedItems = duplicatedPage.items.filter((item) =>
       duplicatedItemIds.has(item.id),
     );
-    return {
-      ...response,
-      duplicatedItems,
-      duplicatedItemId: duplicates[0]?.duplicatedItemId,
-      duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
-      duplicatedItemIds: duplicates.map(
-        (duplicate) => duplicate.duplicatedItemId,
-      ),
-      duplicatedDocumentIds: duplicates.map(
-        (duplicate) => duplicate.duplicatedDocumentId,
-      ),
-      sourceItemIds,
-      sourceDocumentIds,
-      sourceToDuplicate: duplicates.map((duplicate) => ({
-        sourceItemId: duplicate.sourceItemId,
-        sourceDocumentId: duplicate.sourceDocumentId,
-        duplicatedItemId: duplicate.duplicatedItemId,
-        duplicatedDocumentId: duplicate.duplicatedDocumentId,
-      })),
-      duplicatedCount: duplicates.length,
-    };
+    return contentDatabaseResponseForCaller(
+      {
+        ...response,
+        duplicatedItems,
+        duplicatedItemId: duplicates[0]?.duplicatedItemId,
+        duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
+        duplicatedItemIds: duplicates.map(
+          (duplicate) => duplicate.duplicatedItemId,
+        ),
+        duplicatedDocumentIds: duplicates.map(
+          (duplicate) => duplicate.duplicatedDocumentId,
+        ),
+        sourceItemIds,
+        sourceDocumentIds,
+        sourceToDuplicate: duplicates.map((duplicate) => ({
+          sourceItemId: duplicate.sourceItemId,
+          sourceDocumentId: duplicate.sourceDocumentId,
+          duplicatedItemId: duplicate.duplicatedItemId,
+          duplicatedDocumentId: duplicate.duplicatedDocumentId,
+        })),
+        duplicatedCount: duplicates.length,
+      },
+      ctx,
+    );
   },
 });

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentKitClient } from "@agent-native/agentkit";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
@@ -34,6 +35,7 @@ import React, { act } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
+import { toast } from "sonner";
 import {
   afterEach,
   beforeEach,
@@ -51,6 +53,8 @@ import {
 } from "../../composer/runtime-adapters.js";
 import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
+import { AgentKitChat } from "../agentkit/react/components.js";
+import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
 import { AgentSidebar } from "./AgentSidebar.js";
 import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import {
@@ -109,6 +113,7 @@ const chatHandleMocks = vi.hoisted(() => ({
 
 const assistantChatMockState = vi.hoisted(() => ({
   referenceProbe: false,
+  renderTranscript: false,
   referenceDisabled: true,
   deferredHandleThread: null as string | null,
   referenceDeliveries: [] as Array<{ threadId: string; context: string }>,
@@ -293,6 +298,7 @@ function stubCatalog(
   engines: unknown[],
   configuredKeys: string[],
   builderConfigured = false,
+  appDefault: { model: string; engine?: string } = { model: "gpt-5-6-luna" },
 ) {
   invalidateClientStatusRequests();
   const modelEngines = Object.fromEntries(
@@ -326,7 +332,8 @@ function stubCatalog(
     }),
     modelEngines,
     currentModelEngine: null,
-    defaultModel: "gpt-5-6-luna",
+    defaultModel: appDefault.model,
+    defaultEngine: appDefault.engine,
     loadLiveGroups: async () => null,
   });
   actionMocks.callAction.mockResolvedValue({ engines } as never);
@@ -371,8 +378,9 @@ async function mountWithCatalog(
   engines: unknown[],
   configuredKeys: string[],
   builderConfigured = false,
+  appDefault?: { model: string; engine?: string },
 ) {
-  stubCatalog(engines, configuredKeys, builderConfigured);
+  stubCatalog(engines, configuredKeys, builderConfigured, appDefault);
   const el = document.createElement("div");
   document.body.appendChild(el);
   const localRoot = createRoot(el);
@@ -558,6 +566,12 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         >
           {props.emptyStateAddon}
           {props.composerSlot}
+          {assistantChatMockState.renderTranscript && (
+            <div
+              className="agentkit-transcript"
+              data-testid={`transcript-${props.threadId}`}
+            />
+          )}
           {assistantChatMockState.referenceProbe && (
             <ReferenceProbe
               threadId={props.threadId}
@@ -572,6 +586,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
 
 function resetThreadMocks() {
   assistantChatMockState.referenceProbe = false;
+  assistantChatMockState.renderTranscript = false;
   assistantChatMockState.referenceDisabled = true;
   assistantChatMockState.deferredHandleThread = null;
   assistantChatMockState.referenceDeliveries = [];
@@ -3822,9 +3837,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       delivered: false,
       reason: "context-too-large",
     });
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("alongside the composer's existing context"),
-    );
+    // The typed result already reports the refusal; the console stays quiet.
+    expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -3856,6 +3870,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       delivered: false,
       reason: "composer-not-ready",
     });
+    expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -4541,12 +4556,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toHaveLength(2);
   });
 
-  it("defaults effort to high", () => {
+  it("leaves effort unset by default", () => {
     expect(
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("high");
+    ).toBe("auto");
   });
 
   it("defaults a fresh chat to a configured model group", async () => {
@@ -4564,6 +4579,27 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
 
     expect(view.engineOf()).toBe("builder");
+    await view.cleanup();
+  });
+
+  it("starts a fresh chat on the app's configured default model", async () => {
+    const view = await mountWithCatalog(
+      [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          supportedModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      ["ANTHROPIC_API_KEY"],
+      false,
+      { model: "claude-sonnet-5-5", engine: "anthropic" },
+    );
+
+    // Not the first listed model: the app's default.
+    expect(view.modelOf()).toBe("claude-sonnet-5-5");
+    expect(view.engineOf()).toBe("anthropic");
     await view.cleanup();
   });
 
@@ -5201,7 +5237,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toBe("claude-sonnet-5");
   });
 
-  it("migrates persisted legacy auto effort to high", async () => {
+  it("keeps a persisted auto effort unset", async () => {
     window.localStorage.setItem(
       "agent-native:chat-models:selection:legacy-medium-test",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -5217,7 +5253,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("high");
+    ).toBe("auto");
   });
 
   it("continues to submit when submit is omitted", () => {
@@ -5234,16 +5270,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 
-  it("preserves plan mode on submitted bridge messages", () => {
-    act(() => {
-      root.render(
-        <MultiTabAssistantChat storageKey="bridge-test" execMode="plan" />,
-      );
-    });
-
+  it("preserves an explicit plan mode on submitted bridge messages", () => {
     act(() => {
       dispatchSubmitChat({
         message: "Plan this first",
+        mode: "plan",
       });
     });
 
@@ -5269,14 +5300,30 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
-  it("implements the latest plan when /act is selected", () => {
-    chatHandleMocks.implementPlan.mockImplementationOnce(() => true);
-
+  it("forwards the sender's preset as the send's surface", () => {
     act(() => {
+      dispatchSubmitChat({
+        message: "Outline the deck",
+        preset: "deck-outline",
+        submitMessageId: "submit-preset",
+      });
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledOnce();
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Outline the deck",
+      undefined,
+      { submitMessageId: "submit-preset", surface: "deck-outline" },
+    );
+  });
+
+  it("leaves /plan to the composer and has no /act to leave a mode", () => {
+    act(() => {
+      assistantChatMockState.onSlashCommand?.("plan");
       assistantChatMockState.onSlashCommand?.("act");
     });
 
-    expect(chatHandleMocks.implementPlan).toHaveBeenCalledOnce();
+    expect(chatHandleMocks.implementPlan).not.toHaveBeenCalled();
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -5397,6 +5444,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("keeps existing thread restoration loading while the thread list loads", () => {
+    // A fresh mount: beforeEach's mount already saw the list load once.
+    act(() => root.unmount());
+    root = createRoot(container);
     threadMocks.isLoading = true;
     threadMocks.isNewThread.mockReturnValue(false);
 
@@ -5407,6 +5457,22 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     const chat = container.querySelector("[data-testid='assistant-chat']");
     expect(chat?.getAttribute("data-new-thread")).toBe("false");
     expect(chat?.getAttribute("data-thread-state-loading")).toBe("true");
+  });
+
+  it("keeps an already-loaded tab ready when the thread list reloads for a new scope", () => {
+    threadMocks.isNewThread.mockReturnValue(false);
+    const chat = () =>
+      container.querySelector("[data-testid='assistant-chat']");
+    expect(chat()?.getAttribute("data-thread-state-loading")).toBe("false");
+
+    // A history-scope change refetches the list, so useChatThreads reports
+    // loading again for threads that already restored.
+    threadMocks.isLoading = true;
+    act(() => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    expect(chat()?.getAttribute("data-thread-state-loading")).toBe("false");
   });
 
   it("creates a foreground tab when the active chat has messages", async () => {
@@ -7240,19 +7306,33 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       );
     expect(closeButtons()).toHaveLength(2);
 
-    // The reported bug was a hit zone that stayed clickable while invisible
-    // (opacity alone does not disable pointer-events). jsdom/happy-dom does
-    // not compute real hover-driven hit-testing for a plain `.click()` call,
-    // so guard the actual CSS invariant directly: the close button must be
-    // non-interactive by default and only regain pointer-events together
-    // with becoming visible, scoped to a real ancestor of the button.
-    const styleText = container.querySelector("style")?.textContent ?? "";
-    expect(styleText).toContain(
-      ".agent-tab-close{opacity:0;pointer-events:none}",
+    // agent-native.css hides `.agent-tab-close` (opacity and pointer-events)
+    // until its `.agent-tab-group` is hovered or active, so the button must
+    // keep that class and ancestor for the hit zone to follow its visibility.
+    expect(
+      closeButtons().every(
+        (button) =>
+          button.classList.contains("agent-tab-close") &&
+          button.closest(".agent-tab-group") !== null,
+      ),
+    ).toBe(true);
+    const tablist = container.querySelector('[role="tablist"]');
+    expect(tablist?.getAttribute("aria-label")).toBeTruthy();
+    const tabButtons = Array.from(
+      tablist?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
     );
-    expect(styleText).toContain(
-      ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}",
-    );
+    expect(tabButtons.map((tab) => tab.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "false",
+    ]);
+    expect(tabButtons.map((tab) => tab.tabIndex)).toEqual([0, -1]);
+    tabButtons[0].focus();
+    act(() => {
+      tabButtons[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(tabButtons[1]);
     const closeButtonGroupAncestor =
       closeButtons()[0].closest(".agent-tab-group");
     expect(closeButtonGroupAncestor?.contains(closeButtons()[0])).toBe(true);
@@ -7545,6 +7625,9 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     expect(container.querySelector(".agent-tab")?.className).toContain(
       "min-w-[56px]",
     );
+    expect(
+      container.querySelector(".agent-tab")?.className.split(/\s+/),
+    ).toContain("h-6");
   });
 
   it("closes a duplicated active tab instead of the effect re-adding it", async () => {
@@ -7791,6 +7874,67 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
   });
 });
 
+describe("MultiTabAssistantChat hidden tabs", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetThreadMocks();
+    assistantChatMockState.renderTranscript = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("puts a hidden tab's transcript back where the user left it", async () => {
+    threadMocks.threads = [
+      { ...threadMocks.threads[0]!, id: "thread-1" },
+      { ...threadMocks.threads[0]!, id: "thread-2" },
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey("hidden-tab-scroll"),
+      JSON.stringify(["thread-1", "thread-2"]),
+    );
+    const render = async () => {
+      await act(async () => {
+        root.render(<MultiTabAssistantChat storageKey="hidden-tab-scroll" />);
+      });
+    };
+    await render();
+    const transcript = container.querySelector<HTMLElement>(
+      '[data-testid="transcript-thread-1"]',
+    )!;
+    Object.defineProperty(transcript, "clientHeight", { value: 400 });
+    Object.defineProperty(transcript, "scrollHeight", { value: 2_000 });
+    transcript.scrollTop = 300;
+    act(() => {
+      transcript.dispatchEvent(new Event("scroll"));
+    });
+
+    threadMocks.activeThreadId = "thread-2";
+    await render();
+    // display:none drops the scroll position.
+    transcript.scrollTop = 0;
+    threadMocks.activeThreadId = "thread-1";
+    await render();
+
+    expect(transcript.scrollTop).toBe(300);
+  });
+});
+
 describe("MultiTabAssistantChat page overlay", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -7820,19 +7964,35 @@ describe("MultiTabAssistantChat page overlay", () => {
   });
 
   it("marks the page overlay only after the thread scrolls", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    // The real AgentKit transcript, since the host matches its scroller class.
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
           storageKey="page-overlay-test"
           renderOverlay={() => (
-            <div className="agent-chat-scroll" data-testid="chat-scroll" />
+            <CoreAgentKitRoot
+              controller={client}
+              threadId="thread-1"
+              load="manual"
+            >
+              <AgentKitChat composer={false} />
+            </CoreAgentKitRoot>
           )}
         />,
       );
     });
 
     const scrollTarget = container.querySelector<HTMLElement>(
-      '[data-testid="chat-scroll"]',
+      ".agentkit-transcript",
     );
     expect(scrollTarget).not.toBeNull();
     expect(
@@ -7874,6 +8034,8 @@ describe("MultiTabAssistantChat page overlay", () => {
 describe("MultiTabAssistantChat history popover", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let sharedHistoryRows: ChatThreadSummary[];
+  let mineHistoryRows: ChatThreadSummary[] | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -7882,6 +8044,8 @@ describe("MultiTabAssistantChat history popover", () => {
       return 0;
     });
     resetThreadMocks();
+    sharedHistoryRows = [];
+    mineHistoryRows = undefined;
     const now = Date.now();
     threadMocks.activeThreadId = "thread-1";
     const historyThreads: ChatThreadSummary[] = [
@@ -7917,7 +8081,32 @@ describe("MultiTabAssistantChat history popover", () => {
     threadMocks.threads = historyThreads;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ value: null })),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://test.local");
+        const ownership = url.searchParams.get("ownership");
+        if (ownership) {
+          const source =
+            ownership === "mine"
+              ? (mineHistoryRows ?? threadMocks.threads).map((thread) => ({
+                  ...thread,
+                  ownerEmail: "me@example.com",
+                  accessBasis: "owner",
+                  visibility: "private",
+                }))
+              : sharedHistoryRows;
+          const query = url.searchParams.get("q") ?? "";
+          const matching = source.filter((row) =>
+            row.title.toLowerCase().includes(query.toLowerCase()),
+          );
+          const offset = Number(url.searchParams.get("offset") ?? 0);
+          const limit = Number(url.searchParams.get("limit") ?? 50);
+          return Response.json({
+            threads: matching.slice(offset, offset + limit),
+            hasMore: matching.length > offset + limit,
+          });
+        }
+        return Response.json({ value: null });
+      }),
     );
     window.localStorage.clear();
     window.localStorage.setItem(
@@ -7947,7 +8136,7 @@ describe("MultiTabAssistantChat history popover", () => {
       'button[aria-label="All chats"]',
     );
     expect(historyButton).not.toBeNull();
-    act(() => {
+    await act(async () => {
       historyButton!.click();
     });
   }
@@ -7965,13 +8154,222 @@ describe("MultiTabAssistantChat history popover", () => {
     });
   }
 
+  it.each(["local", "owner"] as const)(
+    "keeps the active proven-%s empty chat before persistence and hides inactive blanks",
+    async (proof) => {
+      mineHistoryRows = [];
+      threadMocks.isNewThread.mockImplementation(() => proof === "local");
+      threadMocks.threads = threadMocks.threads.slice(0, 2).map((thread) => ({
+        ...thread,
+        messageCount: 0,
+        ...(proof === "owner"
+          ? {
+              accessBasis: "owner" as const,
+              ownerEmail: "me@example.com",
+              visibility: "private" as const,
+            }
+          : {}),
+      }));
+      await openHistory();
+
+      const mine = container.querySelector(
+        '.an-chat-history__section[data-section-id="mine"]',
+      )!;
+      expect(
+        Array.from(mine.querySelectorAll(".an-chat-history-row__title")).map(
+          (element) => element.textContent,
+        ),
+      ).toEqual(["Active chat"]);
+      expect(mine.querySelector(".an-chat-history-row--active")).not.toBeNull();
+      expect(mine.querySelector(".an-chat-history-row__timestamp")).toBeNull();
+      expect(threadMocks.saveThreadData).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "never recasts an active shared empty chat as Mine (server row loaded: %s)",
+    async (loaded) => {
+      mineHistoryRows = [];
+      threadMocks.isNewThread.mockReturnValue(true);
+      const shared: ChatThreadSummary = {
+        ...threadMocks.threads[0],
+        messageCount: 0,
+        accessBasis: "direct",
+        ownerEmail: "pat@example.com",
+        visibility: "private",
+      };
+      threadMocks.threads = [shared];
+      sharedHistoryRows = loaded ? [shared] : [];
+      await openHistory();
+
+      expect(
+        container.querySelector(
+          '.an-chat-history__section[data-section-id="mine"] .an-chat-history-row',
+        ),
+      ).toBeNull();
+      const sharedSection = container.querySelector(
+        '.an-chat-history__section[data-section-id="shared"]',
+      );
+      expect(
+        sharedSection?.querySelectorAll(".an-chat-history-row").length ?? 0,
+      ).toBe(loaded ? 1 : 0);
+      const trigger =
+        sharedSection?.querySelector<HTMLButtonElement>(
+          ".an-chat-history-row__menu-trigger",
+        ) ?? null;
+      if (!loaded) {
+        expect(trigger).toBeNull();
+        return;
+      }
+      await openRowMenu(trigger!);
+      expect(
+        Array.from(
+          document.body.querySelectorAll(".an-chat-history-row__menu-item"),
+          (element) => element.textContent,
+        ),
+      ).toEqual(["Copy link"]);
+    },
+  );
+
+  it("loads both ownership lists only while open and debounces search to both", async () => {
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="history-test" />);
+    });
+    const fetchMock = vi.mocked(fetch);
+    const ownershipRequests = () =>
+      fetchMock.mock.calls
+        .map(([input]) => new URL(String(input), "http://test.local"))
+        .filter((url) => url.searchParams.has("ownership"));
+    expect(ownershipRequests()).toHaveLength(0);
+    await openHistory();
+    expect(
+      ownershipRequests().map((url) => url.searchParams.get("ownership")),
+    ).toEqual(["mine", "shared"]);
+    vi.useFakeTimers();
+    try {
+      const input = container.querySelector<HTMLInputElement>(
+        ".an-chat-history__search-input",
+      )!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, "Other");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(ownershipRequests()).toHaveLength(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(
+        ownershipRequests()
+          .slice(-2)
+          .map((url) => [
+            url.searchParams.get("ownership"),
+            url.searchParams.get("q"),
+          ]),
+      ).toEqual([
+        ["mine", "Other"],
+        ["shared", "Other"],
+      ]);
+      expect(threadMocks.searchThreads).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("previews five shared rows without owner pins or actions and switches through history", async () => {
+    sharedHistoryRows = Array.from({ length: 51 }, (_, index) => ({
+      id: `shared-${index}`,
+      title: `Shared ${index}`,
+      preview: "",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+      accessBasis: index === 0 ? "organization" : "direct",
+      ownerEmail: "pat@example.com",
+      visibility: "org",
+      pinnedAt: 10,
+    }));
+    await openHistory();
+    const sharedSection = container.querySelector(
+      '.an-chat-history__section[data-section-id="shared"]',
+    )!;
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      5,
+    );
+    expect(sharedSection.textContent).toContain("pat@example.com");
+    expect(sharedSection.textContent).toContain(
+      "Shared with your organization",
+    );
+    await openRowMenu(
+      sharedSection.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      Array.from(
+        document.body.querySelectorAll(".an-chat-history-row__menu-item"),
+        (element) => element.textContent,
+      ),
+    ).toEqual(["Copy link"]);
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(
+      sharedSection.querySelector(".an-chat-history-row--pinned"),
+    ).toBeNull();
+    expect(container.querySelector(".an-chat-history-rail__footer")).toBeNull();
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(
+          ".an-chat-history-rail__section-toggle",
+        )!
+        .click();
+    });
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      50,
+    );
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(".an-chat-history-rail__load-more")!
+        .click();
+    });
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      51,
+    );
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(
+          ".an-chat-history-rail__section-toggle",
+        )!
+        .click();
+    });
+    expect(sharedSection.querySelectorAll(".an-chat-history-row")).toHaveLength(
+      5,
+    );
+    await act(async () => {
+      sharedSection
+        .querySelector<HTMLButtonElement>(".an-chat-history-row__button")!
+        .click();
+    });
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("shared-0");
+    expect(container.querySelector(".an-chat-history")).toBeNull();
+    expect(
+      chatThreadHookMocks.useChatThreads.mock.calls.at(-1)?.[3]?.ownership,
+    ).toBeUndefined();
+  });
+
   it("groups pinned threads into a dedicated section, sorted ahead of the rest", async () => {
     await openHistory();
 
     const labels = Array.from(
       container.querySelectorAll(".an-chat-history__section-label"),
     ).map((el) => el.textContent);
-    expect(labels).toEqual(["Pinned"]);
+    expect(labels).toEqual(["Pinned", "My chats"]);
 
     const titles = Array.from(
       container.querySelectorAll(".an-chat-history-row__title"),
@@ -8053,6 +8451,32 @@ describe("MultiTabAssistantChat history popover", () => {
     });
 
     expect(threadMocks.pinThread).toHaveBeenCalledWith("thread-3", true);
+  });
+
+  it("shows the localized save failure when a history pin fails", async () => {
+    const toastError = vi
+      .spyOn(toast, "error")
+      .mockReturnValue("failure-toast");
+    threadMocks.pinThread.mockResolvedValue(false);
+    try {
+      await openHistory();
+      const row = container.querySelectorAll(".an-chat-history-row")[2];
+      await openRowMenu(
+        row.querySelector<HTMLButtonElement>(
+          ".an-chat-history-row__menu-trigger",
+        )!,
+      );
+      const pinItem = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          ".an-chat-history-row__menu-item",
+        ),
+      ).find((element) => element.textContent?.includes("Pin to top"))!;
+      await act(async () => pinItem.click());
+      expect(threadMocks.pinThread).toHaveBeenCalledWith("thread-3", true);
+      expect(toastError).toHaveBeenCalledExactlyOnceWith("Save failed");
+    } finally {
+      toastError.mockRestore();
+    }
   });
 
   it("unpins an already-pinned thread via the row action menu", async () => {

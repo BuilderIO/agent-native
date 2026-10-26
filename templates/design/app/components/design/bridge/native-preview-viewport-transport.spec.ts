@@ -28,6 +28,7 @@ const response: NativePreviewViewportResponse = {
   maxViewportWidth: 800,
   maxViewportHeight: 600,
   displayScale: 1.5,
+  hostDevicePixelRatio: 2,
 };
 
 describe("opaque preview viewport transport", () => {
@@ -108,6 +109,24 @@ describe("opaque preview viewport transport", () => {
 
   it("rejects unbounded response geometry and carries typed host failures", () => {
     expect(isNativePreviewViewportResponse(response)).toBe(true);
+    expect(
+      isNativePreviewViewportResponse({
+        ...response,
+        hostDevicePixelRatio: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      isNativePreviewViewportResponse({
+        ...response,
+        hostDevicePixelRatio: 0,
+      }),
+    ).toBe(false);
+    expect(
+      isNativePreviewViewportResponse({
+        ...response,
+        hostDevicePixelRatio: 4.01,
+      }),
+    ).toBe(false);
     expect(
       isNativePreviewViewportResponse({
         ...response,

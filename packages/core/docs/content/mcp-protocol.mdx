@@ -203,7 +203,7 @@ If an action declares `mcpApp`, the server advertises the official MCP Apps exte
 - Hosts that render MCP Apps show the UI inline; hosts that don't can still call the tool and use the deep-link fallback.
 - Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart — never a separate plain-HTML implementation.
 - The server emits both standard MCP Apps metadata and ChatGPT Apps SDK compatibility metadata so app-capable hosts find the same `ui://` resource.
-- The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor. Host support varies by version and plan — see the [External Agents Catalog — MCP Apps compatibility](/docs/external-agents-catalog#mcp-apps-compatibility) for the user-facing guidance.
+- Host support varies by plan, release channel, and client version. See [MCP Apps → Host support](/docs/mcp-apps#client-support) for rendering hosts and link-out clients, including Claude Code.
 
 ### MCP App embed bridge {#mcp-app-embed-bridge}
 

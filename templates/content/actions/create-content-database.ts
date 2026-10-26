@@ -31,6 +31,7 @@ import {
 } from "../server/lib/document-metadata-updated-at.js";
 import type {
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   CreateDatabaseRequest,
 } from "../shared/api.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
@@ -48,7 +49,10 @@ import {
   setupError,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -60,6 +64,7 @@ import {
   seedDefaultBlocksField,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
+import { lockParentOfNewPage } from "./_row-lock-order.js";
 
 const createContentDatabaseSchema = z
   .object({
@@ -139,7 +144,7 @@ export default defineAction({
     recordInputs: false,
     target: (_args, result) => ({
       type: "content-database",
-      id: (result as ContentDatabaseResponse).database.id,
+      id: (result as ContentDatabaseResponsePayload).database.id,
       visibility: "private",
     }),
     summary: (_args, result) =>
@@ -165,10 +170,13 @@ export default defineAction({
   run: async (args, context) => {
     if (context?.caller === "mcp") createDatabaseAgentSchema.parse(args);
     if (args.idempotencyKey !== undefined)
-      return createReliableDatabase(createDatabaseReliableSchema.parse(args));
+      return contentDatabaseResponseForCaller(
+        await createReliableDatabase(createDatabaseReliableSchema.parse(args)),
+        context,
+      );
     const result = await createContentDatabaseCore(args);
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return result;
+    return contentDatabaseResponseForCaller(result, context);
   },
   link: ({ result }) => {
     const documentId = (result as { database?: { documentId?: string } } | null)
@@ -479,6 +487,7 @@ export async function createContentDatabaseRecord(
     const parentId = args.parentId || null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
+    let parentScope: Parameters<typeof lockParentOfNewPage>[2] | null = null;
 
     if (parentId) {
       const parent = await assertDocumentEditorAccess(db, parentId);
@@ -493,6 +502,12 @@ export async function createContentDatabaseRecord(
       }
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
+      parentScope = {
+        ownerEmail: parent.ownerEmail,
+        spaceId: parent.spaceId ?? null,
+        orgId,
+        visibility: parent.visibility,
+      };
       inheritedShares = await db
         .select({
           principalType: schema.documentShares.principalType,
@@ -571,6 +586,9 @@ export async function createContentDatabaseRecord(
           createdAt: now,
         })),
       );
+    }
+    if (parentId && parentScope) {
+      await lockParentOfNewPage(db, parentId, parentScope);
     }
   }
 

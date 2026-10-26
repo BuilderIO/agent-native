@@ -88,9 +88,9 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "출력이 일치하지 않을 때 벌어지는 일입니다.",
         },
         {
@@ -98,7 +98,14 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
           type: "TReturn",
           optional: true,
           description:
-            'outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.',
+            '더 이상 사용되지 않습니다. outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "action이 실패할 때 쓰는 오류 코드의 닫힌 집합으로, defineActionErrors에서 만듭니다. 아래 오류 코드 선언하기를 참고하세요.",
         },
         {
           name: "mcpOutputSchema",
@@ -240,24 +247,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+action의 반환 타입은 `outputSchema`에서 정해지며 `run`은 스키마가 받아들이는 값을 반환해야 합니다. 따라서 스키마에서 벗어난 결과는 런타임 오류가 되기 전에 컴파일 오류가 됩니다.
+
 `outputErrorStrategy`는 불일치가 발생했을 때의 동작을 제어합니다.
 
-| 전략         | 불일치 시 동작                                                                                             |
-| ------------ | ---------------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **기본값.** 문제를 `console.warn`으로 남기고 **원본** 결과를 그대로 반환합니다. 기존 동작을 깨지 않습니다. |
-| `"strict"`   | 명확한 오류를 던져, action의 버그를 쉽게 알아챌 수 있게 합니다.                                            |
-| `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                           |
+| 전략         | 불일치 시 동작                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **기본값.** `ActionOutputContractError`를 던져, action의 버그가 눈에 띄게 실패하도록 합니다.                                    |
+| `"warn"`     | 문제를 `console.warn`으로 남기고 **원본** 결과를 그대로 반환합니다. 스키마를 고치는 동안 사용하세요.                            |
+| `"fallback"` | **더 이상 사용되지 않음.** 유효하지 않은 결과 대신 `outputFallback`을 반환하지만, 호출자는 이를 실제 결과와 구분할 수 없습니다. |
 
 `run()`이 성공하면 프레임워크는 검증된 값을 반환하므로, `outputSchema`의 기본값이나 형 변환이 입력값과 마찬가지로 적용됩니다. `outputSchema`를 전달하지 않으면 반환값은 그대로 유지됩니다.
 
 strict 검사는 `run()` 이후에 실행되므로, 오류(`ActionOutputContractError`, `errorCode: "output_contract_violation"`)는 이미 일어난 일을 알려 줍니다. `effect`는 호출 자체나 그 호출이 부른 action에서(읽기 전용 action에서 부른 경우도 포함) 쓰기가 핸들러에 들어가는 순간 `"committed"`가 되며, 호출자는 이를 재시도하면 안 됩니다. 그 밖의 경우에는 `"none"`입니다. 메시지에는 선언된 필드 경로와 문제 코드만 나오고, 반환된 값은 절대 나오지 않습니다.
+
+### 오류 코드 선언하기 {#error-codes}
+
+`defineActionErrors`는 action이 실패할 때 사용하는 `errorCode`의 닫힌 집합을 선언합니다. `fail`과 `noWrite`는 해당 코드만 받으므로 철자가 틀린 코드는 컴파일되지 않으며, 이를 `errors`로 전달하면 그 코드가 정의의 `errorCodes`로 공개됩니다.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### MCP로 계약 공개하기 {#mcp-output-schema}
 
@@ -385,14 +418,15 @@ const reply = useActionMutation("reply-to-email", {
 
 ### 각 throw가 만들어내는 것 {#failure-shapes}
 
-| `run()`에서 throw                               | HTTP 상태           | 응답 본문                                    | 오류 추적 보고 |
-| ----------------------------------------------- | ------------------- | -------------------------------------------- | -------------- |
-| `fail(msg)`                                     | 400                 | `{ error: msg, errorCode: "action_failed" }` | 아니요         |
-| `fail(msg, { errorCode, statusCode, details })` | 지정한 `statusCode` | `{ error, errorCode, details }`              | 아니요         |
-| `new ActionContractError(msg, { errorCode })`   | 409                 | `{ error, errorCode, details }`              | 아니요         |
-| `new AgentActionStopError(msg)`                 | 500                 | `{ error: msg }`                             | 아니요         |
-| `new Error(msg)`                                | 500                 | `{ error: "Internal server error" }`         | 예             |
-| `schema` 검증에 실패한 입력                     | 400                 | `{ error: "Invalid action parameters..." }`  | 아니요         |
+| `run()`에서 throw                                       | HTTP 상태           | 응답 본문                                      | 오류 추적 보고 |
+| ------------------------------------------------------- | ------------------- | ---------------------------------------------- | -------------- |
+| `fail(msg)`                                             | 400                 | `{ error: msg, errorCode: "action_failed" }`   | 아니요         |
+| `fail(msg, { errorCode, statusCode, details })`         | 지정한 `statusCode` | `{ error, errorCode, details }`                | 아니요         |
+| `new ActionContractError(msg, { errorCode })`           | 409                 | `{ error, errorCode, details }`                | 아니요         |
+| `new AgentActionStopError(msg)`                         | 500                 | `{ error: msg }`                               | 아니요         |
+| PostgreSQL 교착 상태(`40P01`) 또는 직렬화 실패(`40001`) | 409                 | `{ error, errorCode: "transaction_conflict" }` | 아니요         |
+| `new Error(msg)`                                        | 500                 | `{ error: "Internal server error" }`           | 예             |
+| `schema` 검증에 실패한 입력                             | 400                 | `{ error: "Invalid action parameters..." }`    | 아니요         |
 
 `AgentActionStopError`는 에이전트가 실패를 읽고 다시 시도하는 대신 턴을 끝내야 할 때 던집니다. `ActionContractError`는 `fail()`이 대신 던져 주므로, 409가 원하는 상태일 때만 직접 사용하세요.
 

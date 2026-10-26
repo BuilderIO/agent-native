@@ -71,7 +71,10 @@ afterEach(() => {
 async function settle() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
-async function mount(props: Partial<PromptComposerProps> = {}) {
+async function mount(
+  props: Partial<PromptComposerProps> = {},
+  settleAfterRender = true,
+) {
   const composerRef = React.createRef<TiptapComposerHandle>();
   const onSubmit = vi.fn();
   await act(async () => {
@@ -92,7 +95,7 @@ async function mount(props: Partial<PromptComposerProps> = {}) {
         />
       </ComposerRuntimeAdaptersProvider>,
     );
-    await settle();
+    if (settleAfterRender) await settle();
   });
   return { composerRef, onSubmit };
 }
@@ -721,5 +724,96 @@ describe("shared default action preservation", () => {
     });
     expect(document.querySelector('[role="status"]')).toBeNull();
     expect(item("Upload skill file")).toBeDefined();
+  });
+
+  it("resumes skill-file review after the native picker dismisses the menu", async () => {
+    await mount();
+    await open();
+    await choose("Create Skill");
+    await choose("Upload skill file");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[accept=".md,text/markdown"]',
+    )!;
+    const file = new File(["# Test skill\nDo the test."], "Test Skill.md", {
+      type: "text/markdown",
+    });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    });
+
+    const form = document.querySelector<HTMLFormElement>("[role=menu] form");
+    expect(form).not.toBeNull();
+    expect(form?.textContent).toContain(
+      "Review the content from Test Skill.md before saving.",
+    );
+    expect(form?.querySelector("textarea")?.value).toBe(
+      "# Test skill\nDo the test.",
+    );
+  });
+
+  it("restores the skill submenu when the native picker is canceled", async () => {
+    await mount();
+    await open();
+    await choose("Create Skill");
+    await choose("Upload skill file");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[accept=".md,text/markdown"]',
+    )!;
+    await act(async () => {
+      input.dispatchEvent(new Event("cancel"));
+      await settle();
+    });
+
+    expect(labels()).toContain("Upload skill file");
+  });
+
+  it("does not resume the skill page if the composer is disabled", async () => {
+    await mount();
+    await open();
+    await choose("Create Skill");
+    await choose("Upload skill file");
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[accept=".md,text/markdown"]',
+    )!;
+    vi.useFakeTimers();
+    try {
+      const scheduledTimeouts = vi.spyOn(globalThis, "setTimeout");
+      const clearedTimeouts = vi.spyOn(globalThis, "clearTimeout");
+      const timersBeforeCancel = vi.getTimerCount();
+      const timeoutCallIndex = scheduledTimeouts.mock.calls.length;
+      act(() => input.dispatchEvent(new Event("cancel")));
+      expect(vi.getTimerCount()).toBe(timersBeforeCancel + 1);
+      const resumeTimer =
+        scheduledTimeouts.mock.results[timeoutCallIndex]?.value;
+      expect(resumeTimer).toBeDefined();
+
+      await mount({ disabled: true }, false);
+      expect(clearedTimeouts).toHaveBeenCalledWith(resumeTimer);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(document.querySelector("[role=menu] form")).toBeNull();
+      expect(labels()).not.toContain("Upload skill file");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

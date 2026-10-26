@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockResolveSecret = vi.fn();
 const mockPrefetchSecrets = vi.fn();
 const mockReadAppSecret = vi.fn();
-const mockHasAppSecret = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
@@ -39,7 +38,6 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
-  hasAppSecret: (...args: any[]) => mockHasAppSecret(...args),
 }));
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   isBlockedExtensionUrlWithDns: (...args: any[]) =>
@@ -64,7 +62,6 @@ describe("s3FileUploadProvider", () => {
     vi.clearAllMocks();
     mockPrefetchSecrets.mockReset().mockResolvedValue(undefined);
     mockReadAppSecret.mockReset().mockResolvedValue(null);
-    mockHasAppSecret.mockReset().mockResolvedValue(false);
     mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
     hostedEndpoint = "https://hosted-s3.example.com";
@@ -351,9 +348,15 @@ describe("s3FileUploadProvider", () => {
       S3_ENDPOINT: "https://deploy-s3.example.com",
     });
     // The workspace saved a bucket this process can't decrypt.
-    mockHasAppSecret.mockImplementation(
-      async ({ key, scope, scopeId }: Record<string, string>) =>
-        key === "S3_BUCKET" && scope === "workspace" && scopeId === "org-1",
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) => {
+        if (key === "S3_BUCKET" && scope === "workspace" && scopeId === "org-1") {
+          throw Object.assign(new Error("unreadable"), {
+            errorCode: "app_secret_unreadable",
+          });
+        }
+        return null;
+      },
     );
     mockSsrfSafeFetch.mockReset();
 
