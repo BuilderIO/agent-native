@@ -18,7 +18,6 @@ import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
-  reactRouterTypegenEnv,
 } from "./react-router-command.js";
 import {
   captureSentryException as captureOptionalSentryException,
@@ -698,9 +697,13 @@ switch (command) {
       // plugin, which agent-native apps don't use. The app's own config runs
       // every Core Vite plugin and costs seconds, so typegen gets an empty one.
       // Without the explicit "." root, typegen would use that config's folder.
+      // With a missing or stale dist, bin/agent-native.js runs this file from
+      // src, where the stub exists only as .ts, so it takes this file's
+      // extension.
+      const cliFile = fileURLToPath(import.meta.url);
       const typegenViteConfig = path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "typegen-vite-config.js",
+        path.dirname(cliFile),
+        `typegen-vite-config${path.extname(cliFile)}`,
       );
       const rr = findReactRouterInvocation([
         "typegen",
@@ -708,15 +711,11 @@ switch (command) {
         "--config",
         typegenViteConfig,
       ]);
-      const env = reactRouterTypegenEnv();
       try {
         if (rr.shell) {
-          execSync(`${rr.command} ${rr.args.join(" ")}`, {
-            stdio: "inherit",
-            env,
-          });
+          execSync(`${rr.command} ${rr.args.join(" ")}`, { stdio: "inherit" });
         } else {
-          execFileSync(rr.command, rr.args, { stdio: "inherit", env });
+          execFileSync(rr.command, rr.args, { stdio: "inherit" });
         }
       } catch (error) {
         console.error(
