@@ -61,6 +61,9 @@ const state = vi.hoisted(() => {
     // recording, parking it until storage is connected, or the chunk failing
     // with the recording still uploading.
     finalChunkOutcome: null as null | "finish" | "park" | "fail",
+    // Runs once just before the lease reaper fails the expired uploads it
+    // found: a request landing between the reaper's read and its update.
+    beforeReaperFails: null as null | (() => Promise<void>),
     // Clips' own abort instead of the stand-in below.
     realAbort: false,
     released: [] as string[],
@@ -254,6 +257,7 @@ const { createRecordingUploadTicket } =
   await import("./recording-upload-ticket.js");
 const { runWithRequestContext } = await import("@agent-native/core/server");
 const { writeAppState } = await import("@agent-native/core/application-state");
+const { reapExpiredUploads } = await import("./upload-lease.js");
 const { default: listRecordings } =
   await import("../../actions/list-recordings.js");
 
@@ -294,6 +298,11 @@ function execOn(target: Pick<typeof client, "query">) {
     async execute(statement: string | { sql: string; args?: unknown[] }) {
       const query =
         typeof statement === "string" ? { sql: statement } : statement;
+      if (/^\s*UPDATE recordings\s+SET status = 'failed'/.test(query.sql)) {
+        const before = state.beforeReaperFails;
+        state.beforeReaperFails = null;
+        await before?.();
+      }
       let param = 0;
       const result = await target.query(
         query.sql.replace(/\?/g, () => `$${++param}`),
@@ -496,6 +505,7 @@ beforeEach(async () => {
   state.duringFinalChunk = null;
   state.finalChunkOutcome = null;
   state.realAbort = false;
+  state.beforeReaperFails = null;
   state.released = [];
   for (const table of [
     schema.recordings,
@@ -508,6 +518,7 @@ beforeEach(async () => {
     schema.recordingTags,
     schema.recordingTranscripts,
     schema.meetings,
+    schema.hostedClipAllowances,
     organizations,
     orgMembers,
   ]) {
@@ -1297,6 +1308,81 @@ describe("a page's final chunk and its cancel", () => {
 
     expect(answer).toMatchObject({ status: 200, body: { ok: true } });
     expect(state.chunks).toHaveLength(1);
+  });
+
+  /** An upload whose lease ran out a moment ago, as the reaper finds it. */
+  async function expireLease(recordingId: string) {
+    await client.query(
+      "UPDATE recordings SET upload_lease_expires_at = $1 WHERE id = $2",
+      [new Date(Date.now() - 1_000).toISOString(), recordingId],
+    );
+  }
+
+  async function reap() {
+    // The reaper reads application state before anything here writes it.
+    await client.exec(`CREATE TABLE IF NOT EXISTS application_state (
+      session_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (session_id, key)
+    )`);
+    return withDbExec(coreDb(), () => reapExpiredUploads());
+  }
+
+  it("leaves the recording uploading when the reaper runs between a final chunk's claim and Clips taking its bytes, and the chunk finishes", async () => {
+    state.rowStorageMode = null;
+    const upload = await started();
+    await expireLease(upload.recordingId);
+    state.finalChunkOutcome = "finish";
+    let chunk: ReturnType<typeof finalChunk> | undefined;
+    let claimed!: () => void;
+    const claimTaken = new Promise<void>((resolve) => {
+      claimed = resolve;
+    });
+    let reaping: ReturnType<typeof reap> | undefined;
+    // The reaper has read the expired row; the final chunk claims it, and
+    // Clips takes the bytes only once the reaper is done.
+    state.beforeReaperFails = async () => {
+      chunk = finalChunk(upload);
+      await claimTaken;
+    };
+    state.duringFinalChunk = async () => {
+      claimed();
+      await reaping;
+    };
+
+    reaping = reap();
+    const reaped = await reaping;
+    const answer = await chunk;
+
+    expect(reaped.failed).toBe(0);
+    expect(answer).toMatchObject({ status: 200, body: { ok: true } });
+    expect(await rows("recordings")).toEqual([
+      expect.objectContaining({ id: upload.recordingId, status: "ready" }),
+    ]);
+  });
+
+  it("refuses a final chunk once the reaper failed its expired upload, and changes nothing", async () => {
+    state.rowStorageMode = null;
+    const upload = await started();
+    await expireLease(upload.recordingId);
+    expect((await reap()).failed).toBe(1);
+    const reaped = await rows("recordings");
+    expect(reaped).toEqual([
+      expect.objectContaining({
+        id: upload.recordingId,
+        status: "failed",
+        failure_code: "upload_timed_out",
+      }),
+    ]);
+    state.finalChunkOutcome = "finish";
+
+    const answer = await finalChunk(upload);
+
+    expect(answer.status).toBe(409);
+    expect(state.chunks).toHaveLength(0);
+    expect(await rows("recordings")).toEqual(reaped);
   });
 
   it("asks a cancel that lands while Clips takes the final chunk to try again, changes nothing, and says it finished once the chunk did", async () => {

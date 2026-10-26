@@ -1,11 +1,9 @@
 import { getDbExec } from "@agent-native/core/db";
-import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
 import { WAITING_STORAGE_EXPIRED_REASON } from "../../shared/upload-interruption.js";
 import { getDb, schema } from "../db/index.js";
-import { readUploadPhase } from "./final-chunk-claim.js";
 import {
   releaseHostedClipAllowanceAfterCleanup,
   releaseOrphanedHostedClipAllowance,
@@ -770,19 +768,6 @@ export async function reapExpiredUploads(
         continue;
       }
     }
-  }
-  if (expired.length > 0 && !dryRun) {
-    // A final chunk still holding its upload ends it itself.
-    const finishing = new Set<string>();
-    for (const row of expired) {
-      if (!row.ownerEmail) continue;
-      const standing = await runWithRequestContext(
-        { userEmail: row.ownerEmail },
-        () => readUploadPhase(row.id, row.ownerEmail, { now }),
-      );
-      if (standing?.phase === "finishing") finishing.add(row.id);
-    }
-    expired = expired.filter((row) => !finishing.has(row.id));
   }
   if (expired.length > 0 && !dryRun) {
     const ids = expired.map((row) => row.id);
