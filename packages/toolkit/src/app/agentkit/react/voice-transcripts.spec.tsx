@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
+  type RealtimeVoiceWorkUpdate,
 } from "../../../composer/realtime-voice-transcript.js";
 import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
 import { AgentKitChat } from "./components.js";
@@ -192,5 +193,71 @@ describe("voice chat transcripts in AgentKitChat", () => {
     });
 
     expect(messages(container)).toEqual([]);
+  });
+
+  it("shows a voice tool call as work between the turns and saves it", async () => {
+    const threadId = "thread-voice-work";
+    const { container, client, saved } = await mountChat(threadId);
+    const work = {
+      id: "call-search",
+      threadId,
+      name: "web-search",
+      input: { query: "cats" },
+      startedAt: "2026-10-24T00:00:02.000Z",
+    };
+    const publishWork = async (update: RealtimeVoiceWorkUpdate) => {
+      await act(async () => {
+        realtimeVoiceTranscriptRegistry.publishWork(update);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await publish(threadId, {
+      id: `${threadId}:user-1`,
+      role: "user",
+      text: "Search the web for cats.",
+    });
+    await publish(threadId, {
+      id: `${threadId}:assistant-1`,
+      role: "assistant",
+      text: "On it, searching now.",
+      createdAt: "2026-10-24T00:00:01.000Z",
+    });
+    await publishWork({ ...work, status: "running" });
+
+    const running = container.textContent ?? "";
+    expect(running.indexOf("Searched 1 query")).toBeGreaterThan(
+      running.indexOf("On it, searching now."),
+    );
+    // The local run never holds the composer the way a server run does.
+    expect(client.getThread(threadId).activeRunIds).toEqual([]);
+
+    await publishWork({
+      ...work,
+      status: "completed",
+      output: "{}",
+      completedAt: "2026-10-24T00:00:03.000Z",
+    });
+    await publish(threadId, {
+      id: `${threadId}:assistant-2`,
+      role: "assistant",
+      text: "Cats are great.",
+      createdAt: "2026-10-24T00:00:04.000Z",
+    });
+
+    const done = container.textContent ?? "";
+    const row = done.indexOf("Searched 1 query");
+    expect(row).toBeGreaterThan(done.indexOf("On it, searching now."));
+    expect(row).toBeLessThan(done.indexOf("Cats are great."));
+    expect(saved.at(-1)?.events?.map((event) => event.type)).toEqual([
+      "tool.started",
+      "activity.started",
+      "tool.updated",
+      "activity.completed",
+      "run.completed",
+    ]);
+    expect(saved.at(-1)?.runs).toEqual([
+      expect.objectContaining({ id: "voice:call-search", status: "completed" }),
+    ]);
   });
 });

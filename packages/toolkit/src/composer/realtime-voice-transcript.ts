@@ -10,17 +10,34 @@ export interface RealtimeVoiceTranscriptMessage {
   status?: "streaming" | "complete";
 }
 
+/** A tool call a voice turn made, so the chat can show it as work. */
+export interface RealtimeVoiceWorkUpdate {
+  /** The provider's call id; every update for one call repeats it. */
+  id: string;
+  threadId: string;
+  name: string;
+  input?: Record<string, unknown>;
+  status: "running" | "completed" | "failed" | "cancelled";
+  output?: string;
+  startedAt: string;
+  /** Set once the call has finished. */
+  completedAt?: string;
+}
+
 export interface RealtimeVoiceTranscriptSink {
   threadId: string;
   /** Read when a voice session starts, so a sink can report whether it is on screen. */
   active: boolean | (() => boolean);
   /** False keeps the message queued, newest text per id, until the sink re-registers. */
   append: (message: RealtimeVoiceTranscriptMessage) => boolean;
+  /** False keeps the update queued, newest per call, until the sink re-registers. */
+  appendWork?: (update: RealtimeVoiceWorkUpdate) => boolean;
 }
 
 export interface RealtimeVoiceTranscriptRegistry {
   activeThreadId: () => string | undefined;
   publish: (message: RealtimeVoiceTranscriptMessage) => void;
+  publishWork: (update: RealtimeVoiceWorkUpdate) => void;
   register: (sink: RealtimeVoiceTranscriptSink) => () => void;
   pendingCount: () => number;
 }
@@ -31,10 +48,23 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
     RealtimeVoiceTranscriptSink & { order: number }
   >();
   const pending = new Map<string, RealtimeVoiceTranscriptMessage>();
+  const pendingWork = new Map<string, RealtimeVoiceWorkUpdate>();
   const delivered = new Set<string>();
   let order = 0;
 
   const flush = () => {
+    for (const [id, update] of pendingWork) {
+      let consumed = false;
+      for (const sink of sinks.values()) {
+        if (sink.threadId !== update.threadId || !sink.appendWork) continue;
+        try {
+          consumed = sink.appendWork(update) || consumed;
+        } catch {
+          // coercion-ok: a throwing sink leaves the update queued for the next flush.
+        }
+      }
+      if (consumed) pendingWork.delete(id);
+    }
     for (const [id, message] of pending) {
       let consumed = false;
       for (const sink of sinks.values()) {
@@ -86,13 +116,22 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
       });
       flush();
     },
+    publishWork(update) {
+      const id = update.id.trim();
+      const threadId = update.threadId.trim();
+      if (!id || !threadId) return;
+      // A finished call outranks a late "running" update for it.
+      if (pendingWork.get(id)?.completedAt && !update.completedAt) return;
+      pendingWork.set(id, { ...update, id, threadId });
+      flush();
+    },
     register(sink) {
       const token = Symbol("realtime-voice-transcript-sink");
       sinks.set(token, { ...sink, order: ++order });
       flush();
       return () => sinks.delete(token);
     },
-    pendingCount: () => pending.size,
+    pendingCount: () => pending.size + pendingWork.size,
   };
 }
 

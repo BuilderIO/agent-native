@@ -1773,6 +1773,7 @@ function useRealtimeVoiceModeController(
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const toolAbortControllersRef = useRef(new Set<AbortController>());
   const transcriptSequenceRef = useRef(0);
+  const transcriptCreatedAtRef = useRef(new Map<string, string>());
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -2157,9 +2158,23 @@ function useRealtimeVoiceModeController(
       toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
       turnMetrics.toolCallStarted();
+      const workThreadId = transcriptThreadIdRef.current;
+      const startedAt = new Date().toISOString();
+      let input: Record<string, unknown> | undefined;
       let result: RealtimeVoiceToolResult;
       try {
         const args = parseFunctionArguments(call.argumentsText);
+        input = args;
+        if (workThreadId) {
+          realtimeVoiceTranscriptRegistry.publishWork({
+            id: call.callId,
+            threadId: workThreadId,
+            name: call.name,
+            input: args,
+            status: "running",
+            startedAt,
+          });
+        }
         result = await executeRealtimeVoiceTool({
           name: call.name,
           args,
@@ -2177,6 +2192,20 @@ function useRealtimeVoiceModeController(
         };
       } finally {
         toolAbortControllersRef.current.delete(toolAbortController);
+      }
+      if (workThreadId) {
+        // An approval-gated call did not run; the user approves it in chat.
+        realtimeVoiceTranscriptRegistry.publishWork({
+          id: call.callId,
+          threadId: workThreadId,
+          name: call.name,
+          ...(input ? { input } : {}),
+          status:
+            result.status === "approval_required" ? "cancelled" : result.status,
+          output: result.output,
+          startedAt,
+          completedAt: new Date().toISOString(),
+        });
       }
       if (
         transportGeneration !== transportGenerationRef.current ||
@@ -2203,12 +2232,20 @@ function useRealtimeVoiceModeController(
       const sessionIdentity = startedAtRef.current ?? "pending";
       const providerIdentity =
         transcript.providerId ?? `sequence-${++transcriptSequenceRef.current}`;
+      const id = `realtime-voice:${sessionIdentity}:${transcript.role}:${providerIdentity}`;
+      // Work rows sit before the first message created after their call, so a
+      // turn keeps the time it started however late its final text arrives.
+      let createdAt = transcriptCreatedAtRef.current.get(id);
+      if (!createdAt) {
+        createdAt = new Date().toISOString();
+        transcriptCreatedAtRef.current.set(id, createdAt);
+      }
       realtimeVoiceTranscriptRegistry.publish({
-        id: `realtime-voice:${sessionIdentity}:${transcript.role}:${providerIdentity}`,
+        id,
         threadId,
         role: transcript.role,
         text: transcript.text,
-        createdAt: new Date().toISOString(),
+        createdAt,
         status,
       });
     },
@@ -2444,6 +2481,7 @@ function useRealtimeVoiceModeController(
     transcriptThreadIdRef.current =
       realtimeVoiceTranscriptRegistry.activeThreadId();
     transcriptSequenceRef.current = 0;
+    transcriptCreatedAtRef.current.clear();
     transcriptSequencer.reset();
     inputMutedRef.current = false;
     outputMutedRef.current = false;
