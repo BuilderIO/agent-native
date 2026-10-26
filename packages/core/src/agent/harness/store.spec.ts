@@ -414,7 +414,7 @@ describe("agent harness session store", () => {
     expect(claim).not.toBeNull();
     expect(events[1]?.event).toEqual({
       type: "text",
-      text: `${"x".repeat(12_000)} Authorization: Bearer [redacted]`,
+      text: `${"x".repeat(12_000)} Authorization: [redacted]`,
     });
   });
 
