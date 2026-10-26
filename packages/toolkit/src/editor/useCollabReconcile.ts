@@ -147,8 +147,9 @@ export interface UseCollabReconcileOptions {
    * Called once for each changed saved body the base-aware merge takes in, with
    * how many of its changed runs of top-level blocks were set aside for
    * overlapping this tab's edits (only `prefer-live` sets any aside). For
-   * counting: it runs once the merge is worked out, before the server takes
-   * it in when it adopts snapshots, and cannot change it, even by throwing.
+   * counting: it runs once the merge is in the doc (when the server adopts
+   * snapshots, once the server takes it in) and cannot change it, even by
+   * throwing.
    */
   onBaseAwareMerge?: (outcome: { setAside: number }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
@@ -1385,12 +1386,17 @@ export function useCollabReconcile({
             report(plan.status);
             return;
           }
-          countMerge(plan.setAside);
           if (plan.status === "noop") {
+            countMerge(plan.setAside);
             settleMerged();
             return;
           }
-          adoptThroughServer(plan.mergedDoc, settleMerged);
+          // The server can send a proposal back to plan again, or call it
+          // stale; only the one it takes in is counted.
+          adoptThroughServer(plan.mergedDoc, () => {
+            countMerge(plan.setAside);
+            settleMerged();
+          });
           return;
         }
         const settleApplied = () => {

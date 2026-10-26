@@ -537,6 +537,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
   it("leaves a snapshot the server calls stale for the newer one", async () => {
     vi.useFakeTimers();
     const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
     try {
       tabs.render(FIRST);
       await act(async () => vi.advanceTimersByTimeAsync(30));
@@ -546,6 +548,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       tabs.settleAdoptions();
       await act(async () => vi.advanceTimersByTimeAsync(100));
       expect(tabs.markdown()).toEqual([BASELINE]);
+      expect(merges).toEqual([]);
 
       const third = "Alpha paragraph.\n\nThird paragraph.\n\nBravo paragraph.";
       tabs.render({
@@ -557,6 +560,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       tabs.settleAdoptions();
       await act(async () => vi.advanceTimersByTimeAsync(100));
       expect(tabs.markdown()).toEqual([third]);
+      expect(merges).toEqual([{ setAside: 0 }]);
     } finally {
       tabs.dispose();
     }
@@ -657,6 +661,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
   it("keeps unsaved typing when it rebuilds on a revision this tab never saw", async () => {
     vi.useFakeTimers();
     const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
     const third = {
       value: `${OUTSIDE}\n\nLater paragraph.`,
       revision: "revision-3",
@@ -680,6 +686,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
         "revision-3",
       ]);
       expect(tabs.markdown()).toEqual([`Unsaved ${third.value}`]);
+      // Planned twice, taken in once.
+      expect(merges).toEqual([{ setAside: 0 }]);
     } finally {
       tabs.dispose();
     }
