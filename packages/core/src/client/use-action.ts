@@ -68,6 +68,8 @@ import { currentRouteTemplate } from "./route-template.js";
 import { currentSessionIdentity } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
+export { actionErrorCode };
+
 function actionPrefix(): string {
   return agentNativePath("/_agent-native/actions");
 }
@@ -1505,6 +1507,8 @@ export function useActionMutation<
     /** The resource types this write changes; see `useActionQuery`. */
     resources?: readonly string[];
     timeoutMs?: number;
+    /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
+    uiOnly?: boolean;
     headers?:
       | Record<string, string>
       | ((
@@ -1521,6 +1525,7 @@ export function useActionMutation<
     skipActionQueryInvalidation = false,
     resources,
     timeoutMs,
+    uiOnly,
     headers,
     ...restOptions
   } = options ?? ({} as any);
@@ -1539,6 +1544,7 @@ export function useActionMutation<
         params as Record<string, any>,
         {
           timeoutMs,
+          uiOnly,
           headers: typeof headers === "function" ? headers(params) : headers,
           onResponse: (response) => {
             markerFailed =

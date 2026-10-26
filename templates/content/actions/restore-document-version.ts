@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import {
@@ -25,10 +25,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  assertLegacyBodyWritePath,
-  isLiveBodyWriterPage,
-} from "../server/lib/live-body-writer.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
@@ -50,7 +47,11 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import {
+  flushOpenDocumentEditorToSql,
+  saveOpenEditorTitles,
+  type OpenEditorTitleFlush,
+} from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
@@ -332,7 +333,7 @@ export default defineAction({
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);
     const db = getDb();
-    if (await isLiveBodyWriterPage(documentId)) {
+    const readCurrent = async () => {
       const [current] = await db
         .select()
         .from(schema.documents)
@@ -344,6 +345,15 @@ export default defineAction({
         )
         .limit(1);
       assertEditableDocument(current);
+      return current;
+    };
+    let titleFlush: OpenEditorTitleFlush | undefined;
+    // The page as the caller prepared the restore, or as the title save the
+    // restore asked for left it. Main's path below must not read that save
+    // as a conflicting edit when the page leaves its live copy first.
+    let preparedUpdatedAt = args.expectedUpdatedAt;
+    if (await isLiveBodyWriterPage(documentId)) {
+      let current = await readCurrent();
       if (current.updatedAt !== args.expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
@@ -352,6 +362,35 @@ export default defineAction({
             currentUpdatedAt: current.updatedAt,
           },
         );
+      }
+      // History records the page as it stands before the restore, and an
+      // open editor may not have saved its title yet. Its body is already in
+      // the live copy. The save it asks for moves the page on, which is no
+      // conflict.
+      titleFlush = await saveOpenEditorTitles([documentId]);
+      if (titleFlush) {
+        const prepared = current;
+        const confirmedTitle = titleFlush.pages.find(
+          (page) => page.documentId === documentId,
+        )?.confirmedTitle;
+        current = await readCurrent();
+        // Only the title save may have moved the page on. Anything else that
+        // landed while the editors saved is an edit this restore wasn't
+        // prepared from.
+        if (
+          current.content !== prepared.content ||
+          current.bodyRevision !== prepared.bodyRevision ||
+          (confirmedTitle !== undefined && current.title !== confirmedTitle)
+        ) {
+          restoreConflict(
+            "The document changed after this restore was prepared.",
+            {
+              expectedUpdatedAt: args.expectedUpdatedAt,
+              currentUpdatedAt: current.updatedAt,
+            },
+          );
+        }
+        preparedUpdatedAt = current.updatedAt;
       }
       const restored = await restoreThroughLiveCopy({
         ctx,
@@ -362,10 +401,10 @@ export default defineAction({
       });
       if (restored) {
         await publishRestoreRefresh();
-        return restoreResult(
-          restored.document,
-          restored.softDeletedDatabaseIds,
-        );
+        return {
+          ...restoreResult(restored.document, restored.softDeletedDatabaseIds),
+          ...(titleFlush ? { titleFlush } : {}),
+        };
       }
     }
     const [versionForScope] = await db
@@ -393,13 +432,21 @@ export default defineAction({
       )
       .limit(1);
     assertEditableDocument(beforeFlush);
-    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+    if (beforeFlush.updatedAt !== preparedUpdatedAt) {
       restoreConflict("The document changed after this restore was prepared.", {
-        expectedUpdatedAt: args.expectedUpdatedAt,
+        expectedUpdatedAt: preparedUpdatedAt,
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
-    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    const flushed = await flushOpenDocumentEditorToSql({
+      documentId,
+      ownerEmail,
+    });
+    // The page can go back to its live copy after the check above, and then
+    // this flush has its editors save their titles instead.
+    if (flushed.status === "live_copy" && flushed.titleFlush) {
+      titleFlush = flushed.titleFlush;
+    }
     const [afterFlush] = await db
       .select({
         title: schema.documents.title,
@@ -484,7 +531,11 @@ export default defineAction({
       ) {
         return current;
       }
-      await assertLegacyBodyWritePath(current, { transaction: getDbExec() });
+      const legacy = await lockLegacyBodyWrites(tx, [documentId], {
+        operation: "restore-document-version",
+        routed: true,
+        content: version.content,
+      });
       const now =
         current.title !== version.title
           ? await nextDocumentMetadataUpdatedAt({
@@ -505,14 +556,14 @@ export default defineAction({
         .set({
           title: version.title,
           content: version.content,
-          bodyRevision: bodyRevisionForContent(version.content),
+          bodyRevision: legacy.bodyRevision(version.content),
           updatedAt: now,
         })
         .where(
           and(
             eq(schema.documents.id, documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+            eq(schema.documents.updatedAt, expectedUpdatedAt),
           ),
         )
         .returning();
@@ -589,6 +640,9 @@ export default defineAction({
     });
 
     await publishRestoreRefresh();
-    return restoreResult(updated, softDeletedDatabaseIds);
+    return {
+      ...restoreResult(updated, softDeletedDatabaseIds),
+      ...(titleFlush ? { titleFlush } : {}),
+    };
   },
 });

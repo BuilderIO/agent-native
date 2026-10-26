@@ -50,8 +50,8 @@ import { motionPathTrackForTarget } from "@/components/design/design-canvas/moti
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
+import type { MotionNativeStyleIdentity } from "@/components/design/motion-native-style-identity";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
-import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import {
@@ -605,12 +605,12 @@ export function useEditorContentAndComponents({
   const markMotionTracksDirty = useCallback(() => {
     captureMotionSourceVersion(localhostMotionProof?.moduleVersionHash);
     setMotionTracksDirty(true);
-    setMotionAutosaveRevision((revision) => {
-      const next = revision + 1;
-      motionAutosaveRevisionRef.current = next;
-      motionAutosaveFailedRevisionRef.current = null;
-      return next;
-    });
+    // A save timer can fire before React applies this edit. Moving the ref
+    // now makes it stand down instead of saving the document from before it.
+    const next = motionAutosaveRevisionRef.current + 1;
+    motionAutosaveRevisionRef.current = next;
+    motionAutosaveFailedRevisionRef.current = null;
+    setMotionAutosaveRevision(next);
   }, [captureMotionSourceVersion, localhostMotionProof?.moduleVersionHash]);
 
   const pruneMotionTracksByNodeId = useCallback(
@@ -630,16 +630,26 @@ export function useEditorContentAndComponents({
         );
         markMotionTracksDirty();
       }
+      // Marked here, not in the updater: React may run that later, after a
+      // pending save has already sent the tracks from before the prune.
+      if (
+        motionTracks.some((track) => nodeIdsToRemove.has(track.targetNodeId))
+      ) {
+        markMotionTracksDirty();
+      }
       setMotionTracks((current) => {
         const next = current.filter(
           (track) => !nodeIdsToRemove.has(track.targetNodeId),
         );
-        if (next.length === current.length) return current;
-        markMotionTracksDirty();
-        return next;
+        return next.length === current.length ? current : next;
       });
     },
-    [markMotionTracksDirty, motionTextDocument, setMotionTextDocument],
+    [
+      markMotionTracksDirty,
+      motionTextDocument,
+      motionTracks,
+      setMotionTextDocument,
+    ],
   );
 
   const handleMotionTracksChange = useCallback(

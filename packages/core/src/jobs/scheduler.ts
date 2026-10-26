@@ -35,6 +35,7 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryProjectionDeferredError,
   AutomationRecoveryStorageError,
   deliveryNoteForEvents,
   inspectAutomationRecovery,
@@ -1474,6 +1475,7 @@ async function executeJob(
   } catch (err) {
     const failure = classifyAutomationFailure(err);
     if (err instanceof AutomationSchedulerLeaseLostError) throw err;
+    if (err instanceof AutomationRecoveryProjectionDeferredError) throw err;
     if (err instanceof AutomationRecoveryStorageError) throw err;
     if (failure.code === "background_automation_history_write_failed")
       throw err;

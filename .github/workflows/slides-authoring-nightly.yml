@@ -1,9 +1,8 @@
 name: Slides authoring nightly
 
-# PRs run the Slides authoring jobs only when a Slides authoring file changes,
-# so a WebKit, Firefox, corpus, or parity break introduced by shared code (core,
-# toolkit) reaches main unseen. This runs every job against main so it is caught
-# within a day.
+# This is the only run of the Slides authoring matrix and the macOS caret check:
+# PRs do not run them, and macOS minutes bill at 10x. A WebKit, Firefox, corpus,
+# or parity break therefore reaches main and is caught within a day.
 on:
   schedule:
     - cron: "43 7 * * *"
@@ -75,3 +74,29 @@ jobs:
       - uses: ./.github/actions/slides-authoring-shard
         with:
           shard: ${{ matrix.shard }}
+
+  slides-macos-caret-qa:
+    name: Slides caret navigation in macOS
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Check platform-aware line-edge caret navigation in slide text
+        working-directory: templates/slides
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin

@@ -77,6 +77,36 @@ describe("AgentKit protocol validation", () => {
     ).toThrow("alreadyRemoved");
   });
 
+  it("validates a Send now result that leaves the message queued", () => {
+    expect(parseSteerQueuedMessageResult({ delivery: "steering" })).toEqual({
+      delivery: "steering",
+    });
+    expect(parseSteerQueuedMessageResult({ delivery: "after_reply" })).toEqual({
+      delivery: "after_reply",
+    });
+    expect(() => parseSteerQueuedMessageResult({ delivery: "now" })).toThrow(
+      "steerQueuedMessageResult.delivery",
+    );
+    expect(() =>
+      parseSteerQueuedMessageResult({ delivery: "steering", runId: "run-1" }),
+    ).toThrow("steerQueuedMessageResult.delivery");
+  });
+
+  it("validates a queued message's Send now delivery", () => {
+    const message = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    expect(
+      parseAgentQueuedMessage({ ...message, delivery: "after_reply" }),
+    ).toMatchObject({ delivery: "after_reply" });
+    expect(() =>
+      parseAgentQueuedMessage({ ...message, delivery: "later" }),
+    ).toThrow("queuedMessage.delivery");
+  });
+
   it("validates queued-message submission receipts", () => {
     const message = {
       id: "queued-1",
@@ -382,6 +412,28 @@ describe("AgentKit protocol validation", () => {
         options: { model: "frontier", reasoningEffort: "high" },
       }).threadId,
     ).toBe("thread-1");
+  });
+
+  it("validates the tool calls a saved reasoning part introduced", () => {
+    const input = (toolCallIds: unknown) => ({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "message-1",
+          role: "assistant",
+          parts: [{ type: "reasoning", text: "Searching first", toolCallIds }],
+        },
+      ],
+    });
+    expect(
+      parseStartRunInput(input(["call-1", "call-2"])).messages[0]!.parts[0],
+    ).toMatchObject({ toolCallIds: ["call-1", "call-2"] });
+    expect(() => parseStartRunInput(input("call-1"))).toThrow(
+      AgentProtocolValidationError,
+    );
+    expect(() => parseStartRunInput(input([""]))).toThrow(
+      AgentProtocolValidationError,
+    );
   });
 
   it("rejects malformed standard capabilities while preserving extensions", () => {

@@ -1,3 +1,4 @@
+import { roundGeometryStylesPx } from "@shared/canvas-math";
 import type { CodeLayerProjection } from "@shared/code-layer";
 import {
   buildCodeLayerProjection,
@@ -6,6 +7,7 @@ import {
 import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import { LINE_SEGMENT_PROPERTY } from "@shared/line-segment";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import { isVectorEndpointProperty } from "@shared/vector-endpoints";
@@ -258,14 +260,14 @@ function commitVisualStylesWithOutcome(
     ydoc,
   }: CommitVisualStylesArgs,
   selector: string,
-  styles: Record<string, string>,
+  requestedStyles: Record<string, string>,
   options: CommitVisualStylesOptions,
 ): void {
   trace("persist", "commit-styles", {
     selector: typeof selector === "string" ? selector : null,
-    props: Object.keys(styles ?? {}),
+    props: Object.keys(requestedStyles ?? {}),
   });
-  op.setStyleKind(canvasStyleKind(Object.keys(styles ?? {})));
+  op.setStyleKind(canvasStyleKind(Object.keys(requestedStyles ?? {})));
   if (!activeFile || !canEditDesign) return op.skip("no_edit_rights");
   if (!canApplyContentEdit(activeFile.id)) return op.skip("edit_blocked");
   // Cross-pipeline write race guard (see shader-source-coordination.ts): a shader
@@ -285,7 +287,7 @@ function commitVisualStylesWithOutcome(
     void waitForShaderWriteToSettle(activeFile.id).then(
       () =>
         resumeAfterShaderWrite(() =>
-          commitVisualStyles(selector, styles, options),
+          commitVisualStyles(selector, requestedStyles, options),
         ),
       () =>
         resumeAfterShaderWrite((shaderOp) =>
@@ -294,6 +296,14 @@ function commitVisualStylesWithOutcome(
     );
     return;
   }
+  const styles = roundGeometryStylesPx(requestedStyles, {
+    containingBlockTransform: (options.elementInfo ?? selectedElement)
+      ?.positionContainingBlockTransform,
+  });
+  // The canvas already shows the sub-pixel value the gesture produced; it has
+  // to be resent or the preview disagrees with the persisted source.
+  const runtimePreviewStale =
+    Boolean(options.runtimeApplied) && styles !== requestedStyles;
   const entries = Object.entries(styles).filter(
     ([, value]) => value !== undefined,
   );
@@ -341,7 +351,7 @@ function commitVisualStylesWithOutcome(
   if (isRunningAppSourceType(activeCanvasSourceType)) {
     const targetInfo = liveTargetInfo;
     if (
-      !options.runtimeApplied &&
+      (!options.runtimeApplied || runtimePreviewStale) &&
       activeBreakpointUpperBoundPx == null &&
       typeof (window as any).__designCanvasSendStyleForScreen === "function"
     ) {
@@ -402,6 +412,7 @@ function commitVisualStylesWithOutcome(
       ([property]) =>
         property === "--an-vector-stroke-position" ||
         isVectorEndpointProperty(property) ||
+        property === LINE_SEGMENT_PROPERTY ||
         (targetIsSvg &&
           /^border(-[a-z]+)*-radius$|^border\w*Radius$/.test(property)) ||
         (targetIsSvg &&
@@ -409,7 +420,7 @@ function commitVisualStylesWithOutcome(
           targetNode?.dataAttributes["data-figma-node-id"] !== undefined &&
           targetNode.attributes["preserveaspectratio"] === undefined),
     ) &&
-    !options.runtimeApplied &&
+    (!options.runtimeApplied || runtimePreviewStale) &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";
   const sendRuntimeStylePreview = (): void => {
@@ -957,7 +968,7 @@ function commitVisualStylesWithOutcome(
       if (
         (siblingsPinned ||
           shouldReplacePreviewAfterVisualStyleCommit({
-            runtimeApplied: options.runtimeApplied,
+            runtimeApplied: options.runtimeApplied && !runtimePreviewStale,
             runtimeStyleApplied,
           })) &&
         previewContentReplaceNeedsRenderFallback(

@@ -9,7 +9,7 @@ import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
   prefetchSecrets,
-  resolveHasCompleteBuilderConnection,
+  resolveBuilderGatewayAuth,
 } from "./credential-provider.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -23,7 +23,19 @@ import {
   type ServiceProviderId,
 } from "./service-providers.js";
 
+/** A provider whose credential this status checks. */
+export type VoiceCredentialProvider =
+  | "builder"
+  | "gemini"
+  | "openai"
+  | "groq"
+  | "googleRealtime";
+
 export interface VoiceProvidersStatus {
+  /**
+   * Builder's gateway accepts the request's credentials: an OAuth sign-in or
+   * a stored key pair, the same resolver the voice and transcription routes use.
+   */
   builder: boolean;
   gemini: boolean;
   openai: boolean;
@@ -39,6 +51,11 @@ export interface VoiceProvidersStatus {
   orgProvider: ServiceProviderId<"voice"> | null;
   /** The organization choice could not be read; `orgProvider` is unknown, not unset. */
   orgProviderLookupFailed?: true;
+  /**
+   * Providers whose credentials could not be read. Their flag is false because
+   * it is unknown, not because nothing is configured.
+   */
+  credentialLookupFailed?: VoiceCredentialProvider[];
 }
 
 export function createVoiceProvidersStatusHandler() {
@@ -61,7 +78,23 @@ export function createVoiceProvidersStatusHandler() {
         ? runWithRequestContext(requestContext, fn)
         : fn();
 
-    async function hasKey(key: string): Promise<boolean> {
+    const credentialLookupFailed: VoiceCredentialProvider[] = [];
+    const lookupFailed = (
+      provider: VoiceCredentialProvider,
+      error: unknown,
+    ): false => {
+      credentialLookupFailed.push(provider);
+      console.warn(
+        `[voice-providers] could not read ${provider} credentials:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return false;
+    };
+
+    async function hasKey(
+      provider: VoiceCredentialProvider,
+      key: string,
+    ): Promise<boolean> {
       try {
         if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
           const resolved = await withRequestContext(() =>
@@ -76,8 +109,8 @@ export function createVoiceProvidersStatusHandler() {
           resolveSecretWithAliases(key),
         );
         return typeof resolved === "string" && resolved.length > 0;
-      } catch {
-        return false;
+      } catch (error) {
+        return lookupFailed(provider, error);
       }
     }
 
@@ -90,21 +123,19 @@ export function createVoiceProvidersStatusHandler() {
       ]),
     );
 
-    let builder = false;
+    let builder: boolean;
     try {
       builder =
-        (await withRequestContext(() =>
-          resolveHasCompleteBuilderConnection(),
-        )) === true;
-    } catch {
-      builder = false;
+        (await withRequestContext(() => resolveBuilderGatewayAuth())) !== null;
+    } catch (error) {
+      builder = lookupFailed("builder", error);
     }
 
     const [gemini, openai, groq, googleRealtime] = await Promise.all([
-      hasKey(GEMINI_API_KEY),
-      hasKey("OPENAI_API_KEY"),
-      hasKey("GROQ_API_KEY"),
-      hasKey("GOOGLE_APPLICATION_CREDENTIALS"),
+      hasKey("gemini", GEMINI_API_KEY),
+      hasKey("openai", "OPENAI_API_KEY"),
+      hasKey("groq", "GROQ_API_KEY"),
+      hasKey("googleRealtime", "GOOGLE_APPLICATION_CREDENTIALS"),
     ]);
 
     let orgProvider: ServiceProviderId<"voice"> | null = null;
@@ -127,6 +158,7 @@ export function createVoiceProvidersStatusHandler() {
       native: true,
       orgProvider,
       ...(orgProviderLookupFailed ? { orgProviderLookupFailed: true } : {}),
+      ...(credentialLookupFailed.length > 0 ? { credentialLookupFailed } : {}),
     };
     return status;
   });

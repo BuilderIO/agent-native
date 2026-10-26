@@ -3,7 +3,10 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./_document-flush.js", () => ({
-  flushOpenDocumentEditorToSql: vi.fn(async () => undefined),
+  flushOpenDocumentEditorToSql: vi.fn(async () => ({
+    status: "no_open_editor",
+  })),
+  saveOpenEditorTitles: vi.fn(async () => undefined),
 }));
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
@@ -99,6 +102,8 @@ let rowMutation: typeof import("./_database-row-mutation.js");
 let deleteDocumentProperty: typeof import("./delete-document-property.js").default;
 let replaceHistoricalIconIfUnchanged: typeof import("../scripts/historical-icon-apply.js").replaceHistoricalIconIfUnchanged;
 let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
+let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").default;
+let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let contentFilesItemId: typeof import("./_content-files.js").contentFilesItemId;
 let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 
@@ -161,6 +166,11 @@ beforeAll(async () => {
   ({ replaceHistoricalIconIfUnchanged } =
     await import("../scripts/historical-icon-apply.js"));
   syncLocalFolder = (await import("./sync-local-folder-source.js")).default;
+  disconnectLocalFolder = (await import("./disconnect-local-folder-source.js"))
+    .default;
+  resolveLocalFolderConflict = (
+    await import("./resolve-local-folder-conflict.js")
+  ).default;
   ({ contentFilesItemId } = await import("./_content-files.js"));
   ({ processBuilderBodyHydrationQueue } =
     await import("./_database-source-utils.js"));
@@ -1481,6 +1491,100 @@ New body.
 }
 
 /**
+ * Two folders in one space. Disconnecting the first clears the later page,
+ * which only it links, and relinks the earlier page to the second folder.
+ */
+async function seedFolderDisconnect() {
+  const key = fixtureKey();
+  const ids = {
+    space: `${key}_s`,
+    files: `${key}_f`,
+    relinked: `${key}_p1`,
+    cleared: `${key}_p2`,
+    disconnected: `${key}_source_a`,
+    remaining: `${key}_source_b`,
+  };
+  const db = getDb();
+  await db.insert(schema.contentSpaces).values({
+    id: ids.space,
+    name: "Synthetic two-folder space",
+    kind: "user",
+    ownerEmail: OWNER,
+    orgId: null,
+    filesDatabaseId: ids.files,
+    createdBy: OWNER,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: ids.files,
+    ownerEmail: OWNER,
+    spaceId: ids.space,
+    documentId: `${ids.files}_page`,
+    title: "Files",
+    systemRole: "files",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  const linked = {
+    spaceId: ids.space,
+    sourceMode: "local-files",
+    sourceKind: "file",
+    sourceRootPath: `${key}_folder_a`,
+  };
+  await db.insert(schema.documents).values([
+    pageValues(ids.relinked, null, "Relinked page", {
+      ...linked,
+      sourcePath: "relinked.md",
+    }),
+    pageValues(ids.cleared, null, "Cleared page", {
+      ...linked,
+      sourcePath: "cleared.md",
+    }),
+  ]);
+  await db.insert(schema.contentDatabaseSources).values(
+    [ids.disconnected, ids.remaining].map((id, index) => ({
+      id,
+      ownerEmail: OWNER,
+      databaseId: ids.files,
+      sourceType: "local-folder",
+      sourceName: `Synthetic folder ${index + 1}`,
+      sourceTable: `${key}_folder_${index === 0 ? "a" : "b"}`,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    })),
+  );
+  await db.insert(schema.contentDatabaseSourceRows).values(
+    (
+      [
+        [ids.disconnected, ids.relinked, "relinked.md"],
+        [ids.disconnected, ids.cleared, "cleared.md"],
+        [ids.remaining, ids.relinked, "from-b.md"],
+      ] as const
+    ).map(([sourceId, documentId, relativePath]) => ({
+      id: `${sourceId}_${documentId}`,
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: `${documentId}_item`,
+      documentId,
+      sourceRowId: relativePath,
+      sourceQualifiedId: `${sourceId}:${relativePath}`,
+      sourceDisplayKey: relativePath,
+      sourceValuesJson: JSON.stringify({ relativePath }),
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    })),
+  );
+  const rows: LockedRow[] = [
+    { label: "relinked page", kind: "page", id: ids.relinked },
+    { label: "cleared page", kind: "page", id: ids.cleared },
+  ];
+  const disconnect = () =>
+    asOwner(() => disconnectLocalFolder.run({ sourceId: ids.disconnected }));
+  return { ids, key, rows, disconnect };
+}
+
+/**
  * A Builder collection whose rows wait for their first body hydration.
  * Twenty rows or more take the bulk path, which reads the bodies from
  * Builder; fewer convert the queued entry's.
@@ -2186,6 +2290,27 @@ describe.skipIf(!POSTGRES_URL)(
           "child page",
         ]);
       });
+
+      it("local-folder disconnect", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedFolderDisconnect();
+          return { rows: seed.rows, run: seed.disconnect };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["relinked page", "cleared page"]);
+        const seed = await seedFolderDisconnect();
+        await seed.disconnect();
+        expect(await readPage(seed.ids.relinked)).toMatchObject({
+          sourceMode: "local-files",
+          sourcePath: "from-b.md",
+          sourceRootPath: `${seed.key}_folder_b`,
+        });
+        expect(await readPage(seed.ids.cleared)).toMatchObject({
+          sourceMode: "database",
+          sourcePath: null,
+          sourceRootPath: null,
+        });
+      });
     });
 
     describe("saves lock memberships before the page", () => {
@@ -2631,6 +2756,123 @@ describe.skipIf(!POSTGRES_URL)(
           };
         });
       }, 120_000);
+
+      it("disconnecting a folder against a sync of it that adds a page", async () => {
+        await runCycle(async () => {
+          const seed = await seedFolderDisconnect();
+          const added = `${seed.key}_p3`;
+          const folder = seed.ids.disconnected;
+          return {
+            // sync-local-folder-source: the folder's source, then its pages,
+            // a new file's page, and each file's source row.
+            first: (tx) =>
+              tx
+                .update(schema.contentDatabaseSources)
+                .set({ updatedAt: STAMP })
+                .where(eq(schema.contentDatabaseSources.id, folder)),
+            second: async (tx) => {
+              await lockDocumentRows(tx, [seed.ids.relinked, seed.ids.cleared]);
+              await tx.insert(schema.documents).values(
+                pageValues(added, null, "Added page", {
+                  spaceId: seed.ids.space,
+                  sourceMode: "local-files",
+                  sourceKind: "file",
+                  sourcePath: "added.md",
+                  sourceRootPath: `${seed.key}_folder_a`,
+                }),
+              );
+              await tx
+                .update(schema.contentDatabaseSourceRows)
+                .set({ updatedAt: STAMP })
+                .where(
+                  eq(
+                    schema.contentDatabaseSourceRows.id,
+                    `${folder}_${seed.ids.relinked}`,
+                  ),
+                );
+              await tx.insert(schema.contentDatabaseSourceRows).values({
+                id: `${folder}_${added}`,
+                ownerEmail: OWNER,
+                sourceId: folder,
+                databaseItemId: `${added}_item`,
+                documentId: added,
+                sourceRowId: "added.md",
+                sourceQualifiedId: `${folder}:added.md`,
+                sourceDisplayKey: "added.md",
+                sourceValuesJson: JSON.stringify({ relativePath: "added.md" }),
+                createdAt: STAMP,
+                updatedAt: STAMP,
+              });
+            },
+            run: async () => {
+              await seed.disconnect();
+              expect(await readPage(added)).toMatchObject({
+                sourceMode: "database",
+                sourcePath: null,
+                sourceRootPath: null,
+              });
+              expect(
+                await getDb()
+                  .select({ id: schema.contentDatabaseSourceRows.id })
+                  .from(schema.contentDatabaseSourceRows)
+                  .where(eq(schema.contentDatabaseSourceRows.sourceId, folder)),
+              ).toEqual([]);
+            },
+          };
+        });
+      }, 120_000);
+
+      it("resolving a folder conflict against a disconnect of the folder", async () => {
+        await runCycle(async () => {
+          const seed = await seedFolderDisconnect();
+          const folder = seed.ids.disconnected;
+          const changeSetId = `${seed.key}_conflict`;
+          await getDb()
+            .insert(schema.contentDatabaseSourceChangeSets)
+            .values({
+              id: changeSetId,
+              ownerEmail: OWNER,
+              sourceId: folder,
+              documentId: seed.ids.cleared,
+              summary: "Folder edit",
+              bodyChangeJson: JSON.stringify({ proposedHash: "folder-edit" }),
+              createdAt: STAMP,
+              updatedAt: STAMP,
+            });
+          return {
+            // disconnect-local-folder-source: the folder's source, then its
+            // change sets, source rows and the source itself.
+            first: (tx) =>
+              tx.execute(
+                sql`SELECT id FROM content_database_sources WHERE id = ${folder} FOR UPDATE`,
+              ),
+            second: async (tx) => {
+              await tx
+                .delete(schema.contentDatabaseSourceChangeSets)
+                .where(
+                  eq(schema.contentDatabaseSourceChangeSets.sourceId, folder),
+                );
+              await tx
+                .delete(schema.contentDatabaseSourceRows)
+                .where(eq(schema.contentDatabaseSourceRows.sourceId, folder));
+              await tx
+                .delete(schema.contentDatabaseSources)
+                .where(eq(schema.contentDatabaseSources.id, folder));
+            },
+            run: () =>
+              expect(
+                asOwner(() =>
+                  resolveLocalFolderConflict.run({
+                    changeSetId,
+                    decision: "keep_content",
+                  }),
+                ),
+              ).rejects.toMatchObject({
+                errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED",
+              }),
+          };
+        });
+      }, 120_000);
     });
 
     describe("Builder body hydration doesn't deadlock with a save that waits behind it", () => {
@@ -2719,6 +2961,65 @@ describe.skipIf(!POSTGRES_URL)(
           .from(schema.contentDatabaseItems)
           .where(eq(schema.contentDatabaseItems.documentId, seed.ids.page)),
       ).toEqual([{ id: membership }]);
+    });
+
+    it("keeps the link another folder's sync makes while an accepted file deletion waits for the page", async () => {
+      const seed = await seedFolderDisconnect();
+      const page = seed.ids.cleared;
+      const linking = seed.ids.remaining;
+      const changeSetId = `${seed.key}_deletion`;
+      await getDb()
+        .insert(schema.contentDatabaseSourceChangeSets)
+        .values({
+          id: changeSetId,
+          ownerEmail: OWNER,
+          sourceId: seed.ids.disconnected,
+          documentId: page,
+          summary: "Folder file deleted",
+          bodyChangeJson: JSON.stringify({ operation: "source_delete" }),
+          createdAt: STAMP,
+          updatedAt: STAMP,
+        });
+      const { action } = await raceAgainst(
+        // sync-local-folder-source of the other folder: the page, then the
+        // row that names it, then the link.
+        async (tx) => {
+          await lockDocumentRows(tx, [page]);
+          await tx.insert(schema.contentDatabaseSourceRows).values({
+            id: `${linking}_${page}`,
+            ownerEmail: OWNER,
+            sourceId: linking,
+            databaseItemId: `${page}_item`,
+            documentId: page,
+            sourceRowId: "moved.md",
+            sourceQualifiedId: `${linking}:moved.md`,
+            sourceDisplayKey: "moved.md",
+            sourceValuesJson: JSON.stringify({ relativePath: "moved.md" }),
+            createdAt: STAMP,
+            updatedAt: STAMP,
+          });
+          await tx
+            .update(schema.documents)
+            .set({
+              sourcePath: "moved.md",
+              sourceRootPath: `${seed.key}_folder_b`,
+            })
+            .where(eq(schema.documents.id, page));
+        },
+        () =>
+          asOwner(() =>
+            resolveLocalFolderConflict.run({
+              changeSetId,
+              decision: "accept_source",
+            }),
+          ),
+      );
+      await action;
+      expect(await readPage(page)).toMatchObject({
+        sourceMode: "local-files",
+        sourcePath: "moved.md",
+        sourceRootPath: `${seed.key}_folder_b`,
+      });
     });
 
     it.each([

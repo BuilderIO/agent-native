@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
-import type { KeyboardShortcutsInitialFocus } from "@/components/design/KeyboardShortcutsDialog";
 import { isShowKeyboardShortcutsHotkey } from "@/hooks/useDesignHotkeys";
 
 import {
@@ -150,7 +149,7 @@ export function useEditorModes({
   const {
     setRuntimeLayerSnapshotRequest,
     lastOverviewSelectedScreenIdsRef,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     drawMode,
     setDrawMode,
     pinMode,
@@ -208,8 +207,7 @@ export function useEditorModes({
     useState<InteractZoomChoice>(INTERACT_ZOOM_FIT);
   const interactZoom = resolveInteractZoom(interactZoomChoice, interactFitZoom);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
-  const [keyboardShortcutsInitialFocus, setKeyboardShortcutsInitialFocus] =
-    useState<KeyboardShortcutsInitialFocus>("search");
+  const [nudgeAmountOpen, setNudgeAmountOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
@@ -853,20 +851,24 @@ export function useEditorModes({
     viewMode,
   ]);
 
-  const handleShowKeyboardShortcutsFromMenu = useCallback(
-    (initialFocus: KeyboardShortcutsInitialFocus) => {
-      keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
-      suppressProjectMenuReturnFocusRef.current = true;
-      setMinimalUi(false);
-      setUiHidden(false);
-      setKeyboardShortcutsInitialFocus(initialFocus);
-      setKeyboardShortcutsOpen(true);
-    },
-    [],
-  );
+  const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
+    keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
+    suppressProjectMenuReturnFocusRef.current = true;
+    setMinimalUi(false);
+    setUiHidden(false);
+    setKeyboardShortcutsOpen(true);
+  }, []);
 
-  const handleCloseKeyboardShortcuts = useCallback(() => {
-    setKeyboardShortcutsOpen(false);
+  const handleShowNudgeAmountFromMenu = useCallback(() => {
+    keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
+    suppressProjectMenuReturnFocusRef.current = true;
+    setMinimalUi(false);
+    setUiHidden(false);
+    setNudgeAmountOpen(true);
+  }, []);
+
+  // Shared: the shortcuts and nudge dialogs are never open together.
+  const restoreDialogReturnFocus = useCallback(() => {
     const returnFocusTarget = keyboardShortcutsReturnFocusRef.current;
     keyboardShortcutsReturnFocusRef.current = null;
     window.requestAnimationFrame(() => {
@@ -876,19 +878,29 @@ export function useEditorModes({
     });
   }, []);
 
+  const handleCloseNudgeAmount = useCallback(() => {
+    setNudgeAmountOpen(false);
+    restoreDialogReturnFocus();
+  }, [restoreDialogReturnFocus]);
+
+  const handleCloseKeyboardShortcuts = useCallback(() => {
+    setKeyboardShortcutsOpen(false);
+    restoreDialogReturnFocus();
+  }, [restoreDialogReturnFocus]);
+
   const handleToggleKeyboardShortcuts = useCallback(() => {
     if (keyboardShortcutsOpen) {
       handleCloseKeyboardShortcuts();
       return;
     }
+    if (nudgeAmountOpen) return;
     const activeElement = document.activeElement;
     keyboardShortcutsReturnFocusRef.current =
       activeElement instanceof HTMLElement ? activeElement : null;
     setMinimalUi(false);
     setUiHidden(false);
-    setKeyboardShortcutsInitialFocus("search");
     setKeyboardShortcutsOpen(true);
-  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
+  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen, nudgeAmountOpen]);
 
   useEffect(() => {
     if (embedded) return;
@@ -908,7 +920,7 @@ export function useEditorModes({
   }, [embedded, handleToggleKeyboardShortcuts]);
 
   const handleEscapeHotkey = useCallback(() => {
-    recordSelectionHistoryAroundChange(() =>
+    applySelectionChange(() =>
       runEscapeHotkey({
         activeBreakpointWidthStateRef,
         activeTool,
@@ -959,7 +971,7 @@ export function useEditorModes({
     mode,
     overviewAnnotationSending,
     pinMode,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     selectedElement,
     selectedLayerIdsState,
     setCreatedOverviewLayerSelection,
@@ -1262,7 +1274,7 @@ export function useEditorModes({
     interactZoomChoice,
     handleInteractZoomChange: setInteractZoomChoice,
     keyboardShortcutsOpen,
-    keyboardShortcutsInitialFocus,
+    nudgeAmountOpen,
     projectMenuTriggerRef,
     suppressProjectMenuReturnFocusRef,
     overviewCommentPinRequest,
@@ -1282,6 +1294,8 @@ export function useEditorModes({
     handleOverviewCommentPin,
     handlePinToolToggle,
     handleShowKeyboardShortcutsFromMenu,
+    handleShowNudgeAmountFromMenu,
+    handleCloseNudgeAmount,
     handleCloseKeyboardShortcuts,
     handleToggleKeyboardShortcuts,
     handleEscapeHotkey,

@@ -29,8 +29,7 @@ type Commit = import("./live-copy.js").LiveCopyCommit;
 
 let taskSource: BoundedTaskSource;
 let pglite: Pglite;
-let exec: DbExec;
-let scoped: DbExec | undefined;
+let testDatabase: { pglite: Pglite; exec: DbExec; scoped?: DbExec };
 const dbScope = new AsyncLocalStorage<DbExec>();
 let manager: Manager;
 let live: LiveCopyModule;
@@ -57,8 +56,8 @@ function pgliteExec(db: Pglite): DbExec {
   } as DbExec;
 }
 
-async function row(docId: string) {
-  return (await pglite
+async function row(docId: string, db = testDatabase.pglite) {
+  return (await db
     .prepare(
       "SELECT yjs_state, text_snapshot, version FROM _collab_docs WHERE doc_id = ?",
     )
@@ -67,8 +66,13 @@ async function row(docId: string) {
     | undefined;
 }
 
-async function insertRow(docId: string, state: string, version = 0) {
-  await pglite
+async function insertRow(
+  docId: string,
+  state: string,
+  version = 0,
+  db = testDatabase.pglite,
+) {
+  await db
     .prepare(
       "INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version) VALUES (?, ?, '', ?)",
     )
@@ -171,13 +175,18 @@ beforeEach(async () => {
     );
     CREATE TABLE bodies (doc_id TEXT PRIMARY KEY, body TEXT NOT NULL, version INTEGER NOT NULL);
   `);
-  exec = pgliteExec(pglite);
+  // A late worker callback must stay bound to this test's database.
+  const database = {
+    pglite,
+    exec: pgliteExec(pglite),
+    scoped: undefined as DbExec | undefined,
+  };
+  testDatabase = database;
   emitted = [];
   vi.resetModules();
-  scoped = undefined;
   vi.doMock("../db/client.js", () => ({
-    getDbExec: () => dbScope.getStore() ?? scoped ?? exec,
-    getScopedDbExec: () => dbScope.getStore() ?? scoped,
+    getDbExec: () => dbScope.getStore() ?? database.scoped ?? database.exec,
+    getScopedDbExec: () => dbScope.getStore() ?? database.scoped,
     withDbExec: <T>(db: DbExec, run: () => T) => dbScope.run(db, run),
     insideDbTransactionCallback: () => false,
   }));
@@ -829,6 +838,7 @@ describe("mutateLiveCopy", () => {
   });
 
   it("re-runs the edit on fresh state after a version conflict", async () => {
+    const database = testDatabase;
     let peerWrites = 0;
     let seededState = new Uint8Array(0);
     const binding = define({
@@ -841,7 +851,7 @@ describe("mutateLiveCopy", () => {
         const merged = Y.mergeUpdates([seededState, peer]);
         expect(
           await trySaveYDocStateWithClient(
-            exec,
+            database.exec,
             "live:doc",
             merged,
             "base\npeer",
@@ -867,6 +877,7 @@ describe("mutateLiveCopy", () => {
   });
 
   it("runs persist in the caller's async context on the commit's transaction, retries included", async () => {
+    const database = testDatabase;
     const { getDbExec } = await import("../db/client.js");
     const cause = new AsyncLocalStorage<string>();
     const seen: Array<{ cause?: string; origin: string; onTx: boolean }> = [];
@@ -879,7 +890,7 @@ describe("mutateLiveCopy", () => {
         const { trySaveYDocStateWithClient } = await import("./storage.js");
         const peer = clientEdit(seededState, appendParagraph("peer"));
         await trySaveYDocStateWithClient(
-          exec,
+          database.exec,
           "live:doc",
           Y.mergeUpdates([seededState, peer]),
           "base\npeer",
@@ -921,10 +932,11 @@ describe("mutateLiveCopy", () => {
   });
 
   it("gives up with a version conflict after maxAttempts", async () => {
+    const database = testDatabase;
     const binding = define({
       runner: intercepted(async (task) => {
         if (task !== "liveCopy.edit") return;
-        await pglite
+        await database.pglite
           .prepare(
             "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
           )
@@ -944,6 +956,7 @@ describe("mutateLiveCopy", () => {
   });
 
   it("commits a call's own rows with its edit, or neither", async () => {
+    const database = testDatabase;
     const order: string[] = [];
     let peerWrites = 0;
     let seededState = new Uint8Array(0);
@@ -954,7 +967,7 @@ describe("mutateLiveCopy", () => {
         const { trySaveYDocStateWithClient } = await import("./storage.js");
         const peer = clientEdit(seededState, appendParagraph("peer"));
         await trySaveYDocStateWithClient(
-          exec,
+          database.exec,
           "live:doc",
           Y.mergeUpdates([seededState, peer]),
           "base\npeer",
@@ -1035,12 +1048,13 @@ describe("mutateLiveCopy", () => {
   });
 
   it("redoes an unchanged edit's own rows when the copy moved under it", async () => {
+    const database = testDatabase;
     let bumped = false;
     const binding = define({
       runner: intercepted(async (task) => {
         if (task !== "liveCopy.edit" || bumped) return;
         bumped = true;
-        await pglite
+        await database.pglite
           .prepare(
             "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
           )
@@ -1067,6 +1081,7 @@ describe("mutateLiveCopy", () => {
   });
 
   it("stops a stale attempt before a call's persist sees a peer's rows", async () => {
+    const database = testDatabase;
     let peer: (() => Promise<void>) | undefined;
     const binding = define({
       runner: intercepted(async (task) => {
@@ -1088,7 +1103,7 @@ describe("mutateLiveCopy", () => {
       const { trySaveYDocStateWithClient } = await import("./storage.js");
       const update = clientEdit(seeded.state, appendParagraph("peer"));
       await trySaveYDocStateWithClient(
-        exec,
+        database.exec,
         "live:doc",
         Y.mergeUpdates([seeded.state, update]),
         "base\npeer",
@@ -1113,7 +1128,7 @@ describe("mutateLiveCopy", () => {
     // check after it redoes the edit.
     const decided: number[] = [];
     peer = async () => {
-      await pglite
+      await database.pglite
         .prepare(
           "UPDATE _collab_docs SET version = version + 1 WHERE doc_id = ?",
         )
@@ -1421,8 +1436,8 @@ describe("mutateLiveCopy", () => {
     // Replaces the binding while the matching statement runs, after the
     // persist hooks are done.
     let replaceDuring: RegExp | undefined;
-    const plain = exec;
-    exec = {
+    const plain = testDatabase.exec;
+    testDatabase.exec = {
       ...plain,
       transaction: (fn) =>
         plain.transaction!((tx) =>
@@ -1566,17 +1581,23 @@ describe("mutateLiveCopy", () => {
   });
 
   it("keeps a row recreated at the same version while an edit runs", async () => {
+    const database = testDatabase;
     let recreate = false;
     const binding = define({
       runner: intercepted(async (task) => {
         if (task !== "liveCopy.edit" || !recreate) return;
         recreate = false;
-        await pglite
+        await database.pglite
           .prepare("DELETE FROM _collab_docs WHERE doc_id = ?")
           .run("live:doc");
         const recreated = new Y.Doc();
         appendParagraph("new")(recreated);
-        await insertRow("live:doc", base64(Y.encodeStateAsUpdate(recreated)));
+        await insertRow(
+          "live:doc",
+          base64(Y.encodeStateAsUpdate(recreated)),
+          0,
+          database.pglite,
+        );
         recreated.destroy();
       }),
     });
@@ -1598,11 +1619,13 @@ describe("mutateLiveCopy", () => {
     await manager.seedLiveCopy(binding, "live:doc", { source: "base" });
     // The commit lands but its acknowledgement is lost; the caller learns
     // of a failure and must not get the edit applied twice.
-    const transaction = exec.transaction!.bind(exec);
+    const transaction = testDatabase.exec.transaction!.bind(testDatabase.exec);
     const lost = new Error("lost COMMIT acknowledgement");
-    exec.transaction = (async (write: (tx: DbExec) => Promise<void>) => {
+    testDatabase.exec.transaction = (async (
+      write: (tx: DbExec) => Promise<void>,
+    ) => {
       await transaction(write);
-      exec.transaction = transaction;
+      testDatabase.exec.transaction = transaction;
       throw lost;
     }) as DbExec["transaction"];
     await expect(
@@ -1655,7 +1678,7 @@ describe("mutateLiveCopy", () => {
     });
     const update = clientEdit(seeded.state, appendParagraph("two"));
     await pglite.transaction(async (tx) => {
-      scoped = tx;
+      testDatabase.scoped = tx;
       try {
         for (const write of [
           () =>
@@ -1672,7 +1695,7 @@ describe("mutateLiveCopy", () => {
           });
         }
       } finally {
-        scoped = undefined;
+        testDatabase.scoped = undefined;
       }
     });
     expect(await row("live:doc")).toMatchObject({
@@ -1926,8 +1949,8 @@ describe("other collab paths", () => {
       source: "a",
     });
     const stateReads: string[] = [];
-    const execute = exec.execute.bind(exec);
-    exec.execute = async (input) => {
+    const execute = testDatabase.exec.execute.bind(testDatabase.exec);
+    testDatabase.exec.execute = async (input) => {
       const sql = typeof input === "string" ? input : input.sql;
       if (/(SELECT|END AS) yjs_state/i.test(sql)) stateReads.push(sql);
       return execute(input);

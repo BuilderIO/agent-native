@@ -223,6 +223,7 @@ export function aiModelSources(
 }
 
 export type StorageSource =
+  | { kind: "unknown" }
   | {
       kind: "bucket";
       provider: NonNullable<FileStorageStatus["provider"]>;
@@ -232,6 +233,7 @@ export type StorageSource =
   | { kind: "none" };
 
 export function storageSource(status: FileStorageStatus): StorageSource {
+  if (status.activeProviderUnavailable) return { kind: "unknown" };
   if (status.configured && status.bucket) {
     return {
       kind: "bucket",

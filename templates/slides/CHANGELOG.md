@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-23
+
+### Fixed
+
+- The agent keeps going after a slide edit that would change nothing, instead of stopping the run with an error.
+- The agent retries a slide edit whose text it could not find instead of stopping the run with an error.
+
 ## 2026-10-21
 
 ### Fixed
