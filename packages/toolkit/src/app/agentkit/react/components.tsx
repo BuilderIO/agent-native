@@ -2599,11 +2599,13 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     ) {
       return null;
     }
+    // With no steps, the run's details (cost, model) are what it opens to.
     return (
       <AgentWorkDisclosure
         label={workedSummaryLabel(durationMs, labels, formatDuration)}
         icon={<IconClock aria-hidden="true" className="agentkit-icon" />}
-        expandable={false}
+        expandable={runId !== undefined}
+        {...(runId === undefined ? {} : { runId })}
         {...(messageId === undefined ? {} : { messageId })}
       >
         {null}

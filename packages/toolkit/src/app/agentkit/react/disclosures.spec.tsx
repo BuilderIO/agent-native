@@ -906,7 +906,10 @@ describe("work before a message sent into the running turn", () => {
 });
 
 describe("a turn that only answered", () => {
-  const reply = answer([{ type: "text", text: "Answer." }]);
+  const reply: AgentMessage = {
+    ...answer([{ type: "text", text: "Answer." }]),
+    metadata: { model: "claude-sonnet-5-5" },
+  };
   // Production runs report this before the model answers; it is not work.
   const startingAgent = {
     type: "activity.started" as const,
@@ -943,7 +946,7 @@ describe("a turn that only answered", () => {
     );
   }
 
-  it("shows a plain Worked for row under its reply", async () => {
+  it("shows a Worked for row under its reply that opens to the run details", async () => {
     for (const work of [[startingAgent], []]) {
       const container = await renderThread(
         [user, reply],
@@ -957,10 +960,17 @@ describe("a turn that only answered", () => {
       expect(
         row.querySelector(".agentkit-activities-summary")?.textContent,
       ).toBe("Worked for 4s");
-      expect(row.dataset.expandable).toBe("false");
-      expect(row.querySelector("button")).toBeNull();
-      expect(row.querySelector(".agentkit-disclosure-chevron")).toBeNull();
       expect(row.closest(".agentkit-message-actions")).not.toBeNull();
+      const trigger = row.querySelector<HTMLElement>(
+        ".agentkit-disclosure-summary",
+      );
+      expectSharedSummary(trigger);
+      await click(trigger);
+      expect(row.dataset.open).toBe("true");
+      expect(row.querySelector(".agentkit-run-details")?.textContent).toContain(
+        "claude-sonnet-5-5",
+      );
+      expect(row.querySelector(".agentkit-work-steps")).toBeNull();
     }
   });
 

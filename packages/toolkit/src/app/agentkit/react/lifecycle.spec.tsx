@@ -1157,7 +1157,7 @@ describe("AgentChat lifecycle", () => {
       ".agentkit-activities",
     );
     expect(settled).toHaveLength(1);
-    expect(settled[0]?.dataset.expandable).toBe("false");
+    expect(settled[0]?.dataset.expandable).toBe("true");
     expect(settled[0]?.textContent).toBe("Worked for 4s");
     expect(
       tree.container
