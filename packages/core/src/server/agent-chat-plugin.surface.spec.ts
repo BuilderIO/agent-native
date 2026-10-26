@@ -768,7 +768,10 @@ describe("interactive agent run options — wiring guards", () => {
     });
 
     expect(source).toMatch(
-      /if \(isBackgroundWorker\) \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\}/,
+      /if \(isBackgroundWorker\) \{\s*try \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\} finally \{\s*stopBackgroundSetupHeartbeat\?\.\(\);\s*\}\s*\}/,
+    );
+    expect(source).toContain(
+      "void startedRun.livenessReady.then(() => stopBackgroundSetupHeartbeat?.());",
     );
     expect(source).not.toContain("backgroundRunDone");
   });
@@ -1259,6 +1262,17 @@ describe("render-data-widget framework action", () => {
     await expect(
       entry.run({
         widget: "data-chart",
+        display: {
+          actions: [
+            {
+              type: "link",
+              label: "Download image",
+              href: "/reports/1/image",
+              icon: "camera",
+              presentation: "icon",
+            },
+          ],
+        },
         chartSeries: {
           type: "bar",
           title: "Responses by day",
@@ -1270,6 +1284,16 @@ describe("render-data-widget framework action", () => {
           axisTitleFontWeight: 500,
           valueLabelFontSize: 11,
           valueLabelFontWeight: 400,
+          valueAxisTickInterval: 0.2,
+          horizontalCategoryGapRatio: 0.08,
+          actions: [
+            {
+              label: "Download image",
+              href: "/reports/1/image",
+              icon: "camera",
+              presentation: "icon",
+            },
+          ],
           xKey: "day",
           series: [{ key: "responses", label: "Responses" }],
           data: [{ day: "Mon", responses: 8 }],
@@ -1277,6 +1301,9 @@ describe("render-data-widget framework action", () => {
       }),
     ).resolves.toMatchObject({
       widget: "data-chart",
+      display: {
+        actions: [{ presentation: "icon", icon: "camera" }],
+      },
       chartSeries: {
         title: "Responses by day",
         contentHeight: 400,
@@ -1287,6 +1314,9 @@ describe("render-data-widget framework action", () => {
         axisTitleFontWeight: 500,
         valueLabelFontSize: 11,
         valueLabelFontWeight: 400,
+        valueAxisTickInterval: 0.2,
+        horizontalCategoryGapRatio: 0.08,
+        actions: [{ presentation: "icon", icon: "camera" }],
       },
     });
 
@@ -1311,6 +1341,39 @@ describe("render-data-widget framework action", () => {
           maximum: 24,
         }),
         valueLabelFontWeight: expect.objectContaining({ enum: [400, 500] }),
+        valueAxisTickInterval: expect.objectContaining({ type: "number" }),
+        horizontalCategoryGapRatio: expect.objectContaining({
+          type: "number",
+          minimum: 0,
+          maximum: 0.9,
+        }),
+        actions: expect.objectContaining({
+          type: "array",
+          items: expect.objectContaining({
+            properties: expect.objectContaining({
+              presentation: expect.objectContaining({ enum: ["icon"] }),
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(toolProperties?.display?.properties?.actions).toEqual(
+      expect.objectContaining({
+        type: "array",
+        items: expect.objectContaining({
+          oneOf: expect.arrayContaining([
+            expect.objectContaining({
+              properties: expect.objectContaining({
+                presentation: expect.objectContaining({ enum: ["icon"] }),
+              }),
+              required: expect.arrayContaining(["href"]),
+            }),
+            expect.objectContaining({
+              properties: expect.objectContaining({ text: { type: "string" } }),
+              required: expect.arrayContaining(["text"]),
+            }),
+          ]),
+        }),
       }),
     );
 

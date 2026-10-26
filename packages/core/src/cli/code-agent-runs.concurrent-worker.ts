@@ -6,9 +6,12 @@ import {
 import { appendMultiFrontierParticipantEvent } from "./multi-frontier-runs.js";
 
 const [operation, runId, value] = process.argv.slice(2);
+if (runId === undefined || value === undefined) {
+  throw new Error("Usage: <operation> <run id> <value>");
+}
 
 if (operation === "code-update") {
-  updateCodeAgentRunRecord(runId, (record) => ({
+  updateCodeAgentRunRecord(runId, () => ({
     metadata: { [value]: true },
   }));
 } else if (operation === "code-event") {

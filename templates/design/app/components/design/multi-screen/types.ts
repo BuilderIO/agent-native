@@ -225,6 +225,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
+  onRenameScreen?: (id: string, name: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;

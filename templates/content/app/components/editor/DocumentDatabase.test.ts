@@ -12,7 +12,8 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
-import { describe, expect, it } from "vitest";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DATABASE_NAVIGATION_STATE_MAX_BYTES,
@@ -1671,6 +1672,101 @@ describe("new database item defaults", () => {
     ).toEqual({});
   });
 
+  describe("with filter groups", () => {
+    const groupProperties = [
+      property("status", "Status", "select"),
+      property("done", "Done", "checkbox"),
+      property("pillars", "Pillars", "multi_select"),
+    ];
+    const status: DatabaseFilter = {
+      key: "status",
+      label: "Status",
+      operator: "equals",
+      value: "published",
+    };
+    const done: DatabaseFilter = {
+      key: "done",
+      label: "Done",
+      operator: "is_checked",
+      value: "",
+    };
+    const pillars: DatabaseFilter = {
+      key: "pillars",
+      label: "Pillars",
+      operator: "contains",
+      value: "design",
+    };
+
+    it("seeds the rules every row in an And view must match", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            status,
+            { ...done, filterGroupId: "advanced", filterGroupMode: "or" },
+            { ...pillars, filterGroupId: "advanced", filterGroupMode: "or" },
+          ],
+          groupProperties,
+          "and",
+        ),
+      ).toEqual({ status: "published" });
+    });
+
+    it("skips a nested group that combines several rules with Or", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            { ...status, filterGroupId: "advanced", filterGroupMode: "and" },
+            {
+              ...done,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+            {
+              ...pillars,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+          ],
+          groupProperties,
+          "and",
+        ),
+      ).toEqual({ status: "published" });
+    });
+
+    it("seeds through an Any view whose only member is an And group", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            { ...status, filterGroupId: "advanced", filterGroupMode: "and" },
+            { ...done, filterGroupId: "advanced", filterGroupMode: "and" },
+            {
+              ...pillars,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+            // Inactive, so the nested group still has one member.
+            {
+              ...status,
+              value: "",
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+          ],
+          groupProperties,
+          "or",
+        ),
+      ).toEqual({ status: "published", done: true, pillars: ["design"] });
+    });
+  });
+
   it("ignores filters that cannot safely become default row values", () => {
     const createdProperty = {
       ...property("created", "Created", "created_time"),
@@ -1702,6 +1798,55 @@ describe("new database item defaults", () => {
         [property("status", "Status", "select"), createdProperty],
       ),
     ).toEqual({});
+  });
+
+  it("seeds the day a relative date filter names and nothing for ranges", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 23, 30));
+      const dueProperty = property("due", "Due", "date");
+      const titleProperty = property("summary", "Summary", "text");
+      const due = (
+        operator: DatabaseFilter["operator"],
+        value: string,
+      ): DatabaseFilter => ({ key: "due", label: "Due", operator, value });
+
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "today")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-22", includeTime: false } });
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "tomorrow")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-23", includeTime: false } });
+      for (const filter of [
+        due("on_or_before", "today"),
+        due("on_or_after", "2026-10-22"),
+        due("is_within", "next_7_days"),
+      ]) {
+        expect(
+          databasePropertyValuesForNewItem([filter], [dueProperty]),
+        ).toEqual({});
+      }
+      for (const operator of [
+        "does_not_contain",
+        "starts_with",
+        "ends_with",
+      ] as const) {
+        expect(
+          databasePropertyValuesForNewItem(
+            [{ key: "summary", label: "Summary", operator, value: "Draft" }],
+            [titleProperty],
+          ),
+        ).toEqual({});
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2310,23 +2455,33 @@ describe("database item preview", () => {
 
   it("finds the duplicated row returned by a duplicate database item action", () => {
     const alpha = item("alpha", "Alpha", {});
-    const beta = item("beta", "Beta", {});
+    const beta = item("beta", "Beta", { number: 2 });
 
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
         duplicatedItemId: beta.id,
       })?.document.title,
     ).toBe("Beta");
     expect(
       databaseDuplicatedItemFromResponse({
+        items: compactContentDatabaseItems([alpha, beta]),
+        properties,
+        duplicatedItemId: beta.id,
+      }),
+    ).toEqual(beta);
+    expect(
+      databaseDuplicatedItemFromResponse({
         items: [alpha],
+        properties,
         duplicatedItemId: "missing",
       }),
     ).toBeNull();
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
       }),
     ).toBeNull();
   });

@@ -1,6 +1,8 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 
+import type { EffectDocument } from "../../../../shared/native-effects";
+import { planNativeInputResources } from "../../../../shared/native-input-resources";
 import { parseSrcset } from "./private-replay-screenshot-preview";
 
 const READY = "native-public-asset-ready";
@@ -55,6 +57,7 @@ function imageUrl(raw: string, base: URL): string | null {
 export function prepareNativePublicAssetPreviewDocument(
   html: string,
   baseHref: string,
+  manifest?: EffectDocument,
 ): NativePublicAssetPreviewDocument {
   const parentBase = new URL(baseHref);
   if (parentBase.protocol !== "http:" && parentBase.protocol !== "https:")
@@ -142,6 +145,30 @@ export function prepareNativePublicAssetPreviewDocument(
     if ("childNodes" in node) for (const child of node.childNodes) visit(child);
   };
   visit(documentNode);
+  const definitions = new Map(
+    manifest?.definitions.map((definition) => [
+      `${definition.id}@${definition.version}`,
+      definition,
+    ]) ?? [],
+  );
+  for (const instance of manifest?.instances ?? []) {
+    const definition = definitions.get(
+      `${instance.definitionId}@${instance.definitionVersion}`,
+    );
+    if (!definition)
+      throw new NativePublicAssetPreviewError(
+        "source-public-asset-definition-missing",
+        "The public effect definition is unavailable.",
+      );
+    const plan = planNativeInputResources(definition, instance);
+    if (!plan.ok)
+      throw new NativePublicAssetPreviewError(
+        "source-public-asset-input-invalid",
+        "The public effect inputs could not be resolved.",
+      );
+    for (const input of plan.inputs.values())
+      if (input.kind === "asset") add(input.url);
+  }
   if (!urls.size)
     return { html, urls: [], origin: parentBase.origin, nonce: null };
   const nonce = crypto.randomUUID();

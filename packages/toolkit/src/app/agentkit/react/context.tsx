@@ -1,7 +1,10 @@
 import {
+  hasActiveAgentRuns,
   selectActiveAgentRoster,
   type AgentKitController,
   type AgentKitSnapshot,
+  type AgentKitSteerQueuedMessageOptions,
+  type AgentThreadState,
   type SendMessageInput,
 } from "@agent-native/agentkit/client";
 import type {
@@ -43,7 +46,18 @@ import {
   type ReactNode,
 } from "react";
 
+import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
+import {
+  AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
+  agentKitClientRequestId,
+  agentKitPendingSubmissions,
+  visiblePendingSubmissions,
+  type AgentKitPendingSubmission,
+  type AgentKitPendingSubmissionDraft,
+} from "./pending-submissions.js";
+import { withAgentKitQueueErrorCopy } from "./queue-error-copy.js";
+import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
 export interface AgentKitRenderProps<T> {
   value: T;
@@ -87,6 +101,7 @@ export interface AgentKitWorkedForSummaryRenderProps {
   expandable: boolean;
   open: boolean;
   current?: ReactNode;
+  layout?: AgentChatWorkedForRowLayout;
 }
 
 export interface AgentConnectionErrorRenderProps {
@@ -95,6 +110,8 @@ export interface AgentConnectionErrorRenderProps {
   recover: () => Promise<unknown>;
   recovering: boolean;
   recoveryError?: Error;
+  /** Hides this error until the connection fails again. */
+  dismiss: () => void;
 }
 
 export type AgentKitRenderSurface =
@@ -160,6 +177,8 @@ export interface AgentKitSlots {
   runFailure?: ComponentType<AgentRunFailureRenderProps>;
   connectionError?: ComponentType<AgentConnectionErrorRenderProps>;
   emptyState?: ComponentType<{ threadId: ThreadId }>;
+  /** Replaces the region shown when a thread the host expected to exist is missing. */
+  threadUnavailable?: ComponentType<{ threadId: ThreadId }>;
   composer?: ComponentType<{ threadId: ThreadId }>;
   queue?: ComponentType<AgentKitQueueRenderProps>;
   suggestions?: ComponentType<AgentKitSuggestionsRenderProps>;
@@ -202,6 +221,8 @@ export interface AgentKitLabels {
   approvalSubmit: string;
   approvalOther: string;
   approvalOtherPlaceholder: string;
+  approvalPending: string;
+  approvalAnswerPending: string;
   connectionConnect: string;
   connectionConnecting: string;
   connectionConnected: string;
@@ -220,6 +241,36 @@ export interface AgentKitLabels {
   workingFor: string;
   worked: string;
   workedFor: string;
+  showMoreActivities: string;
+  /** Work-step copy. One/Other pairs take {{count}}; pick by count === 1. */
+  showMoreWorkStepsOne: string;
+  showMoreWorkStepsOther: string;
+  workStepMoreGroups: string;
+  workStepMoreObjects: string;
+  workStepSearchedOne: string;
+  workStepSearchedOther: string;
+  workStepReadPagesOne: string;
+  workStepReadPagesOther: string;
+  workStepFetchedOne: string;
+  workStepFetchedOther: string;
+  workStepReadFilesOne: string;
+  workStepReadFilesOther: string;
+  workStepEditedOne: string;
+  workStepEditedOther: string;
+  workStepRanCommandsOne: string;
+  workStepRanCommandsOther: string;
+  workStepRanActionsOne: string;
+  workStepRanActionsOther: string;
+  /** Takes {{tool}}, the tool's display name. */
+  workStepUsedTool: string;
+  workStepFailedCount: string;
+  workStepSearching: string;
+  workStepReadingPages: string;
+  workStepFetching: string;
+  workStepReadingFiles: string;
+  workStepEditing: string;
+  workStepRunningCommands: string;
+  workStepRunningActions: string;
   durationHourShort: string;
   durationMinuteShort: string;
   durationSecondShort: string;
@@ -232,6 +283,10 @@ export interface AgentKitLabels {
   activityValueCircular?: string;
   composerLabel: string;
   composerPlaceholder: string;
+  /** Placeholder once the thread has messages. */
+  composerReplyPlaceholder?: string;
+  /** Greeting the default empty state shows before the first message. */
+  emptyStateText: string;
   queue: string;
   /** @deprecated Use queueSendNow. */
   queueSteer: string;
@@ -243,9 +298,13 @@ export interface AgentKitLabels {
   queueSendNowHint?: string;
   queueSendNext?: string;
   queueSendNextHint?: string;
+  queueItemBusy?: string;
+  queueItemBlocked?: string;
+  queueOrderStale?: string;
   queueRemove: string;
   queueMore: string;
   suggestions: string;
+  suggestedActions: string;
   copy: string;
   copied: string;
   messageActions: string;
@@ -262,6 +321,16 @@ export interface AgentKitLabels {
   usageEstimatedBuilderCredits: string;
   usageMixedBuilderCredits: string;
   requestIdUnavailable: string;
+  runDetails: string;
+  runCreditsUsed: string;
+  runCost: string;
+  runToolCalls: string;
+  runModel: string;
+  runDetailUnavailable: string;
+  runDetailNotRecorded: string;
+  runDetailIncomplete: string;
+  runDetailEstimated: string;
+  runDetailMixed: string;
   positiveFeedback: string;
   negativeFeedback: string;
   feedbackSubmitted: string;
@@ -274,6 +343,14 @@ export interface AgentKitLabels {
   feedbackReasonWrongNumbers: string;
   feedbackReasonTooSlow: string;
   feedbackCopyDetails: string;
+  feedback: string;
+  feedbackGood: string;
+  feedbackBad: string;
+  rateResponse: string;
+  forkFromHere: string;
+  feedbackNote: string;
+  moreMessageActions: string;
+  fewerMessageActions: string;
   fork: string;
   previousBranch: string;
   nextBranch: string;
@@ -282,6 +359,8 @@ export interface AgentKitLabels {
   messageUnavailable: string;
   navigationUnavailable: string;
   editMessage: string;
+  editingMessage: string;
+  editingMessageHint: string;
   cancelEditing: string;
   regenerateResponse: string;
   expandMessage: string;
@@ -301,6 +380,8 @@ export interface AgentKitLabels {
   continueRun: string;
   continueRunUnavailable: string;
   reconnect: string;
+  /** Dismiss button on a composer notice. */
+  dismissNotice: string;
   reasoning: string;
   expandActivity: string;
   collapseActivity: string;
@@ -312,9 +393,38 @@ export interface AgentKitLabels {
   agentCompleted: string;
   agentFailed: string;
   agentClosed: string;
+  stop: string;
+  copyCode: string;
+  codeCopied: string;
+  codeBlock: string;
+  codeBlockLanguage: string;
+  table: string;
+  runStopped: string;
+  responseReady: string;
+  responseFailed: string;
+  waitingForApproval: string;
+  waitingForInput: string;
+  workSummaryFailedCount: string;
+  taskStatusPending: string;
+  taskStatusRunning: string;
+  taskStatusCompleted: string;
+  taskStatusFailed: string;
+  taskStatusAwaitingInput: string;
+  untitledTask: string;
+  connectionConnectProvider: string;
+  connectionDeclined: string;
+  connectionAdminRequiredTitle: string;
+  branchPositionLabel: string;
+  taskListChecked: string;
+  taskListUnchecked: string;
+  threadUnavailable: string;
+  threadLoadFailed: string;
+  threadLoadRetry: string;
+  newChat: string;
+  loadingConversation: string;
 }
 
-export const defaultAgentKitLabels: AgentKitLabels = {
+export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   conversation: "Agent conversation",
   assistant: "Assistant",
   you: "You",
@@ -323,6 +433,8 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   approvalSubmit: "Submit",
   approvalOther: "Other",
   approvalOtherPlaceholder: "Type your answer",
+  approvalPending: "Approval needed",
+  approvalAnswerPending: "Answer needed",
   connectionConnect: "Connect",
   connectionConnecting: "Connecting…",
   connectionConnected: "Connected",
@@ -341,6 +453,34 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   workingFor: "Working for {{duration}}",
   worked: "Worked",
   workedFor: "Worked for {{duration}}",
+  showMoreActivities: "Show {{count}} more",
+  showMoreWorkStepsOne: "Show 1 more step",
+  showMoreWorkStepsOther: "Show {{count}} more steps",
+  workStepMoreGroups: "+{{count}} more",
+  workStepMoreObjects: "+{{count}}",
+  workStepSearchedOne: "Searched 1 query",
+  workStepSearchedOther: "Searched {{count}} queries",
+  workStepReadPagesOne: "Read 1 page",
+  workStepReadPagesOther: "Read {{count}} pages",
+  workStepFetchedOne: "Fetched 1 URL",
+  workStepFetchedOther: "Fetched {{count}} URLs",
+  workStepReadFilesOne: "Read 1 file",
+  workStepReadFilesOther: "Read {{count}} files",
+  workStepEditedOne: "Edited 1 file",
+  workStepEditedOther: "Edited {{count}} files",
+  workStepRanCommandsOne: "Ran 1 command",
+  workStepRanCommandsOther: "Ran {{count}} commands",
+  workStepRanActionsOne: "Ran 1 action",
+  workStepRanActionsOther: "Ran {{count}} actions",
+  workStepUsedTool: "Used {{tool}}",
+  workStepFailedCount: "{{count}} failed",
+  workStepSearching: "Searching",
+  workStepReadingPages: "Reading pages",
+  workStepFetching: "Fetching URLs",
+  workStepReadingFiles: "Reading files",
+  workStepEditing: "Editing files",
+  workStepRunningCommands: "Running commands",
+  workStepRunningActions: "Running actions",
   durationHourShort: "h",
   durationMinuteShort: "m",
   durationSecondShort: "s",
@@ -352,18 +492,25 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   activityValueOmitted: "[Content omitted]",
   activityValueCircular: "[Circular reference]",
   composerLabel: "Message agent",
-  composerPlaceholder: "Ask the agent to explore, build, or explain…",
+  composerPlaceholder: "Ask anything",
+  composerReplyPlaceholder: "Reply…",
+  emptyStateText: "How can I help you?",
   queue: "Queued messages",
   queueSteer: "Send now",
-  queueSteerHint: "Stops the current response, then sends this message.",
+  queueSteerHint: "Sends this message at the agent's next step.",
   queueMoveToTop: "Send next",
   queueSendNow: "Send now",
-  queueSendNowHint: "Stops the current response, then sends this message.",
+  queueSendNowHint: "Sends this message at the agent's next step.",
   queueSendNext: "Send next",
   queueSendNextHint: "Send after the current response finishes",
+  queueItemBusy: "This message sends after this reply.",
+  queueItemBlocked:
+    "This message couldn't be sent. Remove it and send it again.",
+  queueOrderStale: "The queue changed. Try again.",
   queueRemove: "Remove queued message",
   queueMore: "More actions",
   suggestions: "Suggested next actions",
+  suggestedActions: "Suggested actions",
   copy: "Copy message",
   copied: "Copied",
   messageActions: "Message actions",
@@ -380,6 +527,16 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   usageEstimatedBuilderCredits: "Estimated Builder credits {{amount}}",
   usageMixedBuilderCredits: "Reported and estimated Builder credits {{amount}}",
   requestIdUnavailable: "Request ID unavailable",
+  runDetails: "Run details",
+  runCreditsUsed: "Credits used",
+  runCost: "Cost",
+  runToolCalls: "Tool calls",
+  runModel: "Model used",
+  runDetailUnavailable: "Unavailable",
+  runDetailNotRecorded: "Not recorded",
+  runDetailIncomplete: "Incomplete",
+  runDetailEstimated: "{{amount}} estimated",
+  runDetailMixed: "{{amount}} reported and estimated",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",
   feedbackSubmitted: "Feedback submitted",
@@ -392,6 +549,14 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   feedbackReasonWrongNumbers: "Wrong numbers",
   feedbackReasonTooSlow: "Too slow",
   feedbackCopyDetails: "Copy details",
+  feedback: "Feedback",
+  feedbackGood: "Good response",
+  feedbackBad: "Bad response",
+  rateResponse: "Rate response",
+  forkFromHere: "Fork from here",
+  feedbackNote: "Add a note (optional)",
+  moreMessageActions: "More actions",
+  fewerMessageActions: "Fewer actions",
   fork: "Fork conversation",
   previousBranch: "Previous branch",
   nextBranch: "Next branch",
@@ -401,8 +566,10 @@ export const defaultAgentKitLabels: AgentKitLabels = {
     "The message is no longer available in this conversation.",
   navigationUnavailable: "Conversation navigation is unavailable.",
   editMessage: "Edit message",
-  cancelEditing: "Cancel editing",
-  regenerateResponse: "Regenerate response",
+  editingMessage: "Editing message",
+  editingMessageHint: "Sending forks the chat from this message.",
+  cancelEditing: "Cancel",
+  regenerateResponse: "Retry",
   expandMessage: "Expand",
   collapseMessage: "Collapse",
   previewAttachment: "Preview {{name}}",
@@ -420,6 +587,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   continueRunUnavailable:
     "This run can't be continued anymore. Send a message to keep going.",
   reconnect: "Reconnect",
+  dismissNotice: "Dismiss",
   reasoning: "Thinking",
   expandActivity: "Show activity details",
   collapseActivity: "Hide activity details",
@@ -431,6 +599,35 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   agentCompleted: "finished",
   agentFailed: "needs attention",
   agentClosed: "closed",
+  stop: "Stop",
+  copyCode: "Copy code",
+  codeCopied: "Copied",
+  codeBlock: "Code block",
+  codeBlockLanguage: "{{language}} code",
+  table: "Table",
+  runStopped: "Stopped",
+  responseReady: "Response ready",
+  responseFailed: "Response failed",
+  waitingForApproval: "Waiting for approval",
+  waitingForInput: "Waiting for input",
+  workSummaryFailedCount: "{{summary}}, {{count}} failed",
+  taskStatusPending: "Pending",
+  taskStatusRunning: "Running",
+  taskStatusCompleted: "Done",
+  taskStatusFailed: "Failed",
+  taskStatusAwaitingInput: "Needs input",
+  untitledTask: "Untitled task",
+  connectionConnectProvider: "Connect {{provider}}",
+  connectionDeclined: "{{provider}} not connected",
+  connectionAdminRequiredTitle: "{{provider}} needs an admin",
+  branchPositionLabel: "Response {{index}} of {{count}}",
+  taskListChecked: "Completed",
+  taskListUnchecked: "Not completed",
+  threadUnavailable: "This chat thread is no longer available",
+  threadLoadFailed: "Couldn't load this chat.",
+  threadLoadRetry: "Retry",
+  newChat: "New chat",
+  loadingConversation: "Loading chat…",
 };
 
 export interface AgentKitBranchNavigation {
@@ -448,6 +645,11 @@ export type AgentKitCopyMessageHandler = (input: {
 
 export interface AgentKitRunUsage {
   durationMs: number | null;
+  /**
+   * The model the run's calls reported, as an id. Null when no call recorded
+   * one; undefined when the loader does not report models.
+   */
+  model?: string | null;
   billing: {
     providerCostUsd: number | null;
     providerCostSource: "reported" | "estimated" | "mixed" | null;
@@ -495,19 +697,47 @@ export interface AgentKitProviderProps {
   /** Receives full renderer failures while the UI shows a safe fallback. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
+  /** Display name for a model id in run details; the id shows without it. */
+  formatModelName?: (model: string) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
     data?: Record<string, unknown>;
   }) => void;
+  /**
+   * The outcome of the host's own thread load. Omit it when nothing tracks the
+   * load; the chat then infers readiness from the connection state.
+   */
+  threadLoad?: AgentKitThreadLoadState;
   children: ReactNode;
 }
 
+export type AgentKitThreadLoadStatus =
+  | "pending"
+  | "found"
+  | "missing"
+  | "failed";
+
+export interface AgentKitThreadLoadState {
+  threadId: ThreadId;
+  status: AgentKitThreadLoadStatus;
+  /** Re-runs the host's load after it failed. */
+  retry?: () => void;
+}
+
 interface ResolvedAgentKitLabels extends AgentKitLabels {
+  toolInput: string;
+  toolResult: string;
   queueSendNow: string;
   queueSendNowHint: string;
   queueSendNext: string;
   queueSendNextHint: string;
+  queueItemBusy: string;
+  queueItemBlocked: string;
+  queueOrderStale: string;
 }
 
 export interface AgentKitContextValue {
@@ -525,30 +755,137 @@ export interface AgentKitContextValue {
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
+  formatModelName?: (model: string) => string;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
+  threadLoad?: AgentKitThreadLoadState;
 }
 
 const AgentKitContext = createContext<AgentKitContextValue | null>(null);
 
+// Hosts pass callbacks inline. Forwarding through a ref keeps the context value,
+// and every memoized message under it, stable across host re-renders.
+function useStableCallback<TArgs extends unknown[], TResult>(
+  callback: ((...args: TArgs) => TResult) | undefined,
+): ((...args: TArgs) => TResult) | undefined {
+  const ref = useRef(callback);
+  ref.current = callback;
+  const stable = useCallback(
+    (...args: TArgs) => (ref.current as (...args: TArgs) => TResult)(...args),
+    [],
+  );
+  return callback ? stable : undefined;
+}
+
+function shallowEqualRecords(
+  previous: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined,
+  depth: number,
+): boolean {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  const previousKeys = Object.keys(previous);
+  if (previousKeys.length !== Object.keys(next).length) return false;
+  return previousKeys.every((key) => {
+    if (!Object.hasOwn(next, key)) return false;
+    const left = previous[key];
+    const right = next[key];
+    if (Object.is(left, right)) return true;
+    return (
+      depth > 0 &&
+      typeof left === "object" &&
+      typeof right === "object" &&
+      left !== null &&
+      right !== null &&
+      !Array.isArray(left) &&
+      !Array.isArray(right) &&
+      shallowEqualRecords(
+        left as Record<string, unknown>,
+        right as Record<string, unknown>,
+        depth - 1,
+      )
+    );
+  });
+}
+
+function useStableShape<T extends object | undefined>(value: T, depth = 0): T {
+  const ref = useRef(value);
+  if (
+    !shallowEqualRecords(
+      ref.current as Record<string, unknown> | undefined,
+      value as Record<string, unknown> | undefined,
+      depth,
+    )
+  ) {
+    ref.current = value;
+  }
+  return ref.current;
+}
+
+const emptySlots: AgentKitSlots = {};
+const emptyRegistry: AgentKitRegistry = {};
+
 export function AgentKitProvider({
   controller,
   threadId,
-  slots = {},
-  registry = {},
-  labels,
-  onOpenObject,
-  onThreadForked,
-  branchNavigation,
-  onCopyMessage,
-  buildFeedbackReport,
-  loadRunUsage,
-  onConnectionRequest,
-  onRenderError,
+  slots: slotsInput = emptySlots,
+  registry: registryInput = emptyRegistry,
+  labels: labelsInput,
+  onOpenObject: onOpenObjectInput,
+  onThreadForked: onThreadForkedInput,
+  branchNavigation: branchNavigationInput,
+  onCopyMessage: onCopyMessageInput,
+  buildFeedbackReport: buildFeedbackReportInput,
+  loadRunUsage: loadRunUsageInput,
+  onConnectionRequest: onConnectionRequestInput,
+  onRenderError: onRenderErrorInput,
   resolveMessageContentOrder,
-  onClientEffect,
+  workedForRowLayout: workedForRowLayoutInput,
+  dataChartLayout: dataChartLayoutInput,
+  formatWorkedForDuration,
+  formatModelName: formatModelNameInput,
+  onClientEffect: onClientEffectInput,
+  threadLoad,
   children,
 }: AgentKitProviderProps) {
+  const slots = useStableShape(slotsInput);
+  const registry = useStableShape(registryInput, 1);
+  const labels = useStableShape(labelsInput, 1);
+  const onOpenObject = useStableCallback(onOpenObjectInput);
+  const onThreadForked = useStableCallback(onThreadForkedInput);
+  const onCopyMessage = useStableCallback(onCopyMessageInput);
+  const buildFeedbackReport = useStableCallback(buildFeedbackReportInput);
+  const loadRunUsage = useStableCallback(loadRunUsageInput);
+  const formatModelName = useStableCallback(formatModelNameInput);
+  const onConnectionRequest = useStableCallback(onConnectionRequestInput);
+  const onRenderError = useStableCallback(onRenderErrorInput);
+  const workedForRowLayout = useStableShape(workedForRowLayoutInput, 1);
+  const dataChartLayout = useStableShape(dataChartLayoutInput, 1);
+  const onPreviousBranch = useStableCallback(branchNavigationInput?.onPrevious);
+  const onNextBranch = useStableCallback(branchNavigationInput?.onNext);
+  const branchIndex = branchNavigationInput?.index;
+  const branchCount = branchNavigationInput?.count;
+  const branchNavigation = useMemo<AgentKitBranchNavigation | undefined>(
+    () =>
+      branchIndex !== undefined &&
+      branchCount !== undefined &&
+      onPreviousBranch &&
+      onNextBranch
+        ? {
+            index: branchIndex,
+            count: branchCount,
+            onPrevious: onPreviousBranch,
+            onNext: onNextBranch,
+          }
+        : undefined,
+    [branchCount, branchIndex, onNextBranch, onPreviousBranch],
+  );
+  const onClientEffectRef = useRef(onClientEffectInput);
+  onClientEffectRef.current = onClientEffectInput;
+  const hasClientEffectHandler = onClientEffectInput !== undefined;
   const composerFocusTargets = useRef(new Map<ThreadId, () => void>());
   const registerComposerFocus = useCallback(
     (targetThreadId: ThreadId, focus: () => void) => {
@@ -568,6 +905,8 @@ export function AgentKitProvider({
     () => ({
       ...defaultAgentKitLabels,
       ...labels,
+      toolInput: labels?.toolInput ?? defaultAgentKitLabels.toolInput,
+      toolResult: labels?.toolResult ?? defaultAgentKitLabels.toolResult,
       queueSteer:
         labels?.queueSteer ??
         labels?.queueSendNow ??
@@ -583,17 +922,23 @@ export function AgentKitProvider({
       queueSendNow:
         labels?.queueSendNow ??
         labels?.queueSteer ??
-        defaultAgentKitLabels.queueSendNow!,
+        defaultAgentKitLabels.queueSendNow,
       queueSendNowHint:
         labels?.queueSendNowHint ??
         labels?.queueSteerHint ??
-        defaultAgentKitLabels.queueSendNowHint!,
+        defaultAgentKitLabels.queueSendNowHint,
       queueSendNext:
         labels?.queueSendNext ??
         labels?.queueMoveToTop ??
-        defaultAgentKitLabels.queueSendNext!,
+        defaultAgentKitLabels.queueSendNext,
       queueSendNextHint:
-        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint!,
+        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint,
+      queueItemBusy:
+        labels?.queueItemBusy ?? defaultAgentKitLabels.queueItemBusy,
+      queueItemBlocked:
+        labels?.queueItemBlocked ?? defaultAgentKitLabels.queueItemBlocked,
+      queueOrderStale:
+        labels?.queueOrderStale ?? defaultAgentKitLabels.queueOrderStale,
     }),
     [labels],
   );
@@ -613,8 +958,13 @@ export function AgentKitProvider({
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
+      workedForRowLayout,
+      dataChartLayout,
+      formatWorkedForDuration,
+      formatModelName,
       registerComposerFocus,
       requestComposerFocus,
+      threadLoad,
     }),
     [
       controller,
@@ -631,28 +981,59 @@ export function AgentKitProvider({
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
+      workedForRowLayout,
+      dataChartLayout,
+      formatWorkedForDuration,
+      formatModelName,
       registerComposerFocus,
       requestComposerFocus,
+      threadLoad,
     ],
   );
   const seenEffects = useRef({
     controller,
     threadId,
+    hydrated: false,
     ids: new Set<string>(),
   });
   if (
     seenEffects.current.controller !== controller ||
     seenEffects.current.threadId !== threadId
   ) {
-    seenEffects.current = { controller, threadId, ids: new Set<string>() };
+    seenEffects.current = {
+      controller,
+      threadId,
+      hydrated: false,
+      ids: new Set<string>(),
+    };
   }
 
   useEffect(() => {
-    if (!onClientEffect) return;
+    if (!hasClientEffectHandler) return;
     const scope = seenEffects.current;
     const deliver = () => {
       if (seenEffects.current !== scope) return;
-      const events = controller.getSnapshot().threads[threadId]?.events ?? [];
+      const thread = controller.getSnapshot().threads[threadId] as
+        | AgentThreadState
+        | undefined;
+      const events = thread?.events ?? [];
+      if (!scope.hydrated) {
+        if (!thread || (events.length === 0 && thread.thread === undefined)) {
+          return;
+        }
+        scope.hydrated = true;
+        // Effects from a loaded history already ran when they streamed; only
+        // a run that is still live can still owe the page its effects.
+        for (const event of events) {
+          if (
+            (event.type === "client.effect" ||
+              event.type === "client.deeplink") &&
+            !thread.activeRunIds.includes(event.runId)
+          ) {
+            scope.ids.add(event.id);
+          }
+        }
+      }
       for (const event of events) {
         if (
           (event.type === "client.effect" ||
@@ -660,17 +1041,17 @@ export function AgentKitProvider({
           !scope.ids.has(event.id)
         ) {
           scope.ids.add(event.id);
-          onClientEffect({
+          onClientEffectRef.current?.({
             type: event.type,
             name: event.name,
-            data: event.data,
+            ...(event.data === undefined ? {} : { data: event.data }),
           });
         }
       }
     };
     deliver();
     return controller.subscribe(deliver);
-  }, [controller, onClientEffect, threadId]);
+  }, [controller, hasClientEffectHandler, threadId]);
 
   return (
     <AgentKitContext.Provider value={value}>
@@ -679,24 +1060,54 @@ export function AgentKitProvider({
   );
 }
 
-/** Coalesces same-turn transport bursts without dropping the latest snapshot. */
+interface AgentKitUpdateChannel {
+  listeners: Set<{ notify: () => void }>;
+  unsubscribe?: (() => void) | undefined;
+  timeout?: ReturnType<typeof setTimeout> | undefined;
+}
+
+const agentKitUpdateChannels = new WeakMap<
+  AgentKitController,
+  AgentKitUpdateChannel
+>();
+
+/**
+ * Coalesces same-turn transport bursts without dropping the latest snapshot.
+ * Every subscriber of a controller shares one timer, so a change reaches all
+ * of them in one task and React renders their updates together; a timer per
+ * subscriber would turn one change into one render per mounted row.
+ */
 function subscribeToAgentKitUpdate(
   controller: AgentKitController,
   listener: () => void,
 ): () => void {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const notify = () => {
-    timeout = undefined;
-    listener();
-  };
-  const schedule = () => {
-    if (timeout !== undefined) return;
-    timeout = setTimeout(notify, 0);
-  };
-  const unsubscribe = controller.subscribe(schedule);
+  let channel = agentKitUpdateChannels.get(controller);
+  if (!channel) {
+    channel = { listeners: new Set() };
+    agentKitUpdateChannels.set(controller, channel);
+  }
+  const current = channel;
+  if (!current.unsubscribe) {
+    current.unsubscribe = controller.subscribe(() => {
+      if (current.timeout !== undefined) return;
+      current.timeout = setTimeout(() => {
+        current.timeout = undefined;
+        for (const entry of Array.from(current.listeners)) {
+          // A listener earlier in this flush can unmount a later one.
+          if (current.listeners.has(entry)) entry.notify();
+        }
+      }, 0);
+    });
+  }
+  const entry = { notify: listener };
+  current.listeners.add(entry);
   return () => {
-    unsubscribe();
-    if (timeout !== undefined) clearTimeout(timeout);
+    current.listeners.delete(entry);
+    if (current.listeners.size > 0) return;
+    current.unsubscribe?.();
+    current.unsubscribe = undefined;
+    if (current.timeout !== undefined) clearTimeout(current.timeout);
+    current.timeout = undefined;
   };
 }
 
@@ -718,6 +1129,19 @@ export function useAgentKit(): AgentKitContextValue {
   const value = useContext(AgentKitContext);
   if (!value) throw new Error("AgentKit hooks require an AgentKitProvider.");
   return value;
+}
+
+/**
+ * The tracked load outcome for a thread, or undefined when the host does not
+ * track loads. A tracked thread whose load has not reported yet is pending.
+ */
+export function useAgentThreadLoadStatus(
+  requestedThreadId?: ThreadId,
+): AgentKitThreadLoadStatus | undefined {
+  const { threadId: contextThreadId, threadLoad } = useAgentKit();
+  const threadId = requestedThreadId ?? contextThreadId;
+  if (!threadLoad) return undefined;
+  return threadLoad.threadId === threadId ? threadLoad.status : "pending";
 }
 
 export function useAgentKitSnapshot(): AgentKitSnapshot {
@@ -955,6 +1379,165 @@ export function useAgentThread(requestedThreadId?: ThreadId) {
   );
 }
 
+/**
+ * Reads one derived value from the thread and re-renders only when `isEqual`
+ * sees it change. Per-row renderers use this instead of `useAgentThread`,
+ * which re-renders on every streamed delta of every message.
+ */
+export function useAgentThreadSelector<T>(
+  select: (thread: AgentThreadState) => T,
+  isEqual: (previous: T, next: T) => boolean = Object.is,
+  requestedThreadId?: ThreadId,
+): T {
+  const { controller, threadId: contextThreadId } = useAgentKit();
+  const threadId = requestedThreadId ?? contextThreadId;
+  return useAgentKitSelector(
+    (snapshot) =>
+      select(snapshot.threads[threadId] ?? controller.getThread(threadId)),
+    isEqual,
+  );
+}
+
+/**
+ * User messages sent from this controller that the client has not appended
+ * yet, in send order. Each is retired when its own message lands, matched by
+ * client request id, or when its send settles.
+ */
+export function useAgentKitPendingSubmissions(
+  requestedThreadId?: ThreadId,
+): readonly AgentMessage[] {
+  const { controller, threadId: contextThreadId } = useAgentKit();
+  const threadId = requestedThreadId ?? contextThreadId;
+  const store = agentKitPendingSubmissions(controller);
+  const getPending = useCallback(
+    () => store.messages(threadId),
+    [store, threadId],
+  );
+  const pending = useSyncExternalStore(store.subscribe, getPending, getPending);
+  const thread = useAgentThread(threadId);
+  return useMemo(
+    () => visiblePendingSubmissions(pending, thread),
+    [pending, thread.messages, thread.queuedMessages],
+  );
+}
+
+/** A send on the thread was accepted and its run is not registered yet. */
+export function useAgentKitSubmissionStarting(
+  requestedThreadId?: ThreadId,
+): boolean {
+  const { controller, threadId: contextThreadId } = useAgentKit();
+  const threadId = requestedThreadId ?? contextThreadId;
+  const store = agentKitPendingSubmissions(controller);
+  const getStarting = useCallback(
+    () => store.starting(threadId),
+    [store, threadId],
+  );
+  return useSyncExternalStore(store.subscribe, getStarting, getStarting);
+}
+
+/**
+ * A send on the thread has taken its draft and has no run yet, preflight
+ * included. What is submitted meanwhile queues behind it.
+ */
+export function useAgentKitSubmissionHoldsTurn(
+  requestedThreadId?: ThreadId,
+): boolean {
+  const { controller, threadId: contextThreadId } = useAgentKit();
+  const threadId = requestedThreadId ?? contextThreadId;
+  const store = agentKitPendingSubmissions(controller);
+  const getHolds = useCallback(
+    () => store.holdsTurn(threadId),
+    [store, threadId],
+  );
+  return useSyncExternalStore(store.subscribe, getHolds, getHolds);
+}
+
+/** Shows a user message for a send before the client's own awaits finish. */
+export function useAgentKitBeginPendingSubmission(): (
+  threadId: ThreadId,
+  draft: AgentKitPendingSubmissionDraft,
+  options?: { release?: () => void; adoptable?: boolean },
+) => AgentKitPendingSubmission {
+  const { controller } = useAgentKit();
+  return useCallback(
+    (threadId, draft, options) =>
+      agentKitPendingSubmissions(controller).begin(threadId, draft, options),
+    [controller],
+  );
+}
+
+async function sendWithPendingSubmission(
+  controller: AgentKitController,
+  input: SendMessageInput,
+): ReturnType<AgentKitController["sendMessage"]> {
+  const store = agentKitPendingSubmissions(controller);
+  const showsMessage =
+    input.metadata?.hideUserMessage !== true &&
+    !input.queuedMessageReservationId &&
+    !hasActiveAgentRuns(controller.getThread(input.threadId)) &&
+    (input.text.trim().length > 0 || Boolean(input.attachments?.length));
+  const requestId =
+    agentKitClientRequestId(input.metadata) ??
+    (showsMessage ? store.adopt(input.threadId) : undefined);
+  const withRequestId = (id: string): SendMessageInput => ({
+    ...input,
+    metadata: {
+      ...input.metadata,
+      [AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY]: id,
+    },
+  });
+  // Another send already holds the turn even before its run id exists, so
+  // this one follows it, whether or not it brought a copy of its own.
+  const ahead = {
+    ownId: requestId,
+    queued: Boolean(
+      input.queuedMessageReservationId || input.queuedWhileRunActive,
+    ),
+  };
+  if (store.hasAhead(input.threadId, ahead)) {
+    // The client cannot queue behind a turn it has no run id for yet, and
+    // sending now would race that turn's start. The row shows at once and
+    // the send follows once the turn's run is registered.
+    const queues =
+      input.queueWhileRunning !== false ||
+      input.interruptActiveRun ||
+      input.deliverInActiveRun;
+    const queuedMessageReservationId =
+      input.queuedMessageReservationId ??
+      (queues
+        ? controller.reserveQueuedMessage(
+            { threadId: input.threadId, text: input.text },
+            input.onLocalSubmit,
+          ).id
+        : undefined);
+    await store.settled(input.threadId, ahead);
+    return controller.sendMessage(
+      queuedMessageReservationId
+        ? { ...input, queuedMessageReservationId }
+        : input,
+    );
+  }
+  if (requestId && store.has(requestId)) {
+    return store.track(
+      requestId,
+      controller.sendMessage(withRequestId(requestId)),
+    );
+  }
+  if (!showsMessage) return controller.sendMessage(input);
+  const pending = store.begin(
+    input.threadId,
+    {
+      text: input.text,
+      attachments: input.attachments,
+      metadata: input.metadata,
+    },
+    requestId ? { id: requestId } : undefined,
+  );
+  return store
+    .track(pending.id, controller.sendMessage(withRequestId(pending.id)))
+    .finally(pending.end);
+}
+
 export function useAgentKitControl(requestedThreadId?: ThreadId) {
   const { controller, labels, threadId: contextThreadId } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
@@ -963,9 +1546,14 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       send: (
         text: string,
         options?: Parameters<AgentKitController["sendMessage"]>[0]["options"],
-      ) => controller.sendMessage({ threadId, text, options }),
+      ) =>
+        sendWithPendingSubmission(controller, {
+          threadId,
+          text,
+          ...(options === undefined ? {} : { options }),
+        }),
       sendMessage: (input: Omit<SendMessageInput, "threadId">) =>
-        controller.sendMessage({ ...input, threadId }),
+        sendWithPendingSubmission(controller, { ...input, threadId }),
       load: () => controller.loadThread(threadId),
       resubscribe: (runId: string) =>
         controller.resubscribeRun(threadId, runId),
@@ -977,6 +1565,14 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       cancelQueuedMessageReservation: (messageId: string) =>
         controller.cancelQueuedMessageReservation(threadId, messageId),
       cancel: (runId: string) => controller.cancelRun(threadId, runId),
+      /**
+       * The runs to stop once sends with no run yet have one. A send that
+       * fails registers no run, so it leaves nothing to stop.
+       */
+      runIdsOnceStarted: async () => {
+        await agentKitPendingSubmissions(controller).settled(threadId);
+        return controller.getThread(threadId).activeRunIds;
+      },
       canContinueRun: controller.supportsRunContinuation?.() === true,
       continueRun: (runId: string) =>
         controller.continueRun
@@ -1017,16 +1613,37 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
           response,
         }),
       removeQueued: (messageId: string) =>
-        controller.removeQueuedMessage(threadId, messageId),
+        withAgentKitQueueErrorCopy(
+          controller.removeQueuedMessage(threadId, messageId),
+          labels,
+        ),
       moveQueuedMessageToTop: (messageId: string) =>
         controller.moveQueuedMessageToTop
-          ? controller.moveQueuedMessageToTop(threadId, messageId)
+          ? withAgentKitQueueErrorCopy(
+              controller.moveQueuedMessageToTop(threadId, messageId),
+              labels,
+            )
+          : Promise.reject(new Error(labels.error)),
+      reorderQueuedMessages: (messageIds: readonly string[]) =>
+        controller.reorderQueuedMessages
+          ? withAgentKitQueueErrorCopy(
+              controller.reorderQueuedMessages(threadId, messageIds),
+              labels,
+            )
           : Promise.reject(new Error(labels.error)),
       steerQueued: (
         messageId: string,
-        options?: { interruptActiveRun?: boolean },
+        options?: AgentKitSteerQueuedMessageOptions,
       ) =>
-        controller.steerQueuedMessage(threadId, messageId, undefined, options),
+        withAgentKitQueueErrorCopy(
+          controller.steerQueuedMessage(
+            threadId,
+            messageId,
+            undefined,
+            options,
+          ),
+          labels,
+        ),
       submitFeedback: (
         messageId: string,
         value: "positive" | "negative" | "dismissed",
@@ -1046,6 +1663,6 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       uploadFiles: controller.uploadFiles.bind(controller, threadId),
       invokeAction: controller.invokeAction.bind(controller),
     }),
-    [controller, labels.error, threadId],
+    [controller, labels, threadId],
   );
 }

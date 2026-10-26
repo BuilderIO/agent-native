@@ -2,7 +2,7 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
-import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
 import { uniqueLayerId } from "@/pages/design-editor/canvas-primitive-insert";
 import {

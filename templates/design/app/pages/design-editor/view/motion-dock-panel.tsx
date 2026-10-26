@@ -1,6 +1,10 @@
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { withMotionTrackIdsFromExisting } from "@shared/motion-timeline";
 
+import {
+  createMotionNativeStyleIdentity,
+  removeMotionNativeStyleAndReconcileSelection,
+} from "@/components/design/motion-native-style-identity";
 import { MotionDock } from "@/components/design/MotionDock";
 import { projectMotionLayerVisibility } from "@/pages/design-editor/motion-layer-visibility";
 import { motionTextDocumentAsDockTracks } from "@/pages/design-editor/motion-state";
@@ -61,9 +65,12 @@ export function renderMotionDockPanel({
     motionPlayhead,
     setMotionPlayhead,
     handleMotionDockLiveStateChange,
+    registerMotionEasingSelectionClear,
     motionSelectedTarget,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionAudioClips,
     motionEasingVariables,
     setMotionEasingVariables,
@@ -116,19 +123,15 @@ export function renderMotionDockPanel({
     index: number,
   ) => {
     if (!canWriteMotion) return;
-    setMotionNativeStyles((current) => {
-      const previous = current[index];
-      if (
-        !previous ||
-        previous.styleKey !== instance.styleKey ||
-        previous.targetNodeId !== instance.targetNodeId ||
-        (previous.sourceInstanceId !== undefined &&
-          instance.sourceInstanceId !== previous.sourceInstanceId)
-      ) {
-        return current;
-      }
-      return current.filter((_, currentIndex) => currentIndex !== index);
-    });
+    const result = removeMotionNativeStyleAndReconcileSelection(
+      motionNativeStyles,
+      motionNativeStyleSelection,
+      createMotionNativeStyleIdentity(instance, index),
+      motionSelectedTarget?.nodeId,
+    );
+    if (result.styles === motionNativeStyles) return;
+    setMotionNativeStyles(result.styles);
+    setMotionNativeStyleSelection(result.selection);
     markMotionTracksDirty();
   };
 
@@ -155,6 +158,8 @@ export function renderMotionDockPanel({
             motionTracks,
           )}
           nativeStyles={motionNativeStyles}
+          selectedNativeStyle={motionNativeStyleSelection}
+          onNativeStyleSelectionChange={setMotionNativeStyleSelection}
           audioClips={motionAudioClips}
           onAudioClipsChange={
             canWriteMotion ? handleMotionAudioClipsChange : undefined
@@ -212,6 +217,7 @@ export function renderMotionDockPanel({
           playhead={motionPlayhead}
           onPlayheadChange={setMotionPlayhead}
           onLiveStateChange={handleMotionDockLiveStateChange}
+          onRegisterEasingSelectionClear={registerMotionEasingSelectionClear}
           livePlayheadRef={motionLivePlayheadRef}
           selectedTarget={motionSelectedTarget}
           layerSidebarInset={layerSidebarInset}

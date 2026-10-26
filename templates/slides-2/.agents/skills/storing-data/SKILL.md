@@ -133,6 +133,22 @@ offboarding hands them to the successor. A table without `org_id` needs
 | **Slides**   | decks (JSON stored in SQL)                    |
 | **Clips**    | recording metadata in SQL; video and image files use blob storage |
 
+#### Lifecycle status columns are state machines
+
+A status column with more than two values gets a `defineMachine` from
+`@agent-native/core/state-machine` beside its store; the SQL derives from it.
+
+- Read stored values with `machine.parseState(row.status)`, never `as Status`.
+  An unknown value throws instead of flowing on as a plausible state.
+- Write each transition as a compare-and-set against its source states —
+  `WHERE status IN (${machine.sqlStateList("claim")})`, or
+  `inArray(table.status, machine.fromStates("claim"))` in Drizzle — and treat
+  zero updated rows as a lost race or an illegal transition, never success.
+- Pin each event's source and target states in a spec, so a lifecycle change
+  is a visible test diff.
+
+Core's A2A task store (`a2a/task-lifecycle` in `@agent-native/core`) is the reference.
+
 ### Agent Access
 
 The agent uses app-specific actions to read/write the database. Core DB scripts are for inspection and maintenance, not for implementing normal product behavior:

@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Una solicitud fallida establece `error` y conserva las filas ya cargadas. Nunca parece una lista vacía. `<ShareButton>` y `<ShareDialog>` actualizan las listas de chat montadas después de guardar. Si cambia el uso compartido de un chat de otra manera, llame a `notifyChatThreadsUpdated()` para que las listas montadas se vuelvan a cargar.
 
+Los chats se fijan de forma personal: `pinnedAt` es la marca de quien consulta, también en chats compartidos; las listas y búsquedas se ordenan por ella. Se mantiene `useChatThreads().pinThread(id, pinned)`. Ambos hooks ofrecen `hideThread(id, hidden)` para chats compartidos. Los ocultos solo aparecen con `includeHidden: true`; las filas y lecturas individuales incluyen el `hiddenAt` personal. Se pueden abrir por ID o enlace. Los propietarios deben archivar sus chats; solo ellos pueden renombrarlos o archivarlos. Ocultar lanza `ChatThreadMutationError` al rechazarse (`status`: 403 para propietarios, 404 sin acceso); devuelve `true` al completarse. HTTP: `POST /_agent-native/agent-chat/threads/:id/hide` con `{ hidden: boolean }`; listas/búsquedas: `includeHidden=1`. `chat-history` admite `pin`, `unpin`, `hide`, `unhide` y búsquedas con `includeHidden: true`. Revocar el acceso oculta el estado previo; eliminar el chat lo borra.
+
 ## Mismo modelo, agente y UI {#agent-and-ui}
 
 El marco monta automáticamente estos actions en cada plantilla: el agente los llama como herramientas y el UI los llama a través de `useActionQuery`/`useActionMutation`:
@@ -361,3 +363,9 @@ Compartir se basa en el modelo de alcance de datos más amplio del marco: el acc
 - [**Autenticación**](/docs/authentication) — sesiones, organizaciones y cómo fluye la identidad al contexto de la solicitud
 - [**Extensiones**](/docs/extensions#sharing) — uso compartido en la superficie de miniaplicaciones aisladas
 - [**Creación de plantillas**](/docs/creating-templates) — conexión de `ownableColumns` al esquema de una plantilla nueva
+
+## Historial de chats compartidos
+
+`@agent-native/toolkit/app/chat/ownership-history` ofrece `useOwnershipChatHistory()` y `OwnershipChatHistoryRail` para una barra lateral con secciones separadas para tus chats y los compartidos contigo. Las filas compartidas muestran el propietario y el motivo del acceso. Cada sección pagina por separado y conserva las filas y los cambios locales si falla la actualización.
+
+Un borrador activo y vacío sigue siendo seleccionable y se puede iniciar mientras espera su primer guardado. Hasta confirmar que está guardado, se ocultan las acciones para fijar, cambiar el nombre y archivar; además, el adaptador rechaza las llamadas forzadas a esas funciones de retorno. `ownDraftRows` proporciona la procedencia de persistencia de los borradores propios, mientras que las filas propias confirmadas de la lista del servidor conservan sus acciones habituales. En los valores personalizados de `OwnDraftRow`, establece el campo opcional `persisted?: boolean` en `true` solo cuando se haya confirmado que la fila persistida del servidor pertenece al usuario actual. No deduzcas que está guardado a partir del número de mensajes ni del ID activo. El rol, la privacidad y si el borrador activo está vacío son datos independientes.

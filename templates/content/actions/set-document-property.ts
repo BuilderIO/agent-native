@@ -5,7 +5,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   blocksStorageTarget,
@@ -26,6 +26,7 @@ import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.j
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
@@ -95,7 +96,8 @@ export default defineAction({
     value: z
       .unknown()
       .describe(
-        "Value for the property type; Blocks fields take an NFM string (one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs)",
+        "Value for the property type; Blocks fields take an NFM string: one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs. " +
+          NFM_CONTAINER_SYNTAX,
       ),
     expectedBlocksFieldRevision: z
       .number()
@@ -234,6 +236,10 @@ export default defineAction({
         );
         let previousContent = "";
         if (target === "document_body") {
+          const legacy = await lockLegacyBodyWrites(tx, [documentId], {
+            operation: "set-document-property",
+            content,
+          });
           const [currentDocument] = await tx
             .select({ content: schema.documents.content })
             .from(schema.documents)
@@ -246,7 +252,7 @@ export default defineAction({
             .update(schema.documents)
             .set({
               content,
-              bodyRevision: bodyRevisionForContent(content),
+              bodyRevision: legacy.bodyRevision(content),
               updatedAt: now,
             })
             .where(eq(schema.documents.id, documentId));

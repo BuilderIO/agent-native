@@ -1,3 +1,4 @@
+import { getEngineCredentialOwner } from "../agent/engine/credential-owner.js";
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
 import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
 import type {
@@ -11,6 +12,10 @@ import {
   getRequestContext,
   getRequestOrgId,
 } from "../server/request-context.js";
+import {
+  hostedModelExperimentVariant,
+  singleNonHostedAssignment,
+} from "./hosted-model-experiment.js";
 import {
   MAX_AI_CONTENT_BYTES,
   MAX_AI_SPANS_PER_RUN,
@@ -277,7 +282,15 @@ type GenerationToolCall = {
   started_offset_ms: number;
   duration_ms: number;
   status: "success" | "error";
-  error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_class:
+    | "input_invalid"
+    | "rejected"
+    | "tool_error"
+    | "legacy_inferred_error"
+    | "interrupted"
+    | null;
+  /** What the call did: nothing, a write, or possibly a write. */
+  outcome: "no_side_effect" | "unknown" | "completed";
 };
 
 function prepareCapturedModelInput(messages: unknown): unknown {
@@ -297,6 +310,7 @@ export function httpStatusFromError(err: unknown): number | undefined {
 function emitLlmGenerationTrackingEvent(args: {
   runId: string;
   threadId: string | null;
+  turnId?: string;
   userId: string | null;
   parentSpanId: string;
   llmSpanId: string;
@@ -373,6 +387,7 @@ function emitLlmGenerationTrackingEvent(args: {
     span_type: "llm_call",
     run_id: args.runId,
     thread_id: args.threadId,
+    turn_id: args.turnId,
     parent_span_id: args.parentSpanId,
     span_id: args.llmSpanId,
     model: args.model,
@@ -455,11 +470,15 @@ function emitLlmGenerationTrackingEvent(args: {
     properties.experiment_variants = args.experimentAssignments
       .map((assignment) => assignment.variantId)
       .join(",");
-    if (args.experimentAssignments.length === 1) {
-      properties.experiment_id = args.experimentAssignments[0].experimentId;
-      properties.experiment_variant = args.experimentAssignments[0].variantId;
+    const singular = singleNonHostedAssignment(args.experimentAssignments);
+    if (singular) {
+      properties.experiment_id = singular.experimentId;
+      properties.experiment_variant = singular.variantId;
     }
   }
+  properties.hosted_model_experiment_variant = hostedModelExperimentVariant(
+    args.experimentAssignments,
+  );
 
   for (const key of Object.keys(properties)) {
     if (properties[key] === undefined) delete properties[key];
@@ -580,6 +599,8 @@ export async function instrumentAgentLoop(opts: {
   };
   runId: string;
   threadId: string | null;
+  /** The agent turn this run serves; omitted from events when unknown. */
+  turnId?: string;
   userId: string | null;
   config: ObservabilityConfig;
   spanName?: string;
@@ -607,11 +628,13 @@ export async function instrumentAgentLoop(opts: {
     | null
     | undefined;
 }): Promise<AgentLoopUsage> {
-  const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const { runAgentLoop, loopOpts, runId, threadId, turnId, userId, config } =
+    opts;
   const engineName =
     typeof loopOpts.engine?.name === "string"
       ? loopOpts.engine.name
       : undefined;
+  const engineCredentialOwner = getEngineCredentialOwner(loopOpts.engine);
   const engineSupportedModels: readonly string[] | undefined = Array.isArray(
     loopOpts.engine?.supportedModels,
   )
@@ -644,14 +667,14 @@ export async function instrumentAgentLoop(opts: {
     "agent.run_id": runId,
     "agent.user_id": userId ?? undefined,
     "agent.model_selection_source": opts.modelSelectionSource,
-    "agent.experiment_id":
-      opts.experimentAssignments?.length === 1
-        ? opts.experimentAssignments[0].experimentId
-        : undefined,
-    "agent.experiment_variant":
-      opts.experimentAssignments?.length === 1
-        ? opts.experimentAssignments[0].variantId
-        : undefined,
+    "agent.experiment_id": singleNonHostedAssignment(opts.experimentAssignments)
+      ?.experimentId,
+    "agent.experiment_variant": singleNonHostedAssignment(
+      opts.experimentAssignments,
+    )?.variantId,
+    "agent.hosted_model_experiment_variant": hostedModelExperimentVariant(
+      opts.experimentAssignments,
+    ),
   });
   let otelRunSpan: AgentSpan | null = null;
 
@@ -1095,8 +1118,13 @@ export async function instrumentAgentLoop(opts: {
             error_class: !isError
               ? null
               : explicitError
-                ? "tool_error"
+                ? (event.errorClass ?? "tool_error")
                 : "legacy_inferred_error",
+            outcome: event.outcomeUnknown
+              ? "unknown"
+              : event.completedSideEffect === true
+                ? "completed"
+                : "no_side_effect",
           });
         }
 
@@ -1294,6 +1322,7 @@ export async function instrumentAgentLoop(opts: {
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
               error_class: "interrupted",
+              outcome: "unknown",
             });
           }
           if (pending.otelSpan) {
@@ -1559,6 +1588,7 @@ export async function instrumentAgentLoop(opts: {
           emitLlmGenerationTrackingEvent({
             runId,
             threadId,
+            turnId,
             userId,
             parentSpanId,
             llmSpanId: generation.spanId,
@@ -1691,6 +1721,7 @@ export async function instrumentAgentLoop(opts: {
             source: "agent_observability",
             run_id: runId,
             thread_id: threadId,
+            turn_id: turnId,
             llm_calls: llmCallCount || undefined,
             follow_up_ms: usage?.followUpMs,
             follow_up_input_tokens: usage?.followUpInputTokens,
@@ -1798,6 +1829,7 @@ export async function instrumentAgentLoop(opts: {
           recordGenAiChat({
             requestModel: loopOpts.model,
             providerName: engineName,
+            credentialOwner: engineCredentialOwner,
             supportedModels: engineSupportedModels,
             durationMs: trip.end - trip.start,
             failed:
@@ -1820,6 +1852,7 @@ export async function instrumentAgentLoop(opts: {
           recordGenAiChat({
             requestModel: loopOpts.model,
             providerName: engineName,
+            credentialOwner: engineCredentialOwner,
             supportedModels: engineSupportedModels,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,

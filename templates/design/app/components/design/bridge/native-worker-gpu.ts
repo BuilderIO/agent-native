@@ -23,6 +23,10 @@ import type {
   NativeWorkerEffectTarget,
   NativeWorkerScene,
 } from "./native-worker-protocol";
+import {
+  NATIVE_WORKER_MAX_DIMENSION,
+  NATIVE_WORKER_MAX_PIXELS,
+} from "./native-worker-protocol";
 
 declare const GPUTextureUsage: Readonly<{
   COPY_SRC: number;
@@ -33,8 +37,6 @@ declare const GPUTextureUsage: Readonly<{
 declare const GPUBufferUsage: Readonly<{ UNIFORM: number; COPY_DST: number }>;
 declare const GPUShaderStage: Readonly<{ VERTEX: number; FRAGMENT: number }>;
 
-const MAX_DIMENSION = 4096;
-const MAX_PIXELS = 8_388_608;
 const MAX_RESOURCE_BYTES = 402_653_184;
 const MAX_EFFECT_BYTES = 134_217_728;
 
@@ -177,9 +179,9 @@ export function nativeWorkerTextureSizeValid(
     Number.isSafeInteger(height) &&
     width > 0 &&
     height > 0 &&
-    width <= MAX_DIMENSION &&
-    height <= MAX_DIMENSION &&
-    width * height <= MAX_PIXELS
+    width <= NATIVE_WORKER_MAX_DIMENSION &&
+    height <= NATIVE_WORKER_MAX_DIMENSION &&
+    width * height <= NATIVE_WORKER_MAX_PIXELS
   );
 }
 
@@ -1504,7 +1506,12 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
     const width = asset.kind === "bitmap" ? asset.bitmap.width : asset.width;
     const height = asset.kind === "bitmap" ? asset.bitmap.height : asset.height;
     if (!nativeWorkerTextureSizeValid(width, height)) return;
-    const format = asset.kind === "bitmap" ? "rgba8unorm-srgb" : "rgba16float";
+    const format =
+      asset.kind === "bitmap"
+        ? asset.sampleEncoding === "linear-data"
+          ? "rgba8unorm"
+          : "rgba8unorm-srgb"
+        : "rgba16float";
     if (
       this.resourceBytes() + textureSize(width, height, format) >
       MAX_RESOURCE_BYTES
@@ -1526,7 +1533,11 @@ export class NativeWorkerGpu implements NativeWorkerGpuFacade {
       const height =
         asset.kind === "bitmap" ? asset.bitmap.height : asset.height;
       const format: GPUTextureFormat =
-        asset.kind === "bitmap" ? "rgba8unorm-srgb" : "rgba16float";
+        asset.kind === "bitmap"
+          ? asset.sampleEncoding === "linear-data"
+            ? "rgba8unorm"
+            : "rgba8unorm-srgb"
+          : "rgba16float";
       if (!nativeWorkerTextureSizeValid(width, height))
         throw new NativeWorkerGpuError(
           "asset-size-invalid",

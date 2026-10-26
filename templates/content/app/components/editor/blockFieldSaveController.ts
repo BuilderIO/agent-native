@@ -10,6 +10,9 @@ export interface BlockFieldSaveController {
   readonly hasPendingTimer: boolean;
   readonly isSaving: boolean;
   readonly hasSavedLocally: boolean;
+  readonly version: number;
+  readonly lastError: unknown;
+  readonly isClean: boolean;
 }
 
 export function createBlockFieldSaveController(args: {
@@ -28,12 +31,23 @@ export function createBlockFieldSaveController(args: {
   let pending = args.initialContent;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let hasSavedLocally = false;
+  let version = 0;
+  let lastError: unknown = null;
 
   let inFlight: Promise<void> | null = null;
   const listeners = new Set<() => void>();
 
   function settled() {
     for (const listener of [...listeners]) listener();
+  }
+
+  function isClean() {
+    return (
+      pending === lastSaved &&
+      timer === null &&
+      inFlight === null &&
+      lastError === null
+    );
   }
 
   function clearTimer() {
@@ -45,18 +59,21 @@ export function createBlockFieldSaveController(args: {
 
   function kick() {
     if (inFlight !== null) return;
-    if (pending === lastSaved) return;
+    if (pending === lastSaved && lastError === null) return;
 
     const attempted = pending;
     const promise = Promise.resolve(args.save(attempted))
       .then(() => {
         lastSaved = attempted;
+        lastError = null;
         hasSavedLocally = true;
         inFlight = null;
         kick();
         settled();
       })
       .catch((error) => {
+        // A response can fail after the field write commits.
+        lastError = error;
         inFlight = null;
         args.onError?.(error);
         settled();
@@ -67,9 +84,10 @@ export function createBlockFieldSaveController(args: {
 
   return {
     change(content: string) {
+      if (content !== pending) version += 1;
       pending = content;
       clearTimer();
-      if (content === lastSaved) return;
+      if (content === lastSaved && lastError === null) return;
       timer = setTimeoutFn(() => {
         timer = null;
         kick();
@@ -80,7 +98,7 @@ export function createBlockFieldSaveController(args: {
       while (inFlight !== null) {
         await inFlight;
       }
-      if (pending !== lastSaved) {
+      if (pending !== lastSaved || lastError !== null) {
         kick();
         const pendingSave = inFlight;
         if (pendingSave !== null) await Promise.resolve(pendingSave);
@@ -90,6 +108,8 @@ export function createBlockFieldSaveController(args: {
       clearTimer();
     },
     mark(content: string) {
+      version += 1;
+      lastError = null;
       clearTimer();
       lastSaved = content;
       pending = content;
@@ -115,6 +135,15 @@ export function createBlockFieldSaveController(args: {
     },
     get hasSavedLocally() {
       return hasSavedLocally;
+    },
+    get version() {
+      return version;
+    },
+    get lastError() {
+      return lastError;
+    },
+    get isClean() {
+      return isClean();
     },
   };
 }

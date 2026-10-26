@@ -1396,6 +1396,10 @@ export default {
     drilldownHideSql: "Ocultar SQL",
     drilldownDownloadCsv: "Descargar CSV",
     drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownShowingLoaded:
+      "Mostrando {{shown}} de {{loaded}} registros cargados; total desconocido.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Se desconoce si la exportación está completa; este archivo incluye {{exported}} de {{loaded}} registros cargados después del filtrado.",
     drilldownCsvTruncated:
       "Exportación incompleta: la consulta encontró {{total}} registros, pero solo se cargaron los primeros {{loaded}}; este archivo incluye {{exported}} después de filtrar.",
     drilldownCountMismatch:
@@ -1403,7 +1407,13 @@ export default {
     drilldownAggregateOnly:
       "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
     drilldownNoRecords: "No hay registros coincidentes",
+    drilldownNoRecordsIncomplete:
+      "No se cargó ningún registro. El resultado está incompleto, así que puede haber registros coincidentes.",
+    drilldownNoLoadedMatches:
+      "Ningún registro cargado coincide, pero el resultado completo puede incluir registros que no se cargaron.",
     drilldownLoadFailed: "No se pudieron cargar los registros",
+    drilldownOverByteCap:
+      "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",
@@ -1750,6 +1760,10 @@ export default {
     catalogOpenSessions: "Mostrar sesiones con {{event}}",
     catalogAutomatic: "Automático",
     catalogStoppedFiring: "Ya no se envía",
+    catalogMadeIt: "Lo creó",
+    catalogUsedIt: "Lo usó",
+    catalogNoUsedIt:
+      "“Lo creó, no lo usó” no puede revisar lo creado en {{apps}} porque no hay ningún evento de “lo usó” definido.",
     catalogPropertyKeys: "Claves de propiedades",
     catalogMoreKeys: "+{{count}} más",
     catalogTruncated:
@@ -1765,6 +1779,29 @@ export default {
       "La velocidad se mide en las páginas vistas a partir de ahora.",
     speedFilterNeedsLab:
       "Este enlace tiene un filtro de velocidad. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlo.",
+    unusedOutputs: "Lo creó, no lo usó",
+    anyOutcome: "Cualquier sesión",
+    unusedSlidesDecks: "Decks de Slides sin usar",
+    unusedSlidesRule:
+      "Decks creados hace al menos {{days}} días que, en {{days}} días, no se presentaron más allá de la primera diapositiva durante {{seconds}} s o más ni se exportaron. Abrir un deck no cuenta.",
+    unusedFilterNeedsLab:
+      "Este enlace tiene un filtro “Lo creó, no lo usó”. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlo.",
+    outputCoverageSince:
+      "Resultados registrados desde el {{date}}; los no usados aparecen {{days}} días después de crearse.",
+    outputCoverageStarting:
+      "Los resultados se registran a partir de ahora; los no usados aparecen {{days}} días después de crearse.",
+    openDeck: "Abrir deck",
+    moreOutputs: "+{{count}} más",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck creado el {{date}}",
+    outputPresentedOn: "Presentado el {{date}}",
+    outputExportedOn: "Exportado el {{date}}",
+    outputUsedOn: "Usado el {{date}}",
+    outputUnused: "No se usó en {{days}} días",
+    outputOpen: "Aún sin usar; cuenta como no usado después del {{date}}",
+    outputUnmeasured: "Sin medir: algunos eventos no se pudieron guardar",
+    outputsUnavailable: "No se pudieron cargar los resultados.",
     slowRequestCount: "{{count}} solicitudes lentas",
     slowRequestCountSingular: "{{count}} solicitud lenta",
     speedIncomplete: "Datos de velocidad incompletos",

@@ -316,6 +316,82 @@ describe("document suggestion presentation ownership", () => {
     },
   );
 
+  it.each([
+    "First paragraph here.\nSecond paragraph here.",
+    "First paragraph here.\n\nSecond paragraph here.",
+    "| A | B |\n|---|---|\n| one | two |\n\nFirst paragraph here.\n\nSecond paragraph here.",
+  ])(
+    "keeps a saved insertion after text typed at its spot in a new draft: %j",
+    (baseContent) => {
+      const at = baseContent.indexOf("here.") + "here.".length;
+      const saved = {
+        id: "saved",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(
+            baseContent,
+            `${baseContent.slice(0, at)} Saved${baseContent.slice(at)}`,
+          )!,
+        ],
+      } as ResourceSuggestion;
+      const { session, content } = createDocumentSuggestionDraftSession({
+        id: "session",
+        baseContent,
+        baseRevision: "revision",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      });
+      const assemble = (typedAt: number) => {
+        const draft = `${content.slice(0, typedAt)} Typed${content.slice(typedAt)}`;
+        return {
+          draft,
+          presentations: documentEditorSuggestionPresentations({
+            savedSuggestions: [saved],
+            drafts: draftSuggestionsForSession(session, draft, null),
+            currentMarkdown: draft,
+            editingSuggestionId: null,
+            pendingSuggestionId: null,
+            transitions: new Map(),
+          }),
+        };
+      };
+      const spot = content.indexOf("here.") + "here.".length;
+
+      const elsewhere = assemble(content.indexOf("Second"));
+      expect(
+        elsewhere.presentations.find(({ id }) => id === saved.id),
+      ).toMatchObject({
+        canonicalOperation: saved.operations[0],
+        anchor: { from: spot },
+      });
+
+      const { draft, presentations } = assemble(spot);
+      expect(presentations.find(({ id }) => id === saved.id)).toMatchObject({
+        afterText: " Saved",
+        anchor: { from: spot + " Typed".length },
+        presentation: "canonical",
+      });
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(draft),
+      });
+      try {
+        const specs = presentations.map((presentation) =>
+          suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        expect(specs.every((spec) => spec !== null)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.map((spec) => spec!),
+        });
+        expect(editor.view.dom.textContent).toContain(
+          "First paragraph here. Typed SavedSecond paragraph here.",
+        );
+        expect(docToNfm(editor.getJSON() as any)).toBe(draft);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
   it("keeps every precise span of a broad materialized draft and an unrelated gap suggestion", () => {
     const before = "We shipped quickly, and the results were good.";
     const after = "We shipped quickly and the results were excellent.";

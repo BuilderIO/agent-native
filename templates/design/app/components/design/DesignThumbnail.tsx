@@ -4,18 +4,26 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCode } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
+import {
+  connectNativePreviewSurface,
+  nativePreviewSurfaceDocumentKey,
+  prepareNativePreviewSurface,
+} from "@/components/design/design-canvas/native-preview-surface";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
 } from "@/components/design/design-canvas/private-replay-screenshot-preview";
+import { useNativeShaderApprovals } from "@/components/design/use-native-shader-approvals";
 import { cn } from "@/lib/utils";
 
+import { NativePreviewErrorBoundary } from "./NativePreviewErrorBoundary";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 
-export function DesignThumbnail({
+function DesignThumbnailContent({
   html,
   designId,
   className,
@@ -28,6 +36,7 @@ export function DesignThumbnail({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
   const [loaded, setLoaded] = useState(false);
+  const nativeCleanupRef = useRef<(() => void) | null>(null);
 
   const NATURAL_WIDTH = 1280;
   const NATURAL_HEIGHT = 720;
@@ -40,6 +49,36 @@ export function DesignThumbnail({
           )
         : null,
     [designId, html],
+  );
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: undefined,
+      scope: "design",
+      enabled: Boolean(html?.includes("application/x-agent-native-effects")),
+    });
+  const nativePreviewDocument = useMemo(
+    () =>
+      previewDocument
+        ? prepareNativePreviewSurface({
+            html: previewDocument.html,
+            approvedHashes: approvedDefinitionHashes,
+            sandbox: "allow-scripts",
+            profile: "thumbnail",
+            baseHref:
+              typeof window === "undefined" ? undefined : window.location.href,
+          })
+        : null,
+    [previewDocument, approvedDefinitionHashes],
+  );
+  const connectFrame = useCallback(
+    (frame: HTMLIFrameElement | null) => {
+      nativeCleanupRef.current?.();
+      nativeCleanupRef.current = frame
+        ? connectNativePreviewSurface(frame, nativePreviewDocument)
+        : null;
+    },
+    [nativePreviewDocument],
   );
 
   useEffect(() => {
@@ -88,14 +127,17 @@ export function DesignThumbnail({
         </div>
       ) : null}
       <iframe
+        key={nativePreviewSurfaceDocumentKey(nativePreviewDocument)}
+        ref={connectFrame}
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-        srcDoc={previewDocument?.html}
+        srcDoc={nativePreviewDocument?.html}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}
         aria-hidden
         title={t("home.designPreview")}
         onLoad={(event) => {
+          syncNativeShaderApprovals(event.currentTarget);
           setLoaded(true);
           if (designId)
             connectPrivateReplayScreenshotPreview(
@@ -118,5 +160,19 @@ export function DesignThumbnail({
         }}
       />
     </div>
+  );
+}
+
+export function DesignThumbnail(
+  props: ComponentProps<typeof DesignThumbnailContent>,
+) {
+  const documentKey = useMemo(
+    () => JSON.stringify([props.designId, props.html]),
+    [props.designId, props.html],
+  );
+  return (
+    <NativePreviewErrorBoundary key={documentKey} className={props.className}>
+      <DesignThumbnailContent {...props} />
+    </NativePreviewErrorBoundary>
   );
 }

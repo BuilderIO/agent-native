@@ -145,7 +145,7 @@
   padding-inline: var(--code-agents-rail-gutter);
 }
 
-.code-agents-primary-new-chat[aria-selected="false"] {
+.code-agents-primary-new-chat:not([aria-current="page"], :hover) {
   background: hsl(var(--sidebar-background));
 }
 

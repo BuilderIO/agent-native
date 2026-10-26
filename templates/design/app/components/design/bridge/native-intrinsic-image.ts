@@ -2,6 +2,7 @@ import {
   NATIVE_EXPORT_INTRINSIC_SOURCE_ATTR,
   type NativeEmbeddedAssetEntry,
 } from "../../../../shared/native-embedded-assets";
+import { isNativeHtmlTag } from "./native-dom";
 import type { NativeSourceRecord } from "./native-source-provider";
 
 export type NativeIntrinsicImage =
@@ -40,7 +41,7 @@ export function resolveNativeIntrinsicImage(input: {
     return { ok: false, code: "source-intrinsic-placement-unsupported" };
   if (input.hasPreviousLayer)
     return { ok: false, code: "source-intrinsic-chain-unsupported" };
-  if (input.scene.length !== 1 || !(input.target instanceof HTMLImageElement))
+  if (input.scene.length !== 1 || !isNativeHtmlTag(input.target, "img"))
     return { ok: false, code: "source-intrinsic-composition-unsupported" };
   const record = input.scene[0];
   if (

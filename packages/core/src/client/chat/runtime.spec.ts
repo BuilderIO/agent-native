@@ -201,6 +201,26 @@ describe("agentEngineStatusUrlForChatApi", () => {
 });
 
 describe("createHttpAgentChatRuntime", () => {
+  it("sends the configured request turn id with the default request body", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      requestTurnId: () => "turn-continued",
+    });
+
+    const session = await runtime.createSession({ id: "thread-1" });
+    const turn = await session.startTurn({ prompt: "Go on" });
+    await drain(turn.events);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).turnId).toBe(
+      "turn-continued",
+    );
+    expect(turn.requestTurnId).toBe("turn-continued");
+  });
+
   it("posts turns, streams runtime events, exposes run id, and cancels", async () => {
     const fetchMock = vi
       .fn()
@@ -309,6 +329,150 @@ describe("createHttpAgentChatRuntime", () => {
       (events[1] as Extract<AgentChatRuntimeEvent, { type: "message-delta" }>)
         .delta,
     ).toEqual({ type: "text", text: "Done" });
+  });
+
+  it("returns a durable queued receipt from an accepted HTTP 202 response", async () => {
+    const queuedSubmission = {
+      state: "queued" as const,
+      message: {
+        id: "message-queued",
+        threadId: "thread-1",
+        text: "Follow up after the current turn",
+        createdAt: "2026-10-21T00:00:00.000Z",
+      },
+      activeRunId: "run-active",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(queuedSubmission), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-1", threadId: "thread-1" })
+    ).startTurn({
+      prompt: queuedSubmission.message.text,
+      submissionPayload: {
+        threadId: "thread-1",
+        id: queuedSubmission.message.id,
+        text: queuedSubmission.message.text,
+      },
+    });
+
+    expect(turn.queuedSubmission).toEqual(queuedSubmission);
+    expect(turn.runId).toBeUndefined();
+    await expect(drain(turn.events)).resolves.toEqual([]);
+  });
+
+  it.each([
+    ["another thread", { threadId: "thread-other", id: "message-1" }],
+    ["another submission", { threadId: "thread-1", id: "message-other" }],
+  ])(
+    "rejects a 202 receipt for %s and keeps the failure retryable",
+    async (_, receiptIdentity) => {
+      const submissionPayload = {
+        threadId: "thread-1",
+        id: "message-1",
+        text: "Follow up",
+      };
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            state: "queued",
+            message: {
+              ...receiptIdentity,
+              text: submissionPayload.text,
+              createdAt: "2026-10-21T00:00:00.000Z",
+            },
+          }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const runtime = createHttpAgentChatRuntime({
+        endpoint: "/agent/chat",
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession({
+        id: "thread-1",
+        threadId: "thread-1",
+      });
+
+      await expect(
+        session.startTurn({ submissionPayload }),
+      ).rejects.toMatchObject({
+        code: "invalid_queued_submission_response",
+        status: 202,
+        retryable: true,
+      });
+    },
+  );
+
+  it("retains the same submission context after an unreadable 202 receipt", async () => {
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "message-retry-after-202",
+      text: "Retry this accepted submission",
+    };
+    const queuedSubmission = {
+      state: "queued" as const,
+      message: {
+        id: submissionPayload.id,
+        threadId: submissionPayload.threadId,
+        text: submissionPayload.text,
+        createdAt: "2026-10-21T00:00:00.000Z",
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("truncated", {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(queuedSubmission), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ previousTurn, startTurn }) =>
+        startTurn(previousTurn ?? { submissionPayload }),
+    });
+    const session = await runtime.createSession({
+      id: "thread-1",
+      threadId: "thread-1",
+    });
+    let turnId: string | undefined;
+
+    try {
+      await session.startTurn({
+        prompt: submissionPayload.text,
+        submissionPayload,
+      });
+    } catch (error) {
+      turnId = (error as { turnId?: string }).turnId;
+      expect(error).toMatchObject({ retryable: true, status: 202 });
+    }
+    expect(turnId).toBeDefined();
+
+    const retried = await session.continueTurn?.({ turnId });
+
+    expect(retried?.queuedSubmission).toEqual(queuedSubmission);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string),
+    ).toMatchObject({
+      submissionPayload,
+    });
   });
 
   it("explains oversized requests and marks them non-retryable", async () => {
@@ -748,6 +912,109 @@ describe("createAgentNativeChatRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("splits the streamed reply around a message sent into the run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "text", text: "Checking the deck." },
+        { type: "tool_start", id: "call-1", tool: "read-deck", input: {} },
+        { type: "tool_done", id: "call-1", tool: "read-deck", result: "ok" },
+        {
+          type: "user_message",
+          message: {
+            id: "queued-1",
+            text: "Use the blue theme",
+            createdAt: "2026-10-24T10:00:05.000Z",
+            attachments: [
+              {
+                type: "image",
+                name: "ref.png",
+                url: "https://files.example.test/ref.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+          continuationMessageId: "server-run-runtime:after:queued-1",
+        },
+        { type: "text", text: "Switching to blue." },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-steer" });
+    const turn = await session.startTurn({ prompt: "Fix the deck" });
+    const events = await drain(turn.events);
+
+    const messageEvents = events.flatMap((event) =>
+      event.type === "message-start" || event.type === "message-done"
+        ? [{ type: event.type, id: event.message.id, role: event.message.role }]
+        : event.type === "message-delta"
+          ? [{ type: event.type, id: event.messageId }]
+          : [],
+    );
+    const firstReplyId = messageEvents[0]!.id;
+    expect(messageEvents).toEqual([
+      { type: "message-start", id: firstReplyId, role: "assistant" },
+      { type: "message-delta", id: firstReplyId },
+      { type: "message-done", id: firstReplyId, role: "assistant" },
+      { type: "message-start", id: "queued-1", role: "user" },
+      { type: "message-done", id: "queued-1", role: "user" },
+      {
+        type: "message-start",
+        id: "server-run-runtime:after:queued-1",
+        role: "assistant",
+      },
+      { type: "message-delta", id: "server-run-runtime:after:queued-1" },
+      {
+        type: "message-done",
+        id: "server-run-runtime:after:queued-1",
+        role: "assistant",
+      },
+    ]);
+    const delivered = events.find(
+      (event) =>
+        event.type === "message-start" && event.message.role === "user",
+    );
+    expect(delivered).toMatchObject({
+      message: {
+        content: [
+          { type: "text", text: "Use the blue theme" },
+          {
+            type: "file",
+            url: "https://files.example.test/ref.png",
+            mediaType: "image/png",
+            filename: "ref.png",
+          },
+        ],
+        createdAt: "2026-10-24T10:00:05.000Z",
+        status: "complete",
+      },
+    });
+  });
+
+  it("rejects a user_message event without its continuation id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "user_message",
+          message: { id: "queued-1", text: "Use the blue theme" },
+        },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-steer" });
+    const turn = await session.startTurn({ prompt: "Fix the deck" });
+
+    await expect(drain(turn.events)).rejects.toThrow(
+      "Agent chat user_message event requires a message and a continuation id.",
+    );
+  });
+
   it("sends a continued turn's durable attachments when the turn is no longer in memory", async () => {
     const fetchMock = vi
       .fn()
@@ -949,6 +1216,11 @@ describe("createAgentNativeChatRuntime", () => {
     });
     const first = await session.startTurn({
       prompt: "Review this image before publishing.",
+      submissionPayload: {
+        id: "submission-image-approval",
+        threadId: "thread-approval-image-history",
+        text: "Review this image before publishing.",
+      },
       attachments: [requestAttachment],
       messages: [
         {
@@ -990,9 +1262,16 @@ describe("createAgentNativeChatRuntime", () => {
     const continuationBody = JSON.parse(
       String(fetchMock.mock.calls[1]?.[1]?.body),
     );
+    const initialBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(initialBody.submissionPayload).toEqual({
+      id: "submission-image-approval",
+      threadId: "thread-approval-image-history",
+      text: "Review this image before publishing.",
+    });
     expect(continuationBody.message).toBe(
-      "Approved. Go ahead and run the requested action.",
+      "The approved action has run. Do not repeat it; use its result in your reply.",
     );
+    expect(continuationBody).not.toHaveProperty("submissionPayload");
     expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
   });
 
@@ -5257,6 +5536,7 @@ describe("createAgentNativeChatRuntime", () => {
 
     const continuation = await session.continueTurn?.({
       turnId: first.id,
+      prompt: "Use the result in a concise reply.",
       approval: {
         id: approvalAskId,
         approved: true,
@@ -5276,7 +5556,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(
       JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
     ).toMatchObject({
-      message: "Approved. Go ahead and run the requested action.",
+      message: "Use the result in a concise reply.",
       threadId: "thread-approval",
       turnId: first.id,
       internalContinuation: true,
@@ -5517,6 +5797,7 @@ describe("createAgentNativeChatRuntime", () => {
       approval: { id: firstAskId, approved: true },
     });
     expect(firstContinuation).toBeDefined();
+    expect(firstContinuation!.id).not.toBe(first.id);
     const renewedEvents = await drain(firstContinuation!.events);
     expect(renewedEvents).toContainEqual(
       expect.objectContaining({
@@ -5527,13 +5808,14 @@ describe("createAgentNativeChatRuntime", () => {
     );
 
     const renewedContinuation = await session.continueTurn?.({
-      turnId: first.id,
+      turnId: firstContinuation!.id,
       approval: { id: renewedAskId, approved: true },
     });
     expect(renewedContinuation).toBeDefined();
     await drain(renewedContinuation!.events);
 
     const request = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(request.turnId).toBe(first.id);
     expect(request.approvedToolCallAskIds).toEqual([renewedAskId]);
     expect(request.structuredHistory).toEqual(
       expect.arrayContaining([
@@ -6337,7 +6619,8 @@ describe("createAgentNativeChatRuntime", () => {
       .map((part) => part.toolCallId);
 
     expect(request).toMatchObject({
-      message: "Approved. Go ahead and run the requested action.",
+      message:
+        "The approved action has run. Do not repeat it; use its result in your reply.",
       approvedToolCalls: [approvalKey],
     });
     expect(parts).toContainEqual(
@@ -7027,16 +7310,22 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("resolves a denied approval without starting another agent run", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse([
-        {
-          type: "approval_required",
-          tool: "publish-release",
-          approvalKey: "publish-release:{}",
-        },
-        { type: "done" },
-      ]),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-denied",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
     const runtime = createAgentNativeChatRuntime({
       apiUrl: "/_agent-native/agent-chat",
       threadId: "thread-denial",
@@ -7049,7 +7338,7 @@ describe("createAgentNativeChatRuntime", () => {
     const continuation = await session.continueTurn?.({
       turnId: first.id,
       approval: {
-        id: "publish-release:{}",
+        id: "agent-tool-approval-denied",
         approved: false,
       },
     });
@@ -7057,7 +7346,108 @@ describe("createAgentNativeChatRuntime", () => {
     expect(await drain(continuation!.events)).toEqual([
       { type: "done", reason: "complete" },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "/_agent-native/agent-chat/threads/thread-denial/approval-resolution",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      approvalId: "agent-tool-approval-denied",
+      decision: "deny",
+    });
+  });
+
+  it("does not complete a denied approval when the server did not apply it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-denied",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval denial could not be applied",
+            code: "approval_denial_not_applied",
+            retryable: false,
+          }),
+          {
+            status: 409,
+          },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    await expect(
+      session.continueTurn?.({
+        turnId: first.id,
+        approval: {
+          id: "agent-tool-approval-denied",
+          approved: false,
+        },
+      }),
+    ).rejects.toThrow("Approval denial could not be applied");
+  });
+
+  it("dismisses a denial card when the approval was already resolved", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-resolved",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval is no longer pending",
+            code: "approval_not_pending",
+            retryable: false,
+          }),
+          { status: 409 },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "agent-tool-approval-resolved",
+        approved: false,
+      },
+    });
+
+    expect(continuation).toBeDefined();
+    expect(await drain(continuation!.events)).toEqual([
+      { type: "done", reason: "complete" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

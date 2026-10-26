@@ -367,6 +367,26 @@ describe("comment submission receipts", () => {
       expect.objectContaining({ transaction: expect.anything() }),
     );
   });
+  it("replays a saved Property comment after its Property left the Page", async () => {
+    mockListProperties.mockResolvedValueOnce([
+      {
+        definition: { id: "status", name: "Status", type: "text" },
+        value: "Blocked",
+        editable: true,
+      },
+    ]);
+    const property = { ...input, propertyId: "status", databaseId: "db-1" };
+    await run(property);
+    expect(await run(property)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+    // A retry naming another Property that isn't there is still refused.
+    await expect(
+      run({ ...property, propertyId: "priority" }),
+    ).rejects.toMatchObject({ errorCode: "comment_property_not_found" });
+  });
   it("preserves original submission provenance when a retry comes from a new run", async () => {
     await run(input, { caller: "tool", runId: "original-run" });
     expect(

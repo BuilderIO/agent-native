@@ -563,6 +563,89 @@ export function quantizeToStep(
   return Math.round(value / step) * step;
 }
 
+const GEOMETRY_PX_PROPERTY =
+  /^(?:left|top|right|bottom|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|(?:min-|max-)?(?:width|height)|translate)$/;
+const PX_LENGTH_TOKEN = /^(?:-?(?:\d+\.?\d*|\.\d+)px|0)$/i;
+
+/**
+ * Lands a plain px value of a layer geometry property on whole pixels.
+ * Strokes, type, effects and non-px lengths keep their authored precision.
+ */
+export function roundGeometryStylePx(property: string, value: string): string {
+  const cssProperty = property
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .toLowerCase();
+  if (!GEOMETRY_PX_PROPERTY.test(cssProperty)) return value;
+  const tokens = value.trim().split(/\s+/);
+  if (tokens.length === 0 || !tokens.every((t) => PX_LENGTH_TOKEN.test(t))) {
+    return value;
+  }
+  let changed = false;
+  const rounded = tokens.map((token) => {
+    if (token === "0") return token;
+    const parsed = Number.parseFloat(token);
+    const whole = Math.round(parsed) || 0;
+    if (whole !== parsed) changed = true;
+    return `${whole}px`;
+  });
+  return changed ? rounded.join(" ") : value;
+}
+
+const POSITION_PX_PROPERTY =
+  /^(?:left|top|right|bottom|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|translate)$/;
+
+export interface LinearTransform {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+}
+
+/**
+ * Whether whole px written inside this containing block land on whole screen
+ * px: true for no transform, flips, quarter turns and integer scales.
+ */
+export function keepsPixelGrid(
+  transform: LinearTransform | null | undefined,
+): boolean {
+  if (!transform) return true;
+  return [transform.a, transform.b, transform.c, transform.d].every(
+    (entry) =>
+      Number.isFinite(entry) && Math.abs(entry - Math.round(entry)) < 1e-6,
+  );
+}
+
+/**
+ * Returns `styles` itself when no geometry value needed rounding. Inside a
+ * containing block that leaves the pixel grid (a 45° rotation) a position
+ * keeps its precision, so a typed X/Y reads back exactly; sizes still round.
+ */
+export function roundGeometryStylesPx<T extends Record<string, string>>(
+  styles: T,
+  options: { containingBlockTransform?: LinearTransform | null } = {},
+): T {
+  const keepPositions = !keepsPixelGrid(options.containingBlockTransform);
+  let next: T | null = null;
+  for (const [property, value] of Object.entries(styles)) {
+    if (typeof value !== "string") continue;
+    if (
+      keepPositions &&
+      POSITION_PX_PROPERTY.test(
+        property
+          .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+          .toLowerCase(),
+      )
+    ) {
+      continue;
+    }
+    const rounded = roundGeometryStylePx(property, value);
+    if (rounded === value) continue;
+    next ??= { ...styles };
+    (next as Record<string, string>)[property] = rounded;
+  }
+  return next ?? styles;
+}
+
 export function quantizeCanvasPoint(
   point: CanvasPoint,
   step: number = WHOLE_PIXEL_SNAP_STEP,

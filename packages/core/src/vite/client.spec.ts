@@ -2811,6 +2811,119 @@ describe("app changelog raw imports", () => {
     }
   });
 
+  it("loads an empty changelog without watching a missing CHANGELOG.md", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const appDir = path.join(tmpDir, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const importer = path.join(appDir, "root.tsx");
+      const resolved = await plugin.resolveId("../CHANGELOG.md?raw", importer);
+      expect(resolved).toBe(`${path.join(tmpDir, "CHANGELOG.md")}?raw`);
+
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        resolved,
+      );
+
+      expect(code).toBe('export default "";');
+      expect(watched).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("picks up a CHANGELOG.md created after the dev server first served it", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const routesDir = path.join(root, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "settings.ts"),
+      'import changelog from "../../CHANGELOG.md?raw";\nexport default changelog;\n',
+    );
+    // A real dev server, because Vite 8 never calls `handleHotUpdate` for a
+    // created file; its module graph has to invalidate the raw module itself.
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [findPlugin("agent-native-app-changelog-raw")],
+      server: {
+        middlewareMode: true,
+        ws: false,
+        watch: { usePolling: true, interval: 20 },
+      },
+      optimizeDeps: { noDiscovery: true, include: [] },
+    });
+    try {
+      const client = server.environments.client;
+      const route = await client.transformRequest("/app/routes/settings.ts");
+      const rawUrl = /from\s+"([^"]*CHANGELOG\.md\?[^"]*)"/.exec(
+        String(route?.code),
+      )?.[1];
+      expect(rawUrl).toBeTruthy();
+      // Main failed here: the watched missing file became an unresolvable import.
+      expect((await client.transformRequest(rawUrl!))?.code).toContain(
+        'export default ""',
+      );
+
+      await vi.waitFor(() => {
+        expect(server.watcher.getWatched()[root]).toContain("app");
+      });
+      fs.writeFileSync(
+        path.join(root, "CHANGELOG.md"),
+        "# Changelog\n\n## 2026-07-01\n\n### Added\n\n- Created later.\n",
+      );
+      await vi.waitFor(
+        async () => {
+          expect((await client.transformRequest(rawUrl!))?.code).toContain(
+            "Created later.",
+          );
+        },
+        { timeout: 5000, interval: 100 },
+      );
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("watches pending changelog entries when CHANGELOG.md is missing", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const pendingDir = path.join(tmpDir, "changelog");
+    fs.mkdirSync(pendingDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-07-01-first-entry.md"),
+      "---\ntype: added\n---\n\nFirst visible thing.\n",
+    );
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        `${path.join(tmpDir, "CHANGELOG.md")}?raw`,
+      );
+      const entries = parseChangelog(
+        JSON.parse(
+          String(code)
+            .replace(/^export default /, "")
+            .replace(/;$/, ""),
+        ),
+      );
+
+      expect(watched).toEqual([
+        path.join(pendingDir, "2026-07-01-first-entry.md"),
+      ]);
+      expect(entries.map((entry) => entry.title)).toEqual(["2026-07-01"]);
+      expect(entries[0].body).toContain("First visible thing.");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps changelog directories visible to the dev watcher", () => {
     const ignored =
       (
@@ -4246,7 +4359,6 @@ describe("local-core dev aliases and router dedupe", () => {
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
           "@agent-native/toolkit": "workspace:*",
-          "@paper-design/shaders-react": "0.0.76",
           html2canvas: "^1.4.1",
           "react-dom": "^19.2.7",
           "react-router": "^8.0.1",
@@ -4297,10 +4409,6 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain("@agent-native/toolkit > react-i18next");
     expect(deps).not.toContain("@agent-native/core > react-i18next");
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
-    expect(deps).toContain("@paper-design/shaders-react");
-    expect(deps).not.toContain(
-      "@agent-native/core > @paper-design/shaders-react",
-    );
     expect(deps).toContain("html2canvas");
     expect(deps).not.toContain("@agent-native/core > html2canvas");
     expect(deps).toContain("react-dom/server");
