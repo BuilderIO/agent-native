@@ -1465,7 +1465,7 @@ export async function listThreads(
     .filter((r): r is ChatThreadListRow => r !== null);
 }
 
-function escapeLike(s: string): string {
+export function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
 

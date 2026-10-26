@@ -5,4 +5,6 @@ export const coreChatScripts: Record<
   "search-chats": (args) =>
     import("./search-chats.js").then((m) => m.default(args)),
   "open-chat": (args) => import("./open-chat.js").then((m) => m.default(args)),
+  "audit-chats": (args) =>
+    import("./audit-chats.js").then((m) => m.default(args)),
 };
