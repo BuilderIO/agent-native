@@ -92,6 +92,7 @@ import {
   stripAgentChatContextFromMessage,
   stripInlineAttachmentPayloads,
 } from "@agent-native/core/shared";
+import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
@@ -6182,6 +6183,9 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
+              <AgentSelectToggle
+                reservedContextItems={composerContext?.contextItems}
+              />
               {props.composerToolbarSlot}
             </>
           }

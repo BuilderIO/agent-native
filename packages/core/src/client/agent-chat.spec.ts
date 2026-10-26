@@ -2097,6 +2097,22 @@ describe("formatAgentChatContextItemsForPrompt", () => {
       ]),
     ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
   });
+
+  it("leads with the picked objects when the user used Select", () => {
+    const prompt = formatAgentChatContextItemsForPrompt([
+      { key: "page", title: "Dashboard", context: "Revenue dashboard" },
+      {
+        key: "agent-select:panel:p1",
+        title: "Signups",
+        context: "Panel id: p1",
+      },
+    ]);
+    expect(prompt.startsWith("## Selected objects\n")).toBe(true);
+    expect(prompt).toContain('- panel "Signups" (id: "p1")');
+    expect(prompt).toContain(
+      "## Dashboard\nRevenue dashboard\n\n## Signups\nPanel id: p1",
+    );
+  });
 });
 
 describe("filterAgentChatContextItems", () => {

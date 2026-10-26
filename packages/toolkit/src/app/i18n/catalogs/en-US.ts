@@ -523,6 +523,11 @@ const messages = {
   "composer.scheduleTaskPrefix": "Create a recurring job: ",
   "composer.selectedReferences": "Selected references",
   "composer.sendMessage": "Send message",
+  "composer.select": "Select",
+  "composer.selectContextFull":
+    "Context is full. Remove an item before selecting another.",
+  "composer.selectContextTooLarge":
+    "That object is too large to add as context.",
   "composer.skill.added": 'Skill "{{name}}" added',
   "composer.skill.back": "Back",
   "composer.skill.content": "Content",
