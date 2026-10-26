@@ -7,6 +7,15 @@ description: "La skill /turn-into-app transforme un fil de discussion, une skill
 
 `/turn-into-app` est une skill qui transforme un workflow que vous avez déjà éprouvé en app Agent-Native. La source peut être un fil de discussion, une skill, une feuille de calcul ou un projet Claude ou ChatGPT. L'app s'ouvre sur votre univers, peuplée de données d'exemple conçues à partir de la source, avec l'agent intégré qui travaille derrière des commandes placées sur les objets sur lesquels il agit. Un formulaire sous une barre d'étapes est précisément le résultat que la skill cherche à éviter.
 
+## Avant de commencer {#before-you-start}
+
+- Un agent d'IA capable d'exécuter des commandes de terminal, comme Claude Code, Codex ou Cursor. Claude ou ChatGPT sur le web peut à la place confier le travail à Builder. Voir [Où elle s'exécute](#hosts).
+- [Node.js](https://nodejs.org) 22.22 ou version ultérieure. L'installateur de nodejs.org inclut `npx`, qui exécute les commandes d'installation ci-dessous. Vérifiez votre version avec `node --version`.
+- [pnpm](https://pnpm.io) dans votre `PATH`. Si `pnpm --version` échoue, exécutez `corepack enable`, fourni avec Node.js.
+- Un dossier vide pour la nouvelle app, et environ 45 minutes.
+
+Vous n'avez pas besoin d'une clé de fournisseur d'IA pour créer l'app. Vous n'en avez besoin que si vous voulez que l'agent intégré à l'app vous réponde.
+
 ## Installation {#install}
 
 ```bash
@@ -43,10 +52,6 @@ Un hôte est considéré comme local s'il dispose d'un vrai répertoire de trava
 
 Sur un hôte navigateur, la skill exige le connecteur MCP Agent-Native Dispatch (`https://dispatch.agent-native.com/mcp`, OAuth) et appelle son action `start-workspace-app-creation`. L'hôte ne peut ni exécuter ni inspecter l'app, donc le rapport reste en attente ou non vérifié tant que la branche renvoyée par Dispatch n'a pas été construite. La skill rapporte ce que Dispatch a réellement renvoyé et n'invente jamais d'URL de branche. Pour un projet ChatGPT, ou tout hôte qui n'expose que MCP, placez les instructions de la skill dans les instructions du projet ou dans les fichiers de connaissances.
 
-## Prérequis locaux
-
-Sur un hôte local, installez Node.js 22.22.0 ou une version ultérieure (avec npm et npx) et pnpm avant de commencer. Les hôtes navigateur utilisent Dispatch et n'exécutent pas ces commandes.
-
 ## Sources {#sources}
 
 - **Fils de discussion.** Le dernier travail concret et répétable est le produit.
@@ -67,7 +72,7 @@ La skill enregistre son brief source dans `docs/brief.md` et ajoute la conceptio
 ## Déroulement d'une exécution {#how-it-works}
 
 1. **Brief.** Elle lit toute la source et rédige un court brief : le travail, au plus trois moments d'agent, les invariants, les risques liés aux données, la source de vérité et les hypothèses.
-2. **Conception.** Elle décide de l'archétype, de la direction, de la structure, du premier viewport avec ses données d'exemple, et des moments d'agent, puis publie le brief une fois comme point de contrôle. Elle continue sans attendre.
+2. **Conception.** Elle décide de l'archétype, de la direction, de la structure, du premier viewport avec ses données d'exemple, et des moments d'agent, puis publie le brief une fois comme point de contrôle, en indiquant combien de temps durera le reste. Elle continue sans attendre.
 3. **Échafaudage.** Elle crée la vraie app avec le template chat et n'écrase jamais une app existante.
 
    ```bash
@@ -82,6 +87,8 @@ La skill enregistre son brief source dans `docs/brief.md` et ajoute la conceptio
 
 La skill vise environ 45 minutes. Si 35 minutes se sont écoulées au début de la revue, elle effectue un seul passage et liste les critères restés ouverts.
 
+Si une exécution s'arrête en cours de route, invoquez de nouveau la skill dans le même dossier. Elle retrouve l'app à moitié construite, indique ce qui est déjà fait et ce qui reste, et reprend à la première étape inachevée au lieu de créer une seconde app.
+
 ## La boucle de revue par captures d'écran {#review-loop}
 
 Avant la remise, la skill démarre le serveur de dev et capture `/` en tailles bureau et téléphone, en clair et en sombre, ainsi que la commande principale de l'agent après un clic. Elle note les captures selon une grille de 12 lignes couvrant l'impact du premier viewport, l'adéquation au domaine, la hiérarchie, la sobriété du chrome, les données d'exemple, la typographie, la couleur, la finition, l'agent et l'UI ensemble, la mise en page à 390 px, le mode sombre et l'accessibilité.
@@ -92,7 +99,7 @@ Les captures sont enregistrées dans `.tmp/ui-review/out/` de l'app, et le rappo
 
 ## Exécution et déploiement {#run-deploy}
 
-Pour la revue locale, la skill définit `AUTH_DISABLED=1` dans le `.env` ignoré de l'app, car un navigateur de capture neuf n'est pas connecté. Cela ne sert qu'au développement en loopback. Cette variable est retirée avant le `pnpm build` final et ne doit jamais être commitée ni déployée. Sans elle, l'ouverture de l'app affiche une carte « Continue as local dev ».
+Pour la revue locale, la skill définit `AUTH_DISABLED=1` dans le `.env` ignoré de l'app, car un navigateur de capture neuf n'est pas connecté. Cela ne sert qu'au développement en loopback. Cette variable est retirée avant le `pnpm build` final et ne doit jamais être commitée ni déployée. Ensuite, le premier navigateur qui ouvre l'app est connecté automatiquement en tant que compte de développement local. Les navigateurs neufs ouverts par la suite affichent une carte « Continue as local dev ».
 
 Pour exécuter l'app vous-même :
 
@@ -100,7 +107,7 @@ Pour exécuter l'app vous-même :
 pnpm dev
 ```
 
-Pour utiliser votre propre fournisseur de modèle en local, placez une clé telle que `ANTHROPIC_API_KEY` dans le même `.env`. Sinon, la barre latérale de l'agent affiche la configuration partagée Use Builder.io ou Custom keys.
+Pour utiliser votre propre fournisseur de modèle en local, placez une clé telle que `ANTHROPIC_API_KEY` dans le même `.env`. Sinon, l'app s'ouvre quand même sur ses données d'exemple, et la barre latérale de l'agent propose la configuration partagée Use Builder.io ou Custom keys lorsque vous utilisez l'agent.
 
 La skill ne déploie que si vous le demandez ou si le fournisseur est déjà configuré. Un build local sain affiche tout de même un bloc « production configuration errors » avec le code de sortie 0. C'est la checklist de déploiement : un `BETTER_AUTH_SECRET` stable et une `DATABASE_URL` persistante, plus `A2A_SECRET` pour une app dans un workspace. La skill signale ces éléments comme l'étape en attente et ne crée pas de valeurs factices. Voir [Déployer une app](/docs/deploy-an-app) et [Déployer un workspace](/docs/workspace-deployment).
 
