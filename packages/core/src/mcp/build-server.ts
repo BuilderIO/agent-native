@@ -447,7 +447,7 @@ function withoutExternalOptOuts(
  * `tools/call` resolves. A request converts only the schemas it reads, and
  * the next request converts them again.
  */
-function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
+function advertisedInputSchemas(actions: Partial<Record<string, ActionEntry>>) {
   const verdicts = new Map<
     string,
     Tool["inputSchema"] | UnusableSchemaError | null
@@ -455,8 +455,10 @@ function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
   const verdict = (name: string) => {
     let advertised = verdicts.get(name);
     if (advertised === undefined) {
-      advertised = usableInputSchema(actions[name]!, (parameters) =>
-        isMcpActionInputEligible(actions[name]!, parameters)
+      const entry = actions[name];
+      if (entry === undefined) return null;
+      advertised = usableInputSchema(entry, (parameters) =>
+        isMcpActionInputEligible(entry, parameters)
           ? mcpToolInputSchema(name, parameters)
           : null,
       );

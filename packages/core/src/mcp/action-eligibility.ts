@@ -4,7 +4,7 @@ import { isFrameworkMcpTool } from "./framework-tools.js";
 const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
 
 export function hasRawQueryInput(entry: ActionEntry): boolean {
-  return hasRawQueryParameters(entry.tool?.parameters);
+  return hasRawQueryParameters(entry.tool.parameters);
 }
 
 function hasRawQueryParameters(input: unknown): boolean {
@@ -14,7 +14,7 @@ function hasRawQueryParameters(input: unknown): boolean {
   const properties = parameters?.properties;
   if (!properties || typeof properties !== "object") return false;
   return Object.entries(properties).some(([field, schema]) => {
-    const type = schema?.type;
+    const type = schema.type;
     const acceptsString =
       type === "string" ||
       type === undefined ||

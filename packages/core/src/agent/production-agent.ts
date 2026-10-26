@@ -9709,17 +9709,28 @@ export async function runAgentLoop(opts: {
         (actionEntry.needsApproval || requiresWriteApproval) &&
         !wasApproved
       ) {
+        const approvalUserEmail = getRequestUserEmail();
         let mustApprove =
           requiresWriteApproval ||
           (await preparedCallNeedsApproval(actionEntry, intent, {
-            userEmail: getRequestUserEmail(),
+            ...(approvalUserEmail === undefined
+              ? {}
+              : { userEmail: approvalUserEmail }),
             orgId: getRequestOrgId() ?? null,
-            appId: opts.appId,
+            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
             caller: opts.actionCaller ?? "tool",
-            automation: opts.automation,
-            networkProtocol: opts.networkProtocol,
-            networkId: opts.networkId,
-            networkPeer: opts.networkPeer,
+            ...(opts.automation === undefined
+              ? {}
+              : { automation: opts.automation }),
+            ...(opts.networkProtocol === undefined
+              ? {}
+              : { networkProtocol: opts.networkProtocol }),
+            ...(opts.networkId === undefined
+              ? {}
+              : { networkId: opts.networkId }),
+            ...(opts.networkPeer === undefined
+              ? {}
+              : { networkPeer: opts.networkPeer }),
           }));
         if (
           mustApprove &&

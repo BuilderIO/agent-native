@@ -96,7 +96,7 @@ export default defineAction({
       userEmail,
       orgId: ctx?.orgId,
       appId: ctx?.appId,
-      ...(ctx?.caller ? { caller: ctx.caller } : {}),
+      caller: ctx.caller,
     };
 
     if (input.operation === "create") {
