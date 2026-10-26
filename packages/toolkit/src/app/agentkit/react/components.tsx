@@ -76,6 +76,7 @@ import {
   splitMarkdownBlocks,
   writeClipboardText,
 } from "../../../agentkit.js";
+import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
 import {
   Dialog,
   Menu,
@@ -4216,9 +4217,10 @@ export function AgentKitComposer({
   }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerTranslate = useComposerRuntimeAdapters().translate!;
   const composerAttachmentAdapter = useMemo(
-    () => attachmentAdapter ?? createChatAttachmentAdapter(),
-    [attachmentAdapter],
+    () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
+    [attachmentAdapter, composerTranslate],
   );
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);

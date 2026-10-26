@@ -85,6 +85,7 @@ import {
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
+import { downscaleImageToFit } from "../ingestion/media.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
@@ -2774,6 +2775,39 @@ export function isAgentModelVisionCapable(
   return (
     engineVision ||
     MODEL_VISION_CAPABILITY_PATTERNS.some((pattern) => pattern.test(normalized))
+  );
+}
+
+/**
+ * Clones rather than mutates: the attachment's `url` still points at the
+ * full-size original, which stays usable as an asset.
+ */
+export async function downscaleOversizedInlineImages(
+  attachments: AgentChatAttachment[],
+): Promise<AgentChatAttachment[]> {
+  return Promise.all(
+    attachments.map(async (att) => {
+      if (att.type !== "image" || !att.data) return att;
+      const parsed = parseBase64DataUrl(att.data);
+      if (
+        !parsed ||
+        parsed.data.length <= MAX_INLINE_IMAGE_BASE64_CHARS ||
+        !normalizeImageMediaType(parsed.mediaType)
+      ) {
+        return att;
+      }
+      // Budget in decoded bytes so the re-encoded base64 always passes the inline limit.
+      const resized = await downscaleImageToFit({
+        data: Buffer.from(parsed.data, "base64"),
+        maxBytes: (MAX_INLINE_IMAGE_BASE64_CHARS / 4) * 3,
+      });
+      if (!resized) return att;
+      return {
+        ...att,
+        data: `data:${resized.mimeType};base64,${Buffer.from(resized.data).toString("base64")}`,
+        contentType: resized.mimeType,
+      };
+    }),
   );
 }
 
@@ -11846,6 +11880,11 @@ export function createProductionAgentHandler(
         );
       }
     }
+    requestAttachments =
+      await downscaleOversizedInlineImages(requestAttachments);
+    requestContextAttachments = await downscaleOversizedInlineImages(
+      requestContextAttachments,
+    );
     workerStep("attach_done");
 
     workerStep("apikey_start");

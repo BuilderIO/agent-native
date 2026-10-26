@@ -498,6 +498,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上传技能文件",
   "composer.upload": "上传",
   "composer.uploadFailed": "无法上传所选文件。",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" 为 {{size}} MB，超过 {{limit}} MB 的图片无法附加。请使用较小的图片。',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" 为 {{megapixels}} 百万像素，超过 {{limit}} 百万像素的图片无法附加。请使用较小的图片。',
   "composer.fileTooLarge": "此文件超过 {{size}} MB 的上传大小限制。",
   "composer.sessionExpired": "会话已过期。请重新登录，然后再发送消息。",
   "composer.unsupportedFileType": "不支持此文件类型。",

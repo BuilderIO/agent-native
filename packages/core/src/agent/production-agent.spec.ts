@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomFillSync } from "node:crypto";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -9,6 +9,7 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
+import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -25,6 +26,7 @@ import {
 } from "../app-config/run-lifecycle-invariants.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
+import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../file-upload/inline-attachment-limits.js";
 import {
   createOwnedAttachmentHydrationBudget,
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
@@ -75,6 +77,7 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  downscaleOversizedInlineImages,
   isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
   pinAdditionalActionsToTurn,
@@ -1372,6 +1375,35 @@ describe("buildUserContentWithAttachments", () => {
       findProvider.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+
+  it("downscales an oversized inline PNG so the model still receives it as an image", async () => {
+    const pixels = randomFillSync(new Uint8Array(1500 * 1500 * 3));
+    const png = await sharp(pixels, {
+      raw: { width: 1500, height: 1500, channels: 3 },
+    })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    const attachment = {
+      type: "image" as const,
+      name: "logo.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${png.toString("base64")}`,
+      url: "https://files.example.com/logo.png",
+    };
+
+    const [downscaled] = await downscaleOversizedInlineImages([attachment]);
+
+    expect(downscaled!.url).toBe(attachment.url);
+    expect(attachment.data.length).toBeGreaterThan(
+      MAX_INLINE_IMAGE_BASE64_CHARS,
+    );
+    expect(
+      buildUserContentWithAttachments({
+        text: "",
+        attachments: [downscaled!],
+      }),
+    ).toContainEqual(expect.objectContaining({ type: "image" }));
   });
 
   it("does not send display-only chat attachments to the model", () => {

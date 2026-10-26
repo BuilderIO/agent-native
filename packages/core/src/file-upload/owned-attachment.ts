@@ -8,7 +8,6 @@ import {
   formatBase64CharBudget,
   isInlineReadableDocumentType,
   MAX_INLINE_FILE_BASE64_CHARS,
-  MAX_INLINE_IMAGE_BASE64_CHARS,
 } from "./inline-attachment-limits.js";
 import { findFileUploadProviderOwningUrl } from "./registry.js";
 
@@ -70,9 +69,8 @@ export type OwnedFileHydrationResult =
   | { kind: "failed"; code: Exclude<OwnedFileReadFailureCode, "unowned-url"> }
   | { kind: "unowned"; code: "unowned-url" };
 
-export const MAX_OWNED_INLINE_IMAGE_BYTES = Math.floor(
-  (MAX_INLINE_IMAGE_BASE64_CHARS * 3) / 4,
-);
+// Fetch up to the upload cap, not the inline limit: the server downscales images over the inline limit, so storage-hosted ones stay readable.
+export const MAX_OWNED_IMAGE_FETCH_BYTES = 25 * 1024 * 1024;
 export const MAX_OWNED_INLINE_FILE_BYTES = Math.floor(
   (MAX_INLINE_FILE_BASE64_CHARS * 3) / 4,
 );
@@ -80,7 +78,8 @@ export const MAX_OWNED_INLINE_FILE_BYTES = Math.floor(
 export const MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES = 6;
 export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES =
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES;
-export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = 8 * 1024 * 1024;
+// The per-request budget must hold one full-size image or that image can never be fetched.
+export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = MAX_OWNED_IMAGE_FETCH_BYTES;
 export const MAX_OWNED_IMAGE_HYDRATION_BYTES =
   MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
 export const OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS = 20_000;
@@ -397,7 +396,7 @@ export async function hydrateOwnedImageUrl(
   const result = await readOwnedUrlBytes({
     value,
     budget: hydrationBudget,
-    maxInlineBytes: MAX_OWNED_INLINE_IMAGE_BYTES,
+    maxInlineBytes: MAX_OWNED_IMAGE_FETCH_BYTES,
     oversizedCode: "image-too-large",
     accept: "image/jpeg, image/png, image/gif, image/webp",
   });
@@ -489,7 +488,7 @@ export function describeOwnedImageReadFailure(
     case "response-rejected":
       return "the storage provider rejected the image request";
     case "image-too-large":
-      return `the image exceeds the ${formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS)} vision input limit`;
+      return `the image exceeds the ${MAX_OWNED_IMAGE_FETCH_BYTES / 1024 / 1024} MB upload limit`;
     case "request-candidate-limit":
       return "the request reached its limit for checking image attachments";
     case "request-byte-limit":

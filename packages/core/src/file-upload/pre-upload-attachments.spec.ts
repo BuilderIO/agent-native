@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import type { AgentChatAttachment } from "../agent/types.js";
 import { createOwnedAttachmentHydrationBudget } from "./owned-attachment.js";
-import { MAX_OWNED_INLINE_IMAGE_BYTES } from "./owned-attachment.js";
+import { MAX_OWNED_IMAGE_FETCH_BYTES } from "./owned-attachment.js";
 import {
   preUploadAttachments,
   preUploadImageAttachments,
@@ -311,7 +311,7 @@ describe("preUploadAttachments", () => {
             status: 200,
             headers: {
               "content-type": "image/png",
-              "content-length": String(MAX_OWNED_INLINE_IMAGE_BYTES + 1),
+              "content-length": String(MAX_OWNED_IMAGE_FETCH_BYTES + 1),
             },
           }),
       ),

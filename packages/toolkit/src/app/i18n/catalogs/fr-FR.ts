@@ -1192,6 +1192,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.imageTooLargeToAttach":
+    "« {{name}} » fait {{size}} Mo : les images de plus de {{limit}} Mo ne peuvent pas être jointes. Utilisez une image plus petite.",
+  "composer.imageTooManyPixelsToAttach":
+    "« {{name}} » fait {{megapixels}} mégapixels : les images de plus de {{limit}} mégapixels ne peuvent pas être jointes. Utilisez une image plus petite.",
   "composer.fileTooLarge":
     "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
   "composer.sessionExpired":
