@@ -4499,6 +4499,72 @@ export type AgentLoopContinuationReason =
   | "no_progress"
   | "rate_limited";
 
+const MAX_CONTINUATION_CHECKPOINT_CHARS = 12_000;
+
+// Whether the client still shows reply text: a `clear` discards everything before it.
+export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
+  let visible = false;
+  for (const event of events) {
+    if (event.type === "clear") visible = false;
+    else if (event.type === "text" && event.text.trim().length > 0)
+      visible = true;
+  }
+  return visible;
+}
+
+export function hasCompletedSideEffect(
+  events: readonly AgentChatEvent[],
+): boolean {
+  return events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+}
+
+// Earlier tool rounds are already in the message history; only the round that was
+// interrupted needs to be checkpointed.
+function interruptedRoundText(events: readonly AgentChatEvent[]): string {
+  let text = "";
+  for (const event of events) {
+    if (
+      event.type === "clear" ||
+      event.type === "tool_start" ||
+      event.type === "tool_done"
+    ) {
+      text = "";
+    } else if (event.type === "text") {
+      text += event.text;
+    }
+  }
+  return text.trim();
+}
+
+// Continuations must carry the streamed prefix: the client keeps it visible, so a
+// model that is not shown it re-answers from the start and the reply repeats.
+export function appendContinuationCheckpoint(
+  messages: EngineMessage[],
+  events: readonly AgentChatEvent[],
+): void {
+  const text = interruptedRoundText(events);
+  if (!text) return;
+  // Code points, not UTF-16 units, so the cut never leaves a lone surrogate.
+  const boundedText =
+    text.length > MAX_CONTINUATION_CHECKPOINT_CHARS
+      ? `[checkpoint truncated]\n${[...text].slice(-MAX_CONTINUATION_CHECKPOINT_CHARS).join("")}`
+      : text;
+  messages.push({
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: `${AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT}\n\n<interrupted-assistant-prefix>\n${boundedText}\n</interrupted-assistant-prefix>`,
+      },
+    ],
+  });
+}
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
@@ -4623,6 +4689,38 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
     return true;
   if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
+}
+
+// A restart is skipped once this attempt has streamed text, so every error it would
+// have retried must also be resumable; otherwise the run ends where it used to recover.
+export function isResumableStreamFailure(
+  err: unknown,
+  attemptEvents: readonly AgentChatEvent[],
+): boolean {
+  return (
+    isResumableEngineError(err) ||
+    (turnHasVisibleText(attemptEvents) && isRetryableError(err))
+  );
+}
+
+// Reads the live flag; a signal can abort while a loop body awaits, but TS keeps
+// the loop condition's `!signal.aborted` narrowing for direct property reads.
+export function isSignalAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
+// A clear wipes whatever the client shows for the reply. Only safe when nothing
+// visible would be lost, and a completed side effect's tool cards must stay. Not
+// recorded in `events`: with no visible text there is nothing for it to reset, and
+// recording it would hide the action-preparation state a continuation reads.
+export async function clearUnseenDraft(
+  events: readonly AgentChatEvent[],
+  emit: (event: AgentChatEvent) => void | Promise<void>,
+  noSideEffectsInLedger: boolean,
+): Promise<void> {
+  if (!noSideEffectsInLedger || turnHasVisibleText(events)) return;
+  if (hasCompletedSideEffect(events)) return;
+  await emit({ type: "clear" });
 }
 
 export function continuationReasonForResumableError(
@@ -6950,7 +7048,10 @@ async function prepareToolCall(
   try {
     return await Promise.race([
       toolCallIntent(entry, input).then(
-        (intent): PreparedToolCall => ({ status: "prepared", intent }),
+        (intent): PreparedToolCall => ({
+          status: "prepared",
+          intent,
+        }),
       ),
       stopped,
     ]);
@@ -7238,6 +7339,9 @@ export async function runAgentLoop(opts: {
   tools: EngineTool[];
   availableTools?: EngineTool[];
   messages: EngineMessage[];
+  // Restarting the model call would repeat text the client already shows. Without a
+  // turn-level view, the attempt's own streamed text decides.
+  hasVisibleTurnText?: () => boolean;
   structuredHistoryImages?: {
     history: AgentChatStructuredMessage[];
     resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>;
@@ -8009,6 +8113,14 @@ export async function runAgentLoop(opts: {
 
     let assistantContent: EngineContentPart[] | undefined;
     let streamedAssistantText = "";
+    // A restart repeats only what this attempt streamed; earlier rounds stay in history.
+    const attemptHasText = () => streamedAssistantText.trim().length > 0;
+    // A clear wipes the reply, so it is sent only when nothing the client shows would be lost.
+    const sendClear = async () => {
+      if (!(opts.hasVisibleTurnText?.() ?? attemptHasText())) {
+        await send({ type: "clear" });
+      }
+    };
     const streamedAssistantToolCalls: import("./engine/types.js").EngineToolCallPart[] =
       [];
     let terminalStopReason:
@@ -8480,11 +8592,11 @@ export async function runAgentLoop(opts: {
           break;
         }
         if (isContextTooLongError(err)) {
-          if (retry === 0) {
+          if (retry === 0 && !attemptHasText()) {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
               contextMessages = trimmed;
-              send({ type: "clear" });
+              await sendClear();
               continue;
             }
           }
@@ -8495,7 +8607,9 @@ export async function runAgentLoop(opts: {
         }
         const retryAfterMs =
           err instanceof EngineError ? err.retryAfterMs : undefined;
+        // Text this attempt streamed would repeat on restart; the run loop resumes from it.
         if (
+          !attemptHasText() &&
           retry < maxRetriesForError(err, engine) &&
           isRetryableError(err) &&
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
@@ -8507,11 +8621,12 @@ export async function runAgentLoop(opts: {
               label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err, engine) + 1})`,
             });
           }
-          send({ type: "clear" });
+          await sendClear();
           await retryDelay(retry, signal, retryAfterMs);
           continue;
         }
         if (
+          !attemptHasText() &&
           !fallbackModelAttempted &&
           isTransientProviderRateLimitError(err) &&
           hasBudgetForEngineRetry(budgetStartedAt, 0)
@@ -8535,7 +8650,7 @@ export async function runAgentLoop(opts: {
               type: "activity",
               label: "Model is rate limited — switching to a backup model",
             });
-            send({ type: "clear" });
+            await sendClear();
             model = fallbackModel;
             usage.inputTokens = 0;
             usage.outputTokens = 0;
@@ -11584,10 +11699,15 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         budgetStartedAt,
         send,
         finalResponseGuardRequestText,
+        hasVisibleTurnText: () => turnHasVisibleText(localTurnEvents),
       });
       addUsage(nextUsage);
     } catch (err) {
-      if (opts.signal.aborted || !isResumableEngineError(err)) throw err;
+      if (
+        isSignalAborted(opts.signal) ||
+        !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
+      )
+        throw err;
       if (
         !resumeResumableErrorsInProcess &&
         remainingRunBudgetMs(budgetStartedAt) <
@@ -11603,16 +11723,11 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     }
 
     lastAttemptWasUnfinishedContinuation = true;
-    const attemptEvents = localTurnEvents.slice(attemptStartIndex);
-    const completedSideEffect = attemptEvents.some(
-      (event) =>
-        event.type === "tool_done" &&
-        event.completedSideEffect === true &&
-        event.isError !== true,
+    await clearUnseenDraft(localTurnEvents, opts.send, true);
+    appendContinuationCheckpoint(
+      opts.messages,
+      localTurnEvents.slice(attemptStartIndex),
     );
-    if (!completedSideEffect) {
-      opts.send({ type: "clear" });
-    }
     const actionPreparationTool =
       lastUnfinishedPreparingActionToolFromEvents(localTurnEvents);
     appendAgentLoopContinuation(opts.messages, continuationReason, {

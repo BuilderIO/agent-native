@@ -9,6 +9,7 @@ import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
+  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
   isResumableEngineError,
@@ -20,7 +21,6 @@ import {
 } from "./production-agent.js";
 import {
   AgentLoopAbortedError,
-  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   appendDurableContinuationContext,
   clientAbortReason,
   runAgentLoopDirectWithSoftTimeout,
@@ -485,9 +485,8 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     const autoContinueIndex = sentEvents.findIndex(
       (event) => event.type === "auto_continue",
     );
-    const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
     expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
     const continuationText = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
@@ -1540,7 +1539,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
-  it("clears the streamed prefix when a resume emits only the suffix", async () => {
+  it("keeps the streamed prefix when a resume emits only the suffix", async () => {
     const sentEvents: AgentChatEvent[] = [];
     let attempts = 0;
 
@@ -1572,9 +1571,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
-    expect(sentEvents.filter((event) => event.type === "clear")).toHaveLength(
-      1,
-    );
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
     expect(
       sentEvents
         .filter(
