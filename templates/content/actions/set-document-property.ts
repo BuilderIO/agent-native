@@ -102,16 +102,17 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
 }): Promise<string | false> {
   if (!(await isLiveBodyWriterPage(args.documentId))) return false;
   // guard:allow-unscoped — the caller's editor access was checked above.
-  const [current] = await getDb()
+  const rows = await getDb()
     .select({ content: schema.documents.content })
     .from(schema.documents)
     .where(eq(schema.documents.id, args.documentId));
-  if (!current) {
+  if (rows.length === 0) {
     throw new ActionContractError(`Document "${args.documentId}" not found`, {
       errorCode: "DOCUMENT_NOT_FOUND",
       statusCode: 404,
     });
   }
+  const [current] = rows;
   if (current.content === args.content) return false;
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({
@@ -145,7 +146,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
         // The commit locked this collection, then the page's memberships,
         // before the page. A source-policy change locks the collection first,
         // so both reads hold until this commit ends.
-        const [primary] = await db
+        const primary = await db
           .select({ id: schema.contentDatabases.id })
           .from(schema.contentDatabaseItems)
           .innerJoin(
@@ -166,7 +167,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
             ),
           )
           .limit(1);
-        if (!primary) {
+        if (primary.length === 0) {
           throw new ActionContractError(
             "Primary Blocks membership changed before the operation completed.",
             { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },

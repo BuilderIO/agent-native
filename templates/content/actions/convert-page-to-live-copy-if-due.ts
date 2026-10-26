@@ -3,7 +3,66 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { convertPageToLiveCopyIfDue } from "../server/live-copy/backfill.js";
+import { LIVE_BODY_SWITCH_BLOCKERS } from "../server/live-copy/eligibility.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+
+const page = z.object({ id: z.string() });
+
+// `LiveBodyBackfillOutcome`, with the page's id.
+const outcome = z.union([
+  page.extend({ status: z.literal("converted") }),
+  page.extend({ status: z.literal("current") }),
+  page.extend({
+    status: z.literal("skipped"),
+    reason: z.enum([
+      "no_page",
+      "trashed",
+      "flag_off",
+      "local_file",
+      "opted_out",
+    ]),
+  }),
+  page.extend({
+    status: z.literal("skipped"),
+    reason: z.literal("ineligible"),
+    blockers: z.array(z.enum(LIVE_BODY_SWITCH_BLOCKERS)),
+  }),
+  page.extend({
+    status: z.literal("deferred"),
+    reason: z.enum(["live_edits", "rebaseline_blocked", "base_changed"]),
+  }),
+  page.extend({
+    status: z.literal("deferred"),
+    reason: z.literal("live_copy_refused"),
+    code: z.enum([
+      "not_live_copy",
+      "not_seeded",
+      "write_refused",
+      "read_refused",
+      "malformed_state",
+      "unsupported_content",
+      "state_too_large",
+      "derive_refused",
+      "derive_failed",
+      "build_refused",
+      "build_failed",
+      "version_conflict",
+    ]),
+    detail: z.string().optional(),
+  }),
+  page.extend({
+    status: z.literal("deferred"),
+    reason: z.literal("gate_moved"),
+    gate: z.enum([
+      "no_page",
+      "not_switched",
+      "local_file",
+      "live_copy_behind",
+      "stored_body_behind",
+      "flag_off",
+    ]),
+  }),
+]);
 
 export default defineAction({
   description:
@@ -15,6 +74,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().min(1).describe("Document ID"),
   }),
+  outputSchema: outcome,
   run: async (args, ctx) => {
     await assertDocumentMutationAccess(args.id, "editor", "id");
     try {

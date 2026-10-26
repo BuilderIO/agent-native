@@ -92,9 +92,11 @@ afterAll(() => {
   delete process.env.DATABASE_URL;
 });
 
-function rowsOf(result: unknown): any[] {
-  if (Array.isArray(result)) return result;
-  return (result as { rows?: any[] }).rows ?? [];
+type PidRow = { pid: unknown };
+
+function pidRows(result: unknown): PidRow[] {
+  if (Array.isArray(result)) return result as PidRow[];
+  return (result as { rows?: PidRow[] }).rows ?? [];
 }
 
 function failureCode(error: unknown): string {
@@ -118,19 +120,27 @@ function failures(results: PromiseSettledResult<unknown>[]): string[] {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function backendPid(tx: Db): Promise<number> {
-  return Number(
-    rowsOf(await tx.execute(sql`SELECT pg_backend_pid() AS pid`))[0].pid,
-  );
+  const rows = pidRows(await tx.execute(sql`SELECT pg_backend_pid() AS pid`));
+  if (rows.length === 0) throw new Error("pg_backend_pid() returned no row.");
+  return Number(rows[0].pid);
 }
 
-/** The session waiting on `holderPid`, or null if `settled()` first. */
+type Tracked = { settled: boolean; promise: Promise<unknown> };
+
+/**
+ * The session waiting on `holderPid`. Fails if `waiter` settles first, with
+ * its own error when it failed.
+ */
 async function sessionBlockedBy(
   holderPid: number,
-  settled: () => boolean,
-): Promise<number | null> {
+  waiter: Tracked,
+): Promise<number> {
   for (let attempt = 0; attempt < 2_000; attempt += 1) {
-    if (settled()) return null;
-    const waiting = rowsOf(
+    if (waiter.settled) {
+      await waiter.promise;
+      throw new Error(`It finished without waiting on session ${holderPid}.`);
+    }
+    const waiting = pidRows(
       await getDb().execute(
         sql`SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND ${holderPid} = ANY(pg_blocking_pids(pid))`,
       ),
@@ -238,6 +248,9 @@ async function switchedRowOwnedBySource(): Promise<Row> {
     orgId: null,
     now,
   });
+  if (propertyId === null) {
+    throw new Error(`Collection ${databaseId} got no primary Blocks field.`);
+  }
   await switchPageToLiveCopy(id, { ctx });
   await getDb()
     .insert(schema.contentDatabaseSources)
@@ -255,8 +268,8 @@ async function switchedRowOwnedBySource(): Promise<Row> {
     id: sourceFieldId,
     ownerEmail: OWNER,
     sourceId,
-    propertyId: propertyId!,
-    localFieldKey: propertyId!,
+    propertyId,
+    localFieldKey: propertyId,
     sourceFieldKey: "body",
     sourceFieldLabel: "Body",
     sourceFieldType: "text",
@@ -266,23 +279,27 @@ async function switchedRowOwnedBySource(): Promise<Row> {
     createdAt: now,
     updatedAt: now,
   });
-  return { id, databaseId, propertyId: propertyId!, sourceFieldId };
+  return { id, databaseId, propertyId, sourceFieldId };
 }
 
 async function storedBody(row: Row) {
-  const [page] = await getDb()
+  const pages = await getDb()
     .select({ content: schema.documents.content })
     .from(schema.documents)
     .where(eq(schema.documents.id, row.id));
-  return page!.content;
+  if (pages.length === 0) throw new Error(`Page ${row.id} is gone.`);
+  return pages[0].content;
 }
 
 async function boundProperty(row: Row) {
-  const [field] = await getDb()
+  const fields = await getDb()
     .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
     .from(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.id, row.sourceFieldId));
-  return field!.propertyId;
+  if (fields.length === 0) {
+    throw new Error(`Source field ${row.sourceFieldId} is gone.`);
+  }
+  return fields[0].propertyId;
 }
 
 /** The policy change: unbinding the source's field gives the field back to Content. */
@@ -323,6 +340,7 @@ async function writePrimary(row: Row) {
   );
 }
 
+// oracle-change: needs a Postgres test database; CI's Postgres job sets its URL, so it runs there.
 describe.skipIf(!POSTGRES_URL)(
   "a source-policy change and a live-copy primary Blocks write on one page",
   () => {
@@ -342,28 +360,18 @@ describe.skipIf(!POSTGRES_URL)(
           try {
             const holderPid = await holder.pid;
             policy = unbind(row);
-            const policyPid = await sessionBlockedBy(
-              holderPid,
-              () => policy!.settled,
-            );
-            if (policyPid === null) await policy.promise;
-            expect(policyPid).not.toBeNull();
+            const policyPid = await sessionBlockedBy(holderPid, policy);
             write = await writePrimary(row);
-            const writePid = await sessionBlockedBy(
-              policyPid!,
-              () => write!.settled,
-            );
             // A write that didn't wait read the policy mid-change.
-            if (writePid === null) await write.promise;
-            expect(writePid).not.toBeNull();
+            await sessionBlockedBy(policyPid, write);
             expect(await storedBody(row)).toBe(before);
           } finally {
             holder.release();
           }
           const results = await Promise.allSettled([
             holder.done,
-            policy?.promise,
-            write?.promise,
+            policy.promise,
+            write.promise,
           ]);
           expect(failures(results)).toEqual([]);
           expect(await boundProperty(row)).toBeNull();
@@ -388,27 +396,17 @@ describe.skipIf(!POSTGRES_URL)(
           try {
             const holderPid = await holder.pid;
             write = await writePrimary(row);
-            const writePid = await sessionBlockedBy(
-              holderPid,
-              () => write!.settled,
-            );
-            if (writePid === null) await write.promise;
-            expect(writePid).not.toBeNull();
+            const writePid = await sessionBlockedBy(holderPid, write);
             policy = unbind(row);
-            const policyPid = await sessionBlockedBy(
-              writePid!,
-              () => policy!.settled,
-            );
             // A policy change that didn't wait committed under the write.
-            if (policyPid === null) await policy.promise;
-            expect(policyPid).not.toBeNull();
+            await sessionBlockedBy(writePid, policy);
           } finally {
             holder.release();
           }
           const results = await Promise.allSettled([
             holder.done,
-            policy?.promise,
-            write?.promise,
+            policy.promise,
+            write.promise,
           ]);
           expect(failures(results)).toEqual(["PROPERTY_NOT_WRITABLE"]);
           expect(await boundProperty(row)).toBeNull();

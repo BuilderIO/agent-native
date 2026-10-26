@@ -77,7 +77,7 @@ export async function liveBodySwitchBlockers(
 ): Promise<LiveBodySwitchBlocker[] | undefined> {
   const conditions = blockerConditions();
   // guard:allow-unscoped — callers check access to the page first, and this reads only which writers reach it.
-  const [row] = await drizzleOverExec(exec)
+  const rows = await drizzleOverExec(exec)
     .select(
       Object.fromEntries(
         LIVE_BODY_SWITCH_BLOCKERS.map((blocker) => [
@@ -91,7 +91,8 @@ export async function liveBodySwitchBlockers(
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
     .limit(1);
-  if (!row) return undefined;
+  if (rows.length === 0) return undefined;
+  const [row] = rows;
   return LIVE_BODY_SWITCH_BLOCKERS.filter((blocker) => {
     const value = Number(row[blocker]);
     if (value !== 0 && value !== 1) {

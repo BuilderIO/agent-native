@@ -2029,7 +2029,10 @@ describe("primary Blocks body writers on a page that takes body writes through i
       content: "After",
       bodyRevision: before.bodyRevision + 1,
     });
-    expect(after.liveCopyVersion).toBeGreaterThan(before.liveCopyVersion!);
+    expect(before.liveCopyVersion).not.toBeNull();
+    expect(after.liveCopyVersion).toBeGreaterThan(
+      Number(before.liveCopyVersion),
+    );
   });
 
   it("lets a switched page take a primary Blocks property set while its flags are off (SF-11)", async () => {

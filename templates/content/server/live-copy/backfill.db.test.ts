@@ -252,11 +252,12 @@ async function addToCollection(id: string, systemRole?: string) {
 }
 
 async function page(id: string) {
-  const [row] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
-  return row!;
+  if (rows.length === 0) throw new Error(`Page ${id} is gone.`);
+  return rows[0];
 }
 
 async function collabVersion(id: string) {
@@ -286,7 +287,7 @@ async function openInTab(id: string, content: string, typed?: string) {
       ...(typed
         ? [{ type: "paragraph", content: [{ type: "text", text: typed }] }]
         : []),
-      ...(nfmToDoc(content).content ?? []),
+      ...nfmToDoc(content).content,
     ],
   });
   updateYFragment(doc, fragment, root, meta);
@@ -847,8 +848,11 @@ describe("a primary Blocks value on a switched Files row", () => {
       orgId: null,
       now: new Date().toISOString(),
     });
+    if (propertyId === null) {
+      throw new Error(`Collection database-${id} got no primary Blocks field.`);
+    }
     await as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx }));
-    return { id, databaseId: `database-${id}`, propertyId: propertyId! };
+    return { id, databaseId: `database-${id}`, propertyId };
   }
 
   async function setPrimary(
@@ -897,7 +901,10 @@ describe("a primary Blocks value on a switched Files row", () => {
     expect(after.bodyRevision).toBeGreaterThan(before.bodyRevision);
     expect(after.collabBodyRevision).toBe(after.bodyRevision);
     expect(after.liveCopyVersion).toBe(await collabVersion(row.id));
-    expect(after.liveCopyVersion).toBeGreaterThan(before.liveCopyVersion!);
+    expect(before.liveCopyVersion).not.toBeNull();
+    expect(after.liveCopyVersion).toBeGreaterThan(
+      Number(before.liveCopyVersion),
+    );
     expect(await fieldRevision(row)).toBeGreaterThan(revision);
   });
 

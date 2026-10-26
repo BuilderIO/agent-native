@@ -230,7 +230,7 @@ type SweepState = {
   /** The page that sweep is trying. Still set once its lease ends, that sweep died on it. */
   inFlight: { documentId: string; startedAt: string } | null;
   /** Pages the sweep passes over until their `retryAfter`. */
-  held: Record<string, HeldPage>;
+  held: Partial<Record<string, HeldPage>>;
   /**
    * Pages this pass went past after a failure without holding them, because
    * HELD_LIMIT pages were held already. Kept until the next pass starts.
@@ -376,7 +376,7 @@ function holdPage(
 }
 
 // A held page that was deleted would keep its place for good.
-async function dropDeletedPages(held: Record<string, HeldPage>) {
+async function dropDeletedPages(held: SweepState["held"]) {
   const ids = Object.keys(held);
   if (ids.length === 0) return;
   // guard:allow-unscoped — reads only which held page ids still exist.
@@ -571,6 +571,9 @@ export async function runLiveBodyBackfillSweep(context: {
   const convert = context.convert ?? convertPageToLiveCopyIfDue;
   const idleBefore = now - IDLE_MS;
   const outcomes: Record<string, number> = {};
+  const count = (key: string) => {
+    outcomes[key] = (outcomes[key] ?? 0) + 1;
+  };
   const failed: Array<{ documentId: string; error: string }> = [];
   let passedOver = 0;
   let heldOver = 0;
@@ -602,8 +605,9 @@ export async function runLiveBodyBackfillSweep(context: {
       `[${LIVE_BODY_BACKFILL_SWEEP_ID}] page ${documentId} failed:`,
       error,
     );
-    if (!held[documentId] && Object.keys(held).length >= HELD_LIMIT) {
-      outcomes.hold_limit = (outcomes.hold_limit ?? 0) + 1;
+    const previous = held[documentId];
+    if (!previous && Object.keys(held).length >= HELD_LIMIT) {
+      count("hold_limit");
       overHoldLimit = {
         pages: (overHoldLimit?.pages ?? 0) + 1,
         lastDocumentId: documentId,
@@ -615,7 +619,7 @@ export async function runLiveBodyBackfillSweep(context: {
       return;
     }
     held[documentId] = holdPage(
-      held[documentId],
+      previous,
       "failed",
       message.slice(0, HELD_ERROR_LENGTH),
       now,
@@ -674,7 +678,7 @@ export async function runLiveBodyBackfillSweep(context: {
       continue;
     }
     if (!pageFlagsOn) {
-      outcomes["skipped:flag_off"] = (outcomes["skipped:flag_off"] ?? 0) + 1;
+      count("skipped:flag_off");
       reached = page.id;
       continue;
     }
@@ -691,8 +695,7 @@ export async function runLiveBodyBackfillSweep(context: {
     let converted = false;
     try {
       const outcome = await convert(page.id, { flagsOn });
-      const key = outcomeKey(outcome);
-      outcomes[key] = (outcomes[key] ?? 0) + 1;
+      count(outcomeKey(outcome));
       delete held[page.id];
       converted = outcome.status === "converted";
     } catch (error) {
@@ -704,7 +707,7 @@ export async function runLiveBodyBackfillSweep(context: {
       } catch (error) {
         // The switch committed, so the page isn't held; its open views stay
         // stale until they read it again.
-        outcomes.change_event_failed = (outcomes.change_event_failed ?? 0) + 1;
+        count("change_event_failed");
         console.error(
           `[${LIVE_BODY_BACKFILL_SWEEP_ID}] page ${page.id} switched, but its change event failed:`,
           error,
