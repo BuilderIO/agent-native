@@ -44,8 +44,11 @@ export function routePathWithoutBridgeKey(routePath: string): string {
   const queryStart = beforeHash.indexOf("?");
   if (queryStart === -1) return routePath;
   const pairs = beforeHash.slice(queryStart + 1).split("&");
+  // The bridge reads the key with searchParams, which percent-decodes names,
+  // so `%61gentNativeBridgeKey` is the key too and must be matched decoded.
   const kept = pairs.filter(
-    (pair) => pair.split("=", 1)[0] !== FRAME_BRIDGE_KEY_PARAM,
+    (pair) =>
+      new URLSearchParams(pair).keys().next().value !== FRAME_BRIDGE_KEY_PARAM,
   );
   if (kept.length === pairs.length) return routePath;
   const query = kept.length > 0 ? `?${kept.join("&")}` : "";

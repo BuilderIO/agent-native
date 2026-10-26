@@ -65,6 +65,18 @@ describe("routePathWithoutBridgeKey", () => {
     ).toBe("/sign?q=a%20b&sig=x+y%2F");
   });
 
+  it("drops a percent-encoded key name, since the bridge decodes names", () => {
+    expect(
+      routePathWithoutBridgeKey("/docs?%61gentNativeBridgeKey=1%3A2&tab=a"),
+    ).toBe("/docs?tab=a");
+    expect(
+      routePathWithoutBridgeKey("/docs?agentNative%42ridgeKey=1%3A2"),
+    ).toBe("/docs");
+    expect(routePathWithoutBridgeKey("/docs?%zz=1&tab=a")).toBe(
+      "/docs?%zz=1&tab=a",
+    );
+  });
+
   it("returns a route without the key unchanged, including a ? inside the hash", () => {
     expect(routePathWithoutBridgeKey("/pricing?tab=a")).toBe("/pricing?tab=a");
     expect(routePathWithoutBridgeKey("/docs#agentNativeBridgeKey=1?x")).toBe(
