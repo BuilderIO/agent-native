@@ -78,6 +78,31 @@ async function insertPage(
   await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
 }
 
+// A tab's live-copy commit, which moves the page's marker and its collab
+// doc's version together.
+async function commitThroughLiveCopy(id: string) {
+  await collab.saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), "Body");
+  await getDb()
+    .update(schema.documents)
+    .set({ liveCopyVersion: 1 })
+    .where(eq(schema.documents.id, id));
+}
+
+// The Content database's executor, with `commit` landing right after its
+// first statement.
+function execCommittingAfterFirstRead(commit: () => Promise<void>): DbExec {
+  const exec = getDbExec();
+  let reads = 0;
+  return {
+    ...exec,
+    execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+      const result = await exec.execute(query);
+      if (reads++ === 0) await commit();
+      return result;
+    },
+  } as DbExec;
+}
+
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
@@ -446,6 +471,40 @@ describe("live-body writer gate", () => {
       writePath: "legacy",
       reason: "stored_body_behind",
     });
+  });
+
+  it("answers for many pages as the gate does for each, counting a page that commits or switches between its reads", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("committing");
+    await insertPage("behind", { collabBodyRevision: 2 });
+    await insertPage("unswitched", { switched: false });
+    await insertPage("switching", { switched: false });
+
+    const ids = await gate.liveBodyWriterPageIds(
+      ["committing", "behind", "unswitched", "switching", "missing"],
+      {
+        context: {
+          kind: "transaction",
+          executor: execCommittingAfterFirstRead(async () => {
+            await commitThroughLiveCopy("committing");
+            await getDb()
+              .update(schema.documents)
+              .set({ liveBodySwitchedAt: new Date().toISOString() })
+              .where(eq(schema.documents.id, "switching"));
+          }),
+        },
+      },
+    );
+
+    expect([...ids].sort()).toEqual(["committing", "switching"]);
+    for (const id of ids) {
+      await expect(gate.liveBodyWriterGate(id)).resolves.toEqual({
+        writePath: "live_copy",
+      });
+    }
   });
 
   it("fails loudly on malformed flag state for a switched page instead of reading it as off", async () => {

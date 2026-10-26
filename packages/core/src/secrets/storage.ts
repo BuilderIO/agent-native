@@ -18,7 +18,7 @@
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   getDbExec,
@@ -38,6 +38,7 @@ import {
   decryptSecretValue as decryptLegacyValue,
   hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
+import { AppSecretDecryptionError } from "./errors.js";
 import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
@@ -352,14 +353,13 @@ function invalidateRequestSecret(ref: SecretRef): void {
 
 const _warnedUndecryptableSecrets = new Set<string>();
 
-// Reads still report an undecryptable row as missing so credential resolution
-// can fall through to other scopes; the warning keeps the cause visible.
+// Do not include the scope id, ciphertext, or secret value in this warning.
 function warnUndecryptableSecret(ref: SecretRef): void {
   const id = secretCacheKey(ref);
   if (_warnedUndecryptableSecrets.has(id)) return;
   _warnedUndecryptableSecrets.add(id);
   console.warn(
-    `[agent-native/secrets] Stored secret "${ref.key}" (${ref.scope} scope) cannot be decrypted with this process's encryption key material and is treated as missing. It was likely written by a process with different key material.`,
+    `[agent-native/secrets] Stored secret "${ref.key}" (${ref.scope} scope) cannot be decrypted with this process's encryption key material.`,
   );
 }
 
@@ -371,7 +371,7 @@ type AppSecretsReadQuery = { sql: string; args: unknown[] };
  * for connectivity, permission, or syntax errors both hides the real failure
  * and can introduce DDL onto a latency-sensitive read path.
  */
-function isMissingAppSecretsTableError(error: unknown): boolean {
+export function isMissingAppSecretsTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const codeValue = (error as Error & { code?: unknown }).code;
   const code = typeof codeValue === "string" ? codeValue : "";
@@ -421,30 +421,29 @@ async function readAppSecretUncached(
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
+  let decrypted: ReturnType<typeof decryptAppSecretValue>;
   try {
     const encrypted = rows[0].encrypted_value as string;
-    const decrypted = decryptAppSecretValue(
+    decrypted = decryptAppSecretValue(
       encrypted,
       rows[0].shared_encrypted_value as string | null,
     );
-    if (decrypted.needsSharedCiphertext) {
-      await populateSharedAppSecret(
-        rows[0].id,
-        decrypted.value,
-        decrypted.sharedCiphertextToReplace ?? null,
-      );
-    }
-    return {
-      value: decrypted.value,
-      last4: last4(decrypted.value),
-      updatedAt: Number(rows[0].updated_at ?? 0),
-    };
   } catch {
-    // Decryption failure — key rotated, tampered row, etc. Don't throw up the
-    // stack in a way that could leak the ciphertext; just report missing.
     warnUndecryptableSecret(ref);
-    return null;
+    throw new AppSecretDecryptionError(ref);
   }
+  if (decrypted.needsSharedCiphertext) {
+    await populateSharedAppSecret(
+      rows[0].id,
+      decrypted.value,
+      decrypted.sharedCiphertextToReplace ?? null,
+    );
+  }
+  return {
+    value: decrypted.value,
+    last4: last4(decrypted.value),
+    updatedAt: Number(rows[0].updated_at ?? 0),
+  };
 }
 
 export async function readAppSecrets(args: {
@@ -478,46 +477,45 @@ export async function readAppSecrets(args: {
     sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
-  for (const key of keys) {
-    cache?.set(
-      secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
-      null,
-    );
-  }
   for (const row of rows) {
     const key = String(row.key ?? "");
     if (!key) continue;
+    let decrypted: ReturnType<typeof decryptAppSecretValue>;
     try {
       const encrypted = row.encrypted_value as string;
-      const decrypted = decryptAppSecretValue(
+      decrypted = decryptAppSecretValue(
         encrypted,
         row.shared_encrypted_value as string | null,
       );
-      if (decrypted.needsSharedCiphertext) {
-        await populateSharedAppSecret(
-          row.id,
-          decrypted.value,
-          decrypted.sharedCiphertextToReplace ?? null,
-        );
-      }
-      const result = {
-        value: decrypted.value,
-        last4: last4(decrypted.value),
-        updatedAt: Number(row.updated_at ?? 0),
-      };
-      results.set(key, result);
-      cache?.set(
-        secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
-        result,
-      );
     } catch {
-      // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
       warnUndecryptableSecret({
         key,
         scope: args.scope,
         scopeId: args.scopeId,
       });
+      throw new AppSecretDecryptionError({
+        scope: args.scope,
+        scopeId: args.scopeId,
+      });
     }
+    if (decrypted.needsSharedCiphertext) {
+      await populateSharedAppSecret(
+        row.id,
+        decrypted.value,
+        decrypted.sharedCiphertextToReplace ?? null,
+      );
+    }
+    results.set(key, {
+      value: decrypted.value,
+      last4: last4(decrypted.value),
+      updatedAt: Number(row.updated_at ?? 0),
+    });
+  }
+  for (const key of keys) {
+    cache?.set(
+      secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
+      results.get(key) ?? null,
+    );
   }
   return results;
 }
@@ -548,6 +546,34 @@ export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
     args: [ref.scope, ref.scopeId, ref.key],
   });
   return rows.length > 0;
+}
+
+function appSecretRowVersion(
+  encryptedValue: unknown,
+  sharedEncryptedValue: unknown,
+): string {
+  return createHash("sha256")
+    .update(String(encryptedValue ?? ""))
+    .update("\u0000")
+    .update(String(sharedEncryptedValue ?? ""))
+    .digest("base64url");
+}
+
+/**
+ * Read an opaque version marker for a secret without decrypting its value.
+ * The marker changes whenever either saved ciphertext is replaced.
+ */
+export async function readAppSecretVersion(
+  ref: SecretRef,
+): Promise<string | null> {
+  const { rows } = await executeAppSecretsRead({
+    sql: `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [ref.scope, ref.scopeId, ref.key],
+  });
+  const row = rows[0];
+  return row
+    ? appSecretRowVersion(row.encrypted_value, row.shared_encrypted_value)
+    : null;
 }
 
 export async function readAppSecretMeta(
@@ -666,4 +692,114 @@ export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   invalidateOptionalKeyCache();
   invalidateAgentEngineStatusCache();
   return rowsAffected > 0;
+}
+
+/**
+ * Delete only if the stored ciphertext is still the version the caller read.
+ * The ciphertext comparison in the DELETE closes the race between checking
+ * the opaque version and removing the row.
+ */
+export async function deleteAppSecretIfVersion(
+  ref: SecretRef,
+  expectedVersion: string,
+): Promise<boolean> {
+  return deleteAppSecretsIfVersions([{ ref, expectedVersion }]);
+}
+
+/**
+ * Delete a confirmed set only while every stored ciphertext still matches.
+ * Locking and deleting the rows in one transaction prevents a rotation from
+ * leaving a partially removed credential set.
+ */
+export async function deleteAppSecretsIfVersions(
+  expectedSecrets: readonly {
+    ref: SecretRef;
+    expectedVersion: string;
+  }[],
+): Promise<boolean> {
+  if (expectedSecrets.length === 0) return true;
+  const unique = new Map(
+    expectedSecrets.map((entry) => [
+      JSON.stringify([entry.ref.scope, entry.ref.scopeId, entry.ref.key]),
+      entry,
+    ]),
+  );
+  if (unique.size !== expectedSecrets.length) return false;
+
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Atomic secret removal requires transaction support.");
+  }
+
+  const entries = [...unique.values()].sort((a, b) =>
+    JSON.stringify([a.ref.scope, a.ref.scopeId, a.ref.key]).localeCompare(
+      JSON.stringify([b.ref.scope, b.ref.scopeId, b.ref.key]),
+    ),
+  );
+  const identity = (row: Record<string, unknown>) =>
+    JSON.stringify([row.scope, row.scope_id, row.key]);
+  class SecretVersionChangedError extends Error {}
+
+  let deleted: boolean;
+  try {
+    deleted = await client.transaction(async (tx) => {
+      const where = entries
+        .map(() => `(scope = ? AND scope_id = ? AND key = ?)`)
+        .join(" OR ");
+      const args = entries.flatMap(({ ref }) => [
+        ref.scope,
+        ref.scopeId,
+        ref.key,
+      ]);
+      const { rows } = await tx.execute({
+        sql: `SELECT scope, scope_id, key, encrypted_value, shared_encrypted_value FROM app_secrets WHERE ${where} FOR UPDATE`,
+        args,
+      });
+      const rowsByIdentity = new Map(rows.map((row) => [identity(row), row]));
+      if (rowsByIdentity.size !== entries.length) return false;
+
+      for (const { ref, expectedVersion } of entries) {
+        const row = rowsByIdentity.get(
+          JSON.stringify([ref.scope, ref.scopeId, ref.key]),
+        );
+        if (
+          !row ||
+          appSecretRowVersion(
+            row.encrypted_value,
+            row.shared_encrypted_value,
+          ) !== expectedVersion
+        ) {
+          return false;
+        }
+      }
+
+      for (const { ref } of entries) {
+        const row = rowsByIdentity.get(
+          JSON.stringify([ref.scope, ref.scopeId, ref.key]),
+        )!;
+        const { rowsAffected } = await tx.execute({
+          sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? AND encrypted_value = ? AND shared_encrypted_value IS NOT DISTINCT FROM ?`,
+          args: [
+            ref.scope,
+            ref.scopeId,
+            ref.key,
+            row.encrypted_value,
+            row.shared_encrypted_value ?? null,
+          ],
+        });
+        if (rowsAffected !== 1) throw new SecretVersionChangedError();
+      }
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof SecretVersionChangedError) return false;
+    throw error;
+  }
+
+  if (!deleted) return false;
+  for (const { ref } of entries) invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
+  return true;
 }

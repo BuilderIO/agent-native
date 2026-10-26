@@ -18,6 +18,7 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
 let latestEventRows: Array<{
   seq: number;
   event_at?: number | null;
+  transcript_order?: number | null;
   event_data: string;
 }> = [];
 let connectionRequestRows: Array<{ event_data: string }> = [];
@@ -165,7 +166,7 @@ const mockDb: any = {
       };
     }
     if (
-      /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
+      /SELECT seq,\s*(?:(?:event_at,\s*transcript_order,\s*event_data)|(?:event_data(?:,\s*event_at)?))\s+FROM agent_run_events/i.test(
         rawSql,
       )
     ) {
@@ -665,7 +666,7 @@ describe("run store", () => {
     await getRunEventsSince("run-feed", 3);
 
     const select = execCalls.find((call) =>
-      /SELECT seq, event_data FROM agent_run_events WHERE run_id = \? AND seq >= \?/i.test(
+      /SELECT seq,\s*event_at,\s*transcript_order,\s*event_data\s+FROM agent_run_events WHERE run_id = \? AND seq >= \?/i.test(
         call.sql,
       ),
     );
@@ -677,11 +678,43 @@ describe("run store", () => {
     ]);
   });
 
+  it("returns persisted event timestamps without inventing legacy values", async () => {
+    latestEventRows = [
+      {
+        seq: 4,
+        event_at: 1_234,
+        transcript_order: 12,
+        event_data: '{"type":"text","text":"saved"}',
+      },
+      {
+        seq: 5,
+        event_at: null,
+        transcript_order: null,
+        event_data: '{"type":"done"}',
+      },
+    ];
+
+    await expect(getRunEventsSince("run-feed", 3)).resolves.toEqual([
+      {
+        seq: 4,
+        eventAt: 1_234,
+        transcriptOrder: 12,
+        eventData: '{"type":"text","text":"saved"}',
+      },
+      {
+        seq: 5,
+        eventAt: null,
+        transcriptOrder: null,
+        eventData: '{"type":"done"}',
+      },
+    ]);
+  });
+
   it("bounds the live event feed when a limit is requested", async () => {
     await getRunEventsSince("run-feed", 3, { limit: 10 });
 
     const select = execCalls.find((call) =>
-      /SELECT seq, event_data FROM agent_run_events WHERE run_id = \? AND seq >= \?/i.test(
+      /SELECT seq,\s*event_at,\s*transcript_order,\s*event_data\s+FROM agent_run_events WHERE run_id = \? AND seq >= \?/i.test(
         call.sql,
       ),
     );
@@ -694,7 +727,7 @@ describe("run store", () => {
     ]);
   });
 
-  it("atomically rejects producer events after the run becomes terminal", async () => {
+  it("locks the run row before inserting producer events", async () => {
     await insertRunEvent(
       "run-terminal",
       8,
@@ -704,15 +737,14 @@ describe("run store", () => {
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
-    expect(insert?.sql).toMatch(
-      /WHERE NOT EXISTS\s*\(\s*SELECT 1 FROM agent_runs\s*WHERE id = \? AND status <> 'running'/i,
-    );
+    expect(insert?.sql).toMatch(/WITH eligible_run AS MATERIALIZED/i);
+    expect(insert?.sql).toContain("FOR UPDATE");
+    expect(insert?.sql).toContain("run.status = 'running'");
     expect(insert?.args).toEqual([
       "run-terminal",
       8,
       expect.any(Number),
       '{"type":"thinking","text":"zombie"}',
-      "run-terminal",
     ]);
   });
 
@@ -2472,7 +2504,7 @@ describe("run store", () => {
     );
     expect(eventsCall?.args).toEqual(["thread-1", "turn-known"]);
     expect(eventsCall?.sql).toContain("r.continuation_order");
-    expect(eventsCall?.sql).toContain("e.event_at");
+    expect(eventsCall?.sql).toContain("e.seq ASC");
   });
 
   it("getCurrentTurnEventsForThread still infers the turn when the caller has none", async () => {

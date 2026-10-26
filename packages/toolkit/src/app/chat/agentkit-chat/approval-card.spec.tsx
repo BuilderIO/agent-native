@@ -370,7 +370,7 @@ describe("CoreAgentKitApproval", () => {
     );
 
     expect(markup).toContain("agentkit-transcript");
-    expect(markup).toContain('class="agentkit-approval"');
+    expect(markup).toContain('class="agentkit-approval ');
     expect(markup).toContain("Approve to run send email?");
     expect(markup).toContain("Approve");
     expect(markup).toContain("Deny");
@@ -390,6 +390,41 @@ describe("CoreAgentKitApproval", () => {
     );
     expect(customMarkup).toContain("Custom approval slot");
     expect(customMarkup).not.toContain("Edit");
+  });
+
+  it("localizes the default prompt for choice approvals", async () => {
+    const choice: AgentApprovalRequest = {
+      id: "choice-1",
+      title: "Choose a destination",
+      kind: "choice",
+      options: [{ id: "staging", label: "Staging" }],
+    };
+    const client = new AgentKitClient({
+      transport: createTransport({
+        async getThreadSnapshot() {
+          return {
+            id: "thread-1",
+            createdAt: "2026-09-27T00:00:00.000Z",
+            updatedAt: "2026-09-27T00:00:00.000Z",
+            messages: [],
+            approvals: [
+              { request: choice, status: "pending", runId: "pending-run" },
+            ],
+          };
+        },
+      }),
+    });
+    await client.loadThread("thread-1");
+
+    const markup = renderToStaticMarkup(
+      <CoreAgentKitRoot controller={client} threadId="thread-1" load="manual">
+        <AgentKitChat composer={false} />
+      </CoreAgentKitRoot>,
+    );
+
+    expect(markup).toContain("agentChat.approval.submit");
+    expect(markup).toContain("agentChat.approval.other");
+    expect(markup).toContain("agentChat.approval.answerPending");
   });
 
   it("keeps choice and input approvals on AgentKit's existing prompt", () => {

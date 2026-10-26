@@ -281,6 +281,15 @@ async function seedEveryRegisteredIdentityColumn(
 }
 
 describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
+  it("retains collaboration presence during organization-scoped offboarding", () => {
+    expect(
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) =>
+          entry.table === "_collab_awareness" && entry.column === "actor_email",
+      ),
+    ).toMatchObject({ emailChange: "rekey", offboard: "retain" });
+  });
+
   it("retains queued submission actor attribution after offboarding", () => {
     expect(
       IDENTITY_REKEY_COLUMNS.find(

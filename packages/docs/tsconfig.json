@@ -6,6 +6,9 @@
     ".react-router/types/**/*"
   ],
   "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
     "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "jsx": "react-jsx",

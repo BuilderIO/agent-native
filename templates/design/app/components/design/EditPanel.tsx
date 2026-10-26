@@ -21,9 +21,10 @@ import type {
   MotionNativeStyleKey,
 } from "@shared/motion-native-style";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
-import type { MotionPropertyPreset } from "@shared/motion-timeline";
+import type { MotionEase, MotionPropertyPreset } from "@shared/motion-timeline";
 import {
   IconAngle,
+  IconArrowLeft,
   IconArrowUpRight,
   IconChevronDown,
   IconChevronRight,
@@ -242,13 +243,19 @@ import { IconText } from "./inspector/design-icons";
 import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
 import { useRemoveSavedGlslShader } from "./inspector/saved-glsl-shader";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
+import {
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
-import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
 import {
-  MotionNativeStyleEditor,
-  type MotionNativeStyleIdentity,
-} from "./MotionNativeStyleEditor";
+  AddTrackMenu,
+  getMotionDockPrimaryStyles,
+  MotionEasingEditor,
+  type MotionDockEasingSegment,
+} from "./MotionDock";
+import { MotionNativeStyleEditor } from "./MotionNativeStyleEditor";
 import { MotionTextAnimationEditor } from "./MotionTextAnimationEditor";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
@@ -432,6 +439,9 @@ interface EditPanelProps {
   readOnly?: boolean;
   /** The Motion dock is open: the inspector shows animation controls. */
   motionInspector?: boolean;
+  motionEasingSegment?: MotionDockEasingSegment | null;
+  onMotionEasingSegmentBack?: () => void;
+  onMotionEasingSegmentChange?: (ease: MotionEase) => void;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
@@ -521,6 +531,10 @@ interface EditPanelProps {
   onCreateMotionTrack?: (preset: MotionPropertyPreset) => void;
   onCreateMotionStyle?: (style: MotionAnimationStyle) => void;
   motionNativeStyles?: MotionNativeStyleInstance[];
+  selectedMotionNativeStyle?: MotionNativeStyleIdentity | null;
+  onSelectMotionNativeStyle?: (
+    identity: MotionNativeStyleIdentity | null,
+  ) => void;
   motionEasingVariables?: MotionEasingVariable[];
   onMotionEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   onCreateMotionNativeStyle?: (styleKey: MotionNativeStyleKey) => void;
@@ -2174,6 +2188,9 @@ export const EditPanel = memo(function EditPanel({
   width = 256,
   readOnly = false,
   motionInspector = false,
+  motionEasingSegment = null,
+  onMotionEasingSegmentBack,
+  onMotionEasingSegmentChange,
   onStyleChange: onStyleChangeProp,
   onStylesChange: onStylesChangeProp,
   onExport,
@@ -2230,6 +2247,8 @@ export const EditPanel = memo(function EditPanel({
   onCreateMotionNativeStyle,
   onMotionNativeStyleChange,
   onRemoveMotionNativeStyle,
+  selectedMotionNativeStyle,
+  onSelectMotionNativeStyle,
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
@@ -2249,6 +2268,37 @@ export const EditPanel = memo(function EditPanel({
   breakpointContext,
 }: EditPanelProps) {
   const t = useT();
+  const inspectorMotionStyle = resolveMotionNativeStyleIdentity(
+    motionNativeStyles,
+    selectedMotionNativeStyle?.targetNodeId ?? motionSelectedTarget?.nodeId,
+    selectedMotionNativeStyle,
+  );
+  const inspectorMotionTargetNodeId =
+    inspectorMotionStyle?.targetNodeId ?? motionSelectedTarget?.nodeId ?? null;
+  const inspectorMotionTargetLabel = inspectorMotionTargetNodeId
+    ? (motionCode?.targets.find(
+        (target) => target.nodeId === inspectorMotionTargetNodeId,
+      )?.label ??
+      motionCode?.nodes.find((node) => node.id === inspectorMotionTargetNodeId)
+        ?.layerName ??
+      (motionSelectedTarget?.nodeId === inspectorMotionTargetNodeId
+        ? motionSelectedTarget.label
+        : inspectorMotionTargetNodeId))
+    : null;
+  const inspectorMotionCode =
+    motionCode &&
+    inspectorMotionTargetNodeId &&
+    inspectorMotionTargetNodeId !== motionSelectedTarget?.nodeId
+      ? {
+          ...motionCode,
+          targets: [
+            {
+              nodeId: inspectorMotionTargetNodeId,
+              label: inspectorMotionTargetLabel ?? inspectorMotionTargetNodeId,
+            },
+          ],
+        }
+      : motionCode;
   const exportPanelRef = useRef<ExportSettingsPanelController>(null);
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
@@ -2361,12 +2411,13 @@ export const EditPanel = memo(function EditPanel({
       if (property !== "resolvedLineHeightPx") delete inlineStyles[property];
     }
     Object.assign(inlineStyles, textEditingState.inlineStyles ?? {});
-    return {
-      ...element,
-      computedStyles,
-      inlineStyles:
-        Object.keys(inlineStyles).length > 0 ? inlineStyles : undefined,
-    };
+    const resolvedElement = { ...element, computedStyles };
+    if (Object.keys(inlineStyles).length > 0) {
+      resolvedElement.inlineStyles = inlineStyles;
+    } else {
+      delete resolvedElement.inlineStyles;
+    }
+    return resolvedElement;
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
   const selectedElementsKey = JSON.stringify(
@@ -2615,6 +2666,17 @@ export const EditPanel = memo(function EditPanel({
   const inspectorElementSectionKey = inspectorElementForSections
     ? elementInspectorKey(inspectorElementForSections, fileId)
     : "inspector";
+  const componentSectionPreviewFrameId =
+    previewFrameId ??
+    (viewMode === "overview" && fileId && breakpointContext
+      ? getActiveScreenIframeId({
+          id: fileId,
+          ...(breakpointContext.activeWidthPx !== null
+            ? { activeBreakpointWidth: breakpointContext.activeWidthPx }
+            : {}),
+          breakpointWidths: [...breakpointContext.breakpointWidths],
+        })
+      : fileId);
   const selectedScreenElementSectionKey = selectedScreenElement
     ? elementInspectorKey(selectedScreenElement, selectedScreenGeometry?.id)
     : "selected-screen";
@@ -2728,7 +2790,7 @@ export const EditPanel = memo(function EditPanel({
             <FramePresetsPanel
               onPick={(preset) => onCreateScreenFromPreset?.(preset)}
             />
-          ) : motionInspector && readOnly ? (
+          ) : motionInspector && readOnly && !motionEasingSegment ? (
             <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <PanelSection title={t("designEditor.motion.animations")}>
                 {motionSelectedTarget ? (
@@ -2829,675 +2891,1016 @@ export const EditPanel = memo(function EditPanel({
                   }
                   trailing={gridDebugToggle}
                 />
-                {!inspectorElement && selectedScreenGeometry ? (
-                  <ScreenSelectionHeader
-                    screen={selectedScreenGeometry}
-                    route={
-                      selectedScreenSource?.sourceType === "url"
-                        ? selectedScreenRoute
-                        : undefined
-                    }
-                    trailing={gridDebugToggle}
-                  />
-                ) : null}
-                {sourceLocationSnapshotFailed ? (
-                  <div
-                    role="status"
-                    className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
-                  >
-                    {t("designEditor.toasts.sourceLocationSnapshotFailed")}
-                  </div>
-                ) : sourceLocationUnavailable ? (
-                  <div
-                    role="status"
-                    className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
-                  >
-                    {
-                      "No source locations available for this app." /* i18n-ignore design inspector status */
-                    }
-                  </div>
-                ) : null}
-
-                {/* §6.1 Component section — shown at the top when a component
-                instance is selected. Requires designId + componentNodeId. */}
-                {designId && componentNodeId && selectedCount <= 1 && (
-                  <ComponentSection
-                    designId={designId}
-                    fileId={fileId}
-                    boardFileId={boardFileId}
-                    previewFrameId={
-                      previewFrameId ??
-                      (viewMode === "overview" && fileId && breakpointContext
-                        ? getActiveScreenIframeId({
-                            id: fileId,
-                            activeBreakpointWidth:
-                              breakpointContext.activeWidthPx ?? undefined,
-                            breakpointWidths: [
-                              ...breakpointContext.breakpointWidths,
-                            ],
-                          })
-                        : fileId)
-                    }
-                    activeContent={activeContent}
-                    activeFileUpdatedAt={activeFileUpdatedAt}
-                    getExpectedFiles={getComponentExpectedFiles}
-                    componentDetailsReady={componentDetailsReady}
-                    nodeId={componentNodeId}
-                    runtime={componentRuntime}
-                    requestLocalhostWrite={requestLocalhostWrite}
-                    hasLocalOverrides={componentInstanceHasLocalOverrides}
-                    swapPickerRequest={componentSwapPickerRequest}
-                    onResetOverrides={
-                      onResetComponentInstanceOverrides
-                        ? () =>
-                            onResetComponentInstanceOverrides(componentNodeId)
-                        : undefined
-                    }
-                    onRestoreComponent={
-                      onRestoreComponent
-                        ? () => onRestoreComponent(componentNodeId)
-                        : undefined
-                    }
-                    onGoToMainComponent={onGoToMainComponent}
-                    onComponentPropApplied={onComponentPropApplied}
-                    sourceCapabilities={sourceCapabilities}
-                  />
-                )}
-
-                {aiActions ? (
-                  <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
-                    {aiActions}
-                  </div>
-                ) : null}
-
-                {motionInspector && !inspectorElement ? (
-                  <PanelSection title={t("designEditor.motion.animations")}>
-                    <p className="px-3 py-2 text-xs text-muted-foreground">
-                      {t("designEditor.motion.emptyStateNoSelection")}
-                    </p>
-                  </PanelSection>
-                ) : null}
-
-                {!inspectorElement && selectedScreenGeometry ? (
+                {motionEasingSegment ? (
                   <>
-                    <ScreenGeometryProperties
-                      screen={selectedScreenGeometry}
-                      onGeometryChange={
-                        readOnly ? undefined : onScreenGeometryChange
-                      }
-                      onHeightModeChange={
-                        readOnly ? undefined : onScreenHeightModeChange
-                      }
-                      onConstraintChange={
-                        !readOnly &&
-                        selectedScreenElement &&
-                        onSelectedScreenStyleChange
-                          ? (axis, kind, value, meta) =>
-                              commitElementMinMax(
-                                axis,
-                                kind,
-                                value,
-                                onSelectedScreenStyleChange,
-                                meta,
-                              )
-                          : undefined
-                      }
-                      selectedScreenSource={selectedScreenSource}
-                      localhostConnections={localhostConnections}
-                      onScreenSourceChange={
-                        readOnly ? undefined : onScreenSourceChange
-                      }
-                      onScreenUrlChange={
-                        readOnly ? undefined : onScreenUrlChange
-                      }
-                      onAddLocalhostScreen={
-                        readOnly ? undefined : onAddLocalhostScreen
-                      }
-                      onRemoveScreen={readOnly ? undefined : onRemoveScreen}
-                      screenSourcePending={screenSourcePending}
-                      screenBreakpointControls={screenBreakpointControls}
+                    <section
+                      data-design-inspector-section
+                      className="design-sidebar-section mt-3 shrink-0"
+                    >
+                      <div
+                        data-design-inspector-section-header
+                        className="px-2"
+                      >
+                        <div className="relative flex min-h-[var(--design-section-height)] items-center justify-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute left-1 size-7"
+                            aria-label={t(
+                              "designEditor.responsiveInteract.back",
+                            )}
+                            onClick={onMotionEasingSegmentBack}
+                          >
+                            <IconArrowLeft size={16} aria-hidden="true" />
+                          </Button>
+                          <h3
+                            aria-label={t(
+                              "designEditor.motion.animationStyles.easing",
+                            )}
+                            className="design-sidebar-section-title min-w-0 truncate text-foreground"
+                          >
+                            {t("designEditor.motion.animationStyles.easing")}
+                          </h3>
+                        </div>
+                      </div>
+                      <div
+                        data-design-inspector-section-content
+                        className="design-sidebar-control-text design-sidebar-section-content"
+                      >
+                        <div className="pb-2 pt-[7px] pl-[7px] pr-[10px]">
+                          <MotionEasingEditor
+                            key={`${motionEasingSegment.trackId}:${motionEasingSegment.fromT}:${motionEasingSegment.toT}`}
+                            ease={motionEasingSegment.ease}
+                            easingVariables={motionEasingVariables}
+                            {...(onMotionEasingVariablesChange !== undefined
+                              ? {
+                                  onEasingVariablesChange:
+                                    onMotionEasingVariablesChange,
+                                }
+                              : {})}
+                            disabled={readOnly || !onMotionEasingSegmentChange}
+                            onChange={(ease) =>
+                              onMotionEasingSegmentChange?.(ease)
+                            }
+                          />
+                        </div>
+                      </div>
+                    </section>
+                    <MotionAudioTracks
+                      surface="inspector"
+                      compactInspectorHeader
+                      inspectorTitleClassName="ml-2"
+                      clips={motionAudioClips ?? []}
+                      playheadMs={motionAudioPlayheadMs}
+                      timelineDurationMs={motionAudioDurationMs}
+                      timelineScaleDurationMs={motionAudioDurationMs}
+                      readOnly={readOnly || motionWriteUnavailable}
+                      {...(onMotionAudioClipsChange !== undefined
+                        ? { onClipsChange: onMotionAudioClipsChange }
+                        : {})}
+                      {...(onMotionAudioDurationChange !== undefined
+                        ? { onDurationChange: onMotionAudioDurationChange }
+                        : {})}
                     />
-                    {onLayoutGridChange ? (
-                      <LayoutGridProperties
-                        grid={selectedScreenLayoutGrid ?? null}
-                        readOnly={readOnly}
-                        onChange={(next) =>
-                          onLayoutGridChange(selectedScreenGeometry.id, next)
-                        }
+                  </>
+                ) : (
+                  <>
+                    {!inspectorElement && selectedScreenGeometry ? (
+                      <ScreenSelectionHeader
+                        screen={selectedScreenGeometry}
+                        {...(selectedScreenSource?.sourceType === "url" &&
+                        selectedScreenRoute !== undefined
+                          ? { route: selectedScreenRoute }
+                          : {})}
+                        trailing={gridDebugToggle}
                       />
                     ) : null}
-                    {selectedScreenElement && onSelectedScreenStyleChange ? (
-                      <>
-                        <LayoutContextProperties
-                          key={`layout-context:${selectedScreenElementSectionKey}`}
-                          element={selectedScreenElement}
-                          onStyleChange={onSelectedScreenStyleChange}
-                          onStylesChange={onSelectedScreenStylesChange}
-                          onDisableAutoLayout={onDisableAutoLayout}
-                          onApplyLayoutFlow={onApplyLayoutFlow}
-                          showContainerSizing={false}
-                        />
-                        <AppearanceProperties
-                          key={`appearance:${selectedScreenElementSectionKey}`}
-                          element={selectedScreenElement}
-                          onStyleChange={onSelectedScreenStyleChange}
-                          onStylesChange={onSelectedScreenStylesChange}
-                          hidden={selectionHidden}
-                          onToggleHidden={onToggleSelectionHidden}
-                        />
-                        <ShaderAwareFillProperties
-                          key={`fill:${selectedScreenElementSectionKey}`}
-                          element={selectedScreenElement}
-                          uploadScopeKey={selectedScreenElementSectionKey}
-                          onStyleChange={onSelectedScreenStyleChange}
-                          onStylesChange={onSelectedScreenStylesChange}
-                          documentColorPalette={documentColorPalette}
-                          shaderContext={screenShaderContext}
-                          readSubtreeColorStyles={readSubtreeColorStyles}
-                        />
-                        <StrokeProperties
-                          key={`stroke:${selectedScreenElementSectionKey}`}
-                          element={selectedScreenElement}
-                          onStyleChange={onSelectedScreenStyleChange}
-                          onStylesChange={onSelectedScreenStylesChange}
-                        />
-                        <EffectsProperties
-                          key={`effects:${selectedScreenElementSectionKey}`}
-                          element={selectedScreenElement}
-                          onStyleChange={onSelectedScreenStyleChange}
-                          onStylesChange={onSelectedScreenStylesChange}
-                          shaderContext={screenShaderContext}
-                        />
-                        <SelectionColorsProperties
-                          elements={selectedScreenElements}
-                          scopes={selectionColorScopes}
-                          readSubtreeColorStyles={readSubtreeColorStyles}
-                          onColorTarget={onSelectionColorTarget}
-                          canSelectColorTarget={canSelectSelectionColorTarget}
-                          onColorPickerOpenChange={
-                            onSelectionColorPickerOpenChange
-                          }
-                          onColorChange={
-                            readOnly || interactionState
-                              ? undefined
-                              : onSelectionColorChange
-                          }
-                        />
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {!inspectorElement &&
-                !selectedScreenGeometry &&
-                selectionColorScopes.length > 0 ? (
-                  <SelectionColorsProperties
-                    elements={[]}
-                    scopes={selectionColorScopes}
-                    onColorTarget={onSelectionColorTarget}
-                    canSelectColorTarget={canSelectSelectionColorTarget}
-                    onColorPickerOpenChange={onSelectionColorPickerOpenChange}
-                    onColorChange={
-                      readOnly || interactionState
-                        ? undefined
-                        : onSelectionColorChange
-                    }
-                  />
-                ) : null}
-
-                {!inspectorElement &&
-                !selectedScreenGeometry &&
-                backgroundPanelScope ? (
-                  <PageProperties
-                    scope={backgroundPanelScope}
-                    styles={pageStyles}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    canvasBackground={canvasBackground}
-                    canvasBackgroundFallback={canvasBackgroundFallback}
-                    onCanvasBackgroundChange={onCanvasBackgroundChange}
-                  />
-                ) : null}
-
-                {interactionStatePinned ? interactionStatePanel : null}
-
-                {inspectorElement && (
-                  <>
-                    {motionInspector ||
-                    (selectedCount > 0 && motionSelectedTarget) ? (
-                      <PanelSection
-                        title={t("designEditor.motion.animations")}
-                        actions={
-                          motionSelectedTarget ? (
-                            <div className="flex -translate-x-[11px] items-center gap-1">
-                              <Popover
-                                open={animationStyleBrowserOpen}
-                                onOpenChange={
-                                  handleAnimationStyleBrowserOpenChange
-                                }
-                              >
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    ref={animationStyleBrowserTriggerRef}
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 w-6 px-0 text-[11px]"
-                                    aria-label={t(
-                                      "designEditor.motion.animationStyles.title",
-                                    )}
-                                    aria-expanded={animationStyleBrowserOpen}
-                                    disabled={motionWriteUnavailable}
-                                  >
-                                    <IconGridDots
-                                      aria-hidden="true"
-                                      className="size-3.5"
-                                    />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent
-                                  align="start"
-                                  side="left"
-                                  sideOffset={animationStyleBrowserSideOffset}
-                                  className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
-                                >
-                                  <div className="h-full min-h-0 overflow-hidden">
-                                    <AnimationStyleBrowser
-                                      styles={motionAnimationStyles}
-                                      basicStyles={getMotionDockPrimaryStyles(
-                                        t,
-                                      )}
-                                      selectedTargetTracks={
-                                        motionAnimationStyleTargetTracks
-                                      }
-                                      disabled={motionWriteUnavailable}
-                                      onApply={(style) => {
-                                        onApplyMotionAnimationStyle?.(style);
-                                      }}
-                                      onApplyRecipe={(recipe) =>
-                                        onApplyMotionRecipe?.(recipe)
-                                      }
-                                      onApplyPreset={(style) =>
-                                        onCreateMotionStyle?.(style)
-                                      }
-                                      onSaveStyle={(metadata, tracks) =>
-                                        onSaveMotionAnimationStyle?.(
-                                          metadata,
-                                          tracks,
-                                        )
-                                      }
-                                      onClose={() =>
-                                        setAnimationStyleBrowserOpen(false)
-                                      }
-                                      t={t}
-                                    />
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                              <AddTrackMenu
-                                selectedTarget={motionSelectedTarget}
-                                disabledProperties={
-                                  selectedCount === 1
-                                    ? motionKeyframeState?.keyframedProperties
-                                    : undefined
-                                }
-                                disabledReason={
-                                  motionWriteUnavailable
-                                    ? (motionWriteUnavailableReason ??
-                                      t(
-                                        "designEditor.motion.sourceWriteUnavailable",
-                                      ))
-                                    : selectionHasOutermostFrame(
-                                          effectiveSelectedElements,
-                                        )
-                                      ? t(
-                                          "designEditor.motion.addMenu.outermostFrame",
-                                        )
-                                      : undefined
-                                }
-                                onCreateTrack={
-                                  onCreateMotionTrack ?? (() => undefined)
-                                }
-                                onCreateStyle={onCreateMotionStyle}
-                                onCreateNativeStyle={onCreateMotionNativeStyle}
-                                onCreateText={onCreateMotionTextAnimation}
-                              />
-                            </div>
-                          ) : null
-                        }
+                    {sourceLocationSnapshotFailed ? (
+                      <div
+                        role="status"
+                        className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
                       >
-                        {motionInspector && !motionSelectedTarget ? (
-                          <p className="px-3 py-2 text-xs text-muted-foreground">
-                            {t("designEditor.motion.emptyStateNoSelection")}
-                          </p>
-                        ) : null}
-                        {motionSelectedTarget ? (
-                          <MotionCodeView
-                            input={motionCode}
-                            hasList={motionNativeStyles.some(
-                              (style) =>
-                                style.targetNodeId ===
-                                motionSelectedTarget.nodeId,
-                            )}
-                            t={t}
-                            list={
-                              <MotionNativeStyleEditor
-                                styles={motionNativeStyles}
-                                targetNodeId={motionSelectedTarget.nodeId}
-                                isText={motionSelectedTarget.isText}
-                                disabled={motionWriteUnavailable}
-                                easingVariables={motionEasingVariables}
-                                onEasingVariablesChange={
-                                  onMotionEasingVariablesChange
-                                }
-                                onChange={(instance, identity) =>
-                                  onMotionNativeStyleChange?.(
-                                    instance,
-                                    identity,
-                                  )
-                                }
-                                onRemove={(identity) =>
-                                  onRemoveMotionNativeStyle?.(identity)
-                                }
-                                t={t}
-                              />
+                        {t("designEditor.toasts.sourceLocationSnapshotFailed")}
+                      </div>
+                    ) : sourceLocationUnavailable ? (
+                      <div
+                        role="status"
+                        className="border-b border-border/80 bg-amber-500/5 px-3 py-2 text-[10px] leading-4 text-muted-foreground"
+                      >
+                        {
+                          "No source locations available for this app." /* i18n-ignore design inspector status */
+                        }
+                      </div>
+                    ) : null}
+
+                    {/* §6.1 Component section — shown at the top when a component
+                instance is selected. Requires designId + componentNodeId. */}
+                    {designId && componentNodeId && selectedCount <= 1 && (
+                      <ComponentSection
+                        designId={designId}
+                        {...(fileId !== undefined ? { fileId } : {})}
+                        {...(boardFileId !== undefined ? { boardFileId } : {})}
+                        {...(componentSectionPreviewFrameId !== undefined
+                          ? { previewFrameId: componentSectionPreviewFrameId }
+                          : {})}
+                        {...(activeContent !== undefined
+                          ? { activeContent }
+                          : {})}
+                        {...(activeFileUpdatedAt !== undefined
+                          ? { activeFileUpdatedAt }
+                          : {})}
+                        {...(getComponentExpectedFiles !== undefined
+                          ? { getExpectedFiles: getComponentExpectedFiles }
+                          : {})}
+                        componentDetailsReady={componentDetailsReady}
+                        nodeId={componentNodeId}
+                        {...(requestLocalhostWrite !== undefined
+                          ? { requestLocalhostWrite }
+                          : {})}
+                        hasLocalOverrides={componentInstanceHasLocalOverrides}
+                        {...(componentSwapPickerRequest !== undefined
+                          ? { swapPickerRequest: componentSwapPickerRequest }
+                          : {})}
+                        {...(onResetComponentInstanceOverrides !== undefined
+                          ? {
+                              onResetOverrides: () =>
+                                onResetComponentInstanceOverrides(
+                                  componentNodeId,
+                                ),
+                            }
+                          : {})}
+                        {...(onRestoreComponent !== undefined
+                          ? {
+                              onRestoreComponent: () =>
+                                onRestoreComponent(componentNodeId),
+                            }
+                          : {})}
+                        {...(onGoToMainComponent !== undefined
+                          ? { onGoToMainComponent }
+                          : {})}
+                        {...(onComponentPropApplied !== undefined
+                          ? { onComponentPropApplied }
+                          : {})}
+                        sourceCapabilities={sourceCapabilities}
+                        {...(componentRuntime !== undefined
+                          ? { runtime: componentRuntime }
+                          : {})}
+                      />
+                    )}
+
+                    {aiActions ? (
+                      <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
+                        {aiActions}
+                      </div>
+                    ) : null}
+
+                    {motionInspector && !inspectorElement ? (
+                      <PanelSection title={t("designEditor.motion.animations")}>
+                        <p className="px-3 py-2 text-xs text-muted-foreground">
+                          {t("designEditor.motion.emptyStateNoSelection")}
+                        </p>
+                      </PanelSection>
+                    ) : null}
+
+                    {!inspectorElement && selectedScreenGeometry ? (
+                      <>
+                        <ScreenGeometryProperties
+                          screen={selectedScreenGeometry}
+                          {...(!readOnly && onScreenGeometryChange !== undefined
+                            ? { onGeometryChange: onScreenGeometryChange }
+                            : {})}
+                          {...(!readOnly &&
+                          onScreenHeightModeChange !== undefined
+                            ? { onHeightModeChange: onScreenHeightModeChange }
+                            : {})}
+                          {...(!readOnly &&
+                          selectedScreenElement &&
+                          onSelectedScreenStyleChange !== undefined
+                            ? {
+                                onConstraintChange: (
+                                  axis: "horizontal" | "vertical",
+                                  kind: "min" | "max",
+                                  value: number | null,
+                                  meta?: StyleChangeMeta,
+                                ) =>
+                                  commitElementMinMax(
+                                    axis,
+                                    kind,
+                                    value,
+                                    onSelectedScreenStyleChange,
+                                    meta,
+                                  ),
+                              }
+                            : {})}
+                          {...(selectedScreenSource !== undefined
+                            ? { selectedScreenSource }
+                            : {})}
+                          {...(localhostConnections !== undefined
+                            ? { localhostConnections }
+                            : {})}
+                          {...(!readOnly && onScreenSourceChange !== undefined
+                            ? { onScreenSourceChange }
+                            : {})}
+                          {...(!readOnly && onScreenUrlChange !== undefined
+                            ? { onScreenUrlChange }
+                            : {})}
+                          {...(!readOnly && onAddLocalhostScreen !== undefined
+                            ? { onAddLocalhostScreen }
+                            : {})}
+                          {...(!readOnly && onRemoveScreen !== undefined
+                            ? { onRemoveScreen }
+                            : {})}
+                          {...(screenSourcePending !== undefined
+                            ? { screenSourcePending }
+                            : {})}
+                          screenBreakpointControls={screenBreakpointControls}
+                        />
+                        {onLayoutGridChange ? (
+                          <LayoutGridProperties
+                            grid={selectedScreenLayoutGrid ?? null}
+                            readOnly={readOnly}
+                            onChange={(next) =>
+                              onLayoutGridChange(
+                                selectedScreenGeometry.id,
+                                next,
+                              )
                             }
                           />
                         ) : null}
-                      </PanelSection>
+                        {selectedScreenElement &&
+                        onSelectedScreenStyleChange ? (
+                          <>
+                            <LayoutContextProperties
+                              key={`layout-context:${selectedScreenElementSectionKey}`}
+                              element={selectedScreenElement}
+                              onStyleChange={onSelectedScreenStyleChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                              {...(onDisableAutoLayout !== undefined
+                                ? { onDisableAutoLayout }
+                                : {})}
+                              {...(onApplyLayoutFlow !== undefined
+                                ? { onApplyLayoutFlow }
+                                : {})}
+                              showContainerSizing={false}
+                            />
+                            <AppearanceProperties
+                              key={`appearance:${selectedScreenElementSectionKey}`}
+                              element={selectedScreenElement}
+                              onStyleChange={onSelectedScreenStyleChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                              hidden={selectionHidden}
+                              {...(onToggleSelectionHidden !== undefined
+                                ? { onToggleHidden: onToggleSelectionHidden }
+                                : {})}
+                            />
+                            <ShaderAwareFillProperties
+                              key={`fill:${selectedScreenElementSectionKey}`}
+                              element={selectedScreenElement}
+                              uploadScopeKey={selectedScreenElementSectionKey}
+                              onStyleChange={onSelectedScreenStyleChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                              documentColorPalette={documentColorPalette}
+                              {...(screenShaderContext !== undefined
+                                ? { shaderContext: screenShaderContext }
+                                : {})}
+                              {...(readSubtreeColorStyles !== undefined
+                                ? { readSubtreeColorStyles }
+                                : {})}
+                            />
+                            <StrokeProperties
+                              key={`stroke:${selectedScreenElementSectionKey}`}
+                              element={selectedScreenElement}
+                              onStyleChange={onSelectedScreenStyleChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                            />
+                            <EffectsProperties
+                              key={`effects:${selectedScreenElementSectionKey}`}
+                              element={selectedScreenElement}
+                              onStyleChange={onSelectedScreenStyleChange}
+                              {...(onSelectedScreenStylesChange !== undefined
+                                ? {
+                                    onStylesChange:
+                                      onSelectedScreenStylesChange,
+                                  }
+                                : {})}
+                              {...(screenShaderContext !== undefined
+                                ? { shaderContext: screenShaderContext }
+                                : {})}
+                            />
+                            <SelectionColorsProperties
+                              elements={selectedScreenElements}
+                              scopes={selectionColorScopes}
+                              {...(readSubtreeColorStyles !== undefined
+                                ? { readSubtreeColorStyles }
+                                : {})}
+                              {...(onSelectionColorTarget !== undefined
+                                ? { onColorTarget: onSelectionColorTarget }
+                                : {})}
+                              {...(canSelectSelectionColorTarget !== undefined
+                                ? {
+                                    canSelectColorTarget:
+                                      canSelectSelectionColorTarget,
+                                  }
+                                : {})}
+                              {...(onSelectionColorPickerOpenChange !==
+                              undefined
+                                ? {
+                                    onColorPickerOpenChange:
+                                      onSelectionColorPickerOpenChange,
+                                  }
+                                : {})}
+                              {...(!readOnly && !interactionState
+                                ? { onColorChange: onSelectionColorChange }
+                                : {})}
+                            />
+                          </>
+                        ) : null}
+                      </>
                     ) : null}
-                    {selectedCount === 1 &&
-                    motionSelectedTarget?.isText &&
-                    (motionTextAnimations?.length ?? 0) > 0 ? (
-                      <MotionTextAnimationEditor
-                        animations={motionTextAnimations ?? []}
-                        onChange={(animations) =>
-                          onMotionTextAnimationsChange?.(animations)
-                        }
-                        disabled={motionWriteUnavailable}
-                        t={t}
+
+                    {!inspectorElement &&
+                    !selectedScreenGeometry &&
+                    selectionColorScopes.length > 0 ? (
+                      <SelectionColorsProperties
+                        elements={[]}
+                        scopes={selectionColorScopes}
+                        {...(onSelectionColorTarget !== undefined
+                          ? { onColorTarget: onSelectionColorTarget }
+                          : {})}
+                        {...(canSelectSelectionColorTarget !== undefined
+                          ? {
+                              canSelectColorTarget:
+                                canSelectSelectionColorTarget,
+                            }
+                          : {})}
+                        {...(onSelectionColorPickerOpenChange !== undefined
+                          ? {
+                              onColorPickerOpenChange:
+                                onSelectionColorPickerOpenChange,
+                            }
+                          : {})}
+                        {...(!readOnly && !interactionState
+                          ? { onColorChange: onSelectionColorChange }
+                          : {})}
                       />
                     ) : null}
-                    <PositionLayoutProperties
-                      key={`position:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      sharedRotation={sharedSelectionRotation}
-                      onStyleChange={onStyleChange}
-                      onStylesChange={onStylesChange}
-                      onAlignSelection={onAlignSelection}
-                      alignSelectionDisabled={alignSelectionDisabled}
-                      alignSelectionDisabledReason={
-                        alignSelectionDisabledReason
-                      }
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                      breakpointOverrideContext={breakpointOverrideFieldContext}
-                      motionInspector={motionInspector}
-                      onMotionOriginEditingChange={onMotionOriginEditingChange}
-                    />
-                    {!motionInspector &&
-                    activeTool === "scale" &&
-                    scaleToolControls &&
-                    effectiveSelectedElements.length === 1 ? (
-                      <ScaleProperties
-                        key={`scale:${inspectorElementSectionKey}`}
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        controls={scaleToolControls}
-                      />
-                    ) : null}
-                    {motionInspector ? (
-                      <MotionDimensionsProperties
-                        key={`motion-dimensions:${inspectorElementSectionKey}`}
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
+
+                    {!inspectorElement &&
+                    !selectedScreenGeometry &&
+                    backgroundPanelScope ? (
+                      <PageProperties
+                        scope={backgroundPanelScope}
+                        styles={pageStyles}
                         onStyleChange={onStyleChange}
                         onStylesChange={onStylesChange}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      >
-                        <LayoutContextProperties
-                          key={`motion-auto-layout:${inspectorElementSectionKey}`}
+                        {...(canvasBackground !== undefined
+                          ? { canvasBackground }
+                          : {})}
+                        {...(canvasBackgroundFallback !== undefined
+                          ? { canvasBackgroundFallback }
+                          : {})}
+                        {...(onCanvasBackgroundChange !== undefined
+                          ? { onCanvasBackgroundChange }
+                          : {})}
+                      />
+                    ) : null}
+
+                    {interactionStatePinned ? interactionStatePanel : null}
+
+                    {inspectorElement && (
+                      <>
+                        {motionInspector ||
+                        (selectedCount > 0 && motionSelectedTarget) ? (
+                          <PanelSection
+                            title={t("designEditor.motion.animations")}
+                            actions={
+                              motionSelectedTarget ? (
+                                <div className="flex -translate-x-[11px] items-center gap-1">
+                                  <Popover
+                                    open={animationStyleBrowserOpen}
+                                    onOpenChange={
+                                      handleAnimationStyleBrowserOpenChange
+                                    }
+                                  >
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        ref={animationStyleBrowserTriggerRef}
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 w-6 px-0 text-[11px]"
+                                        aria-label={t(
+                                          "designEditor.motion.animationStyles.title",
+                                        )}
+                                        aria-expanded={
+                                          animationStyleBrowserOpen
+                                        }
+                                        disabled={motionWriteUnavailable}
+                                      >
+                                        <IconGridDots
+                                          aria-hidden="true"
+                                          className="size-3.5"
+                                        />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      align="start"
+                                      side="left"
+                                      sideOffset={
+                                        animationStyleBrowserSideOffset
+                                      }
+                                      className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
+                                    >
+                                      <div className="h-full min-h-0 overflow-hidden">
+                                        <AnimationStyleBrowser
+                                          styles={motionAnimationStyles}
+                                          basicStyles={getMotionDockPrimaryStyles(
+                                            t,
+                                          )}
+                                          selectedTargetTracks={
+                                            motionAnimationStyleTargetTracks
+                                          }
+                                          disabled={motionWriteUnavailable}
+                                          onApply={(style) => {
+                                            onApplyMotionAnimationStyle?.(
+                                              style,
+                                            );
+                                          }}
+                                          onApplyRecipe={(recipe) =>
+                                            onApplyMotionRecipe?.(recipe)
+                                          }
+                                          onApplyPreset={(style) =>
+                                            onCreateMotionStyle?.(style)
+                                          }
+                                          onSaveStyle={(metadata, tracks) =>
+                                            onSaveMotionAnimationStyle?.(
+                                              metadata,
+                                              tracks,
+                                            )
+                                          }
+                                          onClose={() =>
+                                            setAnimationStyleBrowserOpen(false)
+                                          }
+                                          t={t}
+                                        />
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                  <AddTrackMenu
+                                    selectedTarget={motionSelectedTarget}
+                                    {...(selectedCount === 1 &&
+                                    motionKeyframeState?.keyframedProperties !==
+                                      undefined
+                                      ? {
+                                          disabledProperties:
+                                            motionKeyframeState.keyframedProperties,
+                                        }
+                                      : {})}
+                                    {...(motionWriteUnavailable
+                                      ? {
+                                          disabledReason:
+                                            motionWriteUnavailableReason ??
+                                            t(
+                                              "designEditor.motion.sourceWriteUnavailable",
+                                            ),
+                                        }
+                                      : selectionHasOutermostFrame(
+                                            effectiveSelectedElements,
+                                          )
+                                        ? {
+                                            disabledReason: t(
+                                              "designEditor.motion.addMenu.outermostFrame",
+                                            ),
+                                          }
+                                        : {})}
+                                    onCreateTrack={
+                                      onCreateMotionTrack ?? (() => undefined)
+                                    }
+                                    {...(onCreateMotionStyle !== undefined
+                                      ? { onCreateStyle: onCreateMotionStyle }
+                                      : {})}
+                                    {...(onCreateMotionNativeStyle !== undefined
+                                      ? {
+                                          onCreateNativeStyle:
+                                            onCreateMotionNativeStyle,
+                                        }
+                                      : {})}
+                                    {...(onCreateMotionTextAnimation !==
+                                    undefined
+                                      ? {
+                                          onCreateText:
+                                            onCreateMotionTextAnimation,
+                                        }
+                                      : {})}
+                                  />
+                                </div>
+                              ) : null
+                            }
+                          >
+                            {motionInspector &&
+                            !motionSelectedTarget &&
+                            !inspectorMotionStyle ? (
+                              <p className="px-3 py-2 text-xs text-muted-foreground">
+                                {t("designEditor.motion.emptyStateNoSelection")}
+                              </p>
+                            ) : null}
+                            {inspectorMotionTargetNodeId ? (
+                              <MotionCodeView
+                                input={inspectorMotionCode}
+                                hasList={motionNativeStyles.some(
+                                  (style) =>
+                                    style.targetNodeId ===
+                                    inspectorMotionTargetNodeId,
+                                )}
+                                t={t}
+                                list={
+                                  <MotionNativeStyleEditor
+                                    styles={motionNativeStyles}
+                                    targetNodeId={inspectorMotionTargetNodeId}
+                                    {...(selectedMotionNativeStyle !== undefined
+                                      ? {
+                                          selectedStyle:
+                                            selectedMotionNativeStyle,
+                                        }
+                                      : {})}
+                                    {...(onSelectMotionNativeStyle !== undefined
+                                      ? {
+                                          onSelectedStyleChange:
+                                            onSelectMotionNativeStyle,
+                                        }
+                                      : {})}
+                                    {...(motionSelectedTarget?.nodeId ===
+                                    inspectorMotionTargetNodeId
+                                      ? motionSelectedTarget.isText !==
+                                        undefined
+                                        ? {
+                                            isText: motionSelectedTarget.isText,
+                                          }
+                                        : {}
+                                      : {
+                                          isText:
+                                            inspectorMotionStyle?.styleKey ===
+                                            "TextStagger",
+                                        })}
+                                    disabled={motionWriteUnavailable}
+                                    easingVariables={motionEasingVariables}
+                                    {...(onMotionEasingVariablesChange !==
+                                    undefined
+                                      ? {
+                                          onEasingVariablesChange:
+                                            onMotionEasingVariablesChange,
+                                        }
+                                      : {})}
+                                    onChange={(instance, identity) =>
+                                      onMotionNativeStyleChange?.(
+                                        instance,
+                                        identity,
+                                      )
+                                    }
+                                    onRemove={(identity) =>
+                                      onRemoveMotionNativeStyle?.(identity)
+                                    }
+                                    t={t}
+                                  />
+                                }
+                              />
+                            ) : null}
+                          </PanelSection>
+                        ) : null}
+                        {selectedCount === 1 &&
+                        motionSelectedTarget?.isText &&
+                        (motionTextAnimations?.length ?? 0) > 0 ? (
+                          <MotionTextAnimationEditor
+                            animations={motionTextAnimations ?? []}
+                            onChange={(animations) =>
+                              onMotionTextAnimationsChange?.(animations)
+                            }
+                            disabled={motionWriteUnavailable}
+                            t={t}
+                          />
+                        ) : null}
+                        <PositionLayoutProperties
+                          key={`position:${inspectorElementSectionKey}`}
+                          element={
+                            stateResolvedInspectorElement ?? inspectorElement
+                          }
+                          {...(sharedSelectionRotation !== undefined
+                            ? { sharedRotation: sharedSelectionRotation }
+                            : {})}
+                          onStyleChange={onStyleChange}
+                          onStylesChange={onStylesChange}
+                          {...(onAlignSelection !== undefined
+                            ? { onAlignSelection }
+                            : {})}
+                          alignSelectionDisabled={alignSelectionDisabled}
+                          {...(alignSelectionDisabledReason !== undefined
+                            ? { alignSelectionDisabledReason }
+                            : {})}
+                          {...(motionKeyframeFieldContext !== undefined
+                            ? {
+                                motionKeyframeContext:
+                                  motionKeyframeFieldContext,
+                              }
+                            : {})}
+                          {...(breakpointOverrideFieldContext !== undefined
+                            ? {
+                                breakpointOverrideContext:
+                                  breakpointOverrideFieldContext,
+                              }
+                            : {})}
+                          motionInspector={motionInspector}
+                          {...(onMotionOriginEditingChange !== undefined
+                            ? { onMotionOriginEditingChange }
+                            : {})}
+                        />
+                        {!motionInspector &&
+                        activeTool === "scale" &&
+                        scaleToolControls &&
+                        effectiveSelectedElements.length === 1 ? (
+                          <ScaleProperties
+                            key={`scale:${inspectorElementSectionKey}`}
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            controls={scaleToolControls}
+                          />
+                        ) : null}
+                        {motionInspector ? (
+                          <MotionDimensionsProperties
+                            key={`motion-dimensions:${inspectorElementSectionKey}`}
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            onStyleChange={onStyleChange}
+                            onStylesChange={onStylesChange}
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
+                          >
+                            <LayoutContextProperties
+                              key={`motion-auto-layout:${inspectorElementSectionKey}`}
+                              element={
+                                stateResolvedInspectorElement ??
+                                inspectorElement
+                              }
+                              onStyleChange={onStyleChange}
+                              onStylesChange={onStylesChange}
+                              {...(onDisableAutoLayout !== undefined
+                                ? { onDisableAutoLayout }
+                                : {})}
+                              {...(onApplyLayoutFlow !== undefined
+                                ? { onApplyLayoutFlow }
+                                : {})}
+                              showContainerSizing={false}
+                              motionInspector
+                              {...(motionKeyframeFieldContext !== undefined
+                                ? {
+                                    motionKeyframeContext:
+                                      motionKeyframeFieldContext,
+                                  }
+                                : {})}
+                            />
+                          </MotionDimensionsProperties>
+                        ) : (
+                          <LayoutContextProperties
+                            key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            onStyleChange={onStyleChange}
+                            onStylesChange={onStylesChange}
+                            {...(onDisableAutoLayout !== undefined
+                              ? { onDisableAutoLayout }
+                              : {})}
+                            {...(onApplyLayoutFlow !== undefined
+                              ? { onApplyLayoutFlow }
+                              : {})}
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
+                          />
+                        )}
+                        {interactionStatePinned ? null : interactionStatePanel}
+                        <AppearanceProperties
+                          key={`appearance:${inspectorElementSectionKey}`}
+                          element={
+                            stateResolvedInspectorElement ?? inspectorElement
+                          }
+                          onStyleChange={onStyleChange}
+                          {...(onStylesChangeProp !== undefined
+                            ? { onStylesChange }
+                            : {})}
+                          hidden={selectionHidden}
+                          {...(onToggleSelectionHidden !== undefined
+                            ? { onToggleHidden: onToggleSelectionHidden }
+                            : {})}
+                          {...(motionKeyframeFieldContext !== undefined
+                            ? {
+                                motionKeyframeContext:
+                                  motionKeyframeFieldContext,
+                              }
+                            : {})}
+                          {...(breakpointOverrideFieldContext !== undefined
+                            ? {
+                                breakpointOverrideContext:
+                                  breakpointOverrideFieldContext,
+                              }
+                            : {})}
+                          {...(vectorPointRadius !== undefined
+                            ? { vectorPointRadius }
+                            : {})}
+                          {...(vectorPointSelected !== undefined
+                            ? { vectorPointSelected }
+                            : {})}
+                          showCornerRadius={!selectionHidesCornerRadius}
+                          {...(onVectorPointRadiusChange !== undefined
+                            ? { onVectorPointRadiusChange }
+                            : {})}
+                        />
+                        {!motionInspector && selectionHasTextElement ? (
+                          <TypographyProperties
+                            key={`typography:${inspectorElementSectionKey}`}
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            onStyleChange={onStyleChange}
+                            {...(onStylesChangeProp !== undefined
+                              ? { onStylesChange }
+                              : {})}
+                            {...(designId !== undefined ? { designId } : {})}
+                            {...(onFontUploaded !== undefined
+                              ? { onFontUploaded }
+                              : {})}
+                          />
+                        ) : null}
+                        {selectionIsGroup || selectionIsLineOnly ? null : (
+                          <ShaderAwareFillProperties
+                            key={`fill:${inspectorElementSectionKey}`}
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            onStyleChange={onStyleChange}
+                            onStylesChange={onStylesChange}
+                            capturedStyleTargets={capturedStyleTargets}
+                            documentColorPalette={documentColorPalette}
+                            {...(shaderContext !== undefined
+                              ? { shaderContext }
+                              : {})}
+                            {...(textContrastContext !== undefined
+                              ? { contrastContext: textContrastContext }
+                              : {})}
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
+                            hideAddFill={selectionIsTextOnly}
+                            {...(readSubtreeColorStyles !== undefined
+                              ? { readSubtreeColorStyles }
+                              : {})}
+                          />
+                        )}
+                        {selectionIsGroup ? null : (
+                          <StrokeProperties
+                            key={`stroke:${inspectorElementSectionKey}`}
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            onStyleChange={onStyleChange}
+                            onStylesChange={onStylesChange}
+                            {...(motionKeyframeFieldContext !== undefined
+                              ? {
+                                  motionKeyframeContext:
+                                    motionKeyframeFieldContext,
+                                }
+                              : {})}
+                            {...(breakpointOverrideFieldContext !== undefined
+                              ? {
+                                  breakpointOverrideContext:
+                                    breakpointOverrideFieldContext,
+                                }
+                              : {})}
+                          />
+                        )}
+                        <EffectsProperties
+                          key={`effects:${inspectorElementSectionKey}`}
                           element={
                             stateResolvedInspectorElement ?? inspectorElement
                           }
                           onStyleChange={onStyleChange}
                           onStylesChange={onStylesChange}
-                          onDisableAutoLayout={onDisableAutoLayout}
-                          onApplyLayoutFlow={onApplyLayoutFlow}
-                          showContainerSizing={false}
-                          motionInspector
-                          motionKeyframeContext={motionKeyframeFieldContext}
+                          {...(shaderContext !== undefined
+                            ? { shaderContext }
+                            : {})}
+                          {...(motionKeyframeFieldContext !== undefined
+                            ? {
+                                motionKeyframeContext:
+                                  motionKeyframeFieldContext,
+                              }
+                            : {})}
                         />
-                      </MotionDimensionsProperties>
-                    ) : (
-                      <LayoutContextProperties
-                        key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        onDisableAutoLayout={onDisableAutoLayout}
-                        onApplyLayoutFlow={onApplyLayoutFlow}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      />
-                    )}
-                    {interactionStatePinned ? null : interactionStatePanel}
-                    <AppearanceProperties
-                      key={`appearance:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={
-                        onStylesChangeProp ? onStylesChange : undefined
-                      }
-                      hidden={selectionHidden}
-                      onToggleHidden={onToggleSelectionHidden}
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                      breakpointOverrideContext={breakpointOverrideFieldContext}
-                      vectorPointRadius={vectorPointRadius}
-                      vectorPointSelected={vectorPointSelected}
-                      showCornerRadius={!selectionHidesCornerRadius}
-                      onVectorPointRadiusChange={onVectorPointRadiusChange}
-                    />
-                    {!motionInspector && selectionHasTextElement ? (
-                      <TypographyProperties
-                        key={`typography:${inspectorElementSectionKey}`}
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={
-                          onStylesChangeProp ? onStylesChange : undefined
-                        }
-                        designId={designId}
-                        onFontUploaded={onFontUploaded}
-                      />
-                    ) : null}
-                    {selectionIsGroup || selectionIsLineOnly ? null : (
-                      <ShaderAwareFillProperties
-                        key={`fill:${inspectorElementSectionKey}`}
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        capturedStyleTargets={capturedStyleTargets}
-                        documentColorPalette={documentColorPalette}
-                        shaderContext={shaderContext}
-                        contrastContext={textContrastContext}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                        hideAddFill={selectionIsTextOnly}
-                        readSubtreeColorStyles={readSubtreeColorStyles}
-                      />
-                    )}
-                    {selectionIsGroup ? null : (
-                      <StrokeProperties
-                        key={`stroke:${inspectorElementSectionKey}`}
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      />
-                    )}
-                    <EffectsProperties
-                      key={`effects:${inspectorElementSectionKey}`}
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
-                      onStyleChange={onStyleChange}
-                      onStylesChange={onStylesChange}
-                      shaderContext={shaderContext}
-                      motionKeyframeContext={motionKeyframeFieldContext}
-                    />
-                    {/* The breakpoint control also sits in the Screen section; an
+                        {/* The breakpoint control also sits in the Screen section; an
                       element's responsive edits need it within reach too. */}
-                    <PanelSection title={t("editPanel.sections.responsive")}>
-                      {screenBreakpointControls}
-                    </PanelSection>
-                    {motionInspector ? (
-                      <MotionAudioTracks
-                        surface="inspector"
-                        clips={motionAudioClips ?? []}
-                        playheadMs={motionAudioPlayheadMs}
-                        timelineDurationMs={motionAudioDurationMs}
-                        timelineScaleDurationMs={motionAudioDurationMs}
-                        readOnly={readOnly || motionWriteUnavailable}
-                        onClipsChange={onMotionAudioClipsChange}
-                        onDurationChange={onMotionAudioDurationChange}
-                      />
+                        <PanelSection
+                          title={t("editPanel.sections.responsive")}
+                        >
+                          {screenBreakpointControls}
+                        </PanelSection>
+                        {motionInspector ? (
+                          <MotionAudioTracks
+                            surface="inspector"
+                            clips={motionAudioClips ?? []}
+                            playheadMs={motionAudioPlayheadMs}
+                            timelineDurationMs={motionAudioDurationMs}
+                            timelineScaleDurationMs={motionAudioDurationMs}
+                            readOnly={readOnly || motionWriteUnavailable}
+                            {...(onMotionAudioClipsChange !== undefined
+                              ? { onClipsChange: onMotionAudioClipsChange }
+                              : {})}
+                            {...(onMotionAudioDurationChange !== undefined
+                              ? {
+                                  onDurationChange: onMotionAudioDurationChange,
+                                }
+                              : {})}
+                          />
+                        ) : null}
+                        {!motionInspector ? (
+                          <SelectionColorsProperties
+                            elements={effectiveSelectedElements}
+                            scopes={selectionColorScopes}
+                            {...(readSubtreeColorStyles !== undefined
+                              ? { readSubtreeColorStyles }
+                              : {})}
+                            {...(onSelectionColorTarget !== undefined
+                              ? { onColorTarget: onSelectionColorTarget }
+                              : {})}
+                            {...(canSelectSelectionColorTarget !== undefined
+                              ? {
+                                  canSelectColorTarget:
+                                    canSelectSelectionColorTarget,
+                                }
+                              : {})}
+                            {...(onSelectionColorPickerOpenChange !== undefined
+                              ? {
+                                  onColorPickerOpenChange:
+                                    onSelectionColorPickerOpenChange,
+                                }
+                              : {})}
+                            {...(!readOnly && !interactionState
+                              ? { onColorChange: onSelectionColorChange }
+                              : {})}
+                          />
+                        ) : null}
+                        {!motionInspector && selectionHasContainerElement ? (
+                          <LayoutGuideProperties
+                            element={
+                              stateResolvedInspectorElement ?? inspectorElement
+                            }
+                            onStyleChange={onStyleChange}
+                          />
+                        ) : null}
+                      </>
+                    )}
+                    {/* Export acts on a selection. With nothing selected there is
+                  nothing to export, so the section was pure chrome on the
+                  empty-canvas panel. */}
+                    {onExport &&
+                    (inspectorElement || selectedScreenGeometry) ? (
+                      <PanelSection
+                        title={t("editPanel.sections.export")}
+                        actions={
+                          <SectionIconButton
+                            label={
+                              "Add export" /* i18n-ignore design inspector action */
+                            }
+                            disabled={exporting}
+                            onClick={() => exportPanelRef.current?.addRow()}
+                          >
+                            <IconPlus className="size-3.5" />
+                          </SectionIconButton>
+                        }
+                      >
+                        <ExportSettingsPanel
+                          key={selectedElementKey}
+                          controllerRef={exportPanelRef}
+                          value={exportSettings}
+                          formats={["png", "svg", "pdf"]}
+                          exporting={exporting}
+                          onChange={(patch) =>
+                            setExportSettings((current) => ({
+                              ...current,
+                              ...patch,
+                            }))
+                          }
+                          onExport={onExport}
+                        />
+                        {/* Distinct from the settings panel's key: two siblings
+                      sharing one key makes React duplicate the panel on every
+                      re-render, so the section grows an Export block per tick. */}
+                        <ExportPreviewDisclosure
+                          key={`${selectedElementKey}:preview`}
+                          element={inspectorElement}
+                          {...(onRenderExportPreview !== undefined
+                            ? { onRender: onRenderExportPreview }
+                            : {})}
+                        />
+                      </PanelSection>
                     ) : null}
-                    {!motionInspector ? (
-                      <SelectionColorsProperties
-                        elements={effectiveSelectedElements}
-                        scopes={selectionColorScopes}
-                        readSubtreeColorStyles={readSubtreeColorStyles}
-                        onColorTarget={onSelectionColorTarget}
-                        canSelectColorTarget={canSelectSelectionColorTarget}
-                        onColorPickerOpenChange={
-                          onSelectionColorPickerOpenChange
+
+                    {/* §6.5 Review — contextual section in Design tab.
+                Renders when reviewPanelProps is provided; no designId check
+                needed since ReviewPanel is statically fed. */}
+                    {reviewPanelProps ? (
+                      <PanelSection
+                        title={
+                          "Review" /* i18n-ignore design inspector section */
                         }
-                        onColorChange={
-                          readOnly || interactionState
-                            ? undefined
-                            : onSelectionColorChange
+                        actions={
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                                disabled={reviewPanelProps.auditLoading}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  reviewPanelProps.onRunAudit?.();
+                                }}
+                                aria-label={
+                                  "Run audit" /* i18n-ignore design inspector action */
+                                }
+                              >
+                                <IconRefresh
+                                  className={cn(
+                                    "size-3.5",
+                                    reviewPanelProps.auditLoading &&
+                                      "animate-spin",
+                                  )}
+                                />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {
+                                "Run audit" /* i18n-ignore design inspector action */
+                              }
+                            </TooltipContent>
+                          </Tooltip>
                         }
-                      />
-                    ) : null}
-                    {!motionInspector && selectionHasContainerElement ? (
-                      <LayoutGuideProperties
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                      />
+                      >
+                        {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
+                        <ReviewPanel {...reviewPanelProps} />
+                      </PanelSection>
                     ) : null}
                   </>
                 )}
-                {/* Export acts on a selection. With nothing selected there is
-                  nothing to export, so the section was pure chrome on the
-                  empty-canvas panel. */}
-                {onExport && (inspectorElement || selectedScreenGeometry) ? (
-                  <PanelSection
-                    title={t("editPanel.sections.export")}
-                    actions={
-                      <SectionIconButton
-                        label={
-                          "Add export" /* i18n-ignore design inspector action */
-                        }
-                        disabled={exporting}
-                        onClick={() => exportPanelRef.current?.addRow()}
-                      >
-                        <IconPlus className="size-3.5" />
-                      </SectionIconButton>
-                    }
-                  >
-                    <ExportSettingsPanel
-                      key={selectedElementKey}
-                      controllerRef={exportPanelRef}
-                      value={exportSettings}
-                      formats={["png", "svg", "pdf"]}
-                      exporting={exporting}
-                      onChange={(patch) =>
-                        setExportSettings((current) => ({
-                          ...current,
-                          ...patch,
-                        }))
-                      }
-                      onExport={onExport}
-                    />
-                    {/* Distinct from the settings panel's key: two siblings
-                      sharing one key makes React duplicate the panel on every
-                      re-render, so the section grows an Export block per tick. */}
-                    <ExportPreviewDisclosure
-                      key={`${selectedElementKey}:preview`}
-                      element={inspectorElement}
-                      onRender={onRenderExportPreview}
-                    />
-                  </PanelSection>
-                ) : null}
-
-                {/* §6.5 Review — contextual section in Design tab.
-                Renders when reviewPanelProps is provided; no designId check
-                needed since ReviewPanel is statically fed. */}
-                {reviewPanelProps ? (
-                  <PanelSection
-                    title={"Review" /* i18n-ignore design inspector section */}
-                    actions={
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 rounded-md text-muted-foreground hover:text-foreground"
-                            disabled={reviewPanelProps.auditLoading}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              reviewPanelProps.onRunAudit?.();
-                            }}
-                            aria-label={
-                              "Run audit" /* i18n-ignore design inspector action */
-                            }
-                          >
-                            <IconRefresh
-                              className={cn(
-                                "size-3.5",
-                                reviewPanelProps.auditLoading && "animate-spin",
-                              )}
-                            />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {
-                            "Run audit" /* i18n-ignore design inspector action */
-                          }
-                        </TooltipContent>
-                      </Tooltip>
-                    }
-                  >
-                    {/* ReviewPanel manages its own scroll; no extra wrapper needed. */}
-                    <ReviewPanel {...reviewPanelProps} />
-                  </PanelSection>
-                ) : null}
               </div>
             </>
           )}

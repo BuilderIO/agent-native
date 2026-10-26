@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -24,6 +25,7 @@ vi.mock("@agent-native/core/client/uploads", async (importOriginal) => ({
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { EditPanel } from "../EditPanel";
+import { createMotionNativeStyleIdentity } from "../motion-native-style-identity";
 import type { ElementInfo } from "../types";
 import {
   MOTION_MENU_BASIC_PROPERTIES,
@@ -263,6 +265,76 @@ describe("the inspector's add animation button for a top-level frame", () => {
 
   it("leaves the button enabled for a layer inside the frame", async () => {
     expect((await addButton(rectangle()))?.disabled).toBe(false);
+  });
+});
+
+describe("the Motion inspector follows explicit timeline style selection", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the selected style when its layer differs from the canvas selection", async () => {
+    const heroStyle: MotionNativeStyleInstance = {
+      type: "FIGMA",
+      styleKey: "Position",
+      nameKey: "designEditor.motion.animationStyles.position",
+      duration: 0.5,
+      timelineOffset: 0,
+      targetNodeId: "hero",
+      props: { type: "moveIn" },
+    };
+    const otherLayerStyle: MotionNativeStyleInstance = {
+      ...heroStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      targetNodeId: "other",
+      props: { type: "scaleIn" },
+    };
+
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TooltipProvider>
+            <EditPanel
+              selectedElement={rectangle()}
+              viewMode="single"
+              mode="edit"
+              motionInspector
+              motionSelectedTarget={{ nodeId: "hero", label: "Hero" }}
+              motionNativeStyles={[heroStyle, otherLayerStyle]}
+              selectedMotionNativeStyle={createMotionNativeStyleIdentity(
+                otherLayerStyle,
+                1,
+              )}
+              onSelectMotionNativeStyle={vi.fn()}
+              onStyleChange={vi.fn()}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      ),
+    );
+
+    const styleTriggers = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    );
+    expect(styleTriggers.map((trigger) => trigger.textContent?.trim())).toEqual(
+      ["designEditor.motion.animationStyles.scale"],
+    );
+    expect(styleTriggers[0]?.getAttribute("aria-pressed")).toBe("true");
   });
 });
 
