@@ -237,12 +237,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function parseJsonRecord(value: unknown): Record<string, unknown> | null {
+export function parseJsonRecord(
+  value: unknown,
+): Record<string, unknown> | null {
   if (typeof value !== "string") return asRecord(value);
   try {
     return asRecord(JSON.parse(value));
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error("Could not parse persisted JSON record", { cause: error });
   }
 }
 

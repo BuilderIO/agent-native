@@ -291,9 +291,7 @@ async function main(): Promise<void> {
     throw new Error("Expected mode, threadId, turnId, and runId");
   }
   const sql = postgres(databaseUrl, {
-    // The follow-up dispatch row lock stays open while run-manager starts on a
-    // second connection, matching the production pool's concurrent requests.
-    max: mode.startsWith("harness-follow-up-native-approval-") ? 4 : 1,
+    max: 1,
   });
   try {
     await withDbExec(executor(sql), async () => {

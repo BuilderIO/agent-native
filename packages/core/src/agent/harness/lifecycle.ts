@@ -234,18 +234,6 @@ export async function resolveAgentHarnessApproval(input: {
         "The live harness session is being cleaned up and cannot resolve approval.",
       );
     }
-    if (
-      live?.session.canResolveApproval &&
-      !(await live.session.canResolveApproval(input.approval))
-    ) {
-      return failure(
-        input.runId,
-        session,
-        "unavailable",
-        "The harness no longer has the pending approval request in this process.",
-      );
-    }
-
     const approvalAbort = new AbortController();
     let finalizing = false;
     let stopWatchingApprovalClaim: (() => void) | undefined;
@@ -333,20 +321,34 @@ export async function resolveAgentHarnessApproval(input: {
         activeLive.session.canResolveApproval &&
         !(await activeLive.session.canResolveApproval(input.approval))
       ) {
-        const latest = await releaseUndispatchedApprovalResolution({
-          runId: input.runId,
-          session: resolutionStarted,
+        const failed = await failAgentHarnessSessionApprovalResolution({
+          sessionId: session.id,
           approvalId: input.approval.id,
-          liveSession: activeLive.session,
+          recordResolvedId: false,
+          errorEvent: {
+            type: "error",
+            error:
+              "The provider session resumed without its pending approval request. The approval was not sent and cannot be retried on this session.",
+            errorCode: "harness_approval_not_resumable",
+          },
         });
+        if (failed) {
+          refreshLiveAgentHarnessSessionGeneration(
+            session.id,
+            activeLive.session,
+            failed.generation,
+          );
+        }
         if (rehydratedSession) {
           await stopAcquiredHarnessSession(session.id, rehydratedSession);
         }
+        const latest =
+          failed ?? (await getAgentHarnessSessionByRunId(input.runId));
         return failure(
           input.runId,
           latest ?? session,
           "unavailable",
-          "The harness no longer has the pending approval request in this process.",
+          "The provider session resumed without the pending approval request. The approval was not sent and the session cannot resume it.",
         );
       }
       activeLive.approvalResolutionInProgress = true;
@@ -1156,16 +1158,24 @@ export async function sendAgentHarnessFollowUp(input: {
           softTimeoutDeadlineAt !== undefined &&
           Date.now() >= softTimeoutDeadlineAt
         ) {
-          break;
+          throw new Error(
+            "The AgentHarness follow-up reached its soft timeout before the truncated response completed.",
+          );
         }
         if (iteratorClosePromise) {
           await iteratorClosePromise;
           iteratorClosePromise = undefined;
         }
         if (!checkpointState.attempted && !(await persistNativeCheckpoint())) {
-          break;
+          throw new Error(
+            "The AgentHarness follow-up was truncated without a resumable checkpoint.",
+          );
         }
-        if (!checkpointState.available) break;
+        if (!checkpointState.available) {
+          throw new Error(
+            "The AgentHarness follow-up was truncated without a resumable checkpoint.",
+          );
+        }
 
         const latest = await getAgentHarnessSessionByRunId(input.runId);
         if (
@@ -1176,11 +1186,13 @@ export async function sendAgentHarnessFollowUp(input: {
           throw new AgentHarnessSessionConflictError(session.id);
         }
         const pending = asPendingApproval(latest.pendingApproval);
-        if (
-          !acquired.live.session.continueTurn ||
-          (pending && !latest.resolvedApprovalIds?.includes(pending.id))
-        ) {
+        if (pending && !latest.resolvedApprovalIds?.includes(pending.id)) {
           break;
+        }
+        if (!acquired.live.session.continueTurn) {
+          throw new Error(
+            "The AgentHarness follow-up was truncated and the provider cannot continue the turn.",
+          );
         }
         dispatchGeneration = latest.generation;
         continuingNativeTurn = true;

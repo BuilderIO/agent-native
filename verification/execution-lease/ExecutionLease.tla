@@ -461,8 +461,9 @@ TerminaliseUnclaimed(r) ==
 \* continuation, or a team attempt. The turn id comes from the request
 \* (PA:14815-14822, BAR:1476), so a continuation can also arrive after the
 \* turn's rows were pruned; that case is PruneWhileTurnActive.
-InsertRun(r) ==
+InsertRun(r, caller) ==
   /\ rstatus[r] = "absent"
+  /\ IF caller = NoRun THEN TRUE ELSE Current(caller)
   /\ PruneWhileTurnActive \/ \E q \in Runs : rstatus[q] \in Present
   /\ rstatus' = [rstatus EXCEPT ![r] = "running"]
   /\ UNCHANGED <<policy, wg, lease, step, wpc, effectPending, checked,
@@ -535,7 +536,7 @@ Next ==
   \/ \E r \in Runs : ReapOrFailUnowned(r)
   \/ \E r \in Runs : FinalizeClaimedFailure(r)
   \/ \E r \in Runs : TerminaliseUnclaimed(r)
-  \/ \E r \in Runs : InsertRun(r)
+  \/ \E r \in Runs, caller \in (Runs \cup {NoRun}) : InsertRun(r, caller)
   \/ \E r \in Runs : PruneRun(r)
   \/ PruneStep
   \/ PruneLease

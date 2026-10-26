@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  parseJsonRecord,
   parseScheduledRecoveryArguments,
   validateScheduledRecoveryArguments,
   validateScheduledRecoveryOutcome,
@@ -66,6 +67,11 @@ function snapshot(
 }
 
 describe("scheduled-recovery observer arguments", () => {
+  it("distinguishes unreadable persisted JSON from absent records", () => {
+    assert.equal(parseJsonRecord(null), null);
+    assert.throws(() => parseJsonRecord("{"), /Could not parse persisted JSON/);
+  });
+
   it("prints help without credentials or a trigger", () => {
     assert.equal(parseScheduledRecoveryArguments([]).help, true);
     assert.equal(parseScheduledRecoveryArguments(["--help"]).observe, false);

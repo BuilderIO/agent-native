@@ -1199,6 +1199,8 @@ export async function finalizeAgentHarnessSessionApprovalResolution(input: {
 export async function failAgentHarnessSessionApprovalResolution(input: {
   sessionId: string;
   approvalId: string;
+  errorEvent?: Extract<AgentChatEvent, { type: "error" }>;
+  recordResolvedId?: boolean;
   eventAt?: number;
 }): Promise<StoredAgentHarnessSession | null> {
   await ensureAgentHarnessSessionTables();
@@ -1237,12 +1239,15 @@ export async function failAgentHarnessSessionApprovalResolution(input: {
       pendingApprovalId(current.pendingApproval) === input.approvalId
         ? null
         : current.pendingApproval;
-    const resolvedApprovalIds = [
-      ...(current.resolvedApprovalIds ?? []).filter(
-        (id) => id !== input.approvalId,
-      ),
-      input.approvalId,
-    ].slice(-RESOLVED_APPROVAL_LIMIT);
+    const resolvedApprovalIds =
+      input.recordResolvedId === false
+        ? (current.resolvedApprovalIds ?? [])
+        : [
+            ...(current.resolvedApprovalIds ?? []).filter(
+              (id) => id !== input.approvalId,
+            ),
+            input.approvalId,
+          ].slice(-RESOLVED_APPROVAL_LIMIT);
     const { rows: updatedRows } = await tx.execute({
       sql: `UPDATE agent_harness_sessions
             SET pending_approval = ?, approval_resolution_id = NULL,
@@ -1269,7 +1274,7 @@ export async function failAgentHarnessSessionApprovalResolution(input: {
         sessionId: input.sessionId,
         operationId,
         eventAt,
-        event: {
+        event: input.errorEvent ?? {
           type: "error",
           error:
             "The approval outcome is unknown because its worker stopped after dispatch. Check for completed effects before submitting it again.",
@@ -1831,7 +1836,7 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
       "Agent harness follow-up dispatch requires database transactions.",
     );
   }
-  return client.transaction(async (tx) => {
+  const session = await client.transaction(async (tx) => {
     const { rows } = await tx.execute({
       sql: `UPDATE agent_harness_sessions
             SET generation = generation + 1,
@@ -1847,10 +1852,13 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
     const session = rowToHarnessSession(rows[0]);
     if (!session) return null;
 
-    // The UPDATE holds this row lock until the first provider request is invoked.
-    const started = await start();
-    return { session, started };
+    return session;
   });
+  if (!session) return null;
+
+  // Starting a run can use the same pool as this store. Release the row lock
+  // before its run admission needs another database connection.
+  return { session, started: await start() };
 }
 
 export async function startAgentHarnessSessionApprovalDispatch<T>(

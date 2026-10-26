@@ -43,8 +43,10 @@ Helper invariants, checked in the same runs:
 - At the coverage sync revision, terminal projection retry-order bookkeeping
   is outside the lease model, and earlier-projection blockers restrict when
   reaping may terminalize a run. Run admission also has pending-inbox and
-  pending-approval gates that the model omits, so `InsertRun` is an
-  over-approximation. These changes do not add an unfenced step-journal write.
+  pending-approval gates that the model omits. `InsertRun` distinguishes
+  externally admitted inserts from worker-originated inserts; the latter
+  require the caller's current lease generation. These changes do not add an
+  unfenced step-journal write.
 - Not covered: thread content folding, liveness (an abandoned run is
   eventually reaped or resumed), lock-order deadlocks, the team queue, and A2A
   task leases beyond their revoke.

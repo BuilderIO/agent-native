@@ -8562,8 +8562,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (result.claimBusy) {
                 setResponseStatus(event, 409);
                 return {
-                  error: "Run already in progress for this thread",
-                  code: "run_slot_busy",
+                  error: "Queue item is being promoted",
+                  code: "queue_item_busy",
                   retryable: true,
                 };
               }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  parseJsonRecord,
   parseCanaryArguments,
   validateCanaryArguments,
   validateCanaryOutcome,
@@ -64,6 +65,11 @@ function snapshot(overrides: Partial<CanarySnapshot> = {}): CanarySnapshot {
 }
 
 describe("deployed stale-run canary arguments", () => {
+  it("distinguishes unreadable persisted JSON from absent records", () => {
+    assert.equal(parseJsonRecord(null), null);
+    assert.throws(() => parseJsonRecord("{"), /Could not parse persisted JSON/);
+  });
+
   it("prints help without requiring credentials or enabling a sweep", () => {
     assert.equal(parseCanaryArguments([]).help, true);
     assert.equal(parseCanaryArguments(["--help"]).execute, false);

@@ -50,6 +50,7 @@ const inboxHarness = vi.hoisted(() => ({
   receiptReads: [] as Array<[string, string]>,
   queueMutations: [] as Array<{ threadId: string; type: string }>,
   claimBusyCount: 0,
+  claimBusyResponse: false,
   failActiveRunCheckThreadId: null as string | null,
 }));
 
@@ -82,6 +83,15 @@ vi.mock("../settings/store.js", async (importOriginal) => {
     getSetting: vi.fn(async () => null),
     getSettingsEmitter: () => sweepHarness.settingsEmitter,
     putSetting: vi.fn(async () => {}),
+  };
+});
+
+vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-chat-ai-setup.js")>();
+  return {
+    ...actual,
+    requireAgentChatAiSetup: vi.fn(async () => undefined),
   };
 });
 
@@ -134,6 +144,9 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
         threadId: args[0],
         type: args[1].type,
       });
+      if (args[1].type === "claim" && inboxHarness.claimBusyResponse) {
+        return { claimBusy: true, queuedMessages: [] };
+      }
       const result = await actual.mutateThreadQueuedMessages(...args);
       if (result?.claimBusy) inboxHarness.claimBusyCount += 1;
       if (result?.claimedMessage) {
@@ -472,6 +485,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.receiptReads.length = 0;
     inboxHarness.queueMutations.length = 0;
     inboxHarness.claimBusyCount = 0;
+    inboxHarness.claimBusyResponse = false;
     inboxHarness.failActiveRunCheckThreadId = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
@@ -802,6 +816,38 @@ describe("queued submission inbox recurring sweep", () => {
         }),
       ),
     ).rejects.toThrow("queued_message_id_terminal");
+  }, 20_000);
+
+  it("reports a queue promotion claim collision as queue-item busy", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "user@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    inboxHarness.claimBusyResponse = true;
+    const h3App = await mountAgentChatRoutes();
+
+    const response = await h3App.fetch(
+      new Request(
+        `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}/queued`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            mutation: {
+              type: "claim",
+              messageId,
+              claimId: "competing-promoter",
+            },
+          }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "queue_item_busy",
+      retryable: true,
+    });
   }, 20_000);
 
   it("keeps a delayed receipt as a per-thread drain barrier", async () => {

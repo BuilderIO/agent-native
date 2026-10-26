@@ -707,7 +707,7 @@ describe("agent harness session store", () => {
     );
   });
 
-  it("starts provider work under the row lock before a concurrent stop", async () => {
+  it("releases the row lock before waiting for provider dispatch", async () => {
     const id = "session-follow-up-dispatch-admission";
     await saveAgentHarnessSession({
       id,
@@ -737,10 +737,15 @@ describe("agent harness session store", () => {
     const providerStarted = new Promise<void>((resolve) => {
       notifyStart = resolve;
     });
+    let notifyTransactionBodyComplete!: () => void;
+    const transactionBodyComplete = new Promise<void>((resolve) => {
+      notifyTransactionBodyComplete = resolve;
+    });
     const originalTransaction = rawClient.transaction;
     rawClient.transaction = async (run) =>
       pglite.transaction(async (tx) => {
         const result = await run(tx);
+        notifyTransactionBodyComplete();
         await commitGate;
         return result;
       });
@@ -757,7 +762,8 @@ describe("agent harness session store", () => {
           return providerDispatchGate;
         },
       );
-      await providerStarted;
+      await transactionBodyComplete;
+      expect(order).toEqual([]);
       const stop = markAgentHarnessSessionStopped(id, "stopped").then(
         (session) => {
           order.push("stop-complete");
@@ -768,18 +774,19 @@ describe("agent harness session store", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(stopFinished).toBe(false);
       releaseCommit();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(stopFinished).toBe(false);
+      await providerStarted;
+      await stop;
+      expect(stopFinished).toBe(true);
       releaseProviderDispatch();
 
       const admitted = await dispatch;
-      await stop;
       expect(admitted?.session).toMatchObject({
         status: "running",
         followUpClaimId: "dispatch-claim",
         generation: claimed!.generation + 1,
       });
-      expect(order).toEqual(["provider-start", "stop-complete"]);
+      expect(order[0]).toBe("provider-start");
+      expect(order).toContain("stop-complete");
     } finally {
       releaseCommit();
       releaseProviderDispatch();
@@ -1554,6 +1561,53 @@ describe("agent harness session store", () => {
         event: {
           type: "error",
           errorCode: "harness_approval_outcome_unknown",
+        },
+      },
+    ]);
+  });
+
+  it("records an explicit failure when a pending approval cannot be resumed", async () => {
+    const id = "session-approval-not-resumable";
+    const approvalId = "approval-not-resumable";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-approval-not-resumable",
+      runId: "run-approval-not-resumable",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+    });
+    const initial = await getAgentHarnessSession(id);
+    await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+
+    const failed = await failAgentHarnessSessionApprovalResolution({
+      sessionId: id,
+      approvalId,
+      recordResolvedId: false,
+      errorEvent: {
+        type: "error",
+        error: "Provider session cannot resume this approval.",
+        errorCode: "harness_approval_not_resumable",
+      },
+    });
+
+    expect(failed).toMatchObject({
+      approvalResolutionId: null,
+      resolvedApprovalIds: [],
+    });
+    expect(failed?.pendingApproval ?? null).toBeNull();
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      {
+        event: {
+          type: "error",
+          error: "Provider session cannot resume this approval.",
+          errorCode: "harness_approval_not_resumable",
         },
       },
     ]);
