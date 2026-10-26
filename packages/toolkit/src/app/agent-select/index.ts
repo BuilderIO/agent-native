@@ -37,3 +37,9 @@ export {
   useAgentSelectMode,
   type UseAgentSelectableOptions,
 } from "./use-agent-select.js";
+export {
+  agentSelectNodeIdentity,
+  agentSelectNodePath,
+  findAgentSelectNode,
+  type AgentSelectNodeIdentity,
+} from "./node-identity.js";

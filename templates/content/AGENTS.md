@@ -23,6 +23,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - `creative-context`: `contextMode`, `selectedContextId`, `currentPackId`, `pinnedPackId`; follow its reuse ladder and respect `contextMode: "off"`.
 - `content-last-location-v1` is owned by the UI/landing resolver. `content-trash` stores filters, selected/preview Page ids, and purge operation id; it is context, not deletion authority.
 - `content-import`: Import dialog progress, no file contents.
+- `agent-selection` lists the page and blocks picked with Select; a picked block brings its open comment threads. A `Selected objects` context block names the target set, so edit only those.
 - Use actions for full document bodies and comment context.
 
 ## Key actions

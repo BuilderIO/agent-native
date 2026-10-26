@@ -1,8 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  agentSelectNodeIdentity,
+  findAgentSelectNode,
   registerAgentSelectable,
   useAgentSelectableSource,
   type AgentSelectable,
+  type AgentSelectNodeIdentity,
 } from "@agent-native/toolkit/app/agent-select";
 import { useCallback, useEffect } from "react";
 
@@ -93,23 +96,8 @@ export function slideObjectForTarget(target: Element): {
   return { element, contentRoot, slideId };
 }
 
-/** What a picked object looked like, to recognise it again by position. */
-function slideObjectFingerprint(element: Element | null): string {
-  if (!element) return "";
-  return [
-    element.tagName,
-    element.textContent.replace(/\s+/g, " ").trim(),
-    element.getAttribute("src") ?? "",
-  ].join("\u0000");
-}
-
-export interface SlideObjectIdentity {
+export interface SlideObjectIdentity extends AgentSelectNodeIdentity {
   objectId: string | null;
-  path: string;
-  fingerprint: string;
-  /** The fingerprints of the object's neighbours when picked. */
-  previous: string;
-  next: string;
 }
 
 export function slideObjectIdentity(
@@ -118,21 +106,13 @@ export function slideObjectIdentity(
 ): SlideObjectIdentity {
   return {
     objectId: element.getAttribute("data-slide-object-id"),
-    path: slideObjectPath(element, contentRoot),
-    fingerprint: slideObjectFingerprint(element),
-    previous: slideObjectFingerprint(element.previousElementSibling),
-    next: slideObjectFingerprint(element.nextElementSibling),
+    ...agentSelectNodeIdentity(element, contentRoot),
   };
 }
 
 /**
  * The object in a rendered copy of its slide, the main canvas first, found
- * again so a re-render of the slide HTML keeps the pick. A positional path
- * can land on a neighbour once a sibling is removed, so the path is trusted
- * when the node there still looks like the picked object, or when it was
- * edited in place: same tag between the same, unchanged neighbours.
- * Otherwise the object is searched for by its look, and is gone when nothing
- * matches.
+ * again so a re-render of the slide HTML keeps the pick.
  */
 export function findSlideObject(
   slideId: string,
@@ -148,53 +128,14 @@ export function findSlideObject(
       Number(Boolean(a.closest(MAIN_SLIDE_SELECTOR))),
   );
   for (const copy of copies) {
-    if (identity.objectId) {
-      const found = copy.querySelector<HTMLElement>(
-        `[data-slide-object-id="${CSS.escape(identity.objectId)}"]`,
-      );
-      if (found) return found;
-      continue;
-    }
-    const atPath = copy.querySelector<HTMLElement>(`:scope > ${identity.path}`);
-    if (atPath && slideObjectFingerprint(atPath) === identity.fingerprint) {
-      return atPath;
-    }
-    const tag = identity.fingerprint.slice(
-      0,
-      identity.fingerprint.indexOf("\u0000"),
-    );
-    for (const candidate of copy.querySelectorAll<HTMLElement>(tag)) {
-      if (slideObjectFingerprint(candidate) === identity.fingerprint) {
-        return candidate;
-      }
-    }
-    if (
-      atPath?.tagName === tag &&
-      slideObjectFingerprint(atPath.previousElementSibling) ===
-        identity.previous &&
-      slideObjectFingerprint(atPath.nextElementSibling) === identity.next
-    ) {
-      return atPath;
-    }
+    const found = identity.objectId
+      ? copy.querySelector<HTMLElement>(
+          `[data-slide-object-id="${CSS.escape(identity.objectId)}"]`,
+        )
+      : findAgentSelectNode(copy, identity);
+    if (found) return found;
   }
   return null;
-}
-
-/** A CSS path within the slide HTML, stable while that HTML is unchanged. */
-export function slideObjectPath(
-  element: HTMLElement,
-  contentRoot: HTMLElement,
-): string {
-  const steps: string[] = [];
-  let current = element;
-  while (current !== contentRoot) {
-    const parent = current.parentElement;
-    if (!parent) break;
-    const index = Array.from(parent.children).indexOf(current) + 1;
-    steps.unshift(`${current.tagName.toLowerCase()}:nth-child(${index})`);
-    current = parent;
-  }
-  return steps.join(" > ");
 }
 
 // innerText keeps the breaks between blocks that textContent runs together.

@@ -352,6 +352,7 @@ import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
+import { useContentAgentSelect } from "./use-content-agent-select";
 import {
   useDocumentReconcileRecovery,
   type DocumentReconcileRecoveryState,
@@ -7627,6 +7628,7 @@ function PageEditorSessionBody({
   // While AI's result is on screen, a thread it just resolved highlights the
   // text it wrote, so the card sits beside the change it describes.
   const bodyThreads = useMemo(() => bodyCommentThreads(threads), [threads]);
+  useContentAgentSelect(documentId, document.title, threads);
   const editorCommentThreads = useMemo(() => {
     const fresh = commentAi.freshResolutions;
     if (!bodyThreads || fresh.size === 0) return bodyThreads ?? [];
