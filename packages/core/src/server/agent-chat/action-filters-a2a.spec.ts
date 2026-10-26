@@ -436,6 +436,45 @@ describe("filterDirectA2AActions", () => {
     ).toEqual(["raw-sql"]);
   });
 
+  it("converts the schema of only the actions every other check selects", () => {
+    const exposed = (readOnly: boolean) => {
+      const schema = z.object({ id: z.string() });
+      const convert = vi.spyOn(
+        (schema as any)["~standard"].jsonSchema,
+        "input",
+      );
+      const entry = defineAction({
+        description: "Read",
+        schema,
+        readOnly,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => "ok",
+      });
+      return { entry, convert };
+    };
+    const allowed = exposed(true);
+    const uncataloged = exposed(true);
+    const mutation = exposed(false);
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(
+          {
+            allowed: allowed.entry,
+            uncataloged: uncataloged.entry,
+            mutation: mutation.entry,
+          },
+          { connectorCatalog: ["allowed", "mutation"] },
+        ),
+      ),
+    ).toEqual(["allowed"]);
+    expect(
+      [allowed, uncataloged, mutation].map(
+        ({ convert }) => convert.mock.calls.length,
+      ),
+    ).toEqual([1, 0, 0]);
+  });
+
   it("allows only cataloged authenticated reads", () => {
     const actions = {
       allowed: action(),
