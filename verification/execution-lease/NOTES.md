@@ -61,6 +61,16 @@ Helper invariants, checked in the same runs:
 - Not covered: thread content folding, liveness (an abandoned run is
   eventually reaped or resumed), lock-order deadlocks, the team queue, and A2A
   task leases beyond their revoke.
+- Approval scheduling between turns is outside this one-turn model. The queued
+  submission approval gate only defers a new turn; it leaves the same-turn
+  `InsertRun` transition and all execution lease and step journal writes unchanged.
+  Stopping a completed approval pause also writes the turn-abort marker without
+  changing a run or lease; this is a stuttering step for the model's `AbortTurn`.
+  Explicit interruption records those same markers in the slot-admission
+  transaction before inserting its replacement turn. Legacy turns tied without
+  admission metadata retain every unresolved approval pause; interruption writes
+  each completed pause's marker in that transaction. Completed runs and their
+  leases remain unchanged; cross-turn admission is outside this model.
 
 ## Results against source snapshot c8190ab8
 
@@ -195,7 +205,7 @@ not reproduced.
 Paths are under `packages/core/src/`. Every action in `ExecutionLease.tla`
 cites the lines it models.
 
-Drift coverage (`manifest.json`, 43 entries) hashes the code in this map, the
+Drift coverage (`manifest.json`, 44 entries) hashes the code in this map, the
 step-intent and replay-policy derivation in `production-agent.ts`, and the
 helpers that compute the policy's inputs: `classifyActionCall`,
 `actionCallIntent`, `preparedCallArguments`, `actionCallIsRetrySafe`,
