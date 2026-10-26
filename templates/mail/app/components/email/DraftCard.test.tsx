@@ -8,7 +8,7 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { forwardRef } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ComposeSendProgress } from "./ComposeModal";
@@ -39,6 +39,7 @@ const mockAccounts = vi.hoisted(() => ({
 const composeProps = vi.hoisted(() => ({
   current: null as null | {
     activeDraft: ComposeState | null;
+    activeId: string | null;
     onDiscard: (id: string) => void;
     onSendProgress: (progress: ComposeSendProgress) => void;
     sendDisabled?: boolean;
@@ -57,9 +58,13 @@ vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   updateMcpAppModelContext: mockUpdateModelContext,
 }));
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: any) => (
-    <button {...props}>{children}</button>
-  ),
+  Button: ({
+    children,
+    ...props
+  }: ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: string;
+    size?: string;
+  }) => <button {...props}>{children}</button>,
 }));
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: () => <div data-testid="skeleton" />,
@@ -87,7 +92,7 @@ vi.mock("./ComposeModal", async () => {
     typeof import("@/hooks/use-account-filter")
   >("@/hooks/use-account-filter");
   return {
-    ComposeModal: (props: any) => {
+    ComposeModal: (props: NonNullable<typeof composeProps.current>) => {
       composeProps.current = props;
       const { allAccounts } = useAccountFilter();
       return (
@@ -95,7 +100,10 @@ vi.mock("./ComposeModal", async () => {
           data-testid="composer"
           data-accounts={allAccounts.map((account) => account.email).join(",")}
         >
-          <button type="button" onClick={() => props.onDiscard(props.activeId)}>
+          <button
+            type="button"
+            onClick={() => props.activeId && props.onDiscard(props.activeId)}
+          >
             discard
           </button>
         </div>
@@ -104,24 +112,26 @@ vi.mock("./ComposeModal", async () => {
   };
 });
 vi.mock("./EmailThread", () => ({
-  ExpandedMessageCard: forwardRef<HTMLDivElement, any>(
-    ({ email, onCollapse }, ref) => (
-      <div ref={ref} data-message={email.id} data-expanded="true">
-        <button type="button" onClick={onCollapse}>
-          collapse {email.id}
-        </button>
-      </div>
-    ),
-  ),
-  CollapsedMessageRow: forwardRef<HTMLDivElement, any>(
-    ({ email, onClick }, ref) => (
-      <div ref={ref} data-message={email.id} data-expanded="false">
-        <button type="button" onClick={onClick}>
-          expand {email.id}
-        </button>
-      </div>
-    ),
-  ),
+  ExpandedMessageCard: forwardRef<
+    HTMLDivElement,
+    { email: EmailMessage; onCollapse: () => void }
+  >(({ email, onCollapse }, ref) => (
+    <div ref={ref} data-message={email.id} data-expanded="true">
+      <button type="button" onClick={onCollapse}>
+        collapse {email.id}
+      </button>
+    </div>
+  )),
+  CollapsedMessageRow: forwardRef<
+    HTMLDivElement,
+    { email: EmailMessage; onClick: () => void }
+  >(({ email, onClick }, ref) => (
+    <div ref={ref} data-message={email.id} data-expanded="false">
+      <button type="button" onClick={onClick}>
+        expand {email.id}
+      </button>
+    </div>
+  )),
 }));
 
 import {
@@ -138,23 +148,33 @@ const newDraft: ComposeState = {
   body: "Free Friday?",
   mode: "compose",
 };
-const replyDraft: ComposeState = {
+// A reply an agent drafted from the message it answers, without its thread.
+const unthreadedReply: ComposeState = {
   id: "reply-draft",
   to: "sam@example.com",
   subject: "Re: Launch plan",
   body: "Sounds good.",
   mode: "reply",
   replyToId: "message-6",
-  replyToThreadId: "thread-1",
   accountEmail: "agent@example.com",
+};
+const replyDraft: ComposeState = {
+  ...unthreadedReply,
+  replyToThreadId: "thread-1",
 };
 
 function message(id: string, extra: Partial<EmailMessage> = {}) {
   return { id, threadId: "thread-1", subject: "Launch plan", ...extra };
 }
 
+function composer() {
+  const props = composeProps.current;
+  if (!props) throw new Error("The composer hasn't rendered.");
+  return props;
+}
+
 function progress(update: ComposeSendProgress) {
-  act(() => composeProps.current!.onSendProgress(update));
+  act(() => composer().onSendProgress(update));
 }
 
 function shownMessages(container: HTMLElement) {
@@ -265,7 +285,7 @@ describe("DraftCard", () => {
   });
 
   it("finds the thread from the message a draft answers", () => {
-    mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
+    mockCompose.drafts = [unthreadedReply];
     mockUseEmail.mockReturnValue({
       data: { threadId: "thread-1" },
       isError: false,
@@ -285,7 +305,7 @@ describe("DraftCard", () => {
   });
 
   it("holds Send until it knows the reply's thread", () => {
-    mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
+    mockCompose.drafts = [unthreadedReply];
     const { rerender } = render(<DraftCard draftId="reply-draft" />);
 
     // A reply scheduled now would go out without its thread.
@@ -345,7 +365,7 @@ describe("DraftCard", () => {
 
     progress({ status: "sent" });
     // Sending discards the draft too; that isn't the reader deleting it.
-    act(() => composeProps.current!.onDiscard("reply-draft"));
+    act(() => composer().onDiscard("reply-draft"));
     mockCompose.drafts = [];
     rerender(<DraftCard draftId="reply-draft" />);
 
@@ -385,7 +405,7 @@ describe("DraftCard", () => {
     );
 
     progress({ status: "scheduled", runAt });
-    act(() => composeProps.current!.onDiscard("new-draft"));
+    act(() => composer().onDiscard("new-draft"));
     mockCompose.drafts = [];
     rerender(<DraftCard draftId="new-draft" />);
 
@@ -414,7 +434,7 @@ describe("DraftCard", () => {
     const { getByText, rerender } = render(<DraftCard draftId="new-draft" />);
 
     progress({ status: "sent" });
-    act(() => composeProps.current!.onDiscard("new-draft"));
+    act(() => composer().onDiscard("new-draft"));
     mockCompose.drafts = [];
     rerender(<DraftCard draftId="new-draft" />);
 
@@ -429,7 +449,7 @@ describe("DraftCard", () => {
   });
 
   it("holds Send after a failed lookup until a retry finds the thread", () => {
-    mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
+    mockCompose.drafts = [unthreadedReply];
     const refetch = vi.fn();
     mockUseEmail.mockReturnValue({ data: undefined, isError: true, refetch });
     const { getByRole, queryByRole, rerender } = render(

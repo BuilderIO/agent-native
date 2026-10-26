@@ -271,7 +271,7 @@ function DraftCardHeader({
   subject,
 }: {
   draft: ComposeState;
-  subject?: string;
+  subject?: string | undefined;
 }) {
   const t = useT();
   const Icon =
@@ -308,11 +308,12 @@ function useDraftThread(draft: ComposeState | null, accounts: MailAccount[]) {
   const replyToId =
     draft && draft.mode !== "compose" ? draft.replyToId : undefined;
   // get-email needs the exact account; a mailbox without Google is "local".
+  const onlyAccount = accounts.length === 1 ? accounts[0] : undefined;
   const accountEmail =
     draft?.accountEmail ??
     draft?.savedDraftAccountEmail ??
-    (accounts.length === 1
-      ? accounts[0].email
+    (onlyAccount
+      ? onlyAccount.email
       : accounts.length === 0
         ? "local"
         : undefined);

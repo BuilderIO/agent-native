@@ -514,7 +514,7 @@ export function ComposeModal({
         .then((result) => {
           if (showSendToasts) {
             toast(t("mail.toasts.messageSent"), {
-              id: sendingToastId,
+              ...(sendingToastId === undefined ? {} : { id: sendingToastId }),
               duration: 3_000,
             });
           }
@@ -918,7 +918,7 @@ export function ComposeModal({
               drafts.map((draft) => {
                 const isActive = draft.id === activeId;
                 const label =
-                  draft.subject?.trim() ||
+                  draft.subject.trim() ||
                   (draft.queuedDraftId
                     ? t("mail.compose.queuedDraft")
                     : draft.mode === "reply"
@@ -1106,7 +1106,9 @@ export function ComposeModal({
               <ComposeFieldRow label={t("mail.compose.cc")}>
                 <RecipientInput
                   value={activeDraft.cc ?? ""}
-                  onChange={(val) => onUpdate(activeId!, { cc: val })}
+                  onChange={(val) => {
+                    if (activeId) onUpdate(activeId, { cc: val });
+                  }}
                   ariaLabel={t("mail.compose.ccRecipients")}
                   field="cc"
                   onMoveRecipient={moveRecipient}
@@ -1117,7 +1119,9 @@ export function ComposeModal({
               <ComposeFieldRow label={t("mail.compose.bcc")}>
                 <RecipientInput
                   value={activeDraft.bcc ?? ""}
-                  onChange={(val) => onUpdate(activeId!, { bcc: val })}
+                  onChange={(val) => {
+                    if (activeId) onUpdate(activeId, { bcc: val });
+                  }}
                   ariaLabel={t("mail.compose.bccRecipients")}
                   field="bcc"
                   onMoveRecipient={moveRecipient}
@@ -1130,9 +1134,10 @@ export function ComposeModal({
                 <input
                   type="text"
                   value={activeDraft.subject}
-                  onChange={(e) =>
-                    onUpdate(activeId!, { subject: e.target.value })
-                  }
+                  onChange={(e) => {
+                    if (activeId)
+                      onUpdate(activeId, { subject: e.target.value });
+                  }}
                   placeholder={t("mail.compose.subject")}
                   className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
                 />
