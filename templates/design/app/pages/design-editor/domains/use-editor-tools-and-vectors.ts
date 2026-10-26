@@ -1010,8 +1010,7 @@ export function useEditorToolsAndVectors({
               ...latest,
               path: nextPath,
               primitiveSource,
-              pendingCommit:
-                phase === "commit" ? false : latest.pendingCommit,
+              pendingCommit: phase === "commit" ? false : latest.pendingCommit,
             }
           : latest,
       );
@@ -1111,8 +1110,7 @@ export function useEditorToolsAndVectors({
         return {
           ...current,
           path: nextPath,
-          pendingCommit:
-            phase === "commit" ? false : current.pendingCommit,
+          pendingCommit: phase === "commit" ? false : current.pendingCommit,
         };
       });
     },
