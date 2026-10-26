@@ -80,7 +80,7 @@ Sem ambos os TTYs, a CLI pede ao agente que solicite a aprovação da pessoa. De
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` é um metadado reservado da CLI, removido antes de analisar a entrada. É inofensivo em ações sem aprovação obrigatória. Ele exige a aprovação prévia da pessoa.
+`--approved` é um metadado reservado da CLI, removido antes de analisar a entrada. É inofensivo em ações sem aprovação obrigatória. A CLI não consegue verificar quem o adicionou: um agente que o adiciona sem perguntar pula a confirmação. O flag deixa a aprovação visível no comando que a pessoa aprova e no log de auditoria, que a marca como não verificada. No Windows sem um `SHELL` POSIX, a recusa mostra o comando para PowerShell e, quando as aspas diferem, também para cmd.exe.
 
 A ponte local de desenvolvimento envia os metadados de aprovação fora de `input` no corpo JSON:
 
@@ -112,9 +112,9 @@ Após a confirmação no TTY, a CLI tenta novamente com o `argumentsHash` da res
 }
 ```
 
-Se os argumentos preparados mudarem após a confirmação, a ponte retorna HTTP `409` com `errorCode: "approval_arguments_changed"`. Revise os argumentos atuais e tente novamente.
+A ponte executa a chamada que a pessoa revisou, então um valor padrão que muda a cada chamada, como um carimbo de data/hora, mantém o valor exibido. Se a ponte não tiver mais essa chamada (depois de reiniciar ou de 10 minutos) e os argumentos preparados tiverem mudado, ela retorna HTTP `409` com `errorCode: "approval_arguments_changed"`. Revise os argumentos atuais e tente novamente.
 
-`arguments` contém os argumentos preparados. Esse contrato da ponte local de desenvolvimento não altera as [regras de aprovação da API HTTP pública de ações](/docs/actions-access-control#needs-approval). Chamadas CLI protegidas e aprovadas usam o registrador de aprovações existente com caller `cli` e resumo `CLI approval via --approved` ou `CLI approval via prompt`. O registro especial de aprovação exclui os argumentos completos.
+`arguments` contém os argumentos preparados. Esse contrato da ponte local de desenvolvimento não altera as [regras de aprovação da API HTTP pública de ações](/docs/actions-access-control#needs-approval). Uma chamada CLI protegida e aprovada registra `approval: "cli-prompt"` ou `approval: "cli-flag"` na própria linha de auditoria da ação, com caller `cli`. O log de auditoria mostra `cli-flag` como não verificado.
 
 ## Chamando a partir de outro agente (A2A) {#a2a}
 

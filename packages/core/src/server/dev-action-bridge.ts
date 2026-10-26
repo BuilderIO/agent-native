@@ -35,7 +35,7 @@ import {
   preparedCallNeedsApproval,
   recordInvalidActionCall,
 } from "../action.js";
-import type { ActionRunContext } from "../action.js";
+import type { ActionRunContext, PreparedActionCall } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { runApprovedCliAction } from "../cli/action-approval.js";
@@ -237,11 +237,49 @@ export interface MountDevActionForwardRouteOptions {
   appId?: string;
 }
 
+// How long a refused call waits for its prompted retry.
+const REVIEWED_CALL_TTL_MS = 10 * 60_000;
+
 export function mountDevActionForwardRoute(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
   options?: MountDevActionForwardRouteOptions,
 ): void {
+  // The call each refusal showed, so a prompted retry runs what the person
+  // reviewed. Preparing it again would re-run its defaults, and one that
+  // differs per call (a timestamp, say) would fail every retry.
+  const reviewedCalls = new Map<
+    string,
+    { entry: ActionEntry; prepared: PreparedActionCall; expires: number }
+  >();
+  const reviewedCallKey = (
+    name: string,
+    ctx: ActionRunContext,
+    argumentsHash: string,
+  ) => JSON.stringify([name, ctx.userEmail, ctx.orgId ?? null, argumentsHash]);
+  // A reloaded action prepares its call again.
+  const takeReviewedCall = (key: string, entry: ActionEntry) => {
+    const reviewed = reviewedCalls.get(key);
+    reviewedCalls.delete(key);
+    return reviewed?.entry === entry && reviewed.expires > Date.now()
+      ? reviewed.prepared
+      : undefined;
+  };
+  const rememberReviewedCall = (
+    key: string,
+    entry: ActionEntry,
+    prepared: PreparedActionCall,
+  ) => {
+    const now = Date.now();
+    for (const [stale, reviewed] of reviewedCalls) {
+      if (reviewed.expires <= now) reviewedCalls.delete(stale);
+    }
+    reviewedCalls.set(key, {
+      entry,
+      prepared,
+      expires: now + REVIEWED_CALL_TTL_MS,
+    });
+  };
   getH3App(nitroApp).use(
     DEV_ACTION_ROUTE,
     defineEventHandler(async (event: H3Event) => {
@@ -323,7 +361,19 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const prepared = await actionCallIntent(entry, params);
+          const promptedHash =
+            body?.approved === true &&
+            body.approvalSource === "prompt" &&
+            typeof body.approvalArgumentsHash === "string"
+              ? body.approvalArgumentsHash
+              : undefined;
+          const prepared =
+            (promptedHash &&
+              takeReviewedCall(
+                reviewedCallKey(name, ctx, promptedHash),
+                entry,
+              )) ||
+            (await actionCallIntent(entry, params));
           if (!prepared.valid) {
             await recordInvalidActionCall(entry, params, ctx, prepared.error);
             throw prepared.error;
@@ -334,6 +384,11 @@ export function mountDevActionForwardRoute(
             ctx,
           );
           if (needsApproval && body?.approved !== true) {
+            rememberReviewedCall(
+              reviewedCallKey(name, ctx, prepared.argumentsHash),
+              entry,
+              prepared,
+            );
             setResponseStatus(event, 409);
             return {
               ok: false,

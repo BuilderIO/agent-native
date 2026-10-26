@@ -64,7 +64,7 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` は CLI の予約済みメタデータで、入力解析前に取り除かれます。承認不要のアクションに付けても問題ありません。先に本人の承認を得る必要があります。
+`--approved` は CLI の予約済みメタデータで、入力解析前に取り除かれます。承認不要のアクションに付けても問題ありません。CLI は誰がこのフラグを付けたかを確認できないため、本人に尋ねずに付けたエージェントは確認を飛ばせます。このフラグは、本人が承認するコマンドと監査ログに承認を残し、監査ログでは未検証として表示されます。POSIX の `SHELL` がない Windows では、拒否メッセージに PowerShell 用のコマンドと、クォートが異なる場合は cmd.exe 用のコマンドも表示されます。
 
 ローカル開発ブリッジは、JSON 本文の `input` の外側に承認メタデータを送信します。
 
@@ -96,9 +96,9 @@ TTY での確認後、CLI は承認要求のレスポンスに含まれる `argu
 }
 ```
 
-確認後に準備済みの引数が変わった場合、ブリッジは HTTP `409` と `errorCode: "approval_arguments_changed"` を返します。現在の引数を確認して再試行してください。
+ブリッジは本人が確認した呼び出しをそのまま実行するため、タイムスタンプのように呼び出しごとに変わるデフォルト値も、表示された値のまま使われます。ブリッジがその呼び出しを保持していない場合（再起動した、または 10 分経過した）に準備済みの引数が変わっていると、ブリッジは HTTP `409` と `errorCode: "approval_arguments_changed"` を返します。現在の引数を確認して再試行してください。
 
-`arguments` には準備済みの引数が入ります。このローカル開発ブリッジの契約は、[公開 HTTP アクション API の承認ルール](/docs/actions-access-control#needs-approval)を変更しません。承認済みの承認対象 CLI 呼び出しは、既存の承認記録機能を使い、caller は `cli`、要約は `CLI approval via --approved` または `CLI approval via prompt` になります。専用の承認記録には引数の全内容を含めません。
+`arguments` には準備済みの引数が入ります。このローカル開発ブリッジの契約は、[公開 HTTP アクション API の承認ルール](/docs/actions-access-control#needs-approval)を変更しません。承認された承認対象の CLI 呼び出しは、アクション自身の監査行に `approval: "cli-prompt"` または `approval: "cli-flag"` を caller `cli` とともに記録します。監査ログでは `cli-flag` は未検証として表示されます。
 
 ## 別のエージェントから呼び出す (A2A) {#a2a}
 

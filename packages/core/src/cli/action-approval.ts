@@ -1,13 +1,11 @@
 import { createInterface } from "node:readline/promises";
 
-import { runOutsideActionInvocation, vouchedOutcome } from "../action-frame.js";
+import { vouchedOutcome } from "../action-frame.js";
 import {
   runPreparedActionCall,
   type ActionRunContext,
   type PreparedActionCall,
 } from "../action.js";
-import { auditAttribution } from "../audit/attribution.js";
-import { recordActionAudit } from "../audit/record.js";
 
 export type CliApprovalSource = "flag" | "prompt";
 
@@ -21,14 +19,41 @@ export function takeCliApprovalFlag(args: string[]): {
   };
 }
 
-function shellQuote(value: string): string {
-  const powershell =
+const PLAIN_TOKEN = /^[a-zA-Z0-9_./:=@-]+$/;
+
+function windowsShellUnknown(): boolean {
+  return (
     process.platform === "win32" &&
-    !/(?:^|[/\\])(bash|zsh|sh)(?:\.exe)?$/i.test(process.env.SHELL ?? "");
-  return /^[a-zA-Z0-9_./:=@-]+$/.test(value) &&
-    !(powershell && value.startsWith("@"))
+    !/(?:^|[/\\])(bash|zsh|sh)(?:\.exe)?$/i.test(process.env.SHELL ?? "")
+  );
+}
+
+function shellQuote(value: string): string {
+  const powershell = windowsShellUnknown();
+  return PLAIN_TOKEN.test(value) && !(powershell && value.startsWith("@"))
     ? value
     : `'${value.replace(/'/g, powershell ? "''" : `'"'"'`)}'`;
+}
+
+// cmd.exe reads single quotes literally. Inside double quotes it passes
+// spaces and `&|<>^` through, and node reads `\"` as a quote.
+function cmdQuote(value: string): string {
+  return PLAIN_TOKEN.test(value)
+    ? value
+    : `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+}
+
+export function cliRerunCommand(
+  actionName: string,
+  originalArgs: string[],
+): string {
+  const tokens = ["pnpm", "action", actionName, ...originalArgs, "--approved"];
+  const command = tokens.map(shellQuote).join(" ");
+  if (!windowsShellUnknown()) return command;
+  // Windows without a POSIX SHELL could be PowerShell or cmd.exe, and they
+  // quote differently, so name both when the quoting differs.
+  const cmd = tokens.map(cmdQuote).join(" ");
+  return cmd === command ? command : `${command}\nIn cmd.exe: ${cmd}`;
 }
 
 export async function requestCliApproval(
@@ -37,17 +62,8 @@ export async function requestCliApproval(
   originalArgs: string[],
 ): Promise<CliApprovalSource> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    const command = [
-      "pnpm",
-      "action",
-      actionName,
-      ...originalArgs,
-      "--approved",
-    ]
-      .map(shellQuote)
-      .join(" ");
     throw new Error(
-      `Action "${actionName}" requires human approval. Ask the person to approve this call, then rerun:\n${command}`,
+      `Action "${actionName}" requires human approval. Ask the person to approve this call, then rerun:\n${cliRerunCommand(actionName, originalArgs)}`,
     );
   }
   console.log(`Action "${actionName}" requires human approval.`);
@@ -67,42 +83,29 @@ export async function requestCliApproval(
   return "prompt";
 }
 
+/**
+ * Runs a prepared CLI call. An approved one records how it was approved on
+ * the action's own audit row, as agent chat and A2A approvals do.
+ */
 export async function runApprovedCliAction(
   entry: { run(args: any, ctx?: ActionRunContext): unknown },
   prepared: PreparedActionCall,
   ctx: ActionRunContext,
   approval?: CliApprovalSource,
 ): Promise<any> {
-  const record = (status: "success" | "error", error?: unknown) =>
-    runOutsideActionInvocation(() =>
-      recordActionAudit({
-        config: {
-          enabled: true,
-          recordInputs: false,
-          summary: () =>
-            approval === "flag"
-              ? "CLI approval via --approved"
-              : "CLI approval via prompt",
-        },
-        args: undefined,
-        ctx,
-        attribution: auditAttribution(ctx),
-        status,
-        error,
-      }),
-    );
-  let result: unknown;
-  try {
-    result = await runPreparedActionCall(
-      entry,
-      prepared,
-      ctx,
-      vouchedOutcome({ refused: false }, undefined),
-    );
-  } catch (error) {
-    if (approval) await record("error", error);
-    throw error;
-  }
-  if (approval) await record("success");
-  return result;
+  return runPreparedActionCall(
+    entry,
+    prepared,
+    ctx,
+    vouchedOutcome(
+      { refused: false },
+      approval
+        ? {
+            auditOverride: {
+              approval: approval === "flag" ? "cli-flag" : "cli-prompt",
+            },
+          }
+        : undefined,
+    ),
+  );
 }

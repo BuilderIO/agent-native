@@ -78,7 +78,7 @@ Without both TTYs, the CLI asks the agent to ask the person for approval. After 
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` is reserved CLI metadata, stripped before input parsing. It is harmless on ungated actions. It requires the person's approval first.
+`--approved` is reserved CLI metadata, stripped before input parsing. It is harmless on ungated actions. The CLI can't check who added it, so an agent that adds it without asking skips the prompt. The flag keeps the approval visible in the command the person approves and in the audit log, which marks it unverified. On Windows without a POSIX `SHELL`, the refusal prints the rerun command for PowerShell and, when the quoting differs, for cmd.exe.
 
 The local dev bridge sends approval metadata outside `input` in the JSON body:
 
@@ -110,9 +110,9 @@ After TTY confirmation, the CLI retries with the challenge response’s `argumen
 }
 ```
 
-If the prepared arguments changed after confirmation, the bridge returns HTTP `409` with `errorCode: "approval_arguments_changed"`. Review the current arguments and try again.
+The bridge runs the call the person reviewed, so a default that differs per call, such as a timestamp, keeps the value they saw. If the bridge no longer holds that call (it restarted, or 10 minutes passed) and the prepared arguments changed, it returns HTTP `409` with `errorCode: "approval_arguments_changed"`. Review the current arguments and try again.
 
-`arguments` contains the prepared arguments. This local dev bridge contract does not change the [public HTTP action API's approval rules](/docs/actions-access-control#needs-approval). Approved gated CLI invocations use the existing approval recorder with caller `cli` and summary `CLI approval via --approved` or `CLI approval via prompt`. The special approval record excludes full arguments.
+`arguments` contains the prepared arguments. This local dev bridge contract does not change the [public HTTP action API's approval rules](/docs/actions-access-control#needs-approval). An approved gated CLI call records `approval: "cli-prompt"` or `approval: "cli-flag"` on the action's own audit row, with caller `cli`. The audit log shows `cli-flag` as unverified.
 
 ## Calling it from another agent (A2A) {#a2a}
 

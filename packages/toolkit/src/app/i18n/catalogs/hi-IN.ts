@@ -1901,6 +1901,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
   "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
   "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
+  "settings.audit.approvalCliPrompt": "CLI प्रॉम्प्ट पर स्वीकृत",
+  "settings.audit.approvalCliFlag":
+    "--approved के साथ फिर से चलाया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",
   "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",

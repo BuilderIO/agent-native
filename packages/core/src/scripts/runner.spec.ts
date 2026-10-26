@@ -155,25 +155,23 @@ describe("runScript CLI approval", () => {
     expect(approvalAudit).not.toHaveBeenCalled();
   });
 
-  it("strips --approved before strict validation and audits the flag without args", async () => {
+  it("strips --approved before strict validation and records it on the action's audit row", async () => {
     await expect(
-      invoke(true, ["--approved", '{"action":"delete"}']),
+      invoke(true, ["--approved", '{"action":"delete"}'], true),
     ).rejects.toThrow("exit:0");
     expect(run).toHaveBeenCalledWith(
       { action: "delete" },
       expect.objectContaining({ caller: "cli" }),
     );
     expect(question).not.toHaveBeenCalled();
+    // One row per run: the approval rides on the action's own audit event.
     expect(approvalAudit).toHaveBeenCalledTimes(1);
-    const row = approvalAudit.mock.calls[0]![0] as any;
-    expect(row).toMatchObject({
-      config: { enabled: true, recordInputs: false },
-      args: undefined,
+    expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+      args: { action: "delete" },
       ctx: { actionName: "fixture-action" },
-      attribution: { caller: "cli" },
+      attribution: { caller: "cli", approval: "cli-flag" },
       status: "success",
     });
-    expect(row.config.summary()).toBe("CLI approval via --approved");
   });
 
   it.each(["y", "yes", "Y", "n", "", "anything"])(
@@ -182,7 +180,7 @@ describe("runScript CLI approval", () => {
       setTty(true);
       question.mockResolvedValue(answer);
       const accepted = ["y", "yes", "Y"].includes(answer);
-      await expect(invoke(true)).rejects.toThrow(
+      await expect(invoke(true, [], true)).rejects.toThrow(
         accepted ? "exit:0" : "exit:1",
       );
       expect(question).toHaveBeenCalledWith("Run this action? [y/N] ");
@@ -191,9 +189,10 @@ describe("runScript CLI approval", () => {
       expect(run).toHaveBeenCalledTimes(accepted ? 1 : 0);
       expect(approvalAudit).toHaveBeenCalledTimes(accepted ? 1 : 0);
       if (accepted)
-        expect((approvalAudit.mock.calls[0]![0] as any).config.summary()).toBe(
-          "CLI approval via prompt",
-        );
+        expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+          attribution: { caller: "cli", approval: "cli-prompt" },
+          status: "success",
+        });
     },
   );
 
@@ -236,13 +235,13 @@ describe("runScript CLI approval", () => {
       await expect(invoke(true, ["--action", "O'Brien"])).rejects.toThrow(
         "exit:1",
       );
-      const quoted =
-        process.platform === "win32" && shell === ""
-          ? "'O''Brien'"
-          : `'O'"'"'Brien'`;
+      const unknownWindowsShell = process.platform === "win32" && shell === "";
+      const rerun = unknownWindowsShell
+        ? `pnpm action fixture-action --action 'O''Brien' --approved\nIn cmd.exe: pnpm action fixture-action --action "O'Brien" --approved`
+        : `pnpm action fixture-action --action 'O'"'"'Brien' --approved`;
       expect(error).toHaveBeenCalledWith(
         'Action "fixture-action" failed:',
-        `Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\npnpm action fixture-action --action ${quoted} --approved`,
+        `Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\n${rerun}`,
       );
       expect(run).not.toHaveBeenCalled();
     },
@@ -253,11 +252,14 @@ describe("runScript CLI approval", () => {
     await expect(
       invoke(true, ["--action", "@reviewQuoteArgs"]),
     ).rejects.toThrow("exit:1");
-    const value =
-      process.platform === "win32" ? "'@reviewQuoteArgs'" : "@reviewQuoteArgs";
+    // cmd.exe has no splatting, so its form leaves the value bare.
+    const rerun =
+      process.platform === "win32"
+        ? "pnpm action fixture-action --action '@reviewQuoteArgs' --approved\nIn cmd.exe: pnpm action fixture-action --action @reviewQuoteArgs --approved"
+        : "pnpm action fixture-action --action @reviewQuoteArgs --approved";
     expect(error).toHaveBeenCalledWith(
       'Action "fixture-action" failed:',
-      `Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\npnpm action fixture-action --action ${value} --approved`,
+      `Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\n${rerun}`,
     );
     expect(run).not.toHaveBeenCalled();
   });

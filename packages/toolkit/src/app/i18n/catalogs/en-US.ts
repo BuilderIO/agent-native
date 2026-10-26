@@ -1933,6 +1933,8 @@ const messages = {
   "settings.audit.approvalA2AReview":
     "Approved on the agent action review page",
   "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
+  "settings.audit.approvalCliPrompt": "Approved at the CLI prompt",
+  "settings.audit.approvalCliFlag": "Rerun with --approved (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",

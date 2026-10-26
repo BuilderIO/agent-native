@@ -80,7 +80,7 @@ Sin ambos TTY, la CLI indica al agente que pida aprobación a la persona. Cuando
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` son metadatos reservados de la CLI y se elimina antes de analizar la entrada. No tiene efecto adverso en acciones sin aprobación obligatoria. Requiere la aprobación previa de la persona.
+`--approved` son metadatos reservados de la CLI y se elimina antes de analizar la entrada. No tiene efecto adverso en acciones sin aprobación obligatoria. La CLI no puede comprobar quién lo añadió: un agente que lo añade sin preguntar se salta la confirmación. El indicador deja la aprobación a la vista en el comando que la persona aprueba y en el registro de auditoría, que la señala como no verificada. En Windows sin una `SHELL` POSIX, el rechazo muestra el comando para PowerShell y, si las comillas difieren, también para cmd.exe.
 
 El puente local de desarrollo envía los metadatos de aprobación fuera de `input` en el cuerpo JSON:
 
@@ -112,9 +112,9 @@ Tras la confirmación en TTY, la CLI reintenta con el `argumentsHash` de la resp
 }
 ```
 
-Si los argumentos preparados cambiaron después de la confirmación, el puente devuelve HTTP `409` con `errorCode: "approval_arguments_changed"`. Revisa los argumentos actuales e inténtalo de nuevo.
+El puente ejecuta la llamada que la persona revisó, así que un valor predeterminado que cambia en cada llamada, como una marca de tiempo, conserva el valor que vio. Si el puente ya no tiene esa llamada (se reinició o pasaron 10 minutos) y los argumentos preparados cambiaron, devuelve HTTP `409` con `errorCode: "approval_arguments_changed"`. Revisa los argumentos actuales e inténtalo de nuevo.
 
-`arguments` contiene los argumentos preparados. Este contrato del puente local de desarrollo no cambia las [reglas de aprobación de la API HTTP pública de acciones](/docs/actions-access-control#needs-approval). Las llamadas CLI protegidas y aprobadas usan el registro de aprobaciones existente con caller `cli` y resumen `CLI approval via --approved` o `CLI approval via prompt`. El registro especial de aprobación excluye los argumentos completos.
+`arguments` contiene los argumentos preparados. Este contrato del puente local de desarrollo no cambia las [reglas de aprobación de la API HTTP pública de acciones](/docs/actions-access-control#needs-approval). Una llamada CLI protegida y aprobada registra `approval: "cli-prompt"` o `approval: "cli-flag"` en la propia fila de auditoría de la acción, con caller `cli`. El registro de auditoría muestra `cli-flag` como no verificado.
 
 ## Llamarla desde otro agente (A2A) {#a2a}
 

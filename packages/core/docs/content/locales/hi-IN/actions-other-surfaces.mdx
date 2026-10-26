@@ -80,7 +80,7 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` reserved CLI metadata है, जिसे input parsing से पहले हटा दिया जाता है। जिन actions को approval नहीं चाहिए, उनमें यह हानिरहित है। पहले व्यक्ति की approval लेना ज़रूरी है।
+`--approved` reserved CLI metadata है, जिसे input parsing से पहले हटा दिया जाता है। जिन actions को approval नहीं चाहिए, उनमें यह हानिरहित है। CLI यह नहीं जाँच सकता कि इसे किसने जोड़ा: जो agent बिना पूछे इसे जोड़ता है, वह पुष्टि को छोड़ देता है। यह flag approval को उस command में दिखाता है जिसे व्यक्ति approve करता है, और audit log में भी, जहाँ इसे असत्यापित दिखाया जाता है। POSIX `SHELL` के बिना Windows पर, refusal PowerShell के लिए command दिखाता है, और quoting अलग होने पर cmd.exe के लिए भी।
 
 Local dev bridge JSON body में approval metadata को `input` के बाहर भेजता है:
 
@@ -112,9 +112,9 @@ TTY में पुष्टि के बाद, CLI अनुमोदन म
 }
 ```
 
-यदि पुष्टि के बाद तैयार किए गए तर्क बदल गए हों, तो ब्रिज HTTP `409` के साथ `errorCode: "approval_arguments_changed"` लौटाता है। मौजूदा तर्कों की समीक्षा करें और फिर से प्रयास करें।
+Bridge वही call चलाता है जिसे व्यक्ति ने review किया था, इसलिए हर call में बदलने वाला default, जैसे timestamp, वही value रखता है जो व्यक्ति ने देखी थी। अगर bridge के पास वह call अब नहीं है (restart हुआ हो या 10 मिनट बीत गए हों) और तैयार किए गए तर्क बदल गए हों, तो ब्रिज HTTP `409` के साथ `errorCode: "approval_arguments_changed"` लौटाता है। मौजूदा तर्कों की समीक्षा करें और फिर से प्रयास करें।
 
-`arguments` में तैयार arguments होते हैं। Local dev bridge का यह contract [public HTTP action API के approval rules](/docs/actions-access-control#needs-approval) को नहीं बदलता। Approved gated CLI calls मौजूदा approval recorder इस्तेमाल करती हैं, जिसमें caller `cli` और summary `CLI approval via --approved` या `CLI approval via prompt` होती है। विशेष approval record में पूरे arguments शामिल नहीं होते।
+`arguments` में तैयार arguments होते हैं। Local dev bridge का यह contract [public HTTP action API के approval rules](/docs/actions-access-control#needs-approval) को नहीं बदलता। Approved gated CLI call, action की अपनी audit row पर caller `cli` के साथ `approval: "cli-prompt"` या `approval: "cli-flag"` दर्ज करती है। Audit log `cli-flag` को असत्यापित दिखाता है।
 
 ## इसे किसी अन्य एजेंट से कॉल करना (A2A) {#a2a}
 

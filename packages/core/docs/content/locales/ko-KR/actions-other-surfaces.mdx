@@ -78,7 +78,7 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved`는 CLI 예약 메타데이터이며 입력 파싱 전에 제거됩니다. 승인이 필요 없는 action에 붙여도 문제없습니다. 반드시 먼저 당사자의 승인을 받아야 합니다.
+`--approved`는 CLI 예약 메타데이터이며 입력 파싱 전에 제거됩니다. 승인이 필요 없는 action에 붙여도 문제없습니다. CLI는 누가 이 플래그를 붙였는지 확인할 수 없으므로, 묻지 않고 붙인 에이전트는 확인 절차를 건너뜁니다. 이 플래그는 당사자가 승인하는 명령과 감사 로그에 승인을 드러내며, 감사 로그는 이를 확인되지 않음으로 표시합니다. POSIX `SHELL`이 없는 Windows에서는 거부 메시지가 PowerShell용 명령과, 따옴표 처리가 다를 때 cmd.exe용 명령도 보여 줍니다.
 
 로컬 개발 브리지는 JSON 본문의 `input` 밖에 승인 메타데이터를 전송합니다.
 
@@ -110,9 +110,9 @@ TTY에서 확인한 후 CLI는 승인 요청 응답의 `argumentsHash`로 재시
 }
 ```
 
-확인 후 준비된 인수가 변경되면 브리지는 HTTP `409`와 `errorCode: "approval_arguments_changed"`를 반환합니다. 현재 인수를 검토하고 다시 시도하세요.
+브리지는 당사자가 검토한 호출을 그대로 실행하므로, 타임스탬프처럼 호출마다 달라지는 기본값도 표시된 값을 유지합니다. 브리지가 그 호출을 더 이상 갖고 있지 않고(재시작했거나 10분이 지난 경우) 준비된 인수가 바뀌었다면, 브리지는 HTTP `409`와 `errorCode: "approval_arguments_changed"`를 반환합니다. 현재 인수를 검토하고 다시 시도하세요.
 
-`arguments`에는 준비된 인수가 담깁니다. 이 로컬 개발 브리지 계약은 [공개 HTTP action API의 승인 규칙](/docs/actions-access-control#needs-approval)을 변경하지 않습니다. 승인된 승인 대상 CLI 호출은 기존 승인 기록기를 사용하며 caller는 `cli`, 요약은 `CLI approval via --approved` 또는 `CLI approval via prompt`입니다. 전용 승인 기록에는 전체 인수가 포함되지 않습니다.
+`arguments`에는 준비된 인수가 담깁니다. 이 로컬 개발 브리지 계약은 [공개 HTTP action API의 승인 규칙](/docs/actions-access-control#needs-approval)을 변경하지 않습니다. 승인된 승인 대상 CLI 호출은 action 자체의 감사 행에 caller `cli`와 함께 `approval: "cli-prompt"` 또는 `approval: "cli-flag"`를 기록합니다. 감사 로그는 `cli-flag`를 확인되지 않음으로 표시합니다.
 
 ## 다른 에이전트에서 호출하기 (A2A) {#a2a}
 

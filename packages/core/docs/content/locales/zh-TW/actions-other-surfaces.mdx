@@ -74,7 +74,7 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 ```
 
-`--approved` 是保留的 CLI 中繼資料，會在解析輸入前移除。用於不需核准的 action 時不會造成影響。必須先取得本人的核准。
+`--approved` 是保留的 CLI 中繼資料，會在解析輸入前移除。用於不需核准的 action 時不會造成影響。CLI 無法確認是誰加上它：代理未經詢問就加上它，便會略過確認。這個旗標讓核准顯示在本人核准的命令中，也顯示在稽核記錄裡，稽核記錄會將其標為未驗證。在沒有 POSIX `SHELL` 的 Windows 上，拒絕訊息會提供 PowerShell 用的命令；引號規則不同時，也會提供 cmd.exe 用的命令。
 
 本機開發橋接會在 JSON 請求主體中將核准中繼資料放在 `input` 之外：
 
@@ -106,9 +106,9 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 }
 ```
 
-如果準備好的引數在確認後發生變更，橋接會傳回 HTTP `409` 和 `errorCode: "approval_arguments_changed"`。請檢查目前的引數並重試。
+橋接會執行本人審閱過的那次呼叫，因此每次呼叫都會變動的預設值（例如時間戳記）會保留本人看到的值。如果橋接已不再保留那次呼叫（已重新啟動或已過 10 分鐘），且準備好的引數已變更，橋接會傳回 HTTP `409` 和 `errorCode: "approval_arguments_changed"`。請檢查目前的引數並重試。
 
-`arguments` 包含準備好的引數。本機開發橋接的此約定不會改變[公開 HTTP action API 的核准規則](/docs/actions-access-control#needs-approval)。已核准的受限 CLI 呼叫使用現有核准記錄器，呼叫者為 `cli`，摘要為 `CLI approval via --approved` 或 `CLI approval via prompt`。專用核准記錄不包含完整引數。
+`arguments` 包含準備好的引數。本機開發橋接的此約定不會改變[公開 HTTP action API 的核准規則](/docs/actions-access-control#needs-approval)。已核准的受限 CLI 呼叫會在該 action 自己的稽核記錄列中寫入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，呼叫者為 `cli`。稽核記錄會將 `cli-flag` 顯示為未驗證。
 
 ## 從另一個代理呼叫它（A2A）{#a2a}
 

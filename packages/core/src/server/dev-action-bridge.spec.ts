@@ -299,7 +299,6 @@ describe("mountDevActionForwardRoute", () => {
       const entry = defineAction({
         schema: z.object({ action: z.string().default("delete") }).strict(),
         needsApproval: true,
-        audit: { enabled: false },
         run,
       });
       const handler = mountedHandler({ "delete-data": entry });
@@ -324,29 +323,24 @@ describe("mountDevActionForwardRoute", () => {
         { action: "delete" },
         expect.objectContaining({ caller: "cli" }),
       );
+      // One row per run: the approval rides on the action's own audit event.
       expect(approvalAudit).toHaveBeenCalledTimes(1);
-      const row = approvalAudit.mock.calls[0]![0];
-      expect(row).toMatchObject({
-        input: null,
+      expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
         caller: "cli",
         action: "delete-data",
         status: "success",
+        approval: approvalSource === "flag" ? "cli-flag" : "cli-prompt",
       });
-      expect(row.summary).toBe(
-        approvalSource === "flag"
-          ? "CLI approval via --approved"
-          : "CLI approval via prompt",
-      );
       expect(mockNotifyActionChange).toHaveBeenCalledWith({
         actionName: "delete-data",
       });
     },
   );
 
-  it("refuses a prompted retry whose dynamic defaults changed after review", async () => {
+  it("runs the reviewed call on a prompted retry, once, after its dynamic defaults change", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     let destination = "reviewed@example.test";
-    const run = vi.fn();
+    const run = vi.fn(async (args) => args);
     const handler = mountedHandler({
       send: defineAction({
         schema: z.object({
@@ -366,6 +360,54 @@ describe("mountDevActionForwardRoute", () => {
       destination: "reviewed@example.test",
     });
     destination = "changed@example.test";
+    const retry = (): any => ({
+      _headers: headers,
+      _body: {
+        name: "send",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    });
+    expect(await handler(retry())).toEqual({
+      ok: true,
+      result: { destination: "reviewed@example.test" },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // The reviewed call runs once; a replay prepares the call again.
+    const replay = retry();
+    expect(await handler(replay)).toMatchObject({
+      ok: false,
+      errorCode: "approval_arguments_changed",
+    });
+    expect(replay._status).toBe(409);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a prompted retry whose dynamic defaults changed when the server lost the reviewed call", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    let destination = "reviewed@example.test";
+    const run = vi.fn();
+    const actions = {
+      send: defineAction({
+        schema: z.object({
+          destination: z.string().default(() => destination),
+        }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    };
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await mountedHandler(actions)({
+      _headers: headers,
+      _body: { name: "send", input: {} },
+    });
+    destination = "changed@example.test";
+    // A restarted dev server mounts the route again with nothing held.
+    const handler = mountedHandler(actions);
     const event: any = {
       _headers: headers,
       _body: {
