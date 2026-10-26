@@ -1497,7 +1497,7 @@ function reconcileDurableMessages(
       continue;
     }
     const eventIds = assistantIdsByRun.get(runId);
-    const eventId = eventIds?.size === 1 ? [...eventIds][0]! : undefined;
+    const eventId = eventIds?.size === 1 ? [...eventIds][0] : undefined;
     if (!eventId || shownIds.has(eventId) || durableById.has(eventId)) {
       continue;
     }
