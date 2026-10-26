@@ -7596,6 +7596,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(call.error).toBeUndefined();
     expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
+
+    // A card's URI is easy to guess, so reading it directly is refused too.
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 50,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing/shell-v65" },
+      },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(read.result).toBeUndefined();
+    expect(read.error?.message).toContain("MCP App resource not found");
   });
 
   it("serves MCP App resources to an authenticated first-party caller without the lab", async () => {
@@ -7620,6 +7633,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(call.error).toBeUndefined();
     expect(JSON.stringify(call)).toContain("openai/outputTemplate");
+
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 51,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing/shell-v65" },
+      },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(read.error).toBeUndefined();
+    expect(read.result.contents).toEqual([
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+    ]);
   });
 
   it("serves cards to the caller who turned the lab on and plain results to everyone else", async () => {

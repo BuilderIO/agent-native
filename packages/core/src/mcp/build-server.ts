@@ -3669,12 +3669,13 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            const resourceActions = mcpAppWidgetsEnabledForIdentity(
-              config,
-              effectiveIdentity,
-            )
-              ? Object.entries(grantedActions)
-              : [];
+            // Reads follow the same cards decision as resources/list, so a
+            // caller without the lab can't fetch a card by its known URI.
+            const resourceActions =
+              requestMeta?.inlineMcpApps &&
+              mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
+                ? Object.entries(grantedActions)
+                : [];
             const orderedResourceActions =
               config.catalogMode === "directory"
                 ? resourceActions.sort(([a], [b]) =>
