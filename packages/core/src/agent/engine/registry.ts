@@ -929,8 +929,12 @@ export function credentialOwnerForEntry(
   if (entry.name === "builder") return "builder";
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) return "customer";
   // Only a stored, scoped credential proves the customer owns the key; a
-  // host-supplied key with no provenance may be the deployment's own.
-  if (provenance && provenance.scope !== "deployment") return "customer";
+  // host-supplied key with no provenance may be the deployment's own. A vault
+  // value equal to the deployment key is dropped (apiKey undefined) so the
+  // engine uses the env key, even though its provenance stays scoped.
+  if (apiKey !== undefined && provenance && provenance.scope !== "deployment") {
+    return "customer";
+  }
   const envVar = entry.requiredEnvVars[0];
   if (!envVar) return undefined;
   // keyBelongsToDeployment treats a missing key as deployment-owned for

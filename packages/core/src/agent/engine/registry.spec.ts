@@ -4584,6 +4584,75 @@ describe("credentialOwnerForEntry", () => {
   const entry = (name: string, requiredEnvVars: string[] = []) =>
     ({ name, requiredEnvVars }) as any;
 
+  const anthropic = entry("anthropic", ["ANTHROPIC_API_KEY"]);
+  let savedKey: string | undefined;
+  beforeEach(() => {
+    savedKey = process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — restores the deploy key fixture
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+  afterEach(() => {
+    if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = savedKey; // guard:allow-env-credential — restores the deploy key fixture
+  });
+
+  it("tags the Builder gateway engine as builder-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("builder"),
+        "sk-test",
+        { scope: "user", scopeId: "steve@example.com" },
+        {},
+      ),
+    ).toBe("builder");
+  });
+
+  it("tags a deployment-scoped key as deployment-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        anthropic,
+        "sk-test",
+        { scope: "deployment" },
+        {},
+      ),
+    ).toBe("deployment");
+  });
+
+  it("tags a host key only when it is the deployment's own", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(credentialOwnerForEntry(anthropic, "sk-deploy", undefined, {})).toBe(
+      "deployment",
+    );
+    expect(
+      credentialOwnerForEntry(anthropic, "sk-host", undefined, {}),
+    ).toBeUndefined();
+  });
+
+  it("tags a missing key by whether a deployment fallback exists", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(anthropic, undefined, undefined, {}),
+    ).toBeUndefined();
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    expect(credentialOwnerForEntry(anthropic, undefined, undefined, {})).toBe(
+      "deployment",
+    );
+    expect(
+      credentialOwnerForEntry(anthropic, undefined, undefined, {
+        allowEnvFallback: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("leaves engines without a provider key unowned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(entry("ollama"), undefined, undefined, {}),
+    ).toBeUndefined();
+  });
+
   it("tags the user's ChatGPT plan engine as customer-owned", async () => {
     const { credentialOwnerForEntry } = await import("./registry.js");
     expect(
@@ -4606,6 +4675,18 @@ describe("credentialOwnerForEntry", () => {
         { allowEnvFallback: false },
       ),
     ).toBeUndefined();
+  });
+
+  it("does not tag a scoped vault value dropped for the deployment key as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        undefined,
+        { scope: "user", scopeId: "steve@example.com" },
+        { allowEnvFallback: false },
+      ),
+    ).not.toBe("customer");
   });
 
   it("tags a scoped stored key as customer-owned", async () => {

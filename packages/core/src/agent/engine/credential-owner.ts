@@ -7,13 +7,13 @@ import type { AgentEngine } from "./types.js";
  */
 export type EngineCredentialOwner = "builder" | "deployment" | "customer";
 
-const owners = new WeakMap<object, EngineCredentialOwner>();
+const owners = new WeakMap<object, EngineCredentialOwner | undefined>();
 
 export function tagEngineCredentialOwner(
   engine: AgentEngine,
   owner: EngineCredentialOwner | undefined,
 ): void {
-  if (owner) owners.set(engine, owner);
+  owners.set(engine, owner);
 }
 
 export function getEngineCredentialOwner(
