@@ -9,8 +9,12 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import {
+  RealtimeVoiceModeProvider,
+  useRealtimeVoiceModeOptional,
+} from "@agent-native/toolkit/app/chat/composer";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 
 import {
@@ -21,6 +25,7 @@ import {
 } from "@/components/ui/sheet";
 import { APP_TITLE } from "@/lib/app-config";
 import { HOME_PATH, isChatPathname } from "@/lib/chat-paths";
+import { TAB_ID } from "@/lib/tab-id";
 
 import { MobileAppBar } from "./MobileAppBar";
 import { Sidebar } from "./Sidebar";
@@ -49,7 +54,35 @@ function routeOwnsToolbar(pathname: string): boolean {
   );
 }
 
+/**
+ * A voice chat follows the user into a chat thread, so Get started can hand
+ * one off. Other pages render no voice controls, so any other navigation ends
+ * the session rather than leave the microphone open with nothing to stop it.
+ */
+function EndVoiceChatOutsideChat() {
+  const { pathname } = useLocation();
+  const end = useRealtimeVoiceModeOptional()?.end;
+  const previousPathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    if (previousPathnameRef.current === pathname) return;
+    previousPathnameRef.current = pathname;
+    if (!isChatPathname(pathname)) end?.();
+  }, [end, pathname]);
+
+  return null;
+}
+
 export function Layout({ children }: LayoutProps) {
+  return (
+    <RealtimeVoiceModeProvider browserTabId={TAB_ID}>
+      <EndVoiceChatOutsideChat />
+      <LayoutShell>{children}</LayoutShell>
+    </RealtimeVoiceModeProvider>
+  );
+}
+
+function LayoutShell({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);

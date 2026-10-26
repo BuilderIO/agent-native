@@ -227,6 +227,8 @@ export interface ComposerSendButtonProps {
   voiceEnabled?: boolean;
   /** Nothing to send and no run active, so the slot may offer voice chat. */
   voiceChatEligible?: boolean;
+  /** Starts voice chat in place of the provider's default start. */
+  onVoiceChatStart?: () => void;
   disabled?: boolean;
 }
 
@@ -257,6 +259,7 @@ function VoiceChatSendButton({
   sendLabel,
   busy,
   voiceChatEligible = false,
+  onVoiceChatStart,
   disabled,
 }: Omit<ComposerSendButtonProps, "voiceEnabled">) {
   const adapters = useComposerRuntimeAdapters();
@@ -276,7 +279,9 @@ function VoiceChatSendButton({
   return offerVoiceChat ? (
     <ComposerPrimaryButton
       mode="voice-chat"
-      onClick={() => void realtimeVoice.start()}
+      onClick={() =>
+        onVoiceChatStart ? onVoiceChatStart() : void realtimeVoice.start()
+      }
       disabled={Boolean(disabled)}
       label={copy.startVoiceMode}
     />

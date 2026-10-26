@@ -132,6 +132,7 @@ export {
   type RealtimeVoiceModeApi,
   type RealtimeVoiceModeProviderProps,
   type RealtimeVoiceSessionAnswer,
+  type RealtimeVoiceStartOptions,
   type RealtimeVoiceToolResult,
 } from "./useRealtimeVoiceMode.js";
 export {

@@ -1,7 +1,7 @@
 ===================================================================
 --- a/app/components/layout/Layout.tsx
 +++ b/app/components/layout/Layout.tsx
-@@ -1,189 +1,28 @@
+@@ -1,222 +1,28 @@
 -import { useT } from "@agent-native/core/client/i18n";
 -import {
 -  HeaderActionsProvider,
@@ -13,8 +13,12 @@
 -  useAgentChatHomeHandoff,
 -  useAgentChatHomeHandoffLinks,
 -} from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+-import {
+-  RealtimeVoiceModeProvider,
+-  useRealtimeVoiceModeOptional,
+-} from "@agent-native/toolkit/app/chat/composer";
 -import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
--import { lazy, Suspense, useEffect, useState } from "react";
+-import { lazy, Suspense, useEffect, useRef, useState } from "react";
 -import { useLocation } from "react-router";
 +import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
  
@@ -26,6 +30,7 @@
 -} from "@/components/ui/sheet";
 -import { APP_TITLE } from "@/lib/app-config";
 -import { HOME_PATH, isChatPathname } from "@/lib/chat-paths";
+-import { TAB_ID } from "@/lib/tab-id";
 -
 -import { MobileAppBar } from "./MobileAppBar";
 -import { Sidebar } from "./Sidebar";
@@ -54,7 +59,10 @@
 -  );
 -}
 -
-+/**
+ /**
+- * A voice chat follows the user into a chat thread, so Get started can hand
+- * one off. Other pages render no voice controls, so any other navigation ends
+- * the session rather than leave the microphone open with nothing to stop it.
 + * Clean Agent-Native app shell: a single full-height canvas with no chat or
 + * agent UI mounted by default. The app already satisfies the Agent-Native
 + * contract (data in SQL, actions as the source of truth, application state for
@@ -64,8 +72,31 @@
 + * in `AgentSidebar` from "@agent-native/core/client/agent-chat"
 + * (position="right", a stable storageKey, browserTabId={TAB_ID} from
 + * "@/lib/tab-id"). See the `agent-native-toolkit` skill for the full pattern.
-+ */
+  */
+-function EndVoiceChatOutsideChat() {
+-  const { pathname } = useLocation();
+-  const end = useRealtimeVoiceModeOptional()?.end;
+-  const previousPathnameRef = useRef(pathname);
+-
+-  useEffect(() => {
+-    if (previousPathnameRef.current === pathname) return;
+-    previousPathnameRef.current = pathname;
+-    if (!isChatPathname(pathname)) end?.();
+-  }, [end, pathname]);
+-
+-  return null;
+-}
+-
  export function Layout({ children }: LayoutProps) {
+   return (
+-    <RealtimeVoiceModeProvider browserTabId={TAB_ID}>
+-      <EndVoiceChatOutsideChat />
+-      <LayoutShell>{children}</LayoutShell>
+-    </RealtimeVoiceModeProvider>
+-  );
+-}
+-
+-function LayoutShell({ children }: LayoutProps) {
 -  const location = useLocation();
 -  const t = useT();
 -  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -151,7 +182,7 @@
 -    </div>
 -  );
 -
-   return (
+-  return (
      <HeaderActionsProvider>
 -      <div className="agent-layout-shell chat-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
 -        {settingsOwnsChrome ? null : (

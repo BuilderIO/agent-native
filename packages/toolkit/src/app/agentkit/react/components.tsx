@@ -6069,6 +6069,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onSlashCommand"
     | "plusMenuMode"
     | "voiceEnabled"
+    | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
     | "isReferenceTarget"
@@ -6167,6 +6168,7 @@ export function AgentKitComposer({
   onSlashCommand,
   plusMenuMode,
   voiceEnabled = false,
+  onVoiceChatStart,
   autoFocus = true,
   toolbarSlot,
   disabled,
@@ -6923,6 +6925,7 @@ export function AgentKitComposer({
             slashSkills,
             onSlashCommand,
             voiceEnabled,
+            onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
             initialText: composerInitialText,
