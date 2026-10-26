@@ -1094,11 +1094,16 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
           specs =
             drafting && isTyping(tr)
               ? typedDraftSpecs(tr, specs)
-              : specs.map((spec) => ({
-                  ...spec,
-                  from: tr.mapping.map(spec.from, 1),
-                  to: tr.mapping.map(spec.to, -1),
-                }));
+              : specs.flatMap((spec) => {
+                  const from = tr.mapping.mapResult(spec.from, 1);
+                  const to = tr.mapping.mapResult(spec.to, -1);
+                  // Live sync redraws the whole Page for a peer's edit. A
+                  // draft it ran through waits for the Page to draw it again,
+                  // rather than keep its struck-out words where it collapsed.
+                  if (spec.draft && (from.deletedAcross || to.deletedAcross))
+                    return [];
+                  return [{ ...spec, from: from.pos, to: to.pos }];
+                });
           specs = specs.filter((spec) =>
             spec.kind === "insert" ||
             spec.kind === "add_block" ||

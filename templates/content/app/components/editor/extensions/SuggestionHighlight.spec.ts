@@ -2072,6 +2072,33 @@ describe("drafts while the author types", () => {
       expect(specsOf(editorState.apply(transaction))).toEqual([]);
   });
 
+  it("leaves a draft to the Page's redraw when live sync redraws the whole Page", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    // Live sync replaces the whole Page, as y-tiptap does for a peer's edit.
+    const next = editorState.apply(
+      fromLiveSync(
+        editorState.tr.replaceWith(
+          0,
+          editorState.doc.content.size,
+          doc("The s dog!").content,
+        ),
+      ),
+    );
+    expect(specsOf(next)).toEqual([]);
+    expect(struckText(next)).toEqual([]);
+  });
+
+  it("keeps the struck-out word in place when undo removes the typed letters", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(
+      editorState.tr.delete(5, 6).setMeta("history$", {}),
+    );
+    expect(specsOf(next)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 5, deletedText: "lazy" },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
   it("draws nothing new for typing when the author isn't suggesting", () => {
     const editorState = state("The lazy dog.");
     const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
