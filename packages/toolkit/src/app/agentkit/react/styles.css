@@ -2633,20 +2633,26 @@
     pointer-events: auto;
   }
 
+  /* A fixed height holds the caption and one chip row, so the transcript
+     does not move as suggestions come and go. */
   .agentkit-host-suggestions-slot {
-    block-size: 2.5rem;
+    block-size: 3.5rem;
     min-inline-size: 0;
   }
 
   .agentkit-host-suggestions-slot
     .agentkit-host-suggestions[data-agent-suggestion-bar="true"] {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
     block-size: 100%;
-    padding-block: 0;
+    padding-block: 0 0.5rem;
   }
 
   .agentkit-host-suggestions-slot [data-agent-suggestion-scroller="true"] {
     display: flex;
-    block-size: 100%;
+    flex: none;
+    block-size: 1.5rem;
     align-items: center;
     padding-block: 0;
   }
