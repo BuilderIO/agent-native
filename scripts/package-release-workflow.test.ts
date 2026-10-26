@@ -1138,9 +1138,8 @@ esac
     const coreVersion = readManifest("packages/core/package.json").version;
     const dispatchPeer = readManifest("packages/dispatch/package.json")
       .peerDependencies?.[core];
-    const qrRange = readManifest("templates/community/qr/package.json")
-      .dependencies?.[core];
-    assert(coreVersion && dispatchPeer && qrRange);
+    assert(coreVersion && dispatchPeer);
+    const qrRange = coreVersion;
 
     const dir = mkdtempSync(path.join(tmpdir(), "an-snapshot-links-"));
     const write = (file: string, content: unknown) => {
@@ -1545,7 +1544,29 @@ esac
       }
     ).default;
 
-    const packages = await getPackages(process.cwd());
+    const packages = (await getPackages(process.cwd())) as {
+      packages: Array<{
+        packageJson: {
+          name: string;
+          version?: string;
+          dependencies?: Record<string, string>;
+        };
+      }>;
+    };
+    const corePackage = packages.packages.find(
+      (pkg) => pkg.packageJson.name === "@agent-native/core",
+    );
+    const qrPackage = packages.packages.find(
+      (pkg) => pkg.packageJson.name === "qr",
+    );
+    assert(corePackage?.packageJson.version && qrPackage);
+    // Give the private template a current exact range so this fixture exercises
+    // the release that moves the dependency out of range, not stale manifest data.
+    qrPackage.packageJson.version = corePackage.packageJson.version;
+    qrPackage.packageJson.dependencies = {
+      ...qrPackage.packageJson.dependencies,
+      "@agent-native/core": corePackage.packageJson.version,
+    };
     const sharedConfig = readFileSync(".changeset/config.json", "utf8");
     const corePatch = [
       {
@@ -1570,12 +1591,9 @@ esac
     for (const name of fixedGroup) assert(stable.includes(name), name);
     assert(!stable.includes("qr"));
 
-    // Without the stable override, Changesets rewrites QR's Core range in a
-    // `none` release, which breaks the lockfile and Dispatch's QR blob pins.
-    assert.equal(
-      releasesWith(sharedConfig).find((release) => release.name === "qr")?.type,
-      "none",
-    );
+    // Without the stable override, Changesets includes QR because its current
+    // Core range will no longer accept the next Core patch.
+    assert(releasesWith(sharedConfig).some((release) => release.name === "qr"));
   });
 
   it("leaves the shared Changesets config moving snapshot peer ranges", () => {
