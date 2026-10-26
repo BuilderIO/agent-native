@@ -12,7 +12,7 @@ import https from "node:https";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { parse } from "@babel/parser";
+import { parse, type ParserPlugin } from "@babel/parser";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import {
@@ -1465,7 +1465,9 @@ async function fetchPreviewProxyResource(
       body:
         request.method === "GET" || request.method === "HEAD"
           ? undefined
-          : request.body,
+          : request.body
+            ? Uint8Array.from(request.body)
+            : undefined,
     });
     const setCookieHeaders =
       cookieJar?.store(response.headers, targetUrl) ?? [];
@@ -1616,7 +1618,11 @@ function addOpaqueFrameCredentials(
       );
       const resourceUrl =
         resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
-      if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)) {
+      if (
+        !resourceMatch ||
+        !resourceUrl ||
+        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
+      ) {
         return fullTag;
       }
       let nextAttributes = attributes;
@@ -1695,7 +1701,7 @@ function addOpaqueFrameCredentials(
   return injectDocumentMarkup(
     withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -2839,14 +2845,12 @@ async function resolveSourceModule(
 function moduleDependencies(source: string, filePath: string): string[] {
   const extension = path.extname(filePath).toLowerCase();
   let ast: unknown;
+  const plugins: ParserPlugin[] =
+    extension === ".tsx" || extension === ".jsx"
+      ? ["jsx", ...(extension === ".tsx" ? (["typescript"] as const) : [])]
+      : ["typescript", "jsx"];
   try {
-    ast = parse(source, {
-      sourceType: "unambiguous",
-      plugins:
-        extension === ".tsx" || extension === ".jsx"
-          ? ["jsx", ...(extension === ".tsx" ? ["typescript"] : [])]
-          : ["typescript", "jsx"],
-    });
+    ast = parse(source, { sourceType: "unambiguous", plugins });
   } catch (error) {
     throw new Error(
       `Cannot parse source module ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -4084,7 +4088,6 @@ export async function startDesignConnectBridge(
             const revision = body.revision;
             const now = Date.now();
             pruneLiveEditPendingEntries(pendingVisualEditPayloads, now);
-            const existing = pendingVisualEditPayloads.get(pendingDesignId);
             if (pending === null) {
               if (
                 typeof revision !== "number" ||
@@ -5173,7 +5176,9 @@ export async function startDesignConnectBridge(
   const close = () => {
     closePromise ??= (async () => {
       terminateHmrClients();
-      await new Promise<void>((resolve) => hmrWebSocketServer.close(resolve));
+      await new Promise<void>((resolve) =>
+        hmrWebSocketServer.close(() => resolve()),
+      );
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -5183,7 +5188,7 @@ export async function startDesignConnectBridge(
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(new URL(manifest.bridgeUrl).port, "127.0.0.1", () => {
+    server.listen(Number(new URL(manifest.bridgeUrl).port), "127.0.0.1", () => {
       server.off("error", reject);
       resolve();
     });

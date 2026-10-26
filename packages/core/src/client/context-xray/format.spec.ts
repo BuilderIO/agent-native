@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { CONTEXT_XRAY_MODEL_LIMIT, resolveContextWindow } from "./format.js";
+import {
+  CONTEXT_XRAY_MODEL_LIMIT,
+  resolveContextWindow,
+  resolveKnownContextWindow,
+} from "./format.js";
 
 describe("resolveContextWindow", () => {
   it("returns the fallback constant when no model is provided", () => {
@@ -31,5 +35,20 @@ describe("resolveContextWindow", () => {
 
   it("CONTEXT_XRAY_MODEL_LIMIT is 200K (backward-compat constant)", () => {
     expect(CONTEXT_XRAY_MODEL_LIMIT).toBe(200_000);
+  });
+});
+
+describe("resolveKnownContextWindow", () => {
+  it("knows table and family windows", () => {
+    expect(resolveKnownContextWindow("claude-opus-5-5")).toBe(1_000_000);
+    expect(resolveKnownContextWindow("anthropic/claude-sonnet-5.5")).toBe(
+      1_000_000,
+    );
+  });
+
+  it("returns undefined instead of a default for unknown models", () => {
+    expect(resolveKnownContextWindow("unknown-future-model")).toBeUndefined();
+    expect(resolveKnownContextWindow("auto")).toBeUndefined();
+    expect(resolveKnownContextWindow(undefined)).toBeUndefined();
   });
 });

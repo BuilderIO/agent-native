@@ -11,7 +11,10 @@ import {
   builderCmsImportIds,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -24,7 +27,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async (args): Promise<BuilderCmsAttachPreviewResponse> => {
+  run: async (args, context): Promise<BuilderCmsAttachPreviewResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -83,7 +86,7 @@ export default defineAction({
       databaseId: database.id,
       documentId: database.documentId,
       sourceTable: args.sourceTable,
-      base,
+      base: contentDatabaseResponseForCaller(base, context),
       items,
       fetchedAt: read.fetchedAt,
       hasMore: read.progress.hasMore,

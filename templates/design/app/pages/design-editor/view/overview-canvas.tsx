@@ -181,8 +181,9 @@ export function renderOverviewCanvas({
     handleOverviewActiveToolChange,
     handleOverviewScreenSelectionChange,
     vectorEditOverlayState,
-    handleCreatePrimitive,
-    handlePrimitiveCreated,
+    handleOverviewCreatePrimitive,
+    handleOverviewPrimitiveCreated,
+    handleOverviewPrimitivesCreated,
     handleUpdatePenPath,
     handleBoardDrawPrimitive,
     handleOverviewScreenPick,
@@ -238,11 +239,11 @@ export function renderOverviewCanvas({
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
-    fullViewScreenIds,
     editableLiveScreenIds,
     gradientEditTarget,
     handleBoardElementMarqueeSelect,
     handleCanvasLayerMarqueeSelectionChange,
+    layerPanelCallbacks,
   } = editorLayerActions;
   const { frameToolDraws } = editorSourceAndSync;
   const {
@@ -312,7 +313,6 @@ export function renderOverviewCanvas({
         exportPreviewScreenId={exportPreviewScreenId}
         hiddenScreenIds={hiddenLayerIds}
         lockedScreenIds={lockedLayerIds}
-        fullViewScreenIds={fullViewScreenIds}
         pixelGridEnabled={pixelGrid}
         snapToPixelGrid={snapToPixelGrid}
         showRulers={rulers}
@@ -360,8 +360,9 @@ export function renderOverviewCanvas({
           onActiveToolChange: handleOverviewActiveToolChange,
           gradientEditTarget,
           vectorEdit: vectorEditOverlayState,
-          onCreatePrimitive: handleCreatePrimitive,
-          onPrimitiveCreated: handlePrimitiveCreated,
+          onCreatePrimitive: handleOverviewCreatePrimitive,
+          onPrimitiveCreated: handleOverviewPrimitiveCreated,
+          onPrimitivesCreated: handleOverviewPrimitivesCreated,
           onUpdatePenPath: canEditDesign ? handleUpdatePenPath : undefined,
           onPrimitiveReparent: handleOverviewPrimitiveReparent,
           onCreateScreenFrame: handleCreateScreenFrame,
@@ -495,6 +496,9 @@ export function renderOverviewCanvas({
         onPick={handleOverviewScreenPick}
         onSelectForGesture={handleOverviewScreenGestureSelect}
         onEdit={handleOverviewFrameAction}
+        onRenameScreen={
+          canEditDesign ? layerPanelCallbacks.onRename : undefined
+        }
         onDuplicate={handleDuplicateScreen}
         renderScreenContent={renderScreenContent}
         screenContentRenderKey={overviewScreenContentRenderKey}

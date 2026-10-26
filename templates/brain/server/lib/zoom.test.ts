@@ -1,9 +1,13 @@
+import assert from "node:assert/strict";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ZoomHttpError,
+  ZoomTimeoutError,
   downloadZoomTranscript,
   fetchZoomAccessToken,
+  getZoomMeetingRecordings,
   hasProcessingTranscript,
   listZoomAccountRecordings,
   listZoomRecordings,
@@ -47,7 +51,290 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("Zoom timeout diagnostics", () => {
+  const requests = [
+    {
+      name: "OAuth",
+      step: "token request",
+      bodyMethod: "json" as const,
+      run: () =>
+        fetchZoomAccessToken({
+          accountId: "private-account",
+          clientId: "private-client",
+          clientSecret: "private-secret",
+        }),
+    },
+    {
+      name: "account recording list",
+      step: "recording list",
+      bodyMethod: "json" as const,
+      run: () =>
+        listZoomAccountRecordings("private-token", "2026-10-19", "2026-10-20"),
+    },
+    {
+      name: "user recording list",
+      step: "recording list",
+      bodyMethod: "json" as const,
+      run: () =>
+        listZoomRecordings(
+          "private-token",
+          "private-user",
+          "2026-10-19",
+          "2026-10-20",
+        ),
+    },
+    {
+      name: "meeting recording lookup",
+      step: "meeting recording lookup",
+      bodyMethod: "json" as const,
+      run: () => getZoomMeetingRecordings("private-token", "private-meeting"),
+    },
+    {
+      name: "transcript download",
+      step: "transcript download",
+      bodyMethod: "text" as const,
+      run: () =>
+        downloadZoomTranscript(
+          "private-token",
+          "https://zoom.us/rec/download/private-recording?access_token=private-token",
+        ),
+    },
+  ];
+
+  it.each(requests)(
+    "labels $name timeouts before headers",
+    async ({ step, run }) => {
+      let now = 500;
+      vi.spyOn(performance, "now").mockImplementation(() => now);
+      const timeout = vi.spyOn(AbortSignal, "timeout");
+      const fetchMock = vi.fn(async () => {
+        now += 60_125;
+        throw new DOMException("private request details", "TimeoutError");
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(run()).rejects.toMatchObject({
+        message: `Zoom ${step} timed out after 60125 ms (limit 30000 ms).`,
+      });
+      expect(timeout).toHaveBeenCalledWith(30_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(requests)(
+    "labels $name timeouts while reading the response body",
+    async ({ step, bodyMethod, run }) => {
+      const controller = new AbortController();
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+      let now = 500;
+      vi.spyOn(performance, "now").mockImplementation(() => now);
+      const response = jsonResponse({});
+      vi.spyOn(response, bodyMethod).mockImplementation(async () => {
+        now += 60_125;
+        controller.abort(new DOMException("request timed out", "TimeoutError"));
+        throw new DOMException("private response details", "AbortError");
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+      await expect(run()).rejects.toMatchObject({
+        message: `Zoom ${step} timed out after 60125 ms (limit 30000 ms).`,
+      });
+    },
+  );
+
+  it.each(requests)("preserves non-timeout $name failures", async ({ run }) => {
+    const failure = new TypeError("fetch failed");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(failure));
+
+    await expect(run()).rejects.toBe(failure);
+  });
+
+  it("labels a timeout on a transcript redirect without exposing the CDN URL", async () => {
+    vi.spyOn(performance, "now")
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(500)
+      .mockReturnValue(30_625);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://cdn.example.test/private-transcript" },
+        }),
+      )
+      .mockRejectedValueOnce(
+        new DOMException("private CDN details", "TimeoutError"),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      downloadZoomTranscript(
+        "private-token",
+        "https://zoom.us/rec/download/private-recording",
+      ),
+    ).rejects.toMatchObject({
+      message:
+        "Zoom transcript download timed out after 30125 ms (limit 30000 ms).",
+    });
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({});
+  });
+});
+
+describe("Zoom metadata timeout recovery", () => {
+  const list = () =>
+    listZoomAccountRecordings("private-token", "2026-10-19", "2026-10-20");
+
+  it("retries only the failed page without duplicating successful pages", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          meetings: [{ ...meeting, uuid: "first" }],
+          next_page_token: "private-page-token",
+        }),
+      )
+      .mockRejectedValueOnce(
+        new DOMException("request timed out", "TimeoutError"),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ meetings: [{ ...meeting, uuid: "second" }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const onPage = vi.fn(async () => undefined);
+
+    const result = listZoomAccountRecordings(
+      "private-token",
+      "2026-10-19",
+      "2026-10-20",
+      onPage,
+    );
+    const assertion = expect(result).resolves.toMatchObject([
+      { uuid: "first" },
+      { uuid: "second" },
+    ]);
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const failedCall = fetchMock.mock.calls[1];
+    const retryCall = fetchMock.mock.calls[2];
+    assert(failedCall);
+    assert(retryCall);
+    expect(failedCall[0]).toBe(retryCall[0]);
+    expect(failedCall[1].signal).not.toBe(retryCall[1].signal);
+    expect(onPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers from an aborted response body with a fresh signal", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValueOnce(controller.signal);
+    const response = jsonResponse({});
+    vi.spyOn(response, "json").mockImplementation(async () => {
+      controller.abort(new DOMException("request timed out", "TimeoutError"));
+      throw new DOMException("body aborted", "AbortError");
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(jsonResponse({ meetings: [meeting] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const assertion = expect(list()).resolves.toEqual([meeting]);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryCall = fetchMock.mock.calls[1];
+    assert(retryCall);
+    expect(retryCall[1].signal.aborted).toBe(false);
+  });
+
+  it("stops after one retry when the timeout persists", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValue(new DOMException("request timed out", "TimeoutError"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const assertion = expect(list()).rejects.toBeInstanceOf(ZoomTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("caps the second attempt to the remaining metadata request budget", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        vi.advanceTimersByTime(59_000);
+        throw new DOMException("request timed out", "TimeoutError");
+      })
+      .mockResolvedValueOnce(jsonResponse({ meetings: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const assertion = expect(list()).resolves.toEqual([]);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(timeout.mock.calls).toEqual([[30_000], [750]]);
+  });
+
+  it("does not retry when a delayed abort already consumed the budget", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const fetchMock = vi.fn(async () => {
+      vi.advanceTimersByTime(60_000);
+      throw new DOMException("request timed out", "TimeoutError");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(list()).rejects.toBeInstanceOf(ZoomTimeoutError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([401, 403, 429])(
+    "preserves HTTP %s when reading its error body times out",
+    async (status) => {
+      const controller = new AbortController();
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+      const response = jsonResponse(
+        {},
+        {
+          status,
+          headers: { "retry-after": "900" },
+        },
+      );
+      vi.spyOn(response, "text").mockImplementation(async () => {
+        controller.abort(new DOMException("request timed out", "TimeoutError"));
+        throw new DOMException("body aborted", "AbortError");
+      });
+      const fetchMock = vi.fn().mockResolvedValue(response);
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(list()).rejects.toMatchObject({
+        status,
+        retryAfterSeconds: 900,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([401, 403, 429, 500])(
+    "does not retry HTTP %s responses",
+    async (status) => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, { status }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(list()).rejects.toMatchObject({ status });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe("parseZoomVtt", () => {

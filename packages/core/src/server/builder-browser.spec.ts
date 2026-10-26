@@ -1690,6 +1690,47 @@ describe("Builder callback CSRF state", () => {
       expect(error).not.toHaveProperty("actionContractError");
     });
 
+    // Builder's own error text rarely names the status, so callers that
+    // report what Builder answered need it on the error itself.
+    it.each([
+      [401, "Unauthorized"],
+      [403, "Not a member"],
+      [404, "No such project"],
+      [429, "Slow down"],
+      [500, "Something broke"],
+    ])(
+      "carries Builder's %i status on the error, whatever its text says",
+      async (status, text) => {
+        process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+        process.env.BUILDER_PUBLIC_KEY = "pub-test";
+        process.env.BUILDER_USER_ID = "builder-user-123";
+        process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+        // A 403 or 404 is asked again as the connected user, so each call
+        // needs a body of its own to read.
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockImplementation(
+            async () =>
+              new Response(JSON.stringify({ error: text }), {
+                status,
+                headers: { "Content-Type": "application/json" },
+              }),
+          ),
+        );
+
+        const error = await runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }).catch((err: unknown) => err);
+
+        expect(error).toMatchObject({ message: text, builderStatus: status });
+        // Only a 401 is the reconnectable contract error.
+        expect("actionContractError" in (error as object)).toBe(status === 401);
+      },
+    );
+
     it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";

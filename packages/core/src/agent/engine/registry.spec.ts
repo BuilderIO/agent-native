@@ -107,6 +107,7 @@ describe("AgentEngine registry", () => {
     );
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../settings/user-settings.js");
+    vi.doUnmock("../app-model-defaults.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
@@ -644,19 +645,14 @@ describe("AgentEngine registry", () => {
     });
 
     it("prefers a current app default model over the global model", async () => {
-      const getUserSetting = vi.fn(async (email: string, key: string) =>
-        email === "owner@example.com" &&
-        key === "agent-app-model-default:analytics"
+      const getAppDefault = vi.fn(async (appId: string | undefined) =>
+        appId === "analytics"
           ? { engine: "builder", model: "gemini-3-1-pro" }
           : null,
       );
-      vi.doMock("../../server/request-context.js", () => ({
-        getRequestContext: () => ({ orgScope: "personal" }),
-        getRequestUserEmail: () => "owner@example.com",
-        getRequestOrgId: () => undefined,
-      }));
-      vi.doMock("../../settings/user-settings.js", () => ({
-        getUserSetting,
+      vi.doMock("../app-model-defaults.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../app-model-defaults.js")>()),
+        getAgentAppModelDefaultForCurrentRequest: getAppDefault,
       }));
       vi.doMock("../../settings/store.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("../../settings/store.js")>()),
@@ -665,14 +661,10 @@ describe("AgentEngine registry", () => {
         }),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
-
       expect(
         await getStoredModelForEngine("builder", { appId: "analytics" }),
       ).toBe("gemini-3-1-pro");
-      expect(getUserSetting).toHaveBeenCalledWith(
-        "owner@example.com",
-        "agent-app-model-default:analytics",
-      );
+      expect(getAppDefault).toHaveBeenCalledWith("analytics");
     });
   });
 
@@ -1250,6 +1242,15 @@ describe("AgentEngine registry", () => {
   });
 
   it("resolveEngine honors a usable app default before the global setting", async () => {
+    const getAppDefault = vi.fn(async (appId: string | undefined) =>
+      appId === "analytics"
+        ? { engine: "app-engine", model: "app-model" }
+        : null,
+    );
+    vi.doMock("../app-model-defaults.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../app-model-defaults.js")>()),
+      getAgentAppModelDefaultForCurrentRequest: getAppDefault,
+    }));
     vi.doMock("../../server/request-context.js", () => ({
       getRequestContext: () => ({ orgScope: "personal" }),
       getRequestUserEmail: () => "owner@example.com",
@@ -1258,9 +1259,6 @@ describe("AgentEngine registry", () => {
     vi.doMock("../../settings/store.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../settings/store.js")>()),
       getSetting: vi.fn(async (key: string) => {
-        if (key === "u:owner@example.com:agent-app-model-default:analytics") {
-          return { engine: "app-engine", model: "app-model" };
-        }
         if (key === "agent-engine") {
           return { engine: "global-engine", model: "global-model" };
         }
@@ -1315,6 +1313,7 @@ describe("AgentEngine registry", () => {
     await expect(
       getConfiguredEngineNameForRequest({ appId: "analytics" }),
     ).resolves.toBe("app-engine");
+    expect(getAppDefault).toHaveBeenCalledWith("analytics");
     expect(appCreate).toHaveBeenCalled();
     expect(globalCreate).not.toHaveBeenCalled();
     expect(resolved).toBe(appEngine);
@@ -4133,6 +4132,9 @@ describe("AgentEngine registry", () => {
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
+      const { getEngineCredentialOwner } =
+        await import("./credential-owner.js");
+      expect(getEngineCredentialOwner(resolved)).toBe("customer");
     });
 
     it("does not replace an unreadable endpoint with deploy configuration", async () => {
@@ -4575,5 +4577,143 @@ describe("AgentEngine registry", () => {
       expect(builderCreate).toHaveBeenCalled();
       expect(resolved).toBe(builderEngine);
     });
+  });
+});
+
+describe("credentialOwnerForEntry", () => {
+  const entry = (name: string, requiredEnvVars: string[] = []) =>
+    ({ name, requiredEnvVars }) as any;
+
+  const anthropic = entry("anthropic", ["ANTHROPIC_API_KEY"]);
+  let savedKey: string | undefined;
+  beforeEach(() => {
+    savedKey = process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — restores the deploy key fixture
+    delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — test setup clears env to assert fallback ownership
+  });
+  afterEach(() => {
+    if (savedKey === undefined) {
+      delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — restores the deploy key fixture
+    } else {
+      process.env.ANTHROPIC_API_KEY = savedKey; // guard:allow-env-credential — restores the deploy key fixture
+    }
+  });
+
+  it("tags the Builder gateway engine as builder-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("builder"),
+        "sk-test",
+        { scope: "user", scopeId: "steve@example.com" },
+        {},
+      ),
+    ).toBe("builder");
+  });
+
+  it("tags a deployment-scoped key as deployment-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        anthropic,
+        "sk-test",
+        { scope: "deployment" },
+        {},
+      ),
+    ).toBe("deployment");
+  });
+
+  it("tags a host key only when it is the deployment's own", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(credentialOwnerForEntry(anthropic, "sk-deploy", undefined, {})).toBe(
+      "deployment",
+    );
+    expect(
+      credentialOwnerForEntry(anthropic, "sk-host", undefined, {}),
+    ).toBeUndefined();
+  });
+
+  it("tags a scoped key holding the deployment's value as deployment-owned", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        anthropic,
+        "sk-deploy",
+        { scope: "user", scopeId: "steve@example.com" },
+        {},
+      ),
+    ).toBe("deployment");
+  });
+
+  it("tags a missing key by whether a deployment fallback exists", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(anthropic, undefined, undefined, {}),
+    ).toBeUndefined();
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    expect(credentialOwnerForEntry(anthropic, undefined, undefined, {})).toBe(
+      "deployment",
+    );
+    expect(
+      credentialOwnerForEntry(anthropic, undefined, undefined, {
+        allowEnvFallback: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("leaves engines without a provider key unowned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(entry("ollama"), undefined, undefined, {}),
+    ).toBeUndefined();
+  });
+
+  it("tags the user's ChatGPT plan engine as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("chatgpt-subscription"),
+        undefined,
+        undefined,
+        {},
+      ),
+    ).toBe("customer");
+  });
+
+  it("leaves a missing key unowned when the engine cannot fall back", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        undefined,
+        undefined,
+        { allowEnvFallback: false },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("does not tag a scoped vault value dropped for the deployment key as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        undefined,
+        { scope: "user", scopeId: "steve@example.com" },
+        { allowEnvFallback: false },
+      ),
+    ).not.toBe("customer");
+  });
+
+  it("tags a scoped stored key as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        "sk-test",
+        { scope: "org", scopeId: "org-1" },
+        {},
+      ),
+    ).toBe("customer");
   });
 });

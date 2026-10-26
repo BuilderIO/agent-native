@@ -20,7 +20,10 @@ import {
 import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type { ElementInfo } from "@/components/design/types";
-import { rememberBuilderHostOrigin } from "@/lib/builder-host-origin";
+import {
+  type DesignHostMessage,
+  getDesignHostChannel,
+} from "@/host/design-host-channel";
 import { type ClipboardContentLineage } from "@/lib/clipboard-content-lineage";
 import { shellContextChanged, type ShellDesignInput } from "@/lib/shell-design";
 import {
@@ -63,7 +66,6 @@ import {
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
   type PendingTextCreationHistory,
-  type SelectionHistoryEntry,
   MAX_DESIGN_UNDO_STACK,
   mergeLocalContentHistoryFallback,
   removeRecentUndoRedoOrderKinds,
@@ -212,6 +214,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     new Map(),
   );
   const renderedElementInfoRevisionRef = useRef(0);
+  const [renderedElementInfoVersion, setRenderedElementInfoVersion] =
+    useState(0);
   const rehydrateRenderedElementInfoRef = useRef<(() => void) | null>(null);
   const renderedInfoRehydratePendingRef = useRef(false);
   const invalidateRenderedElementInfo = useCallback(() => {
@@ -323,6 +327,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const [motionDockMounted, setMotionDockMounted] = useState(false);
   const motionDockUnmountTimerRef = useRef<number | null>(null);
   const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
+  const motionDockOpenRequestedRef = useRef(false);
   const motionAutosaveTimerRef = useRef<number | null>(null);
   const motionAutosaveFlushRef = useRef<(() => void) | null>(null);
   const clearMotionDockUnmountTimer = useCallback(() => {
@@ -348,6 +353,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   }, []);
   const setMotionDockOpenAnimated = useCallback(
     (open: boolean) => {
+      motionDockOpenRequestedRef.current = open;
       clearMotionDockUnmountTimer();
       clearMotionDockOpenAnimationFrame();
       if (open) {
@@ -381,7 +387,9 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
   );
   const handleMotionDockExitComplete = useCallback(() => {
-    if (motionDockOpen) return;
+    // A reopen sets motionDockOpen two frames late; an exit transition ending
+    // in between must not unmount the dock it is reopening.
+    if (motionDockOpenRequestedRef.current) return;
     clearMotionDockUnmountTimer();
     if (typeof window === "undefined") {
       setMotionDockMounted(false);
@@ -391,15 +399,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       setMotionDockMounted(false);
       motionDockUnmountTimerRef.current = null;
     }, MOTION_DOCK_EXIT_SETTLE_MS);
-  }, [clearMotionDockUnmountTimer, motionDockOpen]);
-  const [shaderFillPreview, setShaderFillPreview] = useState<{
-    selector?: string;
-    nodeId?: string;
-    css: string;
-  } | null>(null);
-  const shaderFillPreviewActiveRef = useRef(false);
-  shaderFillPreviewActiveRef.current = shaderFillPreview !== null;
-
+  }, [clearMotionDockUnmountTimer]);
   const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
     number | undefined
   >(undefined);
@@ -476,8 +476,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const replayPendingHistoryRef = useRef<
     ((direction: "undo" | "redo") => void) | null
   >(null);
-  const historyOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
-  const redoOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
+  const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const clearPendingLiveEditState = useCallback(
     (options: { preserveDurableHandoff?: boolean } = {}) => {
       pendingLiveEditReloadedTargetsRef.current.clear();
@@ -707,33 +707,14 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   }, [activeBreakpointWidthState, invalidateRenderedElementInfo]);
   useEffect(() => {
     if (!builderHostProtocolActive) return;
-    window.parent.postMessage({ type: "agentNative.appReady" }, "*");
+    const channel = getDesignHostChannel();
+    channel.send({ type: "agentNative.appReady" });
 
-    function handleDesignHostMessage(event: MessageEvent) {
-      if (event.source !== window.parent) return;
-      const origin = event.origin ?? "";
-      try {
-        const hostname = new URL(origin).hostname.toLowerCase();
-        const trusted =
-          hostname === "builder.io" ||
-          hostname.endsWith(".builder.io") ||
-          hostname === "builder.my" ||
-          hostname.endsWith(".builder.my") ||
-          hostname === "localhost" ||
-          hostname === "127.0.0.1";
-        if (!trusted) return;
-      } catch {
-        return;
-      }
-
-      const data = event.data;
-      if (!data || typeof data.type !== "string") return;
-
+    function handleDesignHostMessage(data: DesignHostMessage) {
       if (data.type === "design:init") {
         if (!parentOriginRef.current) {
-          parentOriginRef.current = origin;
+          parentOriginRef.current = channel.hostOrigin;
         }
-        rememberBuilderHostOrigin(origin);
         const { previewUrl, routes, context } = data.data ?? {};
         if (typeof previewUrl === "string" && isBuilderPreviewUrl(previewUrl)) {
           setBuilderPreviewUrl(previewUrl);
@@ -811,12 +792,9 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       }
     }
 
-    window.addEventListener("message", handleDesignHostMessage);
-    return () => window.removeEventListener("message", handleDesignHostMessage);
+    return channel.subscribe(handleDesignHostMessage);
   }, [builderHostProtocolActive]);
 
-  const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
-  const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const clearRedoStacks = useCallback(() => {
     contentRedoStackRef.current = [];
     contentRedoSelectionStackRef.current = [];
@@ -828,7 +806,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     pendingLiveNonStyleRedoStackRef.current = [];
     clipboardPasteRedoStackRef.current = [];
     pendingStructureRedoReplayRef.current = undefined;
-    selectionRedoStackRef.current = [];
     if (pendingStructureRedoReplayTimerRef.current !== undefined) {
       window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
       pendingStructureRedoReplayTimerRef.current = undefined;
@@ -843,7 +820,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const historySourceReaderRef = useRef<(screenId: string) => string>(() => {
     throw new Error("History source reader is not initialized");
   });
-  const captureCurrentSelection = (): GeometryHistorySelection => {
+  const captureCurrentSelection = useCallback((): GeometryHistorySelection => {
     recordDesignPerformance("captureCurrentSelection");
     return captureHistorySelectionFromOwners(
       {
@@ -857,7 +834,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       codeLayerOwnerByNodeIdRef.current,
       (screenId) => historySourceReaderRef.current(screenId),
     );
-  };
+  }, []);
   // Runs after every history push; same-value sets right after a commit still
   // re-render the whole editor, so only real changes are published.
   const publishedUndoRedoRef = useRef({ canUndo: false, canRedo: false });
@@ -934,8 +911,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
             fileCreationUndoStackRef.current.length > 0 ||
-            fileDeletionUndoStackRef.current.length > 0 ||
-            selectionUndoStackRef.current.length > 0)),
+            fileDeletionUndoStackRef.current.length > 0)),
       contentRedoStackRef.current.some(
         (entry) => "linkedComponent" in entry && entry.linkedComponent,
       ) ||
@@ -948,8 +924,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
             fileCreationRedoStackRef.current.length > 0 ||
-            fileDeletionRedoStackRef.current.length > 0 ||
-            selectionRedoStackRef.current.length > 0)),
+            fileDeletionRedoStackRef.current.length > 0)),
     );
   }, [publishUndoRedo]);
   useEffect(() => {
@@ -1169,8 +1144,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
     clearPendingHistoryDirections();
-    selectionUndoStackRef.current = [];
-    selectionRedoStackRef.current = [];
     clipboardPasteUndoStackRef.current = [];
     clipboardPasteRedoStackRef.current = [];
     latestClipboardMutationContentRef.current.clear();
@@ -1313,6 +1286,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     selectedScreenStyleChangeRef,
     renderedElementInfoByLayerKeyRef,
     renderedElementInfoRevisionRef,
+    renderedElementInfoVersion,
+    setRenderedElementInfoVersion,
     rehydrateRenderedElementInfoRef,
     invalidateRenderedElementInfo,
     rehydrateRenderedInfoAfterPreview,
@@ -1350,9 +1325,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     clearMotionAutosaveTimer,
     setMotionDockOpenAnimated,
     handleMotionDockExitComplete,
-    shaderFillPreview,
-    setShaderFillPreview,
-    shaderFillPreviewActiveRef,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -1387,8 +1359,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     replayPendingHistoryRef,
     historyOrderRef,
     redoOrderRef,
-    selectionUndoStackRef,
-    selectionRedoStackRef,
     clearRedoStacks,
     clearPendingHistoryDirections,
     historySourceReaderRef,

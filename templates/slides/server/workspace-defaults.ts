@@ -1,6 +1,8 @@
 import { fail } from "@agent-native/core/action";
-import { canManageOrg, orgMembers, type OrgRole } from "@agent-native/core/org";
+import { canManageOrg, type OrgRole } from "@agent-native/core/org";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -41,20 +43,15 @@ export async function getCallerOrgRole(): Promise<OrgRole | null> {
   const orgId = getRequestOrgId();
   const email = getRequestUserEmail();
   if (!orgId || !email) return null;
-  const rows = await getDb()
-    .select({ role: orgMembers.role })
-    .from(orgMembers)
-    .where(
-      and(
-        eq(orgMembers.orgId, orgId),
-        eq(sql`lower(${orgMembers.email})`, email.toLowerCase()),
-      ),
-    )
-    .limit(1);
-  const role = rows[0]?.role;
-  return role === "owner" || role === "admin" || role === "member"
-    ? role
-    : null;
+  const request = getRequestContext();
+  if (
+    request?.a2aIdentityAssurance === "org-member" &&
+    (request.orgId?.trim() !== orgId.trim() ||
+      request.userEmail?.trim().toLowerCase() !== email.trim().toLowerCase())
+  ) {
+    return null;
+  }
+  return readOrgMemberRole(orgId, email);
 }
 
 export async function canManageWorkspaceDefaults(): Promise<boolean> {

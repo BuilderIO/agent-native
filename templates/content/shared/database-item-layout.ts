@@ -1,0 +1,623 @@
+import type {
+  ContentDatabaseItemLayout,
+  ContentDatabaseItemLeadingKind,
+  ContentDatabaseItemLine2Source,
+  ContentDatabaseItemTitleWeight,
+} from "./api";
+import {
+  isPrimaryBlocksField,
+  type DocumentPropertyOptions,
+  type DocumentPropertyType,
+  type DocumentPropertyVisibility,
+} from "./properties";
+
+export const CONTENT_DATABASE_ITEM_LEADING_KINDS = [
+  "none",
+  "page_icon",
+  "checkbox",
+  "status",
+] as const satisfies readonly ContentDatabaseItemLeadingKind[];
+
+export const CONTENT_DATABASE_ITEM_TITLE_WEIGHTS = [
+  "regular",
+  "medium",
+  "bold",
+] as const satisfies readonly ContentDatabaseItemTitleWeight[];
+
+export const CONTENT_DATABASE_ITEM_LINE2_LINES = [1, 2, 3] as const;
+
+export const CONTENT_DATABASE_ITEM_LINE2_SOURCES = [
+  "property",
+  "page",
+] as const satisfies readonly ContentDatabaseItemLine2Source[];
+
+/** Most properties line 3 or the trailing slot may show. */
+export const MAX_ITEM_LAYOUT_META_PROPERTIES = 6;
+
+export const CONTENT_DATABASE_ITEM_LAYOUT_SLOTS = [
+  "leading",
+  "title",
+  "line2",
+  "line3",
+  "trailing",
+] as const;
+
+export type ContentDatabaseItemLayoutSlot =
+  (typeof CONTENT_DATABASE_ITEM_LAYOUT_SLOTS)[number];
+
+export const CONTENT_DATABASE_ITEM_LAYOUT_PRESET_IDS = [
+  "default",
+  "checklist",
+  "reminders",
+  "tracker",
+  "digest",
+] as const;
+
+export type ContentDatabaseItemLayoutPresetId =
+  (typeof CONTENT_DATABASE_ITEM_LAYOUT_PRESET_IDS)[number];
+
+export interface ContentDatabaseItemLayoutPropertyLike {
+  definition: {
+    id: string;
+    type: DocumentPropertyType;
+    options?: DocumentPropertyOptions | null;
+    visibility?: DocumentPropertyVisibility;
+  };
+}
+
+/** Always-hidden properties stay out of rows, as they do in every view. */
+function showableProperties<P extends ContentDatabaseItemLayoutPropertyLike>(
+  properties: readonly P[],
+): P[] {
+  return properties.filter(
+    (property) => property.definition.visibility !== "always_hide",
+  );
+}
+
+const LEADING_PROPERTY_TYPES: Partial<
+  Record<ContentDatabaseItemLeadingKind, DocumentPropertyType>
+> = {
+  checkbox: "checkbox",
+  status: "status",
+};
+
+const LINE2_PROPERTY_TYPES: readonly DocumentPropertyType[] = [
+  "text",
+  "url",
+  "blocks",
+];
+
+/** Properties a leading checkbox or status can show. */
+export function itemLayoutLeadingCandidates<
+  P extends ContentDatabaseItemLayoutPropertyLike,
+>(properties: readonly P[], kind: ContentDatabaseItemLeadingKind): P[] {
+  const type = LEADING_PROPERTY_TYPES[kind];
+  if (!type) return [];
+  return showableProperties(properties).filter(
+    (property) => property.definition.type === type,
+  );
+}
+
+/** Text-like properties line 2 can show. Page text is its own choice. */
+export function itemLayoutLine2Candidates<
+  P extends ContentDatabaseItemLayoutPropertyLike,
+>(properties: readonly P[]): P[] {
+  return showableProperties(properties).filter(
+    (property) =>
+      LINE2_PROPERTY_TYPES.includes(property.definition.type) &&
+      !(
+        property.definition.type === "blocks" &&
+        isPrimaryBlocksField(property.definition.options ?? {})
+      ),
+  );
+}
+
+/** Properties line 3 and the trailing slot can show as short values. */
+export function itemLayoutMetaCandidates<
+  P extends ContentDatabaseItemLayoutPropertyLike,
+>(properties: readonly P[]): P[] {
+  return showableProperties(properties).filter(
+    (property) => property.definition.type !== "blocks",
+  );
+}
+
+function propertyIdOrNull(value: unknown) {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  return id ? id : null;
+}
+
+function propertyIdList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const item of value) {
+    const id = propertyIdOrNull(item);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    if (ids.length === MAX_ITEM_LAYOUT_META_PROPERTIES) break;
+  }
+  return ids;
+}
+
+/** Line 2 with a new property ID, unless it shows page text. */
+function withLine2PropertyId(
+  line2: ContentDatabaseItemLayout["line2"],
+  propertyId: string | null,
+): ContentDatabaseItemLayout["line2"] {
+  return line2.source === "page" ? line2 : { propertyId, lines: line2.lines };
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Reads a saved item layout, filling anything missing. Null means the view
+ * keeps its default rows.
+ */
+export function normalizeContentDatabaseItemLayout(
+  value: unknown,
+): ContentDatabaseItemLayout | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const leading = record(raw.leading);
+  const line2 = record(raw.line2);
+  const kind = CONTENT_DATABASE_ITEM_LEADING_KINDS.includes(
+    leading.kind as ContentDatabaseItemLeadingKind,
+  )
+    ? (leading.kind as ContentDatabaseItemLeadingKind)
+    : "page_icon";
+  const lines = CONTENT_DATABASE_ITEM_LINE2_LINES.includes(
+    line2.lines as 1 | 2 | 3,
+  )
+    ? (line2.lines as 1 | 2 | 3)
+    : 1;
+  return {
+    leading: {
+      kind,
+      propertyId: LEADING_PROPERTY_TYPES[kind]
+        ? propertyIdOrNull(leading.propertyId)
+        : null,
+    },
+    titleWeight: CONTENT_DATABASE_ITEM_TITLE_WEIGHTS.includes(
+      raw.titleWeight as ContentDatabaseItemTitleWeight,
+    )
+      ? (raw.titleWeight as ContentDatabaseItemTitleWeight)
+      : "medium",
+    line2:
+      line2.source === "page"
+        ? { source: "page", propertyId: null, lines }
+        : { propertyId: propertyIdOrNull(line2.propertyId), lines },
+    line3: propertyIdList(raw.line3),
+    trailing: propertyIdList(raw.trailing),
+  };
+}
+
+/**
+ * The `itemLayout` field of a normalized view. An explicit null is kept so a
+ * reset to default rows overrides the layout saved on the server; a missing
+ * or unreadable value is left out so saves that don't know about layouts
+ * keep the saved one.
+ */
+export function contentDatabaseItemLayoutField(value: unknown): {
+  itemLayout?: ContentDatabaseItemLayout | null;
+} {
+  if (value === null) return { itemLayout: null };
+  const itemLayout = normalizeContentDatabaseItemLayout(value);
+  return itemLayout ? { itemLayout } : {};
+}
+
+/** Carries the saved layout into a full-view save that left it out. */
+export function withSavedContentDatabaseItemLayout<
+  T extends { id: string; itemLayout?: ContentDatabaseItemLayout | null },
+>(
+  view: T,
+  savedViews: readonly {
+    id: string;
+    itemLayout?: ContentDatabaseItemLayout | null;
+  }[],
+): T {
+  if (view.itemLayout !== undefined) return view;
+  const saved = savedViews.find((candidate) => candidate.id === view.id);
+  return saved?.itemLayout === undefined
+    ? view
+    : { ...view, itemLayout: saved.itemLayout };
+}
+
+export interface ResolvedContentDatabaseItemLayout<P> {
+  leading: { kind: ContentDatabaseItemLeadingKind; property: P | null };
+  titleWeight: ContentDatabaseItemTitleWeight;
+  /** `pageText` rows show the first lines of their page instead of a property. */
+  line2: { property: P | null; pageText: boolean; lines: 1 | 2 | 3 };
+  line3: P[];
+  trailing: P[];
+}
+
+/**
+ * Matches a layout's property IDs to the collection's current properties.
+ * Missing or mismatched properties drop out, and a checkbox or status slot
+ * without a usable property falls back to the page icon.
+ */
+export function resolveContentDatabaseItemLayout<
+  P extends ContentDatabaseItemLayoutPropertyLike,
+>(
+  layout: ContentDatabaseItemLayout,
+  properties: readonly P[],
+): ResolvedContentDatabaseItemLayout<P> {
+  const byId = new Map(
+    showableProperties(properties).map((property) => [
+      property.definition.id,
+      property,
+    ]),
+  );
+  const leadingCandidates = itemLayoutLeadingCandidates(
+    properties,
+    layout.leading.kind,
+  );
+  const leadingProperty = LEADING_PROPERTY_TYPES[layout.leading.kind]
+    ? layout.leading.propertyId
+      ? (leadingCandidates.find(
+          (property) => property.definition.id === layout.leading.propertyId,
+        ) ?? null)
+      : (leadingCandidates[0] ?? null)
+    : null;
+  const line2Candidates = new Set(itemLayoutLine2Candidates(properties));
+  const pageText = layout.line2.source === "page";
+  const line2Property =
+    !pageText && layout.line2.propertyId
+      ? (byId.get(layout.line2.propertyId) ?? null)
+      : null;
+  const meta = (ids: readonly string[]) =>
+    ids.flatMap((id) => {
+      const property = byId.get(id);
+      return property && property.definition.type !== "blocks"
+        ? [property]
+        : [];
+    });
+  return {
+    leading: {
+      kind:
+        LEADING_PROPERTY_TYPES[layout.leading.kind] && !leadingProperty
+          ? "page_icon"
+          : layout.leading.kind,
+      property: leadingProperty,
+    },
+    titleWeight: layout.titleWeight,
+    line2: {
+      property:
+        line2Property && line2Candidates.has(line2Property)
+          ? line2Property
+          : null,
+      pageText,
+      lines: layout.line2.lines,
+    },
+    line3: meta(layout.line3),
+    trailing: meta(layout.trailing),
+  };
+}
+
+/**
+ * Lists what is wrong with a layout's property references, for callers that
+ * should reject a bad layout instead of rendering around it.
+ */
+export function contentDatabaseItemLayoutReferenceErrors(
+  layout: ContentDatabaseItemLayout,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): string[] {
+  const errors: string[] = [];
+  const byId = new Map(
+    showableProperties(properties).map((property) => [
+      property.definition.id,
+      property,
+    ]),
+  );
+  const leadingType = LEADING_PROPERTY_TYPES[layout.leading.kind];
+  if (leadingType) {
+    const property = layout.leading.propertyId
+      ? byId.get(layout.leading.propertyId)
+      : itemLayoutLeadingCandidates(properties, layout.leading.kind)[0];
+    if (!property) {
+      errors.push(
+        layout.leading.propertyId
+          ? `leading.propertyId references unavailable property "${layout.leading.propertyId}".`
+          : `A ${layout.leading.kind} leading slot needs a ${leadingType} property.`,
+      );
+    } else if (property.definition.type !== leadingType) {
+      errors.push(
+        `leading.propertyId must reference a ${leadingType} property for a ${layout.leading.kind} leading slot.`,
+      );
+    }
+  }
+  if (layout.line2.propertyId) {
+    const property = byId.get(layout.line2.propertyId);
+    if (!property) {
+      errors.push(
+        `line2.propertyId references unavailable property "${layout.line2.propertyId}".`,
+      );
+    } else if (!itemLayoutLine2Candidates([property]).length) {
+      errors.push(
+        "line2.propertyId must reference a text, URL, or non-body Blocks property.",
+      );
+    }
+  }
+  for (const slot of ["line3", "trailing"] as const) {
+    for (const id of layout[slot]) {
+      const property = byId.get(id);
+      if (!property) {
+        errors.push(`${slot} references unavailable property "${id}".`);
+      } else if (property.definition.type === "blocks") {
+        errors.push(`${slot} cannot show the Blocks property "${id}".`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * Drops slot references the rows can't show (deleted, always-hidden, or the
+ * wrong type), so a stale saved slot never blocks a later edit.
+ */
+export function pruneContentDatabaseItemLayout(
+  layout: ContentDatabaseItemLayout,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayout {
+  const resolved = resolveContentDatabaseItemLayout(layout, properties);
+  const ids = (list: readonly ContentDatabaseItemLayoutPropertyLike[]) =>
+    list.map((property) => property.definition.id);
+  return {
+    leading: {
+      kind: resolved.leading.kind,
+      propertyId: resolved.leading.property ? layout.leading.propertyId : null,
+    },
+    titleWeight: layout.titleWeight,
+    line2: withLine2PropertyId(
+      layout.line2,
+      resolved.line2.property?.definition.id ?? null,
+    ),
+    line3: ids(resolved.line3),
+    trailing: ids(resolved.trailing),
+  };
+}
+
+/**
+ * Drops slot references to properties that no longer exist. References to
+ * hidden or retyped properties stay saved, because those changes can be
+ * undone; the rows skip them meanwhile.
+ */
+export function dropDeletedContentDatabaseItemLayoutReferences(
+  layout: ContentDatabaseItemLayout,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayout {
+  const exists = new Set(properties.map((property) => property.definition.id));
+  const kept = (id: string | null) => (id && exists.has(id) ? id : null);
+  return {
+    leading:
+      layout.leading.propertyId && !kept(layout.leading.propertyId)
+        ? { kind: "page_icon", propertyId: null }
+        : layout.leading,
+    titleWeight: layout.titleWeight,
+    line2: withLine2PropertyId(layout.line2, kept(layout.line2.propertyId)),
+    line3: layout.line3.filter((id) => exists.has(id)),
+    trailing: layout.trailing.filter((id) => exists.has(id)),
+  };
+}
+
+/**
+ * Line 3 or End after someone picks a property in the slot's menu, or
+ * Nothing (null). Saved properties the menu doesn't offer, such as ones
+ * hidden in this view, stay for when they're shown again; they give up their
+ * place only when the slot is full.
+ */
+export function toggleContentDatabaseItemLayoutMetaProperty(
+  savedIds: readonly string[],
+  offeredIds: readonly string[],
+  id: string | null,
+): string[] {
+  const offered = new Set(offeredIds);
+  const next =
+    id === null
+      ? savedIds.filter((saved) => !offered.has(saved))
+      : savedIds.includes(id)
+        ? savedIds.filter((saved) => saved !== id)
+        : [...savedIds, id];
+  for (
+    let index = next.length - 1;
+    index >= 0 && next.length > MAX_ITEM_LAYOUT_META_PROPERTIES;
+    index -= 1
+  ) {
+    if (!offered.has(next[index])) next.splice(index, 1);
+  }
+  return next;
+}
+
+/**
+ * The layout a full-view save stores. References the view already saved
+ * stay, hidden or retyped or not; a new reference the rows can't show (the
+ * wrong type, or hidden) is dropped, as is any reference to a deleted
+ * property. A full save never fails over a slot.
+ */
+export function savableContentDatabaseItemLayout(
+  layout: ContentDatabaseItemLayout,
+  saved: ContentDatabaseItemLayout | null,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+  hiddenPropertyIds: readonly string[] = [],
+): ContentDatabaseItemLayout {
+  const hidden = new Set(hiddenPropertyIds);
+  const showable = pruneContentDatabaseItemLayout(
+    layout,
+    properties.filter((property) => !hidden.has(property.definition.id)),
+  );
+  const savedLeading =
+    saved?.leading.kind === layout.leading.kind &&
+    saved.leading.propertyId === layout.leading.propertyId;
+  const meta = (slot: "line3" | "trailing") =>
+    layout[slot].filter(
+      (id) => saved?.[slot].includes(id) || showable[slot].includes(id),
+    );
+  return dropDeletedContentDatabaseItemLayoutReferences(
+    {
+      leading: savedLeading ? layout.leading : showable.leading,
+      titleWeight: layout.titleWeight,
+      line2: withLine2PropertyId(
+        layout.line2,
+        saved?.line2.propertyId === layout.line2.propertyId
+          ? layout.line2.propertyId
+          : showable.line2.propertyId,
+      ),
+      line3: meta("line3"),
+      trailing: meta("trailing"),
+    },
+    properties,
+  );
+}
+
+/**
+ * The layout someone starts editing from on a view with no saved layout. It
+ * matches the default rows: page icon, title, and the first four properties.
+ * Line 2 is the only slot that shows a Blocks field, so one of those goes
+ * there.
+ */
+export function startingContentDatabaseItemLayout(
+  visibleProperties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayout {
+  const shown = visibleProperties.slice(0, 4);
+  const blocks = itemLayoutLine2Candidates(shown).find(
+    (property) => property.definition.type === "blocks",
+  );
+  return {
+    leading: { kind: "page_icon", propertyId: null },
+    titleWeight: "medium",
+    line2: { propertyId: blocks?.definition.id ?? null, lines: 1 },
+    line3: [],
+    trailing: itemLayoutMetaCandidates(shown).map(
+      (property) => property.definition.id,
+    ),
+  };
+}
+
+/**
+ * Whether any List view shows page text in line 2, so list reads carry each
+ * row's excerpt. Other collections never read page bodies for their rows.
+ */
+export function contentDatabaseViewsShowPageText(
+  views: readonly {
+    type: string;
+    itemLayout?: ContentDatabaseItemLayout | null;
+  }[],
+): boolean {
+  return views.some(
+    (view) => view.type === "list" && view.itemLayout?.line2.source === "page",
+  );
+}
+
+export interface ContentDatabaseItemLayoutPreset {
+  id: ContentDatabaseItemLayoutPresetId;
+  /** Null for Default, which keeps the view's default rows. */
+  layout: ContentDatabaseItemLayout | null;
+  /** The property type the preset needs but the collection lacks. */
+  missingPropertyType: "checkbox" | "status" | null;
+}
+
+function firstOfType<P extends ContentDatabaseItemLayoutPropertyLike>(
+  properties: readonly P[],
+  ...types: DocumentPropertyType[]
+) {
+  for (const type of types) {
+    const match = properties.find(
+      (property) => property.definition.type === type,
+    );
+    if (match) return match.definition.id;
+  }
+  return null;
+}
+
+/** Named starting points for a list's rows, built from the collection's properties. */
+export function contentDatabaseItemLayoutPresets(
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayoutPreset[] {
+  const shown = showableProperties(properties);
+  const checkbox = firstOfType(shown, "checkbox");
+  const status = firstOfType(shown, "status");
+  const text = itemLayoutLine2Candidates(shown)[0]?.definition.id ?? null;
+  const date = firstOfType(shown, "date");
+  const person = firstOfType(shown, "person");
+  const tag = firstOfType(shown, "multi_select", "select");
+  const ids = (...list: Array<string | null>) =>
+    list.filter((id): id is string => !!id);
+
+  return [
+    { id: "default", layout: null, missingPropertyType: null },
+    {
+      id: "checklist",
+      missingPropertyType: checkbox ? null : "checkbox",
+      layout: {
+        leading: { kind: "checkbox", propertyId: checkbox },
+        titleWeight: "bold",
+        line2: { propertyId: text, lines: 2 },
+        line3: [],
+        trailing: [],
+      },
+    },
+    {
+      id: "reminders",
+      missingPropertyType: checkbox ? null : "checkbox",
+      layout: {
+        leading: { kind: "checkbox", propertyId: checkbox },
+        titleWeight: "medium",
+        line2: { propertyId: text, lines: 1 },
+        line3: ids(date, person, tag),
+        trailing: [],
+      },
+    },
+    {
+      id: "tracker",
+      missingPropertyType: status ? null : "status",
+      layout: {
+        leading: { kind: "status", propertyId: status },
+        titleWeight: "regular",
+        line2: { propertyId: null, lines: 1 },
+        line3: [],
+        trailing: ids(tag, person, date),
+      },
+    },
+    {
+      id: "digest",
+      missingPropertyType: null,
+      layout: {
+        leading: { kind: "page_icon", propertyId: null },
+        titleWeight: "bold",
+        line2: { propertyId: text, lines: 3 },
+        line3: ids(status, date, tag),
+        trailing: [],
+      },
+    },
+  ];
+}
+
+function sameLayout(
+  a: ContentDatabaseItemLayout | null,
+  b: ContentDatabaseItemLayout | null,
+) {
+  return (
+    JSON.stringify(normalizeContentDatabaseItemLayout(a)) ===
+    JSON.stringify(normalizeContentDatabaseItemLayout(b))
+  );
+}
+
+/** The preset a layout currently matches, or null for a custom layout. */
+export function matchingContentDatabaseItemLayoutPreset(
+  layout: ContentDatabaseItemLayout | null | undefined,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayoutPresetId | null {
+  const current = layout ?? null;
+  return (
+    contentDatabaseItemLayoutPresets(properties).find(
+      (preset) =>
+        !preset.missingPropertyType && sameLayout(preset.layout, current),
+    )?.id ?? null
+  );
+}

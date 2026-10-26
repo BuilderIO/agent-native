@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
-import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
 import type {
   ClipboardContentMutationOrigin,
@@ -51,7 +51,6 @@ import type {
   FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
-  SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
   applyDuplicateStackHistoryChanges,
@@ -68,7 +67,6 @@ import {
 } from "@/pages/design-editor/history";
 import {
   prepareDeletedFileRestore,
-  remapHistorySelection,
   remapHistoryChange,
   remapContentHistory,
   remapGeometryHistory,
@@ -424,6 +422,7 @@ export interface UndoArgs {
   ) => boolean;
   canEditDesign: boolean;
   allowPendingLiveEdits?: boolean;
+  captureCurrentSelection: () => GeometryHistorySelection;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
   codeLayerOwnerByNodeIdRef: RefObject<
@@ -467,7 +466,7 @@ export interface UndoArgs {
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
-  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  historyOrderRef: RefObject<UndoRedoOrderKind[]>;
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
@@ -528,7 +527,7 @@ export interface UndoArgs {
       immediate?: boolean;
     },
   ) => void;
-  redoOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  redoOrderRef: RefObject<UndoRedoOrderKind[]>;
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
@@ -543,8 +542,6 @@ export interface UndoArgs {
   restoreSelectionSnapshot: (
     selection: GeometryHistorySelection | undefined,
   ) => void;
-  selectionRedoStackRef: RefObject<SelectionHistoryEntry[]>;
-  selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -588,6 +585,7 @@ export function runUndo({
   applyDesignDataHistoryChanges,
   canEditDesign,
   allowPendingLiveEdits,
+  captureCurrentSelection,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -639,8 +637,6 @@ export function runUndo({
   requestPendingLiveNonStyleRevert,
   requestPendingVisualStyleRevert,
   restoreSelectionSnapshot,
-  selectionRedoStackRef,
-  selectionUndoStackRef,
   setActiveFileId,
   setContentRenderRevision,
   setHoveredElement,
@@ -1153,6 +1149,10 @@ export function runUndo({
       contentReplayRefused = true;
       return false;
     }
+    // Captured before the replay, so its sources are the content redo restores.
+    const selectionAfter =
+      contentHistorySelectionAfterRef.current.get(entry) ??
+      captureCurrentSelection();
     const acceptedContents = new Map<string, string>();
     let replayAccepted = true;
     suppressContentHistoryRef.current = true;
@@ -1227,9 +1227,7 @@ export function runUndo({
       replayedChanges,
       linkedComponent,
     )!;
-    const stampedAfter = contentHistorySelectionAfterRef.current.get(entry);
-    if (stampedAfter)
-      contentHistorySelectionAfterRef.current.set(appliedEntry, stampedAfter);
+    contentHistorySelectionAfterRef.current.set(appliedEntry, selectionAfter);
     contentRedoStackRef.current = [
       ...contentRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       appliedEntry,
@@ -1330,21 +1328,6 @@ export function runUndo({
         ]),
       ),
     );
-    return true;
-  };
-  const undoSelection = () => {
-    if (!canUseOverviewHistory) return false;
-    const entry = selectionUndoStackRef.current.pop();
-    if (!entry) return false;
-    selectionRedoStackRef.current = [
-      ...selectionRedoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
-    ];
-    redoOrderRef.current = [
-      ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      "selection",
-    ];
-    restoreHistorySelection(entry.before);
     return true;
   };
   const undoFileCreation = () => {
@@ -1568,15 +1551,6 @@ export function runUndo({
       fileIds: ReadonlyMap<string, string>,
       restoredFilesById: ReadonlyMap<string, FileDeletionHistorySnapshot>,
     ) => {
-      const remapSelectionEntry = (item: SelectionHistoryEntry) => ({
-        ...item,
-        before: remapHistorySelection(item.before, fileIds),
-        after: remapHistorySelection(item.after, fileIds),
-      });
-      selectionUndoStackRef.current =
-        selectionUndoStackRef.current.map(remapSelectionEntry);
-      selectionRedoStackRef.current =
-        selectionRedoStackRef.current.map(remapSelectionEntry);
       const undoHistory = remapContentHistory(
         contentUndoStackRef.current,
         contentUndoSelectionStackRef.current,
@@ -1937,11 +1911,8 @@ export function runUndo({
     }
     return false;
   };
-  const undoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+  const undoByOrder = (preferred?: UndoRedoOrderKind) => {
     if (preferred === "clipboard-paste") return undoClipboardPaste();
-    if (preferred === "selection") {
-      return tryUndoActions(undoSelection, undoContent, undoGeometry);
-    }
     if (preferred === "file-deleted") {
       return tryUndoActions(
         undoFileDeletion,

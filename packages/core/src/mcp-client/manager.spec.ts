@@ -7,11 +7,13 @@ import {
   type ActionRunContext,
 } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
+import { InvalidMcpHeaderConfigurationError } from "./remote-store.js";
 
 type FakeTool = {
   name: string;
@@ -41,6 +43,7 @@ const FIRST_A2A_SIGNING_TIMEOUT_MS = 15_000;
 const orgContextMocks = vi.hoisted(() => ({
   getOrgDomain: vi.fn(),
   getOrgA2ASecret: vi.fn(),
+  getOrgWorkspaceUrl: vi.fn(),
 }));
 
 vi.mock("../org/context.js", () => orgContextMocks);
@@ -173,6 +176,18 @@ vi.doMock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: FakeStdio,
 }));
 
+const constBesideRef = {
+  type: "object",
+  definitions: {
+    ObjectInput: {
+      type: "object",
+      properties: { x: { type: "string" } },
+      required: ["x"],
+    },
+  },
+  allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+};
+
 describe("parseMcpToolName", () => {
   it("splits on the double underscore after the prefix", () => {
     expect(parseMcpToolName("mcp__chrome__navigate")).toEqual({
@@ -197,6 +212,7 @@ describe("McpClientManager", () => {
     httpCallHeaders.length = 0;
     orgContextMocks.getOrgDomain.mockReset().mockResolvedValue(null);
     orgContextMocks.getOrgA2ASecret.mockReset().mockResolvedValue(null);
+    orgContextMocks.getOrgWorkspaceUrl.mockReset().mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
@@ -298,6 +314,120 @@ describe("McpClientManager", () => {
     expect(fakeClients[0]?.capabilities.versionNegotiation).toEqual({
       mode: "auto",
     });
+  });
+
+  it.each([
+    {
+      name: "a reference that does not resolve",
+      inputSchema: {
+        type: "object",
+        properties: { item: { $ref: "#/$defs/Missing" } },
+      },
+      reason:
+        'references "#/$defs/Missing", which does not resolve at /properties/item',
+    },
+    {
+      name: "an empty enum",
+      inputSchema: {
+        type: "object",
+        properties: { kind: { anyOf: [{ type: "number" }, { enum: [] }] } },
+      },
+      reason:
+        "declares an empty enum, so it accepts no value at /properties/kind/anyOf/1",
+    },
+    {
+      name: "an empty root oneOf",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        oneOf: [],
+      },
+      reason: "declares an empty oneOf, so it accepts no value at /",
+    },
+    {
+      name: "a const its enum does not list",
+      inputSchema: {
+        type: "object",
+        properties: { x: { const: "x", enum: [1] } },
+      },
+      reason:
+        "declares a const its enum does not list, so it accepts no value at /properties/x",
+    },
+    {
+      name: "a root no object satisfies",
+      inputSchema: { type: "object", anyOf: [{ type: "string" }] },
+      reason: "accepts no object at /",
+    },
+    {
+      name: "a const beside a $ref, under MCP's default 2020-12",
+      inputSchema: constBesideRef,
+      reason: "accepts no object at /",
+    },
+  ])(
+    "holds back a tool whose schema has $name and reports it",
+    async ({ inputSchema, reason }) => {
+      serverFixtures["docs-bin"] = {
+        tools: [
+          {
+            name: "search",
+            inputSchema: {
+              type: "object",
+              properties: { q: { type: "string" } },
+            },
+          },
+          { name: "broken", inputSchema },
+        ],
+        callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+      };
+
+      const mgr = new McpClientManager({
+        servers: { docs: { command: "docs-bin" } },
+      });
+      await mgr.start();
+
+      expect(mgr.connectedServers).toEqual(["docs"]);
+      expect(mgr.hasServer("docs")).toBe(true);
+      expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+        "mcp__docs__search",
+      ]);
+      expect(mgr.getTool("mcp__docs__broken")).toBeNull();
+      expect(Object.keys(mcpToolsToActionEntries(mgr))).toEqual([
+        "mcp__docs__search",
+      ]);
+      const status = mgr.getStatus();
+      expect(status.totalTools).toBe(1);
+      expect(status.errors).toEqual({
+        docs: `Tool "broken" is unavailable: its input schema ${reason}.`,
+      });
+      await expect(
+        mgr.callTool("mcp__docs__search", { q: "x" }),
+      ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
+    },
+  );
+
+  it("keeps a draft-07 tool whose $ref has a const beside it", async () => {
+    serverFixtures["docs-bin"] = {
+      tools: [
+        {
+          name: "check",
+          inputSchema: {
+            $schema: "http://json-schema.org/draft-07/schema#",
+            ...constBesideRef,
+          },
+        },
+      ],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+
+    const mgr = new McpClientManager({
+      servers: { docs: { command: "docs-bin" } },
+    });
+    await mgr.start();
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__docs__check",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
   });
 
   it("preserves full MCP tool metadata from listTools", async () => {
@@ -890,6 +1020,59 @@ describe("McpClientManager", () => {
     }
   });
 
+  it("keeps a server with invalid saved headers visibly failed while healthy servers connect", async () => {
+    serverFixtures["http https://broken.example.test/mcp"] = {
+      tools: [{ name: "old_ping" }],
+      callImpl: () => ({ content: [{ type: "text", text: "old pong" }] }),
+    };
+    serverFixtures["http https://healthy.example.test/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => ({ content: [{ type: "text", text: "pong" }] }),
+    };
+
+    const manager = new McpClientManager({
+      servers: {
+        broken: {
+          type: "http",
+          url: "https://broken.example.test/mcp",
+        },
+        healthy: {
+          type: "http",
+          url: "https://healthy.example.test/mcp",
+        },
+      },
+    });
+
+    await manager.start();
+    expect(manager.connectedServers.sort()).toEqual(["broken", "healthy"]);
+
+    const error = new InvalidMcpHeaderConfigurationError("invalid-json");
+    const result = await manager.reconfigure({
+      servers: {
+        broken: {
+          type: "http",
+          url: "https://broken.example.test/mcp",
+          configurationError: error,
+        },
+        healthy: {
+          type: "http",
+          url: "https://healthy.example.test/mcp",
+        },
+      },
+    });
+
+    expect(manager.configuredServers.sort()).toEqual(["broken", "healthy"]);
+    expect(manager.connectedServers).toEqual(["healthy"]);
+    expect(result.reconnected).toEqual(["broken"]);
+    expect(manager.getStatus().errors.broken).toBe(error.message);
+    expect(manager.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__healthy__ping",
+    ]);
+    expect(fakeClients).toHaveLength(2);
+
+    await manager.stop();
+  });
+
   it("hydrates an initially empty manager through reconfigure", async () => {
     serverFixtures["late-bin"] = {
       tools: [{ name: "late_tool" }],
@@ -1015,6 +1198,184 @@ describe("McpClientManager", () => {
     } finally {
       FakeClient.prototype.connect = origConnect;
     }
+  });
+
+  const brokenTool = {
+    name: "broken",
+    inputSchema: {
+      type: "object",
+      properties: { item: { $ref: "#/$defs/Missing" } },
+    },
+  };
+  const repairedTool = {
+    ...brokenTool,
+    inputSchema: {
+      ...brokenTool.inputSchema,
+      $defs: { Missing: { type: "string" } },
+    },
+  };
+
+  it("keeps a good call in flight when a server holding back tools gets the same config", async () => {
+    let entered!: () => void;
+    const callEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    let abort!: (error: Error) => void;
+    serverFixtures["partial-bin"] = {
+      tools: [{ name: "good" }, brokenTool],
+      callImpl: () =>
+        new Promise((resolve, reject) => {
+          release = () =>
+            resolve({ content: [{ type: "text", text: "done" }] });
+          abort = reject;
+          entered();
+        }),
+    };
+    const config = { servers: { partial: { command: "partial-bin" } } };
+    const mgr = new McpClientManager(config);
+    await mgr.start();
+    // The SDK settles every pending request with "Connection closed" on close.
+    const client = fakeClients[0]!;
+    const close = client.close.bind(client);
+    client.close = async () => {
+      abort(new Error("Connection closed"));
+      await close();
+    };
+
+    const call = mgr.callTool("mcp__partial__good", {});
+    await callEntered;
+    // The 60-second configuration refresh in agent chat does exactly this.
+    const summary = await mgr.reconfigure(config);
+    release();
+
+    await expect(call).resolves.toEqual({
+      content: [{ type: "text", text: "done" }],
+    });
+    expect(summary).toEqual({
+      added: [],
+      removed: [],
+      unchanged: ["partial"],
+      reconnected: [],
+    });
+    await mgr.stop();
+  });
+
+  it("leaves a connected server alone when it gets the same config", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const config = { servers: { fixed: { command: "fixed-bin" } } };
+    const mgr = new McpClientManager(config);
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeStdio;
+
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    const summary = await mgr.reconfigure(config);
+
+    expect(summary.unchanged).toEqual(["fixed"]);
+    expect(summary.reconnected).toEqual([]);
+    expect(fakeClients).toHaveLength(1);
+    expect(transport.closed).toBe(false);
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+    ]);
+    expect(mgr.getStatus().errors.fixed).toContain('Tool "broken"');
+    await mgr.stop();
+  });
+
+  it("lists a connected server's tools again over the same connection", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { fixed: { command: "fixed-bin" } },
+    });
+    let authorizing!: () => void;
+    const authorizationStarted = new Promise<void>((resolve) => {
+      authorizing = resolve;
+    });
+    let allow!: (allowed: boolean) => void;
+    mgr.setToolAuthorizationResolver(() => async () => {
+      authorizing();
+      return new Promise<boolean>((resolve) => {
+        allow = resolve;
+      });
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeStdio;
+
+    await mgr.refreshTools("fixed");
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+    ]);
+    expect(mgr.getStatus().errors.fixed).toContain('Tool "broken"');
+
+    const call = mgr.callTool("mcp__fixed__search", {});
+    await authorizationStarted;
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    await mgr.refreshTools("fixed");
+    allow(true);
+
+    await expect(call).resolves.toEqual({
+      content: [{ type: "text", text: "search" }],
+    });
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+      "mcp__fixed__broken",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+    expect(fakeClients).toHaveLength(1);
+    expect(transport.closed).toBe(false);
+    await mgr.stop();
+  });
+
+  it("keeps the newest tool list when an older one answers last", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { fixed: { command: "fixed-bin" } },
+    });
+    await mgr.start();
+    // Each list answers with the tools the server had when it was asked,
+    // once the test releases it.
+    const answers: (() => void)[] = [];
+    const client = fakeClients[0]!;
+    client.listTools = () => {
+      const listed = { tools: [...serverFixtures["fixed-bin"]!.tools] };
+      return new Promise((resolve) => answers.push(() => resolve(listed)));
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    const older = mgr.refreshTools("fixed");
+    await settle();
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    const newer = mgr.refreshTools("fixed");
+    await settle();
+    // Newest first, so a list asked earlier would commit after a later one.
+    while (answers.length > 0) {
+      answers.pop()!();
+      await settle();
+    }
+    await Promise.all([older, newer]);
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+      "mcp__fixed__broken",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+    await mgr.stop();
+  });
+
+  it("refuses to list tools again for a server that is not connected", async () => {
+    const mgr = new McpClientManager({ servers: {} });
+    await expect(mgr.refreshTools("missing")).rejects.toThrow(
+      'MCP server "missing" is not connected',
+    );
   });
 
   it("formats non-MCP JSON HTTP handshakes without dumping raw validation output", async () => {

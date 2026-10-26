@@ -40,8 +40,18 @@ actions do not expose, inspect the provider catalog/docs and call
 - `hubspot-pipelines` / `hubspot-metrics` — pipeline definitions and aggregate
   sales metrics.
 - For HubSpot **property metadata** (available fields before requesting custom
-  ones) there is no first-class action — call `provider-api-request` (provider
-  `hubspot`, e.g. `/crm/v3/properties/deals`) via `provider-api-docs`.
+  ones), prefer the metadata cached internally by `hubspot-records` when the
+  needed field names are already known. If field discovery needs the properties
+  endpoint, call `provider-api-request` (provider `hubspot`, e.g.
+  `/crm/v3/properties/deals`) via `provider-api-docs` **without `stageAs`**.
+  Property definitions are read-only control metadata, not analysis rows; never
+  stage them. `stageAs` writes result rows to staged-dataset storage, which
+  has a per-user quota and an app-wide limit. Going over either removes the
+  least recently written datasets (the user's own for the per-user quota, any
+  user's for the app-wide limit), and a write too large to fit even then fails.
+  Do not clear existing staged datasets to make room. If a metadata request cannot be
+  read without staging, narrow the request or return only the required property
+  names, labels, and types through a read-only path.
 - `provider-api-request` with `provider: "hubspot"` — arbitrary HubSpot HTTP
   API calls when first-class actions are too narrow.
 

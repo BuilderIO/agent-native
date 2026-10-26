@@ -196,19 +196,44 @@ function useErrorCopy() {
 function useApplyThemeClass() {
   useEffect(() => {
     const root = document.documentElement;
-    if (root.classList.contains("dark") || root.classList.contains("light"))
-      return;
-    try {
-      const stored = localStorage.getItem("theme");
-      if (stored === "dark") {
-        root.classList.add("dark");
-      } else if (stored === "light") {
-        root.classList.add("light");
-      } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        root.classList.add("dark");
-      }
-    } catch {}
+    let storageUnreadable = false;
+    const theme = resolveErrorBoundaryThemeClass(
+      root,
+      () => {
+        try {
+          return localStorage.getItem("theme");
+        } catch {
+          storageUnreadable = true;
+          return null;
+        }
+      },
+      () =>
+        window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,
+    );
+    if (storageUnreadable) {
+      root.setAttribute("data-theme-status", "unreadable");
+    } else {
+      root.removeAttribute("data-theme-status");
+    }
+    if (theme) root.classList.add(theme);
   }, []);
+}
+
+export function resolveErrorBoundaryThemeClass(
+  root: Pick<HTMLElement, "classList" | "getAttribute">,
+  readStoredTheme: () => string | null,
+  readSystemTheme: () => boolean,
+): "dark" | "light" | undefined {
+  if (root.classList.contains("dark") || root.classList.contains("light")) {
+    return undefined;
+  }
+
+  const dataTheme = root.getAttribute("data-theme");
+  if (dataTheme === "dark" || dataTheme === "light") return dataTheme;
+
+  const storedTheme = readStoredTheme();
+  if (storedTheme === "dark" || storedTheme === "light") return storedTheme;
+  return readSystemTheme() ? "dark" : undefined;
 }
 
 function errorMessageOf(error: unknown): string {

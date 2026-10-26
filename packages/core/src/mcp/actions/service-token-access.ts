@@ -15,6 +15,8 @@ import { getDbExec } from "../../db/client.js";
 import { isMissingOrganizationTableError } from "../../org/membership.js";
 import type { OrgRole } from "../../org/types.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../../server/credential-membership-unavailable.js";
+import { readOrgMemberRole } from "../../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../../server/request-context.js";
 
 export const SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE =
   "Only org owners or admins can create or revoke service tokens.";
@@ -32,17 +34,7 @@ async function readOrgRole(
   orgId: string,
   email: string,
 ): Promise<OrgRole | null> {
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, email.toLowerCase()],
-  });
-  const role = rows[0]?.role;
-  return role === "owner" || role === "admin" || role === "member"
-    ? role
-    : null;
+  return readOrgMemberRole(orgId, email);
 }
 
 export async function getOrgRoleForEmail(
@@ -99,6 +91,23 @@ export async function requireServiceTokenCaller(params: {
   }
 
   let orgId = params.orgId?.trim() || "";
+  const requestContext = getRequestContext();
+  if (requestContext?.a2aIdentityAssurance === "org-member") {
+    const delegatedEmail = requestContext.userEmail?.trim().toLowerCase();
+    const delegatedOrgId = requestContext.orgId?.trim();
+    if (
+      !delegatedEmail ||
+      delegatedEmail !== email.toLowerCase() ||
+      !delegatedOrgId ||
+      (orgId && orgId !== delegatedOrgId)
+    ) {
+      throw new ServiceTokenError(
+        "You are not a member of this organization.",
+        403,
+      );
+    }
+    orgId = delegatedOrgId;
+  }
   if (!orgId) {
     const memberOrgs = await lookupMembership(() => readOrgIds(email), []);
     if (memberOrgs.length === 0) {

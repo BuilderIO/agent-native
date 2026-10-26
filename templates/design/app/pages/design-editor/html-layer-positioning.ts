@@ -18,6 +18,8 @@ const ABS_POSITION_PROPS = [
   "inset",
 ] as const;
 
+const INSET_LONGHANDS = new Set(["top", "right", "bottom", "left"]);
+
 const FLEX_ITEM_PROPS = [
   "flex",
   "flex-grow",
@@ -85,7 +87,20 @@ function patchNodeStyleInHtml(
     return content;
   }
 
-  const nextStyle = patchInlineStyleDeclarations(previousStyle, updates);
+  // Chrome also reports a set `inset` through its longhands; save the shorthand alone.
+  const insetIsSet = updates.some(
+    (update) => update.property === "inset" && update.value,
+  );
+  const nextStyle = patchInlineStyleDeclarations(
+    previousStyle,
+    insetIsSet
+      ? updates.map((update) =>
+          INSET_LONGHANDS.has(update.property)
+            ? { ...update, value: null }
+            : update,
+        )
+      : updates,
+  );
   if (nextStyle === previousStyle) return content;
 
   const patched = patchCodeLayerNodeAttributes(content, [
@@ -97,6 +112,24 @@ function patchNodeStyleInHtml(
     },
   ]);
   return patched ?? content;
+}
+
+/** Writes `updates` into the element's style text, leaving every other declaration as authored. */
+export function patchElementInlineStyle(
+  element: HTMLElement | SVGElement,
+  updates: Array<{ property: string; value: string | null }>,
+): void {
+  const changed = updates.filter(
+    (update) =>
+      element.style.getPropertyValue(update.property) !== (update.value ?? ""),
+  );
+  if (changed.length === 0) return;
+  const nextStyle = patchInlineStyleDeclarations(
+    element.getAttribute("style"),
+    changed.map((update) => ({ ...update, priority: "" })),
+  );
+  if (nextStyle === null) element.removeAttribute("style");
+  else element.setAttribute("style", nextStyle);
 }
 
 function patchInlineStyleDeclarations(
@@ -171,9 +204,7 @@ export function removeAbsolutePositioningFromNodeInHtml(
       }
       if (keepsContainingBlock) {
         element.style.setProperty("position", "relative");
-        for (const prop of ["left", "top", "right", "bottom"] as const) {
-          element.style.setProperty(prop, "auto");
-        }
+        element.style.setProperty("inset", "auto");
       }
     },
   );
@@ -325,9 +356,7 @@ export function setFlowPositioningOverrideForNodeInHtml(
         "important",
       );
       if (keepsContainingBlock) {
-        for (const prop of ["left", "top", "right", "bottom"] as const) {
-          element.style.setProperty(prop, "auto", "important");
-        }
+        element.style.setProperty("inset", "auto", "important");
       }
     },
   );
@@ -374,6 +403,11 @@ export function rawAbsoluteContainerOffsetFromDrop(args: {
   };
 }
 
+// Rounding a measured size down can wrap text that exactly fit its flow box.
+function wholePixelSize(measured: number): number {
+  return Math.ceil(Number(measured.toFixed(2)));
+}
+
 export function setAbsolutePositioningForNodeInHtml(
   content: string,
   nodeAttrId: string,
@@ -414,14 +448,14 @@ export function setAbsolutePositioningForNodeInHtml(
         Number.isFinite(computedSize.width) &&
         computedSize.width >= 0
       ) {
-        element.style.width = `${computedSize.width}px`;
+        element.style.width = `${wholePixelSize(computedSize.width)}px`;
       }
       if (
         computedSize?.height !== undefined &&
         Number.isFinite(computedSize.height) &&
         computedSize.height >= 0
       ) {
-        element.style.height = `${computedSize.height}px`;
+        element.style.height = `${wholePixelSize(computedSize.height)}px`;
       }
     },
   );

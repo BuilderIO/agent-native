@@ -103,10 +103,11 @@ function addStrokeButton(section: Locator): Locator {
 
 async function openBooleanMenu(app: App, selectedNodeId: string) {
   const page = app.page;
-  const rect = await app.designRect(selectedNodeId);
+  const rect = await app.designRect(selectedNodeId, "index.html");
   const point = await app.pagePoint(
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
+    "index.html",
   );
   await page.mouse.click(point.x, point.y, { button: "right" });
   const menu = page.getByRole("menu").last();
@@ -198,8 +199,7 @@ async function booleanMaskPixels(
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-// fixme: fails in CI on current main: Test timeout of 90000ms exceeded.
-test.fixme("Subtract creates an editable, transparent mask with undo and unique duplicate references", async ({
+test("Subtract creates an editable, transparent mask with undo and unique duplicate references", async ({
   app,
   page,
 }) => {
@@ -389,8 +389,8 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
   };
   const xPosition = page.getByRole("textbox", { name: "X-position" });
   const yPosition = page.getByRole("textbox", { name: "Y-position" });
-  await expect(xPosition).toHaveValue(`${initialMeasuredX.toFixed(2)}px`);
-  await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+  await expect(xPosition).toHaveValue(String(Math.round(initialMeasuredX)));
+  await expect(yPosition).toHaveValue(String(Math.round(initialMeasuredY)));
 
   const beforePosition = await booleanMaskPixels(frame, 0, true, probes);
   expect(beforePosition.beforeX?.[3]).toBe(0);
@@ -399,8 +399,8 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
   expect(beforePosition.afterY?.[3]).toBeGreaterThan(0);
 
   await setInspectorValue(page, "X-position", "30");
-  await expect(xPosition).toHaveValue("30px");
-  await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+  await expect(xPosition).toHaveValue("30");
+  await expect(yPosition).toHaveValue(String(Math.round(initialMeasuredY)));
   await expect
     .poll(async () =>
       svgSourceTag(
@@ -439,7 +439,7 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
   expect(afterX.afterY?.[3]).toBeGreaterThan(0);
 
   await setInspectorValue(page, "Y-position", "35");
-  await expect(xPosition).toHaveValue("30px");
+  await expect(xPosition).toHaveValue("30");
   await expectPositionReadback(yPosition, 35);
   await expect
     .poll(async () =>
@@ -497,8 +497,8 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
     )
     .toContain(`x="${expectedLocalAfterX}"`);
   const undoYContent = await designContent(page, designId, "index.html");
-  await expect(xPosition).toHaveValue("30px");
-  await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+  await expect(xPosition).toHaveValue("30");
+  await expect(yPosition).toHaveValue(String(Math.round(initialMeasuredY)));
   const undoYOperand = svgSourceTag(
     undoYContent,
     'data-agent-native-node-id="cutter"',
@@ -528,8 +528,8 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
       ),
     )
     .toContain('x="20"');
-  await expect(xPosition).toHaveValue(`${initialMeasuredX.toFixed(2)}px`);
-  await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+  await expect(xPosition).toHaveValue(String(Math.round(initialMeasuredX)));
+  await expect(yPosition).toHaveValue(String(Math.round(initialMeasuredY)));
   const undoXPixels = await booleanMaskPixels(frame, 0, true, probes);
   const undoXOperand = svgSourceTag(
     await designContent(page, designId, "index.html"),
@@ -600,7 +600,7 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
       .first()
       .locator('xpath=ancestor::*[@role="treeitem"][1]'),
   ).toHaveAttribute("aria-selected", "true");
-  await expect(xPosition).toHaveValue("30px");
+  await expect(xPosition).toHaveValue("30");
   await expectPositionReadback(yPosition, 35);
   const redoneXYOperand = svgSourceTag(
     redoneXYContent,
@@ -626,10 +626,10 @@ test.fixme("Subtract creates an editable, transparent mask with undo and unique 
   await layerRow(page, "Cutter").first().click();
   await expect(
     page.locator('input[aria-label="W size in pixels" i]').last(),
-  ).toHaveValue("20px");
+  ).toHaveValue("20");
   await expect(
     page.locator('input[aria-label="X-position" i]').last(),
-  ).toHaveValue("30px");
+  ).toHaveValue("30");
   await expectPositionReadback(
     page.locator('input[aria-label="Y-position" i]').last(),
     35,

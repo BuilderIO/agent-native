@@ -2,75 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 
-import { readDesignEditorSource } from "../read-design-editor-source";
-import {
-  coalesceMarqueeSelectionHistory,
-  runMarqueeSelectionCancellation,
-} from "./layer-marquee-selection-change";
+import { runMarqueeSelectionCancellation } from "./layer-marquee-selection-change";
 
-describe("coalesceMarqueeSelectionHistory", () => {
-  it("records exactly one history entry for each consecutive gesture", () => {
-    const pendingBefore: { current: string[] | null } = { current: null };
-    const ticks: Array<{ before: string[]; after: string[]; final: boolean }> =
-      [
-        { before: [], after: [], final: false },
-        { before: [], after: ["a"], final: false },
-        { before: ["a"], after: ["a", "b"], final: false },
-        { before: ["a", "b"], after: ["a", "b"], final: true },
-      ];
-    const recorded = ticks.map((tick) =>
-      coalesceMarqueeSelectionHistory(
-        pendingBefore,
-        tick.final,
-        tick.before,
-        tick.after,
-      ),
-    );
-    expect(recorded.filter(Boolean)).toHaveLength(1);
-    expect(recorded[3]).toEqual({ before: [], after: ["a", "b"] });
-    const nextRecorded = [
-      coalesceMarqueeSelectionHistory(pendingBefore, false, ["a", "b"], ["c"]),
-      coalesceMarqueeSelectionHistory(pendingBefore, true, ["c"], ["c", "d"]),
-    ];
-    expect(nextRecorded.filter(Boolean)).toHaveLength(1);
-    expect(nextRecorded[1]).toEqual({
-      before: ["a", "b"],
-      after: ["c", "d"],
-    });
-    expect(pendingBefore.current).toBeNull();
-  });
-
-  it("forwards the bridge final marker into marquee history", () => {
-    const source = readDesignEditorSource();
-    const start = source.indexOf("const handleScreenElementMarqueeSelect");
-    const end = source.indexOf("const handleElementMarqueeSelect", start);
-    expect(source.slice(start, end)).toContain("final: intent?.final === true");
-  });
-
-  it("restores the host element and layer selection when Escape cancels a marquee", () => {
-    const source = readDesignEditorSource();
-    const start = source.indexOf(
-      'if (intent.source === "marquee" && intent.cancelled)',
-    );
-    const end = source.indexOf(
-      'if (intent.source === "marquee" && intent.resetHistory)',
-      start,
-    );
-    const cancellation = source.slice(start, end);
-
-    expect(cancellation).toContain(
-      "const before = marqueeSelectionHistoryBeforeRef.current",
-    );
-    expect(cancellation).toContain("runMarqueeSelectionCancellation({");
-    expect(cancellation).toContain(
-      "restoreHostSelection: intent.restoreHostSelection === true",
-    );
-    expect(cancellation).not.toContain("pushSelectionHistoryEntry");
-    expect(source).toContain(
-      "marqueeSelectedElementBeforeRef.current = selectedElementRef.current",
-    );
-  });
-
+describe("runMarqueeSelectionCancellation", () => {
   it("restores the pre-gesture host snapshot atomically without recording history", () => {
     const before = { selectedLayerIds: ["layer-before"] };
     const selectedElementBefore = {
@@ -143,28 +77,5 @@ describe("coalesceMarqueeSelectionHistory", () => {
     expect(selectedLayerIds).toEqual(["layer-newer"]);
     expect(selectedElement).toEqual({ selector: "#newer" });
     expect(run).toHaveBeenCalledTimes(1);
-  });
-
-  it("captures the gesture's start selection even when the first reported tick already changed it", () => {
-    const pendingBefore: { current: string[] | null } = { current: null };
-    coalesceMarqueeSelectionHistory(pendingBefore, false, ["x"], ["a"]);
-    const entry = coalesceMarqueeSelectionHistory(
-      pendingBefore,
-      true,
-      ["a"],
-      ["a", "b"],
-    );
-    expect(entry).toEqual({ before: ["x"], after: ["a", "b"] });
-  });
-
-  it("a click with no drag (a single final tick, no intermediate ticks) still records one entry", () => {
-    const pendingBefore: { current: string[] | null } = { current: null };
-    const entry = coalesceMarqueeSelectionHistory(
-      pendingBefore,
-      true,
-      ["a"],
-      [],
-    );
-    expect(entry).toEqual({ before: ["a"], after: [] });
   });
 });

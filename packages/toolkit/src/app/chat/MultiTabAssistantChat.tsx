@@ -29,11 +29,11 @@ import {
   CHAT_MODEL_SELECTION_CHANGED_EVENT,
   chatModelSelectionStorageKey,
   loadChatModelCatalog,
+  resolveDefaultModelSelection,
 } from "@agent-native/core/client/agent-chat";
 import {
   useChatThreads,
   type ChatThreadScope,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
@@ -60,11 +60,13 @@ import {
   isLunaModel,
   resolvePreferredAgentModel,
 } from "@agent-native/toolkit/composer/model-selection";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
 } from "@agent-native/toolkit/ui/popover";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -80,17 +82,18 @@ import React, {
   useLayoutEffect,
   useCallback,
 } from "react";
+import { toast } from "sonner";
 
+import { AgentKitTranscriptSkeleton } from "../agentkit/react/components.js";
 import {
   getAgentChatNavigationKey,
   type AgentChatNavigationKey,
 } from "./agent-sidebar-events.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import {
-  ChatHistoryList,
-  type ChatHistoryItem,
-  type ChatHistorySection,
-} from "./chat/ChatHistoryList.js";
+  AgentPanelTabCloseButton,
+  closeAgentPanelTabOnKey,
+} from "./AgentPanelThreadTabs.js";
 import type {
   AssistantChatProps,
   AssistantChatHandle,
@@ -98,9 +101,18 @@ import type {
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
+import {
+  OwnershipChatHistoryRail,
+  ownDraftRows,
+  useOwnershipChatHistory,
+  type OwnDraftRow,
+} from "./ownership-history/index.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
 const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
+// Every catalog refresh hits the same missing list; the error state already
+// shows it in the model picker, so the console only needs it once per page.
+let warnedEngineListUnavailable = false;
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -127,6 +139,8 @@ interface PendingSend {
   actionScope?: AgentActionScope;
   /** See `AgentChatMessage.approvedToolCalls`. */
   approvedToolCalls?: string[];
+  /** See `AssistantChatSendOptions.surface`. */
+  surface?: string;
 }
 
 /**
@@ -166,18 +180,12 @@ async function deliverPendingPrefill(
       // A provider item still loading has no size yet; report a typed failure so the
       // bridge caller does not wait for a timeout. Anything else is a bug and propagates.
       if (error instanceof ComposerContextError && error.code === "not-ready") {
-        console.error(
-          "Composer context is still loading; the prefill was not applied.",
-        );
         reportResult(false, "composer-not-ready");
         return;
       }
       throw error;
     }
     if (!fits) {
-      console.error(
-        "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
-      );
       reportResult(false, "context-too-large");
       return;
     }
@@ -268,6 +276,7 @@ function deliverPendingSend(
       : {}),
     ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     ...(send.actionScope ? { actionScope: send.actionScope } : {}),
+    ...(send.surface ? { surface: send.surface } : {}),
     // An approval resume is a protocol continuation, not a visible prompt.
     ...(send.approvedToolCalls
       ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
@@ -329,18 +338,22 @@ function writeStoredModelSelection(key: string, selection: ModelSelection) {
   } catch {}
 }
 
-function resolveModelSelection(
+export function resolveModelSelection(
   selection: ModelSelection | undefined,
   groups: EngineModelGroup[],
+  /** The app's configured default, once the server's catalog names it. */
+  appDefault?: { model: string; engine?: string },
 ): ModelSelection | undefined {
   if (!selection?.model) {
-    const group = groups.find((candidate) => candidate.configured);
-    const model = group?.models[0];
-    return group && model
+    const start = resolveDefaultModelSelection(
+      groups,
+      appDefault?.model,
+      appDefault?.engine,
+    );
+    return start
       ? {
-          model,
-          engine: group.engine,
-          effort: resolveReasoningEffortSelection(model, undefined),
+          ...start,
+          effort: resolveReasoningEffortSelection(start.model, undefined),
         }
       : undefined;
   }
@@ -406,28 +419,38 @@ function ChatSkeleton({
   header?: React.ReactNode;
   headerOnly?: boolean;
 }) {
+  const t = useT();
   return (
     <div
       className={cn(
         "flex flex-col min-h-0",
         headerOnly ? "shrink-0" : "flex-1 h-full",
       )}
+      aria-busy="true"
     >
+      <span role="status" className="sr-only">
+        {t("agentChat.empty.loadingChat")}
+      </span>
       {header ?? (
-        <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
-          <div className="h-[22px] w-20 rounded-md bg-muted animate-pulse" />
-          <div className="ms-auto flex gap-0.5">
-            <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
-            <div className="h-[22px] w-[22px] rounded-md bg-muted animate-pulse" />
+        <div
+          className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5"
+          aria-hidden="true"
+        >
+          <Skeleton className="h-6 w-24" />
+          <div className="ms-auto flex gap-px">
+            <Skeleton className="size-6" />
+            <Skeleton className="size-6" />
           </div>
         </div>
       )}
       {!headerOnly && (
-        <div className="flex-1 flex flex-col gap-3 p-4">
-          <div className="flex justify-center py-8">
-            <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
+        <div className="flex min-h-0 flex-1 flex-col" aria-hidden="true">
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <AgentKitTranscriptSkeleton />
           </div>
-          <div className="h-3 w-32 rounded bg-muted animate-pulse mx-auto" />
+          <div className="shrink-0 px-3 pb-3">
+            <Skeleton className="mx-auto h-24 w-full max-w-[47rem] rounded-2xl" />
+          </div>
         </div>
       )}
     </div>
@@ -488,139 +511,75 @@ function formatThreadTime(
 }
 
 function HistoryPopover({
-  threads,
+  apiUrl,
+  scope,
+  localMineRows,
   openTabIds,
   activeThreadId,
-  hasMoreThreads = false,
-  isLoadingMoreThreads = false,
-  loadError,
   onSelect,
+  onNewChat,
   onClose,
-  onLoadMore,
-  onSearch,
   onTogglePin,
   onRename,
+  getThreadUrl,
   popoverAlign = "end",
 }: {
-  threads: ChatThreadSummary[];
+  apiUrl?: string;
+  scope?: ChatThreadScope;
+  localMineRows: OwnDraftRow[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
-  hasMoreThreads?: boolean;
-  isLoadingMoreThreads?: boolean;
-  loadError?: string | null;
   onSelect: (id: string) => void;
+  onNewChat: () => void;
   onClose: () => void;
-  onLoadMore?: () => void;
-  onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
-  /** Presence enables the pin/unpin row action. Receives the thread's
-   * current pinned state so the caller can flip it. */
-  onTogglePin?: (id: string, pinned: boolean) => void;
-  /** Presence enables the inline rename row action. */
-  onRename?: (id: string, nextTitle: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => Promise<boolean>;
+  onRename: (id: string, nextTitle: string) => Promise<boolean>;
+  getThreadUrl: (id: string) => string;
   popoverAlign?: "start" | "end";
 }) {
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<
-    ChatThreadSummary[] | null
-  >(null);
-  const [isSearching, setIsSearching] = useState(false);
+  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const timer = setTimeout(() => setQuery(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  // Debounced server-side search
-  const searchIdRef = useRef(0);
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const q = search.trim();
-    if (!q) {
-      searchIdRef.current++;
-      setSearchResults(null);
-      setIsSearching(false);
-      return;
-    }
-    setIsSearching(true);
-    const id = ++searchIdRef.current;
-    debounceRef.current = setTimeout(async () => {
-      if (onSearch) {
-        const results = await onSearch(q);
-        if (id !== searchIdRef.current) return;
-        setSearchResults(results);
-      } else {
-        // Fallback to client-side filtering
-        setSearchResults(null);
-      }
-      setIsSearching(false);
-    }, 250);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [search, onSearch]);
-
-  // Hide empty threads from the history list — except the currently-active
-  // one. The active thread always belongs in the list so the user can see
-  // they're in it (the previous filter dropped a brand-new chat the user
-  // had just opened, making them think their chat had vanished).
-  const visibleThreads = threads.filter(
-    (t) => t.messageCount > 0 || t.id === activeThreadId,
-  );
-
-  const filtered = search.trim()
-    ? (searchResults ?? visibleThreads).filter(
-        (t) => t.messageCount > 0 || t.id === activeThreadId,
-      )
-    : visibleThreads;
-
-  // Pinned threads always float to the top of `threads` already (see
-  // `sortThreadSummaries` in use-chat-threads.ts and the matching server
-  // ORDER BY), but pulling them into their own labeled section — instead of
-  // just relying on sort order within "All chats" — makes the pin affordance
-  // visible at a glance, matching common chat-history UX.
-  const pinnedThreads = filtered.filter((t) => t.pinnedAt != null);
-  const unpinnedThreads = filtered.filter((t) => t.pinnedAt == null);
-
-  const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
-    const isActive = thread.id === activeThreadId;
-    const hasTitle = Boolean(thread.title);
-    const title = thread.title || t("agentChat.history.untitledChat");
-    return {
-      id: thread.id,
-      title,
-      titleText: title,
+  // This component is mounted only while the popover is open.
+  const history = useOwnershipChatHistory({
+    apiUrl,
+    scope,
+    enabled: true,
+    query,
+    activeId: activeThreadId,
+    pinned: true,
+    localMineRows,
+    mutations: { pin: onTogglePin, rename: onRename },
+    getThreadUrl,
+    onMutationFailed: () => toast.error(t("agentChat.common.saveFailed")),
+    decorateItem: (item, row) => ({
+      ...item,
+      title: row.title || t("agentChat.history.untitledChat"),
+      titleText: row.title || t("agentChat.history.untitledChat"),
       subtitle:
-        hasTitle && thread.preview && thread.title !== thread.preview
-          ? thread.preview
+        row.title && row.preview && row.title !== row.preview
+          ? row.preview
           : undefined,
-      timestamp: isActive
-        ? t("agentChat.history.active")
-        : openTabIds.has(thread.id)
-          ? t("agentChat.history.open")
-          : formatThreadTime(
-              thread.updatedAt,
-              locale,
-              t("agentChat.history.yesterday"),
-            ),
-      pinned: thread.pinnedAt != null,
-    };
-  };
-
-  const historySections: ChatHistorySection[] = [
-    ...(pinnedThreads.length > 0
-      ? [
-          {
-            id: "pinned",
-            label: t("agentChat.history.pinned"),
-            items: pinnedThreads.map(toHistoryItem),
-          },
-        ]
-      : []),
-    { id: "all", items: unpinnedThreads.map(toHistoryItem) },
-  ];
+      timestamp:
+        row.id === activeThreadId
+          ? t("agentChat.history.active")
+          : openTabIds.has(row.id)
+            ? t("agentChat.history.open")
+            : formatThreadTime(
+                row.updatedAt,
+                locale,
+                t("agentChat.history.yesterday"),
+              ),
+    }),
+  });
 
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
@@ -640,64 +599,60 @@ function HistoryPopover({
         }}
         className="w-72 rounded-lg p-0"
       >
-        <ChatHistoryList
-          sections={historySections}
+        <OwnershipChatHistoryRail
+          {...history}
           activeId={activeThreadId}
+          onNewChat={onNewChat}
+          showNewChat={false}
           onSelect={(id) => {
             onSelect(id);
             onClose();
           }}
-          onTogglePin={
-            onTogglePin
-              ? (id) => {
-                  const isPinned =
-                    threads.find((t) => t.id === id)?.pinnedAt != null;
-                  onTogglePin(id, !isPinned);
-                }
-              : undefined
-          }
-          onRename={onRename}
           searchValue={search}
           onSearchChange={setSearch}
           searchPlaceholder={t("agentChat.history.search")}
           searchInputRef={inputRef}
-          loading={isSearching}
           loadingLabel={t("agentChat.history.searching")}
-          error={loadError && !search.trim() ? loadError : undefined}
           emptyLabel={t("agentChat.history.empty")}
           emptySearchLabel={t("agentChat.history.noMatches")}
-          footer={
-            !search.trim() && hasMoreThreads ? (
-              <button
-                type="button"
-                onClick={() => onLoadMore?.()}
-                disabled={isLoadingMoreThreads}
-                className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
-              >
-                {isLoadingMoreThreads
-                  ? t("agentChat.common.loading")
-                  : t("agentChat.history.loadOlder")}
-              </button>
-            ) : undefined
-          }
+          className="an-chat-history--capped"
         />
       </PopoverContent>
     </Popover>
   );
 }
 
+/** Roving focus across a tablist's tabs; Enter or Space activates the focused tab. */
+function moveTabFocus(event: React.KeyboardEvent<HTMLElement>) {
+  if (
+    event.key !== "ArrowLeft" &&
+    event.key !== "ArrowRight" &&
+    event.key !== "Home" &&
+    event.key !== "End"
+  ) {
+    return;
+  }
+  const tabs = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
+  );
+  const index = tabs.indexOf(document.activeElement as HTMLElement);
+  if (index < 0) return;
+  event.preventDefault();
+  const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+  const step = (event.key === "ArrowRight") !== rtl ? 1 : -1;
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (index + step + tabs.length) % tabs.length;
+  tabs[next]?.focus();
+}
+
 // ─── Help Popover ────────────────────────────────────────────────────────────
 
 function HelpPopover({ onClose }: { onClose: () => void }) {
   const t = useT();
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
   const commands = [
     {
       name: "/clear",
@@ -705,42 +660,52 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
     },
     { name: "/new", description: t("agentChat.commands.new") },
     { name: "/history", description: t("agentChat.commands.history") },
-    { name: "/plan", description: t("agentChat.commands.plan") },
-    { name: "/act", description: t("agentChat.commands.act") },
+    { name: "/plan", description: t("agentChat.commands.planNext") },
     { name: "/help", description: t("agentChat.commands.help") },
     { name: "@", description: t("agentChat.commands.mention") },
   ];
 
   return (
-    <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute end-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+    <Popover open onOpenChange={(open) => !open && onClose()}>
+      <PopoverAnchor asChild>
+        <span aria-hidden className="absolute top-0 end-2 h-px w-px" />
+      </PopoverAnchor>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={0}
+        aria-label={t("agentChat.commands.available")}
+        className="w-72 rounded-lg p-0"
+      >
+        <div className="flex items-center justify-between gap-2 ps-3 pe-1 pt-1">
           <span className="text-xs font-medium text-foreground">
             {t("agentChat.commands.available")}
           </span>
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={onClose}
             aria-label={t("agentChat.commands.closeHelp")}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground [&_svg]:size-4"
           >
-            <IconX size={12} />
-          </button>
+            <IconX aria-hidden="true" />
+          </Button>
         </div>
-        <div className="py-1">
+        <div className="pb-1">
           {commands.map((cmd) => (
             <div key={cmd.name} className="px-3 py-1.5">
               <div className="text-xs font-medium text-foreground">
                 {cmd.name}
               </div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 {cmd.description}
               </div>
             </div>
           ))}
         </div>
-      </div>
-    </>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -786,14 +751,6 @@ interface AgentTeamTabInfo {
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function requestModeFromExecMode(
-  value: AssistantChatProps["execMode"],
-): "act" | "plan" | undefined {
-  if (value === "plan") return "plan";
-  if (value === "build") return "act";
-  return undefined;
 }
 
 function isActiveAgentTeamStatus(status?: AgentTeamRunStatus): boolean {
@@ -1284,12 +1241,7 @@ export function MultiTabAssistantChat({
     forkThread,
     saveThreadData,
     generateTitle,
-    searchThreads,
-    loadMoreThreads,
     refreshThreads,
-    hasMoreThreads,
-    isLoadingMoreThreads,
-    threadsLoadError,
     restoredThreadIdOnListFailure,
     evictedThreadIds,
     isNewThread,
@@ -1320,6 +1272,45 @@ export function MultiTabAssistantChat({
   activeThreadIdRef.current = activeThreadId;
   // Mark the active tab as mounted so it persists when switched away
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
+  // Tabs that rendered once after the thread list loaded. Only that first load
+  // gates a tab's restore: a later reload (a history-scope change) refetches
+  // every row, and gating on it releases and reopens each mounted thread and
+  // defers its sends.
+  const threadListLoadedTabsRef = useRef<Set<string>>(new Set());
+  // Hidden tabs are display:none, which drops their scroll position, so each
+  // transcript's last visible position is kept here and put back on show.
+  const tabContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const transcriptScrollRef = useRef<
+    Map<string, { top: number; atBottom: boolean }>
+  >(new Map());
+  const visibleTabId = contentHidden ? null : activeThreadId;
+  useBrowserLayoutEffect(() => {
+    if (!visibleTabId) return;
+    const saved = transcriptScrollRef.current.get(visibleTabId);
+    const scroller = tabContainersRef.current
+      .get(visibleTabId)
+      ?.querySelector<HTMLElement>(".agentkit-transcript");
+    if (!saved || !scroller) return;
+    scroller.scrollTop = saved.atBottom ? scroller.scrollHeight : saved.top;
+  }, [visibleTabId]);
+  const rememberTranscriptScroll = useCallback(
+    (tabId: string, event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        !(target instanceof HTMLElement) ||
+        !target.classList.contains("agentkit-transcript") ||
+        target.clientHeight === 0
+      ) {
+        return;
+      }
+      transcriptScrollRef.current.set(tabId, {
+        top: target.scrollTop,
+        atBottom:
+          target.scrollHeight - target.scrollTop - target.clientHeight <= 2,
+      });
+    },
+    [],
+  );
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   // Sends queued until their target thread is ready (see PendingDelivery).
   const pendingDeliveries = useRef<PendingDelivery[]>([]);
@@ -1333,6 +1324,7 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const observedThreadStarts = useRef(new Map<string, number>());
   const [, setThreadPersistenceVersion] = useState(0);
   const handleThreadSnapshotPersisted = useCallback(
     (threadId: string, messageCount: number) => {
@@ -1362,7 +1354,7 @@ export function MultiTabAssistantChat({
       if (
         !renderOverlay ||
         !(target instanceof HTMLElement) ||
-        !target.closest(".agent-chat-scroll")
+        !target.closest(".agentkit-transcript")
       ) {
         return;
       }
@@ -1392,6 +1384,10 @@ export function MultiTabAssistantChat({
     ? (hostModelListError ?? false)
     : discoveredModelsError;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  // Unset for host-managed models: the host's catalog names no app default.
+  const [catalogDefault, setCatalogDefault] = useState<
+    { model: string; engine?: string } | undefined
+  >(undefined);
   const engineCatalogRequestRef = useRef(0);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
@@ -1507,8 +1503,14 @@ export function MultiTabAssistantChat({
       resolveModelSelection(
         threadModelRef.current.get(threadId) ?? persistedModelSelection,
         availableModels,
+        catalogDefault,
       ),
-    [availableModels, persistedModelSelection, modelSelectionVersion],
+    [
+      availableModels,
+      catalogDefault,
+      persistedModelSelection,
+      modelSelectionVersion,
+    ],
   );
 
   useEffect(() => {
@@ -1690,9 +1692,10 @@ export function MultiTabAssistantChat({
         if (!isCurrentRequest()) return;
         if (catalog.state !== "available") {
           setDiscoveredModelsError(true);
-          if (catalog.enginesUnavailable) {
+          if (catalog.enginesUnavailable && !warnedEngineListUnavailable) {
             // Leaves `availableModels` empty for the session, so an override
             // with no engine of its own has nothing to resolve against.
+            warnedEngineListUnavailable = true;
             console.warn(
               "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
             );
@@ -1703,6 +1706,17 @@ export function MultiTabAssistantChat({
         setDiscoveredModels(catalog.groups);
         setDiscoveredModelEngines(catalog.modelEngines);
         setDefaultModel(catalog.defaultModel);
+        setCatalogDefault((current) =>
+          current?.model === catalog.defaultModel &&
+          current.engine === catalog.defaultEngine
+            ? current
+            : {
+                model: catalog.defaultModel,
+                ...(catalog.defaultEngine === undefined
+                  ? {}
+                  : { engine: catalog.defaultEngine }),
+              },
+        );
         void catalog.loadLiveGroups().then((liveGroups) => {
           if (isCurrentRequest() && liveGroups) {
             setDiscoveredModels(liveGroups);
@@ -2498,10 +2512,10 @@ export function MultiTabAssistantChat({
         usageLabel,
         actionScope,
         approvedToolCalls,
+        surface,
       } = parsed;
       const requestedTabId = parsed.tabId;
-      const requestMode =
-        parsed.requestMode ?? requestModeFromExecMode(props.execMode);
+      const { requestMode } = parsed;
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -2531,9 +2545,6 @@ export function MultiTabAssistantChat({
       // Checked the way a submit serializes it, so an accepted prefill cannot make
       // every later submit fail. Refused as a whole, before the draft changes.
       if (prefillContext && !composerContextFits([prefillContext])) {
-        console.error(
-          "Prefill context does not fit the composer context limit; the prefill was not applied.",
-        );
         reportAgentChatSubmitResult(
           submitMessageId,
           false,
@@ -2561,6 +2572,7 @@ export function MultiTabAssistantChat({
           ? { submissionExpiresAt: parsed.submissionExpiresAt }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
+        ...(surface ? { surface } : {}),
       };
       // Resolved once, up front, and carried with the send until a thread
       // exists to key it by. Applying it only when `model` matched
@@ -2690,7 +2702,6 @@ export function MultiTabAssistantChat({
     isNewThread,
     openTabIds,
     postMessageSubmissionsDisabled,
-    props.execMode,
     removeContextInTab,
     setContextInTab,
     switchThread,
@@ -2732,8 +2743,10 @@ export function MultiTabAssistantChat({
       if (!detail) return;
       const { isRunning, tabId } = detail;
       if (!tabId) return;
+      if (isRunning) observedThreadStarts.current.set(tabId, Date.now());
 
       setRunningThreads((prev) => {
+        if (prev.has(tabId) === Boolean(isRunning)) return prev;
         const next = new Set(prev);
         if (isRunning) {
           next.add(tabId);
@@ -3016,6 +3029,8 @@ export function MultiTabAssistantChat({
       pendingContextItems.current.delete(tabId);
       newThreadIds.current.delete(tabId);
       mountedTabsRef.current.delete(tabId);
+      threadListLoadedTabsRef.current.delete(tabId);
+      transcriptScrollRef.current.delete(tabId);
       threadModelRef.current.delete(tabId);
       // Clean up parent map and sub-agent names
       setParentMap((prev) => {
@@ -3162,6 +3177,7 @@ export function MultiTabAssistantChat({
               "[agent-chat] failed to replace the closed final tab",
               error,
             );
+            toast.error(translate("agentChat.message.closeTabFailed"));
           })
           .finally(() => {
             lastTabReplacementInFlightRef.current = false;
@@ -3176,7 +3192,7 @@ export function MultiTabAssistantChat({
       setOpenTabIds(next);
       cleanupClosedTabs([tabId])();
     },
-    [switchThread, closeAllTabs, cleanupClosedTabs],
+    [switchThread, closeAllTabs, cleanupClosedTabs, translate],
   );
 
   // Keyboard shortcuts dispatched from AgentPanel based on the active mode
@@ -3545,22 +3561,12 @@ export function MultiTabAssistantChat({
         case "history":
           setShowHistory(true);
           break;
-        case "plan":
-          props.onExecModeChange?.("plan");
-          break;
-        case "act": {
-          const ref = activeThreadIdRef.current
-            ? chatRefs.current.get(activeThreadIdRef.current)
-            : undefined;
-          if (!ref?.implementPlan()) props.onExecModeChange?.("build");
-          break;
-        }
         case "help":
           setHelpVisible(true);
           break;
       }
     },
-    [addTab, props.onExecModeChange],
+    [addTab],
   );
 
   const activateForkedThread = useCallback(
@@ -3733,16 +3739,6 @@ export function MultiTabAssistantChat({
 
   return (
     <div className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-      {/* Tailwind group-hover/tab doesn't work in core package — inject directly */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html:
-            ".agent-tab-close{opacity:0;pointer-events:none}" +
-            ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}" +
-            ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
-            ".agent-tabs-scroll::-webkit-scrollbar{display:none;}",
-        }}
-      />
       {renderHeader
         ? renderHeader(headerProps)
         : showTabBar
@@ -3754,11 +3750,23 @@ export function MultiTabAssistantChat({
               );
               const hasSubTabs = childTabs.length > 0;
               const mainTabs = tabs.filter((t) => !t.parentThreadId);
+              const closeButton = (tab: ChatTab) => (
+                <AgentPanelTabCloseButton
+                  label={translate("agentChat.tabs.closeTab")}
+                  onClose={() => closeTab(tab.id)}
+                  className="agent-tab-close me-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                />
+              );
 
               return (
                 <>
                   <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
-                    <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                    <div
+                      role="tablist"
+                      aria-label={translate("agentChat.agentPanel.chatTabs")}
+                      onKeyDown={moveTabFocus}
+                      className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1"
+                    >
                       {mainTabs.map((tab) => {
                         const isActive =
                           tab.id === activeThreadId ||
@@ -3768,8 +3776,9 @@ export function MultiTabAssistantChat({
                           <div
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
+                            data-active={isActive ? "" : undefined}
                             className={cn(
-                              "agent-tab agent-tab-group relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex h-6 items-center rounded-md text-xs font-medium shrink min-w-[56px] max-w-[136px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -3777,37 +3786,24 @@ export function MultiTabAssistantChat({
                           >
                             <button
                               type="button"
+                              role="tab"
+                              aria-selected={isActive}
+                              tabIndex={isActive ? 0 : -1}
+                              aria-keyshortcuts="Delete Backspace"
                               onClick={() => switchThread(tab.id)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-start"
+                              onKeyDown={(event) =>
+                                closeAgentPanelTabOnKey(event, () =>
+                                  closeTab(tab.id),
+                                )
+                              }
+                              className="flex h-full items-center gap-1 ps-2.5 pe-1 min-w-0 flex-1 rounded-md text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                             >
-                              <span className="truncate pe-1">{tab.label}</span>
+                              <span className="truncate">{tab.label}</span>
                               {tab.status === "running" && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                                <span className="size-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse motion-reduce:animate-none" />
                               )}
                             </button>
-                            <button
-                              type="button"
-                              aria-label={translate("agentChat.tabs.closeTab")}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                closeTab(tab.id);
-                              }}
-                              className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
-                              style={{
-                                position: "absolute",
-                                right: 0,
-                                top: 0,
-                                bottom: 0,
-                                width: 28,
-                                paddingRight: 6,
-                                borderRadius: "0 6px 6px 0",
-                                background:
-                                  "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                              }}
-                            >
-                              <IconX size={12} />
-                            </button>
+                            {closeButton(tab)}
                           </div>
                         );
                       })}
@@ -3817,11 +3813,12 @@ export function MultiTabAssistantChat({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
+                              type="button"
                               onClick={addTab}
                               aria-label={translate("agentChat.tabs.newChat")}
-                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                             >
-                              <IconPlus size={12} />
+                              <IconPlus size={16} aria-hidden="true" />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -3831,14 +3828,16 @@ export function MultiTabAssistantChat({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
+                              type="button"
                               onClick={() => setShowHistory(!showHistory)}
                               aria-label={translate("agentChat.tabs.allChats")}
+                              aria-expanded={showHistory}
                               className={cn(
-                                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
+                                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                 showHistory && "bg-accent text-foreground",
                               )}
                             >
-                              <IconHistory size={12} />
+                              <IconHistory size={16} aria-hidden="true" />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -3850,11 +3849,20 @@ export function MultiTabAssistantChat({
                   </div>
                   {hasSubTabs && (
                     <div className="flex items-center px-1 py-0.5 border-b border-border shrink-0 gap-0.5 bg-muted/30">
-                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                      <div
+                        role="tablist"
+                        aria-label={translate("agentChat.activity.agents")}
+                        onKeyDown={moveTabFocus}
+                        className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1"
+                      >
                         <button
+                          type="button"
+                          role="tab"
+                          aria-selected={activeThreadId === focusParentId}
+                          tabIndex={activeThreadId === focusParentId ? 0 : -1}
                           onClick={() => switchThread(focusParentId!)}
                           className={cn(
-                            "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
+                            "flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                             activeThreadId === focusParentId
                               ? "bg-accent text-foreground"
                               : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -3862,58 +3870,45 @@ export function MultiTabAssistantChat({
                         >
                           {translate("agentChat.tabs.main")}
                         </button>
-                        {childTabs.map((tab) => (
-                          <div
-                            key={tab.id}
-                            ref={
-                              tab.id === activeThreadId
-                                ? activeTabRefCb
-                                : undefined
-                            }
-                            className={cn(
-                              "agent-tab agent-tab-group relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
-                              tab.id === activeThreadId
-                                ? "bg-accent text-foreground"
-                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                            )}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => switchThread(tab.id)}
-                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-start"
-                            >
-                              <span className="truncate pe-1">
-                                {tab.subAgentName || tab.label}
-                              </span>
-                              {tab.status === "running" && (
-                                <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                        {childTabs.map((tab) => {
+                          const isActive = tab.id === activeThreadId;
+                          return (
+                            <div
+                              key={tab.id}
+                              ref={isActive ? activeTabRefCb : undefined}
+                              data-active={isActive ? "" : undefined}
+                              className={cn(
+                                "agent-tab agent-tab-group relative flex h-6 shrink items-center rounded-md text-xs font-medium min-w-[48px] max-w-[136px]",
+                                isActive
+                                  ? "bg-accent text-foreground"
+                                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
                               )}
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={translate("agentChat.tabs.closeTab")}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                closeTab(tab.id);
-                              }}
-                              className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
-                              style={{
-                                position: "absolute",
-                                right: 0,
-                                top: 0,
-                                bottom: 0,
-                                width: 24,
-                                paddingRight: 4,
-                                borderRadius: "0 6px 6px 0",
-                                background:
-                                  "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                              }}
                             >
-                              <IconX size={12} />
-                            </button>
-                          </div>
-                        ))}
+                              <button
+                                type="button"
+                                role="tab"
+                                aria-selected={isActive}
+                                tabIndex={isActive ? 0 : -1}
+                                aria-keyshortcuts="Delete Backspace"
+                                onClick={() => switchThread(tab.id)}
+                                onKeyDown={(event) =>
+                                  closeAgentPanelTabOnKey(event, () =>
+                                    closeTab(tab.id),
+                                  )
+                                }
+                                className="flex h-full items-center gap-1 ps-2 pe-1 min-w-0 flex-1 rounded-md text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                              >
+                                <span className="truncate">
+                                  {tab.subAgentName || tab.label}
+                                </span>
+                                {tab.status === "running" && (
+                                  <span className="size-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse motion-reduce:animate-none" />
+                                )}
+                              </button>
+                              {closeButton(tab)}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -3939,18 +3934,30 @@ export function MultiTabAssistantChat({
         {/* History popover — rendered inside relative container so positioning works */}
         {showHistory && (
           <HistoryPopover
-            threads={threads}
+            apiUrl={apiUrl}
+            scope={isolateHistoryByScope ? (scope ?? undefined) : undefined}
+            localMineRows={ownDraftRows({
+              threads: threads.map((thread) => ({
+                ...thread,
+                messageCount: messageCounts[thread.id] ?? thread.messageCount,
+              })),
+              isNewThread,
+              activeId: activeThreadId,
+              observedThreadStarts: observedThreadStarts.current,
+            })}
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
-            hasMoreThreads={hasMoreThreads}
-            isLoadingMoreThreads={isLoadingMoreThreads}
-            loadError={threadsLoadError}
             onSelect={openFromHistory}
+            onNewChat={addTab}
             onClose={() => setShowHistory(false)}
-            onLoadMore={loadMoreThreads}
-            onSearch={searchThreads}
             onTogglePin={pinThread}
             onRename={renameThread}
+            getThreadUrl={(threadId) => {
+              if (getThreadPath) return appPath(getThreadPath(threadId));
+              const url = new URL(window.location.href);
+              url.searchParams.set(threadUrlParamName, threadId);
+              return url.toString();
+            }}
             popoverAlign={renderOverlay ? "start" : "end"}
           />
         )}
@@ -3969,6 +3976,11 @@ export function MultiTabAssistantChat({
           .map((tabId) => {
             const isKnownNewThread =
               newThreadIds.current.has(tabId) || isNewThread(tabId);
+            if (!isLoading) threadListLoadedTabsRef.current.add(tabId);
+            const isThreadStateLoading =
+              isLoading &&
+              !isKnownNewThread &&
+              !threadListLoadedTabsRef.current.has(tabId);
             const modelSelection = resolveThreadModelSelection(tabId);
             const modelSelectionPending =
               !hostManagedModels && modelListLoading && !modelSelection;
@@ -3979,6 +3991,13 @@ export function MultiTabAssistantChat({
             return (
               <div
                 key={tabId}
+                ref={(element) => {
+                  if (element) tabContainersRef.current.set(tabId, element);
+                  else tabContainersRef.current.delete(tabId);
+                }}
+                onScrollCapture={(event) =>
+                  rememberTranscriptScroll(tabId, event)
+                }
                 className="flex-1 min-h-0 flex-col"
                 data-agent-chat-reference-target={
                   tabId === activeThreadId ? tabId : undefined
@@ -4018,7 +4037,7 @@ export function MultiTabAssistantChat({
                       ? clearActiveTab
                       : undefined
                   }
-                  isThreadStateLoading={isLoading && !isKnownNewThread}
+                  isThreadStateLoading={isThreadStateLoading}
                   onMessageCountChange={(count) => {
                     setMessageCounts((prev) =>
                       prev[tabId] === count

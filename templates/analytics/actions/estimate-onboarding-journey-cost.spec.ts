@@ -29,7 +29,12 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../server/lib/onboarding-journey.js", () => ({
+  DEFAULT_ONBOARDING_EVENT_ROW_BUDGET: 40_000,
   freezeOnboardingJourneyObservationWindow: mocks.freezeObservation,
+  MAX_ONBOARDING_EVENT_ROW_BUDGET: 200_000,
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED: 275_000_000_000,
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED: 25_000_000_000,
+  ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED: 1_275_000_000_000,
 }));
 
 vi.mock("../server/lib/onboarding-journey-cost.js", () => ({
@@ -96,6 +101,7 @@ describe("estimate-onboarding-journey-cost action", () => {
       },
       false,
       signal,
+      275_000_000_000,
     );
   });
 

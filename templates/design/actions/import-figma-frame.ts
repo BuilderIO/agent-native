@@ -19,6 +19,7 @@ import {
   saveImportedDesignFiles,
 } from "../server/lib/import-design-files.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import createDesign from "./create-design.js";
 import deleteDesign from "./delete-design.js";
 
@@ -173,6 +174,9 @@ export default defineAction({
 
     return {
       ...saved,
+      ...(saved.files.length
+        ? { _receipt: designOutputWriteReceipt(designId, saved.files.length) }
+        : {}),
       warnings: [...(saved.warnings ?? []), ...omissionWarnings],
       figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
       fidelityReport: summarizeFidelity(fidelityEntries),

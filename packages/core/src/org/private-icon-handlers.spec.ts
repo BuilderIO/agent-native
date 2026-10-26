@@ -2,6 +2,7 @@ import { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_ICON_MULTIPART_BYTES } from "../icon-assets/multipart.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -306,6 +307,29 @@ describe("workspace private icons", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(mocks.readIconAssetForAuthorizedReference).not.toHaveBeenCalled();
+  });
+
+  it("does not grant library previews to a delegated owner", async () => {
+    mocks.getSession.mockResolvedValueOnce({ email: "owner@example.test" });
+    mocks.execute.mockResolvedValueOnce({ rows: [{ role: "owner" }] });
+
+    await expect(
+      runWithRequestContext(
+        {
+          a2aIdentityAssurance: "org-member",
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        () =>
+          readWorkspacePrivateIconHandler(
+            event(
+              `/_agent-native/org/private-icons/library/org-1/${assetId}`,
+            ) as never,
+          ),
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    expect(mocks.getIconAsset).not.toHaveBeenCalled();
   });
 
   it("checks federated membership before proxying the referenced bytes", async () => {

@@ -69,8 +69,12 @@ function makeActions(): Record<string, ActionEntry> {
   };
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   serverless = false;
   resetSandboxExecutionsStoreForTests();
   resetSandboxBackgroundForTests();

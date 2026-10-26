@@ -109,7 +109,14 @@ afterAll(async () => {
 describe("request-recording-context", () => {
   it("creates a pending item for the window before the recording started", async () => {
     await expect(
-      action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
+      action.run({
+        recordingId: "rec_1",
+        seconds: 30,
+        endedAt: ENDED_AT,
+        deviceId: "device-1",
+        includeMicrophone: true,
+        includeSystemAudio: false,
+      }),
     ).resolves.toMatchObject({
       recordingId: "rec_1",
       kind: "screen_history",
@@ -121,6 +128,9 @@ describe("request-recording-context", () => {
       endedAt: ENDED_AT,
       status: "pending",
       mediaRecordingId: null,
+      capturedDeviceId: "device-1",
+      includeMicrophone: true,
+      includeSystemAudio: false,
     });
     expect(await countItems("rec_1")).toBe(1);
   });

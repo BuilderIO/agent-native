@@ -12,6 +12,10 @@ export {
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "./action-browser-persist.js";
+export {
   APP_STATUS,
   DEFAULT_APP_STATUS,
   getAppStatus,
@@ -73,6 +77,7 @@ export {
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type ReasoningEffort,
@@ -287,3 +292,10 @@ export {
   stripDiagnosticSnippets,
   wrapDiagnosticSnippet,
 } from "./diagnostic-snippet.js";
+export {
+  AGENT_PROFILE_DESCRIPTION_MAX_LENGTH,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH,
+  parseAgentProfileMetadata,
+  type AgentProfileMetadata,
+} from "./agent-profile.js";

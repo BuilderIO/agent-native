@@ -2,6 +2,11 @@ import type { ElementInfo } from "@/components/design/types";
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 
 import {
+  copyExportImageSource,
+  prepareExportImageSource,
+  resolveExportImageSource,
+} from "../../../shared/export-image-source";
+import {
   computeExportCropBox,
   EDITOR_CHROME_OVERLAY_SELECTOR,
   resolveRasterExportScale,
@@ -83,30 +88,37 @@ function resolveClonedElement(
   return clonedElement;
 }
 
-function normalizeClonedResponsiveImages(
+async function normalizeClonedResponsiveImages(
   sourceDocument: Document,
   clonedDocument: Document,
-): void {
-  for (const sourceImage of Array.from(
-    sourceDocument.querySelectorAll<HTMLImageElement>("img"),
-  )) {
-    const clonedImage = resolveClonedElement(
-      sourceDocument,
-      clonedDocument,
-      sourceImage,
-    ) as HTMLImageElement | null;
-    if (!clonedImage) continue;
-    if (sourceImage.currentSrc) {
-      clonedImage.setAttribute("src", sourceImage.currentSrc);
-    }
-    clonedImage.removeAttribute("srcset");
-    clonedImage
-      .closest("picture")
-      ?.querySelectorAll("source")
-      .forEach((source) => {
-        source.remove();
-      });
-  }
+): Promise<void> {
+  const signal = AbortSignal.timeout(15_000);
+  await Promise.all(
+    Array.from(sourceDocument.querySelectorAll<HTMLImageElement>("img")).map(
+      async (sourceImage) => {
+        const loadedImage = await prepareExportImageSource(sourceImage, signal);
+        const clonedImage = resolveClonedElement(
+          sourceDocument,
+          clonedDocument,
+          sourceImage,
+        ) as HTMLImageElement | null;
+        if (!clonedImage) return;
+        clonedImage.loading = "eager";
+        copyExportImageSource(loadedImage, clonedImage);
+        await resolveExportImageSource(
+          clonedImage,
+          loadedImage.currentSrc,
+          signal,
+        );
+        clonedImage
+          .closest("picture")
+          ?.querySelectorAll("source")
+          .forEach((source) => {
+            source.remove();
+          });
+      },
+    ),
+  );
 }
 
 export function preserveLiveStylesheets(
@@ -156,7 +168,18 @@ export function preserveLiveStylesheets(
     let cssText: string;
     try {
       cssText = Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
-    } catch {
+    } catch (error) {
+      // Cross-origin links can be fetched by the export bridge even when
+      // their no-cors stylesheet load makes CSSOM access opaque.
+      if (
+        sourceNode.localName === "link" &&
+        (sourceNode as HTMLLinkElement).href &&
+        error instanceof
+          (sourceDocument.defaultView?.DOMException ?? DOMException) &&
+        error.name === "SecurityError"
+      ) {
+        continue;
+      }
       failures.add("stylesheet-cssom-unavailable");
       continue;
     }
@@ -354,6 +377,85 @@ export type ExportCropTarget =
   | { kind: "whole-screen" }
   | { kind: "unresolved" };
 
+function translationOnlyExportStyle(
+  style: CSSStyleDeclaration,
+  view: Window,
+): boolean {
+  if (
+    !["", "none"].includes(style.getPropertyValue("scale")) ||
+    !["", "none"].includes(style.getPropertyValue("rotate")) ||
+    !["", "none"].includes(style.getPropertyValue("perspective")) ||
+    !["", "none"].includes(style.getPropertyValue("offset-path")) ||
+    !["", "1", "normal"].includes(style.getPropertyValue("zoom"))
+  )
+    return false;
+  if (!style.transform || style.transform === "none") return true;
+  const Matrix = (view as Window & typeof globalThis).DOMMatrixReadOnly;
+  if (!Matrix) return false;
+  const matrix = new Matrix(style.transform);
+  return (
+    matrix.is2D &&
+    matrix.a === 1 &&
+    matrix.b === 0 &&
+    matrix.c === 0 &&
+    matrix.d === 1
+  );
+}
+
+function liveExportBorderBox(
+  element: Element,
+): { width: number; height: number } | null {
+  const view = element.ownerDocument.defaultView;
+  if (
+    !view ||
+    !(element instanceof view.HTMLElement) ||
+    element.getClientRects().length !== 1
+  )
+    return null;
+  const style = view.getComputedStyle(element);
+  if (["inline", "contents", "none"].includes(style.display)) return null;
+  for (
+    let ancestor: Element | null = element;
+    ancestor;
+    ancestor = ancestor.parentElement
+  )
+    if (
+      !(ancestor instanceof view.HTMLElement) ||
+      !translationOnlyExportStyle(view.getComputedStyle(ancestor), view)
+    )
+      return null;
+  const px = (value: string): number | null => {
+    if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(value)) return null;
+    const parsed = Number(value.slice(0, -2));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  };
+  let width = px(style.width);
+  let height = px(style.height);
+  if (width === null || height === null) return null;
+  if (style.boxSizing === "content-box") {
+    const horizontal = [
+      style.paddingLeft,
+      style.paddingRight,
+      style.borderLeftWidth,
+      style.borderRightWidth,
+    ].map(px);
+    const vertical = [
+      style.paddingTop,
+      style.paddingBottom,
+      style.borderTopWidth,
+      style.borderBottomWidth,
+    ].map(px);
+    if (
+      !horizontal.every((value): value is number => value !== null) ||
+      !vertical.every((value): value is number => value !== null)
+    )
+      return null;
+    width += horizontal.reduce((sum, value) => sum + value, 0);
+    height += vertical.reduce((sum, value) => sum + value, 0);
+  } else if (style.boxSizing !== "border-box") return null;
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
 export function resolveExportCropTarget(
   doc: Document,
   selected: ElementInfo | readonly ElementInfo[] | null | undefined,
@@ -382,11 +484,12 @@ export function resolveExportCropTarget(
           throw new PngCaptureError("selection-unresolved");
         }
         const view = doc.defaultView;
+        const borderBox = liveExportBorderBox(element);
         return {
           x: rect.left + (view?.scrollX ?? 0),
           y: rect.top + (view?.scrollY ?? 0),
-          width: rect.width,
-          height: rect.height,
+          width: borderBox?.width ?? rect.width,
+          height: borderBox?.height ?? rect.height,
         };
       }),
     );
@@ -466,6 +569,22 @@ export function resolveBoardExportCropRect(
   return { x, y, width: right - x, height: bottom - y };
 }
 
+/** An auto-height screen's iframe can be taller than its frame, which clips it. */
+export function screenFrameCropRect(
+  doc: Document,
+  iframe: HTMLIFrameElement,
+  frame: { width: number; height: number },
+): ExportCropRect {
+  const view = doc.defaultView;
+  const width = Math.max(1, iframe.clientWidth);
+  return {
+    x: view?.scrollX ?? 0,
+    y: view?.scrollY ?? 0,
+    width,
+    height: Math.max(1, (width * frame.height) / Math.max(1, frame.width)),
+  };
+}
+
 export function cropCanvasToRect(
   source: HTMLCanvasElement,
   rect: { x: number; y: number; width: number; height: number },
@@ -504,8 +623,23 @@ export async function renderExportDocumentCanvas({
   exportScale: number;
   cropRect?: ExportCropRect | null;
   isolateSelectedElements?: readonly Element[];
-}): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
+}): Promise<{
+  canvas: HTMLCanvasElement;
+  scale: number;
+  width: number;
+  height: number;
+}> {
   await waitForExportReady(doc);
+  const clonedDocument = doc.cloneNode(true) as Document;
+  try {
+    await normalizeClonedResponsiveImages(doc, clonedDocument);
+  } catch {
+    throw new NativeExportRenderError(
+      "The export contains an image that could not be loaded.",
+      "export_resources_unavailable",
+    );
+  }
+  preserveLiveStylesheets(doc, clonedDocument);
   const width = Math.max(
     doc.documentElement.scrollWidth,
     doc.body?.scrollWidth ?? 0,
@@ -516,22 +650,20 @@ export async function renderExportDocumentCanvas({
     doc.body?.scrollHeight ?? 0,
     iframe.clientHeight,
   );
-  const renderCropRect = cropRect
-    ? intersectExportCropRect(cropRect, width, height)
+  const outputCropRect = cropRect ?? null;
+  const renderCropRect = outputCropRect
+    ? intersectExportCropRect(outputCropRect, width, height)
     : null;
   if (cropRect && !renderCropRect) {
     throw new PngCaptureError("selection-unresolved");
   }
-  const renderWidth = renderCropRect?.width ?? width;
-  const renderHeight = renderCropRect?.height ?? height;
+  const renderWidth = outputCropRect?.width ?? width;
+  const renderHeight = outputCropRect?.height ?? height;
   const effectiveScale = resolveRasterExportScale({
     width: renderWidth,
     height: renderHeight,
     requestedScale: exportScale,
   });
-  const clonedDocument = doc.cloneNode(true) as Document;
-  preserveLiveStylesheets(doc, clonedDocument);
-  normalizeClonedResponsiveImages(doc, clonedDocument);
   isolateSelectedExportElements(doc, clonedDocument, isolateSelectedElements);
   removeEditorChromeOverlays(clonedDocument);
   const serializedHtml = `<!doctype html>${clonedDocument.documentElement.outerHTML}`;
@@ -558,25 +690,39 @@ export async function renderExportDocumentCanvas({
   }
   const png = await renderNativeExportPng({
     html: inlinedSnapshot?.html ?? serializedHtml,
-    width,
+    width: Math.max(1, iframe.clientWidth),
     height: Math.max(1, iframe.clientHeight),
     scale: effectiveScale,
     clip: renderCropRect ?? undefined,
   });
   const bitmap = await createImageBitmap(png);
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = outputCropRect
+    ? Math.max(1, Math.ceil(renderWidth * effectiveScale))
+    : bitmap.width;
+  canvas.height = outputCropRect
+    ? Math.max(1, Math.ceil(renderHeight * effectiveScale))
+    : bitmap.height;
   const context = canvas.getContext("2d");
   if (!context) {
     bitmap.close();
     throw new PngCaptureError("blob-failed");
   }
-  context.drawImage(bitmap, 0, 0);
+  context.drawImage(
+    bitmap,
+    renderCropRect && outputCropRect
+      ? (renderCropRect.x - outputCropRect.x) * effectiveScale
+      : 0,
+    renderCropRect && outputCropRect
+      ? (renderCropRect.y - outputCropRect.y) * effectiveScale
+      : 0,
+  );
   bitmap.close();
   return {
     canvas,
     scale: effectiveScale,
+    width: outputCropRect?.width ?? canvas.width / effectiveScale,
+    height: outputCropRect?.height ?? canvas.height / effectiveScale,
   };
 }
 

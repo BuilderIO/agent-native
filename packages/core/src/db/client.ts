@@ -99,7 +99,11 @@ function getActivePgliteTransactionExec(url: string): DbExec | undefined {
     ?.exec;
 }
 
-export function getDatabaseUrl(fallback = ""): string {
+export function getDatabaseUrl(
+  fallback = "",
+  options: { explicitOnly?: boolean } = {},
+): string {
+  if (options.explicitOnly) return envDatabaseValue("DATABASE_URL") || fallback;
   const testUrl = getIsolatedTestDatabaseUrl();
   if (testUrl) return testUrl;
   const appName = getAppEnvPrefix();
@@ -2310,13 +2314,53 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 }
 
 const scopedDbExec = new AsyncLocalStorage<DbExec>();
+const transactionCallbacks = new AsyncLocalStorage<{
+  active: boolean;
+  executors: WeakSet<DbExec>;
+}>();
 
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
-  return scopedDbExec.run(guardSchemaMutations(exec), run);
+  const guarded = guardSchemaMutations(exec);
+  const callback = transactionCallbacks.getStore();
+  if (callback?.active && callback.executors.has(exec)) {
+    callback.executors.add(guarded);
+  }
+  return scopedDbExec.run(guarded, run);
 }
 
 export function getScopedDbExec(): DbExec | undefined {
   return scopedDbExec.getStore();
+}
+
+export function getScopedTransactionDbExec(): DbExec | undefined {
+  const scoped = getScopedDbExec();
+  const callback = transactionCallbacks.getStore();
+  return scoped && callback?.active && callback.executors.has(scoped)
+    ? scoped
+    : undefined;
+}
+
+/**
+ * True while a `getDbExec().transaction()` callback runs. That callback leaves
+ * `getScopedDbExec()` unset, so code that must not run inside a caller's
+ * transaction asks this as well.
+ */
+export function insideDbTransactionCallback(): boolean {
+  return transactionCallbacks.getStore()?.active === true;
+}
+
+async function inTransactionCallback<T>(
+  exec: DbExec,
+  run: () => Promise<T>,
+): Promise<T> {
+  const callback = { active: true, executors: new WeakSet([exec]) };
+  try {
+    return await transactionCallbacks.run(callback, run);
+  } finally {
+    // Work the callback started and left running inherits this store; once
+    // the callback settles, that work is no longer inside the transaction.
+    callback.active = false;
+  }
 }
 
 export function getDbExec(): DbExec {
@@ -2384,17 +2428,25 @@ export function getDbExec(): DbExec {
               throw new Error("This database does not support transactions.");
             }
             return currentExec.transaction((tx) =>
-              fn({
-                execute: (s) => {
-                  assertSchemaMutationAllowed(s);
-                  return tx.execute(sanitize(s));
-                },
-                transaction: tx.transaction?.bind(tx),
-              }),
+              runTransactionCallback(tx, fn),
             );
           }
         : undefined,
     };
+  }
+
+  function runTransactionCallback<T>(
+    tx: DbExec,
+    fn: (tx: DbExec) => Promise<T>,
+  ): Promise<T> {
+    const exec: DbExec = {
+      execute: (s) => {
+        assertSchemaMutationAllowed(s);
+        return tx.execute(sanitize(s));
+      },
+      transaction: tx.transaction?.bind(tx),
+    };
+    return inTransactionCallback(exec, () => fn(exec));
   }
 
   const proxy: DbExec = {
@@ -2408,15 +2460,7 @@ export function getDbExec(): DbExec {
       const exec = await initializeProxy();
       Object.assign(proxy, createInitializedProxy(exec));
       if (exec.transaction) {
-        return exec.transaction((tx) =>
-          fn({
-            execute: (s) => {
-              assertSchemaMutationAllowed(s);
-              return tx.execute(sanitize(s));
-            },
-            transaction: tx.transaction?.bind(tx),
-          }),
-        );
+        return exec.transaction((tx) => runTransactionCallback(tx, fn));
       }
       if (exec.atomicBatch) {
         throw new Error(
@@ -2424,7 +2468,9 @@ export function getDbExec(): DbExec {
         );
       }
       const wrapper = createInitializedProxy(exec);
-      return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
+      return explicitTransaction(wrapper.execute.bind(wrapper))((tx) =>
+        inTransactionCallback(tx, () => fn(tx)),
+      );
     },
     async atomicBatch(statements) {
       for (const statement of statements) {

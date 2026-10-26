@@ -17,6 +17,7 @@ import {
   createSmoothNode,
   getPenPathGeometry,
   hitTestPenAnchor,
+  hitTestPenEditTarget,
   hitTestPenHandle,
   isPenCloseTarget,
   movePenAnchor,
@@ -630,6 +631,28 @@ describe("pen path helpers", () => {
     it("returns null for an empty path", () => {
       const empty: PenPath = { nodes: [], closed: false };
       expect(hitTestPenAnchor(empty, { x: 0, y: 0 }, 100)).toBeNull();
+    });
+  });
+
+  describe("hitTestPenEditTarget", () => {
+    const path = appendPenNode(
+      null,
+      createSmoothNode({ x: 0, y: 0 }, { x: 10, y: 0 }),
+    );
+
+    it("grabs the anchor when its own short handle is also within the radius", () => {
+      expect(hitTestPenEditTarget(path, { x: 0, y: 0 }, 16)).toEqual({
+        kind: "anchor",
+        nodeIndex: 0,
+      });
+    });
+
+    it("grabs the handle when the pointer is nearer to it than to the anchor", () => {
+      expect(hitTestPenEditTarget(path, { x: 8, y: 0 }, 16)).toEqual({
+        kind: "handle",
+        nodeIndex: 0,
+        which: "out",
+      });
     });
   });
 

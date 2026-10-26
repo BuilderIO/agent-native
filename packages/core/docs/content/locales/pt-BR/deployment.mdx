@@ -23,6 +23,16 @@ apps na mesma origem.
 
 </Cards>
 
+## Agentes que sobrevivem além de suas funções {#durable-agents}
+
+As execuções de agentes não dependem da função que as iniciou permanecer ativa. Cada
+execução é rastreada no seu banco de dados, então um turno que atinge o limite de tempo de uma função serverless
+continua em uma nova invocação, um navegador que se reconecta retoma a resposta de
+onde estava, e uma função que falha no meio de um turno é recuperada em vez de deixar o chat
+travado. Isso é o que permite que o mesmo agente seja executado economicamente em hosts serverless, se mova
+entre provedores sem mudanças de código, e compartilhe a implantação com o resto do
+seu app. Veja [Agentes que sobrevivem em qualquer host](/docs/durable-background-runs#survive-any-host).
+
 ## Antes de implantar: escolha um banco de dados persistente {#persistent-database}
 
 Todo app implantado precisa de um banco de dados PostgreSQL persistente. O desenvolvimento local pode usar

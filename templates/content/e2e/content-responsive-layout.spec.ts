@@ -1,8 +1,10 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
+import { presentUiCapability } from "./helpers";
+
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
@@ -155,6 +157,7 @@ test.describe("Content page responsive layout", () => {
       mode: "selection",
       documentIds: [documentId],
     });
+    await presentUiCapability(page);
     await runAction(page, "permanently-delete-document", {
       id: documentId,
       planId: plan.planId,

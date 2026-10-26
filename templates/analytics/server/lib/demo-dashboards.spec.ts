@@ -79,13 +79,6 @@ vi.mock("@agent-native/core/settings", () => ({
   putUserSetting: mocks.putUserSetting,
 }));
 
-vi.mock("@agent-native/core/collab", () => ({
-  applyText: mocks.applyText,
-  getText: vi.fn(async () => ""),
-  hasCollabState: mocks.hasCollabState,
-  seedFromText: mocks.seedFromText,
-}));
-
 vi.mock("./dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
@@ -101,10 +94,13 @@ const {
   DEMO_NODE_EXPORTER_DEFAULT_TAB,
   DEMO_NODE_EXPORTER_INSTANCE,
   DEMO_NODE_EXPORTER_JOB,
-  demoDashboardIdForUser,
+  demoNodeExporterConfig,
   ensureDemoDashboardsForUser,
+  isDemoDashboardDeleted,
   markDemoDashboardDeleted,
 } = await import("./demo-dashboards");
+const { BUILTIN_DEMO_DASHBOARD_ID } =
+  await import("../../shared/builtin-dashboard-ids");
 
 const alice = { email: "alice@example.com", orgId: "org-1" };
 
@@ -125,31 +121,34 @@ describe("demo dashboards", () => {
     mocks.seedFromText.mockResolvedValue(undefined);
   });
 
-  it("creates a private per-user Node Exporter dashboard and opens it first", async () => {
+  it("serves the built-in Node Exporter demo without writing a dashboard", async () => {
     const result = await ensureDemoDashboardsForUser(alice);
 
-    expect(result.defaultDashboardId).toBe(
-      demoDashboardIdForUser(alice.email, "demo-node-exporter"),
-    );
+    expect(result.defaultDashboardId).toBe(BUILTIN_DEMO_DASHBOARD_ID);
     const params = new URLSearchParams({
       tab: DEMO_NODE_EXPORTER_DEFAULT_TAB,
     });
     expect(result.defaultDashboardPath).toBe(
-      `/dashboards/${result.defaultDashboardId}?${params.toString()}`,
+      `/dashboards/${BUILTIN_DEMO_DASHBOARD_ID}?${params.toString()}`,
     );
-    expect(result.dashboards).toHaveLength(1);
-    expect(result.dashboards.every((dashboard) => dashboard.created)).toBe(
-      true,
-    );
+    expect(result.dashboards).toEqual([
+      expect.objectContaining({ installed: true, created: false }),
+    ]);
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("builds the demo from the Node Exporter seed against the demo endpoint", () => {
+    const config = demoNodeExporterConfig();
+
     expect(mocks.loadDashboardSeed).toHaveBeenCalledWith("node-exporter-full");
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
-    expect(mocks.upsertDashboard).toHaveBeenCalledWith(
-      result.defaultDashboardId,
-      "sql",
+    expect(config).toEqual(
       expect.objectContaining({
         name: "Demo Node Exporter Full",
-        demo: expect.objectContaining({ id: "demo-node-exporter" }),
-        catalog: expect.objectContaining({ templateId: "demo-node-exporter" }),
+        demo: { id: "demo-node-exporter", version: DEMO_DASHBOARD_VERSION },
+        catalog: {
+          templateId: "demo-node-exporter",
+          templateVersion: DEMO_DASHBOARD_VERSION,
+        },
         filters: expect.arrayContaining([
           expect.objectContaining({
             id: "job",
@@ -168,77 +167,14 @@ describe("demo dashboards", () => {
           }),
         ],
       }),
-      { email: alice.email, orgId: null },
     );
   });
 
   it("is idempotent after the first install", async () => {
-    const first = await ensureDemoDashboardsForUser(alice);
-    const second = await ensureDemoDashboardsForUser(alice);
+    await ensureDemoDashboardsForUser(alice);
+    await ensureDemoDashboardsForUser(alice);
 
-    expect(second.defaultDashboardId).toBe(first.defaultDashboardId);
-    expect(second.dashboards.every((dashboard) => !dashboard.created)).toBe(
-      true,
-    );
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
     expect(mocks.putUserSetting).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not block installation when collab synchronization stalls", async () => {
-    mocks.applyText.mockImplementationOnce(
-      () => new Promise<undefined>(() => undefined),
-    );
-
-    const result = await ensureDemoDashboardsForUser(alice);
-
-    expect(result.dashboards[0]).toEqual(
-      expect.objectContaining({ installed: true, created: true }),
-    );
-    expect(mocks.putUserSetting).toHaveBeenCalledTimes(1);
-    expect(mocks.applyText).toHaveBeenCalledTimes(1);
-  });
-
-  it("refreshes existing demos when the embedded demo version is outdated", async () => {
-    const dashboardId = demoDashboardIdForUser(
-      alice.email,
-      "demo-node-exporter",
-    );
-    const key = mocks.keyFor(alice.email, null, dashboardId);
-    mocks.dashboards.set(key, {
-      id: dashboardId,
-      kind: "sql",
-      title: "Old demo",
-      archivedAt: null,
-      config: {
-        name: "Old demo",
-        demo: { id: "demo-node-exporter", version: "2026-06-10" },
-        panels: [],
-      },
-    });
-    mocks.settings.set(`${alice.email}:${DEMO_DASHBOARD_STATE_KEY}`, {
-      dashboards: {
-        "demo-node-exporter": {
-          dashboardId,
-          seedId: "node-exporter-full",
-          installedAt: "2026-06-10T00:00:00.000Z",
-        },
-      },
-      deleted: {},
-    });
-
-    const result = await ensureDemoDashboardsForUser(alice);
-
-    expect(result.dashboards[0]).toEqual(
-      expect.objectContaining({ dashboardId, created: false }),
-    );
-    expect(mocks.upsertDashboard).toHaveBeenCalledWith(
-      dashboardId,
-      "sql",
-      expect.objectContaining({
-        demo: expect.objectContaining({ version: DEMO_DASHBOARD_VERSION }),
-      }),
-      { email: alice.email, orgId: null },
-    );
   });
 
   it("tombstones deleted demos and does not recreate them", async () => {
@@ -247,7 +183,7 @@ describe("demo dashboards", () => {
     await markDemoDashboardDeleted(first.defaultDashboardId!, alice);
     const second = await ensureDemoDashboardsForUser(alice);
 
-    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    expect(await isDemoDashboardDeleted(alice.email)).toBe(true);
     expect(second.dashboards[0]).toEqual(
       expect.objectContaining({
         id: "demo-node-exporter",
@@ -288,26 +224,5 @@ describe("demo dashboards", () => {
       `${alice.email}:${DEMO_DASHBOARD_STATE_KEY}`,
     )!;
     expect(state.deleted).toEqual({});
-  });
-
-  it("isolates deterministic demo dashboard IDs per user", async () => {
-    const bob = { email: "bob@example.com", orgId: null };
-
-    const aliceId = demoDashboardIdForUser(alice.email, "demo-node-exporter");
-    const bobId = demoDashboardIdForUser(bob.email, "demo-node-exporter");
-
-    expect(aliceId).not.toBe(bobId);
-
-    const aliceResult = await ensureDemoDashboardsForUser(alice);
-    const bobResult = await ensureDemoDashboardsForUser(bob);
-
-    expect(aliceResult.defaultDashboardId).toBe(aliceId);
-    expect(bobResult.defaultDashboardId).toBe(bobId);
-    expect(mocks.dashboards.has(mocks.keyFor(alice.email, null, aliceId))).toBe(
-      true,
-    );
-    expect(mocks.dashboards.has(mocks.keyFor(bob.email, null, bobId))).toBe(
-      true,
-    );
   });
 });

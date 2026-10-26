@@ -1,9 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
+import { MOTION_BUILT_IN_RECIPES } from "../shared/motion-built-in-recipes";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
@@ -59,7 +65,7 @@ async function getAction(
 }
 
 async function captureReferenceState(
-  page: import("@playwright/test").Page,
+  page: Page,
   stepId: string,
 ): Promise<void> {
   const artifactDirectory = path.resolve(
@@ -128,6 +134,19 @@ async function captureReferenceState(
   });
 }
 
+async function zoomCanvasTo100(page: Page): Promise<void> {
+  const canvasZoom = page
+    .getByRole("button")
+    .filter({ hasText: /^\s*\d+%\s*$/ })
+    .first();
+  await expect(canvasZoom).toBeVisible();
+  if ((await canvasZoom.innerText()).trim() !== "100%") {
+    await canvasZoom.click();
+    await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+  }
+  await expect(canvasZoom).toHaveText(/100%/);
+}
+
 test.beforeAll(async ({ request }, workerInfo) => {
   baseURLForActions =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
@@ -149,6 +168,11 @@ test.beforeAll(async ({ request }, workerInfo) => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await page
+    .context()
+    .addCookies([
+      { name: "an_consent", value: "1.p0.t0", url: baseURLForActions },
+    ]);
   restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
 });
 
@@ -178,7 +202,6 @@ test("Motion inspector states match the editable timeline", async ({
   await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
-    deep: false,
   });
   if ((await canvasZoom.innerText()).trim() !== "100%") {
     await canvasZoom.click();
@@ -230,11 +253,93 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await expect(
     page.getByRole("button", { name: "Add animation", exact: true }).first(),
   ).toBeVisible();
+
+  await page.setViewportSize({ width: 1728, height: 997 });
+  const animationCatalogTrigger = page.getByRole("button", {
+    name: "Animations",
+    exact: true,
+  });
+  await animationCatalogTrigger.click();
+  const animationCatalog = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({
+      has: page.getByRole("button", { name: "Close", exact: true }),
+    });
+  await expect(animationCatalog).toBeVisible();
+  const gallerySearch = animationCatalog.getByRole("textbox").first();
+  const galleryCategoryFilter = animationCatalog.getByRole("combobox").first();
+  const firstBasicAction = animationCatalog.getByRole("button", {
+    name: "Position",
+    exact: true,
+  });
+  await expect(gallerySearch).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(galleryCategoryFilter).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(firstBasicAction).toBeFocused();
+  for (const action of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
+    await expect(
+      animationCatalog.getByRole("button", { name: action, exact: true }),
+    ).toBeVisible();
+  }
+  await expect(
+    animationCatalog.getByRole("button", { name: "Path", exact: true }),
+  ).toHaveCount(0);
+  await animationCatalog.evaluate(async (popover) => {
+    const finiteAnimations = popover
+      .getAnimations()
+      .filter(
+        (animation) => animation.effect?.getTiming().iterations !== Infinity,
+      );
+    await Promise.all(finiteAnimations.map((animation) => animation.finished));
+  });
+  await captureReferenceState(
+    page,
+    "motion-controls-animation-library-2026-10-15",
+  );
+  const catalogGeometry = await animationCatalog.evaluate((popover) => {
+    const rect = popover.getBoundingClientRect();
+    const inspectorHeading = document.querySelector<HTMLElement>(
+      'h3[aria-label="Animations"]',
+    );
+    const inspectorSection = inspectorHeading?.closest<HTMLElement>(
+      "[data-design-inspector-section]",
+    );
+    const rightPanel = document.querySelector<HTMLElement>(
+      '[data-design-chrome-region="right-panel"]',
+    );
+    const trigger = inspectorSection?.querySelector<HTMLElement>(
+      'button[aria-label="Animations"]',
+    );
+    if (!inspectorSection || !rightPanel || !trigger) {
+      throw new Error("Animation catalog anchor geometry is unavailable");
+    }
+    return {
+      popover: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      rightPanel: rightPanel.getBoundingClientRect().toJSON(),
+      trigger: trigger.getBoundingClientRect().toJSON(),
+    };
+  });
+  expect(catalogGeometry.popover.width).toBe(240);
+  expect(catalogGeometry.popover.height).toBe(485);
+  expect(catalogGeometry.rightPanel.width).toBe(240);
+  expect(catalogGeometry.trigger.width).toBe(24);
+  expect(
+    catalogGeometry.rightPanel.x -
+      (catalogGeometry.popover.x + catalogGeometry.popover.width),
+    JSON.stringify(catalogGeometry),
+  ).toBe(1);
+  expect(
+    Math.abs(catalogGeometry.popover.y - catalogGeometry.trigger.y),
+  ).toBeLessThanOrEqual(1);
+  await animationCatalog
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page.setViewportSize({ width: 1728, height: 941 });
 
   const addAnimation = page
     .getByRole("button", { name: "Add animation", exact: true })
@@ -268,7 +373,16 @@ test("Motion inspector states match the editable timeline", async ({
         'button[aria-label="Add animation"]',
       ),
     ).find((button) => button.getBoundingClientRect().width > 0);
+    const inspectorHeader = trigger
+      ?.closest<HTMLElement>("[data-design-inspector-section]")
+      ?.querySelector<HTMLElement>(
+        '[data-design-inspector-section-header] [data-inspector-layout="header-actions"]',
+      );
+    if (!inspectorHeader) {
+      throw new Error("Animation inspector geometry is unavailable");
+    }
     return {
+      inspectorHeaderRight: inspectorHeader.getBoundingClientRect().right,
       menu: bounds(document.querySelector('[role="menu"]')),
       trigger: bounds(trigger ?? null),
     };
@@ -278,6 +392,16 @@ test("Motion inspector states match the editable timeline", async ({
   }
   expect(menuGeometry.menu.width).toBe(120);
   expect(menuGeometry.menu.height).toBe(136);
+  expect(menuGeometry.trigger.width).toBe(24);
+  expect(
+    Math.abs(
+      menuGeometry.trigger.x +
+        menuGeometry.trigger.width -
+        menuGeometry.inspectorHeaderRight +
+        1,
+    ),
+    JSON.stringify(menuGeometry),
+  ).toBeLessThanOrEqual(1);
   expect(
     Math.abs(
       menuGeometry.menu.x +
@@ -296,6 +420,7 @@ test("Motion inspector states match the editable timeline", async ({
   expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
   expect(await appliedResponse.json()).toMatchObject({ persisted: true });
 
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   const nativeStyleInspector = page.locator(
     '[data-design-inspector-section][aria-label="Animations"]',
   );
@@ -305,6 +430,68 @@ test("Motion inspector states match the editable timeline", async ({
   await nativeStyleInspector
     .getByRole("button", { name: "Position", exact: true })
     .click();
+  const positionEditorPopup = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.getByRole("combobox", { name: "Type" }) });
+  const positionEditorRect = await positionEditorPopup.boundingBox();
+  const positionStyleTriggerRect = await nativeStyleInspector
+    .getByRole("button", { name: "Position", exact: true })
+    .boundingBox();
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  const rightPanelBounds = await rightPanel.boundingBox();
+  const rightPanelScroller = rightPanel.locator(".design-inspector-scroll");
+  const inspectorScrollGutter = await rightPanelScroller.evaluate((element) => {
+    const scroller = element as HTMLElement;
+    const style = window.getComputedStyle(scroller);
+    const borders =
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
+      (Number.parseFloat(style.borderRightWidth) || 0);
+    return scroller.offsetWidth - scroller.clientWidth - borders;
+  });
+  expect(positionEditorRect).not.toBeNull();
+  expect(positionStyleTriggerRect).not.toBeNull();
+  expect(rightPanelBounds).not.toBeNull();
+  expect(positionEditorRect!.y - positionStyleTriggerRect!.y).toBeCloseTo(
+    -4,
+    0,
+  );
+  expect(
+    positionEditorRect!.x + positionEditorRect!.width - rightPanelBounds!.x,
+    JSON.stringify({
+      positionEditorRect,
+      rightPanelBounds,
+      positionStyleTriggerRect,
+    }),
+  ).toBeCloseTo(0, 0);
+  const positionStyleRow = nativeStyleInspector
+    .getByRole("button", { name: "Position", exact: true })
+    .locator("xpath=..");
+  const positionStyleRowRect = await positionStyleRow.boundingBox();
+  const positionStyleRowGap = await positionStyleRow.evaluate((element) =>
+    Number.parseFloat(window.getComputedStyle(element).columnGap),
+  );
+  const visibilityButtonRect = await positionStyleRow
+    .locator("button")
+    .nth(1)
+    .boundingBox();
+  expect(positionStyleRowRect).not.toBeNull();
+  expect(visibilityButtonRect).not.toBeNull();
+  expect(positionStyleTriggerRect!.x - rightPanelBounds!.x).toBe(16);
+  expect(
+    Math.abs(
+      positionStyleRowRect!.width -
+        (rightPanelBounds!.width - inspectorScrollGutter),
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(positionStyleTriggerRect!.width + inspectorScrollGutter).toBeCloseTo(
+    148,
+    0,
+  );
+  expect(
+    visibilityButtonRect!.x -
+      (positionStyleTriggerRect!.x + positionStyleTriggerRect!.width),
+  ).toBeCloseTo(positionStyleRowGap, 0);
+  expect(positionEditorRect!.height).toBeCloseTo(270, 0);
   await expect(page.getByRole("combobox", { name: "Type" })).toHaveText(
     "Slide in",
   );
@@ -331,10 +518,32 @@ test("Motion inspector states match the editable timeline", async ({
   ]);
   await captureReferenceState(page, "motion-controls-position-type-menu");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Ease out", exact: true }).click();
+  const easingTrigger = page.getByRole("button", {
+    name: "Ease out",
+    exact: true,
+  });
+  const easingTriggerRect = await easingTrigger.boundingBox();
+  await easingTrigger.click();
   const easingPresetPanel = page.getByRole("tabpanel", {
     name: "Presets",
   });
+  const easingPopup = easingPresetPanel.locator(
+    "xpath=ancestor::*[@data-side][1]",
+  );
+  const easingPopupRect = await easingPopup.boundingBox();
+  expect(easingPopupRect).not.toBeNull();
+  expect(easingTriggerRect).not.toBeNull();
+  await expect(easingPopup).toHaveAttribute("data-side", "bottom");
+  await expect(easingPopup).toHaveAttribute("data-align", "start");
+  await expect(easingPopup.locator('input[type="search"]')).toHaveCount(0);
+  await expect(
+    easingPopup.getByRole("button", { name: "New variable", exact: true }),
+  ).toBeVisible();
+  await expect(
+    easingPopup.getByRole("button", { name: "Close", exact: true }),
+  ).toBeVisible();
+  expect(easingPopupRect!.x).toBeCloseTo(easingTriggerRect!.x, 0);
+  expect(easingPopupRect!.y).toBeGreaterThan(easingTriggerRect!.y);
   for (const easing of [
     "Hold",
     "Linear",
@@ -355,9 +564,17 @@ test("Motion inspector states match the editable timeline", async ({
       easingPresetPanel.getByRole("button", { name: easing, exact: true }),
     ).toBeVisible();
   }
+  await page.setViewportSize({ width: 1152, height: 941 });
+  await expect(easingPopup).toBeVisible();
+  const narrowEasingPopupRect = await easingPopup.boundingBox();
+  expect(narrowEasingPopupRect).not.toBeNull();
+  expect(narrowEasingPopupRect!.x).toBeGreaterThanOrEqual(0);
+  expect(
+    narrowEasingPopupRect!.x + narrowEasingPopupRect!.width,
+  ).toBeLessThanOrEqual(1152);
   await captureReferenceState(page, "motion-controls-easing-menu");
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await easingPopup.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     dock.locator(
       '[data-motion-native-style-row="Position"] [data-motion-select-native-style]',
@@ -450,6 +667,19 @@ test("Motion inspector states match the editable timeline", async ({
       }),
     ]),
   );
+  const sourceBeforeAddingScale = await getAction(request, "read-source-file", {
+    designId,
+    path: "index.html",
+  });
+  const motionDebugDir = path.resolve(
+    import.meta.dirname,
+    "../../../.tmp/design-motion-parity",
+  );
+  await mkdir(motionDebugDir, { recursive: true });
+  await writeFile(
+    path.join(motionDebugDir, "motion-controls-before-scale.html"),
+    sourceBeforeAddingScale.content,
+  );
 
   await addAnimation.click();
   for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
@@ -464,6 +694,254 @@ test("Motion inspector states match the editable timeline", async ({
   await captureReferenceState(page, "motion-controls-add-menu");
   await page.keyboard.press("Escape");
 
+  for (const style of [
+    { name: "Scale", type: "Scale in", amount: "120" },
+    {
+      name: "Rotation",
+      type: "Rotate in",
+      amount: "180",
+      direction: "Clockwise",
+    },
+    { name: "Size", type: "Resize in", amount: "50" },
+    { name: "Opacity", type: "Fade In", amount: "0" },
+  ]) {
+    const appliedStyle = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: style.name, exact: true }).click();
+    const appliedStyleResponse = await appliedStyle;
+    if (!appliedStyleResponse.ok()) {
+      const sourceAfterFailure = await getAction(request, "read-source-file", {
+        designId,
+        path: "index.html",
+      });
+      await writeFile(
+        path.join(motionDebugDir, "motion-controls-after-scale-failure.html"),
+        sourceAfterFailure.content,
+      );
+    }
+    expect(appliedStyleResponse.ok(), await appliedStyleResponse.text()).toBe(
+      true,
+    );
+    expect(await appliedStyleResponse.json()).toMatchObject({
+      persisted: true,
+    });
+
+    await nativeStyleInspector
+      .getByRole("button", { name: style.name, exact: true })
+      .click();
+    const styleSettings = page.locator(
+      `[data-motion-native-style-settings="${style.name}"][data-state="open"]`,
+    );
+    await expect(styleSettings).toHaveCount(1);
+    await expect(
+      styleSettings.getByRole("combobox", { name: "Type" }),
+    ).toHaveText(style.type);
+    if (style.direction) {
+      await expect(
+        styleSettings.getByRole("combobox", { name: "Direction" }),
+      ).toHaveText(style.direction);
+    }
+    await expect(
+      styleSettings.getByRole("spinbutton", { name: "Amount" }),
+    ).toHaveValue(style.amount);
+    if (style.name === "Size") {
+      await expect(styleSettings.getByText("px", { exact: true })).toHaveCount(
+        0,
+      );
+    }
+    await expect(
+      styleSettings.getByRole("spinbutton", { name: "Delay" }),
+    ).toHaveValue("0");
+    await expect(
+      styleSettings.getByRole("spinbutton", { name: "Duration" }),
+    ).toHaveValue("500");
+    await expect(
+      styleSettings.getByRole("button", { name: "Ease out" }),
+    ).toBeVisible();
+  }
+
+  await page.setViewportSize({ width: 1200, height: 953 });
+  const inspectorPosition = nativeStyleInspector.getByRole("button", {
+    name: "Position",
+    exact: true,
+  });
+  const inspectorRotation = nativeStyleInspector.getByRole("button", {
+    name: "Rotation",
+    exact: true,
+  });
+  const dockPosition = dock.locator(
+    '[data-motion-native-style-row="Position"] [data-motion-select-native-style]',
+  );
+  const dockRotation = dock.locator(
+    '[data-motion-native-style-row="Rotation"] [data-motion-select-native-style]',
+  );
+
+  await inspectorPosition.click();
+  await expect(inspectorPosition).toHaveAttribute("aria-pressed", "true");
+  await expect(inspectorRotation).toHaveAttribute("aria-pressed", "false");
+  await expect(dockPosition).toHaveAttribute("aria-pressed", "true");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "false");
+  const positionSettings = page.locator(
+    '[data-motion-native-style-settings="Position"][data-state="open"]',
+  );
+  await expect(positionSettings).toHaveCount(1);
+  await expect(
+    positionSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Slide in");
+
+  await dockRotation.click();
+  await expect(dockPosition).toHaveAttribute("aria-pressed", "false");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
+  await expect(inspectorPosition).toHaveAttribute("aria-pressed", "false");
+  const selectionsAfterDockRotation = await page.evaluate(() => ({
+    inspector: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+    dock: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-select-native-style]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+  }));
+  await expect(
+    inspectorRotation,
+    `Selection after selecting Rotation in the dock: ${JSON.stringify(selectionsAfterDockRotation)}`,
+  ).toHaveAttribute("aria-pressed", "true");
+  const rotationSettings = page.locator(
+    '[data-motion-native-style-settings="Rotation"][data-state="open"]',
+  );
+  await expect(rotationSettings).toHaveCount(0);
+  await inspectorRotation.click();
+  await expect(rotationSettings).toHaveCount(1);
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Rotate in");
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Direction" }),
+  ).toHaveText("Clockwise");
+  await expect(
+    rotationSettings.getByRole("spinbutton", { name: "Amount" }),
+  ).toHaveValue("180");
+  await expect(
+    rotationSettings.getByRole("spinbutton", { name: "Delay" }),
+  ).toHaveValue("0");
+  await expect(
+    rotationSettings.getByRole("spinbutton", { name: "Duration" }),
+  ).toHaveValue("500");
+  await expect(
+    rotationSettings.getByRole("button", { name: "Ease out" }),
+  ).toBeVisible();
+  await captureReferenceState(page, "motion-controls-cross-pane-selection");
+  const parityArtifactDirectory = path.resolve(
+    import.meta.dirname,
+    "../../../.tmp/motion-parity",
+  );
+  await mkdir(parityArtifactDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(
+      parityArtifactDirectory,
+      "motion-controls-cross-pane-selection-1200x953.png",
+    ),
+    fullPage: true,
+  });
+  const crossPaneState = await page.evaluate(() => ({
+    viewport: { width: innerWidth, height: innerHeight },
+    inspectorSelection: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        '[data-motion-native-style-trigger][aria-pressed="true"]',
+      ),
+    ).map((button) => button.innerText.trim()),
+    dockSelection: Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-motion-native-style-row] [data-motion-select-native-style][aria-pressed="true"]',
+      ),
+    ).map((button) => button.innerText.trim()),
+    openSettings: Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "[data-motion-native-style-settings][data-state=open]",
+      ),
+    ).map((panel) => panel.dataset.motionNativeStyleSettings),
+    canvasZoom: Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    )
+      .find((button) => /^\s*100%\s*$/.test(button.innerText))
+      ?.innerText.trim(),
+  }));
+  await writeFile(
+    path.join(
+      parityArtifactDirectory,
+      "motion-controls-cross-pane-selection-1200x953.json",
+    ),
+    JSON.stringify(crossPaneState, null, 2),
+  );
+  await page.keyboard.press("Escape");
+  await expect(rotationSettings).toHaveCount(0);
+  const removePosition = nativeStyleInspector.getByRole("button", {
+    name: "Remove animation Position",
+    exact: true,
+  });
+  const removedPosition = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await removePosition.click();
+  const removedPositionResponse = await removedPosition;
+  expect(
+    removedPositionResponse.ok(),
+    await removedPositionResponse.text(),
+  ).toBe(true);
+  expect(await removedPositionResponse.json()).toMatchObject({
+    persisted: true,
+  });
+  await expect(
+    nativeStyleInspector.getByRole("button", { name: "Position", exact: true }),
+  ).toHaveCount(0);
+  const selectionsAfterPositionRemoval = await page.evaluate(() => ({
+    inspector: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+    dock: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-select-native-style]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+  }));
+  await expect(
+    inspectorRotation,
+    `Selection after removing Position: ${JSON.stringify(selectionsAfterPositionRemoval)}`,
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
+  await expect(rotationSettings).toHaveCount(0);
+  await inspectorRotation.click();
+  await expect(rotationSettings).toHaveCount(1);
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Rotate in");
+  await page.setViewportSize({ width: 1728, height: 941 });
+
   const origin = page.getByRole("button", { name: "Origin", exact: true });
   await expect(origin).toBeVisible();
   await page.keyboard.press("Alt+r");
@@ -474,7 +952,9 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(page.getByRole("radio")).toHaveCount(9);
   await expect(page.getByRole("textbox", { name: "Origin X" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Origin Y" })).toBeVisible();
-  const originPopover = page.getByRole("dialog");
+  const originPopover = page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("textbox", { name: "Origin X" }) });
   await originPopover.evaluate(async (popover) => {
     const finiteAnimations = popover
       .getAnimations()
@@ -563,24 +1043,561 @@ test("Motion inspector states match the editable timeline", async ({
     clearPreviousSelection: true,
   });
   await addAnimation.click();
-  for (const label of ["Position", "Scale", "Rotation", "Size", "Opacity"]) {
+  for (const label of [
+    "Text",
+    "Position",
+    "Scale",
+    "Rotation",
+    "Size",
+    "Opacity",
+  ]) {
     await expect(
       page.getByRole("menuitem", { name: label, exact: true }),
     ).toBeVisible();
   }
-  await expect(page.getByRole("menuitem")).toHaveCount(5);
+  await expect(page.getByRole("menuitem")).toHaveCount(6);
   await captureReferenceState(page, "motion-controls-text-add-menu");
+
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "More Motion", exact: true }).click();
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  const currentTime = dock.getByRole("textbox", { name: "Current time" });
+  const appearance = page
+    .getByRole("heading", { name: "Appearance", exact: true })
+    .locator("xpath=ancestor::section");
+  const opacity = appearance.locator('input[aria-label="Opacity" i]');
+  await expect(opacity).toBeVisible();
+  await currentTime.fill("0");
+  await currentTime.press("Tab");
+  await autoKeyframe.check();
+
+  const startOpacitySave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await opacity.fill("70");
+  await opacity.press("Enter");
+  const savedStartOpacity = await startOpacitySave;
+  expect(savedStartOpacity.ok(), await savedStartOpacity.text()).toBe(true);
+  const opacityTimelineRow = dock.locator(
+    '[data-motion-property-row="opacity"][data-motion-target-node-id="e2e-motion-reference-rectangle"]',
+  );
+  await expect(opacityTimelineRow).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: "Text Stagger", exact: true }),
+    opacityTimelineRow.getByRole("button", { name: "Add or remove keyframe" }),
   ).toBeVisible();
-  await captureReferenceState(page, "motion-controls-text-menu");
+  const startTimeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  const opacityTrack = startTimeline.timelines?.[0]?.tracks?.find(
+    (track: { property: string; targetNodeId: string }) =>
+      track.property === "opacity" &&
+      track.targetNodeId === "e2e-motion-reference-rectangle",
+  );
+  expect(
+    opacityTrack?.keyframes?.map((keyframe: { t: number }) => keyframe.t),
+  ).toEqual([0]);
+  expect(
+    opacityTrack?.keyframes?.map(
+      (keyframe: { value: string }) => keyframe.value,
+    ),
+  ).toEqual(["0.7"]);
+  await captureReferenceState(
+    page,
+    "motion-controls-auto-key-new-track-at-start",
+  );
+
+  await currentTime.fill("1000");
+  await currentTime.press("Tab");
+  await selectByText(page, "Reference Rectangle Two", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  const middleOpacitySave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await opacity.fill("70");
+  await opacity.press("Enter");
+  const savedMiddleOpacity = await middleOpacitySave;
+  expect(savedMiddleOpacity.ok(), await savedMiddleOpacity.text()).toBe(true);
+  const middleTimeline = await getAction(request, "get-motion-timeline", {
+    designId,
+    sourceRef: fileId,
+  });
+  const middleOpacityTrack = middleTimeline.timelines?.[0]?.tracks?.find(
+    (track: { property: string; targetNodeId: string }) =>
+      track.property === "opacity" &&
+      track.targetNodeId === "e2e-motion-reference-rectangle-2",
+  );
+  expect(
+    middleOpacityTrack?.keyframes?.map((keyframe: { t: number }) => keyframe.t),
+  ).toEqual([0, 0.5]);
+  expect(
+    middleOpacityTrack?.keyframes?.map(
+      (keyframe: { value: string }) => keyframe.value,
+    ),
+  ).toEqual(["1", "0.7"]);
+  const middleOpacityTimelineRow = dock.locator(
+    '[data-motion-property-row="opacity"][data-motion-target-node-id="e2e-motion-reference-rectangle-2"]',
+  );
+  await expect(
+    middleOpacityTimelineRow.getByRole("button", {
+      name: "Add or remove keyframe",
+    }),
+  ).toBeVisible();
+  await captureReferenceState(
+    page,
+    "motion-controls-auto-key-new-track-midpoint",
+  );
+  await autoKeyframe.uncheck();
+  await selectByText(page, "Second fixture paragraph for selection tests.", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  const addTextStyleSave = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await addAnimation.click();
+  await page.getByRole("menuitem", { name: "Text", exact: true }).click();
+  const savedTextStyle = await addTextStyleSave;
+  expect(savedTextStyle.ok(), await savedTextStyle.text()).toBe(true);
+  const textStyleRow = dock.locator(
+    '[data-motion-native-style-row="TextStagger"] [data-motion-select-native-style]',
+  );
+  await expect(textStyleRow).toBeVisible();
+
+  await selectByText(page, "Reference Rectangle", {
+    screenId: fileId,
+    clearPreviousSelection: true,
+  });
+  await textStyleRow.click();
+  await expect(textStyleRow).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await expect
+    .poll(async () =>
+      page.locator('[role="treeitem"][aria-selected="true"]').allInnerTexts(),
+    )
+    .toEqual(["Rectangle"]);
+  const selectedInspectorStyle = page.locator(
+    '[data-motion-native-style-trigger][aria-pressed="true"]',
+  );
+  await expect(selectedInspectorStyle).toHaveCount(1);
+  await expect(selectedInspectorStyle).toContainText("Text");
+  await captureReferenceState(page, "motion-controls-cross-layer-selection");
 });
 
-test("a new motion preset applies to every selected target", async ({
+test("spring precision persists and easing-segment double-click preserves Motion state", async ({
   page,
   request,
+}) => {
+  test.setTimeout(120_000);
+  let regressionDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion Easing Regressions",
+      projectType: "prototype",
+    });
+    regressionDesignId =
+      created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!regressionDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const createdFile = await postAction(request, "create-file", {
+      designId: regressionDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    const regressionFileId = createdFile.id;
+    if (!regressionFileId) {
+      throw new Error("create-file did not return a file id");
+    }
+    await postAction(request, "index-components", {
+      designId: regressionDesignId,
+    });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, regressionDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: regressionFileId,
+      clearPreviousSelection: true,
+    });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    await expect(dock).toBeVisible();
+
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const nativeStyleInspector = page.locator(
+      '[data-design-inspector-section][aria-label="Animations"]',
+    );
+    const addPositionSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Position", exact: true }).click();
+    const addedPosition = await addPositionSave;
+    expect(addedPosition.ok(), await addedPosition.text()).toBe(true);
+    expect(await addedPosition.json()).toMatchObject({ persisted: true });
+
+    await page.getByRole("tab", { name: "List", exact: true }).click();
+    const positionStyleButton = nativeStyleInspector.getByRole("button", {
+      name: "Position",
+      exact: true,
+    });
+    await expect(positionStyleButton).toBeVisible();
+    await positionStyleButton.click();
+    const positionSettings = page.locator(
+      '[data-motion-native-style-settings="Position"][data-state="open"]',
+    );
+    await expect(positionSettings).toBeVisible();
+    const easingPicker = positionSettings.getByRole("button", {
+      name: "Ease out",
+      exact: true,
+    });
+    await easingPicker.click();
+    const easingPresets = page.getByRole("tabpanel", { name: "Presets" });
+    const customSpring = easingPresets.getByRole("button", {
+      name: "Custom spring",
+      exact: true,
+    });
+    await expect(customSpring).toBeVisible();
+    const selectSpringSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await customSpring.click();
+    const selectedSpring = await selectSpringSave;
+    expect(selectedSpring.ok(), await selectedSpring.text()).toBe(true);
+    expect(await selectedSpring.json()).toMatchObject({ persisted: true });
+
+    const curveEditorToggle = positionSettings.getByRole("button", {
+      name: "Show easing curve editor",
+      exact: true,
+    });
+    await expect(curveEditorToggle).toBeVisible();
+    await curveEditorToggle.click();
+    await expect(curveEditorToggle).toHaveAttribute("aria-expanded", "true");
+    const springTab = positionSettings.getByRole("tab", {
+      name: "Spring",
+      exact: true,
+    });
+    await expect(springTab).toBeVisible();
+    await springTab.click();
+    await expect(springTab).toHaveAttribute("aria-selected", "true");
+    const bounceInput = positionSettings.getByRole("textbox", {
+      name: "Bounce",
+      exact: true,
+    });
+    await expect(bounceInput).toHaveValue("0.25");
+    await bounceInput.fill("0.125");
+    await expect(bounceInput).toHaveValue("0.125");
+
+    const bounceSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await springTab.focus();
+    const savedBounce = await bounceSave;
+    expect(savedBounce.ok(), await savedBounce.text()).toBe(true);
+    expect(await savedBounce.json()).toMatchObject({ persisted: true });
+    await expect(positionSettings).toBeVisible();
+
+    const springTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const positionSpringStyle =
+      springTimeline.timelines?.[0]?.nativeStyles?.find(
+        (style: { styleKey: string; targetNodeId: string }) =>
+          style.styleKey === "Position" &&
+          style.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+    expect(positionSpringStyle).toMatchObject({
+      props: { easing: "spring(0.125)" },
+    });
+    await captureReferenceState(page, "motion-controls-custom-spring-0.125");
+
+    let motionEditRequestCount = 0;
+    const countMotionEditRequests = (request: {
+      method(): string;
+      url(): string;
+    }) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/_agent-native/actions/apply-motion-edit")
+      ) {
+        motionEditRequestCount += 1;
+      }
+    };
+    page.on("request", countMotionEditRequests);
+    try {
+      await bounceInput.focus();
+      await springTab.focus();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      const timelineAfterUntouchedBounceBlur = await getAction(
+        request,
+        "get-motion-timeline",
+        { designId: regressionDesignId, sourceRef: regressionFileId },
+      );
+      const positionAfterUntouchedBlur =
+        timelineAfterUntouchedBounceBlur.timelines?.[0]?.nativeStyles?.find(
+          (style: { styleKey: string; targetNodeId: string }) =>
+            style.styleKey === "Position" &&
+            style.targetNodeId === "e2e-motion-reference-rectangle",
+        );
+      expect(motionEditRequestCount).toBe(0);
+      expect(positionAfterUntouchedBlur).toMatchObject({
+        props: { easing: "spring(0.125)" },
+      });
+    } finally {
+      page.off("request", countMotionEditRequests);
+    }
+
+    await bounceInput.fill("1");
+    const maxBounceSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await springTab.focus();
+    const savedMaxBounce = await maxBounceSave;
+    expect(savedMaxBounce.ok(), await savedMaxBounce.text()).toBe(true);
+    expect(await savedMaxBounce.json()).toMatchObject({ persisted: true });
+    const maxBounceTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const positionAtMaxBounce =
+      maxBounceTimeline.timelines?.[0]?.nativeStyles?.find(
+        (style: { styleKey: string; targetNodeId: string }) =>
+          style.styleKey === "Position" &&
+          style.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+    expect(positionAtMaxBounce).toMatchObject({
+      props: { easing: "spring(1)" },
+    });
+
+    let clampedBounceSaveCount = 0;
+    const countClampedBounceSaves = (request: {
+      method(): string;
+      url(): string;
+    }) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/_agent-native/actions/apply-motion-edit")
+      ) {
+        clampedBounceSaveCount += 1;
+      }
+    };
+    page.on("request", countClampedBounceSaves);
+    try {
+      await bounceInput.fill("2");
+      await expect(bounceInput).toHaveValue("2");
+      await springTab.focus();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      await expect(bounceInput).toHaveValue("1");
+      expect(clampedBounceSaveCount).toBe(0);
+      const timelineAfterClampedBounce = await getAction(
+        request,
+        "get-motion-timeline",
+        { designId: regressionDesignId, sourceRef: regressionFileId },
+      );
+      const positionAfterClampedBounce =
+        timelineAfterClampedBounce.timelines?.[0]?.nativeStyles?.find(
+          (style: { styleKey: string; targetNodeId: string }) =>
+            style.styleKey === "Position" &&
+            style.targetNodeId === "e2e-motion-reference-rectangle",
+        );
+      expect(positionAfterClampedBounce).toMatchObject({
+        props: { easing: "spring(1)" },
+      });
+      await captureReferenceState(
+        page,
+        "motion-controls-clamped-spring-bounce-1",
+      );
+    } finally {
+      page.off("request", countClampedBounceSaves);
+    }
+
+    const restoreEasingPicker = positionSettings.getByRole("button", {
+      name: "Custom spring",
+      exact: true,
+    });
+    await restoreEasingPicker.click();
+    const restoreEaseOut = easingPresets.getByRole("button", {
+      name: "Ease out",
+      exact: true,
+    });
+    await expect(restoreEaseOut).toBeVisible();
+    const restoreEaseOutSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await restoreEaseOut.click();
+    const restoredEaseOut = await restoreEaseOutSave;
+    expect(restoredEaseOut.ok(), await restoredEaseOut.text()).toBe(true);
+    expect(await restoredEaseOut.json()).toMatchObject({ persisted: true });
+    const restoredTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const restoredPositionStyle =
+      restoredTimeline.timelines?.[0]?.nativeStyles?.find(
+        (style: { styleKey: string; targetNodeId: string }) =>
+          style.styleKey === "Position" &&
+          style.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+    expect(restoredPositionStyle).toMatchObject({
+      props: { easing: "cubic-bezier(0, 0, 0.58, 1)" },
+    });
+
+    await page.keyboard.press("Escape");
+    await expect(positionSettings).toHaveCount(0);
+    await selectByText(page, "Reference Rectangle Two", {
+      screenId: regressionFileId,
+      clearPreviousSelection: true,
+    });
+    const currentTime = dock.getByRole("textbox", { name: "Current time" });
+    await currentTime.fill("1000");
+    await currentTime.press("Tab");
+    const autoKeyframe = dock.getByRole("checkbox", {
+      name: "Toggle auto-keyframing",
+    });
+    await expect(autoKeyframe).not.toBeChecked();
+    await autoKeyframe.check();
+
+    const appearance = page
+      .getByRole("heading", { name: "Appearance", exact: true })
+      .locator("xpath=ancestor::section");
+    const opacity = appearance.locator('input[aria-label="Opacity" i]');
+    await expect(opacity).toBeVisible();
+    const opacitySave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await opacity.fill("70");
+    await opacity.press("Enter");
+    const savedOpacity = await opacitySave;
+    expect(savedOpacity.ok(), await savedOpacity.text()).toBe(true);
+    expect(await savedOpacity.json()).toMatchObject({ persisted: true });
+
+    const opacityTimeline = await getAction(request, "get-motion-timeline", {
+      designId: regressionDesignId,
+      sourceRef: regressionFileId,
+    });
+    const opacityTrack = opacityTimeline.timelines?.[0]?.tracks?.find(
+      (track: { property: string; targetNodeId: string }) =>
+        track.property === "opacity" &&
+        track.targetNodeId === "e2e-motion-reference-rectangle-2",
+    );
+    expect(
+      opacityTrack?.keyframes?.map((keyframe: { t: number }) => keyframe.t),
+    ).toEqual([0, 0.5]);
+    const opacityTrackLabel = dock.locator(
+      '[data-motion-property-row="opacity"][data-motion-target-node-id="e2e-motion-reference-rectangle-2"]',
+    );
+    await expect(opacityTrackLabel).toBeVisible();
+    const timelineTrackRow = dock.locator(
+      `[data-motion-track-row][data-motion-track-id="${opacityTrack.id}"]`,
+    );
+    await expect(timelineTrackRow).toBeVisible();
+    const easingSegment = timelineTrackRow.locator(
+      "[data-motion-easing-segment]",
+    );
+    await expect(easingSegment).toHaveCount(1);
+    await expect(easingSegment).toBeVisible();
+    const keyframeMarkers = timelineTrackRow.locator("[data-motion-keyframe]");
+    const keyframeCountBeforeDoubleClick = await keyframeMarkers.count();
+    expect(keyframeCountBeforeDoubleClick).toBe(2);
+    let keyframeMotionEditRequests = 0;
+    const countKeyframeMotionEditRequests = (request: {
+      method(): string;
+      url(): string;
+    }) => {
+      if (
+        request.method() === "POST" &&
+        request.url().includes("/_agent-native/actions/apply-motion-edit")
+      ) {
+        keyframeMotionEditRequests += 1;
+      }
+    };
+    page.on("request", countKeyframeMotionEditRequests);
+    try {
+      await easingSegment.dblclick();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      await expect(keyframeMarkers).toHaveCount(keyframeCountBeforeDoubleClick);
+      expect(keyframeMotionEditRequests).toBe(0);
+    } finally {
+      page.off("request", countKeyframeMotionEditRequests);
+    }
+    const timelineAfterDoubleClick = await getAction(
+      request,
+      "get-motion-timeline",
+      { designId: regressionDesignId, sourceRef: regressionFileId },
+    );
+    const trackAfterDoubleClick =
+      timelineAfterDoubleClick.timelines?.[0]?.tracks?.find(
+        (track: { property: string; targetNodeId: string }) =>
+          track.property === "opacity" &&
+          track.targetNodeId === "e2e-motion-reference-rectangle-2",
+      );
+    expect(
+      trackAfterDoubleClick?.keyframes?.map(
+        (keyframe: { t: number }) => keyframe.t,
+      ),
+    ).toEqual([0, 0.5]);
+  } finally {
+    if (regressionDesignId) {
+      await postAction(request, "delete-design", { id: regressionDesignId });
+    }
+  }
+});
+
+test("Motion gallery searches visible names, not hidden categories or tempo", async ({
+  page,
 }) => {
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
@@ -588,41 +1605,948 @@ test("a new motion preset applies to every selected target", async ({
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
-  await selectByText(page, "Reference Rectangle Two", {
-    screenId: fileId,
-    additive: true,
-  });
-  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
-  const dock = page.getByRole("region", { name: "Motion dock" }).first();
-  await expect(dock).toBeVisible();
-  const addAnimation = page
-    .getByRole("button", { name: "Add animation", exact: true })
-    .first();
-  const multiTargetApplied = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await addAnimation.click();
-  await page.getByRole("menuitem", { name: "Scale", exact: true }).click();
-  const multiTargetResponse = await multiTargetApplied;
-  expect(multiTargetResponse.ok(), await multiTargetResponse.text()).toBe(true);
+  await page.getByRole("button", { name: "Animations", exact: true }).click();
 
-  const multiTargetTimeline = await getAction(request, "get-motion-timeline", {
-    designId,
-    sourceRef: fileId,
+  const gallery = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.getByRole("button", { name: "Close", exact: true }) });
+  const search = gallery.getByRole("textbox", {
+    name: "Search animation styles",
+    exact: true,
   });
-  const scaleTargetIds = multiTargetTimeline.timelines?.[0]?.nativeStyles
-    ?.filter((style: { styleKey: string }) => style.styleKey === "Scale")
-    .map((style: { targetNodeId: string }) => style.targetNodeId)
-    .sort();
-  expect(scaleTargetIds).toEqual([
-    "e2e-motion-reference-rectangle",
-    "e2e-motion-reference-rectangle-2",
-  ]);
+  const recipes = gallery.locator("[data-motion-recipe-id]");
+
+  await search.fill("Position");
+  await expect(recipes).toHaveCount(0);
+  await expect(
+    gallery.getByRole("button", { name: "Position", exact: true }),
+  ).toBeVisible();
+
+  await search.fill("Enter");
+  await expect(recipes).toHaveCount(0);
+  await expect(gallery.getByText("No matching styles")).toBeVisible();
+
+  await search.fill("Slow");
+  await expect(recipes).toHaveCount(0);
+  await expect(gallery.getByText("No matching styles")).toBeVisible();
+
+  await search.fill("Builder Arrival 03");
+  await expect(
+    gallery.locator('[data-motion-recipe-id="enter.recipe-03"]'),
+  ).toBeVisible();
+  await expect(recipes).toHaveCount(1);
+  await captureReferenceState(page, "motion-controls-recipe-name-search");
+});
+
+test("a new motion preset applies to every selected target", async ({
+  page,
+  request,
+}) => {
+  let presetDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion Preset Multi-Target",
+      projectType: "prototype",
+    });
+    presetDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!presetDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: presetDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    const presetFileId = file.id;
+    if (!presetFileId) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", {
+      designId: presetDesignId,
+    });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, presetDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: presetFileId,
+      clearPreviousSelection: true,
+    });
+    await selectByText(page, "Reference Rectangle Two", {
+      screenId: presetFileId,
+      additive: true,
+    });
+    await expect
+      .poll(async () =>
+        (
+          await page
+            .locator('[role="treeitem"][aria-selected="true"]')
+            .allInnerTexts()
+        ).sort(),
+      )
+      .toEqual(["Rectangle", "Rectangle 2"]);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    await expect(dock).toBeVisible();
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const multiTargetApplied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Scale", exact: true }).click();
+    const multiTargetResponse = await multiTargetApplied;
+    expect(multiTargetResponse.ok(), await multiTargetResponse.text()).toBe(
+      true,
+    );
+
+    const multiTargetTimeline = await getAction(
+      request,
+      "get-motion-timeline",
+      {
+        designId: presetDesignId,
+        sourceRef: presetFileId,
+      },
+    );
+    const scaleTargetIds = multiTargetTimeline.timelines?.[0]?.nativeStyles
+      ?.filter((style: { styleKey: string }) => style.styleKey === "Scale")
+      .map((style: { targetNodeId: string }) => style.targetNodeId)
+      .sort();
+    expect(scaleTargetIds).toEqual([
+      "e2e-motion-reference-rectangle",
+      "e2e-motion-reference-rectangle-2",
+    ]);
+  } finally {
+    if (presetDesignId) {
+      await postAction(request, "delete-design", { id: presetDesignId });
+    }
+  }
+});
+
+for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
+  test(`applies ${recipeId} as ordered source-backed motion tracks`, async ({
+    page,
+    request,
+  }) => {
+    let recipeDesignId: string | undefined;
+    try {
+      const created = await postAction(request, "create-design", {
+        title: `Composite Motion recipe ${recipeId}`,
+        projectType: "prototype",
+      });
+      recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+      if (!recipeDesignId) {
+        throw new Error("create-design did not return an id");
+      }
+      const file = await postAction(request, "create-file", {
+        designId: recipeDesignId,
+        filename: "index.html",
+        content: REFERENCE_FIXTURE_HTML,
+        fileType: "html",
+      });
+      if (!file.id) throw new Error("create-file did not return a file id");
+      await postAction(request, "index-components", {
+        designId: recipeDesignId,
+      });
+
+      await page.setViewportSize({ width: 1728, height: 941 });
+      await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+      await gotoEditor(page, recipeDesignId);
+      await selectByText(page, "Reference Rectangle", {
+        screenId: file.id,
+        clearPreviousSelection: true,
+      });
+      await zoomCanvasTo100(page);
+
+      const recipe = MOTION_BUILT_IN_RECIPES.find(
+        (entry) => entry.id === recipeId,
+      );
+      if (!recipe) throw new Error("The sampled composite recipe is missing");
+      await page
+        .getByRole("button", { name: "Animations", exact: true })
+        .click();
+      const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+      await expect(recipeRow).toBeVisible();
+      const applied = page.waitForResponse(
+        (response) =>
+          response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+          response.request().method() === "POST",
+        { timeout: 20_000 },
+      );
+      await recipeRow.click();
+      const appliedResponse = await applied;
+      expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
+      expect(await appliedResponse.json()).toMatchObject({ persisted: true });
+
+      const timeline = await getAction(request, "get-motion-timeline", {
+        designId: recipeDesignId,
+        sourceRef: file.id,
+      });
+      const tracks = timeline.timelines?.[0]?.tracks?.filter(
+        (track: { targetNodeId: string }) =>
+          track.targetNodeId === "e2e-motion-reference-rectangle",
+      );
+      expect(tracks).toHaveLength(recipe.tracks.length);
+      expect(
+        tracks?.map(
+          (track: {
+            property: string;
+            delayMs?: number;
+            durationMs: number;
+            keyframes: Array<{ t: number; value: string; ease?: string }>;
+          }) => ({
+            property: track.property,
+            delayMs: track.delayMs ?? 0,
+            durationMs: track.durationMs,
+            keyframes: track.keyframes.map((keyframe, index) => ({
+              t: keyframe.t,
+              value: keyframe.value,
+              ...(index < track.keyframes.length - 1
+                ? {
+                    ease:
+                      keyframe.ease ??
+                      timeline.timelines?.[0]?.defaultEase ??
+                      "ease",
+                  }
+                : {}),
+            })),
+          }),
+        ),
+      ).toEqual(
+        recipe.tracks.map((track) => ({
+          property: track.property,
+          delayMs: track.delayMs,
+          durationMs: track.durationMs,
+          keyframes: track.keyframes.map((keyframe, index) => ({
+            t: keyframe.t,
+            value: keyframe.value,
+            ...(index < track.keyframes.length - 1
+              ? { ease: index === 0 ? track.easing : "ease" }
+              : {}),
+          })),
+        })),
+      );
+      expect(
+        new Set(tracks?.map((track: { id: string }) => track.id)).size,
+      ).toBe(recipe.tracks.length);
+      expect(
+        tracks?.filter(
+          (track: { property: string }) => track.property === "translate",
+        ),
+      ).toHaveLength(recipeId === "enter.recipe-10" ? 2 : 0);
+      expect(
+        tracks?.filter(
+          (track: { property: string }) => track.property === "scale",
+        ),
+      ).toHaveLength(recipeId === "cycle.recipe-03" ? 2 : 1);
+    } finally {
+      if (recipeDesignId) {
+        await postAction(request, "delete-design", { id: recipeDesignId });
+      }
+    }
+  });
+}
+
+for (const { recipeId, manualPosition } of [
+  { recipeId: "enter.recipe-01", manualPosition: false },
+  { recipeId: "enter.recipe-01", manualPosition: true },
+  { recipeId: "enter.recipe-04", manualPosition: false },
+] as const) {
+  test(`reapplying ${recipeId} appends source-backed tracks at the playhead${manualPosition ? " with a manual Position style" : ""}`, async ({
+    page,
+    request,
+  }) => {
+    let recipeDesignId: string | undefined;
+    try {
+      const created = await postAction(request, "create-design", {
+        title: "Repeated Motion recipe tracks",
+        projectType: "prototype",
+      });
+      recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+      if (!recipeDesignId) {
+        throw new Error("create-design did not return an id");
+      }
+      const file = await postAction(request, "create-file", {
+        designId: recipeDesignId,
+        filename: "index.html",
+        content: REFERENCE_FIXTURE_HTML,
+        fileType: "html",
+      });
+      if (!file.id) throw new Error("create-file did not return a file id");
+      await postAction(request, "index-components", {
+        designId: recipeDesignId,
+      });
+
+      await page.setViewportSize({ width: 1728, height: 941 });
+      await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+      await gotoEditor(page, recipeDesignId);
+      await selectByText(page, "Reference Rectangle", {
+        screenId: file.id,
+        clearPreviousSelection: true,
+      });
+      await zoomCanvasTo100(page);
+
+      const recipe = MOTION_BUILT_IN_RECIPES.find(
+        (entry) => entry.id === recipeId,
+      );
+      if (!recipe) throw new Error("The repeated recipe is missing");
+      const expectedTrackCount = recipe.tracks.length * 2;
+      const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+      const applyRecipe = async () => {
+        await page
+          .getByRole("button", { name: "Animations", exact: true })
+          .click();
+        await expect(recipeRow).toBeVisible();
+        const applied = page.waitForResponse(
+          (response) =>
+            response
+              .url()
+              .includes("/_agent-native/actions/apply-motion-edit") &&
+            response.request().method() === "POST",
+          { timeout: 20_000 },
+        );
+        await recipeRow.click();
+        const response = await applied;
+        expect(response.ok(), await response.text()).toBe(true);
+        expect(await response.json()).toMatchObject({ persisted: true });
+      };
+
+      await applyRecipe();
+      const dock = page.getByRole("region", { name: "Motion dock" }).first();
+      await expect(dock).toBeVisible();
+      await expect(dock.locator("[data-motion-track-row]")).toHaveCount(
+        recipe.tracks.length,
+      );
+      if (manualPosition) {
+        const addAnimation = page
+          .getByRole("button", { name: "Add animation", exact: true })
+          .first();
+        const applied = page.waitForResponse(
+          (response) =>
+            response
+              .url()
+              .includes("/_agent-native/actions/apply-motion-edit") &&
+            response.request().method() === "POST",
+          { timeout: 20_000 },
+        );
+        await addAnimation.click();
+        await page
+          .getByRole("menuitem", { name: "Position", exact: true })
+          .click();
+        const response = await applied;
+        expect(response.ok(), await response.text()).toBe(true);
+        expect(await response.json()).toMatchObject({ persisted: true });
+        await expect(
+          dock.locator('[data-motion-native-style-row="Position"]'),
+        ).toHaveCount(1);
+      }
+      const currentTime = dock.getByRole("textbox", { name: "Current time" });
+      const secondApplyTimeMs = manualPosition ? 0 : 250;
+      if (secondApplyTimeMs > 0) {
+        await currentTime.click();
+        await currentTime.fill(String(secondApplyTimeMs));
+        await currentTime.press("Tab");
+      }
+      expect(Number(await currentTime.inputValue())).toBe(secondApplyTimeMs);
+      await applyRecipe();
+
+      const targetId = "e2e-motion-reference-rectangle";
+      const timeline = await getAction(request, "get-motion-timeline", {
+        designId: recipeDesignId,
+        sourceRef: file.id,
+      });
+      const tracks = timeline.timelines?.[0]?.tracks?.filter(
+        (track: { targetNodeId: string }) => track.targetNodeId === targetId,
+      );
+      expect(tracks).toHaveLength(expectedTrackCount);
+      expect(
+        tracks?.map((track: { property: string }) => track.property),
+      ).toEqual([
+        ...recipe.tracks.map((track) => track.property),
+        ...recipe.tracks.map((track) => track.property),
+      ]);
+      expect(
+        tracks
+          ?.slice(recipe.tracks.length)
+          .map((track: { delayMs?: number }) => track.delayMs ?? 0),
+      ).toEqual(
+        recipe.tracks.map((track) => secondApplyTimeMs + track.delayMs),
+      );
+      expect(
+        new Set(tracks?.map((track: { id: string }) => track.id)).size,
+      ).toBe(expectedTrackCount);
+      if (manualPosition) {
+        const positionStyle = timeline.timelines?.[0]?.nativeStyles?.find(
+          (style: { styleKey: string; targetNodeId: string }) =>
+            style.styleKey === "Position" && style.targetNodeId === targetId,
+        );
+        expect(positionStyle).toMatchObject({
+          duration: 0.5,
+          timelineOffset: 0,
+          props: {
+            type: "slide_in",
+            direction: "left",
+            distance: 200,
+            delay: 0,
+            easing: { type: "EASE_OUT" },
+          },
+        });
+      }
+      const expectedTrackSpanMs = manualPosition
+        ? 300
+        : recipeId === "enter.recipe-04"
+          ? 1460
+          : 550;
+      expect(
+        Math.max(
+          ...(tracks ?? []).map(
+            (track: { delayMs?: number; durationMs: number }) =>
+              (track.delayMs ?? 0) + track.durationMs,
+          ),
+        ),
+      ).toBe(expectedTrackSpanMs);
+      if (manualPosition) {
+        expect(
+          Math.max(
+            expectedTrackSpanMs,
+            ...(timeline.timelines?.[0]?.nativeStyles ?? []).map(
+              (style: { duration: number; timelineOffset: number }) =>
+                (style.timelineOffset + style.duration) * 1000,
+            ),
+          ),
+        ).toBe(500);
+      }
+
+      let sourceContent = "";
+      await expect
+        .poll(async () => {
+          const source = await getAction(request, "read-source-file", {
+            designId: recipeDesignId,
+            path: "index.html",
+          });
+          sourceContent = source.content;
+          return sourceContent.match(/@keyframes\s+an-motion-/g)?.length ?? 0;
+        })
+        .toBe(expectedTrackCount + Number(manualPosition));
+      expect(sourceContent).toContain("<style data-agent-native-motion>");
+      for (const track of tracks ?? []) {
+        expect(sourceContent).toContain(`--track-${track.id}`);
+      }
+      if (manualPosition) {
+        expect(sourceContent).toContain("--track-native-style-0-0");
+      }
+
+      await currentTime.fill("300");
+      await currentTime.press("Tab");
+      const renderedOpacity = await designFrame(page, file.id)
+        .locator(`[data-agent-native-node-id="${targetId}"]`)
+        .evaluate((element) => getComputedStyle(element).opacity);
+      if (recipeId === "enter.recipe-01") {
+        expect(Number(renderedOpacity)).toBe(1);
+      } else {
+        expect(Number(renderedOpacity)).toBeGreaterThan(0.5);
+        expect(Number(renderedOpacity)).toBeLessThan(1);
+      }
+      await captureReferenceState(
+        page,
+        `motion-recipe-repeat-${recipeId.replace(".", "-")}${manualPosition ? "-with-manual-position" : ""}-at-300ms`,
+      );
+
+      const firstTrack = tracks?.[0];
+      if (!firstTrack) throw new Error("The repeated recipe has no tracks");
+      await dock
+        .locator(
+          `[data-motion-property-row][data-motion-track-id="${firstTrack.id}"]`,
+        )
+        .click();
+      await dock
+        .getByRole("button", { name: "Edit animation", exact: true })
+        .click();
+      await expect(
+        page.getByRole("textbox", { name: "Start time in ms" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("textbox", { name: "Duration in ms" }),
+      ).toBeVisible();
+      await captureReferenceState(
+        page,
+        `motion-track-editor-${recipeId.replace(".", "-")}${manualPosition ? "-with-manual-position" : ""}`,
+      );
+
+      await gotoEditor(page, recipeDesignId);
+      await selectByText(page, "Reference Rectangle", {
+        screenId: file.id,
+        clearPreviousSelection: true,
+      });
+      await page
+        .getByRole("button", { name: "Motion dock", exact: true })
+        .click();
+      const restoredDock = page
+        .getByRole("region", { name: "Motion dock" })
+        .first();
+      await expect(restoredDock.locator("[data-motion-track-row]")).toHaveCount(
+        expectedTrackCount,
+      );
+      if (manualPosition) {
+        await expect(
+          restoredDock.locator('[data-motion-native-style-row="Position"]'),
+        ).toHaveCount(1);
+      }
+      const restoredTimeline = await getAction(request, "get-motion-timeline", {
+        designId: recipeDesignId,
+        sourceRef: file.id,
+      });
+      expect(
+        restoredTimeline.timelines?.[0]?.tracks?.filter(
+          (track: { targetNodeId: string }) => track.targetNodeId === targetId,
+        ),
+      ).toHaveLength(expectedTrackCount);
+    } finally {
+      if (recipeDesignId) {
+        await postAction(request, "delete-design", { id: recipeDesignId });
+      }
+    }
+  });
+}
+
+test("applies recipe content past the timeline duration at its limit", async ({
+  page,
+  request,
+}) => {
+  let recipeDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion recipe content past timeline duration",
+      projectType: "prototype",
+    });
+    recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!recipeDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: recipeDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", { designId: recipeDesignId });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+    });
+    await zoomCanvasTo100(page);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    const duration = dock.getByRole("textbox", {
+      name: "Duration",
+      exact: true,
+    });
+    await duration.fill("120000");
+    await duration.press("Tab");
+    await expect(duration).toHaveValue("120000");
+
+    const currentTime = dock.getByRole("textbox", {
+      name: "Current time",
+      exact: true,
+    });
+    await currentTime.fill("120000");
+    await currentTime.press("Tab");
+    await expect(currentTime).toHaveValue("120000");
+
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-01",
+    );
+    if (!recipe) throw new Error("The Burst Fast recipe is missing");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+    const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+    await expect(recipeRow).toBeVisible();
+    await recipeRow.click();
+    await expect(dock.locator("[data-motion-track-row]")).toHaveCount(4);
+    await expect(duration).toHaveValue("120000");
+    await expect(currentTime).toHaveValue("120000");
+    await expect(
+      dock.locator("[data-motion-timeline-duration-handle]"),
+    ).toHaveAttribute("aria-valuenow", "120000");
+    const motionSpans = await dock
+      .locator('[role="slider"]')
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("aria-valuetext")),
+      );
+    expect(motionSpans).toContain("120000ms – 120300ms");
+
+    await expect
+      .poll(async () => {
+        const timeline = await getAction(request, "get-motion-timeline", {
+          designId: recipeDesignId,
+          sourceRef: file.id,
+        });
+        return timeline.timelines?.[0]?.tracks?.length ?? 0;
+      })
+      .toBe(4);
+    const timeline = await getAction(request, "get-motion-timeline", {
+      designId: recipeDesignId,
+      sourceRef: file.id,
+    });
+    expect(timeline.timelines?.[0]?.durationMs).toBe(120_000);
+    expect(timeline.timelines?.[0]?.tracks).toHaveLength(4);
+    expect(
+      timeline.timelines?.[0]?.tracks?.map(
+        (track: { delayMs?: number; durationMs?: number }) => [
+          track.delayMs,
+          track.durationMs,
+        ],
+      ),
+    ).toEqual([
+      [120_000, 300],
+      [120_000, 300],
+      [120_000, 300],
+      [120_000, 30],
+    ]);
+
+    const source = await getAction(request, "read-source-file", {
+      designId: recipeDesignId,
+      path: "index.html",
+    });
+    expect(source.content).toContain("<style data-agent-native-motion>");
+    expect(source.content).toContain("agent-native-motion-source:v6:");
+    expect(source.content).toContain("animation-delay: 120s");
+    expect(source.content).toContain(
+      "animation-duration: 0.03s, 0.3s, 0.3s, 0.3s",
+    );
+    await captureReferenceState(page, "motion-recipe-content-overrun");
+
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+    });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const restoredDock = page
+      .getByRole("region", { name: "Motion dock" })
+      .first();
+    await expect(restoredDock.locator("[data-motion-track-row]")).toHaveCount(
+      4,
+    );
+    await expect(
+      restoredDock.getByRole("textbox", { name: "Duration", exact: true }),
+    ).toHaveValue("120000");
+
+    const restoredCurrentTime = restoredDock.getByRole("textbox", {
+      name: "Current time",
+      exact: true,
+    });
+    await restoredCurrentTime.fill("120000");
+    await restoredCurrentTime.press("Tab");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+    const partiallyFittingRecipe = page.locator(
+      '[data-motion-recipe-id="enter.recipe-04"]',
+    );
+    await expect(partiallyFittingRecipe).toBeVisible();
+    await partiallyFittingRecipe.click();
+    await expect(restoredDock.locator("[data-motion-track-row]")).toHaveCount(
+      4,
+    );
+    await expect(
+      page.getByText(
+        "There isn't enough room to add this animation at the current time.",
+      ),
+    ).toBeVisible();
+  } finally {
+    if (recipeDesignId) {
+      await postAction(request, "delete-design", { id: recipeDesignId });
+    }
+  }
+});
+
+test("applying a composite recipe preserves an existing unrelated native style", async ({
+  page,
+  request,
+}) => {
+  let recipeDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion recipe preserves native style",
+      projectType: "prototype",
+    });
+    recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!recipeDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: recipeDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", { designId: recipeDesignId });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+    });
+
+    const targetId = "e2e-motion-reference-rectangle";
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const sizeApplied = page.waitForResponse(
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            nativeStyles?: Array<{
+              styleKey?: unknown;
+              targetNodeId?: unknown;
+            }>;
+          };
+          return Boolean(
+            input.nativeStyles?.some(
+              (style) =>
+                style.styleKey === "Size" && style.targetNodeId === targetId,
+            ),
+          );
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Size", exact: true }).click();
+    const sizeResponse = await sizeApplied;
+    expect(sizeResponse.ok(), await sizeResponse.text()).toBe(true);
+    const timelineBeforeRecipe = await getAction(
+      request,
+      "get-motion-timeline",
+      { designId: recipeDesignId, sourceRef: file.id },
+    );
+    expect(timelineBeforeRecipe.timelines?.[0]?.nativeStyles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ styleKey: "Size", targetNodeId: targetId }),
+      ]),
+    );
+
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-11",
+    );
+    if (!recipe) throw new Error("The sampled Rise recipe is missing");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+    const recipeRow = page.locator(`[data-motion-recipe-id="${recipe.id}"]`);
+    await expect(recipeRow).toBeVisible();
+    const recipeApplied = page.waitForResponse(
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            tracks?: Array<{ property?: unknown; targetNodeId?: unknown }>;
+          };
+          const properties = new Set(
+            recipe.tracks.map((track) => track.property),
+          );
+          return (
+            recipe.tracks.every((track) =>
+              input.tracks?.some(
+                (candidate) =>
+                  candidate.targetNodeId === targetId &&
+                  candidate.property === track.property,
+              ),
+            ) && properties.size === recipe.tracks.length
+          );
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20_000 },
+    );
+    await recipeRow.click();
+    const recipeResponse = await recipeApplied;
+    expect(recipeResponse.ok(), await recipeResponse.text()).toBe(true);
+    expect(await recipeResponse.json()).toMatchObject({ persisted: true });
+    await captureReferenceState(page, "motion-recipe-preserves-size-style");
+
+    const timeline = await getAction(request, "get-motion-timeline", {
+      designId: recipeDesignId,
+      sourceRef: file.id,
+    });
+    expect(timeline.timelines?.[0]?.nativeStyles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ styleKey: "Size", targetNodeId: targetId }),
+      ]),
+    );
+    const recipeTracks = timeline.timelines?.[0]?.tracks?.filter(
+      (track: { targetNodeId: string }) => track.targetNodeId === targetId,
+    );
+    expect(recipeTracks).toHaveLength(recipe.tracks.length);
+    expect(
+      recipeTracks?.map((track: { property: string }) => track.property),
+    ).toEqual(recipe.tracks.map((track) => track.property));
+  } finally {
+    if (recipeDesignId) {
+      if (!page.isClosed()) await page.close();
+      await postAction(request, "delete-design", { id: recipeDesignId });
+    }
+  }
+});
+
+test("keyboard-applies a searched recipe and saves its source-backed tracks", async ({
+  page,
+  request,
+}) => {
+  let recipeDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Keyboard Motion recipe application",
+      projectType: "prototype",
+    });
+    recipeDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!recipeDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: recipeDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    if (!file.id) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", { designId: recipeDesignId });
+
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, recipeDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: file.id,
+      clearPreviousSelection: true,
+    });
+
+    const recipe = MOTION_BUILT_IN_RECIPES.find(
+      (entry) => entry.id === "enter.recipe-01",
+    );
+    if (!recipe) throw new Error("The keyboard recipe is missing");
+    await page.getByRole("button", { name: "Animations", exact: true }).click();
+
+    const gallery = page.locator("[data-radix-popper-content-wrapper]").filter({
+      has: page.getByRole("button", { name: "Close", exact: true }),
+    });
+    const search = gallery.getByRole("textbox", {
+      name: "Search animation styles",
+      exact: true,
+    });
+    const categoryFilter = gallery.getByRole("combobox").first();
+    const recipeRow = gallery.locator(
+      '[data-motion-recipe-id="enter.recipe-01"]',
+    );
+
+    await expect(search).toBeFocused();
+    await search.fill("Builder Arrival 01");
+    await expect(recipeRow).toBeVisible();
+    await expect(gallery.locator("[data-motion-recipe-id]")).toHaveCount(1);
+
+    await page.keyboard.press("Tab");
+    await expect(categoryFilter).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(recipeRow).toBeFocused();
+
+    const applied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page.keyboard.press("Enter");
+    const appliedResponse = await applied;
+    expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
+    expect(await appliedResponse.json()).toMatchObject({ persisted: true });
+
+    const timeline = await getAction(request, "get-motion-timeline", {
+      designId: recipeDesignId,
+      sourceRef: file.id,
+    });
+    const tracks = timeline.timelines?.[0]?.tracks?.filter(
+      (track: { targetNodeId: string }) =>
+        track.targetNodeId === "e2e-motion-reference-rectangle",
+    );
+    expect(tracks).toHaveLength(recipe.tracks.length);
+    expect(
+      tracks?.map(
+        (track: {
+          property: string;
+          delayMs?: number;
+          durationMs: number;
+          keyframes: Array<{ t: number; value: string; ease?: string }>;
+        }) => ({
+          property: track.property,
+          delayMs: track.delayMs ?? 0,
+          durationMs: track.durationMs,
+          keyframes: track.keyframes.map((keyframe, index) => ({
+            t: keyframe.t,
+            value: keyframe.value,
+            ...(index < track.keyframes.length - 1
+              ? {
+                  ease:
+                    keyframe.ease ??
+                    timeline.timelines?.[0]?.defaultEase ??
+                    "ease",
+                }
+              : {}),
+          })),
+        }),
+      ),
+    ).toEqual(
+      recipe.tracks.map((track) => ({
+        property: track.property,
+        delayMs: track.delayMs,
+        durationMs: track.durationMs,
+        keyframes: track.keyframes.map((keyframe, index) => ({
+          t: keyframe.t,
+          value: keyframe.value,
+          ...(index < track.keyframes.length - 1
+            ? { ease: index === 0 ? track.easing : "ease" }
+            : {}),
+        })),
+      })),
+    );
+    await captureReferenceState(page, "motion-keyboard-recipe-applied");
+  } finally {
+    if (recipeDesignId) {
+      if (!page.isClosed()) await page.close();
+      await postAction(request, "delete-design", { id: recipeDesignId });
+    }
+  }
 });
 
 test("saving imported inline CSS moves its animation into managed source", async ({

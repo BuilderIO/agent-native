@@ -5,6 +5,7 @@ import {
   getCookie,
   getHeader,
   getQuery,
+  normalizeRoute,
   setCookie,
   setResponseHeader,
 } from "h3";
@@ -450,7 +451,9 @@ function pathnameFromPath(path: string): string | null {
   const normalized = normalizeEmbedTargetPath(path);
   if (!normalized) return null;
   try {
-    return new URL(normalized, "http://agent-native.invalid").pathname;
+    return normalizeRoute(
+      new URL(normalized, "http://agent-native.invalid").pathname,
+    );
   } catch {
     return null;
   }
@@ -608,13 +611,12 @@ function requestUrlFromEvent(event: H3Event): string {
 }
 
 function requestPathname(event: H3Event): string | null {
-  const raw = requestUrlFromEvent(event);
-  try {
-    const pathname = new URL(raw, "http://agent-native.invalid").pathname;
-    return stripConfiguredBasePath(pathname);
-  } catch {
-    return null;
-  }
+  const mountedPathname = event.context?._mountedPathname;
+  return stripConfiguredBasePath(
+    typeof mountedPathname === "string" && mountedPathname
+      ? mountedPathname
+      : event.url.pathname,
+  );
 }
 
 function headerTargetPathname(event: H3Event): string | null {

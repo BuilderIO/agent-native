@@ -1,6 +1,8 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 const mockExecute = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockGetSession = vi.fn();
@@ -8,6 +10,7 @@ const mockPutUserSetting = vi.fn();
 const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
+const mockLoadWorkspaceAppsManifest = vi.fn();
 const mockSignA2AToken = vi.fn();
 const mockSignA2AOrganizationToken = vi.fn();
 const mockGetGlobalA2ASecret = vi.fn<() => string | undefined>();
@@ -15,8 +18,10 @@ const mockVerifyA2AToken = vi.fn();
 const mockCanonicalA2AAudience = vi.fn((url: string) =>
   url.replace(/\/+$/, ""),
 );
+const mockInvalidateMemberOrgCaches = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockFetch = vi.fn();
+const mockResolveAppRuntimeUrl = vi.fn(() => "https://remote.example.test");
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -63,6 +68,7 @@ vi.mock("../server/email-templates.js", () => ({
 
 vi.mock("../server/app-url.js", () => ({
   getAppProductionUrl: () => "https://app.example.test",
+  resolveAppRuntimeUrl: () => mockResolveAppRuntimeUrl(),
 }));
 
 vi.mock("./context.js", () => ({
@@ -70,12 +76,27 @@ vi.mock("./context.js", () => ({
   createOrganization: vi.fn(),
 }));
 
+vi.mock("./request-org-cache.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./request-org-cache.js")>();
+  return {
+    ...actual,
+    invalidateMemberOrgCaches: (...args: any[]) =>
+      mockInvalidateMemberOrgCaches(...args),
+  };
+});
+
 vi.mock("./free-email-providers.js", () => ({
   isFreeEmailProvider: () => false,
 }));
 
 vi.mock("../server/agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mockDiscoverAgents(...args),
+  getBuiltinAgentsForSeeding: () => [
+    { id: "builtin-app", url: "https://builtin.example.test" },
+  ],
+  loadWorkspaceAppsManifest: (...args: any[]) =>
+    mockLoadWorkspaceAppsManifest(...args),
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -110,6 +131,7 @@ import {
   receiveA2ASecretHandler,
   revealA2ASecretHandler,
   setA2ASecretHandler,
+  setA2AMemberDelegationHandler,
   syncA2ASecretHandler,
 } from "./handlers.js";
 
@@ -131,6 +153,7 @@ describe("cross-app secret handlers", () => {
     ["reveal", revealA2ASecretHandler],
     ["set", setA2ASecretHandler],
     ["sync", syncA2ASecretHandler],
+    ["change member delegation", setA2AMemberDelegationHandler],
   ])("rejects an admin trying to %s it", async (_name, handler) => {
     await expect(handler({} as any)).rejects.toMatchObject({
       statusCode: 403,
@@ -139,10 +162,44 @@ describe("cross-app secret handlers", () => {
   });
 });
 
+describe("setA2AMemberDelegationHandler", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadBody.mockResolvedValue({ enabled: true });
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org_1",
+      orgName: "Example",
+      role: "owner",
+    });
+    mockExecute.mockResolvedValue({ rows: [] });
+  });
+
+  it("persists the owner's explicit opt-in", async () => {
+    await expect(setA2AMemberDelegationHandler({} as any)).resolves.toEqual({
+      enabled: true,
+    });
+    expect(mockExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining("SET a2a_member_delegation_enabled = ?"),
+      args: [true, "org_1"],
+    });
+  });
+
+  it("rejects non-boolean values without writing", async () => {
+    mockReadBody.mockResolvedValueOnce({ enabled: "true" });
+
+    await expect(
+      setA2AMemberDelegationHandler({} as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
+
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetOrgSetting.mockResolvedValue(null);
+    mockResolveAppRuntimeUrl.mockReturnValue("https://remote.example.test");
     vi.stubGlobal("fetch", mockFetch);
     mockReadBody.mockResolvedValue({});
     mockGetOrgContext.mockResolvedValue({
@@ -161,6 +218,18 @@ describe("syncA2ASecretHandler", () => {
         description: "",
         url: "https://remote.example.test",
         color: "#000000",
+        source: "workspace",
+      },
+    ]);
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "remote", path: "/" },
+      { id: "metadata", path: "/" },
+      { id: "workspace-app", path: "/workspace-app" },
+      { id: "same-origin-other-path", path: "/registered-app" },
+      {
+        id: "workspace-app",
+        path: "/workspace-app",
+        url: "https://workspace.example.test/attacker-controlled-path",
       },
     ]);
     mockSignA2AToken.mockResolvedValue("signed-jwt");
@@ -215,7 +284,123 @@ describe("syncA2ASecretHandler", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("only sends organization secrets to built-in and same-deployment workspace apps", async () => {
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    mockDiscoverAgents.mockResolvedValue([
+      {
+        id: "workspace-app",
+        name: "Workspace App",
+        description: "",
+        url: "https://workspace.example.test/workspace-app",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "foreign-workspace-app",
+        name: "Foreign Workspace App",
+        description: "",
+        url: "https://customer.example.test/apps/qr",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "builtin-app",
+        name: "Built-in App",
+        description: "",
+        url: "https://builtin.example.test",
+        color: "#000000",
+        source: "builtin",
+      },
+      {
+        id: "same-origin-other-path",
+        name: "Same origin unrelated path",
+        description: "",
+        url: "https://workspace.example.test/unregistered-path",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "workspace-app",
+        name: "Workspace app URL override path",
+        description: "",
+        url: "https://workspace.example.test/attacker-controlled-path",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "builtin-app",
+        name: "Forged Built-in",
+        description: "",
+        url: "https://attacker.example.test",
+        color: "#000000",
+        source: "builtin",
+      },
+      {
+        id: "directory-app",
+        name: "Directory App",
+        description: "",
+        url: "https://directory.example.test",
+        color: "#000000",
+        source: "org-directory",
+      },
+      {
+        id: "remote-app",
+        name: "Remote App",
+        description: "",
+        url: "https://remote.example.test",
+        color: "#000000",
+        source: "remote-agent",
+      },
+    ]);
+
+    const result = await syncA2ASecretHandler({} as any);
+
+    expect(result).toMatchObject({ total: 2, succeeded: 2, failed: 0 });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(2);
+    expect(mockSsrfSafeFetch.mock.calls.map(([url]) => url).sort()).toEqual([
+      "https://builtin.example.test/_agent-native/org/a2a-secret/receive",
+      "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
+    ]);
+  });
+
+  it("skips malformed workspace manifest rows while syncing valid apps", async () => {
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "malformed-workspace-app", url: "not a URL", path: "" },
+      { id: "workspace-app", path: "/workspace-app" },
+    ]);
+    mockDiscoverAgents.mockResolvedValue([
+      {
+        id: "malformed-workspace-app",
+        name: "Malformed Workspace App",
+        description: "",
+        url: "https://workspace.example.test/bad",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "workspace-app",
+        name: "Workspace App",
+        description: "",
+        url: "https://workspace.example.test/workspace-app",
+        color: "#000000",
+        source: "workspace",
+      },
+    ]);
+
+    const result = await syncA2ASecretHandler({} as any);
+
+    expect(result).toMatchObject({ total: 1, succeeded: 1, failed: 0 });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
+      expect.any(Object),
+      { maxRedirects: 3 },
+    );
+  });
+
   it("reports SSRF blocks as per-agent failures without falling back to bare fetch", async () => {
+    mockResolveAppRuntimeUrl.mockReturnValue("http://169.254.169.254");
     mockDiscoverAgents.mockResolvedValue([
       {
         id: "metadata",
@@ -223,6 +408,7 @@ describe("syncA2ASecretHandler", () => {
         description: "",
         url: "http://169.254.169.254",
         color: "#000000",
+        source: "workspace",
       },
     ]);
     mockSsrfSafeFetch.mockRejectedValueOnce(
@@ -284,6 +470,7 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
           args: ["distinct-org-secret", "org_1"],
         }),
       );
+      expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
 
     it("saves any secret when no deployment secret is configured", async () => {
@@ -311,6 +498,7 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
           args: ["distinct-org-secret", "org_1"],
         }),
       );
+      expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -318,6 +506,10 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
     const receive = async (
       pushedSecret: string,
       storedSecret = "existing-org-secret",
+      identityAssurance:
+        | "organization"
+        | "org-member"
+        | "user" = "organization",
     ) => {
       mockExecute.mockResolvedValue({
         rows: [{ id: "org_1", a2a_secret: storedSecret }],
@@ -330,9 +522,11 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
         orgDomain: "example.test",
       });
       mockVerifyA2AToken.mockResolvedValue({
-        email: null,
+        email:
+          identityAssurance === "organization" ? null : "owner@example.test",
         orgId: "org_1",
         orgDomain: "example.test",
+        identityAssurance,
       });
       return receiveA2ASecretHandler({
         _headers: { authorization: `Bearer ${token}` },
@@ -373,13 +567,40 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
         ok: true,
         orgId: "org_1",
       });
+      expect(mockVerifyA2AToken).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.anything(),
+        {
+          globalSecretOnly: true,
+          verificationSecret: "existing-org-secret",
+        },
+      );
       expect(mockExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: expect.stringContaining("UPDATE organizations"),
           args: ["distinct-org-secret", "org_1"],
         }),
       );
+      expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
+
+    it.each(["org-member", "user"] as const)(
+      "does not let %s identity rotate the organization secret",
+      async (identityAssurance) => {
+        await expect(
+          receive(
+            "distinct-org-secret",
+            "existing-org-secret",
+            identityAssurance,
+          ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+        expect(mockExecute).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            sql: expect.stringContaining("UPDATE organizations"),
+          }),
+        );
+      },
+    );
 
     it("rotates away from a stored secret equal to the deployment secret", async () => {
       await expect(
@@ -479,6 +700,107 @@ describe("getMyOrgHandler", () => {
     await expect(getMyOrgHandler({} as any)).rejects.toThrow(
       "settings database unavailable",
     );
+  });
+
+  it("limits delegated org details to the asserted org and caps the returned role", async () => {
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("a2a_secret")) {
+        return {
+          rows: [
+            {
+              allowed_domain: "example.test",
+              a2a_secret: "example-stored-secret",
+              a2a_member_delegation_enabled: true,
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM org_members m") && sql.includes("icon_json")) {
+        return {
+          rows: [
+            {
+              orgId: "org_1",
+              role: "owner",
+              orgName: "Example",
+            },
+            {
+              orgId: "org_2",
+              role: "owner",
+              orgName: "Other",
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM org_invitations i")) {
+        return {
+          rows: [{ id: "invite-1", orgId: "org_1", orgName: "Example" }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const result = (await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+      () => getMyOrgHandler({} as any),
+    )) as Record<string, any>;
+
+    expect(result.orgId).toBe("org_1");
+    expect(result.role).toBe("member");
+    expect(result.orgs).toEqual([
+      expect.objectContaining({ orgId: "org_1", role: "member" }),
+    ]);
+    expect(result.pendingInvitations).toEqual([
+      expect.objectContaining({ id: "invite-1", orgId: "org_1" }),
+    ]);
+    expect(result.signInMethods).toBeUndefined();
+    expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.a2aMemberDelegationEnabled).toBeUndefined();
+
+    const membershipQuery = mockExecute.mock.calls.find(
+      ([query]) =>
+        query.sql.includes("FROM org_members m") &&
+        query.sql.includes("icon_json"),
+    )?.[0];
+    expect(membershipQuery?.args).toEqual(["owner@example.test", "org_1"]);
+    const invitationQuery = mockExecute.mock.calls.find(([query]) =>
+      query.sql.includes("FROM org_invitations i"),
+    )?.[0];
+    expect(invitationQuery?.args).toEqual(["owner@example.test", "org_1"]);
+  });
+
+  it("does not expose a stale session org for a different delegated identity scope", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org_other",
+      orgName: "Other",
+      role: "owner",
+    });
+
+    const result = (await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+      () => getMyOrgHandler({} as any),
+    )) as Record<string, any>;
+
+    expect(result.orgId).toBeNull();
+    expect(result.orgName).toBeNull();
+    expect(result.role).toBeNull();
+    expect(result.orgs).toEqual([]);
+    expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.a2aMemberDelegationEnabled).toBeUndefined();
+    expect(
+      mockExecute.mock.calls.some(([query]) =>
+        query.sql.includes("a2a_secret"),
+      ),
+    ).toBe(false);
+    expect(mockGetOrgSetting).not.toHaveBeenCalled();
   });
 });
 

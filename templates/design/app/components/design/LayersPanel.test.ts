@@ -16,7 +16,6 @@ import {
   dropPlacementForEvent,
   findNodeWithAncestors,
   flattenRows,
-  getContextMenuTargetIds,
   getDraggedLayerIdsForRows,
   getLayerSelectionAnchorFromExternalSelection,
   getTreeOrderedLayerIds,
@@ -852,44 +851,5 @@ describe("LayersPanel alt-click expand/collapse subtree (nextExpandedIdsForSubtr
     expect(new Set(next)).toEqual(
       new Set(["other-node", "frame-1", "group-1", "group-2"]),
     );
-  });
-});
-
-describe("LayersPanel row context-menu target resolution (getContextMenuTargetIds)", () => {
-  const rows = [
-    row("parent"),
-    row("first", ["parent"]),
-    row("second", ["parent"]),
-    row("third", ["parent"]),
-  ];
-
-  it("operates on just the right-clicked row when it is NOT part of the current selection", () => {
-    expect(
-      getContextMenuTargetIds({
-        selectedIds: ["first"],
-        nodeId: "second",
-        visibleRows: rows,
-      }),
-    ).toEqual(["second"]);
-  });
-
-  it("operates on the whole current selection when the right-clicked row IS part of it", () => {
-    expect(
-      getContextMenuTargetIds({
-        selectedIds: ["third", "first"],
-        nodeId: "first",
-        visibleRows: rows,
-      }),
-    ).toEqual(["first", "third"]);
-  });
-
-  it("normalizes the returned selection to visible tree order", () => {
-    expect(
-      getContextMenuTargetIds({
-        selectedIds: ["third", "second", "first"],
-        nodeId: "third",
-        visibleRows: rows,
-      }),
-    ).toEqual(["first", "second", "third"]);
   });
 });

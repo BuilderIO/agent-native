@@ -302,7 +302,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "कॉन्टैक्ट समृद्धि और कंपनी डेटा",
       hubspotDescription: "CRM कॉन्टैक्ट, डील और टिकट",
-      gongDescription: "हाल की कॉल और बातचीत इंटेलिजेंस",
+      gongDescription: "Gong कॉल इतिहास",
+      gongAccessCheckFailed: "Gong से कनेक्ट करने की अनुमति की जाँच नहीं हो सकी।",
+      gongKeyPlaceholder: "Gong API कुंजी",
+      gongKeyFormatHint:
+        "एक्सेस कुंजी और सीक्रेट को access_key:secret प्रारूप में दर्ज करें।",
       pylonDescription: "सपोर्ट समस्याएं और अकाउंट डेटा",
       gongCalls: "Gong कॉल",
       deals: "डील",
@@ -425,6 +429,7 @@ const messages = {
       tryDifferentKeywords: "अलग कीवर्ड आज़माएँ",
       nothingHere: "अभी यहाँ कुछ नहीं",
       loadingMore: "और लोड हो रहा है...",
+      openAllMailForOlder: "पुराने संदेशों के लिए सभी मेल खोलें",
     },
     toasts: {
       noEmailSelected: "कोई ईमेल चयनित नहीं।",
@@ -455,6 +460,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "संदेश भेज दिया गया।",
       failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
+      failedToRefreshInbox:
+        "इनबॉक्स रीफ़्रेश नहीं हो सका। कुछ देर बाद फिर से प्रयास करें।",
       failedToDeleteDraft: "ड्राफ़्ट हटाया नहीं जा सका।",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

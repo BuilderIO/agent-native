@@ -93,9 +93,14 @@ vi.mock("../db/index.js", () => {
       },
     }),
     delete: (table: any) => ({
-      where: async (cond: any) => {
+      where: (cond: any) => {
         dbState.deletes.push(cond);
         dbState.deleteTables.push(table.__name);
+        const rows = [{ id: "row" }];
+        return {
+          returning: async () => rows,
+          then: (resolve: any) => resolve(undefined),
+        };
       },
     }),
     transaction: async (fn: (tx: any) => Promise<unknown>) => {
@@ -115,7 +120,7 @@ import {
   recordInboxPushInvalidation,
   resetSyncAccountProgress,
   SyncClaimLostError,
-  deleteInboxThreadRow,
+  tryDeleteInboxThreadRow,
   inboxRowToItem,
   markThreadsOutOfInboxBeforeSync,
   upsertInboxThreadRows,
@@ -577,7 +582,7 @@ describe("sync write fences", () => {
   });
 
   it("fences incremental deletes to the start of the Gmail read", async () => {
-    await deleteInboxThreadRow(
+    await tryDeleteInboxThreadRow(
       "owner@example.com",
       "acct1@example.com",
       "t1",

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
@@ -10,6 +10,7 @@ import {
   resolveDeploymentBaseUrl,
   resolveSelfDispatchBaseUrl,
   SelfDispatchHttpError,
+  SelfDispatchNetworkError,
 } from "./self-dispatch.js";
 
 describe("fireInternalDispatch", () => {
@@ -405,6 +406,87 @@ describe("fireInternalDispatch", () => {
       errorSpy.mockRestore();
     });
 
+    it("names the target and the socket code when the connection is refused", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      // What undici throws: an opaque "fetch failed" with the code one level down.
+      const refused = new TypeError("fetch failed", {
+        cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3000"), {
+          code: "ECONNREFUSED",
+        }),
+      });
+      globalThis.fetch = vi.fn(async () => {
+        throw refused;
+      }) as unknown as typeof fetch;
+
+      const err = await fireInternalDispatch({
+        baseUrl: "http://localhost:3000/base?token=not-a-secret",
+        path: "/_agent-native/agent-chat/_process-run",
+        taskId: "task-await-refused",
+        awaitResponse: true,
+      }).catch((error: unknown) => error);
+
+      expect(err).toBeInstanceOf(SelfDispatchNetworkError);
+      expect(err).toMatchObject({
+        target: "http://localhost:3000",
+        causeCode: "ECONNREFUSED",
+        cause: refused,
+      });
+      expect((err as Error).message).toBe(
+        "Self-dispatch to /_agent-native/agent-chat/_process-run at http://localhost:3000 failed: fetch failed (ECONNREFUSED)",
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("reads the code from a dual-stack refusal and names a timeout", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const dispatch = () =>
+        fireInternalDispatch({
+          baseUrl: "https://slides.example.test",
+          path: "/_agent-native/agent-chat/_process-run",
+          taskId: "task-await-codes",
+          awaitResponse: true,
+        }).catch((error: unknown) => error as SelfDispatchNetworkError);
+
+      globalThis.fetch = vi.fn(async () => {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new AggregateError([]), {
+            errors: [{ code: "ECONNREFUSED" }, { code: "ENETUNREACH" }],
+          }),
+        });
+      }) as unknown as typeof fetch;
+      expect((await dispatch()).causeCode).toBe("ECONNREFUSED");
+
+      globalThis.fetch = vi.fn(async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      }) as unknown as typeof fetch;
+      expect((await dispatch()).causeCode).toBe("TimeoutError");
+      errorSpy.mockRestore();
+    });
+
+    it("names the target on a non-2xx answer too", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      globalThis.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "",
+      })) as unknown as typeof fetch;
+
+      const err = await fireInternalDispatch({
+        baseUrl: "https://slides.example.test",
+        path: "/_agent-native/agent-chat/_process-run",
+        taskId: "task-await-401",
+        awaitResponse: true,
+      }).catch((error: unknown) => error);
+
+      expect(err).toBeInstanceOf(SelfDispatchHttpError);
+      expect(err).toMatchObject({
+        httpStatus: 401,
+        target: "https://slides.example.test",
+      });
+      errorSpy.mockRestore();
+    });
+
     it("bounds the wait with an AbortSignal derived from responseTimeoutMs", async () => {
       let sawSignal: AbortSignal | undefined;
       globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -603,5 +685,68 @@ describe("resolveSelfDispatchBaseUrl with AGENT_NATIVE_SELF_DISPATCH_URL", () =>
     expect(resolveDeploymentBaseUrl()).toBe(
       "https://deploy-preview-7--app.example.test",
     );
+  });
+});
+
+describe("resolveSelfDispatchBaseUrl inside a request", () => {
+  const keys = [
+    "DEPLOY_PRIME_URL",
+    "DEPLOY_URL",
+    "URL",
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+    "AGENT_NATIVE_SELF_DISPATCH_URL",
+    "PORT",
+  ] as const;
+  const previous = Object.fromEntries(
+    keys.map((key) => [key, process.env[key]]),
+  );
+
+  beforeEach(() => {
+    for (const key of keys) delete process.env[key];
+  });
+
+  afterEach(() => {
+    for (const key of keys) {
+      const value = previous[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it("reaches the dev server at the origin the request was served on, with no inbound event", () => {
+    // An agent turn and a CLI call forwarded to the dev server both look like
+    // this: no event to read a host from, and Vite is not on port 3000.
+    expect(
+      runWithRequestContext(
+        { userEmail: "a@example.test", requestOrigin: "http://localhost:8080" },
+        () => resolveSelfDispatchBaseUrl(),
+      ),
+    ).toBe("http://localhost:8080");
+  });
+
+  it("still prefers the inbound host over the request origin", () => {
+    expect(
+      runWithRequestContext(
+        { userEmail: "a@example.test", requestOrigin: "http://localhost:8080" },
+        () =>
+          resolveSelfDispatchBaseUrl({
+            node: { req: { headers: { host: "127.0.0.1:8092" } } },
+          }),
+      ),
+    ).toBe("http://127.0.0.1:8092");
+  });
+
+  it("never replaces a configured deployment URL", () => {
+    process.env.DEPLOY_PRIME_URL = "https://deploy-preview-7--app.example.test";
+
+    expect(
+      runWithRequestContext(
+        { userEmail: "a@example.test", requestOrigin: "http://localhost:8080" },
+        () => resolveSelfDispatchBaseUrl(),
+      ),
+    ).toBe("https://deploy-preview-7--app.example.test");
   });
 });

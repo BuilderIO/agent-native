@@ -1,7 +1,13 @@
 import { type APIRequestContext, type Page } from "@playwright/test";
 import { parse } from "parse5";
 
-import { appPath, cdpScreenshot, expandAllLayers, gotoEditor } from "./helpers";
+import {
+  appPath,
+  cdpScreenshot,
+  expandAllLayers,
+  gotoEditor,
+  waitForDesignPreviewReady,
+} from "./helpers";
 import {
   childrenOf,
   expect,
@@ -144,10 +150,9 @@ async function file(
   return found.content as string;
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+test.use({ viewport: { width: 1640, height: 1000 } });
 
-// fixme: product bug: While held the element sits at (175,135), trailing the pointer by about 5px: the same drag-start lag as autolayout-drag-drop-matrix 3228.
-test.fixme("free-position drag of an unselected element follows the pointer and saves left/top at the drop point", async ({
+test("free-position drag of an unselected element follows the pointer and saves left/top at the drop point", async ({
   app,
   page,
 }) => {
@@ -173,7 +178,8 @@ test.fixme("free-position drag of an unselected element follows the pointer and 
   await page.mouse.move(origin.x + 8, origin.y + 4, {
     steps: 3,
   });
-  await page.mouse.move(origin.x + 100, origin.y + 60, {
+  // Clear of every sibling's snap lines, so the pointer delta is the whole move.
+  await page.mouse.move(origin.x + 100, origin.y + 40, {
     steps: 12,
   });
   const local = () =>
@@ -181,7 +187,7 @@ test.fixme("free-position drag of an unselected element follows the pointer and 
       const rect = element.getBoundingClientRect();
       return { x: Math.round(rect.x), y: Math.round(rect.y) };
     });
-  await expect.poll(local).toEqual({ x: 180, y: 140 });
+  await expect.poll(local).toEqual({ x: 180, y: 120 });
   const selection = screen
     .contentFrame()
     .locator('[data-agent-native-edit-overlay="selection"]');
@@ -197,7 +203,7 @@ test.fixme("free-position drag of an unselected element follows the pointer and 
   expect(styleOf(after.get("free"))).toEqual({
     ...styleOf(before.get("free")),
     left: "180px",
-    top: "140px",
+    top: "120px",
   });
   expectOnlyChanged(before, after, ["free"]);
   expectOnlyChanged(
@@ -206,12 +212,12 @@ test.fixme("free-position drag of an unselected element follows the pointer and 
     [],
   );
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
   await expect(source).toBeVisible();
-  await expect.poll(local).toEqual({ x: 180, y: 140 });
+  await expect.poll(local).toEqual({ x: 180, y: 120 });
 });
 
-// fixme: fails in CI on current main: expect(received).toMatchObject(expected)
-test.fixme("Option-dragging a root Screen previews, creates, and persists a duplicate", async ({
+test("Option-dragging a root Screen previews, creates, and persists a duplicate", async ({
   app,
   page,
   request,
@@ -220,9 +226,7 @@ test.fixme("Option-dragging a root Screen previews, creates, and persists a dupl
   await page.goto(appPath(`/design/${designId}?view=overview&zoom=50`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   const fileCountBefore = await page.request
     .get(appPath(`/_agent-native/actions/get-design?id=${designId}`))
     .then((r) => r.json())
@@ -266,9 +270,7 @@ test.fixme("Option-dragging a root Screen previews, creates, and persists a dupl
     )
     .toBeGreaterThan(fileCountBefore);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
   const result = await page.request
     .get(appPath(`/_agent-native/actions/get-design?id=${designId}`))
     .then((r) => r.json());
@@ -506,6 +508,7 @@ test("nested auto-layout child drops into an existing root frame across Screens"
     .toEqual([sourceAfterDrop, destinationAfterDrop]);
 
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
   await expect(
     screenById(page, ids[0]!)
       .contentFrame()
@@ -876,6 +879,7 @@ test("cross-Screen drops preserve Flex and default Grid-stretched sizes", async 
     });
 
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
   for (const nodeId of ["flex-stretched", "grid-stretched"]) {
     const moved = screenById(page, ids[1]!)
       .contentFrame()

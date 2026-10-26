@@ -23,6 +23,7 @@ export type BuilderWaitlistLocation =
 type BuilderWaitlistProps = {
   location: BuilderWaitlistLocation;
   template?: string;
+  templateName?: string;
   source?: string;
   useCase?: string;
 };
@@ -38,23 +39,29 @@ type BuilderLaunchTrigger = ReactElement<{
 }>;
 
 export const BUILDER_BUILD_ONLINE_SUPPORTED = true;
-export const BUILDER_SIGNUP_URL =
-  "https://builder.io/signup?initialPrompt=true&useFusion=true";
+export const BUILDER_SIGNUP_URL = "https://builder.io/signup?useFusion=true";
 
 export function BuilderLaunchLink({
   className = primaryButtonClassName,
+  initialPrompt,
   onClick,
   trigger,
 }: {
   className?: string;
+  initialPrompt?: string;
   onClick?: () => void;
   trigger?: BuilderLaunchTrigger;
 }) {
   const t = useT();
+  const href = new URL(BUILDER_SIGNUP_URL);
+  href.searchParams.set(
+    "initialPrompt",
+    initialPrompt ?? t("buildFromScratch.newAppPrompt"),
+  );
 
   if (trigger) {
     return cloneElement(trigger, {
-      href: BUILDER_SIGNUP_URL,
+      href: href.toString(),
       rel: "noopener noreferrer",
       target: "_blank",
       onClick: (event) => {
@@ -66,7 +73,7 @@ export function BuilderLaunchLink({
 
   return (
     <a
-      href={BUILDER_SIGNUP_URL}
+      href={href.toString()}
       target="_blank"
       rel="noopener noreferrer"
       className={className}
@@ -81,6 +88,7 @@ export function BuilderLaunchLink({
 export function BuilderWaitlistContent({
   location,
   template,
+  templateName,
   source = "docs_build_from_scratch",
   useCase = "docs_build_online_waitlist",
 }: BuilderWaitlistProps) {
@@ -175,7 +183,15 @@ export function BuilderWaitlistContent({
       </div>
 
       {BUILDER_BUILD_ONLINE_SUPPORTED ? (
-        <BuilderLaunchLink />
+        <BuilderLaunchLink
+          initialPrompt={
+            templateName
+              ? t("buildFromScratch.customizeTemplatePrompt", {
+                  template: templateName,
+                })
+              : undefined
+          }
+        />
       ) : joined ? (
         <p
           role="status"

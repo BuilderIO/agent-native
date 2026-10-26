@@ -339,9 +339,7 @@ async function settleReload(page: Page, screenId: string): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect(
     page.locator(`[data-screen-shell][data-frame-id="${screenId}"]`),
   ).toBeVisible();
@@ -1421,6 +1419,7 @@ test.describe("auto-layout drag/drop matrix", () => {
         padding: "8px",
         background: "#f8fafc",
         color: "#0f172a",
+        "flex-shrink": "0",
       },
       rendered: { x: 52, y: 462, width: 116, height: 106 },
       image: null,
@@ -1439,6 +1438,7 @@ test.describe("auto-layout drag/drop matrix", () => {
         height: "44px",
         background: "#22d3ee",
         color: "#083344",
+        "flex-shrink": "0",
       },
       rendered: { x: 52, y: 462, width: 76, height: 44 },
       image: null,
@@ -1452,7 +1452,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     await assertFlowInsertCell(app, page, {
       source: "free-image",
       tag: "IMG",
-      savedStyle: { width: "80px", height: "48px" },
+      savedStyle: { width: "80px", height: "48px", "flex-shrink": "0" },
       rendered: { x: 52, y: 462, width: 80, height: 48 },
       image: { complete: true, naturalWidth: 80, naturalHeight: 48 },
     });
@@ -1471,6 +1471,7 @@ test.describe("auto-layout drag/drop matrix", () => {
         background: "#c4b5fd",
         color: "#2e1065",
         border: "0",
+        "flex-shrink": "0",
       },
       rendered: { x: 52, y: 462, width: 110, height: 42 },
       image: null,
@@ -1837,8 +1838,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     }
   });
 
-  // fixme: product bug: Two defects: (1) saved left:128px top:34px instead of 125/33, the same drag-start lag as 3228; (2) on macOS Ctrl+pointerdown opens the
-  test.fixme("Ignore Auto Layout held before pointerdown drops an absolute child at the drop point inside the auto-layout target, with no context menu", async ({
+  test("Ignore Auto Layout held before pointerdown drops an absolute child at the drop point inside the auto-layout target, with no context menu", async ({
     app,
     page,
   }) => {
@@ -2010,7 +2010,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(copied)).toEqual({
       "data-agent-native-node-id": copy,
       "data-agent-native-layer-name": "H Middle",
-      "data-agent-native-clone-root": "true",
     });
   });
 
@@ -2252,7 +2251,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     for (const instance of duplicated.instances)
       expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
     const duplicatedClone = duplicated.instances.find(
-      (instance) => instance.cloneRoot === "true",
+      (instance) => instance.nodeId !== "play-instance",
     );
     if (!duplicatedClone?.nodeId)
       throw new Error("linked component clone has no node id");
@@ -2538,8 +2537,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     });
   }
 
-  // fixme: product bug: Visual no-op: saved order changes but Root C keeps grid-row:1;grid-column:2, so a/b/c render in exactly their old cells (c at 319,28; a
-  test.fixme("dropping an authored-placement grid item before the first item moves it into the first cell", async ({
+  test("dropping an authored-placement grid item before the first item moves it into the first cell", async ({
     app,
     page,
   }) => {
@@ -2819,7 +2817,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "oversized-source",
       "data-agent-native-layer-name": "Oversized Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
     const style = styleOf(dropped);
@@ -2867,10 +2864,13 @@ test.describe("auto-layout drag/drop matrix", () => {
       x: grid.x + (grid.width * 3) / 8,
       y: grid.y + grid.height / 2,
     };
+    // Cmd+click reaches the grid item; a plain click takes its grid.
+    await page.keyboard.down(COMMAND);
     await page.mouse.click(
       source.x + source.width / 2,
       source.y + source.height / 2,
     );
+    await page.keyboard.up(COMMAND);
     await expect.poll(() => selectionSourceId(request)).toBe("grid-source");
     const sourceBefore = await fileHtml(request, design.id, design.primaryId);
     const destinationBefore = await fileHtml(
@@ -3074,7 +3074,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "meta-source",
       "data-agent-native-layer-name": "Meta Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
   });
@@ -3325,7 +3324,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "freeform-source",
       "data-agent-native-layer-name": "Freeform Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
   });
@@ -3341,7 +3339,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(shape).toEqual({ x: 120, y: 100, width: 80, height: 50 });
     const grab = await app.pagePoint(160, 125);
     await page.mouse.click(grab.x, grab.y);
-    expect(await app.selectedLayers()).toEqual(["Lone shape"]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Lone shape"]);
     const before = await app.savedNodes(design.id);
     const drop = await app.pagePoint(160 + 137, 125 + 91);
 
@@ -3560,8 +3558,7 @@ test.describe("auto-layout drag/drop matrix", () => {
       .toBe("absolute");
   });
 
-  // fixme: product bug: Fixed-size layer squeezed by auto layout: the saved width stays 500px but with no flex-shrink:0 the 360px row renders it 360px wide
-  test.fixme("cross-Screen Command drop forces an oversized element into the empty auto-layout target as its only flow child", async ({
+  test("cross-Screen Command drop forces an oversized element into the empty auto-layout target as its only flow child", async ({
     app,
     page,
     request,
@@ -3639,7 +3636,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "meta-source",
       "data-agent-native-layer-name": "Meta Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
     expect(

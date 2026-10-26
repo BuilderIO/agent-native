@@ -3,10 +3,12 @@ import type {
   ChatFirstAgentActivityStatus,
 } from "@agent-native/core/client/chat-first-state";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import { Skeleton } from "@agent-native/toolkit/ui";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertCircle,
   IconAsteriskSimple,
+  IconCheck,
   IconCopy,
   IconDiamond,
   IconEye,
@@ -19,7 +21,7 @@ import { useState, type ComponentType } from "react";
 
 import { AgentMark } from "../../shared/AgentMark.js";
 import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
 
 export interface ChatFirstAgentActivityPanelProps {
@@ -51,7 +53,7 @@ type ActivityIcon = ComponentType<{
 
 const AGENT_GLYPHS: Array<{ icon: ActivityIcon; color: string }> = [
   { icon: AgentMark, color: "text-primary" },
-  { icon: IconFlower, color: "text-destructive" },
+  { icon: IconFlower, color: "text-foreground/70" },
   { icon: IconRosette, color: "text-accent-foreground" },
   { icon: IconHexagon, color: "text-ring" },
   { icon: IconDiamond, color: "text-primary/70" },
@@ -72,8 +74,9 @@ export function ChatFirstAgentActivityPanel({
   error = null,
   onRefresh,
   onWatch,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstAgentActivityPanelProps) {
+  const copy = useChatFirstCopy(copyProp);
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
 
   async function copySessionId(sessionId: string) {
@@ -94,6 +97,9 @@ export function ChatFirstAgentActivityPanel({
       data-chat-first-agents-surface
       aria-label={copy("agentsTitle")}
     >
+      <span className="sr-only" role="status" aria-live="polite">
+        {copiedSessionId ? copy("sessionIdCopied") : ""}
+      </span>
       <header className="flex min-h-7 items-center justify-between gap-2 px-2">
         <p className="m-0 text-[11px] font-medium text-muted-foreground">
           {copy("agentsTitle")}
@@ -135,8 +141,9 @@ export function ChatFirstAgentActivityPanel({
         <div className="grid min-h-0 gap-px" aria-busy="true">
           {Array.from({ length: 4 }, (_, index) => (
             <div className="flex h-7 items-center gap-2 px-2" key={index}>
-              <span className="size-3 animate-pulse rounded-full bg-muted" />
-              <span className="h-2.5 w-28 animate-pulse rounded bg-muted" />
+              <Skeleton className="size-3.5 shrink-0 rounded-full" />
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="ms-auto h-2.5 w-12" />
             </div>
           ))}
         </div>
@@ -171,7 +178,7 @@ export function ChatFirstAgentActivityPanel({
                 <span className="shrink-0 text-[10px] text-muted-foreground group-hover:hidden group-focus-within:hidden">
                   {statusLabel(activity.status)}
                 </span>
-                <div className="ms-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <div className="ms-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                   {onWatch ? (
                     <button
                       type="button"
@@ -194,7 +201,15 @@ export function ChatFirstAgentActivityPanel({
                       copied ? copy("sessionIdCopied") : copy("copySessionId")
                     }
                   >
-                    <IconCopy size={14} aria-hidden="true" />
+                    {copied ? (
+                      <IconCheck
+                        size={14}
+                        className="agent-kit-tone-positive"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <IconCopy size={14} aria-hidden="true" />
+                    )}
                   </button>
                 </div>
               </div>

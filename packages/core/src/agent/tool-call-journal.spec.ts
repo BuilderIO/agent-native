@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
+  ambiguousLegacyCallEffectKey,
   classifyToolCallJournal,
   buildResumeJournalNote,
-  findCompletedJournalEntry,
+  findAmbiguousLegacyJournalEntryForCall,
+  findInterruptedJournalEntryForCall,
+  findReplayableJournalEntry,
   isJournalEmpty,
+  journalEntriesAmbiguousInHistory,
+  journalEntriesRepresentedInHistory,
+  journalCallEffects,
+  journalCallIdentities,
+  matchToolCallResultsInHistory,
+  toolCallIdentityKey,
   toolCallInputFingerprint,
+  unmatchedAmbiguousLegacyToolCallResultsInHistory,
 } from "./tool-call-journal.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
@@ -27,7 +39,7 @@ function done(
   return { type: "tool_done", tool, result, ...options };
 }
 
-it("includes own __proto__ JSON keys in replay identity", () => {
+it("includes own __proto__ JSON keys in a call's fingerprint", () => {
   const first = JSON.parse(
     '{"__proto__":{"destination":"a"},"attachments":[{"type":"file","data":"QQ=="}]}',
   );
@@ -41,11 +53,11 @@ it("includes own __proto__ JSON keys in replay identity", () => {
     start("send-report", first),
     done("send-report", "A sent", { input: first }),
   ]);
-  expect(
-    findCompletedJournalEntry(journal, "send-report", second),
-  ).toBeUndefined();
-  expect(findCompletedJournalEntry(journal, "send-report", first)?.result).toBe(
-    "A sent",
+  expect(journal.completed).toEqual([
+    expect.objectContaining({ tool: "send-report", result: "A sent" }),
+  ]);
+  expect(toolCallInputFingerprint(journal.completed[0]!.input)).toBe(
+    toolCallInputFingerprint(first),
   );
 });
 
@@ -131,12 +143,13 @@ describe("classifyToolCallJournal", () => {
       { type: "tool_start", tool: "sendEmail", id: "call-b", input: inputB },
       { type: "tool_done", tool: "sendEmail", id: "call-b", result: "B sent" },
     ]);
-    expect(
-      findCompletedJournalEntry(journal, "sendEmail", inputA),
-    ).toBeUndefined();
-    expect(
-      findCompletedJournalEntry(journal, "sendEmail", inputB)?.result,
-    ).toBe("B sent");
+    expect(journal.completed).toEqual([
+      expect.objectContaining({
+        id: "call-b",
+        input: inputB,
+        result: "B sent",
+      }),
+    ]);
     expect(journal.interrupted.map((entry) => entry.input)).toEqual([inputA]);
   });
 
@@ -204,9 +217,6 @@ describe("classifyToolCallJournal", () => {
         result: "B sent",
       },
     ]);
-    expect(
-      findCompletedJournalEntry(journal, "sendEmail", inputA),
-    ).toBeUndefined();
     expect(journal.completed).toHaveLength(0);
     expect(journal.interrupted).toHaveLength(2);
   });
@@ -284,9 +294,9 @@ describe("classifyToolCallJournal", () => {
         result: "A sent",
       },
     ]);
-    expect(findCompletedJournalEntry(journal, "sendEmail", input)?.result).toBe(
-      "A sent",
-    );
+    expect(journal.completed).toEqual([
+      expect.objectContaining({ id: "call-a", input, result: "A sent" }),
+    ]);
     expect(journal.interrupted).toHaveLength(0);
   });
 
@@ -344,9 +354,13 @@ describe("classifyToolCallJournal", () => {
         result: "sent",
       },
     ]);
-    expect(findCompletedJournalEntry(journal, "sendEmail", input)?.result).toBe(
-      "sent",
-    );
+    expect(journal.completed).toEqual([
+      expect.objectContaining({
+        id: "call-a",
+        inputFingerprint: toolCallInputFingerprint(input),
+        result: "sent",
+      }),
+    ]);
     expect(journal.interrupted).toHaveLength(0);
   });
 
@@ -486,21 +500,36 @@ describe("classifyToolCallJournal", () => {
             ...outcome,
           },
         ]);
-        const consumed = new Set<string>();
-        expect(
-          findCompletedJournalEntry(journal, "open-ticket", input, consumed)
-            ?.result,
-        ).toBe(result);
-        expect(
-          findCompletedJournalEntry(journal, "open-ticket", input, consumed),
-        ).toBeUndefined();
+        expect(journal.completed).toEqual([
+          expect.objectContaining({ id: "call-1", input, result }),
+        ]);
         expect(journal.interrupted).toHaveLength(0);
       }
     },
   );
 
+  it("keeps a call that failed after its side effect completed as completed, with its failure", () => {
+    const input = { title: "fixture" };
+    const result =
+      'Error running open-ticket: "open-ticket" returned a result that does not match its declared output contract. Its changes are already applied: do not retry it.';
+    const journal = classifyToolCallJournal([
+      start("open-ticket", input),
+      done("open-ticket", result, {
+        input,
+        isError: true,
+        completedSideEffect: true,
+      }),
+    ]);
+    expect(journal.completed).toHaveLength(1);
+    expect(journal.completed[0]).toMatchObject({ result, isError: true });
+    expect(journal.interrupted).toHaveLength(0);
+    expect(buildResumeJournalNote(journal)).toContain(
+      "failed after its changes were saved",
+    );
+  });
+
   it.each([
-    { completedSideEffect: true, isError: true },
+    { completedSideEffect: false, isError: true },
     { completedSideEffect: false, isError: false },
     { completedSideEffect: true, replayed: true as const },
   ])(
@@ -648,97 +677,1036 @@ describe("buildResumeJournalNote", () => {
   });
 });
 
-describe("findCompletedJournalEntry", () => {
-  it("matches completed entries by tool and input, and consumes each match once", () => {
-    const journal = classifyToolCallJournal([
-      start("sendEmail", { to: "a@example.com" }),
-      done("sendEmail", "sent A"),
-      start("sendEmail", { to: "b@example.com" }),
-      done("sendEmail", "sent B"),
+it("does not count a call that failed before any effect as completed", () => {
+  const journal = classifyToolCallJournal([
+    start("add-slide", { deckId: "deck-1", layout: "content" }),
+    done("add-slide", "Error running add-slide: Run aborted", {
+      isError: true,
+    }),
+  ]);
+  expect(journal).toEqual({ completed: [], interrupted: [] });
+});
+
+describe("recorded call effects", () => {
+  const events: AgentChatEvent[] = [
+    { type: "tool_start", id: "read", tool: "read-draft", input: {} },
+    {
+      type: "tool_done",
+      id: "read",
+      tool: "read-draft",
+      input: {},
+      result: "ok",
+    },
+    { type: "tool_start", id: "check", tool: "check-draft", input: {} },
+    {
+      type: "tool_done",
+      id: "check",
+      tool: "check-draft",
+      input: {},
+      result: "Saved, but the result broke its contract.",
+      isError: true,
+      completedSideEffect: true,
+      argumentsHash: actionArgumentsHash({ mode: "check" }),
+    },
+    { type: "tool_start", id: "lost", tool: "check-draft", input: { x: 1 } },
+    {
+      type: "tool_done",
+      id: "lost",
+      tool: "check-draft",
+      input: { x: 1 },
+      result: "Tool call timed out after 1 seconds",
+      isError: true,
+      outcomeUnknown: true,
+    },
+    { type: "tool_start", id: "cut", tool: "read-draft", input: { x: 2 } },
+    { type: "tool_start", id: "slow", tool: "read-draft", input: { x: 3 } },
+    {
+      type: "tool_done",
+      id: "slow",
+      tool: "read-draft",
+      input: { x: 3 },
+      result: "Tool call timed out after 1 seconds",
+      isError: true,
+      completedSideEffect: false,
+    },
+  ];
+
+  it("names each call that recorded no effect, committed, or left an unknown outcome", () => {
+    expect(journalCallEffects(classifyToolCallJournal(events), events)).toEqual(
+      new Map([
+        [toolCallIdentityKey("slow"), "none"],
+        [toolCallIdentityKey("check"), "committed"],
+        [toolCallIdentityKey("lost"), "unknown"],
+      ]),
+    );
+  });
+
+  it("names the identity each call recorded running with", () => {
+    expect(journalCallIdentities(events, [])).toEqual(
+      new Map([
+        [toolCallIdentityKey("check"), actionArgumentsHash({ mode: "check" })],
+      ]),
+    );
+  });
+
+  it("names no identity for an id more than one call used", () => {
+    const page = (id: string, n: number): AgentChatEvent[] => [
+      { type: "tool_start", id, tool: "read", input: { page: n } },
+      {
+        type: "tool_done",
+        id,
+        tool: "read",
+        input: { page: n },
+        result: `page ${n}`,
+        argumentsHash: actionArgumentsHash({ page: n }),
+      },
+    ];
+    const call = (id: string): EngineMessage => ({
+      role: "assistant",
+      content: [{ type: "tool-call", id, name: "read", input: {} }],
+    });
+    // Repeated in the journal.
+    expect(
+      journalCallIdentities([...page("a", 1), ...page("a", 2)], [call("a")]),
+    ).toEqual(new Map());
+    // Repeated only in the history.
+    expect(
+      journalCallIdentities(
+        [...page("a", 1), ...page("b", 2)],
+        [call("a"), call("b"), call("a")],
+      ),
+    ).toEqual(
+      new Map([[toolCallIdentityKey("b"), actionArgumentsHash({ page: 2 })]]),
+    );
+    // Distinct ids keep theirs.
+    expect(
+      journalCallIdentities(
+        [...page("a", 1), ...page("b", 2)],
+        [call("a"), call("b")],
+      ),
+    ).toEqual(
+      new Map([
+        [toolCallIdentityKey("a"), actionArgumentsHash({ page: 1 })],
+        [toolCallIdentityKey("b"), actionArgumentsHash({ page: 2 })],
+      ]),
+    );
+  });
+
+  it("keeps a conservative effect for an ambiguous legacy provider ID", () => {
+    const id = "reused-provider-id";
+    const input = { id: "deck-1" };
+    const events: AgentChatEvent[] = [
+      { type: "tool_start", id, tool: "create-deck", input },
+      {
+        type: "tool_done",
+        id,
+        tool: "create-deck",
+        input,
+        result: "The deck was saved, but the response failed.",
+        isError: true,
+        completedSideEffect: true,
+      },
+      { type: "tool_start", id, tool: "create-deck", input },
+      {
+        type: "tool_done",
+        id,
+        tool: "create-deck",
+        input,
+        result: "The deck was saved, but the response failed.",
+        isError: true,
+        completedSideEffect: true,
+      },
+    ];
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id, name: "create-deck", input }],
+      },
+    ];
+
+    expect(journalCallIdentities(events, history)).toEqual(new Map());
+    expect(
+      journalCallEffects(classifyToolCallJournal(events), events, history).get(
+        ambiguousLegacyCallEffectKey(id, "create-deck"),
+      ),
+    ).toBe("committed");
+  });
+
+  it("keeps journal identities attached to repeated provider IDs by execution step", () => {
+    const repeatedCall = (executionStepId: string): EngineMessage => ({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          id: "provider-id",
+          name: "write",
+          input: {},
+          executionStepId,
+        },
+      ],
+    });
+    const stepEvents = [
+      {
+        type: "tool_start" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        executionStepId: "step-one",
+      },
+      {
+        type: "tool_done" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        result: "one",
+        argumentsHash: actionArgumentsHash({ step: 1 }),
+        completedSideEffect: true,
+        executionStepId: "step-one",
+      },
+      {
+        type: "tool_start" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        executionStepId: "step-two",
+      },
+      {
+        type: "tool_done" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        result: "two",
+        argumentsHash: actionArgumentsHash({ step: 2 }),
+        completedSideEffect: true,
+        executionStepId: "step-two",
+      },
+    ];
+    const history = [repeatedCall("step-one"), repeatedCall("step-two")];
+
+    expect(journalCallIdentities(stepEvents, history)).toEqual(
+      new Map([
+        [
+          toolCallIdentityKey("provider-id", "step-one"),
+          actionArgumentsHash({ step: 1 }),
+        ],
+        [
+          toolCallIdentityKey("provider-id", "step-two"),
+          actionArgumentsHash({ step: 2 }),
+        ],
+      ]),
+    );
+    expect(
+      journalCallEffects(
+        classifyToolCallJournal(stepEvents),
+        stepEvents,
+        history,
+      ),
+    ).toEqual(
+      new Map([
+        [toolCallIdentityKey("provider-id", "step-one"), "committed"],
+        [toolCallIdentityKey("provider-id", "step-two"), "committed"],
+      ]),
+    );
+    expect(
+      journalCallIdentities(
+        [stepEvents[0]!, stepEvents[1]!],
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "provider-id",
+                name: "write",
+                input: {},
+              },
+            ],
+          },
+        ],
+      ),
+    ).toEqual(
+      new Map([
+        [
+          toolCallIdentityKey("provider-id", "step-one"),
+          actionArgumentsHash({ step: 1 }),
+        ],
+      ]),
+    );
+  });
+
+  it("matches history results by execution step and rejects ambiguous ID fallback", () => {
+    const call = (executionStepId: string) => ({
+      type: "tool-call" as const,
+      id: "provider-id",
+      name: "read",
+      input: {},
+      executionStepId,
+    });
+    const result = (executionStepId: string) => ({
+      type: "tool-result" as const,
+      toolCallId: "provider-id",
+      toolName: "read",
+      toolInput: "{}",
+      content: executionStepId,
+      executionStepId,
+    });
+    const history: EngineMessage[] = [
+      { role: "assistant", content: [call("step-one"), call("step-two")] },
+      { role: "user", content: [result("step-two"), result("step-one")] },
+    ];
+
+    expect(matchToolCallResultsInHistory(history)).toEqual([
+      { call: call("step-two"), result: result("step-two") },
+      { call: call("step-one"), result: result("step-one") },
     ]);
+    expect(
+      matchToolCallResultsInHistory([
+        { role: "assistant", content: [call("step-one")] },
+        { role: "user", content: [result("unmatched-step")] },
+      ]),
+    ).toEqual([]);
+
+    const legacyCall = {
+      type: "tool-call" as const,
+      id: "legacy-id",
+      name: "read",
+      input: {},
+    };
+    const secondLegacyCall = {
+      type: "tool-call" as const,
+      id: "legacy-id",
+      name: "read",
+      input: { second: true },
+    };
+    const legacyResult = {
+      type: "tool-result" as const,
+      toolCallId: "legacy-id",
+      toolName: "read",
+      toolInput: "{}",
+      content: "legacy",
+    };
+    const ambiguousHistory: EngineMessage[] = [
+      { role: "assistant", content: [legacyCall, secondLegacyCall] },
+      { role: "user", content: [legacyResult] },
+    ];
+    expect(matchToolCallResultsInHistory(ambiguousHistory)).toEqual([]);
+    expect(
+      unmatchedAmbiguousLegacyToolCallResultsInHistory(ambiguousHistory),
+    ).toEqual([
+      {
+        result: legacyResult,
+        candidateCalls: [legacyCall, secondLegacyCall],
+      },
+    ]);
+  });
+
+  it("replays only a committed call prepared to the same arguments, once", () => {
+    const journal = classifyToolCallJournal(events);
+    const hash = actionArgumentsHash({ mode: "check" });
+    // An ordinary completion is never replayed, whatever the new call is.
+    expect(
+      findReplayableJournalEntry(journal, "read-draft", hash),
+    ).toBeUndefined();
+    // The same call as sent, prepared differently, runs fresh.
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "check-draft",
+        actionArgumentsHash({ mode: "apply" }),
+      ),
+    ).toBeUndefined();
+    const consumed = new Set<string>();
+    expect(
+      findReplayableJournalEntry(journal, "check-draft", hash, consumed),
+    ).toMatchObject({ isError: true, committed: true, argumentsHash: hash });
+    expect(
+      findReplayableJournalEntry(journal, "check-draft", hash, consumed),
+    ).toBeUndefined();
+  });
+
+  it("recognizes completed journal calls already represented in turn history", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "first-call",
+        tool: "send",
+        input: { message: "same" },
+      },
+      {
+        type: "tool_done",
+        id: "first-call",
+        tool: "send",
+        input: { message: "same" },
+        result: "sent",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ message: "same" }),
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "first-call",
+            name: "send",
+            input: { message: "same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "first-call",
+            toolName: "send",
+            toolInput: '{"message":"same"}',
+            content: "sent",
+          },
+        ],
+      },
+    ];
+
+    expect(journalEntriesRepresentedInHistory(journal, history)).toEqual(
+      new Set([journal.completed[0]!.key]),
+    );
+    expect(
+      journalEntriesRepresentedInHistory(journal, history.slice(0, 1)),
+    ).toEqual(new Set());
+  });
+
+  it("does not reuse a represented legacy result for a new execution step", () => {
+    const input = { message: "same" };
+    const argumentsHash = actionArgumentsHash(input);
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "first-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "first-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "first-call", name: "send", input }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "first-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent",
+          },
+        ],
+      },
+    ];
+    const represented = journalEntriesRepresentedInHistory(journal, history);
     const consumed = new Set<string>();
 
-    const first = findCompletedJournalEntry(
-      journal,
-      "sendEmail",
-      { to: "a@example.com" },
-      consumed,
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        consumed,
+        { input },
+        represented,
+        "continued-step",
+      ),
+    ).toBeUndefined();
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        consumed,
+        { input },
+        represented,
+        "continued-step",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("blocks an internal continuation when multiple represented writes match", () => {
+    const input = { message: "same" };
+    const argumentsHash = actionArgumentsHash(input);
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "first-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "first-call",
+        tool: "send",
+        input,
+        result: "sent first",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+      { type: "tool_start", id: "second-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "second-call",
+        tool: "send",
+        input,
+        result: "sent second",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "first-call", name: "send", input },
+          { type: "tool-call", id: "second-call", name: "send", input },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "first-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent first",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "second-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent second",
+          },
+        ],
+      },
+    ];
+    const represented = journalEntriesRepresentedInHistory(journal, history);
+    const ambiguous = journalEntriesAmbiguousInHistory(journal, history);
+
+    expect(represented.size).toBe(2);
+    expect(ambiguous).toEqual(new Set());
+    expect(
+      findAmbiguousLegacyJournalEntryForCall(
+        journal,
+        ambiguous,
+        represented,
+        "send",
+        argumentsHash,
+        input,
+        new Set(),
+        true,
+      ),
+    ).toBeDefined();
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        new Set(),
+        { input },
+        represented,
+        "continued-step",
+        ambiguous,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("matches reused provider call ids to history occurrences one to one", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "first" },
+      },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "first" },
+        result: "first sent",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ message: "first" }),
+      },
+      {
+        type: "tool_start",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "second" },
+      },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input: { message: "second" },
+        result: "second sent",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ message: "second" }),
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input: { message: "first" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: '{"message":"first"}',
+            content: "first sent",
+          },
+        ],
+      },
+    ];
+
+    expect(journal.completed).toHaveLength(2);
+    expect(journalEntriesRepresentedInHistory(journal, history)).toEqual(
+      new Set([journal.completed[0]!.key]),
     );
-    expect(first?.result).toBe("sent A");
-    expect(
-      findCompletedJournalEntry(
-        journal,
-        "sendEmail",
-        { to: "a@example.com" },
-        consumed,
-      ),
-    ).toBeUndefined();
+  });
 
+  it("attributes a later reused-id result by its result instead of journal order", () => {
+    const input = { message: "same" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "first sent",
+        completedSideEffect: true,
+      },
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "second sent",
+        completedSideEffect: true,
+      },
+    ]);
+    const represented = journalEntriesRepresentedInHistory(journal, [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "second sent",
+          },
+        ],
+      },
+    ]);
+
+    expect(represented).toEqual(new Set([journal.completed[1]!.key]));
+  });
+
+  it("leaves identical legacy occurrences unrepresented when their order is ambiguous", () => {
+    const input = { message: "same" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+      },
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+      },
+    ]);
+    const represented = journalEntriesRepresentedInHistory(journal, [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent",
+          },
+        ],
+      },
+    ]);
+
+    expect(represented).toEqual(new Set());
+  });
+
+  it("blocks a legacy completion when duplicate history calls have one result", () => {
+    const input = { message: "same" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "reused-call", name: "send", input },
+          { type: "tool-call", id: "reused-call", name: "send", input },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent",
+          },
+        ],
+      },
+    ];
+    const entry = journal.completed[0]!;
+    const represented = journalEntriesRepresentedInHistory(journal, history);
+    const ambiguous = journalEntriesAmbiguousInHistory(journal, history);
+
+    expect(represented).not.toContain(entry.key);
+    expect(ambiguous).toEqual(new Set([entry.key]));
     expect(
-      findCompletedJournalEntry(
+      findAmbiguousLegacyJournalEntryForCall(
         journal,
-        "sendEmail",
-        { to: "b@example.com" },
-        consumed,
-      )?.result,
-    ).toBe("sent B");
+        ambiguous,
+        represented,
+        "send",
+        actionArgumentsHash(input),
+        input,
+      ),
+    ).toEqual(entry);
     expect(
-      findCompletedJournalEntry(
+      findReplayableJournalEntry(
         journal,
-        "sendEmail",
-        { to: "c@example.com" },
-        consumed,
+        "send",
+        actionArgumentsHash(input),
+        undefined,
+        { input },
+        new Set([...represented, ...ambiguous]),
+        "resumed-step",
       ),
     ).toBeUndefined();
   });
 
-  it("matches nested inputs regardless of object key insertion order", () => {
+  it("pairs a retried step after the provider changes its call id", () => {
+    const input = { id: "doc-1" };
     const journal = classifyToolCallJournal([
-      start("save-card", {
-        id: "card-1",
-        fields: { title: "Launch", priority: "high" },
-      }),
-      done("save-card", "saved"),
+      {
+        type: "tool_start",
+        id: "before-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+      },
     ]);
 
     expect(
-      findCompletedJournalEntry(journal, "save-card", {
-        fields: { priority: "high", title: "Launch" },
-        id: "card-1",
-      })?.result,
-    ).toBe("saved");
+      findInterruptedJournalEntryForCall(
+        journal,
+        "get-document",
+        actionArgumentsHash(input),
+        input,
+      ),
+    ).toMatchObject({ executionStepId: "stable-step" });
   });
 
-  it("does not match a tool call whose prior journal entry was an error", () => {
+  it("closes retried starts for the same step when the provider id changes", () => {
+    const input = { id: "doc-1" };
     const journal = classifyToolCallJournal([
-      start("add-slide", { deckId: "deck-1", layout: "content" }),
-      done("add-slide", "Error running add-slide: Run aborted", {
+      {
+        type: "tool_start",
+        id: "before-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+      },
+      {
+        type: "tool_start",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+        result: "document",
+      },
+    ]);
+
+    expect(journal.interrupted).toEqual([]);
+    expect(journal.completed).toHaveLength(1);
+    expect(journal.completed[0]).toMatchObject({
+      id: "after-reconnect",
+      executionStepId: "stable-step",
+      result: "document",
+    });
+  });
+
+  it("retains identity and committed effect across retries of one step", () => {
+    const input = { id: "doc-1" };
+    const argumentsHash = actionArgumentsHash(input);
+    const events: AgentChatEvent[] = [
+      {
+        type: "tool_start",
+        id: "before-reconnect",
+        executionStepId: "stable-step",
+        tool: "create-document",
+        input,
+      },
+      {
+        type: "tool_start",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "create-document",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "create-document",
+        input,
+        result: "Document saved",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ];
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "before-reconnect",
+            executionStepId: "stable-step",
+            name: "create-document",
+            input,
+          },
+          {
+            type: "tool-call",
+            id: "after-reconnect",
+            executionStepId: "stable-step",
+            name: "create-document",
+            input,
+          },
+        ],
+      },
+    ];
+    const identity = toolCallIdentityKey("after-reconnect", "stable-step")!;
+    const journal = classifyToolCallJournal(events);
+
+    expect(journalCallEffects(journal, events, history).get(identity)).toBe(
+      "committed",
+    );
+    expect(journalCallIdentities(events, history).get(identity)).toBe(
+      argumentsHash,
+    );
+  });
+
+  it("replays the unrepresented write before a represented write with reused input", () => {
+    const input = { message: "same" };
+    const argumentsHash = actionArgumentsHash(input);
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "first sent",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "second sent",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "first sent",
+          },
+        ],
+      },
+    ];
+    const representedKeys = journalEntriesRepresentedInHistory(
+      journal,
+      history,
+    );
+
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        new Set(),
+        { input },
+        representedKeys,
+        "resumed-step",
+      ),
+    ).toMatchObject({ result: "second sent" });
+  });
+
+  it("replays a call sharing its id with another only for its own identity", () => {
+    // Each entry's result and identity come from one tool_done.
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "same", tool: "send", input: { n: 1 } },
+      {
+        type: "tool_done",
+        id: "same",
+        tool: "send",
+        input: { n: 1 },
+        result: "sent 1",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ n: 1 }),
+      },
+      { type: "tool_start", id: "same", tool: "send", input: { n: 2 } },
+      {
+        type: "tool_done",
+        id: "same",
+        tool: "send",
+        input: { n: 2 },
+        result: "Error running send: refused",
         isError: true,
-      }),
+        completedSideEffect: false,
+        argumentsHash: actionArgumentsHash({ n: 2 }),
+      },
     ]);
-
     expect(
-      findCompletedJournalEntry(journal, "add-slide", {
-        deckId: "deck-1",
-        layout: "content",
-      }),
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        actionArgumentsHash({ n: 2 }),
+      ),
     ).toBeUndefined();
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        actionArgumentsHash({ n: 1 }),
+      ),
+    ).toMatchObject({ result: "sent 1" });
   });
 
-  it("does not match different long inputs that share a truncated prefix", () => {
-    const sharedPrefix = "<section>".repeat(30);
+  it("matches a call recorded without an identity by its raw input, for a write only", () => {
     const journal = classifyToolCallJournal([
-      start("add-slide", {
-        deckId: "deck-1",
-        html: `${sharedPrefix}<h1>First slide</h1>`,
-      }),
-      done("add-slide", "slide added"),
+      { type: "tool_start", id: "old", tool: "send", input: { to: "a" } },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "send",
+        input: { to: "a" },
+        result: "sent",
+        completedSideEffect: true,
+      },
     ]);
-
+    const hash = actionArgumentsHash({ to: "a" });
+    // Prepared as a read, or sent other input, it runs fresh.
+    expect(findReplayableJournalEntry(journal, "send", hash)).toBeUndefined();
     expect(
-      findCompletedJournalEntry(journal, "add-slide", {
-        deckId: "deck-1",
-        html: `${sharedPrefix}<h1>Second slide</h1>`,
+      findReplayableJournalEntry(journal, "send", hash, undefined, {
+        input: { to: "b" },
+      }),
+    ).toBeUndefined();
+    const consumed = new Set<string>();
+    expect(
+      findReplayableJournalEntry(journal, "send", hash, consumed, {
+        input: { to: "a" },
+      }),
+    ).toMatchObject({ result: "sent" });
+    expect(
+      findReplayableJournalEntry(journal, "send", hash, consumed, {
+        input: { to: "a" },
       }),
     ).toBeUndefined();
   });

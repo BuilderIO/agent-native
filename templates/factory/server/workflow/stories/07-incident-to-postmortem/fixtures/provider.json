@@ -1,0 +1,148 @@
+{
+  "slack.postMessage": {
+    "posted": {
+      "match": [
+        {
+          "when": {
+            "to": "oncall@example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0ONCALL",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/D0ONCALL/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/D0ONCALL/p176000100000000{n}"
+          }
+        },
+        {
+          "when": {
+            "to": "escalation@example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0ESCALATION",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/D0ESCALATION/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/D0ESCALATION/p176000100000000{n}"
+          }
+        },
+        {
+          "when": {
+            "to": "incident-owner@example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0INCIDENT",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/D0INCIDENT/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/D0INCIDENT/p176000100000000{n}"
+          }
+        }
+      ]
+    }
+  },
+  "email.send": {
+    "sent": {
+      "ok": true,
+      "output": {
+        "messageRef": "msg-{n}"
+      },
+      "externalRef": "msg-{n}"
+    }
+  },
+  "sentry.issueStatus": {
+    "unresolved": {
+      "ok": true,
+      "output": {
+        "id": "4821",
+        "status": "unresolved"
+      }
+    },
+    "resolved": {
+      "ok": true,
+      "output": {
+        "id": "4821",
+        "status": "resolved"
+      }
+    },
+    "readFails": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Sentry is unavailable",
+      "retryable": true,
+      "sideEffect": "none"
+    }
+  },
+  "sentry.issueEvents": {
+    "events": {
+      "ok": true,
+      "output": {
+        "events": [
+          {
+            "eventID": "e1",
+            "dateCreated": "2026-10-19T11:40:12.000Z",
+            "title": "TypeError: cannot read 'total' of undefined",
+            "url": "https://sentry.example.test/organizations/example/issues/4821/events/e1/",
+            "tags": {
+              "release": "web@2026.10.19-1"
+            }
+          },
+          {
+            "eventID": "e2",
+            "dateCreated": "2026-10-19T11:52:40.000Z",
+            "title": "TypeError: cannot read 'total' of undefined",
+            "url": "https://sentry.example.test/organizations/example/issues/4821/events/e2/",
+            "tags": {
+              "release": "web@2026.10.19-1"
+            }
+          },
+          {
+            "eventID": "e3",
+            "dateCreated": "2026-10-19T12:31:05.000Z",
+            "title": "TypeError: cannot read 'total' of undefined",
+            "url": "https://sentry.example.test/organizations/example/issues/4821/events/e3/",
+            "tags": {
+              "release": "web@2026.10.19-2"
+            }
+          }
+        ]
+      }
+    },
+    "noEvents": {
+      "ok": true,
+      "output": {
+        "events": []
+      }
+    }
+  },
+  "notion.createPage": {
+    "created": {
+      "ok": true,
+      "output": {
+        "id": "page-{n}",
+        "url": "https://notion.example.test/page-{n}"
+      },
+      "externalRef": "page-{n}",
+      "url": "https://notion.example.test/page-{n}"
+    },
+    "down": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Notion is unavailable",
+      "retryable": true,
+      "sideEffect": "none"
+    }
+  }
+}

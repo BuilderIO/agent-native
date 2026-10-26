@@ -32,6 +32,18 @@ function targetWindow() {
   };
 }
 
+function structuredCloneTargetWindow() {
+  const sent: Array<{ message: unknown; targetOrigin: string }> = [];
+  return {
+    sent,
+    win: {
+      postMessage: vi.fn((message: unknown, targetOrigin: string) => {
+        sent.push({ message: structuredClone(message), targetOrigin });
+      }),
+    } as unknown as Window,
+  };
+}
+
 function dispatchFromAgent(
   source: Window,
   origin: string,
@@ -90,6 +102,34 @@ describe("createAgentNativeHostBridge", () => {
         },
         resource: { type: "customer", id: "acme" },
       },
+    });
+
+    bridge.stop();
+  });
+
+  it("returns an error response when the host context is not cloneable", async () => {
+    const target = targetWindow();
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      getContext: () => ({
+        resource: { id: "acme" },
+        unsupported: () => "not cloneable",
+      }),
+    }).start();
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "ctx-uncloneable",
+    });
+    await nextTick();
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
+      ok: false,
+      requestId: "ctx-uncloneable",
+      error: "Host context must be JSON-serializable and structured-cloneable",
     });
 
     bridge.stop();
@@ -333,6 +373,118 @@ describe("createAgentNativeHostBridge", () => {
     bridge.stop();
   });
 
+  it("returns an error when WebMCP tool manifests cannot be cloned", async () => {
+    const target = structuredCloneTargetWindow();
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => [
+        {
+          name: "get-order",
+          description: "Read an order",
+          inputSchema: { transform: () => undefined },
+        },
+      ]),
+      executeTool: vi.fn(async () => null),
+      executeListedTool: vi.fn(async () => null),
+    };
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      webmcp,
+    }).start();
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS,
+      requestId: "webmcp-list-invalid-1",
+    });
+    await nextTick();
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+      ok: false,
+      requestId: "webmcp-list-invalid-1",
+      error: expect.any(String),
+    });
+    expect(target.sent[0].message).not.toHaveProperty("tools");
+
+    bridge.stop();
+  });
+
+  it("reports uncloneable WebMCP tools in the initialization response", async () => {
+    const target = structuredCloneTargetWindow();
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => [
+        {
+          name: "get-order",
+          description: "Read an order",
+          inputSchema: { transform: () => undefined },
+        },
+      ]),
+      executeTool: vi.fn(async () => null),
+      executeListedTool: vi.fn(async () => null),
+    };
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      webmcp,
+    });
+
+    await expect(bridge.sendInit("init-invalid-1")).resolves.toBe(true);
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.INIT,
+      requestId: "init-invalid-1",
+      webmcpError: expect.any(String),
+    });
+    expect(target.sent[0].message).not.toHaveProperty("webmcpTools");
+
+    bridge.stop();
+  });
+
+  it("returns an error when a WebMCP result cannot be cloned", async () => {
+    const target = targetWindow();
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => [
+        {
+          name: "get-order",
+          description: "Read an order",
+          origin: "https://shop.example",
+          inputSchema: { type: "object" },
+        },
+      ]),
+      executeTool: vi.fn(async () => undefined),
+      executeListedTool: vi.fn(async () => () => undefined),
+    };
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      commands: { requestApproval: vi.fn(() => ({ approved: true })) },
+      webmcp,
+    }).start();
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL,
+      requestId: "webmcp-uncloneable-1",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: { id: "order-1" },
+    });
+    await nextTick();
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT,
+      ok: false,
+      requestId: "webmcp-uncloneable-1",
+      error: expect.any(String),
+    });
+    bridge.stop();
+  });
+
   it("requires host approval before running destructive client actions", async () => {
     const target = targetWindow();
     const run = vi.fn(() => ({ deleted: true }));
@@ -433,6 +585,167 @@ describe("createAgentNativeHostBridge", () => {
 
     expect(target.sent).toHaveLength(0);
     bridge.stop();
+  });
+
+  it("uses a private MessagePort when window messages are disabled", async () => {
+    const target = targetWindow();
+    const run = vi.fn(({ value }: { value: number }) => ({
+      doubled: value * 2,
+    }));
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      allowWindowMessages: false,
+      actions: [{ name: "double", description: "Double", run }],
+    }).start();
+    const channel = new MessageChannel();
+    bridge.setTargetPort(channel.port1);
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION,
+      requestId: "forged-action",
+      name: "double",
+      args: { value: 99 },
+    });
+    await nextTick();
+
+    expect(run).not.toHaveBeenCalled();
+    expect(target.sent).toHaveLength(0);
+
+    const response = new Promise((resolve) => {
+      channel.port2.addEventListener(
+        "message",
+        (event) => resolve(event.data),
+        { once: true },
+      );
+      channel.port2.start();
+    });
+    channel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION,
+      requestId: "private-action",
+      name: "double",
+      args: { value: 3 },
+    });
+
+    await expect(response).resolves.toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT,
+      ok: true,
+      requestId: "private-action",
+      result: { doubled: 6 },
+    });
+    expect(run).toHaveBeenCalledOnce();
+    bridge.stop();
+    channel.port1.close();
+    channel.port2.close();
+  });
+
+  it("does not send an in-flight port response to a replacement frame", async () => {
+    const oldChannel = new MessageChannel();
+    const nextChannel = new MessageChannel();
+    const oldResponses: unknown[] = [];
+    const nextResponses: unknown[] = [];
+    oldChannel.port2.addEventListener("message", (event) =>
+      oldResponses.push(event.data),
+    );
+    nextChannel.port2.addEventListener("message", (event) =>
+      nextResponses.push(event.data),
+    );
+    oldChannel.port2.start();
+    nextChannel.port2.start();
+
+    let resolveContext!: (value: { resource: { id: string } }) => void;
+    let markContextStarted!: () => void;
+    const contextStarted = new Promise<void>((resolve) => {
+      markContextStarted = resolve;
+    });
+    const contextResult = new Promise<{ resource: { id: string } }>(
+      (resolve) => {
+        resolveContext = resolve;
+      },
+    );
+    const bridge = createAgentNativeHostBridge({
+      allowWindowMessages: false,
+      targetPort: oldChannel.port1,
+      getContext: () => {
+        markContextStarted();
+        return contextResult;
+      },
+    }).start();
+
+    oldChannel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "reused-after-reload",
+    });
+    await contextStarted;
+
+    bridge.setTargetPort(nextChannel.port1);
+    nextChannel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "reused-after-reload",
+    });
+    await nextTick();
+    resolveContext({ resource: { id: "current-frame" } });
+    await nextTick();
+
+    expect(oldResponses).toEqual([]);
+    expect(nextResponses).toHaveLength(1);
+    expect(nextResponses[0]).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
+      requestId: "reused-after-reload",
+      context: { resource: { id: "current-frame" } },
+    });
+
+    bridge.stop();
+    oldChannel.port1.close();
+    oldChannel.port2.close();
+    nextChannel.port1.close();
+    nextChannel.port2.close();
+  });
+
+  it("sends an in-flight port response after the bridge stops when the port is still current", async () => {
+    const channel = new MessageChannel();
+    let resolveContext!: (value: { resource: { id: string } }) => void;
+    let markContextStarted!: () => void;
+    const contextStarted = new Promise<void>((resolve) => {
+      markContextStarted = resolve;
+    });
+    const contextResult = new Promise<{ resource: { id: string } }>(
+      (resolve) => {
+        resolveContext = resolve;
+      },
+    );
+    const response = new Promise<unknown>((resolve) => {
+      channel.port2.addEventListener(
+        "message",
+        (event) => resolve(event.data),
+        { once: true },
+      );
+      channel.port2.start();
+    });
+    const bridge = createAgentNativeHostBridge({
+      allowWindowMessages: false,
+      targetPort: channel.port1,
+      getContext: () => {
+        markContextStarted();
+        return contextResult;
+      },
+    }).start();
+
+    channel.port2.postMessage({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.GET_CONTEXT,
+      requestId: "in-flight-across-stop",
+    });
+    await contextStarted;
+    bridge.stop();
+    resolveContext({ resource: { id: "current-frame" } });
+
+    await expect(response).resolves.toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.CONTEXT,
+      requestId: "in-flight-across-stop",
+      context: { resource: { id: "current-frame" } },
+    });
+
+    channel.port1.close();
+    channel.port2.close();
   });
 });
 

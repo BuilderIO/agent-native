@@ -72,8 +72,7 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-// fixme: product bug: The Auto layout Gap input is so narrow it clips its value: it holds '24px' but shows '2' (scrollWidth > clientWidth). All saved-state
-test.fixme("a drawn Screen keeps W/H geometry and exposes its auto-layout controls", async ({
+test("a drawn Screen keeps W/H geometry and exposes its auto-layout controls", async ({
   app,
   page,
 }) => {
@@ -188,8 +187,8 @@ test.fixme("a drawn Screen keeps W/H geometry and exposes its auto-layout contro
   );
   await expect(persistedShell).toHaveCSS("width", "360px");
   await persistedShell.locator("[data-frame-title]").click();
-  await expect(width).toHaveValue("360px");
-  await expect(height).toHaveValue("315px");
+  await expect(width).toHaveValue("360");
+  await expect(height).toHaveValue("315");
   await expect(layoutHeading).toBeVisible();
   await expect(designFrameForScreen(page, screenId).locator("body")).toHaveCSS(
     "gap",
@@ -205,7 +204,7 @@ test.fixme("a drawn Screen keeps W/H geometry and exposes its auto-layout contro
     final.files?.find((file) => file.id === firstScreen.id)?.content,
     "drawing and laying out the new Screen leaves the first Screen untouched",
   ).toBe(firstScreen.content);
-  await expectGapField(layout, "24px");
+  await expectGapField(layout, "24");
 });
 
 function designFrameForScreen(page: Page, screenId: string) {
@@ -216,8 +215,7 @@ function designFrameForScreen(page: Page, screenId: string) {
     .contentFrame();
 }
 
-// fixme: product bug: Same clipped Gap field: value '20px' rendered as '2'. Every other assertion, including the byte-exact undo, passes.
-test.fixme("Screen Shift+A saves inferred padding with layout in one undoable edit", async ({
+test("Screen Shift+A saves inferred padding with layout in one undoable edit", async ({
   app,
   page,
 }) => {
@@ -277,6 +275,6 @@ test.fixme("Screen Shift+A saves inferred padding with layout in one undoable ed
     page
       .getByRole("heading", { name: "Auto layout", exact: true })
       .locator("xpath=ancestor::section"),
-    "20px",
+    "20",
   );
 });

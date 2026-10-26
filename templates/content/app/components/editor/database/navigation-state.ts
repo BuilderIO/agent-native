@@ -4,6 +4,7 @@
 import type {
   ContentDatabaseItem,
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSource,
   ContentDatabaseView,
   Document,
@@ -11,6 +12,7 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { hydrateContentDatabaseItems } from "@shared/database-row-properties";
 import { isComputedPropertyType } from "@shared/properties";
 
 import { databaseCalculationSummaries } from "./calculations";
@@ -172,6 +174,7 @@ export function databaseNavigationState({
     | "rowDensity"
     | "openPagesIn"
     | "formQuestions"
+    | "itemLayout"
   >;
   searchQuery?: string;
   sorts?: DatabaseSort[];
@@ -286,6 +289,8 @@ export function databaseNavigationState({
         : undefined,
     databaseFormQuestions:
       activeView.type === "form" ? activeView.formQuestions : undefined,
+    databaseItemLayout:
+      activeView.type === "list" ? (activeView.itemLayout ?? null) : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
     databaseVisibleItems: databaseVisibleItemSummaries(
@@ -350,18 +355,23 @@ export function databaseBulkScalarInputState(
 }
 
 export function databaseDuplicatedItemFromResponse(
-  response: Pick<ContentDatabaseResponse, "items"> &
+  response: Pick<
+    ContentDatabaseResponse | ContentDatabaseResponsePayload,
+    "items" | "properties"
+  > &
     Pick<
       Partial<ContentDatabaseResponse>,
       "duplicatedItemId" | "duplicatedItemIds"
     >,
-) {
+): ContentDatabaseItem | null {
   const duplicatedItemIds = response.duplicatedItemIds ?? [];
   const duplicatedItemId =
     duplicatedItemIds.length > 0
       ? duplicatedItemIds[duplicatedItemIds.length - 1]
       : response.duplicatedItemId;
-  return response.items.find((item) => item.id === duplicatedItemId) ?? null;
+  const duplicate = response.items.find((item) => item.id === duplicatedItemId);
+  if (!duplicate) return null;
+  return hydrateContentDatabaseItems([duplicate], response.properties)[0];
 }
 
 export function toggleDatabaseRowSelection(

@@ -889,9 +889,10 @@ describe("space-aware document writers", () => {
     );
   });
 
-  it("lets ordinary organization members create root pages and databases while guests remain read-only", async () => {
+  it("lets ordinary organization members create root pages and databases while rejecting invalid guest roles", async () => {
     const orgId = "org-shared-writers";
     await addOrganizationMember({ orgId, email: MEMBER });
+    // A stale roster row with an unsupported role must not grant space access.
     await addOrganizationMember({ orgId, email: VIEWER, role: "guest" });
     const spaceId = organizationContentSpaceId(orgId);
     const created = await runWithRequestContext(
@@ -1089,14 +1090,51 @@ describe("space-aware document writers", () => {
 
     await expect(
       runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
-        createDocument.run({ title: "Viewer page", spaceId }),
+        createDocument.run({
+          id: "rejected-guest-root-page",
+          title: "Viewer page",
+          spaceId,
+        }),
       ),
-    ).rejects.toThrow("Contributor access is required");
+    ).rejects.toMatchObject({
+      name: "ActionContractError",
+      message: "Content space not found.",
+      errorCode: "SPACE_NOT_FOUND",
+      statusCode: 404,
+    });
     await expect(
       runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
-        createContentDatabase.run({ title: "Viewer database", spaceId }),
+        createContentDatabase.run({
+          newDocumentId: "rejected-guest-root-database",
+          title: "Viewer database",
+          spaceId,
+        }),
       ),
-    ).rejects.toThrow("Contributor access is required");
+    ).rejects.toMatchObject({
+      name: "ActionContractError",
+      message: "Content space not found.",
+      errorCode: "SPACE_NOT_FOUND",
+      statusCode: 404,
+    });
+    const guestRootIds = [
+      "rejected-guest-root-page",
+      "rejected-guest-root-database",
+    ];
+    const rejectedGuestRows = await Promise.all([
+      getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, guestRootIds)),
+      getDb()
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(inArray(schema.contentDatabases.documentId, guestRootIds)),
+      getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, guestRootIds)),
+    ]);
+    expect(rejectedGuestRows).toEqual([[], [], []]);
     await expect(
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
         createDocument.run({ title: "No entry", spaceId }),

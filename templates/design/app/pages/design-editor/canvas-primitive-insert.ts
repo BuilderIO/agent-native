@@ -1,5 +1,7 @@
 import { isBoardFile } from "@shared/board-file";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { normalizedDesignFileType } from "@shared/design-files";
+import { cloneNativeEffectsForNodes } from "@shared/native-effect-cloning";
 import {
   isClosedPathData,
   serializePenNodes,
@@ -14,6 +16,7 @@ import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "@shared/vector-endpoints";
+import { compositeOver, contrastRatio, type Rgb } from "@shared/wcag-contrast";
 
 import {
   canvasPrimitiveVisual,
@@ -34,6 +37,9 @@ import {
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { patchElementInlineStyle } from "./html-layer-positioning";
+import { describeFlowContainer } from "./nudge-intent";
+import { isPasteContainer } from "./paste-placement";
 import { hidePenPathFill } from "./pen-path-paint";
 import type { DesignFile } from "./types";
 
@@ -152,7 +158,7 @@ export function reassignDuplicatedNodeIds(content: string): string {
   }
   const rewriteReference = (id: string): string =>
     rewrittenReferences.get(id) ?? id;
-  return withNewNodeIds
+  const rewrittenContent = withNewNodeIds
     .replace(
       /\bid=(['"])([^'"]*)\1/g,
       (_match, quote: string, id: string) =>
@@ -162,6 +168,9 @@ export function reassignDuplicatedNodeIds(content: string): string {
       /url\(#([^)]*)\)/g,
       (_match, id: string) => `url(#${rewriteReference(id)})`,
     );
+  return cloneNativeEffectsForNodes(content, rewrittenContent, nodeIdMap, {
+    wholeDocument: true,
+  });
 }
 
 export function defaultTextLayerName(text: string | undefined): string {
@@ -307,11 +316,122 @@ function inlineBorderInset(element: Element): { x: number; y: number } {
   return { x: read(style.borderLeftWidth), y: read(style.borderTopWidth) };
 }
 
+const POSITIONED = new Set(["absolute", "fixed", "relative", "sticky"]);
+
+interface CreationHost {
+  element: Element;
+  x: number;
+  y: number;
+  border: { x: number; y: number };
+  live: Element | null;
+}
+
+// Paste and draw must agree on what holds a layer, so this is paste's rule
+// plus the layer-state exclusions a hit test applies.
+function isCreationParent(element: Element): boolean {
+  if (
+    element.closest(
+      '[data-agent-native-locked="true"],[data-agent-native-hidden="true"]',
+    )
+  ) {
+    return false;
+  }
+  const display = (element as HTMLElement).style?.display;
+  return isPasteContainer({
+    tag: element.localName,
+    hasElementChildren: element.children.length > 0,
+    hasText: Boolean(element.textContent?.trim()),
+    container: describeFlowContainer({
+      style: display ? { display } : {},
+      classes: (element.getAttribute("class") ?? "").split(/\s+/),
+    }),
+    primitiveKind: element.getAttribute("data-an-primitive"),
+  });
+}
+
+function containsPoint(
+  rect: { x: number; y: number; w: number; h: number },
+  x: number,
+  y: number,
+) {
+  return (
+    x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h
+  );
+}
+
+function uniqueLiveNode(live: Document, nodeId: string): Element | null {
+  const matches = live.querySelectorAll(
+    `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function liveDocumentRect(element: Element) {
+  const rect = element.getBoundingClientRect();
+  const view = element.ownerDocument.defaultView;
+  return {
+    x: rect.left + (view?.scrollX ?? 0),
+    y: rect.top + (view?.scrollY ?? 0),
+    w: rect.width,
+    h: rect.height,
+  };
+}
+
+/**
+ * Authored layouts carry no inline geometry, so the rendered screen decides
+ * which container a point is over. Document order puts every descendant and
+ * every later-painted sibling after the element it covers, so the last
+ * container hit is the one on top.
+ */
+function liveCreationHost(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument: Document,
+): CreationHost | null {
+  // null marks an id the rendered screen repeats, which names no one element.
+  const liveById = new Map<string, Element | null>();
+  for (const live of Array.from(
+    liveDocument.querySelectorAll("[data-agent-native-node-id]"),
+  )) {
+    const id = live.getAttribute("data-agent-native-node-id") ?? "";
+    liveById.set(id, liveById.has(id) ? null : live);
+  }
+  let host: CreationHost | null = null;
+  for (const element of Array.from(
+    root.querySelectorAll("[data-agent-native-node-id]"),
+  )) {
+    if (!isCreationParent(element)) continue;
+    const live = liveById.get(
+      element.getAttribute("data-agent-native-node-id") ?? "",
+    );
+    if (!live) continue;
+    const rect = liveDocumentRect(live);
+    if (!(rect.w > 0 && rect.h > 0) || !containsPoint(rect, x, y)) continue;
+    const computed = liveDocument.defaultView?.getComputedStyle(live);
+    const read = (value: string | undefined) => {
+      const parsed = Number.parseFloat(value ?? "");
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    host = {
+      element,
+      x: rect.x - live.scrollLeft,
+      y: rect.y - live.scrollTop,
+      border: {
+        x: read(computed?.borderLeftWidth),
+        y: read(computed?.borderTopWidth),
+      },
+      live,
+    };
+  }
+  return host;
+}
+
 function deepestFrameContaining(
   root: Element,
   x: number,
   y: number,
-): { element: Element; x: number; y: number } | null {
+): CreationHost | null {
   const contained = Array.from(
     root.querySelectorAll('[data-an-primitive="frame"]'),
   )
@@ -322,24 +442,621 @@ function deepestFrameContaining(
       ): candidate is {
         element: Element;
         rect: { x: number; y: number; w: number; h: number };
-      } =>
-        candidate.rect !== null &&
-        x >= candidate.rect.x &&
-        y >= candidate.rect.y &&
-        x <= candidate.rect.x + candidate.rect.w &&
-        y <= candidate.rect.y + candidate.rect.h,
+      } => candidate.rect !== null && containsPoint(candidate.rect, x, y),
     )
     .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
   const best = contained[0];
   return best
-    ? { element: best.element, x: best.rect.x, y: best.rect.y }
+    ? {
+        element: best.element,
+        x: best.rect.x,
+        y: best.rect.y,
+        border: inlineBorderInset(best.element),
+        live: null,
+      }
     : null;
+}
+
+function creationHostAt(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument: Document | null | undefined,
+): CreationHost | null {
+  return (
+    (liveDocument?.body ? liveCreationHost(root, x, y, liveDocument) : null) ??
+    deepestFrameContaining(root, x, y)
+  );
+}
+
+/** The in-flow child a layer dropped at the point goes before, in the host's flow order. */
+function flowInsertionReference(
+  host: CreationHost,
+  x: number,
+  y: number,
+): Element | null {
+  const live = host.live;
+  const view = live?.ownerDocument.defaultView;
+  if (!live || !view) return null;
+  const computed = view.getComputedStyle(live);
+  const direction = computed.flexDirection || "row";
+  const column = direction.startsWith("column");
+  const reversed =
+    direction.endsWith("-reverse") !==
+    (!column && computed.direction === "rtl");
+  const rowsOfItems =
+    computed.display.includes("grid") ||
+    (computed.flexWrap !== "" && computed.flexWrap !== "nowrap");
+  for (const child of Array.from(host.element.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const liveChild: Element | null = id
+      ? uniqueLiveNode(live.ownerDocument, id)
+      : null;
+    if (!liveChild || liveChild.parentElement !== live) continue;
+    const position = view.getComputedStyle(liveChild).position;
+    if (position === "absolute" || position === "fixed") continue;
+    const rect = liveDocumentRect(liveChild);
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const before = column
+      ? reversed
+        ? centerY < y
+        : y < centerY
+      : rowsOfItems && (y < rect.y || rect.y + rect.h < y)
+        ? y < rect.y
+        : reversed
+          ? centerX < x
+          : x < centerX;
+    if (before) return child;
+  }
+  return null;
+}
+
+function elementsFromPointIncludingPointerTransparent(
+  liveDocument: Document,
+  x: number,
+  y: number,
+): Element[] {
+  const liveView = liveDocument.defaultView;
+  if (!liveView) return liveDocument.elementsFromPoint(x, y);
+
+  // elementsFromPoint skips pointer-events:none even when those elements paint over the point.
+  const pointerTransparentElements = Array.from(
+    liveDocument.querySelectorAll<HTMLElement | SVGElement>("*"),
+  ).filter((element) => {
+    if (liveView.getComputedStyle(element).pointerEvents !== "none") {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      x >= rect.left &&
+      y >= rect.top &&
+      x <= rect.right &&
+      y <= rect.bottom
+    );
+  });
+  if (!pointerTransparentElements.length) {
+    return liveDocument.elementsFromPoint(x, y);
+  }
+
+  const originalStyles = pointerTransparentElements.map((element) => ({
+    element,
+    style: element.getAttribute("style"),
+  }));
+  try {
+    pointerTransparentElements.forEach((element) => {
+      element.style.setProperty("pointer-events", "auto", "important");
+    });
+    return liveDocument.elementsFromPoint(x, y);
+  } finally {
+    originalStyles.forEach(({ element, style }) => {
+      if (style === null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    });
+  }
+}
+
+function paintedSurfaceAtPoint(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument?: Document | null,
+  includeDocumentBackground = false,
+  fallbackBackground: string | null = null,
+  fallbackIsMeasured = false,
+  sampleElement?: Element | null,
+):
+  | { kind: "known"; color: Rgb }
+  | {
+      kind: "unknown";
+      reason:
+        | "background-image"
+        | "flow-overlap"
+        | "translucent"
+        | "unmeasured";
+    }
+  | null {
+  const isZeroOpacity = (style: CSSStyleDeclaration): boolean => {
+    const opacity = style.opacity?.trim();
+    return Boolean(opacity && Number.parseFloat(opacity) === 0);
+  };
+  const hasUnknownPaint = (
+    style: CSSStyleDeclaration,
+    includeBackgroundImage = true,
+  ): "background-image" | "translucent" | null => {
+    const opacity = style.opacity?.trim();
+    if (opacity && Number.parseFloat(opacity) === 0) return null;
+    const backgroundImage = style.backgroundImage?.trim().toLowerCase();
+    if (
+      includeBackgroundImage &&
+      backgroundImage &&
+      ![
+        "none",
+        "initial",
+        "unset",
+        "inherit",
+        "revert",
+        "revert-layer",
+      ].includes(backgroundImage)
+    ) {
+      return "background-image";
+    }
+    if (!opacity || opacity === "1") return null;
+    const parsedOpacity = Number.parseFloat(opacity);
+    return !Number.isFinite(parsedOpacity) || parsedOpacity !== 1
+      ? "translucent"
+      : null;
+  };
+  const svgPaintAtPoint = (
+    element: Element,
+    style: CSSStyleDeclaration,
+  ): string | "unmeasured" | null => {
+    if (element.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+    const tagName = element.localName.toLowerCase();
+    if (["image", "use", "foreignobject"].includes(tagName)) {
+      return "unmeasured";
+    }
+    if (
+      ![
+        "circle",
+        "ellipse",
+        "line",
+        "path",
+        "polygon",
+        "polyline",
+        "rect",
+        "text",
+        "tspan",
+      ].includes(tagName)
+    ) {
+      return null;
+    }
+
+    const readProperty = (property: string, fallback: string): string => {
+      const computedValue = style.getPropertyValue(property).trim();
+      if (computedValue && !["inherit", "unset"].includes(computedValue)) {
+        return computedValue;
+      }
+      for (
+        let ancestor: Element | null = element;
+        ancestor?.namespaceURI === "http://www.w3.org/2000/svg";
+        ancestor = ancestor.parentElement
+      ) {
+        const inlineValue = (ancestor as SVGElement).style
+          .getPropertyValue(property)
+          .trim();
+        const authoredValue =
+          inlineValue || ancestor.getAttribute(property)?.trim() || "";
+        if (authoredValue && !["inherit", "unset"].includes(authoredValue)) {
+          return authoredValue;
+        }
+      }
+      return fallback;
+    };
+    const opacityFor = (property: string): number | null => {
+      const value = readProperty(property, "1").trim();
+      const parsed = value.endsWith("%")
+        ? Number(value.slice(0, -1)) / 100
+        : Number(value);
+      return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : null;
+    };
+    const paintFor = (
+      paint: string,
+      opacity: number | null,
+    ): { r: number; g: number; b: number; a: number } | "unmeasured" | null => {
+      if (paint.trim().toLowerCase() === "none") return null;
+      if (opacity === null) return "unmeasured";
+      if (opacity === 0) return null;
+      const normalizedPaint = paint.trim().toLowerCase();
+      if (
+        normalizedPaint.startsWith("url(") ||
+        normalizedPaint.startsWith("context-")
+      ) {
+        return "unmeasured";
+      }
+      const color =
+        normalizedPaint === "currentcolor"
+          ? readProperty("color", "black")
+          : paint;
+      const parsed = parseCssColorExtended(color);
+      return parsed ? { ...parsed, a: parsed.a * opacity } : "unmeasured";
+    };
+    const fill =
+      tagName === "line"
+        ? null
+        : paintFor(readProperty("fill", "black"), opacityFor("fill-opacity"));
+    const stroke = paintFor(
+      readProperty("stroke", "none"),
+      opacityFor("stroke-opacity"),
+    );
+    if (fill === "unmeasured" || stroke === "unmeasured") {
+      return "unmeasured";
+    }
+    if (!fill) {
+      return stroke
+        ? `rgb(${stroke.r} ${stroke.g} ${stroke.b} / ${stroke.a})` // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+        : null;
+    }
+    if (!stroke) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b} / ${fill.a})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
+    if (
+      fill.a === 1 &&
+      stroke.a === 1 &&
+      fill.r === stroke.r &&
+      fill.g === stroke.g &&
+      fill.b === stroke.b
+    ) {
+      return `rgb(${fill.r} ${fill.g} ${fill.b})`; // guard:allow-raw-color — This serializes sampled SVG paint for contrast parsing.
+    }
+    return "unmeasured";
+  };
+  const compositePaintStack = (
+    colorsFromFrontToBack: ReadonlyArray<string | null>,
+  ):
+    | { kind: "known"; color: Rgb }
+    | { kind: "unknown"; reason: "translucent" | "unmeasured" }
+    | null => {
+    const fallback = fallbackBackground
+      ? parseCssColorExtended(fallbackBackground)
+      : null;
+    const hasMeasuredPaint = colorsFromFrontToBack.some((paint) => {
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      return foreground !== null && foreground.a > 0;
+    });
+    if (
+      !hasMeasuredPaint &&
+      (!fallbackIsMeasured || !fallback || fallback.a < 1)
+    ) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    let background: Rgb | null = fallback?.a === 1 ? fallback : null;
+    for (let index = colorsFromFrontToBack.length - 1; index >= 0; index -= 1) {
+      const paint = colorsFromFrontToBack[index];
+      const foreground = paint ? parseCssColorExtended(paint) : null;
+      if (!foreground || foreground.a <= 0) continue;
+      if (foreground.a >= 1) {
+        background = foreground;
+      } else if (background) {
+        background = compositeOver(foreground, background);
+      }
+    }
+    return background
+      ? { kind: "known", color: background }
+      : { kind: "unknown", reason: "translucent" };
+  };
+  const liveView = liveDocument?.defaultView;
+  const hasZeroOpacityAncestor = (element: Element): boolean => {
+    for (
+      let ancestor: Element | null = element;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      const inlineStyle = (ancestor as HTMLElement).style;
+      const computedStyle = liveView?.getComputedStyle(ancestor);
+      if (
+        isZeroOpacity(inlineStyle) ||
+        (computedStyle && isZeroOpacity(computedStyle))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (sampleElement) {
+    if (!liveDocument || !liveView) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const nodeId = sampleElement.getAttribute("data-agent-native-node-id");
+    const liveSampleElement =
+      sampleElement === root.ownerDocument?.body
+        ? liveDocument.body
+        : sampleElement === root.ownerDocument?.documentElement
+          ? liveDocument.documentElement
+          : nodeId
+            ? liveDocument.querySelector(
+                `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+              )
+            : null;
+    if (!liveSampleElement) {
+      return { kind: "unknown", reason: "unmeasured" };
+    }
+    const hostRect = liveSampleElement.getBoundingClientRect();
+    const hasOverlappingPositionedDescendant = Array.from(
+      liveSampleElement.querySelectorAll("*"),
+    ).some((descendant) => {
+      const style = liveView.getComputedStyle(descendant);
+      if (
+        !["absolute", "fixed"].includes(style.position) ||
+        ["none", "hidden", "collapse"].includes(style.display) ||
+        ["hidden", "collapse"].includes(style.visibility) ||
+        hasZeroOpacityAncestor(descendant)
+      ) {
+        return false;
+      }
+      const rect = descendant.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      if (hostRect.width <= 0 || hostRect.height <= 0) return true;
+      if (rect.right <= hostRect.left) return false;
+      if (rect.left >= hostRect.right) return false;
+      if (rect.bottom <= hostRect.top) return false;
+      return rect.top < hostRect.bottom;
+    });
+    // A flow insertion appends after existing children, where positioned
+    // descendants can paint over it without inheriting the host's surface.
+    if (hasOverlappingPositionedDescendant) {
+      return { kind: "unknown", reason: "flow-overlap" };
+    }
+    const colors: string[] = [];
+    for (
+      let element: Element | null = liveSampleElement;
+      element;
+      element = element.parentElement
+    ) {
+      if (hasZeroOpacityAncestor(element)) continue;
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(element);
+      const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+      if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+      if (
+        includeDocumentBackground ||
+        (element !== liveDocument.body &&
+          element !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+      }
+    }
+    return compositePaintStack(colors);
+  }
+  if (
+    liveDocument &&
+    liveView &&
+    typeof liveDocument.elementsFromPoint === "function"
+  ) {
+    const sampleX = x - liveView.scrollX;
+    const sampleY = y - liveView.scrollY;
+    const hits = elementsFromPointIncludingPointerTransparent(
+      liveDocument,
+      sampleX,
+      sampleY,
+    );
+    const hitSet = new Set(hits);
+    const colors: string[] = [];
+    let opaqueForeground = false;
+    const unseenAncestors: Element[] = [];
+    const seenAncestors = new Set<Element>();
+    for (const hit of hits) {
+      if (hasZeroOpacityAncestor(hit)) continue;
+      const includesBackgroundImage =
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement);
+      const style = liveView.getComputedStyle(hit);
+      if (!opaqueForeground) {
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (["img", "video", "canvas"].includes(hit.localName.toLowerCase())) {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+      }
+      for (
+        let element: Element | null = hit;
+        !opaqueForeground && element;
+        element = element.parentElement
+      ) {
+        if (element === hit) continue;
+        const ancestorStyle = liveView.getComputedStyle(element);
+        const unknownOpacity = hasUnknownPaint(ancestorStyle, false);
+        if (unknownOpacity) {
+          return { kind: "unknown", reason: unknownOpacity };
+        }
+      }
+      if (
+        includeDocumentBackground ||
+        (hit !== liveDocument.body && hit !== liveDocument.documentElement)
+      ) {
+        colors.push(style.backgroundColor);
+        const foreground = parseCssColorExtended(style.backgroundColor);
+        if (foreground?.a === 1) opaqueForeground = true;
+      }
+      if (!opaqueForeground) {
+        const svgPaint = svgPaintAtPoint(hit, style);
+        if (svgPaint === "unmeasured") {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+        if (svgPaint) {
+          colors.push(svgPaint);
+          const foreground = parseCssColorExtended(svgPaint);
+          if (foreground?.a === 1) opaqueForeground = true;
+        }
+      }
+      for (
+        let element = hit.parentElement;
+        element;
+        element = element.parentElement
+      ) {
+        if (hitSet.has(element) || seenAncestors.has(element)) continue;
+        seenAncestors.add(element);
+        unseenAncestors.push(element);
+      }
+    }
+    if (!opaqueForeground) {
+      for (const element of unseenAncestors) {
+        if (hasZeroOpacityAncestor(element)) continue;
+        const includesBackgroundImage =
+          includeDocumentBackground ||
+          (element !== liveDocument.body &&
+            element !== liveDocument.documentElement);
+        const style = liveView.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        if (
+          style.visibility !== "visible" ||
+          sampleX < rect.left ||
+          sampleY < rect.top ||
+          sampleX > rect.right ||
+          sampleY > rect.bottom
+        ) {
+          continue;
+        }
+        const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+        if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (includesBackgroundImage) {
+          colors.push(style.backgroundColor);
+          const foreground = parseCssColorExtended(style.backgroundColor);
+          if (foreground?.a === 1) break;
+        }
+      }
+    }
+    return compositePaintStack(colors);
+  }
+
+  const candidates: Array<{ color: string | null }> = [];
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    if (hasZeroOpacityAncestor(element)) continue;
+    const rect = absoluteRect(element);
+    if (
+      !rect ||
+      x < rect.x ||
+      y < rect.y ||
+      x > rect.x + rect.w ||
+      y > rect.y + rect.h
+    ) {
+      continue;
+    }
+    const includesBackgroundImage =
+      includeDocumentBackground ||
+      (element !== root && element !== root.ownerDocument?.documentElement);
+    const unknownPaint = hasUnknownPaint(
+      element.style,
+      includesBackgroundImage,
+    );
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+    const color =
+      element.style.backgroundColor || element.style.background || null;
+    if (color && parseCssColorExtended(color)) candidates.push({ color });
+  }
+  for (
+    let element: Element | null = root;
+    element;
+    element = element.parentElement
+  ) {
+    const style = (element as HTMLElement).style;
+    const includesBackgroundImage =
+      includeDocumentBackground ||
+      (element !== root && element !== root.ownerDocument?.documentElement);
+    const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
+    if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+  }
+  const colors: (string | null)[] = candidates
+    .reverse()
+    .map((candidate) => candidate.color);
+  if (includeDocumentBackground) {
+    for (
+      let element: Element | null = root;
+      element;
+      element = element.parentElement
+    ) {
+      const style = (element as HTMLElement).style;
+      colors.push(style.backgroundColor || style.background || null);
+    }
+  }
+  return compositePaintStack(colors);
+}
+
+function textColorWithBestContrast(background: Rgb): string {
+  const whiteContrast = contrastRatio({ r: 255, g: 255, b: 255 }, background);
+  const blackContrast = contrastRatio({ r: 0, g: 0, b: 0 }, background);
+  const whiteHasMoreContrast = whiteContrast > blackContrast;
+  return defaultCanvasTextColor(whiteHasMoreContrast, !whiteHasMoreContrast);
+}
+
+/** Later siblings paint over earlier ones; z-index is ignored. */
+function topmostBoxContaining(
+  root: Element,
+  x: number,
+  y: number,
+): Element | null {
+  let topmost: Element | null = null;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const rect = absoluteRect(element);
+    if (
+      rect &&
+      x >= rect.x &&
+      y >= rect.y &&
+      x <= rect.x + rect.w &&
+      y <= rect.y + rect.h
+    ) {
+      topmost = element;
+    }
+  }
+  return topmost;
+}
+
+export interface LayerSize {
+  width: number;
+  height: number;
+}
+
+/** A drawn frame adopts the absolutely placed host children it fully encloses, keeping them in place. */
+function adoptEnclosedLayers(
+  host: Element,
+  frame: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+  liveLayerSizes: ReadonlyMap<string, LayerSize> | undefined,
+) {
+  if (!liveLayerSizes?.size) return;
+  const border = inlineBorderInset(frame);
+  for (const child of Array.from(host.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const size = id ? liveLayerSizes.get(id) : undefined;
+    const style = (child as HTMLElement).style;
+    if (!size || style.position !== "absolute") continue;
+    if (!style.left.endsWith("px") || !style.top.endsWith("px")) continue;
+    const left = Number.parseFloat(style.left);
+    const top = Number.parseFloat(style.top);
+    if (
+      left < box.left ||
+      top < box.top ||
+      left + size.width > box.left + box.width ||
+      top + size.height > box.top + box.height
+    ) {
+      continue;
+    }
+    style.left = `${Math.round(left - box.left - border.x)}px`;
+    style.top = `${Math.round(top - box.top - border.y)}px`;
+    frame.appendChild(child);
+  }
 }
 
 export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
   preserveNegativePosition = false,
+  liveDocument?: Document | null,
 ): { kind: "body" } | { kind: "frame"; nodeId: string } | null {
   if (typeof window === "undefined" || isStandaloneHttpUrl(content))
     return null;
@@ -352,7 +1069,7 @@ export function canvasPrimitiveInsertionHostNodeId(
     const top = preserveNegativePosition
       ? Math.round(primitive.geometry.y)
       : Math.max(0, Math.round(primitive.geometry.y));
-    const host = deepestFrameContaining(doc.body, left, top)?.element;
+    const host = creationHostAt(doc.body, left, top, liveDocument)?.element;
     if (!host) return { kind: "body" };
     const id = host.getAttribute("data-agent-native-node-id");
     return id ? { kind: "frame", nodeId: id } : null;
@@ -370,6 +1087,8 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveDocument?: Document | null;
+    liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
@@ -393,13 +1112,13 @@ export function appendCanvasPrimitiveToHtml(
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
-    const host = deepestFrameContaining(doc.body, left, top);
+    const host = creationHostAt(doc.body, left, top, options?.liveDocument);
     const hostOrBody: Element = host?.element ?? doc.body;
-    const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
-    const hostLeft = host ? left - host.x - hostBorder.x : left;
-    const hostTop = host ? top - host.y - hostBorder.y : top;
+    const hostLeft = host ? left - host.x - host.border.x : left;
+    const hostTop = host ? top - host.y - host.border.y : top;
     const finishPrimitive = (element: Element): string => {
-      if (options?.positioning === "flow") {
+      const flow = options?.positioning === "flow";
+      if (flow) {
         const style = (element as HTMLElement | SVGElement).style;
         for (const property of [
           "position",
@@ -416,7 +1135,24 @@ export function appendCanvasPrimitiveToHtml(
           );
         }
       }
-      hostOrBody.appendChild(element);
+      const hostPosition =
+        host?.live?.ownerDocument.defaultView?.getComputedStyle(
+          host.live,
+        ).position;
+      if (
+        host &&
+        !flow &&
+        hostPosition !== undefined &&
+        !POSITIONED.has(hostPosition)
+      ) {
+        patchElementInlineStyle(host.element as HTMLElement, [
+          { property: "position", value: "relative" },
+        ]);
+      }
+      hostOrBody.insertBefore(
+        element,
+        flow && host ? flowInsertionReference(host, left, top) : null,
+      );
       const content = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
       return primitive.kind === "text"
         ? ensureGoogleFontLinkInHtml(content, "Inter")
@@ -626,6 +1362,12 @@ export function appendCanvasPrimitiveToHtml(
         element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
       }
       element.style.overflow = "hidden";
+      adoptEnclosedLayers(
+        hostOrBody,
+        element,
+        { left: hostLeft, top: hostTop, width, height },
+        options?.liveLayerSizes,
+      );
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
@@ -638,17 +1380,75 @@ export function appendCanvasPrimitiveToHtml(
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const measuredIsLight =
-        options?.isBoardTarget === true && hostOrBody === doc.body
+      const usesFlowPositioning = options?.positioning === "flow";
+      const boxUnderText = usesFlowPositioning
+        ? hostOrBody
+        : topmostBoxContaining(hostOrBody, left, top);
+      const measuredIsLight = boxUnderText
+        ? destinationBackgroundLightness(boxUnderText, options?.liveDocument)
+        : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
-          : destinationBackgroundLightness(hostOrBody);
-      const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
+          : destinationBackgroundLightness(hostOrBody, options?.liveDocument);
+      const canSampleFlowHost = usesFlowPositioning && options?.liveDocument;
+      const paintedSurface =
+        usesFlowPositioning && !canSampleFlowHost
+          ? null
+          : paintedSurfaceAtPoint(
+              doc.body,
+              left,
+              top,
+              options?.liveDocument,
+              options?.isBoardTarget !== true,
+              options?.isBoardTarget === true
+                ? (options.boardBackground ?? null)
+                : defaultCanvasFrameFill(),
+              options?.isBoardTarget === true &&
+                options.boardBackground !== null &&
+                options.boardBackground !== undefined,
+              usesFlowPositioning ? boxUnderText : null,
+            );
+      const surfaceIsLight =
+        paintedSurface?.kind === "unknown" &&
+        paintedSurface.reason === "unmeasured" &&
+        options?.isBoardTarget === true
+          ? (boardSurfaceIsLight ?? measuredIsLight)
+          : (measuredIsLight ?? boardSurfaceIsLight);
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true
           : !surfaceIsLight;
+      const sampledSurfaceIsLight =
+        paintedSurface?.kind === "known"
+          ? resolveDestinationBackgroundLightnessOrNull([
+              {
+                // guard:allow-raw-color — This RGB value feeds luminance parsing for arbitrary user-painted surfaces, not UI styling.
+                color: `rgb(${paintedSurface.color.r} ${paintedSurface.color.g} ${paintedSurface.color.b})`,
+              },
+            ])
+          : null;
+      const measuredSurfaceDisagreesWithSample =
+        !options?.liveDocument &&
+        surfaceIsLight !== null &&
+        sampledSurfaceIsLight !== null &&
+        sampledSurfaceIsLight !== surfaceIsLight;
+      const preserveInheritedTextColor =
+        paintedSurface?.kind === "unknown" &&
+        ((paintedSurface.reason === "translucent" &&
+          !(boardSurfaceIsLight === null && measuredIsLight !== null)) ||
+          (paintedSurface.reason === "background-image" &&
+            options?.isBoardTarget !== true) ||
+          paintedSurface.reason === "flow-overlap" ||
+          (surfaceIsLight === null && options?.isBoardTarget !== true));
       const resolvedTextColor =
-        primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
+        primitive.fill ??
+        (paintedSurface?.kind === "known" && !measuredSurfaceDisagreesWithSample
+          ? textColorWithBestContrast(paintedSurface.color)
+          : preserveInheritedTextColor
+            ? "currentColor"
+            : defaultCanvasTextColor(
+                autoTextNeedsLightFill,
+                measuredSurfaceDisagreesWithSample && surfaceIsLight === true,
+              ));
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");

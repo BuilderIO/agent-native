@@ -8,7 +8,7 @@ export interface ConnectCommandInput {
 export interface DesignConnectCommandInput {
   devServerUrl: string;
   rootPath: string;
-  port?: number;
+  port?: number | undefined;
   routeManifest?: string;
 }
 

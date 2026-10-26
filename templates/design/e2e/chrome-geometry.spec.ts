@@ -63,6 +63,20 @@ const WIDE_SCREENSHOT = path.join(
   "design-chrome-geometry-320.png",
 );
 
+test("Layers search toggles open and closed from the heading", async ({
+  app,
+}) => {
+  await app.open(await app.seed(CHROME_FIXTURE));
+  const search = app.page.locator('[data-layers-panel-action="search"]');
+  const input = app.page.getByPlaceholder("Search layers");
+
+  await expect(input).toHaveCount(0);
+  await search.click();
+  await expect(input).toBeVisible();
+  await search.click();
+  await expect(input).toBeHidden();
+});
+
 async function postAction(
   page: Page,
   name: string,
@@ -293,8 +307,8 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   );
   expect(fillGeometry.height).toBeCloseTo(hugGeometry.height, 1);
   expect(fillGeometry.y - hugGeometry.y).toBeCloseTo(hugGeometry.height, 0);
-  expect(hugGeometry.styles["padding-top"]).toBe("6px");
-  expect(hugGeometry.styles["padding-bottom"]).toBe("6px");
+  expect(hugGeometry.styles["padding-top"]).toBe("4px");
+  expect(hugGeometry.styles["padding-bottom"]).toBe("4px");
   expect(
     Number.parseFloat(hugGeometry.styles["line-height"]),
   ).toBeGreaterThanOrEqual(12);
@@ -317,7 +331,7 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
 async function assertLayersInteractions(page: Page): Promise<void> {
   const search = page.locator('[data-layers-panel-action="search"]');
   await search.click();
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   await expect(input).toBeVisible();
   await input.fill("Auto Card");
   await expect(layerRow(page, "Auto Card")).toBeVisible();
@@ -389,7 +403,7 @@ async function assertEmptyLayersState(page: Page): Promise<void> {
   });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   const layersPanel = page.locator("[data-layers-panel]");
   await expect(layersPanel).toContainText("No layers");
   await expect(layersPanel.locator("[data-screen-section]")).toHaveCount(0);
@@ -417,17 +431,16 @@ async function assertLeftPanelWidth(page: Page): Promise<void> {
   );
   const width = async () =>
     (await readGeometry(leftPanel, ["width"])).styles.width;
-  expect(await width()).toBe("240px");
+  expect(await width()).toBe("320px");
   await dragLeftPanelBy(page, 9);
-  await expect.poll(width).toBe("248px");
+  await expect.poll(width).toBe("328px");
   await dragLeftPanelBy(page, 1000);
   await expect.poll(width).toBe("416px");
   await dragLeftPanelBy(page, -1000);
-  await expect.poll(width).toBe("232px");
+  await expect.poll(width).toBe("320px");
 }
 
-// fixme: fails in CI on current main: Test timeout of 90000ms exceeded.
-test.fixme("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
+test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
   app,
   page,
 }) => {

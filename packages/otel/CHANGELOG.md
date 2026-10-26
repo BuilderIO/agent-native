@@ -1,5 +1,102 @@
 # @agent-native/otel
 
+## 0.1.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.19
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
+## 0.1.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.9
 
 ### Patch Changes

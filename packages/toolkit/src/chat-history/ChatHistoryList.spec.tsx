@@ -73,6 +73,100 @@ describe("ChatHistoryList", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows the search empty state instead of section empty labels when every section has no matches", () => {
+    act(() =>
+      root.render(
+        <ChatHistoryList
+          sections={[
+            {
+              id: "mine",
+              label: "My chats",
+              items: [],
+              emptyLabel: "No chats yet",
+            },
+            {
+              id: "shared",
+              label: "Shared with you",
+              items: [],
+              emptyLabel: "No shared chats",
+            },
+          ]}
+          searchValue="missing"
+          onSelect={() => {}}
+        />,
+      ),
+    );
+    expect(container.textContent).toBe("No matching chats");
+    expect(
+      container.querySelectorAll(".an-chat-history__section-label"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps matching sections and their headings without empty labels in the other section", () => {
+    act(() =>
+      root.render(
+        <ChatHistoryList
+          sections={[
+            { id: "mine", label: "My chats", items: [item({ id: "match" })] },
+            {
+              id: "shared",
+              label: "Shared with you",
+              items: [],
+              emptyLabel: "No shared chats",
+            },
+          ]}
+          searchValue="match"
+          onSelect={() => {}}
+        />,
+      ),
+    );
+    expect(container.textContent).toBe("My chatsmatch");
+    expect(
+      container.querySelectorAll(".an-chat-history__section-label"),
+    ).toHaveLength(1);
+  });
+
+  it.each(["loading", "error", "footer"] as const)(
+    "preserves a search section's %s state and heading",
+    (state) => {
+      act(() =>
+        root.render(
+          <ChatHistoryList
+            sections={[
+              {
+                id: "shared",
+                label: "Shared",
+                items: [],
+                emptyLabel: "No shared chats",
+                loading: state === "loading",
+                error: state === "error" ? "Search failed" : undefined,
+                footer:
+                  state === "footer" ? <button>Load more</button> : undefined,
+              },
+            ]}
+            searchValue="missing"
+            onSelect={() => {}}
+          />,
+        ),
+      );
+      expect(
+        container.querySelector(".an-chat-history__section-label")?.textContent,
+      ).toBe("Shared");
+      expect(container.textContent).not.toContain("No shared chats");
+      expect(container.textContent).not.toContain("No matching chats");
+      if (state === "loading")
+        expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+      if (state === "error")
+        expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+          "Search failed",
+        );
+      if (state === "footer")
+        expect(container.querySelector("button")?.textContent).toBe(
+          "Load more",
+        );
+    },
+  );
+
   it("renders a flat item list and calls onSelect when a row is clicked", () => {
     const onSelect = vi.fn();
     const items: ChatHistoryItem[] = [
@@ -96,6 +190,26 @@ describe("ChatHistoryList", () => {
       (buttons[1] as HTMLButtonElement).click();
     });
     expect(onSelect).toHaveBeenCalledWith("thread-2");
+  });
+
+  it("keeps rail rows title-only", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          variant="rail"
+          items={[
+            item({ id: "thread-1", title: "First chat", timestamp: "2h ago" }),
+          ]}
+          onSelect={() => {}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("First chat");
+    expect(container.textContent).not.toContain("2h ago");
+    expect(container.querySelector(".an-chat-history-row__timestamp")).toBe(
+      null,
+    );
   });
 
   it("highlights the active item", () => {
@@ -175,6 +289,25 @@ describe("ChatHistoryList", () => {
       );
     });
     expect(container.textContent).toContain("Searching...");
+    expect(container.querySelector(".an-chat-history-row")).toBeNull();
+  });
+
+  it("shows skeleton rows with row geometry when loading without a label", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "thread-1" })]}
+          loading
+          onSelect={() => {}}
+        />,
+      );
+    });
+    const skeleton = container.querySelector(".an-chat-history__skeletons");
+    expect(skeleton?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      skeleton?.querySelectorAll(".an-chat-history__skeleton-row"),
+    ).toHaveLength(3);
+    expect(container.textContent).toBe("");
     expect(container.querySelector(".an-chat-history-row")).toBeNull();
   });
 
@@ -477,5 +610,242 @@ describe("ChatHistoryList", () => {
       );
     });
     expect(container.textContent).toContain("Load older chats");
+  });
+
+  it("hides actions per row while the row stays selectable and other rows keep theirs", async () => {
+    const onSelect = vi.fn();
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[
+            item({ id: "mine" }),
+            item({ id: "shared", hideActions: true, pinned: true }),
+          ]}
+          onSelect={onSelect}
+          onRename={() => {}}
+          onDelete={() => {}}
+          onTogglePin={() => {}}
+          renderAdditionalRowActions={() => <span>extra</span>}
+        />,
+      );
+    });
+
+    const rows = container.querySelectorAll<HTMLElement>(
+      ".an-chat-history-row",
+    );
+    expect(
+      rows[0]?.querySelector(".an-chat-history-row__menu-trigger"),
+    ).not.toBeNull();
+    expect(rows[1]?.querySelector(".an-chat-history-row__menu")).toBeNull();
+    expect(rows[1]?.className).not.toContain("an-chat-history-row--has-menu");
+
+    await act(async () => {
+      rows[1]?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(
+      document.body.querySelector(".an-chat-history-row__menu-content"),
+    ).toBeNull();
+
+    act(() => rows[1]?.querySelector("button")?.click());
+    expect(onSelect).toHaveBeenCalledWith("shared");
+
+    await openMenu(
+      rows[0]!.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(getMenuItems().map((element) => element.textContent)).toContain(
+      "Delete",
+    );
+  });
+
+  it("hides the menu even when renderRowActions would return nothing", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "shared", hideActions: true })]}
+          onSelect={() => {}}
+          renderRowActions={() => null}
+        />,
+      );
+    });
+    expect(container.querySelector(".an-chat-history-row__menu")).toBeNull();
+  });
+
+  it("keeps a read-only row to its owner header and Copy link", async () => {
+    const onCopyLink = vi.fn();
+    const onDelete = vi.fn();
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[
+            item({
+              id: "shared",
+              readOnly: true,
+              ownerAvatar: <span data-testid="avatar">P</span>,
+              ownerLabel: "pat@example.com",
+              accessLabel: "Shared with your organization",
+              accessBasis: "organization",
+            }),
+          ]}
+          onSelect={() => {}}
+          onRename={() => {}}
+          onDelete={onDelete}
+          onTogglePin={() => {}}
+          onCopyLink={onCopyLink}
+        />,
+      );
+    });
+
+    const row = container.querySelector<HTMLElement>(".an-chat-history-row")!;
+    const mark = row.querySelector(".an-chat-history-row__owner-mark");
+    expect(mark?.getAttribute("data-access-basis")).toBe("organization");
+    expect(mark?.querySelector("[data-testid='avatar']")).not.toBeNull();
+    expect(
+      row.querySelector(".an-chat-history-row__topline")?.textContent,
+    ).toBe("sharedP");
+
+    await openMenu(
+      row.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      document.body.querySelector(".an-chat-history-row__menu-owner")
+        ?.textContent,
+    ).toBe("Ppat@example.comShared with your organization");
+    expect(getMenuItems().map((element) => element.textContent)).toEqual([
+      "Copy link",
+    ]);
+
+    act(() => getMenuItems()[0]?.click());
+    expect(onCopyLink).toHaveBeenCalledWith("shared");
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("moves through row menu items with the arrow keys", async () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "thread-1", titleText: "First" })]}
+          onSelect={() => {}}
+          onRename={() => {}}
+          onTogglePin={() => {}}
+          onDelete={() => {}}
+        />,
+      );
+    });
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    const items = getMenuItems();
+    expect(items.map((element) => element.getAttribute("role"))).toEqual([
+      "menuitem",
+      "menuitem",
+      "menuitem",
+    ]);
+    const menu = document.body.querySelector<HTMLElement>(
+      ".an-chat-history-row__menu-content",
+    )!;
+    await act(async () => {
+      items[0]!.focus();
+      items[0]!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.activeElement).toBe(items[1]);
+    expect(menu.querySelector("[role='separator']")).not.toBeNull();
+    expect(menu.querySelector("svg")).toBeNull();
+  });
+
+  it("marks delete destructive by default and plain when the slot archives", async () => {
+    const renderWithTone = (deleteAction?: "archive") => {
+      act(() => {
+        root.render(
+          <ChatHistoryList
+            key={deleteAction ?? "delete"}
+            items={[item({ id: "thread-1" })]}
+            onSelect={() => {}}
+            onDelete={() => {}}
+            deleteAction={deleteAction}
+            labels={{ delete: "Archive chat" }}
+          />,
+        );
+      });
+    };
+    const deleteItem = () =>
+      getMenuItems().find((element) =>
+        element.textContent?.includes("Archive chat"),
+      );
+
+    renderWithTone();
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      deleteItem()?.classList.contains(
+        "an-chat-history-row__menu-item--danger",
+      ),
+    ).toBe(true);
+
+    renderWithTone("archive");
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      deleteItem()?.classList.contains(
+        "an-chat-history-row__menu-item--danger",
+      ),
+    ).toBe(false);
+  });
+
+  it("renders a plain row without a hover card, so hover never repeats the row", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "thread-1" })]}
+          onSelect={() => {}}
+          onDelete={() => {}}
+        />,
+      );
+    });
+    const row = container.querySelector<HTMLElement>(".an-chat-history-row")!;
+    expect(row.hasAttribute("data-state")).toBe(false);
+    act(() => {
+      row.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+      row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(
+      document.body.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+  });
+  it("marks only unread rows with a named dot", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "unread", unread: true }), item({ id: "read" })]}
+          labels={{ unread: "New reply" }}
+          onSelect={() => {}}
+        />,
+      );
+    });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(".an-chat-history-row"),
+    );
+    const dots = container.querySelectorAll(".an-chat-history-row__unread");
+    expect(dots).toHaveLength(1);
+    expect(rows[0]?.contains(dots[0]!)).toBe(true);
+    expect(dots[0]?.getAttribute("aria-label")).toBe("New reply");
+    expect(rows[0]?.querySelector("button")?.textContent).toBe("unread");
   });
 });

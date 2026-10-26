@@ -31,6 +31,7 @@ import {
   toolInputsMatch,
 } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
+import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -43,14 +44,21 @@ import type {
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
-import { isContinuationTerminalReason } from "./types.js";
-import type { AgentChatAttachment, RunEvent } from "./types.js";
+import { isContinuationTerminalReason, isUnknownWriteCause } from "./types.js";
+import type {
+  AgentChatAttachment,
+  AgentChatSteeredUserMessage,
+  RunEvent,
+  UnknownWriteCause,
+} from "./types.js";
 
 interface ContentPart {
   type: string;
   text?: string;
   toolCallId?: string;
   toolName?: string;
+  executionStepId?: string;
+  inputFingerprint?: string;
   argsText?: string;
   args?: Record<string, unknown>;
   result?: string;
@@ -58,6 +66,7 @@ interface ContentPart {
   approvalPause?: true;
   approvalAskId?: string;
   outcome?: "unknown";
+  unknownCause?: UnknownWriteCause;
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
@@ -76,8 +85,8 @@ interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
   preserveUnknownToolOutcomes?: boolean;
   turnId?: string;
-  runDurationMs?: number;
-  scope?: { type: string; id: string } | null;
+  runDurationMs?: number | undefined;
+  scope?: { type: string; id: string } | null | undefined;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -344,15 +353,15 @@ export function buildAssistantMessage(
 
     if (event.type === "tool_start") {
       const explicitToolCallId = event.id?.trim();
-      if (explicitToolCallId) {
-        const replayed = content.some(
-          (part) =>
-            part.type === "tool-call" &&
-            part.toolCallId === explicitToolCallId &&
-            part.toolName === (event.tool ?? "unknown"),
+      const executionStepId = event.executionStepId?.trim();
+      const replayed = content.some((part) => {
+        if (part.type !== "tool-call") return false;
+        return (
+          executionStepId !== undefined &&
+          part.executionStepId === executionStepId
         );
-        if (replayed) continue;
-      }
+      });
+      if (replayed) continue;
       toolCallCounter += 1;
       const toolCallId =
         explicitToolCallId ||
@@ -364,6 +373,10 @@ export function buildAssistantMessage(
         toolName: event.tool ?? "unknown",
         argsText: JSON.stringify(args),
         args,
+        ...(executionStepId ? { executionStepId } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
       });
       continue;
     }
@@ -393,38 +406,98 @@ export function buildAssistantMessage(
     if (event.type === "tool_done") {
       const eventToolCallId = event.id?.trim();
       let matchingIndex = -1;
-
-      if (eventToolCallId) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolCallId === eventToolCallId &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+      const executionStepId = event.executionStepId?.trim();
+      const candidates = content.flatMap((part, index) => {
+        if (
+          part.type !== "tool-call" ||
+          part.result !== undefined ||
+          part.toolName !== (event.tool ?? "unknown")
+        ) {
+          return [];
         }
-      }
-
-      if (matchingIndex === -1) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolName === event.tool &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+        if (executionStepId) {
+          return part.executionStepId === executionStepId ? [index] : [];
         }
+        if (
+          event.inputFingerprint !== undefined &&
+          part.inputFingerprint !== event.inputFingerprint
+        ) {
+          return [];
+        }
+        if (
+          event.input !== undefined &&
+          !toolInputsMatch(part.args, event.input)
+        ) {
+          return [];
+        }
+        return [index];
+      });
+      const legacyCandidates = executionStepId
+        ? content.flatMap((part, index) => {
+            if (
+              part.type !== "tool-call" ||
+              part.result !== undefined ||
+              part.executionStepId !== undefined ||
+              part.toolName !== (event.tool ?? "unknown") ||
+              (event.inputFingerprint !== undefined &&
+                part.inputFingerprint !== event.inputFingerprint) ||
+              (event.input !== undefined &&
+                !toolInputsMatch(part.args, event.input))
+            ) {
+              return [];
+            }
+            return [index];
+          })
+        : candidates;
+      const candidateMatches =
+        candidates.length > 0
+          ? candidates
+          : executionStepId && legacyCandidates.length !== 1
+            ? []
+            : legacyCandidates;
+      const idCandidates =
+        eventToolCallId === undefined
+          ? candidateMatches
+          : candidateMatches.filter(
+              (index) =>
+                content[index]?.type === "tool-call" &&
+                content[index]?.toolCallId === eventToolCallId,
+            );
+      const matchingCandidates =
+        idCandidates.length > 0 || eventToolCallId === undefined
+          ? idCandidates
+          : candidateMatches;
+      if (matchingCandidates.length === 1) {
+        // Legacy results lack occurrence identity, so attach only a unique pending match.
+        matchingIndex = matchingCandidates[0]!;
       }
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
+        if (event.replayed === true && !executionStepId) {
+          const earlierDuplicate = content.findIndex(
+            (candidate, index) =>
+              index !== matchingIndex &&
+              candidate.type === "tool-call" &&
+              candidate.result !== undefined &&
+              candidate.toolCallId === part.toolCallId &&
+              candidate.toolName === part.toolName &&
+              (event.inputFingerprint !== undefined
+                ? candidate.inputFingerprint === event.inputFingerprint
+                : event.input === undefined ||
+                  toolInputsMatch(candidate.args, event.input)),
+          );
+          if (earlierDuplicate >= 0) {
+            content.splice(matchingIndex, 1);
+            approvalPauseCandidates.delete(part);
+            continue;
+          }
+        }
         part.result = event.result ?? "";
+        if (executionStepId) part.executionStepId = executionStepId;
+        if (event.inputFingerprint) {
+          part.inputFingerprint = event.inputFingerprint;
+        }
         // Older journals have approval_required but no pause marker on tool_done.
         const inferredLegacyPause =
           event.approvalPause === undefined &&
@@ -440,6 +513,9 @@ export function buildAssistantMessage(
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";
           explicitUnknownOutcomes.add(part);
+          if (isUnknownWriteCause(event.unknownCause)) {
+            part.unknownCause = event.unknownCause;
+          }
         }
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
@@ -560,6 +636,91 @@ export function buildAssistantMessage(
         ? { type: "incomplete" as const, reason: "error" as const }
         : { type: "complete" as const, reason: "stop" as const },
     metadata,
+  };
+}
+
+export interface SteeredRunSegment {
+  user: UserMessage;
+  /** The message as the run received it, attachments included. */
+  delivered: AgentChatSteeredUserMessage;
+  assistant: AssistantMessage | null;
+}
+
+/**
+ * A run's reply split at each message the user sent into it with Send now:
+ * the reply before the first one, then each delivered message with the reply
+ * written after it. A run without one is exactly `buildAssistantMessage`.
+ */
+export function buildAssistantTurnSegments(
+  events: RunEvent[],
+  runId?: string,
+  options: BuildAssistantMessageOptions = {},
+): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
+  const boundaries = events.flatMap((entry, index) =>
+    entry.event.type === "user_message" ? [{ index, event: entry.event }] : [],
+  );
+  if (boundaries.length === 0) {
+    return {
+      assistant: buildAssistantMessage(events, runId, options),
+      steered: [],
+    };
+  }
+  const { runDurationMs, ...segmentOptions } = options;
+  const steered: SteeredRunSegment[] = [];
+  for (const [position, { index: boundary, event }] of boundaries.entries()) {
+    const end = boundaries[position + 1]?.index ?? events.length;
+    const last = position === boundaries.length - 1;
+    const assistant = buildAssistantMessage(
+      events.slice(boundary + 1, end),
+      runId,
+      last ? options : segmentOptions,
+    );
+    steered.push({
+      user: buildSteeredUserMessage(event.message, runId),
+      delivered: event.message,
+      assistant: assistant
+        ? { ...assistant, id: event.continuationMessageId }
+        : null,
+    });
+  }
+  return {
+    assistant: buildAssistantMessage(
+      events.slice(0, boundaries[0]?.index),
+      runId,
+      runDurationMs === undefined ? options : segmentOptions,
+    ),
+    steered,
+  };
+}
+
+/** The id a run writes its output under after delivering `messageId`. */
+export function steeredContinuationMessageId(
+  runId: string,
+  messageId: string,
+): string {
+  return `server-${runId}:after:${messageId}`;
+}
+
+export function buildSteeredUserMessage(
+  message: AgentChatSteeredUserMessage,
+  runId: string | undefined,
+): UserMessage {
+  const attachments = buildStoredAttachments(message.attachments, runId);
+  const createdAt = new Date(message.createdAt);
+  return {
+    id: message.id,
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+    role: "user",
+    content: [{ type: "text", text: message.text }],
+    ...(attachments.length > 0 ? { attachments } : {}),
+    // No submittedRunId: this message did not start a run, and a second
+    // prompt claiming one would hide the run's real prompt.
+    metadata: {
+      custom: {
+        agentNativeQueuedMessageId: message.id,
+        ...(runId ? { deliveredInRunId: runId } : {}),
+      },
+    },
   };
 }
 
@@ -1114,7 +1275,8 @@ function replayedToolInput(input: unknown): Record<string, unknown> {
 function replayedToolResult(part: {
   result?: unknown;
   outcome?: unknown;
-}): Pick<EngineToolResultPart, "content" | "outcome"> {
+  unknownCause?: unknown;
+}): Pick<EngineToolResultPart, "content" | "outcome" | "unknownCause"> {
   const unknown = part.outcome === "unknown" || part.result === undefined;
   const result =
     part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
@@ -1123,6 +1285,12 @@ function replayedToolResult(part: {
       unknown ? { outcome: "unknown", result } : result,
     ),
     ...(unknown ? { outcome: "unknown" as const } : {}),
+    // A part whose result never came was interrupted, whatever it recorded.
+    ...(unknown &&
+    part.result !== undefined &&
+    isUnknownWriteCause(part.unknownCause)
+      ? { unknownCause: part.unknownCause }
+      : {}),
   };
 }
 
@@ -1152,7 +1320,18 @@ function assistantReplayContent(
     const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
     if (!id || !name) continue;
     const input = replayedToolInput(part.args);
-    assistant.push({ type: "tool-call", id, name, input });
+    assistant.push({
+      type: "tool-call",
+      id,
+      name,
+      input,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
+    });
     const result = replayedToolResult(part);
     results.push({
       type: "tool-result",
@@ -1160,6 +1339,12 @@ function assistantReplayContent(
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
       ...result,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
       ...(part.approvalPause === true ? { approvalPause: true } : {}),
       ...(typeof part.approval?.askId === "string"
         ? { approvalAskId: part.approval.askId }
@@ -1295,16 +1480,7 @@ export function resumeThreadHistoryForRequest(
   const messages = threadDataToEngineMessages(threadData, {
     includeToolCalls: true,
   });
-  let turnStart = messages.length - 1;
-  while (
-    turnStart >= 0 &&
-    !(
-      messages[turnStart]!.role === "user" &&
-      messages[turnStart]!.content.some((part) => part.type === "text")
-    )
-  ) {
-    turnStart--;
-  }
+  const turnStart = lastUserPromptIndex(messages);
   if (turnStart < 0) return { messages, foundTurnPrompt: false };
   return {
     messages: [
@@ -1313,6 +1489,21 @@ export function resumeThreadHistoryForRequest(
     ],
     foundTurnPrompt: true,
   };
+}
+
+export function lastUserPromptIndex(messages: EngineMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (
+      messages[index]!.role === "user" &&
+      messages[index]!.content.some(
+        (part) =>
+          part.type === "text" && !isAgentInternalContinuationPrompt(part.text),
+      )
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -1676,6 +1867,153 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+const STEERED_QUEUED_MESSAGES_KEY = "_steeredQueuedMessages";
+const MAX_STEERED_QUEUED_MESSAGES = 50;
+
+/** A Send now message a run took from the queue, kept until its run is folded. */
+export interface SteeredQueuedMessageRecord {
+  runId: string;
+  message: AgentChatSteeredUserMessage;
+  continuationMessageId: string;
+}
+
+function queuedAttachmentsForSteer(
+  attachments: unknown[] | undefined,
+): AgentChatAttachment[] {
+  return (attachments ?? []).flatMap((value) => {
+    const file =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : undefined;
+    const url = typeof file?.url === "string" ? file.url : undefined;
+    if (!url || isDataUrlReference(url)) return [];
+    const mediaType =
+      typeof file?.mediaType === "string"
+        ? file.mediaType
+        : typeof file?.contentType === "string"
+          ? file.contentType
+          : undefined;
+    return [
+      {
+        type:
+          file?.type === "image" ||
+          mediaType?.toLowerCase().startsWith("image/")
+            ? "image"
+            : "file",
+        name: typeof file?.name === "string" ? file.name : "attachment",
+        url,
+        ...(mediaType ? { mediaType, contentType: mediaType } : {}),
+      },
+    ];
+  });
+}
+
+export function steeredQueuedMessageRecords(
+  runId: string,
+  queued: ReadonlyArray<{
+    id: string;
+    text: string;
+    attachments?: unknown[];
+    requestAttachments?: unknown[];
+  }>,
+  deliveredAt: number,
+): SteeredQueuedMessageRecord[] {
+  return queued.map((message) => {
+    // Delivery also reads uploads held in requestAttachments; a resumed run
+    // replays only what this record keeps.
+    const attachments = queuedAttachmentsForSteer([
+      ...(message.attachments ?? []),
+      // Request attachments are always images, with an optional content type.
+      ...(message.requestAttachments ?? []).flatMap((value) => {
+        const file = value as Record<string, unknown> | null;
+        if (!file || typeof file !== "object") return [];
+        return [{ ...file, type: "image", url: file.url ?? file.referenceUrl }];
+      }),
+    ]).filter(
+      (attachment, index, all) =>
+        all.findIndex((other) => other.url === attachment.url) === index,
+    );
+    return {
+      runId,
+      message: {
+        id: message.id,
+        text: message.text,
+        createdAt: new Date(deliveredAt).toISOString(),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      },
+      continuationMessageId: steeredContinuationMessageId(runId, message.id),
+    };
+  });
+}
+
+function isSteeredQueuedMessageRecord(
+  value: unknown,
+): value is SteeredQueuedMessageRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const message = record.message;
+  return (
+    typeof record.runId === "string" &&
+    !!message &&
+    typeof message === "object" &&
+    typeof (message as Record<string, unknown>).id === "string" &&
+    typeof (message as Record<string, unknown>).text === "string" &&
+    typeof record.continuationMessageId === "string"
+  );
+}
+
+function steeredRecords(repo: unknown): SteeredQueuedMessageRecord[] {
+  const value =
+    repo && typeof repo === "object"
+      ? (repo as Record<string, unknown>)[STEERED_QUEUED_MESSAGES_KEY]
+      : undefined;
+  return Array.isArray(value) ? value.filter(isSteeredQueuedMessageRecord) : [];
+}
+
+/**
+ * Claims the delivered ids, so a stale client save never re-queues them, and
+ * keeps each message until the run's fold places it in the transcript.
+ */
+export function recordSteeredQueuedMessages(
+  repo: unknown,
+  records: readonly SteeredQueuedMessageRecord[],
+): Record<string, unknown> {
+  let next: Record<string, unknown> =
+    repo && typeof repo === "object" ? { ...repo } : {};
+  for (const { message } of records) {
+    next = claimQueuedMessage(next, message.id);
+  }
+  next[STEERED_QUEUED_MESSAGES_KEY] = [
+    ...steeredRecords(next),
+    ...records,
+  ].slice(-MAX_STEERED_QUEUED_MESSAGES);
+  return next;
+}
+
+function reconcileDirectSubmissionQueue(repo: any, userCustom: unknown): any {
+  if (
+    !userCustom ||
+    typeof userCustom !== "object" ||
+    Array.isArray(userCustom)
+  ) {
+    return repo;
+  }
+  const messageId = (userCustom as Record<string, unknown>).agentKitMessageId;
+  if (
+    typeof messageId !== "string" ||
+    !Array.isArray(repo?.queuedMessages) ||
+    !repo.queuedMessages.some(
+      (message: unknown) =>
+        message &&
+        typeof message === "object" &&
+        (message as Record<string, unknown>).id === messageId,
+    )
+  ) {
+    return repo;
+  }
+  return claimQueuedMessage(repo, messageId);
+}
+
 export function applySubmittedUserMessage(
   repo: any,
   userMessage: UserMessage,
@@ -1731,7 +2069,10 @@ export function applySubmittedUserMessage(
       );
     });
   if (wasDirectlySubmitted) {
-    return { status: "already_submitted", repo };
+    return {
+      status: "already_submitted",
+      repo: reconcileDirectSubmissionQueue(repo, userCustom),
+    };
   }
   if (
     userCustom &&
@@ -1751,7 +2092,13 @@ export function applySubmittedUserMessage(
     }
   }
   if (!queuedMessage) {
-    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        reconcileDirectSubmissionQueue(repo, userCustom),
+        userMessage,
+      ),
+    };
   }
   if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
     return { status: "already_claimed" };
@@ -3862,9 +4209,9 @@ export function mergeThreadDataForClientSave(
       }
     }
   }
-  // Queue mutations are the only writer of the queue and opt out here. Any
-  // other save carries a queue it read earlier, and letting that copy win drops
-  // a promotion claim or an append that landed in between.
+  // Queue mutations own the queue; a submitted-message marker can remove its
+  // matching row. Other saves carry a queue they read earlier, and letting
+  // that copy win drops a promotion claim or an append that landed in between.
   if (preserveExistingQueuedMessages) {
     if (existingNormalized?.queuedMessages !== undefined) {
       merged.queuedMessages = existingNormalized.queuedMessages;
@@ -4510,7 +4857,11 @@ function assistantContentWeight(content: unknown): number {
   return weight;
 }
 
-function appendFoldedContent(existing: any[], incoming: any[]): any[] {
+function appendFoldedContent(
+  existing: any[],
+  incoming: any[],
+  separateRunBoundary = false,
+): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
     if (part?.type === "tool-call" && part.result !== undefined) {
@@ -4541,10 +4892,11 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
       last?.type === "text" &&
       typeof last.text === "string"
     ) {
-      last.text = `${last.text}${part.text}`;
+      last.text = `${last.text}${separateRunBoundary ? "\n\n" : ""}${part.text}`;
     } else {
       merged.push({ ...part });
     }
+    separateRunBoundary = false;
   }
   return normalizeAssistantToolCallIds({
     role: "assistant",
@@ -4589,19 +4941,44 @@ export function foldAssistantTurn(
     ? assistantMsg.content
     : [];
   const existingFolded = foldedRunIdsOf(lastMsg);
+  const incomingFolded = foldedRunIdsOf(assistantMsg);
   const runAlreadyFolded =
     !!runId &&
     (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
+  const supersededRunReplay =
+    runAlreadyFolded && !!runId && getMessageRunId(lastMsg) !== runId;
+  const incomingCoversExistingRuns =
+    existingFolded.length > 0 &&
+    !!runId &&
+    incomingFolded.includes(runId) &&
+    existingFolded.every((foldedRunId) => incomingFolded.includes(foldedRunId));
 
-  const mergedContent = runAlreadyFolded
-    ? assistantContentWeight(incomingContent) >
-      assistantContentWeight(existingContent)
-      ? incomingContent
-      : existingContent
-    : appendFoldedContent(existingContent, incomingContent);
+  let mergedContent = existingContent;
+  if (!supersededRunReplay) {
+    if (incomingCoversExistingRuns) {
+      mergedContent = incomingContent;
+    } else if (runAlreadyFolded) {
+      if (
+        assistantContentWeight(incomingContent) >
+        assistantContentWeight(existingContent)
+      ) {
+        mergedContent = incomingContent;
+      }
+    } else {
+      mergedContent = appendFoldedContent(
+        existingContent,
+        incomingContent,
+        lastMsg.status?.type === "incomplete",
+      );
+    }
+  }
 
   const mergedFolded = Array.from(
-    new Set([...existingFolded, ...(runId ? [runId] : [])]),
+    new Set([
+      ...existingFolded,
+      ...(supersededRunReplay ? [] : incomingFolded),
+      ...(runId ? [runId] : []),
+    ]),
   );
 
   const existingCustom =
@@ -4616,7 +4993,7 @@ export function foldAssistantTurn(
 
   const mergedCustom: Record<string, unknown> = {
     ...existingCustom,
-    ...incomingCustom,
+    ...(supersededRunReplay ? {} : incomingCustom),
     turnId,
     foldedRunIds: mergedFolded,
   };
@@ -4634,7 +5011,9 @@ export function foldAssistantTurn(
   if (mergedDurationMs != null) {
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
-  if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  if (!supersededRunReplay && incomingCustom.continued !== true) {
+    delete mergedCustom.continued;
+  }
   // A turn's failure is its newest run's: a run that continued past an
   // earlier stop clears the stop's error instead of inheriting it.
   if (!runAlreadyFolded && incomingCustom.runError === undefined) {
@@ -4647,10 +5026,14 @@ export function foldAssistantTurn(
       role: "assistant",
       content: mergedContent,
     }).content,
-    status: assistantMsg.status ?? lastMsg.status,
+    status: supersededRunReplay
+      ? lastMsg.status
+      : (assistantMsg.status ?? lastMsg.status),
     metadata: {
       ...lastMsg.metadata,
-      runId: runId ?? lastMsg.metadata?.runId,
+      runId: supersededRunReplay
+        ? lastMsg.metadata?.runId
+        : (runId ?? lastMsg.metadata?.runId),
       custom: mergedCustom,
     },
   };
@@ -4658,6 +5041,95 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+function repositoryIndexOf(
+  repo: { messages: readonly unknown[] },
+  id: string,
+): number {
+  return repo.messages.findIndex(
+    (entry) => messageId(getStoredMessage(entry)) === id,
+  );
+}
+
+/**
+ * Places each message delivered into a run after the reply written before
+ * it, then the reply written after it. A refold updates them in place.
+ */
+function foldSteeredSegments(
+  repo: unknown,
+  steered: readonly SteeredRunSegment[],
+) {
+  const next = normalizeThreadRepository(repo);
+  for (const { user, assistant } of steered) {
+    if (repositoryIndexOf(next, user.id) < 0) {
+      next.messages.push({
+        message: user,
+        parentId:
+          typeof next.headId === "string"
+            ? next.headId
+            : (messageId(getStoredMessage(next.messages.at(-1))) ?? null),
+      });
+      next.headId = user.id;
+    }
+    if (!assistant) continue;
+    const existing = repositoryIndexOf(next, assistant.id);
+    if (existing >= 0) {
+      next.messages[existing] = {
+        ...next.messages[existing],
+        message: assistant,
+      };
+      continue;
+    }
+    next.messages.push({ message: assistant, parentId: user.id });
+    next.headId = assistant.id;
+  }
+  return next;
+}
+
+/**
+ * Folds a run's reply and the messages delivered into it. Records the run
+ * took from the queue but never journaled are appended after its reply, and
+ * a refold updates the delivered messages in place.
+ */
+export function foldAssistantTurnWithSteers(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  steered: readonly SteeredRunSegment[],
+  options: Parameters<typeof foldAssistantTurn>[2] & { runId: string },
+) {
+  const records = steeredRecords(repo).filter(
+    (record) => record.runId === options.runId,
+  );
+  const segments = [
+    ...steered,
+    ...records
+      .filter(
+        (record) => !steered.some(({ user }) => user.id === record.message.id),
+      )
+      .map((record) => ({
+        user: buildSteeredUserMessage(record.message, options.runId),
+        delivered: record.message,
+        assistant: null,
+      })),
+  ];
+  const base = normalizeThreadRepository(repo);
+  const firstSegment = segments.at(0);
+  const refold =
+    firstSegment !== undefined &&
+    repositoryIndexOf(base, firstSegment.user.id) >= 0;
+  const folded =
+    assistantMsg && !refold
+      ? foldAssistantTurn(base, assistantMsg, options)
+      : base;
+  if (segments.length === 0) return folded;
+  const withSteered = foldSteeredSegments(folded, segments);
+  if (records.length > 0) {
+    withSteered[STEERED_QUEUED_MESSAGES_KEY] = steeredRecords(
+      withSteered,
+    ).filter((record) => record.runId !== options.runId);
+  }
+  return withSteered;
 }
 
 export function foldAgentChatRunCompletion(
@@ -4668,15 +5140,14 @@ export function foldAgentChatRunCompletion(
       ActiveRun,
       "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
     >,
+  steered: readonly SteeredRunSegment[] = [],
 ) {
-  const folded = assistantMsg
-    ? foldAssistantTurn(repo, assistantMsg, {
-        runId: run.runId,
-        turnId: run.turnId,
-        parentId: run.parentId,
-        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
-      })
-    : repo;
+  const folded = foldAssistantTurnWithSteers(repo, assistantMsg, steered, {
+    runId: run.runId,
+    turnId: run.turnId,
+    ...(run.parentId === undefined ? {} : { parentId: run.parentId }),
+    agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+  });
   return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
 }
 

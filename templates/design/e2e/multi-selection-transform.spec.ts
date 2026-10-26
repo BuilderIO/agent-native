@@ -48,7 +48,7 @@ async function seedScreen(app: App) {
 async function clickCentre(
   app: App,
   nodeId: string,
-  modifiers: "Shift"[] = [],
+  modifiers: ("Shift" | "ControlOrMeta")[] = [],
 ) {
   const rect = await app.designRect(nodeId);
   const point = await app.pagePoint(
@@ -61,9 +61,13 @@ async function clickCentre(
 }
 
 async function selectTextAndRectOnCanvas(app: App) {
-  await clickCentre(app, "text");
-  await clickCentre(app, "rect", ["Shift"]);
+  // Cmd+click reaches the layers inside <main>; a plain click takes main.
+  await clickCentre(app, "text", ["ControlOrMeta"]);
+  await clickCentre(app, "rect", ["ControlOrMeta", "Shift"]);
   await expect(app.page.getByText("2 selected")).toBeVisible();
+  await expect
+    .poll(async () => (await app.selectedLayers()).sort())
+    .toEqual(["Frame", "hello bud"]);
 }
 
 test("dragging one member of a multi-selection moves both by the same delta, saves both, and keeps them selected", async ({
@@ -114,8 +118,7 @@ test("dragging one member of a multi-selection moves both by the same delta, sav
   expect(await app.selectedLayers()).toHaveLength(1);
 });
 
-// fixme: product bug: K-scale of a multi-selection writes junk into the saved source: text and label gain 'outline-width: 1.50px; border-width: 1.50px x4' (the
-test.fixme("the scale tool scales a whole multi-selection and keeps it selected", async ({
+test("the scale tool scales a whole multi-selection and keeps it selected", async ({
   app,
   page,
 }) => {

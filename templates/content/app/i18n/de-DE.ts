@@ -2,6 +2,168 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub-Ordner verknüpfen",
+  githubNewCollectionTitle: "Neue Sammlung aus einem GitHub-Ordner",
+  githubLinkDescription:
+    "Die Dokumente des Ordners erscheinen hier als schreibgeschützte Seiten und aktualisieren sich von selbst, wenn sich die Dateien auf GitHub ändern.",
+  githubNewCollectionDescription:
+    "Content erstellt eine Sammlung mit dem Namen des Ordners. Die Dokumente des Ordners erscheinen dort als schreibgeschützte Seiten und aktualisieren sich von selbst, wenn sich die Dateien auf GitHub ändern.",
+  githubLinkUrlLabel: "Link zum GitHub-Ordner",
+  githubLinkUrlHelp:
+    "Öffne den Ordner auf GitHub und kopiere die Adresse aus deinem Browser.",
+  githubLinkCheck: "Ordner prüfen",
+  githubLinkReading: "Ordner auf GitHub wird gelesen…",
+  githubConnectChecking: "Deine GitHub-Verbindung wird geprüft…",
+  githubConnectPrompt:
+    "Verbinde dein GitHub-Konto, damit Content deine Ordner lesen kann.",
+  githubConnect: "GitHub verbinden",
+  githubPreviewPagesOne: "1 Seite",
+  githubPreviewPages: "{{count}} Seiten",
+  githubPreviewPagesUpTo: "Bis zu {{count}} Seiten",
+  githubLinkMore: "{{count}} weitere",
+  githubLinkNoFiles:
+    "Dieser Ordner enthält keine Markdown-Dateien (.md), daher gibt es nichts anzuzeigen.",
+  githubPreviewColumnsOne: "1 Spalte",
+  githubPreviewColumns: "{{count}} Spalten",
+  githubLinkNoColumns:
+    "Diese Dateien haben am Anfang keine Angaben, daher bekommt jede Seite nur ihren Titel.",
+  githubLinkNotShownOne: "1 Datei wird noch nicht angezeigt.",
+  githubLinkNotShown: "{{count}} Dateien werden noch nicht angezeigt.",
+  githubLinkPicturesWaiting:
+    "Bilder in diesen Dateien werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubShowDetails: "Details anzeigen",
+  githubHideDetails: "Details ausblenden",
+  githubDetailsPages: "Seiten",
+  githubDetailsColumns: "Spalten",
+  githubDetailsColumnsSampled:
+    "Aus den ersten {{count}} von {{total}} Dateien gelesen. Weitere Dateien können Spalten hinzufügen.",
+  githubDetailsNotShown: "Noch nicht angezeigt",
+  githubDetailsFrom: "Herkunft",
+  githubDetailsBranchVersion: "Branch {{branch}} · Version {{commit}}",
+  githubYes: "Ja",
+  githubNo: "Nein",
+  githubSkipMdx: "Nutzt MDX, das Content noch nicht anzeigen kann",
+  githubSkipTooLarge: "Zu groß für die Anzeige in Content",
+  githubSkipNotText: "Keine Textdatei, die Content lesen kann",
+  githubLinkSubmitOne: "1 Seite verknüpfen",
+  githubLinkSubmit: "{{count}} Seiten verknüpfen",
+  githubLinkSubmitUpTo: "Bis zu {{count}} Seiten verknüpfen",
+  githubLinking: "Wird verknüpft…",
+  githubLinkingProgressOne: "1 Seite wird von GitHub geholt…",
+  githubLinkingProgress: "{{count}} Seiten werden von GitHub geholt…",
+  githubLinkedToastOne: "Verknüpft. 1 Seite aus {{folder}} ist jetzt hier.",
+  githubLinkedToast:
+    "Verknüpft. {{count}} Seiten aus {{folder}} sind jetzt hier.",
+  githubLinkedPartialToast:
+    "Verknüpft. {{done}} von {{total}} Seiten sind hier; der Rest folgt innerhalb einer Minute.",
+  githubLinkedSyncFailed:
+    "{{folder}} ist verknüpft, aber die Seiten konnten noch nicht geholt werden.",
+  githubLinkInvalidUrl:
+    "Das ist kein Link zu einem GitHub-Ordner. Öffne den Ordner auf GitHub und kopiere die Adresse aus deinem Browser.",
+  githubLinkFileUrl: "Das ist ein Link zu einer einzelnen Datei.",
+  githubLinkUseFolder: "Ordner „{{folder}}“ verwenden",
+  githubLinkRepositoryNotFound:
+    "„{{repo}}“ lässt sich nicht öffnen. Prüfe die Schreibweise oder stelle sicher, dass dein GitHub-Konto es sehen kann.",
+  githubLinkBranchNotFound:
+    "In {{repo}} gibt es keinen Branch namens „{{branch}}“. Prüfe den Link.",
+  githubLinkFolderNotFound:
+    "In {{repo}} gibt es keinen Ordner namens „{{folder}}“. Prüfe den Link.",
+  githubLinkForbidden:
+    "Dein GitHub-Konto kann „{{repo}}“ nicht öffnen. Bitte den Eigentümer um Zugriff.",
+  githubLinkTooLarge:
+    "Dieser Ordner hat mehr als {{max}} Dateien. Wähle einen kleineren Ordner darin.",
+  githubLinkUnavailable:
+    "GitHub ist gerade nicht erreichbar. Versuche es in einer Minute noch einmal.",
+  githubLinkBlockedHasRows:
+    "Diese Sammlung hat inzwischen Seiten, daher kann ein GitHub-Ordner sie nicht mehr füllen.",
+  githubLinkBlockedLinked:
+    "Diese Sammlung bekommt ihre Seiten bereits aus einer anderen App.",
+  githubLinkBlockedSystem: "Diese Sammlung kann keinen GitHub-Ordner anzeigen.",
+  githubNewCollectionInstead: "Neue Sammlung aus GitHub",
+  githubRowAvailable: "Dokumente aus einem GitHub-Ordner hier anzeigen",
+  githubRowConnectFirst: "Verbinde zuerst dein GitHub-Konto",
+  githubRowEmptyOnly: "Nur für leere Sammlungen",
+  githubRowOtherSource: "Seiten kommen bereits aus {{source}}",
+  githubRowFiles: "Für Dateien nicht verfügbar",
+  githubRowSystem: "Für diese Sammlung nicht verfügbar",
+  githubRowEditorsOnly: "Nur mit Bearbeitungszugriff",
+  githubRowLinked: "Ordner {{folder}} · Aktualisiert {{time}}",
+  githubRowLinkedNotUpdated: "Ordner {{folder}} · Noch nicht aktualisiert",
+  githubRowUnavailableWhileLinked:
+    "Nicht verfügbar, solange mit GitHub verknüpft",
+  githubExplainHasPagesOne:
+    "Ein GitHub-Ordner füllt eine ganze Sammlung, deshalb braucht er eine ohne Seiten. Diese hat 1 Seite.",
+  githubExplainHasPages:
+    "Ein GitHub-Ordner füllt eine ganze Sammlung, deshalb braucht er eine ohne Seiten. Diese hat {{count}} Seiten.",
+  githubExplainOtherSource:
+    "Eine Sammlung bekommt ihre Seiten aus einer einzigen Quelle. Diese nutzt {{source}}.",
+  githubExplainFiles:
+    "Die Dateien-Sammlung kann keinen GitHub-Ordner anzeigen.",
+  githubExplainSystem: "Diese Sammlung kann keinen GitHub-Ordner anzeigen.",
+  githubExplainEditorsOnly:
+    "Nur wer diese Sammlung bearbeiten darf, kann einen GitHub-Ordner verknüpfen. Bitte den Eigentümer um Bearbeitungszugriff.",
+  githubExplainLinked:
+    "Die Seiten dieser Sammlung kommen von GitHub. Heb die Verknüpfung mit dem Ordner auf, um eine andere Quelle zu nutzen.",
+  githubDetailFolder: "Ordner",
+  githubDetailBranch: "Branch",
+  githubDetailVersion: "Version",
+  githubDetailUpdated: "Aktualisiert",
+  githubCheckForUpdates: "Auf Aktualisierungen prüfen",
+  githubOpenFolder: "In GitHub öffnen",
+  githubUnlinkFolder: "Verknüpfung mit Ordner aufheben…",
+  githubUnlinkTitle: "Verknüpfung mit diesem GitHub-Ordner aufheben?",
+  githubUnlinkBodyOne:
+    "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
+  githubUnlinkBody:
+    "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
+  githubUnlink: "Verknüpfung aufheben",
+  githubUnlinking: "Verknüpfung wird aufgehoben…",
+  githubUnlinkedToast:
+    "Verknüpfung aufgehoben. Deine Seiten bleiben erhalten, und du kannst sie jetzt bearbeiten.",
+  githubUnlinkFailed:
+    "Die Verknüpfung mit dem Ordner konnte nicht aufgehoben werden",
+  githubFromFolder: "Aus dem Ordner {{folder}} auf GitHub",
+  githubFromRepo: "Aus {{repo}} auf GitHub",
+  githubUpdatedAgo: "Aktualisiert {{time}}",
+  githubJustNow: "gerade eben",
+  githubNotUpdatedYet: "Noch nicht aktualisiert",
+  githubEditOnGitHub: "Auf GitHub bearbeiten",
+  githubDetails: "Details",
+  githubNotShownOne: "1 Datei nicht angezeigt",
+  githubNotShown: "{{count}} Dateien nicht angezeigt",
+  githubNotShownHeading: "Nicht angezeigt",
+  githubShowingAsOf: "Stand der Seiten: {{time}}.",
+  githubSyncingProgress:
+    "Änderungen werden geholt: {{done}} von {{total}} Dateien",
+  githubPicturesWaiting:
+    "Einige Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubPicturesNotSaved:
+    "Einige Bilder konnten nicht im Dateispeicher gespeichert werden. Jede Synchronisierung versucht es erneut.",
+  githubReconnect: "GitHub erneut verbinden",
+  githubProblemConnection:
+    "Aktualisierung gestoppt: Du musst dich erneut bei GitHub anmelden.",
+  githubProblemForbidden:
+    "Aktualisierung gestoppt: Dein GitHub-Konto kann dieses Repository nicht mehr öffnen. Bitte den Eigentümer um Zugriff.",
+  githubProblemRepositoryNotFound:
+    "Aktualisierung gestoppt: Das Repository wurde verschoben, umbenannt oder auf privat gestellt.",
+  githubProblemBranchNotFound:
+    "Aktualisierung gestoppt: Den Branch „{{branch}}“ gibt es auf GitHub nicht mehr.",
+  githubProblemFolderNotFound:
+    "Aktualisierung gestoppt: Den Ordner „{{folder}}“ gibt es auf diesem Branch nicht mehr.",
+  githubProblemPaused:
+    "Aktualisierungen sind kurz pausiert. Sie laufen von selbst weiter.",
+  githubProblemTooLarge:
+    "Aktualisierung gestoppt: Der Ordner hat jetzt mehr als {{max}} Dateien.",
+  githubProblemStorageUnavailable:
+    "Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubAlreadyUpToDate: "Auf dem neuesten Stand.",
+  githubSyncedToastOne: "Aktualisiert. 1 Seite wurde geändert.",
+  githubSyncedToast: "Aktualisiert. {{count}} Seiten wurden geändert.",
+  githubSyncPartialToast:
+    "Wird aktualisiert: bisher {{done}} von {{total}} Dateien.",
+  githubSyncBusy:
+    "Es wird bereits nach Aktualisierungen gesucht. Änderungen erscheinen, sobald das fertig ist.",
+  emptyCollectionSourceHint: "Oder fülle sie aus einer Quelle",
   formChecked: "Ausgewählt",
   formChooseOption: "Option auswählen",
   formDescription:
@@ -24,6 +186,39 @@ const database = {
   formSubmitted: "Antwort gesendet",
   formSubmittedDescription: "Die neue Sammlungsseite ist bereit.",
   formSubmitting: "Wird gesendet...",
+  listRows: "Zeilen",
+  listRowsDescription:
+    "Wählen Sie eine Vorlage oder legen Sie fest, was jeder Teil einer Zeile zeigt.",
+  listRowsEdit: "Zeilen bearbeiten",
+  listRowsDone: "Fertig",
+  listRowsEditOnList: "In der Liste bearbeiten",
+  listRowsEditHint: "Klicken Sie auf einen Teil einer Zeile, um ihn zu ändern.",
+  listRowsPresetDefault: "Standard",
+  listRowsPresetChecklist: "Checkliste",
+  listRowsPresetReminders: "Erinnerungen",
+  listRowsPresetTracker: "Tracker",
+  listRowsPresetDigest: "Übersicht",
+  listRowsNeedsCheckbox: "Benötigt eine Kontrollkästchen-Eigenschaft",
+  listRowsNeedsStatus: "Benötigt eine Status-Eigenschaft",
+  listRowsStart: "Anfang",
+  listRowsTitle: "Titel",
+  listRowsLine2: "Zeile 2",
+  listRowsLine3: "Zeile 3",
+  listRowsEnd: "Ende",
+  listRowsEndHint: "Rückt auf schmalen Bildschirmen unter den Titel.",
+  listRowsChangeSlot: "{{slot}} ändern",
+  listRowsAddSlot: "{{slot}} hinzufügen",
+  listRowsPageIcon: "Seitensymbol",
+  listRowsCheckbox: "Kontrollkästchen",
+  listRowsStatus: "Status",
+  listRowsRegular: "Normal",
+  listRowsMedium: "Mittel",
+  listRowsBold: "Fett",
+  listRowsNothing: "Nichts",
+  listRowsPageText: "Seitentext",
+  listRowsOneLine: "1 Zeile",
+  listRowsLineCount: "{{count}} Zeilen",
+  listRowsNoStatus: "Kein Status",
   addARowTo: "Zeile hinzufügen zu…",
   addASource: "Quelle hinzufügen",
   aField: "ein Feld",
@@ -248,6 +443,65 @@ const database = {
   unfreezeColumns: "Spaltenfixierung aufheben",
   selectAllLoadedRows: "Alle geladenen Zeilen auswählen",
   clearSelectedRows: "Zeilenauswahl aufheben",
+  filterOperatorContains: "Enthält",
+  filterOperatorDoesNotContain: "Enthält nicht",
+  filterOperatorStartsWith: "Beginnt mit",
+  filterOperatorEndsWith: "Endet mit",
+  filterOperatorIs: "Ist",
+  filterOperatorIsNot: "Ist nicht",
+  filterOperatorGreaterThan: "Größer als",
+  filterOperatorLessThan: "Kleiner als",
+  filterOperatorGreaterThanOrEqual: "Größer oder gleich",
+  filterOperatorLessThanOrEqual: "Kleiner oder gleich",
+  filterOperatorBefore: "Vor",
+  filterOperatorAfter: "Nach",
+  filterOperatorOnOrBefore: "Am oder vor",
+  filterOperatorOnOrAfter: "Am oder nach",
+  filterOperatorBetween: "Zwischen",
+  filterOperatorIsWithin: "Liegt im Zeitraum",
+  filterOperatorIsEmpty: "Ist leer",
+  filterOperatorIsNotEmpty: "Ist nicht leer",
+  filterOperatorChecked: "Aktiviert",
+  filterOperatorUnchecked: "Nicht aktiviert",
+  filterDateExact: "Genaues Datum",
+  filterDateToday: "Heute",
+  filterDateTomorrow: "Morgen",
+  filterDateYesterday: "Gestern",
+  filterDatePast: "Letzte",
+  filterDateThis: "Aktuell",
+  filterDateNext: "Nächste",
+  filterDateDays_zero: "Tage",
+  filterDateDays_one: "Tag",
+  filterDateDays_two: "Tage",
+  filterDateDays_few: "Tage",
+  filterDateDays_many: "Tage",
+  filterDateDays_other: "Tage",
+  filterDateWeeks_zero: "Wochen",
+  filterDateWeeks_one: "Woche",
+  filterDateWeeks_two: "Wochen",
+  filterDateWeeks_few: "Wochen",
+  filterDateWeeks_many: "Wochen",
+  filterDateWeeks_other: "Wochen",
+  filterDateMonths_zero: "Monate",
+  filterDateMonths_one: "Monat",
+  filterDateMonths_two: "Monate",
+  filterDateMonths_few: "Monate",
+  filterDateMonths_many: "Monate",
+  filterDateMonths_other: "Monate",
+  filterDateYears_zero: "Jahre",
+  filterDateYears_one: "Jahr",
+  filterDateYears_two: "Jahre",
+  filterDateYears_few: "Jahre",
+  filterDateYears_many: "Jahre",
+  filterDateYears_other: "Jahre",
+  filterDatePastRange: "Letzte {{count}} {{unit}}",
+  filterDateNextRange: "Nächste {{count}} {{unit}}",
+  filterDateThisWeek: "Diese Woche",
+  filterDateThisMonth: "Dieser Monat",
+  filterDateThisYear: "Dieses Jahr",
+  filterDateRangeValue: "{{start}} bis {{end}}",
+  filterChooseDates: "Daten auswählen",
+  filterChooseOption: "Option auswählen",
 };
 
 const databaseExactEnglish = {
@@ -362,7 +616,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "Seiten aus einer anderen App in diese Sammlung holen.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
@@ -418,6 +672,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
+  githubSourceOpenFile: "In GitHub öffnen",
   textColor: "Textfarbe",
   backgroundColor: "Hintergrundfarbe",
   defaultColor: "Standard",
@@ -439,8 +696,8 @@ const editor = {
     "Der Block {{type}} konnte nicht geladen werden: {{message}}",
   registryBlockUnreadable:
     "Die gespeicherte Blockquelle kann nicht gelesen werden.",
-  blocksFieldRevisionConflict:
-    "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
+  blocksFieldEditMovedToEnd:
+    "Dieses Blocks-Feld wurde auch an anderer Stelle geändert. Text, den du an derselben Stelle getippt hast, steht jetzt am Ende des Felds.",
   reconcileConflict:
     "Diese Seite wurde an anderer Stelle geändert. Deine Änderungen sind noch nicht gespeichert.",
   reconcileFailed:
@@ -532,6 +789,7 @@ const editor = {
     imageDownloadStarted: "Bild-Download gestartet.",
     imageLinkHint: "Funktioniert mit jedem Bild aus dem Internet",
     imagePreview: "Bildvorschau",
+    imageUnavailable: "Bild nicht verfügbar",
     imageView: "Bildansicht",
     link: "Link [de-DE]",
     loadingAssetsPicker: "Assets-Auswahl wird geladen",
@@ -991,6 +1249,10 @@ const comments = {
   selectTextToComment: "Text auswählen, um einen Kommentar hinzuzufügen",
   replyCount_one: "{{count}} Antwort",
   replyCount_other: "{{count}} Antworten",
+  stackCollapse: "Einklappen",
+  stackShowAll_one: "{{count}} Kommentar hier anzeigen",
+  stackShowAll_other: "Alle {{count}} Kommentare hier anzeigen",
+  stackMore: "+{{count}} weitere",
   commentActions: "Kommentaraktionen",
   checkSaved: "Gespeicherten Kommentar prüfen",
   edit: "Bearbeiten",
@@ -1003,6 +1265,15 @@ const comments = {
   hideIndicators: "Kommentare und Hervorhebungen ausblenden",
   showIndicators: "Kommentare und Hervorhebungen anzeigen",
   unanchored: "Hervorhebung nicht verfügbar",
+  propertyEmpty: "Leer",
+  propertyRemoved: "{{name}} (entfernt)",
+  propertyWas: "war {{value}}",
+  commentOnProperty: "{{name}} kommentieren",
+  openPropertyComments_one: "{{count}} offener Kommentar zu {{name}}",
+  openPropertyComments_other: "{{count}} offene Kommentare zu {{name}}",
+  openRowComments_one: "{{count}} offener Kommentar zu {{title}}",
+  openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
+  openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
   suggestionAdd: "Hinzufügen",
   suggestionDelete: "Löschen",
@@ -1013,6 +1284,10 @@ const comments = {
   proposalEditCount_other: "{{count}} Änderungen",
   acceptRemaining: "Übrige annehmen",
   rejectRemaining: "Übrige ablehnen",
+  acceptAll: "Alle annehmen",
+  rejectAll: "Alle ablehnen",
+  suggestionReviewReadOnly:
+    "Nur wer diese Seite bearbeiten kann, kann ihre Vorschläge annehmen oder ablehnen.",
   typeFilter: "Typ",
   statusFilter: "Status",
   authorFilter: "Person",
@@ -1024,6 +1299,10 @@ const comments = {
   accepted: "Angenommen",
   rejected: "Abgelehnt",
   noFilteredComments: "Keine passenden Kommentare.",
+  tabFilter: "Tab",
+  allTabs: "Alle Tabs",
+  fieldRemoved: "{{name}} (entfernt)",
+  pageBody: "Seiteninhalt",
 };
 
 const reviewDiscussions = {
@@ -1212,6 +1491,7 @@ const history = {
   historyGroupAgent: "Agentenlauf",
   historyGroupHuman: "Bearbeitungssitzung",
   historyGroupLegacy: "Frühere Bearbeitungen",
+  historyGroupGitHub: "Aus GitHub synchronisiert",
   historyGroupOperation: "Vorgang",
   historyGroupRestore: "Wiederherstellung",
   historyLoadError: "Versionsverlauf konnte nicht geladen werden.",
@@ -1443,12 +1723,34 @@ const overrides = {
     searchLanguages: "Sprachen suchen...",
     noBlocksFields:
       "Keine Blocks-Felder. Füge eines über das Eigenschaftenmenü hinzu.",
-    reorderField: "{{name}} neu anordnen",
-    toggleField: "{{name}} umschalten",
+    addBlockField: "Feld hinzufügen",
+    blockFieldChanged: "Seit Ihrem letzten Aufruf geändert",
+    blockFieldTabs: "Felder",
+    blockFieldOpenComments_one: "{{count}} offener Kommentar",
+    blockFieldOpenComments_other: "{{count}} offene Kommentare",
+    blockFieldMenu: "Optionen für {{name}}",
+    blockFieldMenuScope: "Gilt für jede Zeile dieser Sammlung",
+    blockFieldName: "Feldname",
+    renameBlockField: "Umbenennen",
+    renameBlockFieldFailed: "Feld konnte nicht umbenannt werden",
+    deleteBlockField: "Löschen",
+    deleteBlockFieldFailed: "Feld konnte nicht gelöscht werden",
+    deleteBlockFieldQuestion: "„{{name}}“ löschen?",
+    deleteBlockFieldDescription:
+      "Dadurch werden „{{name}}“ und sein Text aus jeder Zeile dieser Sammlung gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteBlockFieldBodyWarning:
+      "„{{name}}“ ist der Seiteninhalt, daher wird auch der Haupttext jeder Zeile gelöscht.",
   },
   comments: {
     add: "Kommentar hinzufügen...",
     cancel: "Abbrechen",
+    discardCommentQuestion: "Kommentar verwerfen?",
+    discardReplyQuestion: "Antwort verwerfen?",
+    discardEditQuestion: "Änderungen verwerfen?",
+    discardDescription: "Was Sie geschrieben haben, geht verloren.",
+    discardEditDescription: "Ihr Kommentar bleibt unverändert.",
+    discard: "Verwerfen",
+    keepEditing: "Weiter bearbeiten",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",

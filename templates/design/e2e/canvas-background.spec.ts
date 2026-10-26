@@ -122,12 +122,10 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     theme: "light",
     canvasHex: "EBEBEB",
     expectedCanvasRgb: "235,235,235",
-    boardTextColor: "currentcolor",
+    boardTextColor: "rgb(0, 0, 0)",
   },
 ] as const) {
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
-  // fixme: light: board text committed with Escape is never saved; dark: fails in CI on current main: expect(received).toEqual(expect
-  test.fixme(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
+  test(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
     app,
     page,
   }) => {
@@ -140,9 +138,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     const designId = await createEmptyDesign(app);
 
     await page.goto(appPath(`/design/${designId}`));
-    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
     const { x: sampleX, y: sampleY } = await sampleXY(page);
     expect(await pixelAt(page, sampleX, sampleY)).toBe(expectedCanvasRgb);

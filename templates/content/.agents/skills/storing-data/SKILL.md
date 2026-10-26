@@ -44,9 +44,11 @@ second migration owner beside it. The Chat and default starters do not ship that
 Drizzle Kit setup; follow their local instructions and the Database docs for
 the migration path. In Chat, add `server/db/schema.ts`, `server/db/index.ts`
 with `createGetDb(schema)`, and `server/plugins/db.ts` with
-`runMigrations([...], { table })`. `scripts/migrate-production.ts` is framework-only;
-do not create a parallel `runMigrations([...])` list beside a generated Drizzle
-migration owner. Give each handwritten migration a unique, stable `name`
+`runMigrations([...], { table })`. `scripts/migrate-production.ts` applies the
+framework tables and then that plugin (`runAppReleaseMigrations`), because a
+release-owned deploy skips it at boot; a project with a Drizzle config is left to
+`db:migrate`, and do not create a parallel `runMigrations([...])` list beside a
+generated Drizzle migration owner. Give each handwritten migration a unique, stable `name`
 alongside its `version`; append changes instead of renumbering, reusing, or
 editing an applied entry.
 
@@ -130,6 +132,22 @@ offboarding hands them to the successor. A table without `org_id` needs
 | **Content**  | documents in SQL; connected local-folder sources sync separately |
 | **Slides**   | decks (JSON stored in SQL)                    |
 | **Clips**    | recording metadata in SQL; video and image files use blob storage |
+
+#### Lifecycle status columns are state machines
+
+A status column with more than two values gets a `defineMachine` from
+`@agent-native/core/state-machine` beside its store; the SQL derives from it.
+
+- Read stored values with `machine.parseState(row.status)`, never `as Status`.
+  An unknown value throws instead of flowing on as a plausible state.
+- Write each transition as a compare-and-set against its source states —
+  `WHERE status IN (${machine.sqlStateList("claim")})`, or
+  `inArray(table.status, machine.fromStates("claim"))` in Drizzle — and treat
+  zero updated rows as a lost race or an illegal transition, never success.
+- Pin each event's source and target states in a spec, so a lifecycle change
+  is a visible test diff.
+
+Core's A2A task store (`a2a/task-lifecycle` in `@agent-native/core`) is the reference.
 
 ### Agent Access
 

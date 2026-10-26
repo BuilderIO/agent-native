@@ -684,6 +684,14 @@ export default function PromptPopover({
   const showCreativeContextPicker =
     Boolean(onCreativeContextChange) &&
     (creativeContextsLoading || creativeContexts.length > 0);
+  const creationModeToggle =
+    creationMode && onCreationModeChange ? (
+      <CreationModeToggle
+        mode={creationMode}
+        onChange={onCreationModeChange}
+        disabled={loading || uploading || submitting}
+      />
+    ) : null;
   const Composer = composerComponent ?? LazyPromptComposer;
   const promptComposer = (
     <Composer
@@ -705,6 +713,7 @@ export default function PromptPopover({
       submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
+      voiceEnabled
       composerRef={composerRef}
       ariaLabel={placeholder ?? t("home.describeBuild")}
       showModelSelector={showModelSelector}
@@ -729,25 +738,19 @@ export default function PromptPopover({
           : `seed:${initialTextKey ?? 0}`
       }
       contextMenuItems={contextMenuItems ?? []}
+      // Inside the composer so an attached setup card above meets the box directly.
+      toolbarSlot={inline ? creationModeToggle : undefined}
     />
   );
 
   const content = (
     <>
-      {(!inline || creationMode) && (
+      {!inline && (
         <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-          {!inline && (
-            <span className="text-sm font-medium text-foreground/90">
-              {title}
-            </span>
-          )}
-          {creationMode && onCreationModeChange ? (
-            <CreationModeToggle
-              mode={creationMode}
-              onChange={onCreationModeChange}
-              disabled={loading || uploading || submitting}
-            />
-          ) : null}
+          <span className="text-sm font-medium text-foreground/90">
+            {title}
+          </span>
+          {creationModeToggle}
         </div>
       )}
 
@@ -951,7 +954,12 @@ export default function PromptPopover({
         skipLabel &&
         (!inline || showInlineSkip) &&
         !offerStartChoice && (
-          <div className="flex justify-end border-t border-border px-3.5 py-2">
+          <div
+            className={cn(
+              "flex justify-end px-3.5 py-2",
+              !inline && "border-t border-border",
+            )}
+          >
             <Button
               type="button"
               variant="link"
@@ -979,7 +987,12 @@ export default function PromptPopover({
     </>
   );
 
-  if (inline) return <div data-design-inline-prompt>{content}</div>;
+  if (inline)
+    return (
+      <div data-design-inline-prompt data-agentkit-composer-size="large">
+        {content}
+      </div>
+    );
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>

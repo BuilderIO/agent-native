@@ -6,10 +6,15 @@ const mocks = vi.hoisted(() => {
     where: vi.fn(),
   };
   selectChain.from.mockReturnValue(selectChain);
+  const contentSelectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
+  contentSelectChain.from.mockReturnValue(contentSelectChain);
+  contentSelectChain.where.mockReturnValue(contentSelectChain);
 
   return {
     getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
+      select: vi.fn((columns) =>
+        columns?.content ? contentSelectChain : selectChain,
+      ),
     })),
     parseCanvasFrameGeometryById: vi.fn((value) => value ?? []),
     listAppState: vi.fn(),
@@ -21,6 +26,7 @@ const mocks = vi.hoisted(() => {
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
+    contentSelectChain,
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
       title: "Acme",
@@ -80,6 +86,7 @@ vi.mock("../server/db/index.js", () => ({
       fileType: "designFiles.fileType",
       updatedAt: "designFiles.updatedAt",
       designId: "designFiles.designId",
+      content: "designFiles.content",
     },
   },
 }));
@@ -104,6 +111,7 @@ describe("view-screen", () => {
     mocks.getReviewThreadSummary.mockReset();
     mocks.queryReviewComments.mockReset();
     mocks.selectChain.where.mockReset();
+    mocks.contentSelectChain.limit.mockResolvedValue([]);
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -353,6 +361,12 @@ describe("view-screen", () => {
   });
 
   it("uses active file before overview multi-selection", async () => {
+    mocks.contentSelectChain.limit.mockResolvedValue([
+      {
+        content:
+          '<html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body>Email</body></html>',
+      },
+    ]);
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({
         view: "editor",
@@ -385,6 +399,7 @@ describe("view-screen", () => {
     expect(result.design.activeScreen).toMatchObject({
       id: "file_index",
       filename: "index.html",
+      frameType: "hubspot-email",
     });
   });
 

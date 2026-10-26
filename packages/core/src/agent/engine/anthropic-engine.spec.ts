@@ -635,7 +635,7 @@ describe("createAnthropicEngine", () => {
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
 
-  it("defaults to adaptive thinking at high effort for an effort-capable model", async () => {
+  it("keeps adaptive thinking and sends no effort when none is chosen", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-sonnet-5",
       systemPrompt: "You are helpful.",
@@ -645,7 +645,20 @@ describe("createAnthropicEngine", () => {
     });
 
     expect(requestParams.thinking).toEqual({ type: "adaptive" });
-    expect(requestParams.output_config).toEqual({ effort: "high" });
+    expect(requestParams).not.toHaveProperty("output_config");
+  });
+
+  it("leaves a manual-thinking model's provider default alone when no effort is chosen", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(requestParams.thinking).toBeUndefined();
+    expect(requestParams).not.toHaveProperty("output_config");
   });
 
   it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
@@ -656,6 +669,7 @@ describe("createAnthropicEngine", () => {
       tools: [],
       abortSignal: new AbortController().signal,
       maxOutputTokens: 32_000,
+      reasoningEffort: "high",
     });
 
     expect(requestParams.thinking).toEqual({
@@ -672,10 +686,11 @@ describe("createAnthropicEngine", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       tools: [],
       abortSignal: new AbortController().signal,
+      reasoningEffort: "medium",
     });
 
     expect(requestParams.thinking).toEqual({ type: "adaptive" });
-    expect(requestParams.output_config).toEqual({ effort: "high" });
+    expect(requestParams.output_config).toEqual({ effort: "medium" });
     expect(requestParams.temperature).toBeUndefined();
   });
 
@@ -739,6 +754,52 @@ describe("createAnthropicEngine", () => {
       budget_tokens: 4_000,
     });
     expect(requestParams.output_config).toBeUndefined();
+  });
+});
+
+describe("createAnthropicEngine model dispatch guard", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  it("does not open the provider stream when the dispatch guard denies it", async () => {
+    const streamSpy = vi.fn();
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: streamSpy };
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const beforeModelDispatch = vi.fn(async <T>(_dispatch: () => T) => ({
+      started: false as const,
+    }));
+    const onModelDispatchStarted = vi.fn();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    try {
+      await collectEvents(
+        freshCreate({ apiKey: "test-key" }).stream({
+          model: ANTHROPIC_DEFAULT_MODEL,
+          systemPrompt: "",
+          messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+          tools: [],
+          abortSignal: new AbortController().signal,
+          beforeModelDispatch,
+          onModelDispatchStarted,
+        }),
+      );
+
+      expect(beforeModelDispatch).toHaveBeenCalledOnce();
+      expect(streamSpy).not.toHaveBeenCalled();
+      expect(onModelDispatchStarted).not.toHaveBeenCalled();
+      expect(clearTimeoutSpy).toHaveBeenCalledOnce();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      vi.doUnmock("@anthropic-ai/sdk");
+    }
   });
 });
 

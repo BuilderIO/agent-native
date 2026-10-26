@@ -217,11 +217,12 @@ async function openMenu(index = 0) {
   );
 }
 async function preview(index = 0) {
-  await openMenu(index);
-  const previewAction = get("menuitem", "creativeContext.preview");
-  expect(previewAction.querySelector("svg")).toBeNull();
-  await click(previewAction);
+  await click(get("button", mocks.templates[index].title));
   return get("dialog");
+}
+async function useTemplate(index = 1) {
+  await preview(index);
+  await click(get("button", "templatesPage.useTemplate"));
 }
 beforeEach(() => {
   (
@@ -242,9 +243,16 @@ afterEach(async () => {
 });
 
 describe("Design template library", () => {
-  it("copies directly with template identity only, preserving server-owned locks and brand", async () => {
+  it("opens a preview from the card without copying", async () => {
     await render();
-    await click(get("button", "Starter template"));
+    const dialog = await preview(1);
+    expect(dialog).toBeTruthy();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+  it("copies from the preview with template identity only, preserving server-owned locks and brand", async () => {
+    await render();
+    await useTemplate();
     expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
       templateId: "starter",
       title: "Starter template",
@@ -252,9 +260,8 @@ describe("Design template library", () => {
       retryKey: expect.any(String),
     });
     expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
-    expect(named("dialog")).toHaveLength(0);
   });
-  it("shows only title, description, title-specific menus and matching route layout", async () => {
+  it("shows only title, description and a menu for owned templates", async () => {
     await render();
     expect(document.body.textContent).toContain("Owned reusable content");
     for (const absent of [
@@ -270,7 +277,7 @@ describe("Design template library", () => {
     ).toHaveLength(1);
     expect(
       named("button", "templatesPage.templateActions:Starter template"),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(container.querySelector("main")).toBeNull();
     expect(container.firstElementChild?.className).toBe(
       "mx-auto grid w-full max-w-370 gap-6 px-4 py-6 sm:px-6 lg:px-8",
@@ -284,28 +291,25 @@ describe("Design template library", () => {
       }),
     );
     await render();
-    const card = get("button", "Starter template");
-    await click(card);
-    await click(card);
+    await preview(1);
+    const use = get("button", "templatesPage.useTemplate");
+    await click(use);
+    await click(use);
     expect(mocks.create).toHaveBeenCalledTimes(1);
-    expect(get("status").textContent).toContain("templatesPage.opening");
-    for (const template of mocks.templates)
-      expect(
-        (
-          get(
-            "button",
-            "templatesPage.templateActions:" + template.title,
-          ) as HTMLButtonElement
-        ).disabled,
-      ).toBe(true);
-    await openMenu();
-    expect(named("menu")).toHaveLength(0);
+    expect(
+      (
+        get(
+          "button",
+          "templatesPage.templateActions:Saved template",
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     await act(async () => resolve({ id: "new-copy" }));
   });
   it("reports a missing copy ID with localized copy and no automatic retry", async () => {
     mocks.create.mockResolvedValue({});
     await render();
-    await click(get("button", "Starter template"));
+    await useTemplate();
     expect(mocks.toastError).toHaveBeenCalledWith("templatesPage.createFailed");
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.navigate).not.toHaveBeenCalled();
@@ -313,7 +317,7 @@ describe("Design template library", () => {
   it("reports an action failure without automatically retrying or navigating", async () => {
     mocks.create.mockRejectedValue({ code: "network_error" });
     await render();
-    await click(get("button", "Starter template"));
+    await useTemplate();
     expect(mocks.toastError).toHaveBeenCalledWith("templatesPage.createFailed");
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.navigate).not.toHaveBeenCalled();
@@ -355,24 +359,25 @@ describe("Design template library", () => {
     expect(mocks.remove).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
-  it("uses the template from the preview header action", async () => {
+  it("steps through screens with the arrow keys", async () => {
     await render();
-    await preview(1);
-    await click(get("button", "templatesPage.useTemplate"));
-    expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
-      templateId: "starter",
-      title: "Starter template",
-      newId: expect.any(String),
-      retryKey: expect.any(String),
+    const dialog = await preview();
+    const html = () =>
+      dialog
+        .querySelector('[data-interactive="true"]')
+        ?.getAttribute("data-html");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
     });
-    expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
+    expect(html()).toBe("<button>Second screen</button>");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+    });
+    expect(html()).toBe("<button>First screen</button>");
   });
   it("restores focus and clears only preview URL state via Escape", async () => {
     await render(<Templates />, "/templates?search=template&keep=fixture");
-    const trigger = get(
-      "button",
-      "templatesPage.templateActions:Saved template",
-    );
+    const trigger = get("button", "Saved template");
     await preview();
     expect(container.querySelector("[data-location]")?.textContent).toBe(
       "?search=template&keep=fixture&templateId=saved",
@@ -400,9 +405,6 @@ describe("Design template library", () => {
     expect(get("alertdialog")).toBeTruthy();
     await click(get("button", "home.cancel"));
     expect(mocks.remove).not.toHaveBeenCalled();
-    await openMenu(1);
-    expect(named("button", "Share fixture")).toHaveLength(0);
-    expect(named("menuitem", "home.delete")).toHaveLength(0);
   });
   it("owns preview URL state on home without controlled props", async () => {
     await render(
@@ -422,6 +424,20 @@ describe("Design template library", () => {
       "?keep=draft",
     );
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("keeps a custom preview param apart from the composer templateId", async () => {
+    await render(
+      <DesignTemplateLibrary
+        templates={mocks.templates}
+        previewParam="previewTemplateId"
+      />,
+      "/home?templateId=starter",
+    );
+    expect(named("dialog")).toHaveLength(0);
+    await preview(0);
+    expect(container.querySelector("[data-location]")?.textContent).toBe(
+      "?templateId=starter&previewTemplateId=saved",
+    );
   });
   it("deep-links to a home preview without causing a write", async () => {
     await render(

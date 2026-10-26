@@ -11,6 +11,15 @@ import {
 } from "./helpers";
 import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+/** Cmd/Ctrl+click selects the leaf under the pointer; a plain click selects the screen's top-level layer. */
+async function deepClick(page: Page, x: number, y: number) {
+  await page.keyboard.down(MOD);
+  await page.mouse.click(x, y);
+  await page.keyboard.up(MOD);
+}
+
 const ALIGN_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Alignment fixture</title></head>
@@ -165,15 +174,6 @@ const BOUNDS_WIDTH = 780;
 const BOUNDS_HEIGHT = 580;
 const CHIP_WIDTH = 120;
 const CHIP_HEIGHT = 60;
-
-const ALIGN_LABELS = [
-  "Align left",
-  "Align horizontal centers",
-  "Align right",
-  "Align top",
-  "Align vertical centers",
-  "Align bottom",
-] as const;
 
 type PositionHydrationProbeWindow = Window & {
   __positionHydrationRequests?: string[];
@@ -467,15 +467,15 @@ test("board Position reads authored origin and persists edits after reload", asy
   const selectedRows = page.locator('[role="treeitem"][aria-selected="true"]');
   await expect(selectedRows).toHaveCount(1);
   await expect(selectedRows).toContainText("Origin probe");
-  await expect(x).toHaveValue("0px");
-  await expect(y).toHaveValue("0px");
+  await expect(x).toHaveValue("0");
+  await expect(y).toHaveValue("0");
   const layersState = await boardPositionState(page);
   expect(layersState.authored).toEqual({ left: "0px", top: "0px" });
   expectNonzeroBoardOffset(layersState.contentOffset);
   expect(layersState.translate).toBe(
     `${layersState.contentOffset.x}px ${layersState.contentOffset.y}px`,
   );
-  expect(layersState.inspector).toEqual({ x: "0px", y: "0px" });
+  expect(layersState.inspector).toEqual({ x: "0", y: "0" });
 
   await page.keyboard.press("Shift+2");
   await page.keyboard.press("Escape");
@@ -485,15 +485,15 @@ test("board Position reads authored origin and persists edits after reload", asy
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(selectedRows).toHaveCount(1);
   await expect(selectedRows).toContainText("Origin probe");
-  await expect(x).toHaveValue("0px");
-  await expect(y).toHaveValue("0px");
+  await expect(x).toHaveValue("0");
+  await expect(y).toHaveValue("0");
   const canvasState = await boardPositionState(page);
   expect(canvasState.authored).toEqual({ left: "0px", top: "0px" });
   expectNonzeroBoardOffset(canvasState.contentOffset);
   expect(canvasState.translate).toBe(
     `${canvasState.contentOffset.x}px ${canvasState.contentOffset.y}px`,
   );
-  expect(canvasState.inspector).toEqual({ x: "0px", y: "0px" });
+  expect(canvasState.inspector).toEqual({ x: "0", y: "0" });
 
   await x.fill("24");
   await x.press("Enter");
@@ -519,8 +519,8 @@ test("board Position reads authored origin and persists edits after reload", asy
   await gotoEditor(page, designId);
   await expandAllLayers(page);
   await selectLayer(page, "Origin probe");
-  await expect(x).toHaveValue("24px");
-  await expect(y).toHaveValue("24px");
+  await expect(x).toHaveValue("24");
+  await expect(y).toHaveValue("24");
 });
 
 test("layer hydration requests a complete measurement when board offset metadata is unreadable", async ({
@@ -652,10 +652,10 @@ test("layer hydration requests a complete measurement when board offset metadata
     .toBe(true);
 
   await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
-    "0px",
+    "0",
   );
   await expect(page.getByRole("textbox", { name: "Y-position" })).toHaveValue(
-    "0px",
+    "0",
   );
 });
 
@@ -709,8 +709,7 @@ test("Top and Bottom alignment controls move to their named edges", async ({
   });
 });
 
-// fixme: product bug: Align top saves left: 390px (the computed value) instead of keeping the authored left: 50%, so the chip no longer tracks its parent's
-test.fixme("aligning one axis leaves a percentage offset on the other axis put", async ({
+test("aligning one axis leaves a percentage offset on the other axis put", async ({
   app,
   page,
 }) => {
@@ -730,18 +729,31 @@ test.fixme("aligning one axis leaves a percentage offset on the other axis put",
   });
 });
 
-test("a lone top-level frame has nothing to align against", async ({
-  page,
-  request,
-  baseURL,
-}) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+// A lone top-level layer aligns to its screen.
+test("a lone top-level frame aligns to the screen", async ({ app, page }) => {
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Canvas");
+  await app.settled();
+  const before = await app.savedNodes(designId);
+  const canvas = designFrame(page).locator(
+    '[data-agent-native-layer-name="Canvas"]',
+  );
+  const screenGap = () =>
+    canvas.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return Math.round(
+        element.ownerDocument.documentElement.clientWidth - rect.right,
+      );
+    });
+  expect(await screenGap()).toBeGreaterThan(0);
 
-  for (const label of ALIGN_LABELS) {
-    await expect(alignButton(page, label)).toBeDisabled();
-  }
+  await alignButton(page, "Align right").click();
+  await expect.poll(screenGap, { timeout: 10_000 }).toBe(0);
+  await app.settled();
+  const after = await app.savedNodes(designId);
+  expect(styleOf(after.get("align-canvas")).position).toBe("relative");
+  expectOnlyChanged(before, after, ["align-canvas"]);
 });
 
 test("Auto Layout matrix centers both axes and persists after reload", async ({
@@ -852,12 +864,13 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
   const vectorBox = (await vector.boundingBox())!;
-  await page.mouse.click(
+  await deepClick(
+    page,
     vectorBox.x + vectorBox.width / 2,
     vectorBox.y + vectorBox.height / 2,
   );
-  await expect(x).toHaveValue("24px");
-  await expect(y).toHaveValue("24px");
+  await expect(x).toHaveValue("24");
+  await expect(y).toHaveValue("24");
   await test.info().attach("position-inspector-canvas-selection.png", {
     body: await page.screenshot({ animations: "disabled" }),
     contentType: "image/png",
@@ -872,8 +885,8 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   }
 
   await selectLayer(page, "Vector");
-  await expect(x).toHaveValue("24px");
-  await expect(y).toHaveValue("24px");
+  await expect(x).toHaveValue("24");
+  await expect(y).toHaveValue("24");
 
   await x.fill("25");
   await x.press("Enter");
@@ -884,10 +897,10 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   await expectOffset(page, "Vector", { left: 25, top: 24 });
   await selectLayer(page, "Vector");
   await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
-    "25px",
+    "25",
   );
   await expect(page.getByRole("textbox", { name: "Y-position" })).toHaveValue(
-    "24px",
+    "24",
   );
 });
 
@@ -914,15 +927,15 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
 
   const fixed = frame.locator('[data-agent-native-node-id="fixed-child"]');
   const box = (await fixed.boundingBox())!;
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await deepClick(page, box.x + box.width / 2, box.y + box.height / 2);
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("35px");
-  await expect(y).toHaveValue("24px");
+  await expect(x).toHaveValue("35");
+  await expect(y).toHaveValue("24");
 
   await selectLayer(page, "Fixed child");
-  await expect(x).toHaveValue("35px");
-  await expect(y).toHaveValue("24px");
+  await expect(x).toHaveValue("35");
+  await expect(y).toHaveValue("24");
   await x.fill("40");
   await x.press("Enter");
   await expect
@@ -943,10 +956,10 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
     .toEqual({ x: 50, y: 0 });
   await selectLayer(page, "Fixed child");
   await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
-    "40px",
+    "40",
   );
   await expect(page.getByRole("textbox", { name: "Y-position" })).toHaveValue(
-    "24px",
+    "24",
   );
 });
 
@@ -967,33 +980,34 @@ test("Position stays Frame-relative through Groups and resets at nested Frames",
   const groupChild = frame.locator('[data-agent-native-node-id="group-child"]');
   await expect(groupChild).toBeVisible();
   const childBox = (await groupChild.boundingBox())!;
-  await page.mouse.click(
+  await deepClick(
+    page,
     childBox.x + childBox.width / 2,
     childBox.y + childBox.height / 2,
   );
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("100px");
-  await expect(y).toHaveValue("100px");
+  await expect(x).toHaveValue("100");
+  await expect(y).toHaveValue("100");
 
   await selectLayer(page, "Group child");
-  await expect(x).toHaveValue("100px");
-  await expect(y).toHaveValue("100px");
+  await expect(x).toHaveValue("100");
+  await expect(y).toHaveValue("100");
   await x.fill("110");
   await x.press("Enter");
   await expectOffset(page, "Group child", { left: 90, top: 80 });
-  await expect(x).toHaveValue("110px");
+  await expect(x).toHaveValue("110");
 
   await page.reload();
   await openEditPanel(page, designId);
   await selectLayer(page, "Group child");
-  await expect(x).toHaveValue("110px");
-  await expect(y).toHaveValue("100px");
+  await expect(x).toHaveValue("110");
+  await expect(y).toHaveValue("100");
   await expectOffset(page, "Group child", { left: 90, top: 80 });
 
   await selectLayer(page, "Nested child");
-  await expect(x).toHaveValue("10px");
-  await expect(y).toHaveValue("10px");
+  await expect(x).toHaveValue("10");
+  await expect(y).toHaveValue("10");
 });
 
 test("Position edits use the CSS containing block through static wrappers and borders", async ({
@@ -1011,18 +1025,19 @@ test("Position edits use the CSS containing block through static wrappers and bo
   const frame = designFrame(page);
   const child = frame.locator('[data-agent-native-node-id="position-child"]');
   const childBox = (await child.boundingBox())!;
-  await page.mouse.click(
+  await deepClick(
+    page,
     childBox.x + childBox.width / 2,
     childBox.y + childBox.height / 2,
   );
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("108px");
-  await expect(y).toHaveValue("88px");
+  await expect(x).toHaveValue("108");
+  await expect(y).toHaveValue("88");
 
   await selectLayer(page, "Position child");
-  await expect(x).toHaveValue("108px");
-  await expect(y).toHaveValue("88px");
+  await expect(x).toHaveValue("108");
+  await expect(y).toHaveValue("88");
   await x.fill("120");
   await x.press("Enter");
   await y.fill("140");
@@ -1034,8 +1049,8 @@ test("Position edits use the CSS containing block through static wrappers and bo
   await page.reload();
   await openEditPanel(page, designId);
   await selectLayer(page, "Position child");
-  await expect(x).toHaveValue("120px");
-  await expect(y).toHaveValue("140px");
+  await expect(x).toHaveValue("120");
+  await expect(y).toHaveValue("140");
   await expect
     .poll(() => positionReferenceOffset(page, "Position child"))
     .toEqual({ x: 120, y: 140 });
@@ -1057,18 +1072,19 @@ test("Position stays Frame-relative through a positioned plain wrapper", async (
     '[data-agent-native-node-id="plain-wrapper-child"]',
   );
   const childBox = (await child.boundingBox())!;
-  await page.mouse.click(
+  await deepClick(
+    page,
     childBox.x + childBox.width / 2,
     childBox.y + childBox.height / 2,
   );
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("100px");
-  await expect(y).toHaveValue("120px");
+  await expect(x).toHaveValue("100");
+  await expect(y).toHaveValue("120");
 
   await selectLayer(page, "Plain wrapper child");
-  await expect(x).toHaveValue("100px");
-  await expect(y).toHaveValue("120px");
+  await expect(x).toHaveValue("100");
+  await expect(y).toHaveValue("120");
   await x.fill("110");
   await x.press("Enter");
   await expect
@@ -1081,8 +1097,8 @@ test("Position stays Frame-relative through a positioned plain wrapper", async (
   await page.reload();
   await openEditPanel(page, designId);
   await selectLayer(page, "Plain wrapper child");
-  await expect(x).toHaveValue("110px");
-  await expect(y).toHaveValue("120px");
+  await expect(x).toHaveValue("110");
+  await expect(y).toHaveValue("120");
   await expect
     .poll(() => authoredOffset(page, "Plain wrapper child"))
     .toMatchObject({ left: "90px" });
@@ -1103,8 +1119,8 @@ test("unframed absolute positions use the initial containing block through stati
 
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("100px");
-  await expect(y).toHaveValue("80px");
+  await expect(x).toHaveValue("100");
+  await expect(y).toHaveValue("80");
   await x.fill("120");
   await x.press("Enter");
   await y.fill("140");
@@ -1116,8 +1132,8 @@ test("unframed absolute positions use the initial containing block through stati
   await page.reload();
   await openEditPanel(page, designId);
   await selectLayer(page, "Position child");
-  await expect(x).toHaveValue("120px");
-  await expect(y).toHaveValue("140px");
+  await expect(x).toHaveValue("120");
+  await expect(y).toHaveValue("140");
 });
 
 test("Position edits invert own and static-containing-block transforms and persist", async ({
@@ -1135,8 +1151,8 @@ test("Position edits invert own and static-containing-block transforms and persi
 
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("150px");
-  await expect(y).toHaveValue("40px");
+  await expect(x).toHaveValue("150");
+  await expect(y).toHaveValue("40");
   await x.fill("170");
   await x.press("Enter");
   await y.fill("50");
@@ -1151,8 +1167,8 @@ test("Position edits invert own and static-containing-block transforms and persi
   await page.reload();
   await openEditPanel(page, designId);
   await selectLayer(page, "Transformed child");
-  await expect(x).toHaveValue("170px");
-  await expect(y).toHaveValue("50px");
+  await expect(x).toHaveValue("170");
+  await expect(y).toHaveValue("50");
   await expect
     .poll(() => positionReferenceOffset(page, "Transformed child"))
     .toEqual({ x: 170, y: 50 });
@@ -1169,23 +1185,23 @@ test("Align uses a Group's bounds while Position stays Frame-relative", async ({
 
   const x = page.getByRole("textbox", { name: "X-position" });
   const y = page.getByRole("textbox", { name: "Y-position" });
-  await expect(x).toHaveValue("100px");
-  await expect(y).toHaveValue("100px");
+  await expect(x).toHaveValue("100");
+  await expect(y).toHaveValue("100");
   await app.settled();
   const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Group child", { left: 0, top: 80 });
-  await expect(x).toHaveValue("20px");
-  await expect(y).toHaveValue("100px");
+  await expect(x).toHaveValue("20");
+  await expect(y).toHaveValue("100");
 
   await x.fill("100");
   await x.press("Enter");
   await expectOffset(page, "Group child", { left: 80, top: 80 });
   await alignButton(page, "Align horizontal centers").click();
   await expectOffset(page, "Group child", { left: 40, top: 80 });
-  await expect(x).toHaveValue("60px");
-  await expect(y).toHaveValue("100px");
+  await expect(x).toHaveValue("60");
+  await expect(y).toHaveValue("100");
   await expectSavedOffset(app, designId, before, "group-child", {
     left: "40px",
     top: "80px",
@@ -1266,10 +1282,10 @@ test("a scaled parent does not scale the offsets that get committed", async ({
   });
 });
 
-test("a transformed node aligns by its layout box, not its painted box", async ({
-  app,
-  page,
-}) => {
+// Alignment uses what you see: translateX(20px) inside scale(2, 0.5) paints the
+// box 40px right of its layout box, so its painted right edge lands on the
+// parent's at left: 660px, not at the layout box's 680px.
+test("a transformed node aligns by its painted box", async ({ app, page }) => {
   const designId = await app.seed(TRANSFORM_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Shifted");
@@ -1279,27 +1295,42 @@ test("a transformed node aligns by its layout box, not its painted box", async (
   await alignButton(page, "Align right").click();
   await expect
     .poll(() => authoredOffset(page, "Shifted"), { timeout: 10_000 })
-    .toEqual({ left: "680px", top: "300px" });
+    .toEqual({ left: "660px", top: "300px" });
   await expectSavedOffset(app, designId, before, "shifted", {
-    left: "680px",
+    left: "660px",
     top: "300px",
   });
 });
 
-test("a static parent is not the containing block, so alignment refuses", async ({
+// The in-flow child keeps its slot in the flow: a relative offset moves it
+// without resizing the static parent or moving anything else.
+test("a layer in a static parent aligns inside it without leaving the flow", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    TRANSFORM_HTML,
-  );
+  const designId = await app.seed(TRANSFORM_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Flow");
+  await app.settled();
+  const before = await app.savedNodes(designId);
+  const parentSize = () =>
+    designFrame(page)
+      .locator('[data-agent-native-layer-name="StaticParent"]')
+      .evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+  expect(await parentSize()).toEqual({ width: 400, height: 300 });
 
-  for (const label of ALIGN_LABELS) {
-    await expect(alignButton(page, label)).toBeDisabled();
-  }
+  await alignButton(page, "Align right").click();
+  await expectOffset(page, "Flow", { left: 300, top: 0 });
+  await alignButton(page, "Align bottom").click();
+  await expectOffset(page, "Flow", { left: 300, top: 250 });
+  expect(await parentSize()).toEqual({ width: 400, height: 300 });
+  await expectSavedOffset(app, designId, before, "flow-child", {
+    left: "300px",
+    top: "250px",
+  });
+  const after = await app.savedNodes(designId);
+  expect(styleOf(after.get("flow-child")).position).toBe("relative");
 });

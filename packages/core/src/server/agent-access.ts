@@ -6,7 +6,6 @@ import {
 import {
   signCompactShortLivedToken,
   verifyCompactShortLivedToken,
-  verifyShortLivedToken,
   type VerifyResult,
 } from "./short-lived-token.js";
 
@@ -57,13 +56,10 @@ export function verifyScopedAgentAccessToken(
   scope: AgentAccessResourceScope,
 ): VerifyResult {
   if (!token) return { ok: false, reason: "missing" };
-  const resourceId = scopedAgentAccessResourceId(
-    scope.resourceKind,
-    scope.resourceId,
+  return verifyCompactShortLivedToken(
+    token,
+    scopedAgentAccessResourceId(scope.resourceKind, scope.resourceId),
   );
-  const compact = verifyCompactShortLivedToken(token, resourceId);
-  if (compact.ok || compact.reason !== "bad_signature") return compact;
-  return verifyShortLivedToken(token, resourceId);
 }
 
 export function createScopedAgentAccessGrant(

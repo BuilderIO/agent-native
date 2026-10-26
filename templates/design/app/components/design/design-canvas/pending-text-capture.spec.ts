@@ -8,9 +8,11 @@ import {
   armPendingTextCapture,
   beginPendingTextDelivery,
   beginTextEditForOwner,
+  endPendingTextSession,
   failPendingTextCapture,
   HOST_COMMIT_RETRY_DELAYS_MS,
   isPendingTextCaptureBound,
+  isPendingTextDeliveryInFlight,
   isPendingTextRequestLive,
   isPendingTextWriteInFlight,
   onPendingTextCaptureCancel,
@@ -18,6 +20,7 @@ import {
   registerPendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
+  requestTextEditFromOwner,
   returnPendingTextCapture,
   takePendingTextCapture,
 } from "./pending-text-capture";
@@ -128,13 +131,27 @@ describe("pending text capture", () => {
     expect(isPendingTextCaptureBound("board", "text-3")).toBe(false);
   });
 
-  it("stands down when the user clicks elsewhere in the host", () => {
+  it("commits the typed text when the user clicks elsewhere in the host", () => {
+    const commit = vi.fn(() => true);
+    unregisterAll.push(registerPendingTextHostCommit(commit));
     const capture = armPendingTextCapture({ owner: "board" });
     capture.bind("text-4");
-    type("Lost");
+    type("Kept");
     window.dispatchEvent(new PointerEvent("pointerdown"));
 
+    expect(commit).toHaveBeenCalledExactlyOnceWith("board", "text-4", "Kept");
     expect(takePendingTextCapture("board", "text-4")).toBeNull();
+  });
+
+  it("stands an untyped request down when the user clicks elsewhere in the host", () => {
+    const commit = vi.fn(() => true);
+    unregisterAll.push(registerPendingTextHostCommit(commit));
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-4b");
+    window.dispatchEvent(new PointerEvent("pointerdown"));
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(isPendingTextRequestLive("board", "text-4b")).toBe(false);
   });
 
   it("stands the WHOLE request down on pointer-away, and only that request's", () => {
@@ -210,6 +227,28 @@ describe("pending text capture", () => {
     expect(teardown).toHaveBeenCalledOnce();
   });
 
+  it("commits owed text instead of reopening the session when the session ends before the text lands", () => {
+    const begun = vi.fn(() => true);
+    register("board", begun);
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-escaped");
+    expect(
+      beginPendingTextDelivery("board", "text-escaped", "board text"),
+    ).toEqual({
+      text: "board text",
+      alreadyPosted: false,
+    });
+    begun.mockClear();
+
+    endPendingTextSession("board", "text-escaped");
+    acknowledgePendingTextInsert("board", "text-escaped", false);
+
+    expect(begun).toHaveBeenCalledExactlyOnceWith("text-escaped", {
+      commitImmediately: true,
+    });
+    expect(peekPendingTextCapture("board", "text-escaped")).toBe("board text");
+  });
+
   it("delivers text typed before the cap to an owner that registers after it, and intercepts nothing after the cap", () => {
     vi.useFakeTimers();
     const capture = armPendingTextCapture({ owner: "board" });
@@ -236,6 +275,23 @@ describe("pending text capture", () => {
     expect(isPendingTextRequestLive("board", "text-owed")).toBe(true);
     acknowledgePendingTextInsert("board", "text-owed", true);
     expect(isPendingTextRequestLive("board", "text-owed")).toBe(false);
+  });
+
+  it("leaves an owed delivery queued when a retry finds no owner mounted", () => {
+    vi.useFakeTimers();
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-owed");
+    beginTextEditForOwner("board", "text-owed", { afterPointerGesture: true });
+    type("Standalone");
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+
+    expect(requestTextEditFromOwner("board", "text-owed")).toBe(false);
+
+    const begun = vi.fn(() => true);
+    register("board", begun);
+    expect(begun).toHaveBeenCalledExactlyOnceWith("text-owed", {
+      deliverOwed: true,
+    });
   });
 
   it("stops intercepting when the owner unmounts with no replacement, and owes the typed text to the next owner", async () => {
@@ -285,6 +341,15 @@ describe("pending text capture", () => {
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
 
     expect(order).toEqual(["revoke-frame-copy", "host-commit"]);
+  });
+
+  it("reports a delivery in flight once the owner has posted the owed text, so retries stand down", () => {
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-1");
+    expect(isPendingTextDeliveryInFlight("board", "text-1")).toBe(false);
+    beginPendingTextDelivery("board", "text-1", "Sta");
+    expect(isPendingTextDeliveryInFlight("board", "text-1")).toBe(true);
+    expect(isPendingTextDeliveryInFlight("board", "text-2")).toBe(false);
   });
 
   it("commits owed text host-side when no owner ever becomes ready", () => {

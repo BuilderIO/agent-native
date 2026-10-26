@@ -540,6 +540,74 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("resolves every connection a caller can use for an app in one pass", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionsForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-batch" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-batch-open",
+          provider: "slack",
+          label: "Open Slack",
+          allowedApps: ["analytics"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-batch-alice",
+          provider: "slack",
+          label: "Alice Slack",
+          allowedApps: ["analytics"],
+          allowedUsers: ["alice@example.com"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-batch-bob",
+          provider: "slack",
+          label: "Bob Slack",
+          allowedApps: ["analytics"],
+          allowedUsers: ["bob@example.com"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-batch-other-app",
+          provider: "slack",
+          label: "Brain-only Slack",
+          allowedApps: ["brain"],
+        });
+      },
+    );
+
+    const aliceVisible = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-batch" },
+      () =>
+        resolveWorkspaceConnectionsForApp({
+          appId: "analytics",
+          provider: "slack",
+        }),
+    );
+    expect(aliceVisible.map((connection) => connection.id).sort()).toEqual([
+      "conn-batch-alice",
+      "conn-batch-open",
+    ]);
+    expect(
+      aliceVisible.every((connection) => connection.appAccess.available),
+    ).toBe(true);
+
+    const bobVisible = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-batch" },
+      () =>
+        resolveWorkspaceConnectionsForApp({
+          appId: "analytics",
+          provider: "slack",
+        }),
+    );
+    expect(bobVisible.map((connection) => connection.id).sort()).toEqual([
+      "conn-batch-bob",
+      "conn-batch-open",
+    ]);
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -1719,6 +1787,7 @@ describe("workspace connection store", () => {
     const {
       listWorkspaceConnectionGrants,
       listWorkspaceConnections,
+      resolveWorkspaceConnectionForApp,
       revokeWorkspaceConnectionGrant,
       upsertWorkspaceConnection,
       upsertWorkspaceConnectionGrant,
@@ -1750,6 +1819,24 @@ describe("workspace connection store", () => {
       },
     );
 
+    const beforeRevocation = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "github",
+          connectionId: "conn-granted",
+          requireConnected: true,
+        }),
+    );
+    expect(beforeRevocation).toMatchObject({
+      available: true,
+      connection: {
+        id: "conn-granted",
+        appAccess: { available: true, mode: "explicit-grant" },
+      },
+    });
+
     const otherOrgRevoked = await runWithRequestContext(
       { userEmail: "carol@example.com", orgId: "org-2" },
       () => revokeWorkspaceConnectionGrant("conn-granted", "dispatch"),
@@ -1767,6 +1854,25 @@ describe("workspace connection store", () => {
       appId: "dispatch",
       ownerEmail: "bob@example.com",
       orgId: "org-1",
+    });
+
+    const afterRevocation = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "github",
+          connectionId: "conn-granted",
+          requireConnected: true,
+        }),
+    );
+    expect(afterRevocation).toMatchObject({
+      available: false,
+      connection: {
+        id: "conn-granted",
+        appAccess: { available: false, mode: "unavailable" },
+      },
+      appAccess: { available: false, mode: "unavailable" },
     });
 
     const grants = await runWithRequestContext(

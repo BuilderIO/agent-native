@@ -11,7 +11,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it, vi } from "vitest";
 
 const shaderWrites = vi.hoisted(() => new Set<string>());
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: (fileId: string | undefined) =>
     Boolean(fileId && shaderWrites.has(fileId)),
 }));
@@ -152,6 +152,11 @@ function commandArgs() {
     applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign: true,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [],
+      activeFileId: null,
+    }),
     clipboardPasteRedoStackRef: { current: [] as ContentHistoryChange[] },
     clipboardPasteUndoStackRef: { current: [] as ContentHistoryChange[] },
     codeLayerOwnerByNodeIdRef: { current: new Map() },
@@ -208,8 +213,6 @@ function commandArgs() {
     restoreSelectionSnapshot,
     runtimeStructureInsertRevisionRef: { current: 0 },
     runtimeStructureMoveRevisionRef: { current: 0 },
-    selectionRedoStackRef: { current: [] },
-    selectionUndoStackRef: { current: [] },
     setActiveFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
     setHoveredElement: vi.fn(),

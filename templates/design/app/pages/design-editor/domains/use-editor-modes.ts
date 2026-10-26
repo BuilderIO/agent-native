@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
-import type { KeyboardShortcutsInitialFocus } from "@/components/design/KeyboardShortcutsDialog";
 import { isShowKeyboardShortcutsHotkey } from "@/hooks/useDesignHotkeys";
 
 import {
@@ -45,9 +44,12 @@ import {
   getScreenFrameOriginCanvas,
   shouldPopToOverviewOnZoomChange,
 } from "../overview-camera";
+import { cancelPrototypeNavigationTransition } from "../prototype-navigation-transition";
 import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
+  commentModeReturnOptions,
+  resolveCommentModeExit,
   resolveDrawStateWithoutLab,
   resolveModeForAnnotateLab,
   shouldAutoEnableDrawOverlay,
@@ -147,7 +149,7 @@ export function useEditorModes({
   const {
     setRuntimeLayerSnapshotRequest,
     lastOverviewSelectedScreenIdsRef,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     drawMode,
     setDrawMode,
     pinMode,
@@ -205,8 +207,7 @@ export function useEditorModes({
     useState<InteractZoomChoice>(INTERACT_ZOOM_FIT);
   const interactZoom = resolveInteractZoom(interactZoomChoice, interactFitZoom);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
-  const [keyboardShortcutsInitialFocus, setKeyboardShortcutsInitialFocus] =
-    useState<KeyboardShortcutsInitialFocus>("search");
+  const [nudgeAmountOpen, setNudgeAmountOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
@@ -304,8 +305,11 @@ export function useEditorModes({
   }, []);
 
   const focusOverviewScreen = useCallback(
-    (screenId: string) => {
+    (screenId: string, options?: { fromPrototypeNavigation?: boolean }) => {
       if (!files.some((file) => file.id === screenId)) return;
+      if (!options?.fromPrototypeNavigation) {
+        cancelPrototypeNavigationTransition();
+      }
       const geometry = exportCanvasFrameGeometryById[screenId];
       const plan = geometry
         ? getFocusedScreenNavigationPlan({
@@ -388,16 +392,17 @@ export function useEditorModes({
       const nextMode =
         requestedMode && resolveModeForAnnotateLab(requestedMode, annotateLab);
       viewModeRef.current = "overview";
-      clearOverviewInteractTarget({
-        setOverviewInteractScreenId,
-        overviewInteractScreenIdRef,
-      });
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
       const restoredOverviewSelection = getRestoredOverviewSelection();
+      // Cleared with the view switch: alone, it unmounts the canvas for a frame and resets its camera.
       runEditorViewTransition(() => {
+        clearOverviewInteractTarget({
+          setOverviewInteractScreenId,
+          overviewInteractScreenIdRef,
+        });
         setDrawMode(nextMode === "annotate");
         setPinMode(false);
         setMode(
@@ -465,6 +470,16 @@ export function useEditorModes({
 
   const lastSettledSingleZoomRef = useRef<number | null>(null);
   const suppressOverviewPopForExplicitZoomRef = useRef(false);
+  const commentReturnOptionsRef =
+    useRef<ReturnType<typeof commentModeReturnOptions>>(null);
+  useEffect(() => {
+    if (mode === "annotate") return;
+    commentReturnOptionsRef.current = commentModeReturnOptions(
+      mode,
+      activeFile?.id,
+    );
+  }, [activeFile?.id, mode]);
+
   useEffect(() => {
     if (!activeFile || viewMode !== "single" || mode !== "edit") {
       lastSettledSingleZoomRef.current = null;
@@ -494,9 +509,12 @@ export function useEditorModes({
         pendingLiveEditsAlreadyHandled?: boolean;
         targetFileId?: string;
         keepInteractDevice?: boolean;
+        fromPrototypeNavigation?: boolean;
       },
-    ) =>
-      runModeChange(
+    ) => {
+      const { fromPrototypeNavigation, ...modeOptions } = options ?? {};
+      if (!fromPrototypeNavigation) cancelPrototypeNavigationTransition();
+      return runModeChange(
         {
           activeFile,
           annotateLab,
@@ -535,8 +553,9 @@ export function useEditorModes({
           viewModeRef,
         },
         next,
-        options,
-      ),
+        options ? modeOptions : undefined,
+      );
+    },
     [
       activeFile,
       annotateLab,
@@ -694,7 +713,8 @@ export function useEditorModes({
   ]);
 
   const handleSidebarScreenSelect = useCallback(
-    (screenId: string) => focusOverviewScreen(screenId),
+    (screenId: string, options?: { fromPrototypeNavigation?: boolean }) =>
+      focusOverviewScreen(screenId, options),
     [focusOverviewScreen],
   );
 
@@ -780,12 +800,21 @@ export function useEditorModes({
   ]);
 
   const handleExitReviewCommentMode = useCallback(() => {
+    const exit = resolveCommentModeExit(
+      commentReturnOptionsRef.current,
+      new Set(overviewScreens.map((screen) => screen.id)),
+      new Set(files.map((file) => file.id)),
+    );
+    if (exit.mode === "interact" && !handleModeChange("interact", exit.options))
+      return;
+
+    commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
-    setMode("edit");
-  }, []);
+    if (exit.mode === "edit") setMode("edit");
+  }, [files, handleModeChange, overviewScreens]);
 
   const handleOverviewCommentPin = useCallback(
     (canvasPoint: { x: number; y: number }) => {
@@ -822,20 +851,24 @@ export function useEditorModes({
     viewMode,
   ]);
 
-  const handleShowKeyboardShortcutsFromMenu = useCallback(
-    (initialFocus: KeyboardShortcutsInitialFocus) => {
-      keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
-      suppressProjectMenuReturnFocusRef.current = true;
-      setMinimalUi(false);
-      setUiHidden(false);
-      setKeyboardShortcutsInitialFocus(initialFocus);
-      setKeyboardShortcutsOpen(true);
-    },
-    [],
-  );
+  const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
+    keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
+    suppressProjectMenuReturnFocusRef.current = true;
+    setMinimalUi(false);
+    setUiHidden(false);
+    setKeyboardShortcutsOpen(true);
+  }, []);
 
-  const handleCloseKeyboardShortcuts = useCallback(() => {
-    setKeyboardShortcutsOpen(false);
+  const handleShowNudgeAmountFromMenu = useCallback(() => {
+    keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
+    suppressProjectMenuReturnFocusRef.current = true;
+    setMinimalUi(false);
+    setUiHidden(false);
+    setNudgeAmountOpen(true);
+  }, []);
+
+  // Shared: the shortcuts and nudge dialogs are never open together.
+  const restoreDialogReturnFocus = useCallback(() => {
     const returnFocusTarget = keyboardShortcutsReturnFocusRef.current;
     keyboardShortcutsReturnFocusRef.current = null;
     window.requestAnimationFrame(() => {
@@ -845,19 +878,29 @@ export function useEditorModes({
     });
   }, []);
 
+  const handleCloseNudgeAmount = useCallback(() => {
+    setNudgeAmountOpen(false);
+    restoreDialogReturnFocus();
+  }, [restoreDialogReturnFocus]);
+
+  const handleCloseKeyboardShortcuts = useCallback(() => {
+    setKeyboardShortcutsOpen(false);
+    restoreDialogReturnFocus();
+  }, [restoreDialogReturnFocus]);
+
   const handleToggleKeyboardShortcuts = useCallback(() => {
     if (keyboardShortcutsOpen) {
       handleCloseKeyboardShortcuts();
       return;
     }
+    if (nudgeAmountOpen) return;
     const activeElement = document.activeElement;
     keyboardShortcutsReturnFocusRef.current =
       activeElement instanceof HTMLElement ? activeElement : null;
     setMinimalUi(false);
     setUiHidden(false);
-    setKeyboardShortcutsInitialFocus("search");
     setKeyboardShortcutsOpen(true);
-  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
+  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen, nudgeAmountOpen]);
 
   useEffect(() => {
     if (embedded) return;
@@ -877,11 +920,16 @@ export function useEditorModes({
   }, [embedded, handleToggleKeyboardShortcuts]);
 
   const handleEscapeHotkey = useCallback(() => {
-    recordSelectionHistoryAroundChange(() =>
+    applySelectionChange(() =>
       runEscapeHotkey({
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
+        clearPendingOverviewLayerSelection: () => {
+          pendingOverviewLayerSelectionRef.current = null;
+          clearPendingOverviewLayerSelectionTimer();
+          setCreatedOverviewLayerSelection(null);
+        },
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -894,7 +942,9 @@ export function useEditorModes({
         overviewAnnotationSending,
         pinMode,
         selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
         setActiveTool,
+        setCreatedOverviewLayerSelection,
         setDrawMode,
         setHoveredElement,
         setMode,
@@ -909,6 +959,7 @@ export function useEditorModes({
   }, [
     activeTool,
     cancelActiveEditorDrag,
+    clearPendingOverviewLayerSelectionTimer,
     drawMode,
     enterOverviewFromZoom,
     focusedAnnotationSending,
@@ -920,9 +971,12 @@ export function useEditorModes({
     mode,
     overviewAnnotationSending,
     pinMode,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     selectedElement,
+    selectedLayerIdsState,
+    setCreatedOverviewLayerSelection,
     viewMode,
+    pendingOverviewLayerSelectionRef,
   ]);
 
   const SINGLE_MODE_TEXT_TAGS = useMemo(
@@ -1033,6 +1087,7 @@ export function useEditorModes({
           path: editable.path,
           selectedAnchorIndex: null,
           sourceOffset: editable.sourceOffset,
+          sourceMapping: editable.sourceMapping,
           primitiveSource: null,
         });
         return true;
@@ -1054,6 +1109,7 @@ export function useEditorModes({
         path: source.path,
         selectedAnchorIndex: null,
         sourceOffset: { x: 0, y: 0 },
+        sourceMapping: null,
         primitiveSource: { geometry: source.geometry, fill: source.fill },
       });
       return true;
@@ -1218,7 +1274,7 @@ export function useEditorModes({
     interactZoomChoice,
     handleInteractZoomChange: setInteractZoomChoice,
     keyboardShortcutsOpen,
-    keyboardShortcutsInitialFocus,
+    nudgeAmountOpen,
     projectMenuTriggerRef,
     suppressProjectMenuReturnFocusRef,
     overviewCommentPinRequest,
@@ -1238,6 +1294,8 @@ export function useEditorModes({
     handleOverviewCommentPin,
     handlePinToolToggle,
     handleShowKeyboardShortcutsFromMenu,
+    handleShowNudgeAmountFromMenu,
+    handleCloseNudgeAmount,
     handleCloseKeyboardShortcuts,
     handleToggleKeyboardShortcuts,
     handleEscapeHotkey,

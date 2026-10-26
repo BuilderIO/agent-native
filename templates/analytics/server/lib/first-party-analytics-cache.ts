@@ -226,7 +226,7 @@ export async function withFirstPartyCache(
 ): Promise<AnalyticsQueryResult> {
   if (options.signal?.aborted) throw abortError(options.signal);
   const l1Hit = getL1(key);
-  if (l1Hit) return l1Hit;
+  if (l1Hit) return { ...l1Hit, cached: true };
 
   const timeoutMs = Math.max(1, options.timeoutMs ?? CACHE_IO_TIMEOUT_MS);
   const deadlineAt = options.deadlineAt ?? Date.now() + timeoutMs;
@@ -277,7 +277,7 @@ export async function withFirstPartyCache(
     }
     if (l2Hit) {
       setL1(key, l2Hit);
-      return l2Hit;
+      return { ...l2Hit, cached: true };
     }
     let result: AnalyticsQueryResult;
     let timeoutRetryUsed = false;

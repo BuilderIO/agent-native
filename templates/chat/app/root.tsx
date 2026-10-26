@@ -7,7 +7,6 @@ import { getThemeInitScript } from "@agent-native/core/client/theme";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
-import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -30,6 +29,7 @@ import {
   HOME_PATH,
   isChatPathname,
   NEW_CHAT_PATH,
+  skeletonLayoutForPath,
   threadIdFromPath,
 } from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
@@ -110,7 +110,6 @@ function ThemeToggleItem() {
       onSelect={() => setTheme(isDark ? "light" : "dark")}
       keywords={["theme", "dark", "light", "mode"]}
     >
-      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
       {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
@@ -161,7 +160,6 @@ function AppContent() {
               "access",
             ]}
           >
-            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
@@ -178,11 +176,14 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  // The path, not the visitor, picks the shell, so the SSR shell stays one
+  // cached page per URL.
+  const { pathname } = useLocation();
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        skeletonLayout="assistant"
+        skeletonLayout={skeletonLayoutForPath(pathname)}
         i18n={{ catalog: i18nCatalog }}
       >
         <DbSyncSetup />

@@ -43,6 +43,20 @@ describe("DesignEditor screen-focus URL command", () => {
     ).not.toHaveProperty("zoom");
   });
 
+  it("restores an explicit single-screen editor URL with its zoom", () => {
+    expect(
+      designEditorCommandFromSearchParams(
+        "design-123",
+        new URLSearchParams("editorView=single&screen=screen-123&zoom=60"),
+      ),
+    ).toMatchObject({
+      designId: "design-123",
+      editorView: "single",
+      screen: "screen-123",
+      zoom: 60,
+    });
+  });
+
   it("does not let a host request enter Interact while focusing a screen", () => {
     expect(
       designEditorCommandFromSearchParams(

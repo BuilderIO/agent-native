@@ -13,6 +13,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
+import { UploadTargetError } from "@/lib/upload-target";
 
 import {
   buildRecordingErrorToastOptions,
@@ -20,14 +21,15 @@ import {
   localizedRecordingErrorMessage,
   openUrlFromUserGesture,
   recordingErrorToastRecoveryAction,
+  recordingStartErrorMessage,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
-  shouldAllowSkippingStorageSetup,
-  shouldPersistFirstRunStorageSetupDismissal,
   shouldPreserveFirstRunStorageSetupIntent,
+  shouldRequestStorageSetup,
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
+  storageSetupReason,
 } from "./record";
 
 function stubDocumentCapturePolicy(
@@ -85,6 +87,105 @@ describe("record route lifecycle shell", () => {
     ).toBe("The upload failed.");
   });
 
+  it("shows a recording-start failure when upload-target creation fails", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("upload_target_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe("Could not start recording.");
+  });
+
+  it("preserves hosted storage outage copy when recording cannot start", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("hosted_storage_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe("Hosted storage is unavailable.");
+  });
+
+  it("explains when the signed-in account changed during recording setup", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("recording_owner_mismatch"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe("The signed-in account changed. Switch back and retry.");
+  });
+
+  it("explains when storage does not support resumable uploads", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("streaming_upload_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe(
+      "Configure storage that supports resumable uploads, then start a new recording.",
+    );
+  });
+
+  it("gives intake visitors owner-directed storage recovery guidance", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("intake_storage_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          intakeStorageUnavailable:
+            "This link needs its owner to connect video storage before you can record.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          streamingStorageUnavailable:
+            "Configure storage that supports resumable uploads, then start a new recording.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe(
+      "This link needs its owner to connect video storage before you can record.",
+    );
+  });
+
   it("does not redirect a queued upload when storage is already configured", () => {
     expect(
       shouldRedirectToStorageSetupHome({
@@ -121,12 +222,22 @@ describe("record route lifecycle shell", () => {
     ).toBe(true);
   });
 
+  it("names why the storage card is showing", () => {
+    expect(storageSetupReason(undefined)).toBe("status_unavailable");
+    expect(storageSetupReason({})).toBe("storage_required");
+    expect(storageSetupReason({ denyReason: "disabled" })).toBe(
+      "storage_required",
+    );
+    expect(storageSetupReason({ denyReason: "exhausted" })).toBe(
+      "hosted_exhausted",
+    );
+  });
+
   it("offers storage setup on the first unconfigured recorder visit", () => {
     expect(
       shouldShowFirstRunStorageSetup({
         storageConfigured: false,
         storageStatusUnavailable: false,
-        dismissal: "not-dismissed",
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
@@ -134,7 +245,70 @@ describe("record route lifecycle shell", () => {
     ).toBe(true);
   });
 
-  it("offers the first-run choice and Skip when storage status is unavailable", () => {
+  it("still requires storage for users who previously skipped setup", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        storageStatusUnavailable: false,
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not gate local recording when SQL chunk scratch is available", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        storageStatusUnavailable: false,
+        localSqlChunkScratchAvailable: true,
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not request storage setup for an exhausted hosted allowance with SQL scratch", () => {
+    expect(
+      shouldRequestStorageSetup({
+        isClipIntake: false,
+        hasPendingUpload: false,
+        connectStorageRequested: false,
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: true,
+        hostedAllowanceExhausted: true,
+        localSqlChunkScratchAvailable: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("requests storage setup for an exhausted hosted allowance without SQL scratch", () => {
+    expect(
+      shouldRequestStorageSetup({
+        isClipIntake: false,
+        hasPendingUpload: false,
+        connectStorageRequested: false,
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: false,
+        hostedAllowanceExhausted: true,
+        localSqlChunkScratchAvailable: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("clears a latched first-run storage prompt when SQL scratch becomes available", () => {
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: true,
+        localSqlChunkScratchAvailable: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("requires storage setup when storage status is unavailable", () => {
     const storageConfigured = null;
     const storageStatusUnavailable = isStorageStatusUnavailable({
       storageConfigured,
@@ -143,22 +317,12 @@ describe("record route lifecycle shell", () => {
     const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
       storageConfigured,
       storageStatusUnavailable,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: false,
     });
 
     expect(firstRunStorageSetup).toBe(true);
-    expect(
-      shouldAllowSkippingStorageSetup({
-        firstRunStorageSetup,
-        firstRunStorageSetupIntent: false,
-        connectStorageRequested: false,
-        hasPendingUpload: false,
-        isClipIntake: false,
-      }),
-    ).toBe(true);
   });
 
   it("keeps cached configured storage out of first-run setup after a refetch error", () => {
@@ -174,7 +338,6 @@ describe("record route lifecycle shell", () => {
       shouldShowFirstRunStorageSetup({
         storageConfigured,
         storageStatusUnavailable: true,
-        dismissal: "not-dismissed",
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
@@ -186,7 +349,6 @@ describe("record route lifecycle shell", () => {
     const intent = shouldPreserveFirstRunStorageSetupIntent({
       firstRunStorageSetup: true,
       currentIntent: false,
-      dismissal: "not-dismissed",
     });
 
     expect(intent).toBe(true);
@@ -194,57 +356,14 @@ describe("record route lifecycle shell", () => {
       shouldPreserveFirstRunStorageSetupIntent({
         firstRunStorageSetup: false,
         currentIntent: intent,
-        dismissal: "not-dismissed",
       }),
     ).toBe(true);
-    expect(
-      shouldPreserveFirstRunStorageSetupIntent({
-        firstRunStorageSetup: false,
-        currentIntent: intent,
-        dismissal: "dismissed",
-      }),
-    ).toBe(false);
-  });
-
-  it.each([
-    {
-      label: "the first-run prompt",
-      input: {
-        firstRunStorageSetup: true,
-        firstRunStorageSetupIntent: false,
-        connectStorageRequested: false,
-      },
-    },
-    {
-      label: "a storage setup link",
-      input: {
-        firstRunStorageSetup: false,
-        firstRunStorageSetupIntent: false,
-        connectStorageRequested: true,
-      },
-    },
-  ])("persists a skipped storage choice for $label", ({ input }) => {
-    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
-  });
-
-  it("keeps Skip available and saves dismissal for latched setup intent", () => {
-    const input = {
-      firstRunStorageSetup: false,
-      firstRunStorageSetupIntent: true,
-      connectStorageRequested: false,
-      hasPendingUpload: false,
-      isClipIntake: false,
-    };
-
-    expect(shouldAllowSkippingStorageSetup(input)).toBe(true);
-    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
   });
 
   it.each([
     {
       storageConfigured: true,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: false,
@@ -252,7 +371,6 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: null,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: false,
@@ -260,15 +378,6 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: false,
       storageStatusUnavailable: false,
-      dismissal: "dismissed",
-      hasPendingUpload: false,
-      isClipIntake: false,
-      connectStorageRequested: false,
-    },
-    {
-      storageConfigured: false,
-      storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: true,
       isClipIntake: false,
       connectStorageRequested: false,
@@ -276,7 +385,6 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: false,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: true,
       connectStorageRequested: false,
@@ -284,12 +392,11 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: false,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: true,
     },
-  ] as const)("does not show the first-run prompt for $dismissal", (input) => {
+  ] as const)("does not show the first-run prompt for this input", (input) => {
     expect(shouldShowFirstRunStorageSetup(input)).toBe(false);
   });
 
@@ -1110,42 +1217,6 @@ describe("record route lifecycle shell", () => {
     } finally {
       window.history.replaceState({}, "", originalUrl);
     }
-  });
-
-  it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
-    const source = readFileSync(
-      resolve(process.cwd(), "app/routes/record.tsx"),
-      "utf8",
-    );
-    const tokens = readFileSync(
-      resolve(process.cwd(), "app/global.css"),
-      "utf8",
-    );
-    const callout = source.slice(
-      source.indexOf("function DesktopRecorderCallout"),
-      source.indexOf("export function RecorderRouteStatus"),
-    );
-
-    expect(source).toContain("min-h-[100dvh]");
-    expect(source).toContain("max-w-[420px]");
-    expect(source).toContain(
-      'className="mx-auto grid w-full max-w-[420px] gap-2"',
-    );
-    expect(callout).toContain('variant="ghost"');
-    expect(callout).toContain("pt-3");
-    expect(callout).toContain("CaptureInstallMenu");
-    expect(callout).toContain("text-sm font-medium");
-    expect(source).not.toContain("xl:grid-cols-[288px_320px_288px]");
-    expect(source).not.toContain("xl:absolute");
-    expect(source).not.toMatch(
-      /\b(?:bg-black|text-white|from-zinc|to-black)\b/,
-    );
-    expect(source).not.toContain("transition-all");
-    expect(tokens).toContain("--recorder-mode-option-radius: 1.125rem");
-    expect(tokens).toContain("--recorder-mode-toggle-inset: 0.3125rem");
-    expect(tokens).toContain(
-      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
-    );
   });
 
   it("keeps upload handoff outside the recorder panel", () => {

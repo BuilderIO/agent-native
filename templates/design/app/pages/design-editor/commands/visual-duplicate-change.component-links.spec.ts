@@ -61,6 +61,7 @@ describe("runVisualDuplicateChange linked main structure", () => {
         applyLocalContentUpdate,
         canEditDesign: true,
         getFreshActiveContent: () => content,
+        localContentUndoStackRef: { current: [] },
         remapMotionTracksForClone,
         selectionBefore,
         selectedElement: null,

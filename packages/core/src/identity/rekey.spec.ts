@@ -196,6 +196,7 @@ async function seedEveryRegisteredIdentityColumn(
         if (entry.mode === "secret-scope") columns.add("secret_scope");
         if (entry.mode === "typed-scope") columns.add("scope_type");
         if (entry.mode === "custom-scope") columns.add("scope");
+        for (const column of entry.uniqueWith ?? []) columns.add(column);
       }
       await db.exec(
         `CREATE TABLE ${quoteIdentifier(table)} (${[
@@ -245,6 +246,8 @@ async function seedEveryRegisteredIdentityColumn(
       if (entry.mode === "secret-scope") values.set("secret_scope", "user");
       if (entry.mode === "typed-scope") values.set("scope_type", "user");
       if (entry.mode === "custom-scope") values.set("scope", "user");
+      for (const column of entry.uniqueWith ?? [])
+        values.set(column, `${table}-key-${rowNumber}`);
       const names = [...values.keys()];
       await db
         .prepare(
@@ -278,6 +281,25 @@ async function seedEveryRegisteredIdentityColumn(
 }
 
 describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
+  it("retains collaboration presence during organization-scoped offboarding", () => {
+    expect(
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) =>
+          entry.table === "_collab_awareness" && entry.column === "actor_email",
+      ),
+    ).toMatchObject({ emailChange: "rekey", offboard: "retain" });
+  });
+
+  it("retains queued submission actor attribution after offboarding", () => {
+    expect(
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) =>
+          entry.table === "agent_chat_submission_inbox" &&
+          entry.column === "actor_email",
+      ),
+    ).toMatchObject({ offboard: "retain" });
+  });
+
   it("retains OAuth issuance identity on offboarding while permitting email rekey", () => {
     for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
       expect(
@@ -287,6 +309,27 @@ describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
         ),
       ).toMatchObject({ offboard: "retain" });
     }
+  });
+
+  it("rekeys automation recipients and scopes offboarding to their organization", () => {
+    expect(
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) =>
+          entry.table === "automation_sharing_grants" &&
+          entry.column === "user_email",
+      ),
+    ).toMatchObject({
+      emailChange: "rekey",
+      offboard: "delete",
+      orgScope: {
+        column: "resource_id",
+        references: {
+          table: "automation_sharing_overlays",
+          column: "resource_id",
+          orgColumn: "organization_id",
+        },
+      },
+    });
   });
 
   it("never hands framework MCP credentials to the successor", () => {
@@ -1112,6 +1155,54 @@ describe("rekeyIdentity", () => {
       ).toEqual([
         { user_id: "new@example.test" },
         { user_id: "old@example.test" },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("refuses a destination chat viewer-state key collision", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(`
+        CREATE TABLE chat_thread_viewer_state (thread_id TEXT, user_email TEXT, pinned_at BIGINT, PRIMARY KEY(thread_id, user_email));
+        INSERT INTO chat_thread_viewer_state VALUES ('thread1', 'old@example.test', 1);
+        INSERT INTO chat_thread_viewer_state VALUES ('thread2', 'old@example.test', 2);
+        INSERT INTO chat_thread_viewer_state VALUES ('thread1', 'new@example.test', 3);
+      `);
+      await expect(
+        pg.db.transaction((tx) =>
+          rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+        ),
+      ).rejects.toThrow(/chat_thread_viewer_state key collision/);
+      expect(
+        await pg
+          .prepare(
+            "SELECT thread_id, user_email FROM chat_thread_viewer_state ORDER BY thread_id, user_email",
+          )
+          .all(),
+      ).toEqual([
+        { thread_id: "thread1", user_email: "new@example.test" },
+        { thread_id: "thread1", user_email: "old@example.test" },
+        { thread_id: "thread2", user_email: "old@example.test" },
+      ]);
+
+      await pg.exec(
+        `DELETE FROM chat_thread_viewer_state WHERE user_email = 'new@example.test'`,
+      );
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      expect(
+        await pg
+          .prepare(
+            "SELECT thread_id, user_email FROM chat_thread_viewer_state ORDER BY thread_id",
+          )
+          .all(),
+      ).toEqual([
+        { thread_id: "thread1", user_email: "new@example.test" },
+        { thread_id: "thread2", user_email: "new@example.test" },
       ]);
     } finally {
       await pg.close();

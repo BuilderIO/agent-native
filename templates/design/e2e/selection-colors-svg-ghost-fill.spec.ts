@@ -200,8 +200,7 @@ test("Selection colors replaces a grouped SVG fill without stale inspector color
   ).toHaveValue("CC3399");
 });
 
-// fixme: product bug: Ghost fill: Add fill writes style='fill: rgb(217 217 217)' but keeps fill='#f97316' and fill='#16a34a' attributes on the paths, so the
-test.fixme("adding a fill to mixed SVG paths paints both paths and leaves no ghost of their old fills", async ({
+test("adding a fill to mixed SVG paths paints both paths and leaves no ghost of their old fills", async ({
   app,
 }) => {
   const designId = await openAndSelectBothPaths(app, MIXED_PATHS_HTML);
@@ -229,8 +228,7 @@ test.fixme("adding a fill to mixed SVG paths paints both paths and leaves no gho
   ).toEqual([false, false]);
 });
 
-// fixme: product bug: False Mixed in the multi-selection inspector: two paths with identical default appearance show Opacity, Corner radius and Blend mode as
-test.fixme("equivalent SVG paint spellings show one shared fill and identical defaults are not Mixed", async ({
+test("equivalent SVG paint spellings show one shared fill and identical defaults are not Mixed", async ({
   app,
 }) => {
   const designId = await openAndSelectBothPaths(app, EQUIVALENT_PATHS_HTML);

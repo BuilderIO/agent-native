@@ -1,8 +1,10 @@
 export type {
   ActionAuditConfig,
   AuditActorKind,
+  AuditApproval,
   AuditCallMeta,
   AuditEvent,
+  AuditIdentityAssurance,
   AuditQueryFilters,
   AuditStatus,
   AuditTarget,
@@ -49,6 +51,13 @@ export {
 } from "./ocsf.js";
 
 export { recordActionAudit } from "./record.js";
+export {
+  AuditAttributionError,
+  auditAttribution,
+  routeAuditAttribution,
+  type AuditAttribution,
+  type AuditAttributionSource,
+} from "./attribution.js";
 export { withCommittedActionAudit } from "./committed-outcome.js";
 
 export {

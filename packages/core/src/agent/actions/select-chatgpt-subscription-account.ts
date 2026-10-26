@@ -9,6 +9,11 @@ export default defineAction({
   schema: z.object({
     accountId: z.string().min(1).max(80),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

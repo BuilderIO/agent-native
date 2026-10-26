@@ -9,6 +9,8 @@ import {
   type SavedNode,
 } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 function childrenOf(nodes: Map<string, SavedNode>, parent: string) {
@@ -39,7 +41,10 @@ test.describe("reparenting and reordering", () => {
   }) => {
     const id = await openFixture(app);
     const grab = await app.pagePoint(60, 625);
+    // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+    await app.page.keyboard.down(MOD);
     await app.page.mouse.click(grab.x, grab.y);
+    await app.page.keyboard.up(MOD);
     await expect.poll(() => app.selectedLayers()).toEqual(["Chip 1"]);
     const before = await app.savedNodes(id);
     const nudge = await app.pagePoint(72, 625);
@@ -65,8 +70,7 @@ test.describe("reparenting and reordering", () => {
     }).toEqual({ chip2: 20, chip3: 108, chip1: 196 });
   });
 
-  // fixme: product bug: Box A renders 85.3px wide (and the 80px chips shrink too): the fixed-width items join a 280px flex row without flex-shrink:0, so CSS
-  test.fixme("dragging a layer row onto a container row reparents it into that auto layout at its own size", async ({
+  test("dragging a layer row onto a container row reparents it into that auto layout at its own size", async ({
     app,
   }) => {
     const id = await openFixture(app);
@@ -93,7 +97,14 @@ test.describe("reparenting and reordering", () => {
       width: "120px",
       height: "80px",
     });
-    expectOnlyChanged(before, after, ["box-a"]);
+    const chips = ["chip-1", "chip-2", "chip-3"];
+    expectOnlyChanged(before, after, ["box-a", ...chips]);
+    for (const chip of chips) {
+      expect(
+        styleOf(after.get(chip)),
+        `${chip} is pinned at its fixed width in the overfull row`,
+      ).toEqual({ ...styleOf(before.get(chip)), "flex-shrink": "0" });
+    }
     const rendered = await app.designRect("box-a");
     expect(
       { width: rendered.width, height: rendered.height },

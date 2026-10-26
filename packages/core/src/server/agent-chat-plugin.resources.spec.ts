@@ -1,5 +1,10 @@
 import { createApp, H3Event } from "h3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { getDbExec } from "../db/client.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
+import { ForbiddenError } from "../sharing/access.js";
+import { createChatScriptEntries } from "./agent-chat/script-entries.js";
 
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
@@ -10,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   resourceGet: vi.fn(),
   resourcePut: vi.fn(async () => undefined),
   discoverAgents: vi.fn(async () => []),
+  getWorkspaceAppProfile: vi.fn(async () => null),
   loadAgentsBundle: vi.fn(async () => ({
     workspaceAgentsMd: "",
     agentsMd: "",
@@ -27,13 +33,23 @@ const routeHarness = vi.hoisted(() => ({
 
 const threadStoreMocks = vi.hoisted(() => ({
   forkThread: vi.fn(),
+  listThreads: vi.fn(),
+  searchThreads: vi.fn(),
   mutateThreadQueuedMessages: vi.fn(),
   resolveThreadAccess: vi.fn(),
   updateThreadData: vi.fn(),
 }));
 
+const runStoreMocks = vi.hoisted(() => ({
+  listRunsForThread: vi.fn(),
+}));
+
 const setupGateMocks = vi.hoisted(() => ({
   requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+const queueDrainHarness = vi.hoisted(() => ({
+  schedule: vi.fn(),
 }));
 
 const handlerHarness = vi.hoisted(() => ({
@@ -92,6 +108,12 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("./agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mocks.discoverAgents(...args),
+  discoverAgentsWithDirectoryStatus: async (...args: any[]) => ({
+    agents: await mocks.discoverAgents(...args),
+    directory: { status: "available" },
+  }),
+  getWorkspaceAppProfile: (...args: any[]) =>
+    mocks.getWorkspaceAppProfile(...args),
 }));
 
 vi.mock("./agents-bundle.js", () => ({
@@ -126,6 +148,8 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
   return {
     ...actual,
     forkThread: (...args: any[]) => threadStoreMocks.forkThread(...args),
+    listThreads: (...args: any[]) => threadStoreMocks.listThreads(...args),
+    searchThreads: (...args: any[]) => threadStoreMocks.searchThreads(...args),
     mutateThreadQueuedMessages: (...args: any[]) =>
       threadStoreMocks.mutateThreadQueuedMessages(...args),
     resolveThreadAccess: (...args: any[]) =>
@@ -135,14 +159,29 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../agent/run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent/run-store.js")>();
+  return {
+    ...actual,
+    listRunsForThread: (...args: any[]) =>
+      runStoreMocks.listRunsForThread(...args),
+  };
+});
+
 vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
   requireAgentChatAiSetup: (...args: unknown[]) =>
     setupGateMocks.requireAgentChatAiSetup(...args),
 }));
 
+vi.mock("./queued-submission-inbox-drain.js", () => ({
+  scheduleQueuedSubmissionInboxDrain: (...args: unknown[]) =>
+    queueDrainHarness.schedule(...args),
+}));
+
 import {
   createAgentChatPlugin,
+  disabledGroupsForA2APrompt,
   loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
@@ -281,7 +320,11 @@ beforeEach(() => {
   threadStoreMocks.resolveThreadAccess.mockReset();
   threadStoreMocks.updateThreadData.mockReset();
   threadStoreMocks.updateThreadData.mockResolvedValue(true);
+  runStoreMocks.listRunsForThread.mockReset();
+  runStoreMocks.listRunsForThread.mockResolvedValue([]);
+  queueDrainHarness.schedule.mockReset();
   mocks.getSession.mockResolvedValue(null);
+  mocks.getWorkspaceAppProfile.mockReset().mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
     agentsMd: "",
@@ -375,7 +418,93 @@ beforeEach(() => {
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
 });
 
+describe("agent chat thread read route", () => {
+  it("returns SQL lifecycle rows only after thread access and scopes them to stored run IDs", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-run-lifecycle-projection";
+    const thread = {
+      id: threadId,
+      scope: null,
+      threadData: JSON.stringify({
+        agentKit: {
+          runs: [
+            { id: "run-projected" },
+            { id: "run-missing-from-sql" },
+            { id: "run-projected" },
+          ],
+        },
+      }),
+      messageCount: 0,
+      title: "Thread",
+      preview: "",
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    runStoreMocks.listRunsForThread.mockResolvedValue([
+      {
+        id: "run-projected",
+        status: "errored",
+        startedAt: 1000,
+        completedAt: 2000,
+        errorCode: "run_timeout",
+        abortReason: null,
+        terminalReason: "run_timeout",
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      },
+    ]);
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}`,
+      { userEmail: "user@example.test", orgId: "org-lifecycle" },
+    );
+
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledWith(
+      "user@example.test",
+      threadId,
+      "viewer",
+      expect.objectContaining({ orgId: expect.any(String) }),
+    );
+    expect(runStoreMocks.listRunsForThread).toHaveBeenCalledWith(threadId, {
+      runIds: ["run-projected", "run-missing-from-sql"],
+    });
+    expect(result.runLifecycles).toEqual({
+      queriedRunIds: ["run-projected", "run-missing-from-sql"],
+      runs: [
+        {
+          id: "run-projected",
+          status: "errored",
+          startedAt: 1000,
+          completedAt: 2000,
+          errorCode: "run_timeout",
+          abortReason: null,
+          terminalReason: "run_timeout",
+          threadProjectionErrorCode: "tool_call_journal_unreadable",
+        },
+      ],
+    });
+  });
+
+  it("does not query lifecycle rows when the requester cannot read the thread", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-not-readable",
+      { userEmail: "user@example.test" },
+    );
+
+    expect(response.status).toBe(404);
+    expect(runStoreMocks.listRunsForThread).not.toHaveBeenCalled();
+  });
+});
+
 async function mountResourceRoutes(options?: {
+  appId?: string;
   resolveOrgId?: (
     event: unknown,
   ) => string | null | undefined | Promise<string | null | undefined>;
@@ -383,6 +512,7 @@ async function mountResourceRoutes(options?: {
   const h3App = createApp();
   createAgentChatPlugin({
     actions: () => ({}),
+    appId: options?.appId,
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
     leanPrompt: true,
@@ -398,6 +528,14 @@ async function mountResourceRoutes(options?: {
   return h3App;
 }
 
+// The first mount runs the plugin's one-time store migrations against the
+// worker's PGlite database. That cold start costs ~25 s on a slow machine, so
+// left inside the first test it uses up that test's 30 s budget. When it runs
+// out, the abandoned mount keeps consuming the next tests' one-shot mocks.
+beforeAll(async () => {
+  await mountResourceRoutes();
+}, 120_000);
+
 async function fetchWithRequestContext(
   h3App: ReturnType<typeof createApp>,
   path: string,
@@ -408,6 +546,92 @@ async function fetchWithRequestContext(
     h3App.fetch(new Request(`http://example.test${path}`, init)),
   );
 }
+
+describe("agent profile lookup timing", () => {
+  it("does not wait for the profile read before registering chat routes", async () => {
+    let releaseProfile!: (profile: { description: string } | null) => void;
+    const pendingProfile = new Promise<{ description: string } | null>(
+      (resolve) => {
+        releaseProfile = resolve;
+      },
+    );
+    mocks.getWorkspaceAppProfile.mockReturnValueOnce(pendingProfile as any);
+
+    const h3App = createApp();
+    const handlerCountBefore = handlerHarness.options.length;
+    createAgentChatPlugin({
+      actions: () => ({}),
+      appId: "qr",
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: { hook: vi.fn() },
+    });
+    const initPromise = routeHarness.initPromises.at(-1);
+    expect(initPromise).toBeDefined();
+
+    const initialization = await Promise.race([
+      initPromise!.then(() => "ready" as const),
+      new Promise<"blocked">((resolve) =>
+        setTimeout(() => resolve("blocked"), 1_000),
+      ),
+    ]);
+    releaseProfile(null);
+
+    expect(initialization).toBe("ready");
+    expect(mocks.getWorkspaceAppProfile).not.toHaveBeenCalled();
+    expect(handlerHarness.options.length).toBeGreaterThan(handlerCountBefore);
+  });
+
+  it("resolves the public card profile on the card request", async () => {
+    const h3App = await mountResourceRoutes({ appId: "qr" });
+    expect(mocks.getWorkspaceAppProfile).not.toHaveBeenCalled();
+    mocks.getWorkspaceAppProfile.mockResolvedValueOnce({
+      description: "QR app profile",
+    });
+
+    const response = await h3App.fetch(
+      new Request("https://qr.example/.well-known/agent-card.json"),
+    );
+    const card = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(card.description).toBe("QR app profile");
+    expect(mocks.getWorkspaceAppProfile).toHaveBeenCalledWith("qr");
+  });
+});
+
+describe("A2A prompt resource groups", () => {
+  it("disables workspace apps when A2A delegation is unavailable", () => {
+    const disabled = new Set(["database"] as const);
+    expect(disabledGroupsForA2APrompt(disabled, false)).toEqual(
+      new Set(["database", "workspaceApps"]),
+    );
+    expect(disabledGroupsForA2APrompt(disabled, true)).toBe(disabled);
+  });
+
+  it("disables workspace apps in ask_app prompts, which omit call-agent", () => {
+    const disabled = disabledGroupsForA2APrompt(new Set(), false);
+    expect(disabled.has("workspaceApps")).toBe(true);
+  });
+
+  it("does not preload an available-apps group without call-agent", async () => {
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      undefined,
+      {
+        disabledFrameworkGroups: disabledGroupsForA2APrompt(new Set(), false),
+      },
+    );
+
+    expect(prompt).not.toContain("<available-apps>");
+  });
+});
 
 describe("agent chat queued-message route", () => {
   it("rejects data URL attachment references before durable queue mutation", async () => {
@@ -450,6 +674,110 @@ describe("agent chat queued-message route", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("validates whole-queue reorders and reports a stale order as 409", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-reorder";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const post = (mutation: unknown) =>
+      fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${threadId}/queued`,
+        { userEmail: "user@example.test" },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mutation }),
+        },
+      );
+
+    const duplicate = await post({ type: "reorder", messageIds: ["a", "a"] });
+    expect(duplicate.status).toBe(400);
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValueOnce({
+      queuedMessages: [],
+      queueOrderStale: true,
+    });
+    const stale = await post({ type: "reorder", messageIds: ["b", "a"] });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      { type: "reorder", messageIds: ["b", "a"] },
+      expect.anything(),
+    );
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      code: "queue_order_stale",
+      retryable: false,
+    });
+  });
+
+  it("accepts queued metadata when its submission receipt matches", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-metadata";
+    const message = {
+      id: "queued-metadata",
+      threadId,
+      text: "Continue with this context",
+      createdAt: new Date().toISOString(),
+      metadata: {
+        "x-agent-native": {
+          context: { browserTabId: "tab-queue-metadata", surface: "app" },
+          smartObjects: [{ id: "object-queue-metadata", kind: "document" }],
+        },
+      },
+    };
+    const submissionPayload = {
+      threadId,
+      id: message.id,
+      text: message.text,
+      metadata: message.metadata,
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValue({
+      queuedMessages: [message],
+      message,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: { type: "append", message, submissionPayload },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      expect.objectContaining({
+        type: "append",
+        message,
+        hashInput: submissionPayload,
+      }),
+      expect.any(Object),
+    );
+    expect(queueDrainHarness.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId,
+        turnContinues: false,
+        drain: expect.any(Function),
+      }),
+    );
   });
 
   it("requires AI setup before claiming a queued prompt for dispatch", async () => {
@@ -526,6 +854,49 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
   });
 
+  it("accepts Send now as a queue mutation and keeps the message's delivery", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-send-now";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const steered = {
+      id: "queued-send-now",
+      threadId,
+      text: "Use the blue theme",
+      delivery: "steering",
+    };
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValueOnce({
+      queuedMessages: [steered],
+      message: steered,
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: { type: "steer", messageId: steered.id },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ message: steered });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      { type: "steer", messageId: steered.id },
+      expect.objectContaining({
+        actor: expect.objectContaining({ email: "user@example.test" }),
+      }),
+    );
+  });
+
   it("returns a typed conflict when a claimed queue item was removed", async () => {
     const h3App = await mountResourceRoutes();
     const threadId = "thread-claim-race";
@@ -566,12 +937,691 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
       threadId,
       mutation,
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          email: "user@example.test",
+          anonymous: false,
+        }),
+      }),
+    );
+  });
+});
+
+describe("chat thread owner-only history mutations", () => {
+  const owner = "synthetic-thread-owner@example.test";
+  const editor = "synthetic-thread-editor@example.test";
+  const orgId = "synthetic-thread-mutation-org";
+  const operations = [
+    { route: "pin", body: { pinned: true }, action: "pin" },
+    { route: "pin", body: { pinned: false }, action: "unpin" },
+    { route: "archive", body: { archived: true }, action: "archive" },
+    { route: "archive", body: { archived: false } },
+    { route: "rename", body: { title: "New title" }, action: "rename" },
+  ];
+
+  it.each([
+    ["owner", "owner"],
+    ["user", "editor"],
+    ["org", "editor"],
+    ["user", "viewer"],
+    ["org", "viewer"],
+    ["user", "admin"],
+    ["org", "admin"],
+  ] as const)(
+    "guards HTTP and agent mutations for %s %s access with the real store",
+    async (access, role) => {
+      const store = await vi.importActual<
+        typeof import("../chat-threads/store.js")
+      >("../chat-threads/store.js");
+      const { orgStore } = await import("../org/schema-store.js");
+      await orgStore.ready();
+      const h3App = await mountResourceRoutes({ resolveOrgId: () => orgId });
+      const email = access === "owner" ? owner.toUpperCase() : editor;
+      const threadId = `synthetic-thread-mutation-${access}`;
+      const exec = getDbExec();
+      mocks.getSession.mockResolvedValue({ email, orgId });
+      threadStoreMocks.resolveThreadAccess.mockImplementation(
+        store.resolveThreadAccess,
+      );
+      threadStoreMocks.updateThreadData.mockImplementation(
+        store.updateThreadData,
+      );
+      try {
+        await exec.execute({
+          sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Synthetic', ?, 0)",
+          args: [orgId, owner],
+        });
+        await exec.execute({
+          sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', 0)",
+          args: [orgId, orgId, email],
+        });
+        await store.createThread(owner, {
+          id: threadId,
+          title: "Original title",
+          orgId,
+        });
+        if (access !== "owner") {
+          await exec.execute({
+            sql: "INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+            args: [
+              threadId,
+              threadId,
+              access,
+              access === "org" ? orgId : email,
+              role,
+              owner,
+            ],
+          });
+        }
+        expect(
+          await store.resolveThreadAccess(email, threadId, role, { orgId }),
+        ).not.toBeNull();
+        const entries = await createChatScriptEntries();
+        expect(entries["chat-history"]).toBeDefined();
+        for (const operation of operations) {
+          // Begin set and clear operations from opposite values so a forbidden
+          // unpin or unarchive cannot pass as an unchanged empty value.
+          await exec.execute({
+            sql: "UPDATE chat_threads SET pinned_at = ?, archived_at = ? WHERE id = ?",
+            args: [
+              operation.body.pinned === false ? 1 : null,
+              operation.body.archived === false ? 1 : null,
+              threadId,
+            ],
+          });
+          const before = await store.getThread(threadId);
+          const response = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}/${operation.route}`,
+            { userEmail: email, orgId },
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(operation.body),
+            },
+          );
+          expect(response.status).toBe(
+            access === "owner" || operation.route === "pin" ? 200 : 403,
+          );
+          if (access !== "owner" && operation.route === "pin") {
+            expect(await response.json()).toEqual({ ok: true });
+            expect(
+              (
+                await store.resolveThreadAccess(email, threadId, "viewer", {
+                  orgId,
+                })
+              )?.pinnedAt,
+            ).toEqual(operation.body.pinned ? expect.any(Number) : null);
+            expect(await store.getThread(threadId)).toEqual(before);
+          } else if (access === "owner") {
+            expect(await response.json()).toEqual({ ok: true });
+            const after = await store.getThread(threadId);
+            if (operation.route === "pin")
+              expect(after?.pinnedAt).toEqual(
+                operation.body.pinned ? expect.any(Number) : null,
+              );
+            if (operation.route === "archive")
+              expect(after?.archivedAt).toEqual(
+                operation.body.archived ? expect.any(Number) : null,
+              );
+            if (operation.route === "rename") {
+              expect(after?.title).toBe("New title");
+              expect(JSON.parse(after!.threadData)._titleOverride).toBe(
+                "New title",
+              );
+            }
+          } else {
+            expect(await response.json()).toMatchObject({ status: 403 });
+            expect(await store.getThread(threadId)).toEqual(before);
+          }
+          if (operation.action) {
+            const result = runWithRequestContext(
+              { userEmail: email, orgId, run: { owner: email } },
+              () =>
+                entries["chat-history"].run({
+                  action: operation.action!,
+                  id: threadId,
+                  title: "Tool title",
+                }),
+            );
+            if (access === "owner" || operation.route === "pin") {
+              expect(await result).toMatch(
+                /^(Pinned|Unpinned|Archived|Renamed) chat/,
+              );
+              if (operation.action === "rename")
+                expect((await store.getThread(threadId))?.title).toBe(
+                  "Tool title",
+                );
+            } else {
+              await expect(result).rejects.toBeInstanceOf(ForbiddenError);
+              await expect(result).rejects.toMatchObject({ statusCode: 403 });
+              expect(await store.getThread(threadId)).toEqual(before);
+            }
+          }
+        }
+        for (const body of [
+          { title: "Snapshot title" },
+          {
+            threadData: JSON.stringify({ _titleOverride: "Snapshot override" }),
+          },
+          {
+            threadData: JSON.stringify({
+              _titleOverride: "Delta override",
+              agentKit: { _snapshotDelta: true },
+            }),
+          },
+        ]) {
+          const before = await store.getThread(threadId);
+          const response = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          expect(response.status).toBe(
+            access === "owner" ? 200 : role === "viewer" ? 404 : 403,
+          );
+          if (access === "owner") {
+            expect(await response.json()).toMatchObject({ ok: true });
+          } else {
+            expect(await store.getThread(threadId)).toEqual(before);
+          }
+        }
+        if (role !== "viewer") {
+          await store.renameThread(threadId, "Owner title", {
+            ownerEmail: owner,
+          });
+          const before = await store.getThread(threadId);
+          await store.renameThread(threadId, "New owner title", {
+            ownerEmail: owner,
+          });
+          threadStoreMocks.updateThreadData.mockImplementationOnce(
+            async (...args: Parameters<typeof store.updateThreadData>) => {
+              // Another worker does not share this process's thread mutex.
+              await exec.execute({
+                sql: "UPDATE chat_threads SET title = ?, thread_data = jsonb_set(thread_data::jsonb, '{_titleOverride}', to_jsonb(?::text))::text, updated_at = updated_at + 1 WHERE id = ? AND owner_email = ?",
+                args: [
+                  "Concurrent owner title",
+                  "Concurrent owner title",
+                  threadId,
+                  owner,
+                ],
+              });
+              return store.updateThreadData(...args);
+            },
+          );
+          const message = {
+            id: "editor-message",
+            role: "user",
+            parts: [{ type: "text", text: "A shared reply" }],
+          };
+          const response = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                title: before!.title,
+                threadData: JSON.stringify({
+                  agentKit: { _snapshotDelta: true, messages: [message] },
+                }),
+              }),
+            },
+          );
+          expect(response.status).toBe(200);
+          const after = await store.getThread(threadId);
+          expect(after?.title).toBe("Concurrent owner title");
+          expect(JSON.parse(after!.threadData)._titleOverride).toBe(
+            "Concurrent owner title",
+          );
+          expect(
+            JSON.parse(after!.threadData).agentKit.messages,
+          ).toContainEqual(message);
+
+          await exec.execute({
+            sql: "UPDATE chat_threads SET title = ?, thread_data = (thread_data::jsonb - '_titleOverride')::text WHERE id = ?",
+            args: ["Generated title", threadId],
+          });
+          const staleMessage = {
+            id: "editor-message-stale-title",
+            role: "user",
+            parts: [{ type: "text", text: "Another shared reply" }],
+          };
+          const staleResponse = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                title: "Stale cached title",
+                threadData: JSON.stringify({
+                  agentKit: { _snapshotDelta: true, messages: [staleMessage] },
+                }),
+              }),
+            },
+          );
+          expect(staleResponse.status).toBe(200);
+          const afterStale = await store.getThread(threadId);
+          expect(afterStale?.title).toBe("Generated title");
+          expect(
+            JSON.parse(afterStale!.threadData)._titleOverride,
+          ).toBeUndefined();
+          expect(
+            JSON.parse(afterStale!.threadData).agentKit.messages,
+          ).toContainEqual(staleMessage);
+
+          await store.renameThread(threadId, "Owner full title", {
+            ownerEmail: owner,
+          });
+          const fullMessage = {
+            id: "editor-message-full-snapshot",
+            role: "user",
+            parts: [{ type: "text", text: "A full snapshot reply" }],
+          };
+          const fullResponse = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                title: "Stale full title",
+                threadData: JSON.stringify({
+                  agentKit: { messages: [fullMessage] },
+                }),
+              }),
+            },
+          );
+          expect(fullResponse.status).toBe(200);
+          const afterFull = await store.getThread(threadId);
+          expect(afterFull?.title).toBe("Owner full title");
+          expect(JSON.parse(afterFull!.threadData)._titleOverride).toBe(
+            "Owner full title",
+          );
+          expect(
+            JSON.parse(afterFull!.threadData).agentKit.messages,
+          ).toContainEqual(fullMessage);
+        }
+      } finally {
+        await store.deleteThread(threadId, owner);
+        await exec.execute({
+          sql: "DELETE FROM org_members WHERE id = ?",
+          args: [orgId],
+        });
+        await exec.execute({
+          sql: "DELETE FROM organizations WHERE id = ?",
+          args: [orgId],
+        });
+      }
+    },
+  );
+});
+
+describe("agent chat thread list route", () => {
+  const summary = (id: string) => ({ id, title: id });
+
+  async function getThreads(search: string) {
+    const h3App = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    return fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads${search}`,
+      { userEmail: "user@example.test" },
+    );
+  }
+
+  beforeEach(() => {
+    threadStoreMocks.listThreads.mockReset();
+    threadStoreMocks.searchThreads.mockReset();
+  });
+
+  it("pages authorized rows and computes hasMore with the real store after membership removal", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const { orgStore } = await import("../org/schema-store.js");
+    await orgStore.ready();
+    await store.ensureChatThreadTables();
+    const exec = getDbExec();
+    const orgId = "synthetic-chat-membership-org";
+    const email = "synthetic-chat-viewer@example.test";
+    const threadIds = [
+      "membership-org-visible",
+      "membership-org-grant",
+      "membership-direct-a",
+      "membership-direct-b",
+    ];
+    const h3App = await mountResourceRoutes({ resolveOrgId: () => orgId });
+    mocks.getSession.mockResolvedValue({ email, orgId });
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    try {
+      await exec.execute({
+        sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Synthetic', ?, 0)",
+        args: [orgId, email],
+      });
+      await exec.execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at, federation_removal_pending_at) VALUES (?, ?, ?, 'admin', 0, 1)",
+        args: [orgId, orgId, email],
+      });
+      for (const [index, id] of threadIds.entries()) {
+        await exec.execute({
+          sql: "INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility) VALUES (?, ?, 'Synthetic membership plan', '', ?, 1, 0, ?, ?, ?)",
+          args: [
+            id,
+            "synthetic-chat-owner@example.test",
+            '{"content":"body-only-membership-secret"}',
+            100 - index,
+            orgId,
+            index === 0 ? "org" : "private",
+          ],
+        });
+        if (index > 0) {
+          await exec.execute({
+            sql: "INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by) VALUES (?, ?, ?, ?, 'viewer', ?)",
+            args: [
+              id,
+              id,
+              index === 1 ? "org" : "user",
+              index === 1 ? orgId : email,
+              email,
+            ],
+          });
+        }
+      }
+      await exec.execute({
+        sql: "UPDATE chat_threads SET thread_data = '{}' WHERE id IN (?, ?)",
+        args: threadIds.slice(2),
+      });
+      const getPage = async (query: string) => {
+        const response = await fetchWithRequestContext(
+          h3App,
+          `/_agent-native/agent-chat/threads?ownership=shared&limit=1${query}`,
+          { userEmail: email, orgId },
+        );
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        return {
+          ids: body.threads.map((thread: { id: string }) => thread.id),
+          hasMore: body.hasMore,
+        };
+      };
+      for (const state of ["pending", "deleted"]) {
+        if (state === "deleted") {
+          await exec.execute({
+            sql: "DELETE FROM org_members WHERE id = ?",
+            args: [orgId],
+          });
+        }
+        expect(await getPage("")).toEqual({
+          ids: [threadIds[2]],
+          hasMore: true,
+        });
+        expect(await getPage("&offset=1")).toEqual({
+          ids: [threadIds[3]],
+          hasMore: false,
+        });
+        expect(await getPage("&q=Synthetic&offset=1")).toEqual({
+          ids: [threadIds[3]],
+          hasMore: false,
+        });
+        expect(await getPage("&q=body-only-membership-secret")).toEqual({
+          ids: [],
+          hasMore: false,
+        });
+      }
+    } finally {
+      for (const id of threadIds) {
+        await exec.execute({
+          sql: "DELETE FROM chat_thread_shares WHERE resource_id = ?",
+          args: [id],
+        });
+        await exec.execute({
+          sql: "DELETE FROM chat_threads WHERE id = ?",
+          args: [id],
+        });
+      }
+      await exec.execute({
+        sql: "DELETE FROM org_members WHERE id = ?",
+        args: [orgId],
+      });
+      await exec.execute({
+        sql: "DELETE FROM organizations WHERE id = ?",
+        args: [orgId],
+      });
+    }
+  });
+
+  it("passes ownership and offset to the store and reports hasMore from the extra row", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([
+      summary("a"),
+      summary("b"),
+      summary("c"),
+    ]);
+
+    const response = await getThreads("?ownership=shared&limit=2&offset=4");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      threads: [summary("a"), summary("b")],
+      hasMore: true,
+    });
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({
+        ownership: "shared",
+        limit: 3,
+        offset: 4,
+      }),
+    );
+  });
+
+  it("passes archived-thread inclusion to both list and search", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    threadStoreMocks.searchThreads.mockResolvedValue([]);
+
+    const listResponse = await getThreads("?includeArchived=1");
+    expect(listResponse.status).toBe(200);
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ includeArchived: true }),
+    );
+
+    const searchResponse = await getThreads("?includeArchived=1&q=plan");
+    expect(searchResponse.status).toBe(200);
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "plan",
+      51,
+      expect.objectContaining({ includeArchived: true }),
+    );
+  });
+
+  it("reports no more rows when the page is not over-full", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([summary("a")]);
+    const response = await getThreads("?ownership=mine&limit=2");
+    expect(await response.json()).toEqual({
+      threads: [summary("a")],
+      hasMore: false,
+    });
+  });
+
+  it("defaults to all and applies the same filter and paging to search", async () => {
+    threadStoreMocks.searchThreads.mockResolvedValue([
+      summary("a"),
+      summary("b"),
+    ]);
+
+    const response = await getThreads(
+      "?q=plan&ownership=mine&limit=1&offset=3",
+    );
+
+    expect(await response.json()).toEqual({
+      threads: [summary("a")],
+      hasMore: true,
+    });
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "plan",
+      2,
+      expect.objectContaining({ ownership: "mine", offset: 3 }),
+    );
+
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    await getThreads("");
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+    );
+  });
+
+  describe.each(["list", "search"] as const)("%s query validation", (mode) => {
+    const suffix = mode === "search" ? "&q=plan" : "";
+
+    it.each([
+      ["an unknown ownership", "?ownership=everyone"],
+      ["an empty ownership", "?ownership="],
+      ["a whitespace ownership", "?ownership=%20"],
+      ["duplicate ownership values", "?ownership=all&ownership=all"],
+      ["an empty limit", "?limit="],
+      ["a whitespace limit", "?limit=%20"],
+      ["a negative limit", "?limit=-5"],
+      ["a zero limit", "?limit=0"],
+      ["a fractional limit", "?limit=1.5"],
+      ["a non-numeric limit", "?limit=lots"],
+      ["duplicate limit values", "?limit=1&limit=1"],
+      ["an unsafe limit", "?limit=9007199254740992"],
+      ["an imprecise limit", "?limit=9007199254740993"],
+      ["an overflowing limit", `?limit=${"9".repeat(400)}`],
+      ["an empty offset", "?offset="],
+      ["a whitespace offset", "?offset=%20"],
+      ["a negative offset", "?offset=-1"],
+      ["a fractional offset", "?offset=1.5"],
+      ["a non-numeric offset", "?offset=next"],
+      ["duplicate offset values", "?offset=1&offset=1"],
+      ["an unsafe offset", "?offset=9007199254740992"],
+      ["an imprecise offset", "?offset=9007199254740993"],
+      ["an overflowing offset", `?offset=${"9".repeat(400)}`],
+    ])(
+      "answers 400 for %s before calling either store",
+      async (_name, search) => {
+        const response = await getThreads(`${search}${suffix}`);
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: search.startsWith("?ownership")
+            ? "Invalid ownership filter"
+            : "Invalid limit or offset",
+        });
+        expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+        expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["all", "mine", "shared"] as const)(
+      "preserves valid %s ownership",
+      async (ownership) => {
+        threadStoreMocks.listThreads.mockResolvedValue([]);
+        threadStoreMocks.searchThreads.mockResolvedValue([]);
+        const response = await getThreads(
+          `?ownership=${ownership}&limit=2&offset=0${suffix}`,
+        );
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ threads: [], hasMore: false });
+        if (mode === "list") {
+          expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+            "user@example.test",
+            expect.objectContaining({ ownership, limit: 3, offset: 0 }),
+          );
+          expect(threadStoreMocks.searchThreads).not.toHaveBeenCalled();
+        } else {
+          expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+            "user@example.test",
+            "plan",
+            3,
+            expect.objectContaining({ ownership, offset: 0 }),
+          );
+          expect(threadStoreMocks.listThreads).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it("defaults only absent parameters", async () => {
+      threadStoreMocks.listThreads.mockResolvedValue([]);
+      threadStoreMocks.searchThreads.mockResolvedValue([]);
+      const response = await getThreads(mode === "list" ? "" : "?q=plan");
+      expect(response.status).toBe(200);
+      if (mode === "list") {
+        expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          expect.objectContaining({
+            ownership: "all",
+            limit: 51,
+            offset: 0,
+            includeArchived: false,
+          }),
+        );
+      } else {
+        expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          "plan",
+          51,
+          expect.objectContaining({
+            ownership: "all",
+            offset: 0,
+            includeArchived: false,
+          }),
+        );
+      }
+    });
+
+    it("accepts the largest safe offset and caps a valid safe limit above 200", async () => {
+      threadStoreMocks.listThreads.mockResolvedValue([]);
+      threadStoreMocks.searchThreads.mockResolvedValue([]);
+      const response = await getThreads(
+        `?limit=${Number.MAX_SAFE_INTEGER}&offset=${Number.MAX_SAFE_INTEGER}${suffix}`,
+      );
+      expect(response.status).toBe(200);
+      if (mode === "list") {
+        expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          expect.objectContaining({
+            limit: 201,
+            offset: Number.MAX_SAFE_INTEGER,
+          }),
+        );
+      } else {
+        expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+          "user@example.test",
+          "plan",
+          201,
+          expect.objectContaining({ offset: Number.MAX_SAFE_INTEGER }),
+        );
+      }
+    });
+  });
+
+  it("caps an oversized limit at the page maximum", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    await getThreads("?limit=5000");
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ limit: 201 }),
     );
   });
 });
 
 describe("agent chat thread save route", () => {
   const thread = {
+    ownerEmail: "user@example.test",
     id: "thread-save",
     scope: null,
     threadData: JSON.stringify({ messages: [] }),
@@ -817,6 +1867,30 @@ describe("agent chat thread save route", () => {
     expect(await response.json()).toEqual({ error: "Thread not found" });
     expect(threadStoreMocks.updateThreadData).toHaveBeenCalledOnce();
     expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledOnce();
+  });
+});
+
+describe("agent chat unsaved thread reads", () => {
+  it("answers a thread nobody has saved yet as typed absent only when the client asks", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const typed = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+      { headers: { [AGENT_CHAT_THREAD_ABSENCE_HEADER]: "typed" } },
+    );
+    expect(typed.status).toBe(200);
+    expect(await typed.json()).toEqual({ absent: true });
+
+    const plain = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+    );
+    expect(plain.status).toBe(404);
   });
 });
 
@@ -1954,6 +3028,12 @@ describe("loadResourcesForPrompt", () => {
         "This list is a directory, not a request to involve another app.",
       );
       expect(prompt).toContain(
+        "Prefer the current app's own connected integrations and tools when they can answer the request",
+      );
+      expect(prompt).toContain(
+        "use a direct FullStory connection for session-replay questions when one is available here",
+      );
+      expect(prompt).toContain(
         "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
       );
       expect(prompt).toContain(
@@ -2170,5 +3250,126 @@ describe("compact skills summary and the request registry", () => {
     );
     expect(absent).not.toContain("<skills-summary>");
     expect(absent).not.toContain("deep-review");
+  });
+});
+describe("shared chat hide transport", () => {
+  it("persists HTTP and tool viewer state, filters list/search, and refuses owner and outsider writes", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "hide-transport-owner@example.test";
+    const viewer = "hide-transport-viewer@example.test";
+    const outsider = "hide-transport-outsider@example.test";
+    const id = "hide-transport-thread";
+    const app = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    await store.createThread(owner, {
+      id,
+      title: "Transport plan",
+      initialData: { threadData: "{}", preview: "", messageCount: 1 },
+    });
+    await store.grantThreadUserShare(id, viewer, "viewer", owner);
+    const tool = (await createChatScriptEntries())["chat-history"];
+    const request = async (email: string, path: string, body?: unknown) => {
+      mocks.getSession.mockResolvedValue({ email });
+      return fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads${path}`,
+        { userEmail: email },
+        body === undefined
+          ? undefined
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            },
+      );
+    };
+    const run = (email: string, action: string, rest = {}) =>
+      runWithRequestContext({ userEmail: email, run: { owner: email } }, () =>
+        tool.run({ action, id, ...rest }),
+      );
+    const state = () =>
+      getDbExec().execute({
+        sql: "SELECT user_email, pinned_at, hidden_at FROM chat_thread_viewer_state WHERE thread_id = ?",
+        args: [id],
+      });
+    try {
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: "yes" })).status,
+      ).toBe(400);
+      expect((await state()).rows).toEqual([]);
+      for (const email of [owner, outsider]) {
+        expect(
+          (await request(email, `/${id}/hide`, { hidden: true })).status,
+        ).toBe(email === owner ? 403 : 404);
+        if (email === owner)
+          await expect(run(email, "hide")).rejects.toBeInstanceOf(
+            ForbiddenError,
+          );
+        else expect(await run(email, "hide")).toContain("not found");
+        if (email === outsider) {
+          expect(
+            (await request(email, `/${id}/pin`, { pinned: true })).status,
+          ).toBe(404);
+          expect(await run(email, "pin")).toContain("not found");
+        }
+      }
+      expect((await state()).rows).toEqual([]);
+      expect(
+        (await request(viewer, `/${id}/pin`, { pinned: true })).status,
+      ).toBe(200);
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: true })).status,
+      ).toBe(200);
+      for (const suffix of ["", "&q=Transport"]) {
+        const visible = await request(viewer, `?ownership=shared${suffix}`);
+        expect((await visible.json()).threads).toEqual([]);
+        const included = await request(
+          viewer,
+          `?ownership=shared&includeHidden=1${suffix}`,
+        );
+        expect((await included.json()).threads).toMatchObject([
+          { id, pinnedAt: expect.any(Number), hiddenAt: expect.any(Number) },
+        ]);
+      }
+      const single = await request(viewer, `/${id}`);
+      expect(single.status).toBe(200);
+      expect(await single.json()).toMatchObject({
+        id,
+        pinnedAt: expect.any(Number),
+        hiddenAt: expect.any(Number),
+      });
+      expect(
+        await run(viewer, "search", { query: "Transport", format: "json" }),
+      ).toContain('"count": 0');
+      expect(
+        await run(viewer, "search", {
+          query: "Transport",
+          format: "json",
+          includeHidden: true,
+        }),
+      ).toContain(id);
+      expect(await run(viewer, "unhide")).toMatch(/^Unhidden chat/);
+      expect(
+        (await (await request(viewer, "?ownership=shared")).json()).threads,
+      ).toHaveLength(1);
+      expect(await run(viewer, "hide")).toMatch(/^Hidden chat/);
+      expect((await store.listThreads(viewer)).length).toBe(0);
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: false })).status,
+      ).toBe(200);
+      expect((await store.listThreads(viewer)).length).toBe(1);
+      expect((await state()).rows).toEqual([
+        { user_email: viewer, pinned_at: expect.any(Number), hidden_at: null },
+      ]);
+      expect((await store.getThread(id))?.pinnedAt).toBeNull();
+    } finally {
+      await store.deleteThread(id, owner);
+    }
   });
 });

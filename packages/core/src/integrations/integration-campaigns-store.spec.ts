@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 const executeMock = vi.hoisted(() => vi.fn());
 const transactionMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
@@ -33,6 +35,10 @@ function argsOf(query: string | { args?: unknown[] }): unknown[] {
   return typeof query === "string" ? [] : (query.args ?? []);
 }
 
+async function execute(query: string | { sql: string }) {
+  return storeLedgerResult(sqlOf(query)) ?? executeMock(query);
+}
+
 function campaignRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "campaign-1",
@@ -63,7 +69,7 @@ describe("integration campaigns store", () => {
       fn({ execute: executeMock }),
     );
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     ensureTableExistsMock.mockResolvedValue(undefined);
@@ -493,7 +499,7 @@ describe("integration campaigns store", () => {
 
   it("atomically completes a leased campaign with its pending task", async () => {
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
@@ -517,7 +523,7 @@ describe("integration campaigns store", () => {
 
   it("lets exactly one overlapping campaign completion keep lease custody", async () => {
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     let campaignClaims = 0;
@@ -568,7 +574,7 @@ describe("integration campaigns store", () => {
 
   it("atomically contains delivery failure and releases campaign custody", async () => {
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
@@ -593,7 +599,7 @@ describe("integration campaigns store", () => {
 
   it("lets exactly one overlapping containment caller release task custody", async () => {
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     executeMock
@@ -687,7 +693,7 @@ describe("integration campaigns store", () => {
 
   it("atomically hands a partial A2A receipt from the campaign lease to the parent task", async () => {
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
@@ -733,7 +739,7 @@ describe("integration campaigns store", () => {
 
   it("atomically completes an A2A parent campaign and its processing task", async () => {
     getDbExecMock.mockReturnValue({
-      execute: executeMock,
+      execute,
       transaction: transactionMock,
     });
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });

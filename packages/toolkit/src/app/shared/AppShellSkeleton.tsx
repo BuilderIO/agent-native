@@ -8,9 +8,11 @@ const BORDER = "1px solid hsl(var(--border, 240 5.9% 90%))";
 
 export type AppShellSkeletonLayout =
   | "assistant"
+  | "assistant-new"
   | "calendar"
   | "dashboard"
   | "document"
+  | "home"
   | "launchpad"
   | "list"
   | "mail"
@@ -39,7 +41,13 @@ function Block({
   );
 }
 
-function Sidebar({ width = 248 }: { width?: number }) {
+// Apps that size their sidebar with --chat-sidebar-width paint it at the
+// hydrated width; everyone else keeps the 248px default.
+function Sidebar({
+  width = "var(--chat-sidebar-width, 248px)",
+}: {
+  width?: number | string;
+}) {
   return (
     <aside
       data-agent-native-app-skeleton-sidebar="true"
@@ -50,7 +58,6 @@ function Sidebar({ width = 248 }: { width?: number }) {
         flexShrink: 0,
         flexDirection: "column",
         gap: 16,
-        borderRight: BORDER,
         backgroundColor:
           "hsl(var(--sidebar-background, var(--background, 0 0% 100%)))",
         padding: 16,
@@ -80,7 +87,6 @@ function Header({ titleWidth = 128 }: { titleWidth?: number }) {
         flexShrink: 0,
         alignItems: "center",
         gap: 12,
-        borderBottom: BORDER,
         padding: "0 16px",
       }}
     >
@@ -125,7 +131,8 @@ function AssistantLayout() {
           style={{
             display: "flex",
             width: "100%",
-            maxWidth: 780,
+            maxWidth:
+              "min(100%, calc(var(--agent-kit-conversation-max-width, 47rem) - 2rem))",
             flex: 1,
             flexDirection: "column",
             justifyContent: "center",
@@ -135,7 +142,47 @@ function AssistantLayout() {
         >
           <Block style={{ width: "42%", height: 28, marginBottom: 8 }} />
           <div style={{ flex: 1, minHeight: 80 }} />
-          <Block style={{ width: "100%", height: 92, borderRadius: 16 }} />
+          <Block style={{ width: "100%", height: 82, borderRadius: 24 }} />
+        </section>
+      </main>
+    </>
+  );
+}
+
+/** A new chat: the heading and the large composer, centered together. */
+function AssistantNewChatLayout() {
+  return (
+    <>
+      <Sidebar />
+      <main
+        aria-hidden="true"
+        style={{
+          display: "flex",
+          minWidth: 0,
+          flex: 1,
+          flexDirection: "column",
+          padding: "0 24px 24px",
+        }}
+      >
+        <div style={{ display: "flex", height: 48, alignItems: "center" }}>
+          <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+        </div>
+        <section
+          style={{
+            display: "flex",
+            width: "100%",
+            maxWidth:
+              "min(100%, calc(var(--agent-kit-conversation-max-width, 47rem) - 2rem))",
+            flex: 1,
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 16,
+            margin: "0 auto",
+          }}
+        >
+          <Block style={{ width: 200, height: 28 }} />
+          <Block style={{ width: "100%", height: 128, borderRadius: 28 }} />
         </section>
       </main>
     </>
@@ -214,7 +261,6 @@ function MailLayout() {
           flexShrink: 0,
           alignItems: "center",
           gap: 4,
-          borderBottom: BORDER,
           padding: "0 8px",
           overflowX: "auto",
           overflowY: "hidden",
@@ -923,6 +969,102 @@ function LaunchpadLayout() {
   );
 }
 
+/**
+ * A starter home page: the centered hero (mark, title, lead, large composer,
+ * hint) over a two-column resource footer, with no header row.
+ */
+function HomeLayout() {
+  return (
+    <>
+      <Sidebar />
+      <main
+        aria-hidden="true"
+        style={{
+          display: "flex",
+          minWidth: 0,
+          flex: 1,
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <section
+          data-agent-native-app-skeleton-home-hero="true"
+          style={{
+            display: "flex",
+            flex: 1,
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 24,
+            padding: "64px 16px",
+          }}
+        >
+          <Block style={{ width: 56, height: 32 }} />
+          <div
+            style={{
+              display: "flex",
+              width: "100%",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Block style={{ width: "min(100%, 280px)", height: 44 }} />
+            <Block style={{ width: "min(100%, 400px)", height: 16 }} />
+            <Block style={{ width: "min(100%, 320px)", height: 16 }} />
+          </div>
+          <Block
+            style={{
+              width: "100%",
+              maxWidth:
+                "calc(var(--agent-kit-conversation-max-width, 47rem) - 2rem)",
+              height: 128,
+              borderRadius: 28,
+            }}
+          />
+          <Block style={{ width: "min(100%, 360px)", height: 14 }} />
+        </section>
+        <div
+          data-agent-native-app-skeleton-home-footer="true"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(16rem, 1fr))",
+            borderTop: BORDER,
+          }}
+        >
+          {[4, 2].map((buttons, column) => (
+            <div
+              key={column}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                padding: "32px 40px",
+                borderLeft: column ? BORDER : undefined,
+              }}
+            >
+              <Block style={{ width: 32, height: 32, borderRadius: 8 }} />
+              <Block style={{ width: 112, height: 16 }} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {Array.from({ length: buttons }, (_, index) => (
+                  <Block
+                    key={index}
+                    style={{
+                      width: 88 + (index % 3) * 16,
+                      height: 32,
+                      borderRadius: 8,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </main>
+    </>
+  );
+}
+
 function WelcomeLayout() {
   return (
     <main
@@ -1033,9 +1175,11 @@ export function AppShellSkeleton({
 }) {
   const layouts: Record<AppShellSkeletonLayout, ReactNode> = {
     assistant: <AssistantLayout />,
+    "assistant-new": <AssistantNewChatLayout />,
     calendar: <CalendarLayout />,
     dashboard: <DashboardLayout />,
     document: <DocumentLayout />,
+    home: <HomeLayout />,
     launchpad: <LaunchpadLayout />,
     list: <ListLayout />,
     mail: <MailLayout />,

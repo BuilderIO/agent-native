@@ -10,6 +10,7 @@ import {
   accessFilter,
   assertAccess,
   ForbiddenError,
+  registerHostAccessResolver,
   resolveAccess,
   resolveRegisteredAccessContext,
 } from "./access.js";
@@ -30,6 +31,7 @@ const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
 const viewerEmail = "viewer+qa@example.com";
 const outsiderEmail = "outsider+qa@example.com";
+const orgAdminEmail = "org-admin+qa@example.com";
 const orgId = "org-qa";
 const otherOrgId = "org-other";
 
@@ -40,6 +42,13 @@ const docs = table("qa_docs", {
 });
 
 const docShares = createSharesTable("qa_doc_shares");
+const managedDocs = table("qa_managed_docs", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+
+const managedDocShares = createSharesTable("qa_managed_doc_shares");
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -84,8 +93,28 @@ async function insertDoc(values: {
   });
 }
 
+async function insertManagedDoc(values: {
+  id: string;
+  ownerEmail?: string;
+  orgId?: string | null;
+  visibility?: "private" | "org" | "public";
+}) {
+  await db.insert(managedDocs).values({
+    id: values.id,
+    title: values.id,
+    ownerEmail: values.ownerEmail ?? ownerEmail,
+    orgId: values.orgId === undefined ? orgId : values.orgId,
+    visibility: values.visibility ?? "private",
+  });
+}
+
 let memberSeq = 0;
 async function addOrgMember(memberOrgId: string, email: string) {
+  await pglite.query(
+    `INSERT INTO organizations (id, name, created_by, created_at)
+     VALUES (?, 'QA', ?, 0) ON CONFLICT (id) DO NOTHING`,
+    [memberOrgId, ownerEmail],
+  );
   await pglite
     .prepare(
       `INSERT INTO org_members (id, org_id, email, role, joined_at)
@@ -123,6 +152,23 @@ beforeEach(async () => {
       visibility TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE qa_doc_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
+    CREATE TABLE qa_managed_docs (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE TABLE qa_managed_doc_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -174,6 +220,17 @@ beforeEach(async () => {
     getDb: () => db,
     supportsGroupShares: true,
   });
+  registerShareableResource({
+    type: `${resourceType}-manager-policy`,
+    resourceTable: managedDocs,
+    sharesTable: managedDocShares,
+    displayName: "QA Workspace App",
+    titleColumn: "title",
+    getDb: () => db,
+    publicAccessRole: "admin",
+    canManageAccess: (_resource, ctx) =>
+      ctx.userEmail === orgAdminEmail && ctx.orgId === orgId,
+  });
 });
 
 afterEach(async () => {
@@ -181,6 +238,194 @@ afterEach(async () => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("keeps direct admin shares below a registration's manager policy", async () => {
+    const managedResourceType = `${resourceType}-manager-policy`;
+    await insertManagedDoc({ id: "manager-policy-app" });
+    await db.insert(managedDocShares).values({
+      id: "manager-policy-admin-share",
+      resourceId: "manager-policy-app",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(managedResourceType, "manager-policy-app"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        setResourceVisibility.run({
+          resourceType: managedResourceType,
+          resourceId: "manager-policy-app",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+    const [unchanged] = await db
+      .select()
+      .from(managedDocs)
+      .where(eq(managedDocs.id, "manager-policy-app"));
+    expect(unchanged?.visibility).toBe("private");
+
+    await runWithRequestContext(
+      { userEmail: orgAdminEmail, orgId },
+      async () => {
+        await expect(
+          resolveAccess(managedResourceType, "manager-policy-app"),
+        ).resolves.toMatchObject({ role: "admin" });
+        await expect(
+          setResourceVisibility.run({
+            resourceType: managedResourceType,
+            resourceId: "manager-policy-app",
+            visibility: "org",
+          }),
+        ).resolves.toMatchObject({ ok: true });
+      },
+    );
+  });
+
+  it("does not filter direct admin shares through manager-policy SQL", async () => {
+    await insertManagedDoc({ id: "manager-policy-filter" });
+    await db.insert(managedDocShares).values({
+      id: "manager-policy-filter-admin-share",
+      resourceId: "manager-policy-filter",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+
+    const listFor = (userEmail: string) =>
+      runWithRequestContext({ userEmail, orgId }, async () => {
+        const rows = await db
+          .select()
+          .from(managedDocs)
+          .where(
+            accessFilter(
+              managedDocs,
+              managedDocShares,
+              { userEmail, orgId },
+              "admin",
+            ),
+          );
+        return rows.map((row) => row.id);
+      });
+
+    await expect(listFor(viewerEmail)).resolves.toEqual([]);
+    await expect(listFor(ownerEmail)).resolves.toEqual([
+      "manager-policy-filter",
+    ]);
+  });
+
+  it("does not let public access bypass a registration's manager policy", async () => {
+    const managedResourceType = `${resourceType}-manager-policy`;
+    await insertManagedDoc({
+      id: "manager-policy-public-app",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(managedResourceType, "manager-policy-public-app"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        assertAccess(managedResourceType, "manager-policy-public-app", "admin"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it.each(["viewer", "editor", "admin"] as const)(
+    "checks current membership for explicit organization %s grants while preserving direct admin grants",
+    async (role) => {
+      await addOrgMember(orgId, viewerEmail.toUpperCase());
+      await insertDoc({ id: "org-granted" });
+      await db.insert(docShares).values({
+        id: "organization-grant",
+        resourceId: "org-granted",
+        principalType: "org",
+        principalId: orgId,
+        role,
+        createdBy: ownerEmail,
+        createdAt: "2026-01-01",
+      });
+      const ctx = { userEmail: viewerEmail, orgId };
+      await expect(
+        resolveAccess(resourceType, "org-granted", ctx),
+      ).resolves.toMatchObject({ role });
+      await pglite.exec(
+        "UPDATE org_members SET federation_removal_pending_at = 1",
+      );
+      await expect(
+        resolveAccess(resourceType, "org-granted", ctx),
+      ).resolves.toBeNull();
+      await pglite.exec("DELETE FROM org_members");
+      await expect(
+        resolveAccess(resourceType, "org-granted", ctx),
+      ).resolves.toBeNull();
+      await db.insert(docShares).values({
+        id: "direct-admin",
+        resourceId: "org-granted",
+        principalType: "user",
+        principalId: viewerEmail.toUpperCase(),
+        role: "admin",
+        createdBy: ownerEmail,
+        createdAt: "2026-01-01",
+      });
+      await expect(
+        assertAccess(resourceType, "org-granted", "admin", ctx),
+      ).resolves.toMatchObject({ role: "admin" });
+    },
+  );
+
+  it("keeps membership and org grants on the supplied transaction database", async () => {
+    await addOrgMember(orgId, viewerEmail);
+    await insertDoc({ id: "transaction-org-granted" });
+    await db.insert(docShares).values({
+      id: "transaction-org-grant",
+      resourceId: "transaction-org-granted",
+      principalType: "org",
+      principalId: orgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+    await pglite.transaction(async (transaction) => {
+      await transaction.execute({
+        sql: "UPDATE org_members SET federation_removal_pending_at = 1",
+      });
+      await expect(
+        resolveAccess(resourceType, "transaction-org-granted", {
+          userEmail: viewerEmail,
+          orgId,
+          transaction,
+        }),
+      ).resolves.toBeNull();
+    });
+  });
+
+  it("keeps missing or unreadable organization metadata as an error", async () => {
+    await addOrgMember(orgId, viewerEmail);
+    await insertDoc({ id: "strict-org", visibility: "org" });
+    await pglite.exec("DELETE FROM organizations");
+    await expect(
+      resolveAccess(resourceType, "strict-org", {
+        userEmail: viewerEmail,
+        orgId,
+      }),
+    ).rejects.toThrow(/organization/i);
+    await pglite.exec("DROP TABLE organizations");
+    await expect(
+      resolveAccess(resourceType, "strict-org", {
+        userEmail: viewerEmail,
+        orgId,
+      }),
+    ).rejects.toThrow();
+  });
+
   it("requires approval only for public or external access changes", async () => {
     await insertDoc({ id: "doc-share-approval" });
     await addOrgMember(orgId, viewerEmail);
@@ -529,6 +774,39 @@ describe("shareable resource access helpers", () => {
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.not.toContain("shared-group");
+  });
+
+  it("lets a host deny or grant access while the owner keeps owner", async () => {
+    await insertDoc({ id: "doc-hosted" });
+    const hostRoles = new Map<string, "editor" | null>([
+      [ownerEmail, "editor"],
+      [viewerEmail, "editor"],
+      [outsiderEmail, null],
+    ]);
+    registerHostAccessResolver(resourceType, async (_resource, ctx) =>
+      hostRoles.get(ctx.userEmail ?? ""),
+    );
+    try {
+      await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        expect(
+          assertAccess(resourceType, "doc-hosted", "owner"),
+        ).resolves.toMatchObject({ role: "owner" }),
+      );
+      await runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+        expect(
+          resolveAccess(resourceType, "doc-hosted"),
+        ).resolves.toMatchObject({ role: "editor" }),
+      );
+      await runWithRequestContext({ userEmail: outsiderEmail, orgId }, () =>
+        expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
+      );
+      hostRoles.set(ownerEmail, null);
+      await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
+      );
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
   });
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {
