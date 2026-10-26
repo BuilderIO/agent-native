@@ -62,6 +62,32 @@ vi.mock("../live-copy/write.js", async (importOriginal) => {
   };
 });
 
+// Runs once in the next legacy accept, after core's check that the Page has
+// no live copy and before the decide transaction opens: PGlite has one
+// connection, so a change made inside that transaction rolls back with it.
+const preparedEdit = vi.hoisted(() => ({
+  midAccept: undefined as (() => Promise<void>) | undefined,
+}));
+
+vi.mock("@agent-native/core/collab", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/collab")>();
+  return {
+    ...actual,
+    withPreparedYDocMutation: (
+      ...[docId, requestSource, run]: Parameters<
+        typeof actual.withPreparedYDocMutation
+      >
+    ) =>
+      actual.withPreparedYDocMutation(docId, requestSource, async (lease) => {
+        const midAccept = preparedEdit.midAccept;
+        preparedEdit.midAccept = undefined;
+        await midAccept?.();
+        return run(lease);
+      }),
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-suggestion-live-accept-${process.pid}-${Date.now()}.pglite`,
@@ -744,6 +770,41 @@ describe("accepting a suggestion on a Page its legacy writer still writes", () =
         await setFlags(true);
       }
       const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
+      expect((await stored(documentId)).content).toBe(expected);
+      expect(await browsersBody(documentId)).toBe(expected);
+    },
+  );
+
+  ownerIt(
+    "accepts on the live copy when the Page switches to it mid-accept, and discards the legacy writer's Yjs edit",
+    async () => {
+      const documentId = await seedPage(page);
+      const suggestion = await suggest(documentId, "sets the scene", "opens");
+      const before = await liveCopy(documentId);
+      const liveWritesBefore = liveWrites.calls;
+      await setFlags(false);
+      let switched = false;
+      preparedEdit.midAccept = async () => {
+        await setFlags(true);
+        switched = true;
+      };
+      try {
+        expect((await decide(suggestion, "accepted")).suggestion.status).toBe(
+          "accepted",
+        );
+      } finally {
+        preparedEdit.midAccept = undefined;
+        await setFlags(true);
+      }
+      expect(switched).toBe(true);
+      expect(liveWrites.calls).toBe(liveWritesBefore + 1);
+      const expected = canonicalizeNfm(page.replace("sets the scene", "opens"));
+      const after = await liveCopy(documentId);
+      expect(after.version).toBe(before.version + 1);
+      expect(after.text).toBe(expected);
+      expect(after.blocks.map((block) => block.item)).toEqual(
+        before.blocks.map((block) => block.item),
+      );
       expect((await stored(documentId)).content).toBe(expected);
       expect(await browsersBody(documentId)).toBe(expected);
     },

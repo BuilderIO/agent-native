@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 リクエストが失敗すると `error` が設定され、すでに読み込まれた行は保持されます。空のリストに見えることはありません。`<ShareButton>` と `<ShareDialog>` は、保存後にマウント中のチャットリストを更新します。それ以外の方法でチャットの共有を変更した場合は、`notifyChatThreadsUpdated()` を呼び出して、マウント中のリストを再取得させてください。
 
+ピン留めは個人ごとです。共有チャットでも `pinnedAt` は呼び出し元のピン留めを示し、一覧と検索はこの値で並びます。`useChatThreads().pinThread(id, pinned)` は変更ありません。両フックは共有チャット用の `hideThread(id, hidden)` を提供します。非表示のチャットは `includeHidden: true` の場合のみ表示され、一覧と単一取得には本人の `hiddenAt` が含まれます。IDやリンクからは引き続き開けます。所有者は非表示ではなくアーカイブを使用します。名前変更とアーカイブは所有者のみ可能です。非表示の拒否は `ChatThreadMutationError`（`status`: 所有者は403、アクセス権なしは404）、成功は `true` です。HTTPは `POST /_agent-native/agent-chat/threads/:id/hide` に `{ hidden: boolean }` を渡し、一覧・検索は `includeHidden=1` を使用します。`chat-history` は `pin`、`unpin`、`hide`、`unhide` と `includeHidden: true` の検索に対応します。アクセス取消後は保存された状態も表示されず、チャット削除時に状態も削除されます。
+
 ## 同じモデル、エージェント、UI {#agent-and-ui}
 
 フレームワークはこれらの actions をすべてのテンプレートに自動マウントします。エージェントはこれらをツールとして呼び出し、UI は `useActionQuery` / `useActionMutation` を通じてこれらを呼び出します。

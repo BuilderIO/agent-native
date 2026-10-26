@@ -513,7 +513,8 @@ test("a Cmd-marquee across a large screen and a small one scans each crossed scr
   );
   expect(profiler.bridge.domScans).toBe(4);
   expect(profiler.host.captureCurrentSelection).toBeLessThanOrEqual(2);
-  expect(profiler.host.buildCodeLayerProjection).toBeLessThanOrEqual(4);
+  // The probe only records a counter once it is hit, so absent means none.
+  expect(profiler.host.buildCodeLayerProjection ?? 0).toBeLessThanOrEqual(4);
   await app.settled();
   expect(await app.savedRecord(fixture.designId)).toStrictEqual(savedBefore);
 

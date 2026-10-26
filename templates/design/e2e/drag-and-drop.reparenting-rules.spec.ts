@@ -8,6 +8,8 @@ import {
   type SavedNode,
 } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 const EXIT_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:700px">
@@ -53,7 +55,10 @@ async function selectOnCanvas(app: App, nodeId: string): Promise<Point> {
   const rect = await app.designRect(nodeId);
   const centre = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   const point = await app.pagePoint(centre.x, centre.y);
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up(MOD);
   return centre;
 }
 

@@ -252,7 +252,7 @@ vi.mock("./comment-ai", () => ({
 }));
 vi.mock("./CommentsSidebar", () => ({
   CommentsSidebar: () => null,
-  preserveCommentReplyEscape: () => {},
+  preserveCommentComposerEscape: () => {},
   useCommentReplyDrafts: () => ({
     setOpenReply: vi.fn(),
     focus: { current: null },

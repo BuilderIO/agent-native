@@ -435,7 +435,8 @@ afterEach(() => {
 
 describe("shared board animation origin", () => {
   it("starts remounted runtimes at the same absolute phase without changing ordinary clocks", () => {
-    const epochMs = performance.timeOrigin + performance.now() - 1250;
+    const nowMs = performance.now();
+    const epochMs = performance.timeOrigin + nowMs - 1250;
     const script = document.createElement("script");
     script.setAttribute(
       "data-agent-native-animation-epoch-ms",
@@ -446,7 +447,6 @@ describe("shared board animation origin", () => {
     };
     const first = new Runtime(script);
     const second = new Runtime(script);
-    const nowMs = performance.now();
     expect(first.currentTime(nowMs)).toBeCloseTo(1.25, 2);
     expect(second.currentTime(nowMs)).toBeCloseTo(first.currentTime(nowMs), 8);
     expect(new Runtime(null).currentTime(nowMs)).toBeLessThan(0.1);

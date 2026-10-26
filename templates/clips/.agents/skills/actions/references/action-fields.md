@@ -73,17 +73,34 @@ export default defineAction({
   description: "Summarize a thread.",
   schema: z.object({ threadId: z.string() }),
   outputSchema: z.object({ summary: z.string(), messageCount: z.number() }),
-  outputErrorStrategy: "warn", // default; "strict" | "fallback"
-  // outputFallback: { summary: "", messageCount: 0 }, // used only by "fallback"
   run: async ({ threadId }) => {
     /* ... */
   },
 });
 ```
 
-- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking, with one exception: a connection request or stop signal thrown while the result is checked (from a transform or refinement) still ends the call as that signal, with a framework message in place of its own.
-- `"strict"` — throw `ActionOutputContractError` (`errorCode: "output_contract_violation"`) so a buggy action surfaces loudly.
-- `"fallback"` — return `outputFallback` in place of the invalid result.
+Every new action declares `outputSchema` (`guard:action-output-schema` fails a new `defineAction` without one). The action's return type is inferred from it, and `run` must return what the schema accepts, so a drifting result is a compile error.
+
+- `"strict"` (default) — throw `ActionOutputContractError` (`errorCode: "output_contract_violation"`) so a buggy action surfaces loudly.
+- `"warn"` — `console.warn` the issues and return the **original** result unchanged. Only for an existing schema you are still fixing. A connection request or stop signal thrown while the result is checked (from a transform or refinement) still ends the call as that signal, with a framework message in place of its own.
+- `"fallback"` — deprecated, and the guard rejects new uses: it returns `outputFallback`, a value callers cannot tell from a real result.
+
+Declare the codes an action fails with as a closed set, and fail through it so a misspelled code does not compile:
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+export default defineAction({
+  /* schema, outputSchema, */
+  errors, // published as `errorCodes` on the definition
+  run: async ({ threadId }) => {
+    if (!thread)
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    /* ... */
+  },
+});
+```
 
 On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
 

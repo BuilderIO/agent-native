@@ -25,6 +25,14 @@ vi.mock("../VoiceTranscriptionSection.js", () => ({
     <div data-testid="voice" data-compact={String(!!compact)} />
   ),
 }));
+// Its rows have their own spec; here it only needs its anchored group.
+vi.mock("../VoiceChatSettings.js", () => ({
+  VoiceChatSettings: () => (
+    <section id="voice-chat">
+      <h2>Voice chat</h2>
+    </section>
+  ),
+}));
 vi.mock("./ThemeFamilySettings.js", () => ({
   ThemeFamilySettings: () => <div data-testid="theme-family-settings" />,
 }));
@@ -68,19 +76,21 @@ describe("PreferencesSettings", () => {
     });
   }
 
-  it("groups language and timezone, then voice input", async () => {
+  it("groups language and timezone, then voice input and voice chat", async () => {
     await render();
     const groups = [...container.querySelectorAll("section")];
     expect(groups.map((group) => group.id)).toEqual([
       "language-region",
       "appearance",
       "voice-input",
+      "voice-chat",
     ]);
     expect(groups[0]!.querySelector("h2")?.textContent).toBe(
       "Language and region",
     );
     expect(groups[1]!.querySelector("h2")?.textContent).toBe("Appearance");
     expect(groups[2]!.querySelector("h2")?.textContent).toBe("Voice input");
+    expect(groups[3]!.querySelector("h2")?.textContent).toBe("Voice chat");
 
     const language = container.querySelector("#interface-language");
     expect(language?.textContent).toContain("Interface language");

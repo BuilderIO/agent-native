@@ -24,17 +24,18 @@ import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
  *
  * ## Resolution + safety model
  *
- *   - The directory origin is read from env: `AGENT_NATIVE_ORG_DIRECTORY_URL`
- *     (dedicated) or `AGENT_NATIVE_IDENTITY_HUB_URL` (Dispatch is also the
- *     identity hub). When *neither* is set the feature is simply inactive —
- *     `fetchOrgApps()` returns `[]` and nothing changes anywhere (asserted by
- *     a test). This makes the whole feature opt-in and back-compat.
+ *   - A selected org's bound workspace URL wins for org-scoped requests; the
+ *     deployment's `AGENT_NATIVE_ORG_DIRECTORY_URL` or
+ *     `AGENT_NATIVE_IDENTITY_HUB_URL` is the fallback when no binding exists.
+ *     When neither is set the feature is inactive — `fetchOrgApps()` returns
+ *     `[]` and nothing changes anywhere (asserted by a test).
  *   - `fetchOrgAppsResult()` preserves directory availability for callers
  *     that cannot mistake a failed lookup for an empty directory.
  *     `fetchOrgApps()` remains the best-effort compatibility wrapper: on ANY
  *     error it returns `[]` and NEVER throws, so cross-app verbs still degrade
  *     silently to their exact current local-only behavior.
- *   - Credentialed requests require HTTPS and use manual redirects. A short
+ *   - Mounted `/dispatch` requests retry at the host root only after a 404.
+ *     Credentialed requests require HTTPS and use manual redirects. A short
  *     in-memory TTL cache (default 60s) is keyed by directory origin and
  *     caller identity/org scope so sibling app lists never cross tenants.
  *     Successful responses are cached for 60s; transient unavailable results
@@ -75,6 +76,7 @@ export type OrgDirectoryUnavailableReason =
   | "network"
   | "invalid-response"
   | "ssrf-blocked"
+  | "workspace-url-unavailable"
   | "server-error"
   | "http-error";
 
@@ -247,10 +249,112 @@ async function fetchOrgAppsResultInternal(
   strictValidation = true,
 ): Promise<OrgDirectoryFetchResult> {
   const env = opts?.env ?? process.env;
+  const directoryBase = await resolveDirectoryBaseUrl(opts, env);
+  if (!directoryBase.ok) return directoryBase.result;
+  const result = await fetchOrgAppsAtBaseUrl(
+    { ...opts, directoryBaseUrl: directoryBase.url },
+    strictValidation,
+  );
+  if (result.status !== "unavailable" || result.reason !== "missing-route") {
+    return result;
+  }
+
+  const rootUrl = new URL(directoryBase.url).origin;
+  if (rootUrl === directoryBase.url.replace(/\/+$/, "")) return result;
+  return fetchOrgAppsAtBaseUrl(
+    { ...opts, directoryBaseUrl: rootUrl },
+    strictValidation,
+  );
+}
+
+async function resolveDirectoryBaseUrl(
+  opts: FetchOrgAppsOptions | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<
+  | { ok: true; url: string }
+  | {
+      ok: false;
+      result: Extract<OrgDirectoryFetchResult, { status: "unavailable" }>;
+    }
+> {
+  if (opts?.directoryBaseUrl !== undefined) {
+    const url = normalizeDirectoryBaseUrl(opts.directoryBaseUrl);
+    return url
+      ? { ok: true, url }
+      : {
+          ok: false,
+          result: { status: "unavailable", reason: "invalid-origin" },
+        };
+  }
+
+  const serviceOrgId = opts?.serviceOrgId?.trim();
+  let orgId = serviceOrgId || undefined;
+  try {
+    if (!orgId) {
+      const { getRequestOrgId } = await import("../server/request-context.js");
+      orgId = getRequestOrgId();
+    }
+    if (orgId) {
+      const { getOrgWorkspaceUrl } = await import("../org/context.js");
+      const workspaceUrl = await getOrgWorkspaceUrl(orgId);
+      if (workspaceUrl) {
+        const url = normalizeOrgWorkspaceDirectoryBaseUrl(workspaceUrl);
+        return url
+          ? { ok: true, url }
+          : {
+              ok: false,
+              result: { status: "unavailable", reason: "invalid-origin" },
+            };
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      result: { status: "unavailable", reason: "workspace-url-unavailable" },
+    };
+  }
+
+  const configuredUrl = configuredOrgDirectoryUrl(env);
+  const url = resolveOrgDirectoryOrigin(env);
+  if (url) return { ok: true, url };
+  return {
+    ok: false,
+    result: {
+      status: "unavailable",
+      reason: configuredUrl ? "invalid-origin" : "not-configured",
+    },
+  };
+}
+
+function normalizeOrgWorkspaceDirectoryBaseUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.pathname !== "/" && url.pathname !== "")
+    ) {
+      return null;
+    }
+    return `${url.origin}/dispatch`;
+  } catch {
+    // coercion-ok: Invalid bindings become typed invalid-origin failures above.
+    return null;
+  }
+}
+
+async function fetchOrgAppsAtBaseUrl(
+  opts: FetchOrgAppsOptions | undefined,
+  strictValidation: boolean,
+): Promise<OrgDirectoryFetchResult> {
+  const env = opts?.env ?? process.env;
   const hasExplicitBaseUrl = opts?.directoryBaseUrl !== undefined;
   const hasConfiguredEnvUrl = configuredOrgDirectoryUrl(env) !== null;
   const origin = hasExplicitBaseUrl
-    ? normalizeDirectoryBaseUrl(opts?.directoryBaseUrl ?? "")
+    ? normalizeDirectoryBaseUrl(opts.directoryBaseUrl ?? "")
     : resolveOrgDirectoryOrigin(env);
   if (!origin) {
     return {

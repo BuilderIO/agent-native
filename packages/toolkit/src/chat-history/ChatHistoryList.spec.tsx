@@ -192,6 +192,26 @@ describe("ChatHistoryList", () => {
     expect(onSelect).toHaveBeenCalledWith("thread-2");
   });
 
+  it("keeps rail rows title-only", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          variant="rail"
+          items={[
+            item({ id: "thread-1", title: "First chat", timestamp: "2h ago" }),
+          ]}
+          onSelect={() => {}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("First chat");
+    expect(container.textContent).not.toContain("2h ago");
+    expect(container.querySelector(".an-chat-history-row__timestamp")).toBe(
+      null,
+    );
+  });
+
   it("highlights the active item", () => {
     const items: ChatHistoryItem[] = [
       item({ id: "thread-1" }),
@@ -269,6 +289,25 @@ describe("ChatHistoryList", () => {
       );
     });
     expect(container.textContent).toContain("Searching...");
+    expect(container.querySelector(".an-chat-history-row")).toBeNull();
+  });
+
+  it("shows skeleton rows with row geometry when loading without a label", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "thread-1" })]}
+          loading
+          onSelect={() => {}}
+        />,
+      );
+    });
+    const skeleton = container.querySelector(".an-chat-history__skeletons");
+    expect(skeleton?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      skeleton?.querySelectorAll(".an-chat-history__skeleton-row"),
+    ).toHaveLength(3);
+    expect(container.textContent).toBe("");
     expect(container.querySelector(".an-chat-history-row")).toBeNull();
   });
 
@@ -685,5 +724,128 @@ describe("ChatHistoryList", () => {
     act(() => getMenuItems()[0]?.click());
     expect(onCopyLink).toHaveBeenCalledWith("shared");
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("moves through row menu items with the arrow keys", async () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "thread-1", titleText: "First" })]}
+          onSelect={() => {}}
+          onRename={() => {}}
+          onTogglePin={() => {}}
+          onDelete={() => {}}
+        />,
+      );
+    });
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    const items = getMenuItems();
+    expect(items.map((element) => element.getAttribute("role"))).toEqual([
+      "menuitem",
+      "menuitem",
+      "menuitem",
+    ]);
+    const menu = document.body.querySelector<HTMLElement>(
+      ".an-chat-history-row__menu-content",
+    )!;
+    await act(async () => {
+      items[0]!.focus();
+      items[0]!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.activeElement).toBe(items[1]);
+    expect(menu.querySelector("[role='separator']")).not.toBeNull();
+    expect(menu.querySelector("svg")).toBeNull();
+  });
+
+  it("marks delete destructive by default and plain when the slot archives", async () => {
+    const renderWithTone = (deleteAction?: "archive") => {
+      act(() => {
+        root.render(
+          <ChatHistoryList
+            key={deleteAction ?? "delete"}
+            items={[item({ id: "thread-1" })]}
+            onSelect={() => {}}
+            onDelete={() => {}}
+            deleteAction={deleteAction}
+            labels={{ delete: "Archive chat" }}
+          />,
+        );
+      });
+    };
+    const deleteItem = () =>
+      getMenuItems().find((element) =>
+        element.textContent?.includes("Archive chat"),
+      );
+
+    renderWithTone();
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      deleteItem()?.classList.contains(
+        "an-chat-history-row__menu-item--danger",
+      ),
+    ).toBe(true);
+
+    renderWithTone("archive");
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      deleteItem()?.classList.contains(
+        "an-chat-history-row__menu-item--danger",
+      ),
+    ).toBe(false);
+  });
+
+  it("renders a plain row without a hover card, so hover never repeats the row", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "thread-1" })]}
+          onSelect={() => {}}
+          onDelete={() => {}}
+        />,
+      );
+    });
+    const row = container.querySelector<HTMLElement>(".an-chat-history-row")!;
+    expect(row.hasAttribute("data-state")).toBe(false);
+    act(() => {
+      row.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+      row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(
+      document.body.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+  });
+  it("marks only unread rows with a named dot", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "unread", unread: true }), item({ id: "read" })]}
+          labels={{ unread: "New reply" }}
+          onSelect={() => {}}
+        />,
+      );
+    });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(".an-chat-history-row"),
+    );
+    const dots = container.querySelectorAll(".an-chat-history-row__unread");
+    expect(dots).toHaveLength(1);
+    expect(rows[0]?.contains(dots[0]!)).toBe(true);
+    expect(dots[0]?.getAttribute("aria-label")).toBe("New reply");
+    expect(rows[0]?.querySelector("button")?.textContent).toBe("unread");
   });
 });

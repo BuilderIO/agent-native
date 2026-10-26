@@ -54,10 +54,10 @@ describe("Realtime voice localization", () => {
   it("uses app overrides from the modern agentChat namespace", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
-    let entryButtonLabel = "";
+    let startVoiceModeLabel = "";
 
     function Consumer() {
-      entryButtonLabel = useRealtimeVoiceModeCopy().entryButtonLabel;
+      startVoiceModeLabel = useRealtimeVoiceModeCopy().startVoiceMode;
       return null;
     }
 
@@ -66,7 +66,7 @@ describe("Realtime voice localization", () => {
         createElement(ComposerRuntimeAdaptersProvider, {
           adapters: {
             translate: (key, options) =>
-              key === "agentChat.voiceMode.entryButtonLabel"
+              key === "agentChat.voiceMode.start"
                 ? "Modern voice override"
                 : String(options?.defaultValue ?? key),
           },
@@ -75,7 +75,7 @@ describe("Realtime voice localization", () => {
       );
     });
 
-    expect(entryButtonLabel).toBe("Modern voice override");
+    expect(startVoiceModeLabel).toBe("Modern voice override");
     act(() => root.unmount());
   });
 });
@@ -1225,6 +1225,114 @@ describe("Realtime voice startup and transcript ordering", () => {
     sequencer.flush();
 
     expect(published).toEqual([]);
+  });
+});
+
+describe("Realtime voice transcript streaming", () => {
+  type Update = { role: string; text: string; providerId?: string };
+  function streamingSequencer() {
+    const streamed: Update[] = [];
+    const published: Update[] = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer(
+      (transcript) => published.push(transcript),
+      (transcript) => streamed.push(transcript),
+    );
+    return { sequencer, streamed, published };
+  }
+
+  it("streams each turn under the id its final transcript keeps", () => {
+    const { sequencer, streamed, published } = streamingSequencer();
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "Make the ",
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "header blue",
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "Make the header blue.",
+    });
+
+    expect(streamed).toEqual([
+      { role: "user", text: "Make the", providerId: "user-1" },
+      { role: "user", text: "Make the header blue", providerId: "user-1" },
+    ]);
+    expect(published).toEqual([
+      { role: "user", text: "Make the header blue.", providerId: "user-1" },
+    ]);
+  });
+
+  it("holds a reply until the question it answers has appeared", () => {
+    const { sequencer, streamed } = streamingSequencer();
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant-1",
+      delta: "Sure.",
+    });
+    expect(streamed).toEqual([]);
+
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "Can you help?",
+    });
+    expect(streamed.map(({ role }) => role)).toEqual(["user", "assistant"]);
+  });
+
+  it("finalizes a streamed turn that never completed when the session flushes", () => {
+    const { sequencer, published } = streamingSequencer();
+    sequencer.handle({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant-1",
+      delta: "Cut off mid",
+    });
+    sequencer.flush();
+
+    expect(published).toEqual([
+      { role: "assistant", text: "Cut off mid", providerId: "assistant-1" },
+    ]);
+  });
+
+  it("streams GPT-Live turns under a stable live id", () => {
+    const { sequencer, streamed, published } = streamingSequencer();
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "Hello ",
+      start_ms: 0,
+      end_ms: 200,
+    });
+    sequencer.handle({
+      type: "session.input_transcript.delta",
+      delta: "there",
+      start_ms: 200,
+      end_ms: 400,
+    });
+    sequencer.handle({ type: "session.closed" });
+
+    expect(streamed).toEqual([
+      { role: "user", text: "Hello", providerId: "live-1" },
+      { role: "user", text: "Hello there", providerId: "live-1" },
+    ]);
+    expect(published).toEqual([
+      { role: "user", text: "Hello there", providerId: "live-1" },
+    ]);
   });
 });
 

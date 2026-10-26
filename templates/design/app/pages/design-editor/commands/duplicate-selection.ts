@@ -165,11 +165,7 @@ export interface DuplicateSelectionArgs {
       duplicateStackSourceIds?: string[];
     },
   ) => void;
-  lastDuplicateTransformRef: RefObject<{
-    rootNodeIds: string[];
-    dx: number;
-    dy: number;
-  } | null>;
+  lastDuplicateTransformRef: RefObject<DuplicateTransform | null>;
   contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   localContentUndoStackRef?: RefObject<ContentHistoryChange[]>;
@@ -194,6 +190,34 @@ export interface DuplicateSelectionArgs {
   t: (key: string, options?: Record<string, unknown>) => string;
   undoManagerRef: RefObject<Y.UndoManager | null>;
   viewModeRef: RefObject<"single" | "overview">;
+}
+
+interface DuplicateTransform {
+  rootNodeIds: string[];
+  dx: number;
+  dy: number;
+  /** One duplicate and where its source sat, so a later move of it, however
+   * many commits it took, is the offset the next duplicate repeats. */
+  anchor?: { rootNodeId: string; sourceX: number; sourceY: number };
+}
+
+function resolveRepeatOffset(
+  transform: DuplicateTransform,
+  snapshots: readonly SelectedCanvasLayerSnapshot[],
+): { dx: number; dy: number } {
+  const anchor = transform.anchor;
+  const anchorSnapshot = anchor
+    ? snapshots.find(
+        (snapshot) =>
+          (snapshot.rootNodeId ?? snapshot.node.id) === anchor.rootNodeId,
+      )
+    : undefined;
+  const current = anchorSnapshot
+    ? extractLayerPosition(anchorSnapshot.html)
+    : null;
+  return anchor && current
+    ? { dx: current.x - anchor.sourceX, dy: current.y - anchor.sourceY }
+    : { dx: transform.dx, dy: transform.dy };
 }
 
 export function runDuplicateSelection({
@@ -292,9 +316,10 @@ export function runDuplicateSelection({
       lastDuplicateTransformRef.current.rootNodeIds.every(
         (id, index) => id === currentSourceIds[index],
       )
-        ? lastDuplicateTransformRef.current
+        ? resolveRepeatOffset(lastDuplicateTransformRef.current, snapshots)
         : null;
     const nextDuplicateRootNodeIds: string[] = [];
+    let nextDuplicateAnchor: DuplicateTransform["anchor"];
 
     if (liveScreenSelection) {
       const sourcePositions = snapshots.map((snapshot) =>
@@ -441,6 +466,10 @@ export function runDuplicateSelection({
         filename: file.filename,
       };
       const insertedRootNodeIds: string[] = [];
+      const sourcePositionByInsertedRootId = new Map<
+        string,
+        { x: number; y: number }
+      >();
       const clonedNodeIdMap = new Map<string, string>();
       for (const snapshot of group) {
         const projection = buildCodeLayerProjection(content, { source });
@@ -479,6 +508,11 @@ export function runDuplicateSelection({
           clonedNodeIdMap.set(key, value),
         );
         insertedRootNodeIds.unshift(...result.rootNodeIds);
+        if (sourcePosition) {
+          for (const rootNodeId of result.rootNodeIds) {
+            sourcePositionByInsertedRootId.set(rootNodeId, sourcePosition);
+          }
+        }
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
@@ -542,10 +576,18 @@ export function runDuplicateSelection({
         if (!insertedNode) return;
         selectedIds.push(insertedNode.id);
         if (file.id === activeFile?.id) activeSelectedIds.push(insertedNode.id);
-        nextDuplicateRootNodeIds.push(
+        const duplicateRootNodeId =
           insertedNode.dataAttributes["data-agent-native-node-id"] ??
-            insertedNode.id,
-        );
+          insertedNode.id;
+        nextDuplicateRootNodeIds.push(duplicateRootNodeId);
+        const sourcePosition = sourcePositionByInsertedRootId.get(rootNodeId);
+        if (!nextDuplicateAnchor && sourcePosition) {
+          nextDuplicateAnchor = {
+            rootNodeId: duplicateRootNodeId,
+            sourceX: sourcePosition.x,
+            sourceY: sourcePosition.y,
+          };
+        }
         if (file.id === activeFile?.id) lastActiveNode = insertedNode;
       });
     }
@@ -610,6 +652,7 @@ export function runDuplicateSelection({
         rootNodeIds: [...nextDuplicateRootNodeIds].sort(),
         dx: repeatTransform?.dx ?? 0,
         dy: repeatTransform?.dy ?? 0,
+        ...(nextDuplicateAnchor ? { anchor: nextDuplicateAnchor } : {}),
       };
       return;
     }

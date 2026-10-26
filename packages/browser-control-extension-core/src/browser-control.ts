@@ -24,8 +24,8 @@ type TaskSession = {
   taskId: string;
   tabId: number;
   allowedOrigins: Set<string>;
-  observation?: BrowserObservation;
-  lastCursor?: { x: number; y: number };
+  observation?: BrowserObservation | undefined;
+  lastCursor?: { x: number; y: number } | undefined;
 };
 
 type StoredTaskSession = Omit<TaskSession, "allowedOrigins"> & {
@@ -156,8 +156,9 @@ function centerOfBox(result: BoxModelResult): { x: number; y: number } {
       "TARGET_NOT_VISIBLE",
       "Target has no visible box.",
     );
-  const xs = [quad[0], quad[2], quad[4], quad[6]];
-  const ys = [quad[1], quad[3], quad[5], quad[7]];
+  const points = quad.slice(0, 8);
+  const xs = points.filter((_, index) => index % 2 === 0);
+  const ys = points.filter((_, index) => index % 2 === 1);
   return {
     x: xs.reduce((sum, value) => sum + value, 0) / xs.length,
     y: ys.reduce((sum, value) => sum + value, 0) / ys.length,

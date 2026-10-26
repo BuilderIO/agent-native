@@ -1,9 +1,9 @@
 ---
 name: design-generation
 description: >-
-  Generate or refine Design web prototypes. Use when creating screens,
-  variants, or applying visual refinements. For HubSpot email requests,
-  read hubspot-email instead.
+  Generate or refine Design web prototypes and fixed promotional artwork. Use
+  when creating screens, variants, ads, social graphics, flyers, posters, or
+  banners. For HubSpot email requests, read hubspot-email instead.
 ---
 
 # Design Generation
@@ -200,11 +200,17 @@ Pick a preset by `projectType`:
 ## Measurable rules (bake these in)
 
 - 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
-- Absolute `left`/`top` are whole pixels, and multiples of the screen's
-  `layoutGrid.size` when `design-selection` reports one. A fractional or
-  off-grid position reads as a mistake to a designer and does not match what
+- Every px length is a whole number: position, width, height, padding, gap,
+  radius, font size, translate. Absolute `left`/`top` are also multiples of the
+  screen's `layoutGrid.size` when `design-selection` reports one. A fractional
+  or off-grid value reads as a mistake to a designer and does not match what
   dragging the same element produces. Set a screen's grid with
   `set-layout-grid`.
+- Flat layer tree. Every element is a layer the user selects, drags, and
+  resizes, so each one must earn its place: one flex or grid container per
+  visual group, content directly inside it, spacing from `gap` and `padding`.
+  A wrapper with a single child and no layout, paint, or spacing of its own is
+  a defect. Sections are usually three or four levels deep.
 - Body text ≥ 16px, labels ≥ 12px.
 - Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
 - WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.
@@ -462,9 +468,35 @@ Frame geometry is always numbers — `"width": 800`, never `"800"` or `"800px"`.
 
 At small ad-unit sizes (320×50, 160×600), text commonly runs 9-11px — smaller
 than this skill's general 16px body-text floor — because there is no room to
-reflow. That is expected for these formats; it stays legible in @2x+ exports
-since the export scale multiplies raster resolution, not the authored CSS
-size. Avoid dense multi-line copy at these sizes regardless.
+reflow. Higher-resolution exports make edges sharper, but do not increase text's
+relative size when the asset is displayed at its intended dimensions.
+
+### Promotional artwork typography at delivery size
+
+For ads, social graphics, flyers, posters, and banners, size and space type for
+the fixed canvas and where the asset will appear. The web prototype type scale
+and page section rhythm above are not defaults for artwork. If the user supplies
+a `design.md` or Brand Kit, use its typography, spacing, color, and voice as the
+source of truth and ground the output in those tokens.
+
+Use the canvas's shorter edge as a starting measure: on feed graphics and
+poster-like formats, a headline around 6–10% of that edge and supporting text
+around 2.5–4% often gives a clear first hierarchy (about 65–108px and 27–43px
+on a 1080px square; 38–63px and 16–25px on a 1200×627 canvas). Treat these as
+starting ranges, then adjust for the brand's typeface, copy length, composition,
+and intended display scale; raise type or recompose if the display-size check
+fails. Choose weights by role from the brand-approved type tokens: give the
+headline the strongest available emphasis, keep date/details quieter, and give
+the CTA enough emphasis to scan. If the brand offers one weight, use size,
+position, or contrast for hierarchy instead of inventing another. Estimate
+displayed type size as `authored px × displayed width / canvas width`: 36px type
+on a 1080px-wide asset appears about 12px tall in a 360px feed slot. A 2× export
+adds pixel density, not apparent size. On short banners and small ad slots, use
+a compact message and size type against the available height instead of
+carrying over those ratios. Set line length, line height, safe margins, and
+spacing from the actual canvas so the headline leads and supporting copy stays
+readable. When text does not fit, shorten or recompose it before shrinking
+every line.
 
 ### Phase 4 — Always ship tweaks with the design
 
@@ -507,6 +539,12 @@ UI, and whether the copy/content still sounds real. To compare two design
 snapshots/branches for a file-level visual diff (added/removed/modified) —
 e.g. after a large refactor or before/after a review pass — call
 `get-design-review` instead of eyeballing both versions.
+
+For fixed promotional artwork, inspect the exact-size screenshot at 1:1 and at
+the intended display scale (for example, as a feed thumbnail). Confirm the main
+message reads first and the supporting copy remains legible at that scale; if
+it fails, revise the type, spacing, or copy and capture it again. Export scale
+alone does not fix type that is too small for the intended display.
 
 After generation or a broad update, leave the user in the screen overview
 (`navigate --view editor --editorView overview`) when the work involves
@@ -900,8 +938,10 @@ regeneration is slow, expensive, and regresses unrelated parts.
      --edits '[{"search":"<h1 class=\"text-4xl\">Hello</h1>","replace":"<h1 class=\"text-5xl\">Hello there</h1>"}]'
    ```
    Each `search` must match the file **exactly and uniquely** — include enough
-   surrounding context to be unambiguous. Wrapping an element in a new div is
-   just a search/replace whose `replace` adds the wrapper around the original.
+   surrounding context to be unambiguous. When a change needs a new container,
+   first try styling the existing parent; add a wrapper only when no existing
+   element can hold the layout, as a search/replace whose `replace` adds it
+   around the original.
 3. **Reserve `generate-design` for** net-new files. For large structural
    rewrites of an existing selected file, call `edit-design` with
    `mode: "replace-file"` and the exact `fileId` from `get-design-snapshot`.
@@ -953,6 +993,8 @@ read `references/code-layers.md`. For the VS Code-style source workbench
   chrome (icons, avatars-as-initials, decorative fills), never as a stand-in
   for a hero, product shot, or portrait that should be a generated image
 - Never set font-size below 16px for body text or 12px for labels
+- Never nest wrapper divs that add no layout, paint, or spacing, and never
+  write fractional px values such as `left: 256.96px`
 
 ## Multi-screen consistency contract
 
