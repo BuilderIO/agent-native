@@ -115,6 +115,51 @@ A server action can read that tab's value with
 `readAppStateForCurrentTab("selection")`. A `view-screen` result may include the
 selection and a specific next action when that helps the agent target an edit.
 
+### Picked objects (composer Select)
+
+When the user picks on-screen objects with the composer's Select button, each
+one becomes an ordinary agent chat context chip keyed
+`agent-select:<kind>:<id>`. Every turn's context then opens with a
+`## Selected objects` block listing them. Treat that list as the target set:
+apply the request to those objects and leave the rest unchanged unless the
+message says otherwise. The tab-scoped `agent-selection` key mirrors the
+list as `{ items: [{ kind, id, title }], updatedAt }` for actions that need
+it; read it with `readAppStateForCurrentTab(AGENT_SELECTION_STATE_KEY)` (the
+constant is in `@agent-native/core/shared`).
+
+**UI side** — offer objects to Select with the toolkit registry; never build a
+per-app pick mode or a second selection store:
+
+```tsx
+import {
+  useAgentSelectable,
+  useAgentSelectableSource,
+} from "@agent-native/toolkit/app/agent-select";
+
+// One object per component: returns whether it is picked.
+const picked = useAgentSelectable({
+  kind: "panel",
+  id: panel.id,
+  title: panel.title,
+  getContext: () => `Panel id: ${panel.id}`,
+  getElement: () => cardRef.current,
+});
+
+// Dynamic content (slide nodes, design layers): resolve the element under
+// the pointer, including inside same-origin iframes.
+useAgentSelectableSource((target) => resolveObject(target));
+```
+
+The Select button appears in the composer only while something is registered.
+`selectAgentSelectable(target, { exclusive: true })` stages an object from a
+plain click outside pick mode. A pick is released when its object unregisters
+and does not remount, so leaving a screen or deleting an object needs no
+cleanup. Give a source-resolved object a `parent` and a `getElement` that
+finds its node again by a stable id: it is released with its parent, or when
+the parent is on screen and the node is gone. Keep
+`getContext` to ids, a short label, and the action to use; mark chrome pick
+mode must skip with `data-agent-select-ignore`.
+
 ### 2. Current URL (`__url__` key)
 
 `AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn.

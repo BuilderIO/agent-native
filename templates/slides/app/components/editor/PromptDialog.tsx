@@ -802,6 +802,7 @@ export default function PromptPopover({
                   inline ? "slides-home-prompt-composer-area" : undefined
                 }
                 voiceEnabled
+                voiceChatEnabled={false}
                 attachmentsEnabled={active && fileStorageConfigured}
                 attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}

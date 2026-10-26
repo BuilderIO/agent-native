@@ -516,6 +516,7 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  // New meetings insert true; the default stays false so older meetings never opt in.
   shareTranscript: boolean("share_transcript").notNull().default(false),
   summaryMd: text("summary_md").notNull().default(""),
   bulletsJson: text("bullets_json").notNull().default("[]"),

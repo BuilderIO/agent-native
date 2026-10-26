@@ -1274,6 +1274,8 @@ export interface TiptapComposerProps {
   planCommand?: boolean;
   /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
+  voiceChatEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
   /** Selected provider engine for this conversation */
@@ -2912,6 +2914,7 @@ function TiptapComposerSurface({
   onSlashCommand,
   planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  voiceChatEnabled = true,
   selectedModel,
   selectedEngine,
   selectedEffort,
@@ -2963,7 +2966,9 @@ function TiptapComposerSurface({
   const realtimeVoice = useRealtimeVoiceModeOptional();
   const realtimeVoiceCopy = useRealtimeVoiceModeCopy();
   const voiceChat =
-    voiceEnabled && realtimeVoice?.active ? realtimeVoice : null;
+    voiceEnabled && voiceChatEnabled && realtimeVoice?.active
+      ? realtimeVoice
+      : null;
   // The realtime session has no text input, so a typed draft would start a
   // separate run the voice agent never hears.
   const editorLocked = disabled || voiceChat !== null;
@@ -6356,7 +6361,7 @@ function TiptapComposerSurface({
       sendDisabled={!canSend || sendButtonDisabled}
       sendLabel={sendButtonTooltip}
       busy={sendButtonBusy}
-      voiceEnabled={voiceEnabled}
+      voiceEnabled={voiceEnabled && voiceChatEnabled}
       voiceChatEligible={
         !hasDraft &&
         !planNext &&
@@ -6711,7 +6716,12 @@ function TiptapComposerSurface({
             {/* Dictation keeps its own slot beside Send, so typing never
                 hides it; while recording it grows into the recording pill. */}
             {voiceEnabled && (
-              <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
+              <VoiceButton
+                voice={voice}
+                isMac={isMac}
+                disabled={disabled}
+                voiceChat={voiceChatEnabled}
+              />
             )}
             {stopButton ? (
               // Stop takes Send's place while the composer is empty, and Send
