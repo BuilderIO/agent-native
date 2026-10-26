@@ -1704,10 +1704,46 @@ const generateDesignAction = defineAction({
   },
 });
 
+const LEAN_JSON_FIELDS = [
+  "tweaks",
+  "canvasFrames",
+  "reuseLabels",
+  "files",
+] as const;
+
+// The lean fields are strings for the model, but validation enforces a nested
+// shape. Generating that shape from zod keeps the advertised rules from drifting.
+function withValidatedFieldShapes(
+  parameters: typeof generateDesignAgentParameters,
+  schema: z.ZodObject<any>,
+) {
+  const properties: Record<string, Record<string, unknown>> = {
+    ...parameters.properties,
+  };
+  for (const field of LEAN_JSON_FIELDS) {
+    const { $schema: _draft, ...json } = schema.shape[field][
+      "~standard"
+    ].jsonSchema.input({
+      target: "draft-07",
+    }) as Record<string, unknown>;
+    const shape = JSON.stringify(json, (key, value) =>
+      key === "description" ? undefined : value,
+    );
+    properties[field] = {
+      ...properties[field],
+      description: `${properties[field].description} Validated shape: ${shape}`,
+    };
+  }
+  return { ...parameters, properties };
+}
+
 export default {
   ...generateDesignAction,
   tool: {
     ...generateDesignAction.tool,
-    parameters: generateDesignAgentParameters,
+    parameters: withValidatedFieldShapes(
+      generateDesignAgentParameters,
+      generateDesignAction.schema,
+    ),
   },
 };

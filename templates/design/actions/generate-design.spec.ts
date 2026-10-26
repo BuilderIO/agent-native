@@ -336,6 +336,7 @@ describe("generate-design action tool schema", () => {
       "null",
     ]);
     expect(parameters.properties?.tweaks?.type).toBe("string");
+    expect(parameters.properties?.tweaks?.description).toContain('"toggle"');
     expect(parameters.properties?.canvasFrames?.type).toBe("string");
     expect(parameters.properties?.reuseLabels?.type).toBe("string");
     expect(parameters.properties?.contextModeOverride?.type).toBe("string");
