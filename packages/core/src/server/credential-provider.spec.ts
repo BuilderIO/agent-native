@@ -3593,8 +3593,63 @@ describe("Restrict personal API keys", () => {
         publicKey: "org-BUILDER_PUBLIC_KEY",
         lookupFailed: false,
       });
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).resolves.toBe("org-BUILDER_PRIVATE_KEY");
     }
   });
+
+  it.each(["member", "owner", "admin"])(
+    "keeps an unreadable personal Builder key as a failure for %s without a usable higher-precedence key",
+    async (role) => {
+      restrictOrg(role, false);
+      process.env.BUILDER_PRIVATE_KEY = "bpk-example-deploy";
+      mockReadAppSecret.mockImplementation(
+        async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+          if (scope === "user")
+            throw new AppSecretDecryptionError({ scope, scopeId });
+          return role === "member" && scope === "org"
+            ? { value: "bpk-example-org", last4: "-org", updatedAt: 1 }
+            : null;
+        },
+      );
+
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+      if (role === "member") {
+        expect(
+          mockReadAppSecret.mock.calls.some(([args]) => args.scope === "org"),
+        ).toBe(false);
+      }
+    },
+  );
+
+  it.each(["role", "org"])(
+    "does not hide an unreadable personal Builder key when the %s lookup also fails",
+    async (failureAt) => {
+      restrictOrg("admin", false);
+      process.env.BUILDER_PRIVATE_KEY = "bpk-example-deploy";
+      if (failureAt === "role") {
+        mockGetDbExec.mockReturnValue({
+          execute: vi.fn(async () => {
+            throw new Error("permission denied");
+          }),
+        });
+      }
+      mockReadAppSecret.mockImplementation(
+        async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+          if (scope === "user")
+            throw new AppSecretDecryptionError({ scope, scopeId });
+          throw new Error("permission denied");
+        },
+      );
+
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    },
+  );
 
   it("checks an owner or admin org pair before falling back from an unreadable personal pair", async () => {
     process.env.GOOGLE_CLIENT_ID = "deploy-client";

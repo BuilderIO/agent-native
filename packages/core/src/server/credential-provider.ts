@@ -588,6 +588,7 @@ async function resolveScopedBuilderCredential(
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
   let orgLookupCause: unknown;
+  let personalReadError: AppSecretDecryptionError | undefined;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const requestScope =
@@ -666,8 +667,18 @@ async function resolveScopedBuilderCredential(
         cause: orgLookupCause,
       };
     }
-    const personal = await readPersonal();
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+    let personal: ScopedCredentialResult | null = null;
+    try {
+      personal = await readPersonal();
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      personalReadError = error;
+    }
+    const orgCredentialFirst =
+      Boolean(personal || personalReadError) &&
+      (await readsOrgCredentialFirst(orgId, email));
+    if (personalReadError && !orgCredentialFirst) throw personalReadError;
+    if (personal && !orgCredentialFirst) {
       return personal;
     }
 
@@ -716,6 +727,7 @@ async function resolveScopedBuilderCredential(
         );
       }
     }
+    if (personalReadError) throw personalReadError;
     if (personal) return personal;
 
     // 3. Solo-workspace fallback: always checked, even when an org id was
@@ -753,7 +765,12 @@ async function resolveScopedBuilderCredential(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
       );
     }
-    return { value: null, source: null, lookupFailed: true, cause: err };
+    return {
+      value: null,
+      source: null,
+      lookupFailed: true,
+      cause: personalReadError ?? err,
+    };
   }
   return {
     value: null,

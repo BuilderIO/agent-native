@@ -790,6 +790,7 @@ export interface BuilderBrowserStatus {
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
   canDisconnect?: boolean;
+  builderReauthorizationRequired?: boolean;
   authError?: { message: string; at: number };
   connectError?: { message: string; at: number; code?: string };
   appHost: string;
