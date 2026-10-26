@@ -83,8 +83,8 @@ function wallTimeInZone(wall: number, zone: string): number | undefined {
 
 function normalizedOffset(offset: string): string | undefined {
   if (offset.toUpperCase() === "Z") return "UTC";
-  if (fixedOffsetMinutes(offset) === undefined) return undefined;
-  const fixed = FIXED_OFFSET.exec(offset)!;
+  const fixed = FIXED_OFFSET.exec(offset);
+  if (!fixed || fixedOffsetMinutes(offset) === undefined) return undefined;
   return `${fixed[1]}${fixed[2]}:${fixed[3]}`;
 }
 

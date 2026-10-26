@@ -3243,6 +3243,11 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
+    // Calls reach approval only when `canRequestApproval` saw a codec.
+    const codec = approvalCodec;
+    if (!codec) {
+      throw new Error(`${name} requires approval, but it is not configured.`);
+    }
     const envelope = ctx.mcpReq.envelope as
       | Record<string, ClientCapabilities | undefined>
       | undefined;
@@ -3280,7 +3285,7 @@ export async function createMCPServerForRequest(
       reviewUrl,
     });
     if (mode === "url") {
-      const requestState = await approvalCodec!.mint(
+      const requestState = await codec.mint(
         { ...approvalState, mode: "url" },
         ctx,
       );
@@ -3294,7 +3299,7 @@ export async function createMCPServerForRequest(
         requestState,
       });
     }
-    const requestState = await approvalCodec!.mint(approvalState, ctx);
+    const requestState = await codec.mint(approvalState, ctx);
     return inputRequired({
       inputRequests: {
         [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicit({

@@ -4890,12 +4890,10 @@ async function resolveBrowserCookieSession(
   if (cookie) {
     try {
       const ba = getBetterAuthSync() ?? (await getBetterAuth());
-      if (ba) {
-        const baSession = await ba.api.getSession({
-          headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
-        });
-        if (baSession?.user?.email) return mapBetterAuthSession(baSession);
-      }
+      const baSession = await ba.api.getSession({
+        headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
+      });
+      if (baSession?.user.email) return mapBetterAuthSession(baSession);
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
       (event.context as Record<string, unknown>)[
@@ -5192,7 +5190,7 @@ function matchesPathPattern(path: string, pattern: string): boolean {
     expectedSegments.every((segment, index) => {
       const parameter = /^:[A-Za-z][A-Za-z0-9_]*(\(uuidv4\))?$/.exec(segment);
       if (parameter) {
-        const value = actualSegments[index];
+        const value = actualSegments.at(index);
         return (
           value !== undefined &&
           (parameter[1]

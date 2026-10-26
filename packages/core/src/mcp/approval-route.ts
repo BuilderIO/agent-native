@@ -740,7 +740,7 @@ function startPruneWorker(): void {
 }
 
 export function mountMcpApprovalRoute(
-  nitroApp: any,
+  nitroApp: unknown,
   app: McpApprovalApp,
   routePrefix = "/_agent-native",
 ): void {

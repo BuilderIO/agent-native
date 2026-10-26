@@ -429,7 +429,7 @@ export async function findRecentMcpApprovalRun(
       since,
     ],
   });
-  const row = (rows as Record<string, unknown>[])[0];
+  const row = (rows as Record<string, unknown>[]).at(0);
   return row ? recordFromRow(row) : null;
 }
 
@@ -456,7 +456,7 @@ export async function getMcpApprovalForOwner(
       reader.orgId ?? "",
     ],
   });
-  const row = (rows as Record<string, unknown>[])[0];
+  const row = (rows as Record<string, unknown>[]).at(0);
   return row ? recordFromRow(row) : null;
 }
 
