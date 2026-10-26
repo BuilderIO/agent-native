@@ -365,3 +365,37 @@ export function deleteTableRow(
   removeRow(tr, tableRect(tr.doc, table.pos), rowIndex);
   return tr;
 }
+
+/**
+ * A table's size by its grid, as these commands count it: a cell merged
+ * across columns takes up every column it spans.
+ */
+export function tableGridSize(table: ProseMirrorNode) {
+  return { rows: table.childCount, columns: TableMap.get(table).width };
+}
+
+/** Adds or removes columns at the table's end until it has `count`. */
+export function setTableColumnCount(
+  tr: Transaction,
+  table: TableAt,
+  count: number,
+) {
+  let { columns } = tableGridSize(table.node);
+  for (; columns < count; columns += 1) insertTableColumn(tr, table, columns);
+  for (; columns > count; columns -= 1) {
+    deleteTableColumn(tr, table, columns - 1);
+  }
+  return tr;
+}
+
+/** Adds or removes rows at the table's end until it has `count`. */
+export function setTableRowCount(
+  tr: Transaction,
+  table: TableAt,
+  count: number,
+) {
+  let { rows } = tableGridSize(table.node);
+  for (; rows < count; rows += 1) insertTableRow(tr, table, rows);
+  for (; rows > count; rows -= 1) deleteTableRow(tr, table, rows - 1);
+  return tr;
+}

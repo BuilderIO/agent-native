@@ -21,9 +21,12 @@ import {
   setColumnColors,
   setRowColor,
   setRowColors,
+  setTableColumnCount,
   setTableFitWidth,
   setTableHeaders,
+  setTableRowCount,
   type TableAt,
+  tableGridSize,
   tableWithDuplicatedColumn,
 } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
@@ -336,6 +339,30 @@ describe("a merged cell's rows and columns", () => {
     );
     expect(cells(deleted)).toEqual([["C"], ["F"]]);
     expect(columnColors(deleted)).toEqual([null]);
+  });
+
+  it("counts and resizes a table by its grid when its first row has a merged cell", () => {
+    // The first row has two cells, but the table is three columns wide.
+    const { node } = withMergedCell("colspan", [["C"], ["D", "E", "F"]]);
+    expect(tableGridSize(node)).toEqual({ rows: 2, columns: 3 });
+
+    const wider = edit(node, (tr, target) =>
+      setTableColumnCount(tr, target, 4),
+    );
+    expect(tableGridSize(wider)).toEqual({ rows: 2, columns: 4 });
+    expect(cells(wider)).toEqual([
+      ["A", "C", ""],
+      ["D", "E", "F", ""],
+    ]);
+
+    const narrower = edit(node, (tr, target) =>
+      setTableColumnCount(tr, target, 2),
+    );
+    expect(tableGridSize(narrower)).toEqual({ rows: 2, columns: 2 });
+    expect(cells(narrower)).toEqual([["A"], ["D", "E"]]);
+
+    const taller = edit(node, (tr, target) => setTableRowCount(tr, target, 3));
+    expect(tableGridSize(taller)).toEqual({ rows: 3, columns: 3 });
   });
 
   it("duplicates a column by the grid, growing a cell merged across it", () => {

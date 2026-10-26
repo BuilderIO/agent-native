@@ -45,9 +45,7 @@ import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
 import {
-  deleteTableColumn,
   deleteTableColumns,
-  deleteTableRow,
   deleteTableRows,
   findTableByIndex,
   getColumnColor,
@@ -57,8 +55,11 @@ import {
   insertTableRow,
   setColumnColors,
   setRowColors,
+  setTableColumnCount,
   setTableHeaders,
+  setTableRowCount,
   type TableAt,
+  tableGridSize,
   tableWithDuplicatedColumn,
 } from "./table-commands";
 
@@ -793,13 +794,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const adjustColumnCount = (table: HTMLElement, targetCount: number) => {
     const nextCount = Math.max(1, Math.min(MAX_DRAG_COLUMNS, targetCount));
     editTable(getTableIndex(table), (tr, target) => {
-      let columnCount = TableMap.get(target.node).width;
-      for (; columnCount < nextCount; columnCount += 1) {
-        insertTableColumn(tr, target, columnCount);
-      }
-      for (; columnCount > nextCount; columnCount -= 1) {
-        deleteTableColumn(tr, target, columnCount - 1);
-      }
+      setTableColumnCount(tr, target, nextCount);
     });
     requestAnimationFrame(syncOverlay);
   };
@@ -807,13 +802,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const adjustRowCount = (table: HTMLElement, targetCount: number) => {
     const nextCount = Math.max(1, Math.min(MAX_DRAG_ROWS, targetCount));
     editTable(getTableIndex(table), (tr, target) => {
-      let rowCount = target.node.childCount;
-      for (; rowCount < nextCount; rowCount += 1) {
-        insertTableRow(tr, target, rowCount);
-      }
-      for (; rowCount > nextCount; rowCount -= 1) {
-        deleteTableRow(tr, target, rowCount - 1);
-      }
+      setTableRowCount(tr, target, nextCount);
     });
     requestAnimationFrame(syncOverlay);
   };
@@ -902,8 +891,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     event.preventDefault();
     event.stopPropagation();
 
-    // Counted as adjustColumnCount counts, by the table's grid: a merged cell
-    // in the first row takes up every column it spans.
+    // Counted by the table's grid, as the drag adds and removes them: a
+    // merged cell in the first row takes up every column it spans.
     const view = getMountedEditorView(editor);
     const tableIndex = getTableIndex(table);
     const target =
@@ -911,8 +900,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         ? findTableByIndex(view.state.doc, tableIndex)
         : null;
     if (!target) return;
-    const rowCount = target.node.childCount;
-    const columnCount = TableMap.get(target.node).width;
+    const { rows: rowCount, columns: columnCount } = tableGridSize(target.node);
     pointerResizeRef.current = {
       didResize: false,
       kind,
