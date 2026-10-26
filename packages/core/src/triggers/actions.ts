@@ -252,10 +252,11 @@ async function handleDefine(
     );
   }
   const integration = getIntegrationRequestContext();
+  const userEmail = getCurrentUser();
   const orgId = getRequestOrgId();
   const definition = await defineAutomation(
     {
-      userEmail: getCurrentUser(),
+      userEmail,
       ...(orgId === undefined ? {} : { orgId }),
       ...(appId === undefined ? {} : { appId }),
       ...(context?.caller ? { caller: context.caller } : {}),
@@ -351,10 +352,11 @@ async function handleUpdate(
   appId?: string,
   context?: ActionRunContext,
 ): Promise<string> {
+  const userEmail = getCurrentUser();
   const orgId = getRequestOrgId();
   const definition = await updateAutomation(
     {
-      userEmail: getCurrentUser(),
+      userEmail,
       ...(orgId === undefined ? {} : { orgId }),
       ...(appId === undefined ? {} : { appId }),
       ...(context?.caller ? { caller: context.caller } : {}),

@@ -9709,7 +9709,9 @@ export async function runAgentLoop(opts: {
         (actionEntry.needsApproval || requiresWriteApproval) &&
         !wasApproved
       ) {
-        const approvalUserEmail = getRequestUserEmail();
+        const approvalUserEmail = requiresWriteApproval
+          ? undefined
+          : getRequestUserEmail();
         let mustApprove =
           requiresWriteApproval ||
           (await preparedCallNeedsApproval(actionEntry, intent, {
