@@ -20,6 +20,7 @@ import {
   SLIDES_AUTHORING_SHARDS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
+  designCanvasE2eDiagnosticShardsFor,
   shardQueryBudgetApps,
   isDocsPath,
   isGuardScopedScriptPath,
@@ -626,15 +627,12 @@ test("the nightly run and the shard action cover every Slides authoring shard", 
       `unknown shard ${shard}`,
     );
   }
-  for (const workflow of [
-    nightly,
+  assert.match(nightly, /uses: \.\/\.github\/actions\/slides-authoring-shard/u);
+  assert.doesNotMatch(
     readFileSync(".github/workflows/ci.yml", "utf8"),
-  ]) {
-    assert.match(
-      workflow,
-      /uses: \.\/\.github\/actions\/slides-authoring-shard/u,
-    );
-  }
+    /slides-authoring-shard/u,
+    "PRs must not run the authoring matrix; the nightly is its only run",
+  );
 });
 
 test("every browser runs each slice of the authoring parity suite exactly once", () => {
@@ -657,24 +655,18 @@ test("every browser runs each slice of the authoring parity suite exactly once",
 });
 
 test("Slides authoring jobs run in the image keyed on its Dockerfile", () => {
-  const ci = readFileSync(".github/workflows/ci.yml", "utf8");
   const nightly = readFileSync(
     ".github/workflows/slides-authoring-nightly.yml",
     "utf8",
   );
-  for (const workflow of [ci, nightly]) {
-    assert.match(
-      workflow,
-      /uses: \.\/\.github\/actions\/slides-authoring-image/u,
-    );
-    assert.match(
-      workflow,
-      /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
-    );
-    // A job that can write the registry would let a PR overwrite the image.
-    assert.doesNotMatch(workflow, /packages: write/u);
-    assert.match(workflow, /packages: read/u);
-  }
+  assert.match(nightly, /uses: \.\/\.github\/actions\/slides-authoring-image/u);
+  assert.match(
+    nightly,
+    /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
+  );
+  // A job that can write the registry would let a run overwrite the image.
+  assert.doesNotMatch(nightly, /packages: write/u);
+  assert.match(nightly, /packages: read/u);
 
   const publisher = readFileSync(
     ".github/workflows/slides-authoring-image.yml",
@@ -2265,62 +2257,37 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designGlobalSetup,
-    /^const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;$/m,
-    "the initial composer probe must leave a bounded Vite recovery window",
-  );
-  assert.match(
-    designGlobalSetup,
-    /^const HOME_RECOVERY_RETRY_BUDGET_MS = 2 \* 60_000;$/m,
-    "the initial Home attempt must reserve time for Vite recovery and composer readiness",
-  );
-  assert.match(
-    designGlobalSetup,
-    /^const HOME_WARMUP_BUDGET_MS = 6 \* 60_000;$/m,
+    /^const HOME_WARMUP_BUDGET_MS = 3 \* 60_000;$/m,
     "Home warmup must reserve bounded time for Vite recovery",
   );
   assert.match(
     designGlobalSetup,
-    /const homeRecoveryDeadline =\s*homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;/,
-    "Home warmup must reserve the retry budget before the first navigation",
+    /^const EDITOR_WARMUP_BUDGET_MS = 3 \* 60_000;$/m,
+    "editor warmup must reserve bounded time for a cold compile",
   );
   assert.match(
     designGlobalSetup,
-    /const homeInitialNavigationDeadline =\s*homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;/,
-    "the first navigation and composer probe must leave the full retry budget",
+    /^const WARMUP_ATTEMPT_MS = 2 \* 60_000;$/m,
+    "one warmup attempt must leave the rest of its budget for another",
+  );
+  assert.match(
+    designGlobalSetup,
+    /while \(Date\.now\(\) < deadline\) \{\s*try \{\s*await page\.goto\(url, \{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(deadline, WARMUP_ATTEMPT_MS\),\s*\}\);\s*await ready\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(deadline, WARMUP_ATTEMPT_MS\),\s*\}\);/,
+    "a warmup attempt that a Vite reload or abort cuts short must navigate again until its deadline",
   );
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
-        /homeComposer\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(\s*(homeRecoveryDetectionDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
+        /await warmupFailure\(\s*warmupPage,\s*`\$\{baseURL\}\/(home|design\/\$\{designId\})`/g,
       ),
-    ].map(([, deadline, budget]) => [deadline, budget]),
-    [
-      ["homeRecoveryDetectionDeadline", "HOME_RECOVERY_DETECTION_BUDGET_MS"],
-      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
-    ],
-    "the first composer probe must leave the remaining home budget for recovery",
-  );
-  assert.deepEqual(
-    [
-      ...designGlobalSetup.matchAll(
-        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeInitialNavigationDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
-      ),
-    ].map(([, deadline, budget]) => [deadline, budget]),
-    [
-      ["homeInitialNavigationDeadline", "HOME_INITIAL_NAVIGATION_BUDGET_MS"],
-      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
-    ],
-    "the first Home navigation must leave bounded time for recovery",
-  );
-  assert.match(
-    designGlobalSetup,
-    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeRecoveryDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
-    "the composer probe window must start after navigation so a slow cold route does not consume it",
+    ].map(([, route]) => route),
+    ["home", "design/${designId}"],
+    "Home and the editor must both warm through the retrying probe",
   );
   assert.match(
     changedSpecRegressions,
-    /--shard="\$\{changed_shard\}\/48"/,
-    "changed-spec diagnostics must retain full coverage across 48 shards",
+    /--shard="\$\{changed_shard\}\/\$\{\{ strategy\.job-total \}\}"/,
+    "changed-spec diagnostics must shard across the whole sized matrix",
   );
   assert.ok(
     changedSpecRegressions.includes(
@@ -2807,19 +2774,16 @@ test("keeps every changed Design E2E spec in visible diagnostic shards", () => {
     diagnosticJobStart,
     diagnosticJobEnd === -1 ? undefined : diagnosticJobEnd,
   );
-  const changedShardNumbers = [
-    ...diagnosticJob.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
-  ].map(([, shard]) => Number(shard));
-
-  assert.deepEqual(
-    changedShardNumbers,
-    Array.from({ length: 48 }, (_, index) => index + 1),
-    "all changed-spec shards must remain present and sequential",
+  assert.ok(
+    diagnosticJob.includes(
+      "shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_e2e_diagnostic_shards) }}",
+    ),
+    "the changed-spec matrix must come from the sized shard list",
   );
   assert.match(
     diagnosticJob,
-    /--shard="\$\{changed_shard\}\/48"/,
-    "changed specs must be fully covered across the same 48 shards",
+    /--shard="\$\{changed_shard\}\/\$\{\{ strategy\.job-total \}\}"/,
+    "changed specs must be covered across every shard in the matrix",
   );
   const fastTestsStart = workflow.indexOf("  fast-tests:\n");
   assert.notEqual(fastTestsStart, -1);
@@ -4630,6 +4594,70 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
   }
 });
 
+test("runs the execution-lease model check for its model, script, and covered code", () => {
+  for (const path of [
+    "verification/execution-lease/ExecutionLease.tla",
+    "verification/execution-lease/manifest.json",
+    "scripts/verify-execution-lease.ts",
+    "packages/core/src/agent/run-store.ts",
+    "packages/core/src/agent/production-agent.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.verify_execution_lease,
+      true,
+      path,
+    );
+  }
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/agent/run-store.test.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.verify_execution_lease,
+      false,
+      path,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks
+      .verify_execution_lease,
+    true,
+    "full run",
+  );
+});
+
+test("mutation-tests Core source only, never specs, declarations, templates, or the CLI", () => {
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/client/hooks/index.tsx",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.core_mutation, true, path);
+  }
+  for (const path of [
+    "packages/core/src/feature-flags/registry.test.ts",
+    "packages/core/src/client/hooks/index.spec.tsx",
+    "packages/core/src/types.d.ts",
+    "packages/core/src/templates/chat/actions/x.ts",
+    "packages/core/src/cli/create.ts",
+    "templates/chat/actions/x.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.core_mutation,
+      false,
+      path,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths(["packages/core/package.json"]).checks.core_mutation,
+    false,
+  );
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks.core_mutation,
+    true,
+    "full run",
+  );
+});
+
 test(
   "pre-install scope tests pass without workspace dependencies",
   { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
@@ -4650,6 +4678,8 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/lib/mutation-scope.ts",
+        "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
@@ -4736,3 +4766,42 @@ test(
     }
   },
 );
+
+test("sizes changed-spec diagnostic shards to the selected tests", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-diagnostic-shards-"));
+  try {
+    mkdirSync(join(root, "e2e"));
+    const spec = (name: string, tests: number) => {
+      writeFileSync(
+        join(root, "e2e", name),
+        Array.from(
+          { length: tests },
+          (_, i) => `test("t${i}", () => {});`,
+        ).join("\n"),
+      );
+      return `e2e/${name}`;
+    };
+    assert.deepEqual(designCanvasE2eDiagnosticShardsFor([], root), []);
+    assert.deepEqual(
+      designCanvasE2eDiagnosticShardsFor([spec("small.spec.ts", 3)], root),
+      ["changed-1"],
+    );
+    assert.deepEqual(
+      designCanvasE2eDiagnosticShardsFor(["e2e/deleted.spec.ts"], root),
+      ["changed-1"],
+    );
+    assert.equal(
+      designCanvasE2eDiagnosticShardsFor([spec("medium.spec.ts", 40)], root)
+        .length,
+      4,
+    );
+    const all = designCanvasE2eDiagnosticShardsFor(
+      [spec("all.spec.ts", 1038)],
+      root,
+    );
+    assert.equal(all.length, 48);
+    assert.equal(all.at(-1), "changed-48");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

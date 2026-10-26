@@ -19,7 +19,6 @@ import {
 } from "./_content-save-outcomes.js";
 
 afterEach(() => {
-  vi.useRealTimers();
   counter.mockReset();
 });
 
@@ -45,7 +44,6 @@ describe("Content save outcome delivery", () => {
   )(
     "classifies caller $caller with recovery header $recoveryHeader",
     async ({ caller, recoveryHeader }) => {
-      vi.useFakeTimers();
       const ctx = {
         caller: caller as ActionCaller,
         requestHeaders: new Headers(
@@ -58,9 +56,8 @@ describe("Content save outcome delivery", () => {
           return { saved: true };
         },
       );
+      // oracle-change: the count now runs before the save returns.
       expect(await save({}, ctx)).toEqual({ saved: true });
-      expect(counter).not.toHaveBeenCalled();
-      await vi.runAllTimersAsync();
       expect(counter).toHaveBeenCalledExactlyOnceWith(
         "content_save_outcome_counts",
         expect.objectContaining({
@@ -88,7 +85,6 @@ describe("Content save outcome delivery", () => {
   ])(
     "marks server recovery for caller %s without changing the caller or request",
     async (caller) => {
-      vi.useFakeTimers();
       const original: ActionRunContext = {
         caller,
         userEmail: "owner@example.test",
@@ -107,7 +103,6 @@ describe("Content save outcome delivery", () => {
       );
       const result = await save({}, recovery);
       expect(JSON.stringify(result)).toBe('{"id":"created"}');
-      await vi.runAllTimersAsync();
       expect(counter).toHaveBeenCalledExactlyOnceWith(
         "content_save_outcome_counts",
         expect.objectContaining({
@@ -120,7 +115,6 @@ describe("Content save outcome delivery", () => {
   );
 
   it("isolates nested recovery from concurrent and subsequent saves using the original context", async () => {
-    vi.useFakeTimers();
     const ctx: ActionRunContext = {
       caller: "tool",
       requestHeaders: new Headers({ "X-Content-Save-Origin": "recovery" }),
@@ -143,7 +137,6 @@ describe("Content save outcome delivery", () => {
       { saved: true },
     ]);
     await nested({}, ctx);
-    await vi.runAllTimersAsync();
     expect(
       counter.mock.calls.map(([, dimensions]) => [
         dimensions.origin,
@@ -159,7 +152,6 @@ describe("Content save outcome delivery", () => {
   });
 
   it("does not count an agent-created document whose request claims recovery", async () => {
-    vi.useFakeTimers();
     const create = observeRecoveryDocumentCreate(
       async (_args, _ctx, measurement) => {
         measurement.outcome = "written";
@@ -174,12 +166,10 @@ describe("Content save outcome delivery", () => {
       },
     );
     expect(result).toEqual({ id: "created" });
-    await vi.runAllTimersAsync();
     expect(counter).not.toHaveBeenCalled();
   });
 
   it("counts a recovery create ID conflict once with its known reason and preserves the refusal", async () => {
-    vi.useFakeTimers();
     const error = new ActionContractError(
       "This document ID is already in use.",
       {
@@ -197,8 +187,6 @@ describe("Content save outcome delivery", () => {
       errorCode: "DOCUMENT_ID_CONFLICT",
       statusCode: 409,
     });
-    expect(counter).not.toHaveBeenCalled();
-    await vi.runAllTimersAsync();
     expect(counter).toHaveBeenCalledExactlyOnceWith(
       "content_save_outcome_counts",
       {
@@ -213,7 +201,6 @@ describe("Content save outcome delivery", () => {
   });
 
   it("retains the audit outcome and response without counting excluded saves", async () => {
-    vi.useFakeTimers();
     const result = { content: "existing body" };
     const save = observeDocumentUpdateOutcome(
       async (_args, _ctx, measurement) => {
@@ -231,12 +218,10 @@ describe("Content save outcome delivery", () => {
     expect(contentSaveOutcome(result)).toBe("written");
     expect(JSON.stringify(result)).toBe('{"content":"existing body"}');
     expect(Object.keys(result)).toEqual(["content"]);
-    await vi.runAllTimersAsync();
     expect(counter).not.toHaveBeenCalled();
   });
 
   it("keeps committed audit outcomes separate across overlapping invocations", async () => {
-    vi.useFakeTimers();
     let finishWritten!: () => void;
     let finishUnchanged!: () => void;
     const writtenGate = new Promise<void>((resolve) => {
@@ -272,7 +257,6 @@ describe("Content save outcome delivery", () => {
     finishUnchanged();
     expect(await unchanged).toBe("unchanged");
     expect(contentSaveAuditOutcome()).toBeUndefined();
-    await vi.runAllTimersAsync();
     expect(
       counter.mock.calls.map(([, dimensions]) => dimensions.outcome),
     ).toEqual(["written", "unchanged"]);
@@ -289,43 +273,28 @@ describe("Content save outcome delivery", () => {
       expect(boundedContentSaveReason({ errorCode })).toBe(errorCode);
     },
   );
-  it.each(["sync throw", "rejected promise", "pending promise"])(
-    "defers %s telemetry until after results and ordering",
-    async (failure) => {
-      vi.useFakeTimers();
-      const order: string[] = [];
-      let complete: (() => void) | undefined;
-      counter.mockImplementation(() => {
-        order.push("provider");
-        if (failure === "sync throw") throw new Error("telemetry unavailable");
-        if (failure === "rejected promise")
-          return Promise.reject(new Error("telemetry unavailable"));
-        return new Promise<void>((resolve) => {
-          complete = resolve;
-        });
+  it("counts within the save and keeps its result when counting throws", async () => {
+    const order: string[] = [];
+    counter.mockImplementation(() => {
+      order.push("provider");
+      throw new Error("telemetry unavailable");
+    });
+    const saved = { revision: "existing-result" };
+    const save = async () => {
+      order.push("settled");
+      recordContentSaveOutcome("update_document", {
+        outcome: "written",
+        origin: "browser",
+        stale_base: "false",
+        history_effect: "transition",
       });
-      const saved = { revision: "existing-result" };
-      const save = async () => {
-        order.push("settled");
-        recordContentSaveOutcome("update_document", {
-          outcome: "written",
-          origin: "browser",
-          stale_base: "false",
-          history_effect: "transition",
-        });
-        return saved;
-      };
-      expect(await save()).toBe(saved);
-      order.push("returned");
-      expect(order).toEqual(["settled", "returned"]);
-      expect(counter).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(0);
-      await Promise.resolve();
-      expect(order).toEqual(["settled", "returned", "provider"]);
-      expect(counter).toHaveBeenCalledTimes(1);
-      complete?.();
-    },
-  );
+      return saved;
+    };
+    expect(await save()).toBe(saved);
+    order.push("returned");
+    expect(order).toEqual(["settled", "provider", "returned"]);
+    expect(counter).toHaveBeenCalledTimes(1);
+  });
 
   it("attaches the audit outcome without changing serialized or enumerable response fields", () => {
     const result = scopeContentSaveOutcome(

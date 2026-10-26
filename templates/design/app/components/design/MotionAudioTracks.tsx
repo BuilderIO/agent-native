@@ -41,6 +41,8 @@ interface MotionAudioTracksProps {
   timelineDurationMs: number;
   timelineScaleDurationMs: number;
   readOnly?: boolean;
+  compactInspectorHeader?: boolean;
+  inspectorTitleClassName?: string;
   onClipsChange?: (clips: MotionAudioClip[]) => void;
   onDurationChange?: (durationMs: number) => void;
   onSeek?: (timelineMs: number) => void;
@@ -102,6 +104,8 @@ export function MotionAudioTracks({
   timelineDurationMs,
   timelineScaleDurationMs,
   readOnly = false,
+  compactInspectorHeader = false,
+  inspectorTitleClassName,
   onClipsChange,
   onDurationChange,
   onSeek,
@@ -352,6 +356,8 @@ export function MotionAudioTracks({
     return (
       <PanelSection
         title={t("designEditor.motion.audio")}
+        compactHeader={compactInspectorHeader}
+        titleClassName={inspectorTitleClassName}
         actions={
           <>
             <input

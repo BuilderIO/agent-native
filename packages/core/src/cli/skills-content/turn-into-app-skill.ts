@@ -112,12 +112,22 @@ Copy and update this checklist. Aim for 45 minutes; note the start time
 \`\`\`text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided, brief posted with App design
+- [ ] 2 Design decided; brief, App design, and time estimate shown
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
 - [ ] 6 Typecheck, doctor, build; final report with evidence labels
 \`\`\`
+
+Resume an unfinished run instead of starting a second app. When the working
+directory holds an app this skill started for the same source (a completed
+scaffold or actions, but no review screenshots), verify the completed stages
+from its git status, brief, schema, and actions. Open your first message with
+what exists, the next stage, and the estimated active work, for example:
+"Found a half-built app in this folder from an earlier run that stopped
+partway. The data model and actions are done, so I'll pick up from there:
+screens next, then checks. About 10 more minutes." Resume at the first
+unverified stage without rerunning scaffolding or replacing completed work.
 
 ### 1. Write the source brief
 
@@ -154,9 +164,9 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Post the brief once, with its
-App design, before the first scaffold command, as a checkpoint, and continue
-without waiting.
+repeated title, or stat strip over visible data. Before the first scaffold
+command, show the brief with its App design in your message (a saved file is
+not shown), then continue without waiting.
 
 ### 3. Create the real scaffold
 
@@ -192,10 +202,6 @@ stop and report the exact command, the failure, and what is on disk. Never
 hand-build the app in another stack, edit a pinned dependency version to force
 an install, or continue in a half-created directory; a workaround the user
 requests is named in the report.
-
-Before resuming, inspect the target and verify completed stages. Tell the user
-what exists, the next stage, and estimated active work; resume at the first
-unverified stage without rerunning scaffolding or replacing completed work.
 
 Then save the brief as \`docs/brief.md\`, append the domain surface's design to
 \`DESIGN.md\` (UI direction guide, section 4), and follow
@@ -641,16 +647,19 @@ The chat scaffold ships \`agent-native.json\` with \`"onboarding": { "firstRun":
   "version": 1,
   "onboarding": {
     "firstRun": {
-      "development": "connect",
+      "development": "off",
       "production": "connect-and-integrations"
     }
   }
 }
 \`\`\`
 
-\`connect\` shows the shared setup in the agent sidebar ("Use Builder.io" or
-"Custom keys"); \`connect-and-integrations\` adds the integrations catalog; only
-\`"off"\` hides it. Never replace it with a local credential form.
+Development stays \`"off"\`, as in the first-party templates, so a person
+running the app locally lands in it instead of a setup screen. Without a
+provider key, the agent sidebar still offers "Connect AI" above its composer.
+In production, \`connect\` shows the shared setup ("Use Builder.io" or
+"Custom keys") after the first sign-in, and \`connect-and-integrations\` adds
+the integrations catalog. Never replace it with a local credential form.
 
 When the mode needs code, set it in the scaffold's existing
 \`agent-native.config.ts\` instead. The typed file takes precedence over the JSON
@@ -662,7 +671,7 @@ import { defineAgentNativeConfig } from "@agent-native/core/config";
 export default defineAgentNativeConfig(({ isDev }) => ({
   // keep the keys the scaffold already sets here
   onboarding: {
-    firstRun: isDev ? "connect" : "connect-and-integrations",
+    firstRun: isDev ? "off" : "connect-and-integrations",
   },
 }));
 \`\`\`
@@ -681,8 +690,11 @@ put \`AUTH_DISABLED=1\` in the app's ignored \`.env\` while the dev server is
 stopped (see Run). Loopback development only: never commit it, never deploy
 it, and remove it before the final \`pnpm build\`. A scaffold skill (\`build-an-app\`) that says not
 to set \`AUTH_DISABLED\` is about keeping auth on in real use; this skill's
-review loop is the exception for local runs. Without it, a person opening the
-app clicks "Continue as local dev".
+review loop is the exception for local runs. Without it, only the first
+browser to open the app is signed in automatically; later fresh browsers get
+the "Continue as local dev" card. After the final restart, leave that first
+visit to the person you hand the app to: \`curl\` polls do not use it up, but
+a browser or screenshot you open does.
 
 A developer can put a provider key such as \`ANTHROPIC_API_KEY\` or
 \`OPENAI_API_KEY\` in the same \`.env\`; once the server restarts, the sidebar skips

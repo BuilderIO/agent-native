@@ -126,6 +126,7 @@ export const FilesChangedSummary = memo(function FilesChangedSummary({
             <button
               data-agent-file-change-row=""
               type="button"
+              aria-expanded={isExpanded}
               onClick={() => toggle(key)}
               className="agent-kit-activity-row flex w-full min-w-0 cursor-pointer items-center gap-4 py-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/50 focus-visible:outline-none"
             >
@@ -157,6 +158,8 @@ export const FilesChangedSummary = memo(function FilesChangedSummary({
                         >[0]["meta"]
                       }
                       isRunning={false}
+                      defaultExpanded
+                      hideHeader
                     />
                   ) : (
                     <WriteCell
@@ -166,6 +169,8 @@ export const FilesChangedSummary = memo(function FilesChangedSummary({
                         >[0]["meta"]
                       }
                       isRunning={false}
+                      defaultExpanded
+                      hideHeader
                     />
                   )}
                 </div>

@@ -609,9 +609,7 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
     await page.goto(appPath(`/design/${designId}?view=overview`), {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
     await expect
       .poll(async () => (await readFrames())[occupiedId]?.x)
       .toBe(1280 + designGap);
@@ -716,9 +714,7 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
     }
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(4, {
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
     await expect.poll(readFrames).toEqual(frames);
   });
 });

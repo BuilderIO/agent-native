@@ -965,6 +965,239 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(onSubmit).toHaveBeenCalledWith({ variant: "soft-cards" });
   });
 
+  it("renders localized defaults with labelled, keyboard-reachable controls", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[
+            {
+              id: "tone",
+              type: "text-options",
+              question: "Which tone?",
+              required: true,
+              options: [{ label: "Calm", value: "calm", recommended: true }],
+            },
+            { id: "volume", type: "slider", question: "How loud?" },
+            {
+              id: "palette",
+              type: "color-options",
+              question: "Which color?",
+              options: [{ label: "Teal", value: "teal", color: "teal" }],
+            },
+            { id: "refs", type: "file", question: "Any references?" },
+          ]}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Before I generate");
+    expect(text).not.toContain("Explore a few options");
+    expect(text).not.toContain("Let the agent decide");
+    expect(text).toContain("Other…");
+    expect(text).toContain("Recommended");
+    expect(text).not.toContain("—");
+
+    const slider = container.querySelector<HTMLInputElement>(
+      'input[type="range"]',
+    )!;
+    const sliderLabel = document.getElementById(
+      slider.getAttribute("aria-labelledby") ?? "",
+    );
+    expect(sliderLabel?.textContent).toBe("How loud?");
+
+    const swatch = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Teal",
+    )!;
+    expect(swatch.getAttribute("aria-pressed")).toBe("false");
+
+    const fileInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const openPicker = vi
+      .spyOn(fileInput, "click")
+      .mockImplementation(() => {});
+    const browse = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "browse",
+    )!;
+    expect(browse.closest("label, p")).toBeNull();
+    await act(async () => {
+      browse.click();
+    });
+    expect(openPicker).toHaveBeenCalledOnce();
+  });
+
+  it("renders a title without default description, eyebrow, or progress dots", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[
+            {
+              id: "audience",
+              type: "text-options",
+              header: "Audience",
+              question: "Who is this for?",
+              options: [
+                { label: "Board", value: "board" },
+                { label: "Team", value: "team" },
+                { label: "Customers", value: "customers" },
+              ],
+            },
+          ]}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector(".guided-question-flow-title")).not.toBe(
+      null,
+    );
+    expect(container.querySelector(".guided-question-flow-description")).toBe(
+      null,
+    );
+    expect(container.textContent).not.toContain("Audience");
+    expect(container.querySelector(".uppercase")).toBe(null);
+    expect(container.querySelector(".rounded-full.h-1\\.5")).toBe(null);
+    const rows = container.querySelectorAll(
+      ".guided-question-flow-options button",
+    );
+    expect(Array.from(rows, (row) => row.textContent)).toEqual([
+      "Board",
+      "Team",
+      "Customers",
+      "Other…Tell the agent exactly what you mean.",
+    ]);
+  });
+
+  it("renders a caller-supplied description", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[{ id: "notes", type: "freeform", question: "Notes?" }]}
+          description="Answer what matters."
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".guided-question-flow-description")?.textContent,
+    ).toBe("Answer what matters.");
+  });
+
+  it("adds Explore and Decide rows only when a question opts in", async () => {
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[
+            {
+              id: "style",
+              type: "text-options",
+              question: "Which style?",
+              allowOther: false,
+              includeExplore: true,
+              includeDecide: true,
+              options: [{ label: "Bold", value: "bold" }],
+            },
+            {
+              id: "tone",
+              type: "text-options",
+              question: "Which tone?",
+              allowOther: false,
+              includeDecide: true,
+              options: [{ label: "Calm", value: "calm" }],
+            },
+          ]}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    const [style, tone] = Array.from(
+      container.querySelectorAll(".guided-question-flow-options"),
+      (group) =>
+        Array.from(
+          group.querySelectorAll("button"),
+          (row) =>
+            row.firstElementChild?.nextElementSibling?.firstChild?.textContent,
+        ),
+    );
+    expect(style).toEqual([
+      "Bold",
+      "Explore a few options",
+      "Let the agent decide",
+    ]);
+    expect(tone).toEqual(["Calm", "Let the agent decide"]);
+  });
+
+  it("shows answered progress in the submit label for multi-question flows", async () => {
+    const questions = [
+      {
+        id: "tone",
+        type: "text-options" as const,
+        question: "Which tone?",
+        options: [{ label: "Calm", value: "calm", recommended: true }],
+      },
+      {
+        id: "length",
+        type: "text-options" as const,
+        question: "How long?",
+        options: [{ label: "Short", value: "short" }],
+      },
+      { id: "notes", type: "freeform" as const, question: "Anything else?" },
+    ];
+    const submitButton = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).at(
+        -1,
+      )!;
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={questions}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+    expect(submitButton().textContent).toBe("Continue (1 of 3)");
+
+    const short = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Short",
+    )!;
+    await act(async () => {
+      short.click();
+    });
+    expect(submitButton().textContent).toBe("Continue (2 of 3)");
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={questions}
+          submitLabel="Generate"
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+    expect(submitButton().textContent).toBe("Generate (2 of 3)");
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[questions[2]!]}
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+    expect(submitButton().textContent).toBe("Continue");
+  });
+
   it("disables question inputs and continuation controls while provider setup is required", async () => {
     const onSubmit = vi.fn();
     const onSkip = vi.fn();

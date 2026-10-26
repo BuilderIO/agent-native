@@ -510,6 +510,9 @@ export default defineAction({
     return {
       documentId: args.documentId,
       databaseId: database.id,
+      // The property this call created or updated. A collaborator's create can
+      // land in `properties` too, so callers read this rather than guessing.
+      propertyId,
       properties: await listPropertiesForDocument(document, database.id),
     };
   },

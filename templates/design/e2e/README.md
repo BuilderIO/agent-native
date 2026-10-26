@@ -51,6 +51,22 @@ overlay sits on top. So:
 `helpers.ts` wraps all of this: `gotoEditor`, `selectByText`, `dragCanvasByText`,
 `installBridge`/`waitForBridge`, `cdpScreenshot`, `readSeedDesignId`.
 
+## Editor boot
+
+A cold editor boot takes ~12-16 s on CI runners, and every reload pays it
+again. `editor-boot.ts` owns that budget (`EDITOR_BOOT_TIMEOUT`): in specs that
+use `./rails`, `page.goto`, `page.reload`, `goBack` and `goForward` return only
+once a `/design/:id` or `/visual-edit/:id` page has rendered its editor root,
+and the boot time is added back to the test's timeout. Assert what the test is
+about right after navigating, with the default timeouts; don't add boot
+timeouts or `test.setTimeout` for reloads. Pass `waitUntil: "commit"` to observe
+the boot itself. Specs on plain `@playwright/test` call `waitForEditorBoot(page)`
+after navigating.
+
+Editing a source file under `templates/design` while a run is going makes Vite
+reload every open page; the rails report that as an unexpected page load caused
+by the dev server.
+
 ## Live multi-screen runtime proof
 
 With the Design app, Slides app, and localhost bridge running, this committed

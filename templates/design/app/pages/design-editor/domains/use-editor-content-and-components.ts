@@ -50,8 +50,8 @@ import { motionPathTrackForTarget } from "@/components/design/design-canvas/moti
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
+import type { MotionNativeStyleIdentity } from "@/components/design/motion-native-style-identity";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
-import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import {

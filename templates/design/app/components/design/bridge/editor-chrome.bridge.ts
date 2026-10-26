@@ -30,6 +30,12 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import {
+  copyExportImageSource,
+  isResponsiveExportImage,
+  prepareExportImageSource,
+  resolveExportImageSource,
+} from "../../../../shared/export-image-source";
 import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
   resolveSourceEquivalentSelector,
@@ -39,6 +45,7 @@ import {
   isAutoLayoutDisplay,
   marginHandlesApply,
 } from "../../../../shared/spacing-handle-rule";
+import { parseSrcset } from "../../../../shared/srcset";
 import {
   INLINE_TEXT_TAGS,
   padsBox,
@@ -1801,6 +1808,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   ): string | null {
     if (typeof source !== "string" || !source) return null;
     try {
+      if (!(typeof sourceRoot === "string" && sourceRoot)) {
+        var mapPath = decodeURIComponent(new URL(mapUrl).pathname);
+        var servedModulePath = mapPath.endsWith(".map")
+          ? mapPath.slice(0, -4).replace(/^\/+/, "")
+          : "";
+        var mappedSourcePath = decodeURIComponent(source).replace(/^\/+/, "");
+        if (servedModulePath && mappedSourcePath === servedModulePath) {
+          return mappedSourcePath;
+        }
+      }
       var base =
         typeof sourceRoot === "string" && sourceRoot
           ? new URL(sourceRoot, mapUrl)
@@ -2163,8 +2180,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var runtimeLayerSnapshotPendingPostReadinessRequestId: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
   var lastRuntimeLayerSnapshotReservationToken = "";
+  var runtimeLayerSnapshotImageSources = new WeakMap<
+    HTMLImageElement,
+    string
+  >();
   var runtimeDocumentId =
     "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+
+  function runtimeLayerImageSource(image: HTMLImageElement): string {
+    return image.currentSrc || image.src || "";
+  }
 
   function runtimeLayerHash(value: string): string {
     var hash = 0x811c9dc5;
@@ -2243,6 +2268,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function serializeRuntimeLayerSnapshot(
     excludedRoot?: Element,
+    preparedImageSources?: Map<HTMLImageElement, HTMLImageElement>,
+    unavailableImageSources?: Set<HTMLImageElement>,
   ):
     | { ok: true; html: string; nodeCount: number; documentId: string }
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
@@ -2387,10 +2414,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         sourceNode instanceof HTMLImageElement &&
         cloneNode instanceof HTMLImageElement
       ) {
-        if (sourceNode.currentSrc) {
-          cloneNode.setAttribute("src", sourceNode.currentSrc);
+        var preparedImage = preparedImageSources?.get(sourceNode);
+        copyExportImageSource(preparedImage || sourceNode, cloneNode);
+        if (unavailableImageSources?.has(sourceNode)) {
+          snapshotFailures.push("image-unavailable");
         }
-        cloneNode.removeAttribute("srcset");
       }
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
@@ -3052,22 +3080,54 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
     var imageNodes = Array.from(
       parsed.querySelectorAll<HTMLElement>(
-        "img[src], image[href], image[xlink\\:href]",
+        "img[src], img[data-agent-native-export-image-natural-width], image[href], image[xlink\\:href]",
       ),
     );
     for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
       var image = imageNodes[imageIndex]!;
-      var attribute = image.hasAttribute("src")
-        ? "src"
-        : image.hasAttribute("href")
-          ? "href"
-          : "xlink:href";
-      var source = image.getAttribute(attribute);
-      if (!source || /^(?:data|about):/i.test(source)) continue;
-      var dataSource = await resourceDataUrl(source, document.baseURI);
-      if (dataSource) image.setAttribute(attribute, dataSource);
-      else markFailure("image-fetch");
-      if (image.localName === "img") image.removeAttribute("srcset");
+      var markedResponsiveImage =
+        image.localName === "img" &&
+        image.hasAttribute("data-agent-native-export-image-natural-width");
+      var responsiveSrcset =
+        markedResponsiveImage && !image.hasAttribute("src")
+          ? parseSrcset(image.getAttribute("srcset") || "")[0]
+          : null;
+      var attribute = responsiveSrcset
+        ? "srcset"
+        : image.hasAttribute("src")
+          ? "src"
+          : image.hasAttribute("href")
+            ? "href"
+            : "xlink:href";
+      var source = responsiveSrcset
+        ? responsiveSrcset.url
+        : image.getAttribute(attribute);
+      if (!source) {
+        if (markedResponsiveImage) markFailure("image-unavailable");
+        continue;
+      }
+      var dataSource = /^(?:data|about):/i.test(source)
+        ? source
+        : await resourceDataUrl(source, document.baseURI);
+      if (dataSource) {
+        image.setAttribute(
+          attribute,
+          responsiveSrcset
+            ? `${dataSource} ${responsiveSrcset.descriptor}`
+            : dataSource,
+        );
+      } else markFailure("image-fetch");
+      if (image.localName === "img") {
+        try {
+          if (dataSource) {
+            await resolveExportImageSource(image, dataSource, resourceSignal);
+          }
+        } catch {
+          markFailure(
+            resourceTimedOut ? "resource-timeout" : "image-unavailable",
+          );
+        }
+      }
     }
 
     var tooLarge = failures.includes("export-resource-size-limit");
@@ -3157,50 +3217,53 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       );
       clearPendingPostReadiness();
     }
-    var snapshot = serializeRuntimeLayerSnapshot();
-    if (!snapshot.ok) {
-      (window.parent as Window).postMessage(
-        {
-          type: "agent-native:runtime-layer-snapshot-error",
-          payload: {
-            ...snapshot,
-            requestId,
-            documentId: runtimeDocumentId,
-            ...(Number.isSafeInteger(postReadinessRequestId)
-              ? { readinessRequestId: postReadinessRequestId }
-              : {}),
-            ...(reservationToken ? { reservationToken } : {}),
-          },
-        },
-        "*",
-      );
-      clearPendingPostReadiness();
-      return;
-    }
-    void inlineRuntimeSnapshotResources(snapshot.html, 5_000_000)
-      .then(function (inlined) {
-        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
-        snapshot.html = inlined.html;
-        if (
-          inlined.errorCode === "export_too_large" ||
-          snapshot.html.length > 14_000_000
-        ) {
-          postSnapshotTooLargeError();
-          return;
+    var imagePreparationSignal = AbortSignal.timeout(15_000);
+    var responsiveImages = Array.prototype.slice
+      .call(document.querySelectorAll("img"))
+      .filter(isResponsiveExportImage) as HTMLImageElement[];
+    void Promise.all(
+      responsiveImages.map(async function (image) {
+        try {
+          return [
+            image,
+            await prepareExportImageSource(image, imagePreparationSignal),
+          ] as const;
+        } catch {
+          return [image, null] as const;
         }
-        var snapshotReservationToken = reservationToken || "";
-        if (
-          snapshot.html === lastRuntimeLayerSnapshotHtml &&
-          snapshotReservationToken ===
-            lastRuntimeLayerSnapshotReservationToken &&
-          !Number.isSafeInteger(postReadinessRequestId)
-        ) {
+      }),
+    )
+      .then(function (preparedResults) {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        var preparedImageSources = new Map<
+          HTMLImageElement,
+          HTMLImageElement
+        >();
+        var unavailableImageSources = new Set<HTMLImageElement>();
+        var snapshotImageSources = new Map<HTMLImageElement, string>();
+        preparedResults.forEach(function ([image, prepared]) {
+          if (prepared) preparedImageSources.set(image, prepared);
+          else unavailableImageSources.add(image);
+        });
+        Array.from(document.querySelectorAll("img")).forEach(function (image) {
+          snapshotImageSources.set(
+            image,
+            runtimeLayerImageSource(preparedImageSources.get(image) || image),
+          );
+        });
+        var snapshot = serializeRuntimeLayerSnapshot(
+          undefined,
+          preparedImageSources,
+          unavailableImageSources,
+        );
+        if (!snapshot.ok) {
           (window.parent as Window).postMessage(
             {
-              type: "agent-native:runtime-layer-snapshot-unchanged",
+              type: "agent-native:runtime-layer-snapshot-error",
               payload: {
+                ...snapshot,
                 requestId,
-                documentId: snapshot.documentId,
+                documentId: runtimeDocumentId,
                 ...(Number.isSafeInteger(postReadinessRequestId)
                   ? { readinessRequestId: postReadinessRequestId }
                   : {}),
@@ -3212,26 +3275,73 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           clearPendingPostReadiness();
           return;
         }
-        if (requestId !== undefined) snapshot.requestId = requestId;
-        if (Number.isSafeInteger(postReadinessRequestId)) {
-          snapshot.readinessRequestId = postReadinessRequestId;
-        }
-        if (reservationToken) snapshot.reservationToken = reservationToken;
-        var snapshotMessage = {
-          type: "agent-native:runtime-layer-snapshot",
-          payload: snapshot,
-        };
-        if (
-          new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength >
-          5_000_000
-        ) {
-          postSnapshotTooLargeError();
-          return;
-        }
-        lastRuntimeLayerSnapshotHtml = snapshot.html;
-        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-        (window.parent as Window).postMessage(snapshotMessage, "*");
-        clearPendingPostReadiness();
+        return inlineRuntimeSnapshotResources(snapshot.html, 5_000_000).then(
+          function (inlined) {
+            if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+            snapshot.html = inlined.html;
+            if (
+              inlined.errorCode === "export_too_large" ||
+              snapshot.html.length > 14_000_000
+            ) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            var snapshotReservationToken = reservationToken || "";
+            if (
+              snapshot.html === lastRuntimeLayerSnapshotHtml &&
+              snapshotReservationToken ===
+                lastRuntimeLayerSnapshotReservationToken &&
+              !Number.isSafeInteger(postReadinessRequestId)
+            ) {
+              if (inlined.complete) {
+                snapshotImageSources.forEach(function (source, image) {
+                  runtimeLayerSnapshotImageSources.set(image, source);
+                });
+              }
+              (window.parent as Window).postMessage(
+                {
+                  type: "agent-native:runtime-layer-snapshot-unchanged",
+                  payload: {
+                    requestId,
+                    documentId: snapshot.documentId,
+                    ...(Number.isSafeInteger(postReadinessRequestId)
+                      ? { readinessRequestId: postReadinessRequestId }
+                      : {}),
+                    ...(reservationToken ? { reservationToken } : {}),
+                  },
+                },
+                "*",
+              );
+              clearPendingPostReadiness();
+              return;
+            }
+            if (requestId !== undefined) snapshot.requestId = requestId;
+            if (Number.isSafeInteger(postReadinessRequestId)) {
+              snapshot.readinessRequestId = postReadinessRequestId;
+            }
+            if (reservationToken) snapshot.reservationToken = reservationToken;
+            var snapshotMessage = {
+              type: "agent-native:runtime-layer-snapshot",
+              payload: snapshot,
+            };
+            if (
+              new TextEncoder().encode(JSON.stringify(snapshotMessage))
+                .byteLength > 5_000_000
+            ) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            if (inlined.complete) {
+              snapshotImageSources.forEach(function (source, image) {
+                runtimeLayerSnapshotImageSources.set(image, source);
+              });
+            }
+            lastRuntimeLayerSnapshotHtml = snapshot.html;
+            lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+            (window.parent as Window).postMessage(snapshotMessage, "*");
+            clearPendingPostReadiness();
+          },
+        );
       })
       .catch(function () {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
@@ -32183,6 +32293,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         "style",
         "title",
       ],
+    });
+    ["load", "error"].forEach(function (type) {
+      document.addEventListener(
+        type,
+        function (event) {
+          if (!(event.target instanceof HTMLImageElement)) return;
+          var image = event.target;
+          if (isOverlayElement(image)) return;
+          if (
+            event.type === "error" ||
+            isResponsiveExportImage(image) ||
+            runtimeLayerSnapshotImageSources.get(image) !==
+              runtimeLayerImageSource(image)
+          ) {
+            scheduleRuntimeLayerSnapshot();
+          }
+        },
+        true,
+      );
     });
   }
   var frameLabelRefreshScheduled = false;

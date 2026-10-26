@@ -879,8 +879,11 @@ describe("SettingsShell", () => {
           "SlackConnections › Integrations",
         ]),
       );
-      expect(search("voice")[0]).toBe(
-        "Voice transcriptionAccount › Preferences",
+      expect(search("voice")).toEqual(
+        expect.arrayContaining([
+          "Voice transcriptionAccount › Preferences",
+          "Voice chatAccount › Preferences",
+        ]),
       );
     });
 

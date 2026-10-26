@@ -9,10 +9,13 @@ import {
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
 
+import { workspaceAppRoute } from "../shared/workspace-app-route";
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
   isWorkspaceSsoAppUrl,
 } from "../shared/workspace-sso";
+
+export { workspaceAppRoute } from "../shared/workspace-app-route";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -220,10 +223,6 @@ export function defaultWorkspaceAppUrl(rawUrl: string): string {
   }
 }
 
-export function workspaceAppRoute(appId: string): string {
-  return `/apps/${encodeURIComponent(appId)}`;
-}
-
 function normalizeWorkspaceAppRoutePath(rawPath: string): URL | null {
   if (
     typeof rawPath !== "string" ||
@@ -281,8 +280,10 @@ export function workspaceAppRouteForChildPath(
       ? parsed.pathname.slice(mountPath.length) || "/"
       : parsed.pathname;
   const routePath = workspaceAppRoute(app.id);
-  const suffix = relativePathname === "/" ? "" : relativePathname;
-  return `${routePath}${suffix}${parsed.search}${parsed.hash}`;
+  const childRoute = `${relativePathname}${parsed.search}${parsed.hash}`;
+  if (childRoute === "/") return routePath;
+  const search = new URLSearchParams([["__workspace_app_path", childRoute]]);
+  return `${routePath}?${search}`;
 }
 
 export function workspaceAppInitialPathFromSplat(
@@ -290,6 +291,14 @@ export function workspaceAppInitialPathFromSplat(
   search: string,
   hash: string,
 ): string | undefined {
+  const appPath = new URLSearchParams(search).get("__workspace_app_path");
+  if (appPath !== null) {
+    const parsed = normalizeWorkspaceAppRoutePath(appPath);
+    if (!parsed) return undefined;
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return path === "/" ? undefined : path;
+  }
+
   const pathname = routeSplat?.trim()
     ? `/${routeSplat.trim().replace(/^[/\\]+/, "")}`
     : "/";
@@ -309,6 +318,27 @@ export function workspaceAppIdFromRoute(pathname: string): string | null {
     // coercion-ok: malformed app routes are inactive, not app ids.
     return null;
   }
+}
+
+// A mounted app's registry `url` is the Dispatch page that hosts it
+// (`<dispatch>/apps/<id>`). Read from that same Dispatch, it is the page doing
+// the framing, so framing it again nests Dispatch inside itself.
+export function isWorkspaceAppHostPageUrl(
+  app: Pick<WorkspaceAppSummary, "id" | "url">,
+  dispatchOrigin: string | undefined,
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (!rawUrl || !dispatchOrigin) return false;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    // coercion-ok: a URL that does not parse is not Dispatch's page for the app.
+    return false;
+  }
+  if (url.origin !== dispatchOrigin) return false;
+  const pathname = url.pathname.replace(/\/+$/, "").toLowerCase();
+  return pathname.endsWith(workspaceAppRoute(app.id.trim()).toLowerCase());
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {

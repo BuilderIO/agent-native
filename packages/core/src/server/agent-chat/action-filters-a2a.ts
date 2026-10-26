@@ -126,11 +126,8 @@ export function filterDirectA2AActions(
         (autoReads &&
           isAuthenticatedReadAction(entry) &&
           !isAutoReadExcludedActionName(name));
-      const rawQueryAllowed =
-        !hasRawQueryInput(entry) || exposure?.allowRawQueryInput === true;
       return (
         selected &&
-        rawQueryAllowed &&
         !denied.has(name) &&
         isActionExposedToExternalAgents(entry) &&
         entry.readOnly === true &&
@@ -138,7 +135,10 @@ export function filterDirectA2AActions(
         exposure.readOnly === true &&
         exposure.requiresAuth === true &&
         (entry.needsApproval === undefined || entry.needsApproval === false) &&
-        exposure.isConsequential !== true
+        exposure.isConsequential !== true &&
+        // Last: reading the parameters converts the action's schema, and this
+        // runs over every action when the plugin mounts.
+        (!hasRawQueryInput(entry) || exposure.allowRawQueryInput === true)
       );
     }),
   );
