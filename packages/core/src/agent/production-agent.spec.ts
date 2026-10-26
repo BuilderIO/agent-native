@@ -20491,7 +20491,7 @@ describe("runAgentLoop", () => {
       let text = "";
       if (response instanceof ReadableStream) {
         const reader = response.getReader();
-        for (let chunk = await reader.read(); !chunk.done;) {
+        for (let chunk = await reader.read(); !chunk.done; ) {
           text += new TextDecoder().decode(chunk.value);
           chunk = await reader.read();
         }

@@ -4702,6 +4702,12 @@ export function isResumableStreamFailure(
   );
 }
 
+// Reads the live flag; a signal can abort while a loop body awaits, but TS keeps
+// the loop condition's `!signal.aborted` narrowing for direct property reads.
+export function isSignalAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 // A clear wipes whatever the client shows for the reply. Only safe when nothing
 // visible would be lost, and a completed side effect's tool cards must stay. Not
 // recorded in `events`: with no visible text there is nothing for it to reset, and
@@ -7040,10 +7046,12 @@ async function prepareToolCall(
   );
   try {
     return await Promise.race([
-      toolCallIntent(entry, input).then((intent): PreparedToolCall => ({
-        status: "prepared",
-        intent,
-      })),
+      toolCallIntent(entry, input).then(
+        (intent): PreparedToolCall => ({
+          status: "prepared",
+          intent,
+        }),
+      ),
       stopped,
     ]);
   } finally {
@@ -11664,8 +11672,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       addUsage(nextUsage);
     } catch (err) {
       if (
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while runAgentLoop awaits; TS keeps the loop-condition narrowing
-        opts.signal.aborted ||
+        isSignalAborted(opts.signal) ||
         !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
       )
         throw err;
@@ -15558,10 +15565,12 @@ export function createProductionAgentHandler(
       ) ??
       requestHistory
         .filter((m) => m.content.trim())
-        .map((m): EngineMessage => ({
-          role: m.role as "user" | "assistant",
-          content: [{ type: "text" as const, text: m.content }],
-        }));
+        .map(
+          (m): EngineMessage => ({
+            role: m.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: m.content }],
+          }),
+        );
 
     const messages: EngineMessage[] = [
       ...historyMessages,

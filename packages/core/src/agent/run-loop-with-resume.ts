@@ -18,6 +18,7 @@ import {
   hasCompletedSideEffect,
   isCustomerKeyRateLimit,
   isResumableStreamFailure,
+  isSignalAborted,
   isTransientProviderRateLimitError,
   continuationReasonForResumableError,
   lastUnfinishedPreparingActionToolFromEvents,
@@ -602,8 +603,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         });
       }
       if (
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the turn can abort while runAgentLoop awaits; TS keeps the loop-condition narrowing
-        !turnSignal.aborted &&
+        !isSignalAborted(turnSignal) &&
         isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
       ) {
         lastAttemptWasUnfinishedContinuation = true;
