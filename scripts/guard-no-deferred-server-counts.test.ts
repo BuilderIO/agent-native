@@ -128,6 +128,59 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(flagged(source), [6, 7, 22, 23]);
   });
 
+  it("follows timers imported under another name", () => {
+    const source = [
+      'import { setTimeout as defer, setImmediate } from "node:timers";',
+      'import * as timers from "node:timers";',
+      'import { wait } from "./wait";',
+      'defer(() => countOutcome("content_editor_mount_counts", {}), 0);',
+      'setImmediate(() => track("page_saved"));',
+      'timers.setInterval(() => track("page_saved"), 1_000);',
+      'wait(() => track("page_saved"));',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [4, 5, 6]);
+  });
+
+  it("follows helpers and timers bound by destructuring", () => {
+    const source = [
+      "const queue = {",
+      '  flush() { countOutcome("content_editor_mount_counts", {}); },',
+      "  sweep() { sweepExpired(); },",
+      "};",
+      "const { flush, sweep } = queue;",
+      "const { setTimeout: later } = globalThis;",
+      "const { trackEvent: send } = analytics;",
+      "setTimeout(flush, 0);",
+      "setTimeout(sweep, 0);",
+      "later(() => sweepExpired(), 0);",
+      'setTimeout(() => send("page_saved"), 0);',
+      "later(flush);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [8, 11, 12]);
+  });
+
+  it("counts a function a callback defines only where it runs", () => {
+    const source = [
+      "setTimeout(() => {",
+      '  const later = () => track("page_saved");',
+      "  register(later);",
+      "}, 0);",
+      "setTimeout(() => {",
+      '  items.forEach((item) => countOutcome("content_editor_mount_counts", { item }));',
+      "}, 0);",
+      "setTimeout(() => {",
+      '  const later = () => track("page_saved");',
+      "  later();",
+      "}, 0);",
+      'setTimeout(() => ({ flush() { track("page_saved"); } }), 0);',
+      'setTimeout(() => new Promise(() => track("page_saved")), 0);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [5, 8, 13]);
+  });
+
   it("follows a count helper imported under another name", () => {
     const source = [
       'import { countOutcome as record } from "@agent-native/core/server";',

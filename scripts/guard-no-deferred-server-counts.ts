@@ -21,10 +21,13 @@
  * that calls `track`, a `track…` wrapper such as `trackLifecycleEvent`, or a
  * count helper. TypeScript resolves each name in that one file the way its
  * scope sees it, so the guard follows callbacks passed by name or as methods
- * (`this.flush`, `queue.flush`), the functions and methods they call, and
- * timers renamed through any chain of aliases (`const defer = setTimeout`).
- * It does not follow helpers imported from other files unless their names say
- * they track or count. A timer that has to defer a count says why, on any line
+ * (`this.flush`, `queue.flush`), the functions and methods they call, names
+ * bound by destructuring, and timers renamed through any chain of aliases or
+ * imports (`const defer = setTimeout`, `import { setTimeout as defer }`). A
+ * function a callback only defines counts where it runs: when it's handed to a
+ * call such as `forEach`, or where a call to it is followed. It does not follow
+ * helpers imported from other files unless their names say they track or
+ * count. A timer that has to defer a count says why, on any line
  * of the timer call or the line above:
  *
  *   // guard:allow-deferred-count — <why the count can wait>
@@ -125,27 +128,61 @@ function bodyOf(node: ts.Node): ts.Node | undefined {
   return undefined;
 }
 
-/** The declaration a name or property reference resolves to in this file. */
-function declarationOf(
+function symbolDeclaration(
   checker: ts.TypeChecker,
-  reference: ts.Identifier | ts.PropertyAccessExpression,
+  symbol: ts.Symbol | undefined,
 ): ts.Declaration | undefined {
-  const symbol = checker.getSymbolAtLocation(
-    ts.isPropertyAccessExpression(reference) ? reference.name : reference,
-  );
   const declaration =
     symbol?.declarations?.find((candidate) => bodyOf(candidate)) ??
     symbol?.valueDeclaration ??
     symbol?.declarations?.[0];
   if (declaration && ts.isShorthandPropertyAssignment(declaration)) {
-    const value = checker.getShorthandAssignmentValueSymbol(declaration);
-    return value?.valueDeclaration ?? value?.declarations?.[0];
+    return symbolDeclaration(
+      checker,
+      checker.getShorthandAssignmentValueSymbol(declaration),
+    );
   }
   return declaration;
 }
 
+/** The declaration a name or property reference resolves to in this file. */
+function declarationOf(
+  checker: ts.TypeChecker,
+  reference: ts.Identifier | ts.PropertyAccessExpression,
+): ts.Declaration | undefined {
+  return symbolDeclaration(
+    checker,
+    checker.getSymbolAtLocation(
+      ts.isPropertyAccessExpression(reference) ? reference.name : reference,
+    ),
+  );
+}
+
+/**
+ * The name a declaration takes from elsewhere: `setTimeout` in
+ * `import { setTimeout as defer }` or `const { setTimeout: later } = globalThis`.
+ */
+function sourceName(declaration: ts.Declaration): string | undefined {
+  if (ts.isImportSpecifier(declaration)) {
+    return (declaration.propertyName ?? declaration.name).text;
+  }
+  if (
+    ts.isBindingElement(declaration) &&
+    ts.isObjectBindingPattern(declaration.parent)
+  ) {
+    const name = declaration.propertyName ?? declaration.name;
+    return ts.isIdentifier(name) || ts.isStringLiteral(name)
+      ? name.text
+      : undefined;
+  }
+  return undefined;
+}
+
 /** What a declaration binds: a function, another expression, or nothing. */
-function boundValue(declaration: ts.Declaration): ts.Node | undefined {
+function boundValue(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+): ts.Node | undefined {
   if (
     ts.isFunctionDeclaration(declaration) ||
     ts.isMethodDeclaration(declaration)
@@ -158,6 +195,19 @@ function boundValue(declaration: ts.Declaration): ts.Node | undefined {
     ts.isPropertyDeclaration(declaration)
   ) {
     return declaration.initializer;
+  }
+  // `const { flush } = queue` binds `queue.flush`.
+  if (ts.isBindingElement(declaration)) {
+    const name = sourceName(declaration);
+    const property =
+      name &&
+      symbolDeclaration(
+        checker,
+        checker.getTypeAtLocation(declaration.parent).getProperty(name),
+      );
+    return property && !ts.isBindingElement(property)
+      ? boundValue(checker, property)
+      : undefined;
   }
   return undefined;
 }
@@ -204,7 +254,9 @@ function isTimerReference(
   const declaration = declarationOf(checker, target);
   if (!declaration || seen.has(declaration)) return false;
   seen.add(declaration);
-  const value = boundValue(declaration);
+  const source = sourceName(declaration);
+  if (source && TIMERS.has(source)) return true;
+  const value = boundValue(checker, declaration);
   return (
     !!value && ts.isExpression(value) && isTimerReference(checker, value, seen)
   );
@@ -227,15 +279,34 @@ function countsWhenCalled(
   const declaration = declarationOf(checker, target);
   if (!declaration || seen.has(declaration)) return false;
   seen.add(declaration);
-  // `import { countOutcome as record }`
-  if (ts.isImportSpecifier(declaration)) {
-    return isCountName((declaration.propertyName ?? declaration.name).text);
-  }
-  const value = boundValue(declaration);
+  // `import { countOutcome as record }`, `const { trackEvent } = analytics`
+  const source = sourceName(declaration);
+  if (source && isCountName(source)) return true;
+  const value = boundValue(checker, declaration);
   if (!value) return false;
   const valueBody = bodyOf(value);
   if (valueBody) return callsCount(checker, valueBody, seen);
   return ts.isExpression(value) && countsWhenCalled(checker, value, seen);
+}
+
+/**
+ * A function handed to a call or `new`, such as `items.forEach(…)`, `.then(…)`
+ * or a promise executor, is taken to run there.
+ */
+function isPassedToCall(fn: ts.Node): boolean {
+  let node = fn;
+  while (
+    ts.isParenthesizedExpression(node.parent) ||
+    ts.isAsExpression(node.parent) ||
+    ts.isSatisfiesExpression(node.parent)
+  ) {
+    node = node.parent;
+  }
+  const { parent } = node;
+  return (
+    (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
+    !!parent.arguments?.some((argument) => argument === node)
+  );
 }
 
 function callsCount(
@@ -249,8 +320,14 @@ function callsCount(
   ) {
     return true;
   }
+  // A function defined here counts only where it runs: when it's handed to a
+  // call, or where a call to its name is followed.
   return (
-    ts.forEachChild(node, (child) => callsCount(checker, child, seen)) ?? false
+    ts.forEachChild(node, (child) =>
+      ts.isFunctionLike(child) && !isPassedToCall(child)
+        ? false
+        : callsCount(checker, child, seen),
+    ) ?? false
   );
 }
 
