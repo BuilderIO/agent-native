@@ -66,28 +66,6 @@ const INDEX_STATUS = {
   },
 } as const;
 
-function entryStatus(entry: DictionaryEntry) {
-  if (entry.status === "deprecated") {
-    return { key: "dataDictionary.deprecated", className: "text-amber-500" };
-  }
-  if (entry.approved) {
-    return {
-      key: "semanticLayer.statusApproved",
-      className: "text-emerald-500",
-    };
-  }
-  if (entry.aiGenerated) {
-    return {
-      key: "semanticLayer.statusSuggested",
-      className: "text-amber-500",
-    };
-  }
-  return {
-    key: "semanticLayer.statusUnreviewed",
-    className: "text-muted-foreground",
-  };
-}
-
 /** Same frame as a logo, so a Tabler icon stands in without shifting the row. */
 function LogoBox({ icon: Icon }: { icon: TablerIcon }) {
   return (
@@ -237,41 +215,28 @@ export default function SemanticLayer() {
     onAction: () => openTarget({ kind: "index" }),
   };
 
-  const bySource = new Map<string, DictionaryEntry[]>();
-  for (const entry of entries) {
-    const source = entry.source ?? "";
-    bySource.set(source, [...(bySource.get(source) ?? []), entry]);
-  }
-  const groups = [...bySource].sort(([a], [b]) => a.localeCompare(b));
-
-  const definitionItem = (entry: DictionaryEntry): IntegrationGridItem => {
-    const status = entryStatus(entry);
-    return {
-      id: entry.id,
-      name: entry.metric,
-      description: entry.definition,
-      logo: (
-        <SourceLogo
-          id={entry.source ?? ""}
-          name={entry.source ?? entry.metric}
-          fallbackIcon={IconDatabase}
-        />
-      ),
-      status: [
-        t(status.key),
-        entry.department,
-        entry.table,
-        entry.aiGenerated ? t("dataDictionary.ai") : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      statusClassName: status.className,
-      actionKind: "manage",
-      actionLabel: t("semanticLayer.edit"),
-      actionAriaLabel: t("semanticLayer.editNamed", { name: entry.metric }),
-      onAction: () => openTarget({ kind: "definition", entry }),
-    };
-  };
+  // The logo already shows the source, so entries are not grouped by it.
+  const definitionItem = (entry: DictionaryEntry): IntegrationGridItem => ({
+    id: entry.id,
+    name: entry.metric,
+    description: entry.definition,
+    logo: (
+      <SourceLogo
+        id={entry.source ?? ""}
+        name={entry.source ?? entry.metric}
+        fallbackIcon={IconDatabase}
+      />
+    ),
+    status:
+      entry.status === "deprecated"
+        ? t("dataDictionary.deprecated")
+        : undefined,
+    statusClassName: "text-amber-500",
+    actionKind: "manage",
+    actionLabel: t("semanticLayer.edit"),
+    actionAriaLabel: t("semanticLayer.editNamed", { name: entry.metric }),
+    onAction: () => openTarget({ kind: "definition", entry }),
+  });
 
   let definitionsContent: ReactNode;
   if (dictionary.isLoading) {
@@ -318,19 +283,7 @@ export default function SemanticLayer() {
       dictionary.hasNextPage && !dictionary.isPlaceholderData;
     definitionsContent = (
       <>
-        <div className="flex flex-col gap-4">
-          {groups.map(([source, rows]) => (
-            <div key={source} className="flex flex-col gap-1">
-              <p className="px-2 text-xs font-medium text-muted-foreground">
-                {source || t("semanticLayer.unsourced")}
-              </p>
-              <IntegrationGrid
-                variant="rows"
-                items={rows.map(definitionItem)}
-              />
-            </div>
-          ))}
-        </div>
+        <IntegrationGrid variant="rows" items={entries.map(definitionItem)} />
         {showLoadMore ? (
           <div className="flex flex-col items-start gap-2 px-2">
             <Button

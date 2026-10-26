@@ -4,10 +4,19 @@ const dbMocks = vi.hoisted(() => ({
   execute: vi.fn(),
 }));
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: dbMocks.execute }),
-  retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const exec = {
+    execute: async (input: string | { sql: string }) =>
+      storeLedgerResult(typeof input === "string" ? input : input.sql) ??
+      dbMocks.execute(input),
+  };
+  return {
+    getDbExec: () => exec,
+    retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
+  };
+});
 
 const ddlMocks = vi.hoisted(() => ({
   ensureColumnExists: vi.fn(),
@@ -124,6 +133,83 @@ describe("agent tool approval store", () => {
         args: expect.arrayContaining([approvalId]),
       }),
     );
+  });
+
+  it("checks pending approvals in the run-slot transaction and thread scope", async () => {
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ present: 1 }],
+      rowsAffected: 0,
+    });
+    const { hasPendingAgentToolApproval } =
+      await import("./tool-approval-store.js");
+    const tx = {
+      execute: dbMocks.execute,
+    };
+
+    await expect(
+      hasPendingAgentToolApproval(tx, {
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe(true);
+    expect(dbMocks.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("status = 'pending'"),
+        args: [
+          binding.ownerEmail,
+          binding.orgId,
+          binding.orgId,
+          binding.threadId,
+          expect.any(Number),
+        ],
+      }),
+    );
+  });
+
+  it("resolves a denial only for the exact pending approval and thread", async () => {
+    const { denyAgentToolApproval } = await import("./tool-approval-store.js");
+    const approvalId = "agent-tool-approval-denied";
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe("denied");
+    expect(dbMocks.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringMatching(
+          /UPDATE agent_tool_approvals[\s\S]*status = 'pending'/,
+        ),
+        args: [
+          expect.any(Number),
+          approvalId,
+          binding.ownerEmail,
+          binding.orgId,
+          binding.orgId,
+          binding.threadId,
+        ],
+      }),
+    );
+  });
+
+  it("does not report a denial when approval was consumed by the action", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    const { denyAgentToolApproval } = await import("./tool-approval-store.js");
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId: "agent-tool-approval-consumed",
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe("not_applied");
   });
 
   it("does not guess between pending approvals from different turns", async () => {

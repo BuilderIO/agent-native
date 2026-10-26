@@ -33,7 +33,6 @@ import {
 import {
   useChatThreads,
   type ChatThreadScope,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
@@ -80,17 +79,13 @@ import React, {
   useLayoutEffect,
   useCallback,
 } from "react";
+import { toast } from "sonner";
 
 import {
   getAgentChatNavigationKey,
   type AgentChatNavigationKey,
 } from "./agent-sidebar-events.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
-import {
-  ChatHistoryList,
-  type ChatHistoryItem,
-  type ChatHistorySection,
-} from "./chat/ChatHistoryList.js";
 import type {
   AssistantChatProps,
   AssistantChatHandle,
@@ -98,6 +93,12 @@ import type {
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
+import {
+  OwnershipChatHistoryRail,
+  ownDraftRows,
+  useOwnershipChatHistory,
+  type OwnDraftRow,
+} from "./ownership-history/index.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
 const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
@@ -127,6 +128,8 @@ interface PendingSend {
   actionScope?: AgentActionScope;
   /** See `AgentChatMessage.approvedToolCalls`. */
   approvedToolCalls?: string[];
+  /** See `AssistantChatSendOptions.surface`. */
+  surface?: string;
 }
 
 /**
@@ -268,6 +271,7 @@ function deliverPendingSend(
       : {}),
     ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     ...(send.actionScope ? { actionScope: send.actionScope } : {}),
+    ...(send.surface ? { surface: send.surface } : {}),
     // An approval resume is a protocol continuation, not a visible prompt.
     ...(send.approvedToolCalls
       ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
@@ -488,139 +492,75 @@ function formatThreadTime(
 }
 
 function HistoryPopover({
-  threads,
+  apiUrl,
+  scope,
+  localMineRows,
   openTabIds,
   activeThreadId,
-  hasMoreThreads = false,
-  isLoadingMoreThreads = false,
-  loadError,
   onSelect,
+  onNewChat,
   onClose,
-  onLoadMore,
-  onSearch,
   onTogglePin,
   onRename,
+  getThreadUrl,
   popoverAlign = "end",
 }: {
-  threads: ChatThreadSummary[];
+  apiUrl?: string;
+  scope?: ChatThreadScope;
+  localMineRows: OwnDraftRow[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
-  hasMoreThreads?: boolean;
-  isLoadingMoreThreads?: boolean;
-  loadError?: string | null;
   onSelect: (id: string) => void;
+  onNewChat: () => void;
   onClose: () => void;
-  onLoadMore?: () => void;
-  onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
-  /** Presence enables the pin/unpin row action. Receives the thread's
-   * current pinned state so the caller can flip it. */
-  onTogglePin?: (id: string, pinned: boolean) => void;
-  /** Presence enables the inline rename row action. */
-  onRename?: (id: string, nextTitle: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => Promise<boolean>;
+  onRename: (id: string, nextTitle: string) => Promise<boolean>;
+  getThreadUrl: (id: string) => string;
   popoverAlign?: "start" | "end";
 }) {
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<
-    ChatThreadSummary[] | null
-  >(null);
-  const [isSearching, setIsSearching] = useState(false);
+  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const timer = setTimeout(() => setQuery(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  // Debounced server-side search
-  const searchIdRef = useRef(0);
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const q = search.trim();
-    if (!q) {
-      searchIdRef.current++;
-      setSearchResults(null);
-      setIsSearching(false);
-      return;
-    }
-    setIsSearching(true);
-    const id = ++searchIdRef.current;
-    debounceRef.current = setTimeout(async () => {
-      if (onSearch) {
-        const results = await onSearch(q);
-        if (id !== searchIdRef.current) return;
-        setSearchResults(results);
-      } else {
-        // Fallback to client-side filtering
-        setSearchResults(null);
-      }
-      setIsSearching(false);
-    }, 250);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [search, onSearch]);
-
-  // Hide empty threads from the history list — except the currently-active
-  // one. The active thread always belongs in the list so the user can see
-  // they're in it (the previous filter dropped a brand-new chat the user
-  // had just opened, making them think their chat had vanished).
-  const visibleThreads = threads.filter(
-    (t) => t.messageCount > 0 || t.id === activeThreadId,
-  );
-
-  const filtered = search.trim()
-    ? (searchResults ?? visibleThreads).filter(
-        (t) => t.messageCount > 0 || t.id === activeThreadId,
-      )
-    : visibleThreads;
-
-  // Pinned threads always float to the top of `threads` already (see
-  // `sortThreadSummaries` in use-chat-threads.ts and the matching server
-  // ORDER BY), but pulling them into their own labeled section — instead of
-  // just relying on sort order within "All chats" — makes the pin affordance
-  // visible at a glance, matching common chat-history UX.
-  const pinnedThreads = filtered.filter((t) => t.pinnedAt != null);
-  const unpinnedThreads = filtered.filter((t) => t.pinnedAt == null);
-
-  const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
-    const isActive = thread.id === activeThreadId;
-    const hasTitle = Boolean(thread.title);
-    const title = thread.title || t("agentChat.history.untitledChat");
-    return {
-      id: thread.id,
-      title,
-      titleText: title,
+  // This component is mounted only while the popover is open.
+  const history = useOwnershipChatHistory({
+    apiUrl,
+    scope,
+    enabled: true,
+    query,
+    activeId: activeThreadId,
+    pinned: true,
+    localMineRows,
+    mutations: { pin: onTogglePin, rename: onRename },
+    getThreadUrl,
+    onMutationFailed: () => toast.error(t("agentChat.common.saveFailed")),
+    decorateItem: (item, row) => ({
+      ...item,
+      title: row.title || t("agentChat.history.untitledChat"),
+      titleText: row.title || t("agentChat.history.untitledChat"),
       subtitle:
-        hasTitle && thread.preview && thread.title !== thread.preview
-          ? thread.preview
+        row.title && row.preview && row.title !== row.preview
+          ? row.preview
           : undefined,
-      timestamp: isActive
-        ? t("agentChat.history.active")
-        : openTabIds.has(thread.id)
-          ? t("agentChat.history.open")
-          : formatThreadTime(
-              thread.updatedAt,
-              locale,
-              t("agentChat.history.yesterday"),
-            ),
-      pinned: thread.pinnedAt != null,
-    };
-  };
-
-  const historySections: ChatHistorySection[] = [
-    ...(pinnedThreads.length > 0
-      ? [
-          {
-            id: "pinned",
-            label: t("agentChat.history.pinned"),
-            items: pinnedThreads.map(toHistoryItem),
-          },
-        ]
-      : []),
-    { id: "all", items: unpinnedThreads.map(toHistoryItem) },
-  ];
+      timestamp:
+        row.id === activeThreadId
+          ? t("agentChat.history.active")
+          : openTabIds.has(row.id)
+            ? t("agentChat.history.open")
+            : formatThreadTime(
+                row.updatedAt,
+                locale,
+                t("agentChat.history.yesterday"),
+              ),
+    }),
+  });
 
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
@@ -640,46 +580,23 @@ function HistoryPopover({
         }}
         className="w-72 rounded-lg p-0"
       >
-        <ChatHistoryList
-          sections={historySections}
+        <OwnershipChatHistoryRail
+          {...history}
           activeId={activeThreadId}
+          onNewChat={onNewChat}
+          showNewChat={false}
           onSelect={(id) => {
             onSelect(id);
             onClose();
           }}
-          onTogglePin={
-            onTogglePin
-              ? (id) => {
-                  const isPinned =
-                    threads.find((t) => t.id === id)?.pinnedAt != null;
-                  onTogglePin(id, !isPinned);
-                }
-              : undefined
-          }
-          onRename={onRename}
           searchValue={search}
           onSearchChange={setSearch}
           searchPlaceholder={t("agentChat.history.search")}
           searchInputRef={inputRef}
-          loading={isSearching}
           loadingLabel={t("agentChat.history.searching")}
-          error={loadError && !search.trim() ? loadError : undefined}
           emptyLabel={t("agentChat.history.empty")}
           emptySearchLabel={t("agentChat.history.noMatches")}
-          footer={
-            !search.trim() && hasMoreThreads ? (
-              <button
-                type="button"
-                onClick={() => onLoadMore?.()}
-                disabled={isLoadingMoreThreads}
-                className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
-              >
-                {isLoadingMoreThreads
-                  ? t("agentChat.common.loading")
-                  : t("agentChat.history.loadOlder")}
-              </button>
-            ) : undefined
-          }
+          className="an-chat-history--capped"
         />
       </PopoverContent>
     </Popover>
@@ -1284,12 +1201,7 @@ export function MultiTabAssistantChat({
     forkThread,
     saveThreadData,
     generateTitle,
-    searchThreads,
-    loadMoreThreads,
     refreshThreads,
-    hasMoreThreads,
-    isLoadingMoreThreads,
-    threadsLoadError,
     restoredThreadIdOnListFailure,
     evictedThreadIds,
     isNewThread,
@@ -1333,6 +1245,7 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const observedThreadStarts = useRef(new Map<string, number>());
   const [, setThreadPersistenceVersion] = useState(0);
   const handleThreadSnapshotPersisted = useCallback(
     (threadId: string, messageCount: number) => {
@@ -2498,6 +2411,7 @@ export function MultiTabAssistantChat({
         usageLabel,
         actionScope,
         approvedToolCalls,
+        surface,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -2561,6 +2475,7 @@ export function MultiTabAssistantChat({
           ? { submissionExpiresAt: parsed.submissionExpiresAt }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
+        ...(surface ? { surface } : {}),
       };
       // Resolved once, up front, and carried with the send until a thread
       // exists to key it by. Applying it only when `model` matched
@@ -2732,6 +2647,7 @@ export function MultiTabAssistantChat({
       if (!detail) return;
       const { isRunning, tabId } = detail;
       if (!tabId) return;
+      if (isRunning) observedThreadStarts.current.set(tabId, Date.now());
 
       setRunningThreads((prev) => {
         const next = new Set(prev);
@@ -3769,7 +3685,7 @@ export function MultiTabAssistantChat({
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
                             className={cn(
-                              "agent-tab agent-tab-group relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex items-center rounded-md text-[11px] font-medium shrink min-w-[56px] max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -3871,7 +3787,7 @@ export function MultiTabAssistantChat({
                                 : undefined
                             }
                             className={cn(
-                              "agent-tab agent-tab-group relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
+                              "agent-tab agent-tab-group relative flex shrink items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -3939,18 +3855,30 @@ export function MultiTabAssistantChat({
         {/* History popover — rendered inside relative container so positioning works */}
         {showHistory && (
           <HistoryPopover
-            threads={threads}
+            apiUrl={apiUrl}
+            scope={isolateHistoryByScope ? (scope ?? undefined) : undefined}
+            localMineRows={ownDraftRows({
+              threads: threads.map((thread) => ({
+                ...thread,
+                messageCount: messageCounts[thread.id] ?? thread.messageCount,
+              })),
+              isNewThread,
+              activeId: activeThreadId,
+              observedThreadStarts: observedThreadStarts.current,
+            })}
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
-            hasMoreThreads={hasMoreThreads}
-            isLoadingMoreThreads={isLoadingMoreThreads}
-            loadError={threadsLoadError}
             onSelect={openFromHistory}
+            onNewChat={addTab}
             onClose={() => setShowHistory(false)}
-            onLoadMore={loadMoreThreads}
-            onSearch={searchThreads}
             onTogglePin={pinThread}
             onRename={renameThread}
+            getThreadUrl={(threadId) => {
+              if (getThreadPath) return appPath(getThreadPath(threadId));
+              const url = new URL(window.location.href);
+              url.searchParams.set(threadUrlParamName, threadId);
+              return url.toString();
+            }}
             popoverAlign={renderOverlay ? "start" : "end"}
           />
         )}

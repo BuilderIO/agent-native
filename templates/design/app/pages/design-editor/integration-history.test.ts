@@ -166,8 +166,6 @@ describe("history identity integration", () => {
       requestPendingLiveNonStyleRevert: vi.fn(),
       requestPendingVisualStyleRevert: vi.fn(),
       restoreSelectionSnapshot,
-      selectionRedoStackRef: ref([]),
-      selectionUndoStackRef: ref([]),
       setActiveFileId: vi.fn(),
       setContentRenderRevision: vi.fn(),
       setHoveredElement: vi.fn(),
@@ -248,6 +246,7 @@ describe("history identity integration", () => {
       originalNode,
       oldFileId,
     );
+    const createdNode = targetNode(after, oldFileId);
     const undoManager = {
       undoStack: [{ meta: new Map<unknown, unknown>() }],
     };
@@ -271,6 +270,10 @@ describe("history identity integration", () => {
       before,
       after,
       selectionBefore: yjsSnapshot!,
+      selectionAfter: {
+        selectedElement: null,
+        selectedLayerIds: [createdNode.id],
+      },
     };
     const remapped = remapHistoryChange(
       change,
@@ -292,6 +295,9 @@ describe("history identity integration", () => {
     expect(remapped.selectionBefore?.sourceContentByFileId).toEqual({
       [restoredFileId]: before,
     });
+    expect(remapped.selectionAfter?.selectedLayerIds).toEqual([
+      targetNode(after, restoredFileId).id,
+    ]);
 
     const resolved = resolveHistorySelection(
       {
@@ -514,8 +520,6 @@ describe("history identity integration", () => {
         requestPendingLiveNonStyleRevert: vi.fn(),
         requestPendingVisualStyleRevert: vi.fn(),
         restoreSelectionSnapshot,
-        selectionRedoStackRef: ref([]),
-        selectionUndoStackRef: ref([]),
         setActiveFileId: (value: string) => (activeFileId.current = value),
         setContentRenderRevision: vi.fn(),
         setHoveredElement: vi.fn(),

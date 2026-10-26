@@ -155,6 +155,43 @@ literally empty, pass non-whitespace `initializeContent` instead of `find` or `e
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
+Some pages take body writes through their live copy, the copy open tabs edit.
+A page linked to a local file never does. `edit-document` writes those bodies.
+Other writers, such as `update-document --content`, a property or collection
+block stored in the body, row migrations, and Notion or Builder syncs, refuse
+with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in Content.
+Retrying that writer won't help: make the body change with `edit-document`
+where it can, or tell the user which action refused and on which page. When the
+refusal's `details` name a Notion page (`remotePageId`) or a local file
+(`sourcePath`), that copy already changed; say so. A local-folder sync that
+would link such a page to a file, or a folder disconnect or accepted file
+deletion that would relink it to another folder's file, refuses with
+`LOCAL_FILE_LINK_SWITCHED_PAGE` (409) and changes nothing.
+`import-content-source` lists that file in its `errors` and imports the rest.
+You can't switch the page back, so tell the user which page and file it was.
+`LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
+flight; read the page again and retry.
+Before a version restore, a move to another space, or a `pull-document`, the
+open editors of such a page that can save a title alone are asked to save it;
+its body is already in the live copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409,
+`retryable: true`) means one of them didn't confirm that save or couldn't make
+it. The restore, move or pull didn't go ahead, and titles the editors saved
+stay saved: retry, and if it refuses again, tell the user the open
+editor of page `details.documentId` didn't save its title. A move to another
+space refuses with `PAGE_TITLE_CHANGED` (409, `retryable: true`) when a page's
+title changed after its editors saved it; nothing moved, so retry. A page
+deleted while its editors saved the title refuses with `DOCUMENT_NOT_FOUND`.
+When editors were asked, a restore or move result's `titleFlush`, or a pull
+result's `editorFlush.titleFlush`, lists each page's editors. One with
+`flush: "unconfirmed"` couldn't be asked, so a title it hadn't saved yet may be
+missing; tell the user.
+
+A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
+`get-document` refuses to read it, including a page moved to Trash while the
+edit commits. Restore it before editing. A local-folder sync
+(`import-content-source`) leaves a page in Trash unchanged and lists it in
+`skipped`.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
@@ -166,6 +203,10 @@ pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text
 pnpm action update-document --id abc123 --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
+
+A page in Trash refuses `update-document` (except a favorite toggle),
+`restore-document-version` and a Blocks value set with `set-document-property`,
+with `DOCUMENT_NOT_FOUND`, like `edit-document`.
 
 ### Suggested edits
 
@@ -250,6 +291,8 @@ Comments are Notion/Google-Docs-style **inline comments**. Selecting text and co
 
 Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members and agents. Keep the readable `@Name` in `content` and pass `mentions` in text order: `{"kind":"person","email","name"}` or `{"kind":"agent","model","name"}`. One entry covers every `@Name` of one person; when two people share a name, the k-th `@Name` is the k-th entry with that name. `add-comment` and `update-comment` reject a malformed list, or an entry no `@Name` in `content` reaches, with a 400. The app draws each matched name as a pill when it stands alone, followed by a space or punctuation (`@Sam,` matches, `@Samantha` does not); an `@Name` in inline code, a Markdown link, or a URL is not a mention. A name with no entry stays plain text. An AI comment records its model, thinking effort, and agent conversation automatically.
 
+On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI on a comment thread works only in the page body.
+
 ```bash
 # List threads (returns anchor fields + parsed mentions)
 pnpm action list-comments --documentId abc123
@@ -262,8 +305,11 @@ pnpm action add-comment --documentId abc123 --content "@Sam check this" \
   --quotedText "the second paragraph" --anchorPrefix "above " --anchorSuffix " here" \
   --anchorStartOffset 120 --mentions '[{"kind":"person","email":"sam@x.com","name":"Sam"}]'
 
-# Reply to a thread
-pnpm action add-comment --documentId abc123 --threadId t123 --content "Agreed"
+# Comment on text in another Blocks field's tab
+pnpm action add-comment --documentId abc123 --fieldId prop456 --content "Tighten this" --quotedText "the opening line"
+
+# Reply to a thread (threadId is the thread's root comment ID)
+pnpm action add-comment --documentId abc123 --threadId t123 --parentId c123 --content "Agreed"
 
 # Resolve / reopen the whole thread
 pnpm action update-comment --id c123 --resolved true
@@ -386,26 +432,26 @@ missing page or list documents to find the right id. Never retry the same id
 or invent a similar-looking one — fabricated ids cannot resolve, and repeated
 failures stop the run.
 
-| User request              | What to do                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
+| User request              | What to do                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)                                               |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`                         |
+| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"`                                   |
 | "Delete this page"        | ID and `updatedAt` from `<current-screen>`, `delete-document --id ... --expectedUpdatedAt ... --idempotencyKey ...` |
 
 ## Common Tasks
 
-| User says                    | What to do                                                                          |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
-| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
-| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
-| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
+| User says                    | What to do                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`   |
+| "Describe what belongs here" | `update-document --id ... --description "..."`                                                |
+| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                                    |
+| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"`           |
+| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`                        |
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
-| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
-| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
-| "Show me the document tree"  | `list-documents`                                                                    |
+| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.
 
@@ -417,9 +463,11 @@ Always run `refresh-list` after any create, update, or delete operation.
   discoverability, the read-only public chat). Read it before touching
   descriptions, external ingest, or a document's visibility.
 - **`references/databases.md`** — full behavioral reference for Content
-  collections: property types, Blocks fields, and every view type (table,
-  list, gallery, board, calendar, timeline, form). Read it before building or
-  modifying collection views, properties, or forms.
+  collections: property types, Blocks fields (what people call tabs, page
+  tabs, document tabs, or sections on a row's page), and every view type
+  (table, list, gallery, board, calendar, timeline, form). Read it before
+  building or modifying collection views, properties, or forms, or when someone
+  asks about a page's tabs.
 
 Also read on demand, outside this skill:
 

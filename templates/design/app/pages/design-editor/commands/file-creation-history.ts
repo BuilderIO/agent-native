@@ -19,7 +19,7 @@ interface FileCreationHistoryState {
     PendingFileCreationHistoryEntry[]
   >;
   fileCreationUndoStackRef: MutableRef<FileCreationHistoryEntry[]>;
-  historyOrderRef: MutableRef<(UndoRedoOrderKind | "selection")[]>;
+  historyOrderRef: MutableRef<UndoRedoOrderKind[]>;
   clearRedoStacks: () => void;
   syncUndoRedoState: () => void;
 }

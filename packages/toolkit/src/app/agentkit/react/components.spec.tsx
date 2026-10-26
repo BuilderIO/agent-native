@@ -196,6 +196,18 @@ describe("AgentMessageActions layout", () => {
 });
 
 describe("AgentKitChat", () => {
+  it("keeps work-summary chevrons visible before the row is opened", () => {
+    const styles = readFileSync(
+      new URL("./styles.css", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const rule = styles.match(
+      /\.agentkit-activities-summary > \.agentkit-summary-chevron \{([^}]*)\}/,
+    )?.[1];
+
+    expect(rule).toContain("opacity: 1;");
+  });
+
   it("renders the complete reference surface from one managed component", () => {
     const transport: AgentTransport = {
       async startRun() {
@@ -389,13 +401,41 @@ describe("AgentKitChat", () => {
       ".agentkit-transcript {\n  grid-column: 1;\n  grid-row: 2;",
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript \{[\s\S]*inline-size: 100%;[\s\S]*overflow-y: auto;/,
+      /\.agentkit-transcript \{[\s\S]*container-name: agentkit-transcript;[\s\S]*container-type: inline-size;[\s\S]*inline-size: 100%;[\s\S]*overflow-y: auto;/,
+    );
+    expect(styles).toContain(
+      "@container agentkit-transcript (max-width: 74.999rem)",
     );
     expect(styles).not.toMatch(
       /\.agentkit-transcript \{[^}]*inline-size: min\(100%, 47rem\);/,
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, 47rem\);[\s\S]*margin-inline: auto;[\s\S]*padding: 1\.5rem 1rem;/,
+      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, var\(--agentkit-transcript-lane-width, 47rem\)\);[\s\S]*margin-inline: auto;[\s\S]*inset-inline-start: clamp\([\s\S]*var\(--agentkit-transcript-lane-offset-inline, 0px\),[\s\S]*padding: 1\.5rem 1rem;[\s\S]*padding-block-start: var\(--agentkit-transcript-top-inset, 1\.5rem\);/,
+    );
+    expect(styles).toContain(
+      "margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);",
+    );
+    expect(styles).toMatch(
+      /font-family:\s*var\(\s*--agentkit-transcript-font-family,\s*var\(--font-sans,\s*inherit\)\s*\);/,
+    );
+    expect(styles).toContain(
+      "line-height: var(--agentkit-transcript-message-line-height, 1.52);",
+    );
+    expect(styles).toContain(
+      "--agentkit-user-bubble-line-height,\n    var(--agentkit-transcript-message-line-height, 1.52)",
+    );
+    expect(styles).toContain("var(--agentkit-user-bubble-max-width, 38rem)");
+    expect(styles).toContain(
+      "var(--agentkit-user-bubble-padding-block, 0.625rem)",
+    );
+    expect(styles).toContain(
+      "var(--agentkit-user-bubble-padding-inline, 0.8125rem)",
+    );
+    expect(styles).toContain(
+      "inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);",
+    );
+    expect(styles).toMatch(
+      /max-inline-size: min\([\s\S]*94%,[\s\S]*var\(--agentkit-user-bubble-max-width, 38rem\)/,
     );
     expect(styles).toContain("overflow-anchor: none;");
     expect(styles).toMatch(
@@ -463,17 +503,19 @@ describe("AgentKitChat", () => {
     expect(styles).toMatch(
       /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="area"\][\s\S]*padding-inline: 0;/,
     );
-    expect(styles).toMatch(
-      /\[data-agent-composer-slot="model-button"\] \{[\s\S]*max-inline-size: 11rem;/,
-    );
+    const modelButtonRule = styles.match(
+      /\.agentkit-composer \[data-agent-composer-slot="model-button"\] \{([^}]*)\}/,
+    )?.[1];
+    expect(modelButtonRule).toContain("max-inline-size: 11rem;");
+    expect(modelButtonRule).toContain("flex: 0 1 auto;");
     expect(styles).toMatch(
       /\[data-agent-composer-slot="mode-button"\] \{[\s\S]*min-inline-size: 3\.5rem;/,
     );
     expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="model-button"\][\s\S]*max-inline-size: 7\.5rem;/,
+      /@container \(max-width: 24rem\)[\s\S]*\[data-agent-composer-slot="model-button"\][\s\S]*max-inline-size: 7\.5rem;/,
     );
     expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\.agent-composer-model-effort[\s\S]*display: none;/,
+      /@container \(max-width: 24rem\)[\s\S]*\.agent-composer-model-effort[\s\S]*display: none;/,
     );
     const composerPopoverRule = styles.match(
       /\[data-agent-native-composer-popover="true"\] \{([^}]*)\}/,
@@ -1761,6 +1803,7 @@ describe("AgentKitChat", () => {
         client={client}
         threadId="thread-slots"
         load="manual"
+        transcriptLayout={{ topInset: 7 }}
         title="Release room"
         toolbar={<button type="button">Share</button>}
         labels={{ conversation: "Release conversation" }}
@@ -1820,6 +1863,7 @@ describe("AgentKitChat", () => {
       expect(html).toContain(`data-slot="${slot}"`);
     }
     expect(html).toContain('aria-label="Release room"');
+    expect(html).toContain("--agentkit-transcript-top-inset:7px");
     expect(html).toContain("Check the deployment");
     expect(html).not.toContain("private context");
     expect(html).not.toContain("private slot context");

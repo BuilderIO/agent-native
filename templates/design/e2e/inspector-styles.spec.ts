@@ -1,6 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 
-import { installBridge, waitForBridge } from "./helpers";
+import { appPath, installBridge, waitForBridge } from "./helpers";
 import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -9,7 +9,7 @@ const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Inspector</title></head>
   <body data-agent-native-node-id="page" style="margin:0;width:800px;height:600px;background:#ffffff;font-family:system-ui,sans-serif">
-    <h1 data-agent-native-node-id="heading" data-agent-native-layer-name="Heading" style="position:absolute;left:40px;top:40px;width:400px;height:60px;margin:0;font-size:40px;line-height:60px;color:#111827">E2E Hero Heading</h1>
+    <h1 data-agent-native-node-id="heading" data-agent-native-layer-name="Heading" style="position:absolute;left:40px;top:40px;width:400px;height:60px;margin:0;font-size:40px;line-height:60px;color:#111827">Heading</h1>
     <p data-agent-native-node-id="para" data-agent-native-layer-name="Paragraph" style="position:absolute;left:40px;top:120px;width:400px;height:24px;margin:0;line-height:24px">First fixture paragraph</p>
     <button data-agent-native-node-id="button" data-agent-native-layer-name="Button" style="position:absolute;left:40px;top:180px;width:140px;height:44px;padding:0 12px;border:0;background:#6366f1;color:#ffffff">Alpha Button</button>
     <div data-agent-native-node-id="card" data-agent-native-layer-name="Card" style="position:absolute;left:40px;top:260px;width:200px;height:120px;background:#e5e7eb"></div>
@@ -77,8 +77,28 @@ async function savedStyle(app: App, id: string, nodeId: string) {
   return styleOf((await app.savedNodes(id)).get(nodeId));
 }
 
-// fixme: fails on current main after the merge: Error: the canvas never settled after zoom to fit
-test.fixme("text fills hide and restore without losing the original color", async ({
+async function applyDesignEdit(
+  app: App,
+  designId: string,
+  intent: Record<string, unknown>,
+) {
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/apply-visual-edit"),
+    {
+      data: {
+        source: { kind: "design-file", designId, filename: "index.html" },
+        intent,
+      },
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `apply-visual-edit ${response.status()}: ${await response.text()}`,
+    );
+  }
+}
+
+test("text fills hide and restore without losing the original color", async ({
   app,
 }) => {
   const page = app.page;
@@ -188,7 +208,50 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
   expectOnlyChanged(before, after, ["heading"]);
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
+test("removing place-items restores a flex auto-layout container's alignment", async ({
+  app,
+}) => {
+  const id = await openInspector(app);
+  await applyDesignEdit(app, id, {
+    kind: "autoLayout",
+    targetId: "card",
+    enabled: true,
+    containerStyles: { display: "flex" },
+  });
+  await app.page.reload();
+  await app.zoomToFit();
+  await expect(app.node("card")).toHaveCSS("align-items", "flex-start");
+
+  await applyDesignEdit(app, id, {
+    kind: "style",
+    target: { nodeId: "card" },
+    property: "place-items",
+    value: "center",
+  });
+  await app.page.reload();
+  await app.zoomToFit();
+  await expect(app.node("card")).toHaveCSS("align-items", "center");
+
+  await applyDesignEdit(app, id, {
+    kind: "style",
+    operation: "remove",
+    target: { nodeId: "card" },
+    property: "place-items",
+  });
+  await app.page.reload();
+  await app.zoomToFit();
+  await expect(app.node("card")).toHaveCSS("align-items", "flex-start");
+  expect(await savedStyle(app, id, "card")).toMatchObject({
+    display: "flex",
+    "align-items": "flex-start",
+  });
+  expect(
+    (await app.savedNodes(id)).get("card")?.attrs[
+      "data-agent-native-generated-flex-align-items"
+    ],
+  ).toBe("flex-start");
+});
+
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
   app,
 }) => {
@@ -254,7 +317,10 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   const cardFill = inspectorSection(page, "Fill");
   await cardFill.getByRole("button", { name: "Open color picker" }).click();
   await page.getByRole("button", { name: "Gradient", exact: true }).click();
+  const gradientAngle = page.locator('input[aria-label="Gradient angle"]');
+  await expect(gradientAngle).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(gradientAngle).toBeHidden();
   await app.settled();
   const cardGradient = await savedStyle(app, id, "card");
   expect({
@@ -360,7 +426,7 @@ test("typography edits update size and spacing inputs", async ({ app }) => {
 
   for (const [typed, saved, shown] of [
     ["2%", "0.02em", "2%"],
-    ["0.64px", "0.64px", "0.64px"],
+    ["0.64px", "0.64px", "0.64"],
     ["0.01%", "0.0001em", "0.01%"],
     ["0.005em", "0.005em", "0.5%"],
     ["2pxpx", "0.005em", "0.5%"],
@@ -383,8 +449,7 @@ test("typography edits update size and spacing inputs", async ({ app }) => {
   expectOnlyChanged(before, after, ["heading"]);
 });
 
-// fixme: fails on current main after the merge: Error: the canvas never settled after zoom to fit
-test.fixme("search selects Lato Medium and keeps custom font names offline", async ({
+test("search selects Lato Medium and keeps custom font names offline", async ({
   app,
 }) => {
   const page = app.page;
@@ -468,7 +533,7 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   const before = await app.savedNodes(id);
   await select(app, "card");
   const input = page.locator('input[aria-label="X-position" i]');
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
   const label = page.locator(`label[for="${await input.getAttribute("id")}"]`);
   await label.hover();
   await expect(page.getByRole("tooltip")).toHaveText("X-position");
@@ -485,7 +550,7 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect(
     input,
     "16px in 2px steps scrubs +14: the first step is under the 3px drag threshold",
-  ).toHaveValue("54px");
+  ).toHaveValue("54");
   await app.settled();
   const after = await app.savedNodes(id);
   expect(styleOf(after.get("card"))).toEqual({
@@ -524,25 +589,25 @@ test("numeric input applies arithmetic expressions and starts an Option scrub dr
   const before = await app.savedNodes(id);
   await select(app, "card");
   const input = page.locator('input[aria-label="X-position" i]');
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
 
-  for (const [typed, left] of [
-    ["-5", "-5px"],
-    ["+5", "5px"],
-    ["*2", "5px"],
-    ["(10+5)*2", "30px"],
-    ["2^3", "8px"],
-    ["10", "10px"],
+  for (const [typed, left, shown] of [
+    ["-5", "-5px", "-5"],
+    ["+5", "5px", "5"],
+    ["*2", "5px", "5"],
+    ["(10+5)*2", "30px", "30"],
+    ["2^3", "8px", "8"],
+    ["10", "10px", "10"],
   ] as const) {
     await input.fill(typed);
     await input.press("Enter");
     await expect.poll(() => liveStyle(app, "card", "left"), typed).toBe(left);
-    await expect(input).toHaveValue(left);
+    await expect(input).toHaveValue(shown);
   }
   await input.click();
   await input.press("ArrowRight");
   await input.pressSequentially("*2");
-  await expect(input).toHaveValue("10px*2");
+  await expect(input).toHaveValue("10*2");
   await input.press("Enter");
   await expect.poll(() => liveStyle(app, "card", "left")).toBe("20px");
 
@@ -555,7 +620,7 @@ test("numeric input applies arithmetic expressions and starts an Option scrub dr
   await page.mouse.move(x + 5, y);
   await page.mouse.up();
   await page.keyboard.up("Alt");
-  await expect(input).toHaveValue("25px");
+  await expect(input).toHaveValue("25");
   await expect.poll(() => liveStyle(app, "card", "left")).toBe("25px");
 
   await app.settled();
@@ -709,10 +774,10 @@ test("pointercancel restores a scrubbed value without adding a history step", as
   const id = await openInspector(app);
   await select(app, "card");
   const input = page.locator('input[aria-label="X-position" i]');
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
   await input.fill("80");
   await input.press("Enter");
-  await expect(input).toHaveValue("80px");
+  await expect(input).toHaveValue("80");
   await app.settled();
   expect((await savedStyle(app, id, "card")).left).toBe("80px");
   const committed = await app.savedNodes(id);
@@ -742,7 +807,7 @@ test("pointercancel restores a scrubbed value without adding a history step", as
   await expect(
     input,
     "precondition: the scrub moved the value",
-  ).not.toHaveValue("80px");
+  ).not.toHaveValue("80");
 
   // Playwright's mouse cannot produce pointercancel, so the scrub label receives one directly.
   await page.evaluate((labelFor) => {
@@ -759,21 +824,21 @@ test("pointercancel restores a scrubbed value without adding a history step", as
       }),
     );
   }, inputId);
-  await expect(input).toHaveValue("80px");
+  await expect(input).toHaveValue("80");
   await expect.poll(() => liveStyle(app, "card", "left")).toBe("80px");
   await page.mouse.up();
   await app.settled();
   expectOnlyChanged(committed, await app.savedNodes(id), []);
 
   await page.keyboard.press(`${MOD}+z`);
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
   await app.settled();
   expect(
     (await savedStyle(app, id, "card")).left,
     "the cancelled scrub added no history step, so one undo reverts the typed 80",
   ).toBe("40px");
   await page.keyboard.press(`${MOD}+Shift+z`);
-  await expect(input).toHaveValue("80px");
+  await expect(input).toHaveValue("80");
   await app.settled();
   expectOnlyChanged(committed, await app.savedNodes(id), []);
 });

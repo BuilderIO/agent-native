@@ -6,6 +6,8 @@ import {
 } from "@playwright/test";
 import { parse } from "parse5";
 
+import { NATIVE_RENDER_CONTEXT_LEDGER_KEY } from "../shared/native-local-export";
+import { isEditorUrl, waitForEditorBoot } from "./editor-boot";
 import { appPath, gotoEditor } from "./helpers";
 
 const NODE_ID = "data-agent-native-node-id";
@@ -41,6 +43,8 @@ export class App {
   async attach() {
     const page = this.page;
     // Playwright can't say who started a navigation, so the test's own navigations are counted on the way in.
+    // A navigation that lands in the editor also returns only once the editor has booted, so no spec
+    // has to know how long a boot takes; `waitUntil: "commit"` opts out to observe the boot itself.
     let expectedLoads = 0;
     for (const method of [
       "goto",
@@ -53,21 +57,49 @@ export class App {
         ...args: unknown[]
       ) => Promise<unknown>;
       Object.assign(page, {
-        [method]: (...args: unknown[]) => {
+        [method]: async (...args: unknown[]) => {
           expectedLoads += 1;
-          return navigate(...args);
+          const startedAt = Date.now();
+          const response = await navigate(...args);
+          const options = args.find(
+            (arg): arg is { waitUntil?: string } =>
+              typeof arg === "object" && arg !== null,
+          );
+          if (
+            method !== "setContent" &&
+            options?.waitUntil !== "commit" &&
+            isEditorUrl(page.url())
+          )
+            await waitForEditorBoot(page, startedAt);
+          return response;
         },
       });
     }
+    // Vite pushes a full reload to every open page when a watched source file changes, such as a spec edited mid-run.
+    let devServerReloading = false;
+    page.on("websocket", (socket) => {
+      socket.on("framereceived", ({ payload }) => {
+        if (typeof payload === "string" && payload.includes('"full-reload"'))
+          devServerReloading = true;
+      });
+    });
     page.on("load", () => {
+      const reloadedByDevServer = devServerReloading;
+      devServerReloading = false;
+      // Vite's dev optimizer can reload one route while recovering stale deps.
+      if (new URL(page.url()).searchParams.has("__an_vite_dev_recovery"))
+        return;
       if (expectedLoads > 0) {
         expectedLoads -= 1;
         return;
       }
+      const reason = reloadedByDevServer
+        ? "was reloaded by the dev server, which does that when a watched source file changes mid-run"
+        : "loaded without the test navigating";
       if (this.recording) {
         this.failures.push({
           kind: "unexpected page load",
-          detail: `${page.url()} loaded without the test navigating`,
+          detail: `${page.url()} ${reason}`,
         });
       }
     });
@@ -79,7 +111,11 @@ export class App {
         });
     });
     page.on("console", (message) => {
-      if (this.recording && message.type() === "error") {
+      if (
+        this.recording &&
+        message.type() === "error" &&
+        !isSandboxedFrameAutomationNoise(message.text())
+      ) {
         this.failures.push({ kind: "console.error", detail: message.text() });
       }
     });
@@ -102,23 +138,33 @@ export class App {
       this.inflightSaves = 0;
       this.lastSaveActivity = Date.now();
     });
-    page.on("response", (response) => {
+    page.on("response", async (response) => {
       const url = new URL(response.url());
       if (
         this.recording &&
         url.pathname.includes("/_agent-native/") &&
         response.status() >= 400
       ) {
+        const motionTimeline422 =
+          response.status() === 422 &&
+          url.pathname.endsWith("/_agent-native/actions/get-motion-timeline");
         this.failures.push({
           kind: `http ${response.status()}`,
-          detail: `${response.request().method()} ${url.pathname}`,
+          detail: `${response.request().method()} ${url.pathname}${
+            motionTimeline422 ? ` ${await response.text()}` : ""
+          }`,
         });
       }
     });
     await page.addInitScript(() => {
       const seen: string[] = [];
-      (window as unknown as { __e2eErrorToasts: string[] }).__e2eErrorToasts =
-        seen;
+      const scriptedSandboxes: string[] = [];
+      const recorder = window as unknown as {
+        __e2eErrorToasts: string[];
+        __e2eScriptedSandboxes: string[];
+      };
+      recorder.__e2eErrorToasts = seen;
+      recorder.__e2eScriptedSandboxes = scriptedSandboxes;
       new MutationObserver(() => {
         for (const toast of document.querySelectorAll(
           '[data-sonner-toast][data-type="error"]',
@@ -126,7 +172,24 @@ export class App {
           const text = (toast.textContent ?? "").trim();
           if (text && !seen.includes(text)) seen.push(text);
         }
-      }).observe(document, { childList: true, subtree: true });
+        for (const frame of document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[sandbox][srcdoc]",
+        )) {
+          const label = frame.srcdoc.slice(0, 160);
+          if (
+            !frame.sandbox.contains("allow-scripts") &&
+            /<script\b/i.test(frame.srcdoc) &&
+            !scriptedSandboxes.includes(label)
+          ) {
+            scriptedSandboxes.push(label);
+          }
+        }
+      }).observe(document, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["sandbox", "srcdoc"],
+      });
     });
   }
 
@@ -183,13 +246,15 @@ export class App {
     const before = JSON.stringify(await frame.boundingBox());
     await this.page.keyboard.press("Shift+1");
     let previous = "";
+    let unchangedPolls = 0;
     await expect
       .poll(
         async () => {
           const now = JSON.stringify(await frame.boundingBox());
-          const stable = now === previous && now !== before;
+          unchangedPolls = now === previous ? unchangedPolls + 1 : 0;
           previous = now;
-          return stable;
+          // A reload restores the fitted camera, so Shift+1 may move nothing at all.
+          return unchangedPolls >= (now === before ? 10 : 1);
         },
         {
           intervals: [100],
@@ -322,19 +387,31 @@ export class App {
           detail: "a save was still in flight at teardown",
         });
       });
-      toasts = await this.page
-        .evaluate(
-          () =>
-            (window as unknown as { __e2eErrorToasts?: string[] })
-              .__e2eErrorToasts ?? [],
-        )
+      const recorded = await this.page
+        .evaluate(() => {
+          const recorder = window as unknown as {
+            __e2eErrorToasts?: string[];
+            __e2eScriptedSandboxes?: string[];
+          };
+          return {
+            toasts: recorder.__e2eErrorToasts ?? [],
+            scriptedSandboxes: recorder.__e2eScriptedSandboxes ?? [],
+          };
+        })
         .catch((error: Error) => {
           this.failures.push({
             kind: "error toasts unreadable",
             detail: error.message,
           });
-          return [];
+          return { toasts: [], scriptedSandboxes: [] };
         });
+      toasts = recorded.toasts;
+      for (const srcdoc of recorded.scriptedSandboxes) {
+        this.failures.push({
+          kind: "script in a sandboxed srcdoc frame without allow-scripts",
+          detail: srcdoc,
+        });
+      }
       // coercion-ok: the final-state screenshot is evidence only; no test passes or fails on it
       const finalState = await this.page.screenshot().catch(() => null);
       if (finalState)
@@ -349,7 +426,21 @@ export class App {
       ) {
         await this.attachRecorderReport(testInfo);
       }
+      const tabId = await this.browserTabId().catch((error: Error) => {
+        this.failures.push({
+          kind: "render context not released",
+          detail: `the tab id was unreadable: ${error.message}`,
+        });
+        return null;
+      });
       await this.page.goto("about:blank").catch(() => {});
+      if (tabId)
+        await this.releaseRenderContext(tabId).catch((error: Error) => {
+          this.failures.push({
+            kind: "render context not released",
+            detail: error.message,
+          });
+        });
     }
     for (const id of this.designs)
       await this.action("delete-design", { id }).catch(() => {});
@@ -375,6 +466,48 @@ export class App {
           pattern.test(`${failure.kind} ${failure.detail}`),
         ),
     );
+  }
+
+  private async browserTabId() {
+    if (new URL(this.page.url()).origin !== new URL(appPath("/")).origin)
+      return null;
+    return this.page.evaluate(() =>
+      sessionStorage.getItem("agent-native:browser-tab-id"),
+    );
+  }
+
+  /**
+   * Every editor tab holds one of the user's few native render-context slots until it expires, and every
+   * test is a new tab of the same user, so a run of short tests would otherwise fill them.
+   */
+  private async releaseRenderContext(tabId: string) {
+    const url = appPath(
+      `/_agent-native/application-state/${NATIVE_RENDER_CONTEXT_LEDGER_KEY}`,
+    );
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const read = await this.page.request.get(url);
+      if (!read.ok()) throw new Error(`ledger read ${read.status()}`);
+      // A user who never opened the editor has no ledger, and the state route answers with an empty body.
+      const body = await read.text();
+      if (!body) return;
+      const ledger = JSON.parse(body) as {
+        contexts: { tabId: string }[];
+      } | null;
+      if (!ledger?.contexts.some((entry) => entry.tabId === tabId)) return;
+      const write = await this.page.request.patch(url, {
+        headers: { "X-Agent-Native-CSRF": "1" },
+        data: {
+          expected: ledger,
+          next: {
+            ...ledger,
+            contexts: ledger.contexts.filter((entry) => entry.tabId !== tabId),
+          },
+        },
+      });
+      if (!write.ok()) throw new Error(`ledger write ${write.status()}`);
+      if (((await write.json()) as { changed: boolean }).changed) return;
+    }
+    throw new Error("the ledger kept changing concurrently");
   }
 
   private async attachRecorderReport(testInfo: TestInfo) {
@@ -463,6 +596,18 @@ export function expectOnlyChanged(
   expect(drift, "nodes other than the edited ones changed").toEqual([]);
 }
 
+/**
+ * Chromium logs this under Playwright for a sandboxed srcdoc frame that holds no
+ * script at all; the board static preview and export snapshot frames are such frames.
+ * Teardown fails a test separately when such a frame does carry a script.
+ */
+export function isSandboxedFrameAutomationNoise(text: string) {
+  return (
+    text ===
+    "Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the 'allow-scripts' permission is not set."
+  );
+}
+
 export function childrenOf(nodes: Map<string, SavedNode>, parent: string) {
   return [...nodes.values()]
     .filter((node) => node.parent === parent)
@@ -477,6 +622,25 @@ export function styleOf(node: SavedNode | undefined) {
     if (property?.trim()) style[property.trim()] = value.join(":").trim();
   }
   return style;
+}
+
+export async function normalizeStyleAttribute(
+  page: Page,
+  style: string | undefined,
+) {
+  if (style === undefined) return null;
+  return page.evaluate((value) => {
+    const element = document.createElement("div");
+    element.setAttribute("style", value);
+    return Object.fromEntries(
+      Array.from(element.style)
+        .sort()
+        .map((property) => [
+          property,
+          element.style.getPropertyValue(property),
+        ]),
+    );
+  }, style);
 }
 
 export const test = base.extend<{ app: App }>({

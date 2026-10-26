@@ -24,6 +24,7 @@ import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-structure";
 import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorScreenRendering } from "../domains/use-editor-screen-rendering";
+import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 
 const ZOOM_MENU_ROW_CLASS = "h-6 px-2 py-0 text-[12px]";
 
@@ -66,6 +67,7 @@ export function renderZoomMenu({
   editorLayoutAndStructure,
   editorModes,
   editorScreenRendering,
+  editorSourceAndSync,
   controlId,
 }: {
   editorCore: EditorCore;
@@ -74,12 +76,14 @@ export function renderZoomMenu({
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorModes: EditorModes;
   editorScreenRendering: EditorScreenRendering;
+  editorSourceAndSync: EditorSourceAndSync;
   controlId: "toolbar" | "inspector" | "topbar";
 }) {
   const { t, shortcut, viewMode } = editorCore;
   const { handleZoomIn, handleZoomOut, setZoom } =
     editorActiveScreenAndGeometry;
   const { handleZoomToFit } = editorCanvasAndScreens;
+  const { handleZoomToSelection } = editorSourceAndSync;
   const { suppressOverviewPopForExplicitZoomRef } = editorModes;
   const {
     viewSettings: {
@@ -191,6 +195,11 @@ export function renderZoomMenu({
           shortcut={shortcut("shift+1")}
           onSelect={handleZoomToFit}
         />
+        <ZoomMenuRow
+          label={t("designEditor.keyboardShortcuts.commands.zoomSelection")}
+          shortcut={shortcut("shift+2")}
+          onSelect={handleZoomToSelection}
+        />
         {[50, 100, 200].map((preset) => (
           <ZoomMenuRow
             key={preset}
@@ -200,7 +209,7 @@ export function renderZoomMenu({
                 {preset}%
               </>
             }
-            shortcut={preset === 100 ? shortcut("$mod+0") : undefined}
+            shortcut={preset === 100 ? shortcut("shift+0") : undefined}
             onSelect={() => {
               suppressOverviewPopForExplicitZoomRef.current = true;
               setZoom(preset);
@@ -222,6 +231,7 @@ export function renderZoomMenu({
         <ZoomMenuRow
           label={"Rulers" /* i18n-ignore */}
           checked={rulers}
+          shortcut={shortcut("shift+r")}
           disabled={viewMode !== "overview"}
           onSelect={() => toggleViewSetting("rulers")}
         />

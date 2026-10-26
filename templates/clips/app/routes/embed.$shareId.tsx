@@ -23,6 +23,7 @@ import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
 import { getDb, schema } from "../../server/db";
 import { isRecordingExpired } from "../../server/lib/recording-page-access";
+import { recordingEmbedProvider } from "../../shared/embed-provider";
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
 import {
   buildClipsShareMeta,
@@ -233,7 +234,8 @@ export default function EmbedRoute() {
   const chapters = dataQ.data?.data?.chapters ?? [];
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
-  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const embedProvider = recordingEmbedProvider(recording);
+  const isEmbedBacked = embedProvider !== null;
 
   const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(
     null,
@@ -243,7 +245,7 @@ export default function EmbedRoute() {
     recordingId: shareId ?? "",
     videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
-    trackOpenWithoutVideo: isLoomEmbedBacked,
+    trackOpenWithoutVideo: isEmbedBacked,
   });
 
   const needsPassword =
@@ -336,7 +338,7 @@ export default function EmbedRoute() {
             : null
         }
         recordingStatus={recording.status}
-        frameAvailable={!isLoomEmbedBacked}
+        frameAvailable={!isEmbedBacked}
       />
       <VideoPlayer
         ref={playerRef}
@@ -347,7 +349,7 @@ export default function EmbedRoute() {
           recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
         }
         videoFormat={recording.videoFormat}
-        embedProvider={isLoomEmbedBacked ? "loom" : null}
+        embedProvider={embedProvider}
         durationMs={recording.durationMs}
         persistPlaybackPosition={false}
         editsJson={recording.editsJson}

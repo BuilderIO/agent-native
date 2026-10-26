@@ -10,6 +10,8 @@ interface DateRangeInputProps {
   onStartChange: (value: string) => void;
   onEndChange: (value: string) => void;
   className?: string;
+  disabled?: boolean;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function DateRangeInput({
@@ -19,6 +21,8 @@ export function DateRangeInput({
   onStartChange,
   onEndChange,
   className,
+  disabled,
+  onCloseAutoFocus,
 }: DateRangeInputProps) {
   const t = useT();
   return (
@@ -31,11 +35,21 @@ export function DateRangeInput({
         aria-label={label}
         className="flex items-center gap-1.5"
       >
-        <DatePicker value={startDate} onChange={onStartChange} />
+        <DatePicker
+          value={startDate}
+          onChange={onStartChange}
+          disabled={disabled}
+          onCloseAutoFocus={onCloseAutoFocus}
+        />
         <span className="text-xs text-muted-foreground">
           {t("sqlDashboard.to")}
         </span>
-        <DatePicker value={endDate} onChange={onEndChange} />
+        <DatePicker
+          value={endDate}
+          onChange={onEndChange}
+          disabled={disabled}
+          onCloseAutoFocus={onCloseAutoFocus}
+        />
       </div>
     </div>
   );

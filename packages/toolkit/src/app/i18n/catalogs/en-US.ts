@@ -174,6 +174,27 @@ const messages = {
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitleClips":
+    "Try it with free video storage and 60 Agent Credits a month",
+  "onboarding.creditsActivate": "Activate free credits",
+  "onboarding.creditsFinePrint":
+    "This will create a free Builder.io account. By continuing, you agree to our",
+  "onboarding.creditsMoreInfo": "More info",
+  "onboarding.creditsSubtitle":
+    "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
+  "onboarding.creditsLearnMore": "Learn more",
+  "onboarding.creditsSkip": "Skip",
+  "onboarding.creditsSkipConfirmTitle": "Are you sure?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native apps need an LLM connected to use most features. Most functionality won't work without one.",
+  "onboarding.creditsSkipGoBack": "Go back",
+  "onboarding.creditsSkipAnyway": "Skip anyway",
+  "onboarding.creditsUseCustomKeys": "Use custom keys",
+  "onboarding.creditsAboutLabel": "About free credits",
+  "onboarding.creditsActivating": "Activating free credits",
+  "onboarding.creditsActivatingTooltip":
+    "Builder provides free credits for LLMs, Jev, storage, and more, so you can use this app’s AI features without bringing your own keys.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
@@ -208,6 +229,10 @@ const messages = {
   "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
+  "onboarding.capability.webSearch.label": "Web search",
+  "onboarding.capability.webSearch.keySummary": "Web search",
+  "onboarding.capability.webSearch.why":
+    "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
   "onboarding.capability.systemOne.why":
     "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
@@ -734,6 +759,23 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "history.mine": "My chats",
+  "history.sharedWithYou": "Shared with you",
+  "history.showAll": "Show all",
+  "history.showLess": "Show less",
+  "history.loadMore": "Load more",
+  "history.loadingMore": "Loading...",
+  "history.retry": "Retry",
+  "history.loadFailed": "Couldn't load chats",
+  "history.loadMoreFailed": "Couldn't load more chats",
+  "history.emptyMine": "No chats yet",
+  "history.emptyShared": "No chats have been shared with you",
+  "history.ownedBy": "Owner: {{name}}",
+  "history.accessDirect": "Shared with you",
+  "history.accessOrganization": "Shared with your organization",
+  "history.copyLink": "Copy link",
+  "history.linkCopied": "Link copied",
+  "history.copyLinkFailed": "Couldn't copy the link",
   "integrations.availableSection": "Available integrations",
   "integrations.connectedSection": "Connected",
   "integrations.goToApiKeys": "Go to API keys",
@@ -977,7 +1019,25 @@ const messages = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, companies, deals, tickets, customer analytics",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+    "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Set up HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "Workspace setup required",
+  "mcpIntegrations.hubspot.setupChecking": "Checking workspace setup…",
+  "mcpIntegrations.hubspot.setupUnavailable": "Setup status unavailable",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Couldn't check the workspace OAuth settings. Try again.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Join a workspace before connecting HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Add workspace credentials",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Check again",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Retry",
   "mcpIntegrations.catalog.pylon.description":
     "Search and update Pylon support data.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1400,6 +1460,17 @@ const messages = {
   "share.viewer": "Viewer",
   "share.viewerDescription": "Can view",
   "share.userGroup": "User group",
+  "share.ownedByAnyone": "Owned by anyone",
+  "share.ownedByMe": "Owned by me",
+  "share.sharedWithMe": "Shared with me",
+  "share.confirmOrganizationTitle": "Share with your organization?",
+  "share.confirmOrganizationTitleNamed": "Share with {{organization}}?",
+  "share.confirmOrganizationDescription":
+    "Everyone in your organization, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+  "share.confirmOrganizationDescriptionNamed":
+    "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+  "share.confirmOrganizationAction": "Share with organization",
+  "share.confirmOrganizationSharing": "Sharing...",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
@@ -1449,6 +1520,11 @@ const messages = {
   "tool.worked": "Worked",
   "tool.workedFor": "Worked for {{duration}}",
   "widget.chart": "Chart",
+  "widget.chartActions": "Chart actions",
+  "widget.chartRowsOmitted":
+    "This chart shows only some of the available rows.",
+  "widget.dataSources": "Data sources",
+  "widget.tableActions": "Table actions",
   "widget.dataChart": "Data chart",
   "widget.dataInsights": "Data insights",
   "widget.dataTable": "Data table",
@@ -1850,12 +1926,24 @@ const messages = {
   "settings.storage.clearFailed": "Could not clear storage credentials.",
   "settings.storage.loadFailed": "Could not load file storage settings.",
   "settings.storage.retry": "Retry",
+  "settings.storage.unreadable":
+    "Some saved storage settings could not be checked. Retry, or replace unreadable required values before saving.",
+  "settings.storage.unreadableField":
+    "This saved value could not be read. Enter it again.",
+  "settings.storage.clearUnreadableField": "Clear unreadable {{field}}",
+  "settings.storage.unreadableFieldCleared":
+    "This saved value will be removed when you save.",
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
   "settings.audit.action": "Action",
   "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Approval",
+  "settings.audit.approvalAgentChat": "Approved in agent chat",
+  "settings.audit.approvalA2AReview":
+    "Approved on the agent action review page",
+  "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
@@ -1869,9 +1957,11 @@ const messages = {
   "settings.audit.last90Days": "Last 90 days",
   "settings.audit.loadFailed": "Could not load the audit log.",
   "settings.audit.loading": "Loading audit log",
+  "settings.audit.oauthClient": "OAuth client",
   "settings.audit.onBehalfOf": "On behalf of",
   "settings.audit.range": "Time range",
   "settings.audit.refused": "Refused",
+  "settings.audit.reportedClient": "Self-reported client",
   "settings.audit.result": "Result",
   "settings.audit.showMore": "Show {{count}} more",
   "settings.audit.succeeded": "Succeeded",
@@ -1940,9 +2030,9 @@ const messages = {
   "settingsOrg.moreInformation": "More information",
   "settingsOrg.general.workspaceUrl": "Workspace URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Send members to this workspace from another deployment.",
+    "Connect this organization's app directory across deployments.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Members who land on another deployment go to this workspace instead of an empty app.",
+    "Other deployments use this URL to discover workspace apps. It does not automatically redirect members.",
   "settingsOrg.general.editWorkspaceUrl": "Edit workspace URL",
   "settingsOrg.general.removeWorkspaceUrl": "Remove workspace URL",
   "settingsOrg.general.setWorkspaceUrl": "Set URL",
@@ -1959,6 +2049,9 @@ const messages = {
     "Set. Lets the apps in this workspace verify each other.",
   "settingsOrg.auth.sharedSecretNotSet":
     "Not set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.memberDelegation": "Org-member identity delegation",
+  "settingsOrg.auth.memberDelegationHelp":
+    "Connected apps with this shared organization secret can claim any current member's identity when calling this app. This app checks the live member roster and limits delegated organization access to member-level permissions.",
   "settingsOrg.auth.secretNotSetValue": "Not set",
   "settingsOrg.auth.manage": "Manage",
   "settingsOrg.auth.reveal": "Reveal",
@@ -2021,6 +2114,12 @@ const messages = {
     "Check your email for instructions to confirm this change.",
   "settingsShell.account.languageAndRegion": "Language and region",
   "settingsShell.account.languageDescription": "Applies on all your devices.",
+  "settingsShell.account.appearance": "Appearance",
+  "settingsShell.account.themeFamily": "Theme family",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "Original app colors",
+  "settingsShell.account.themeFamilySaveError":
+    "Could not update the theme family. Try again.",
   "settingsShell.account.manage": "Manage",
   "settingsShell.account.name": "Name",
   "settingsShell.account.nameDescription":
@@ -2253,7 +2352,11 @@ const messages = {
   "settingsShell.channels.removeCredentials.aria":
     "Remove {{platform}} credentials",
   "settingsShell.channels.removeCredentials.body":
-    "The agent stops replying in {{platform}} for everyone, unless the deployment environment also sets these keys.",
+    "Removing these workspace credentials may stop the agent from replying in {{platform}} for everyone, unless the deployment environment also sets these keys.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "This removes only your personal credentials for {{platform}}. Other users' and workspace credentials stay unchanged.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "This removes the selected saved credentials for {{platform}}. Other saved credentials stay unchanged.",
   "settingsShell.channels.removeCredentials.confirm": "Remove",
   "settingsShell.channels.removeCredentials.failed":
     "Couldn't remove the credentials.",
@@ -2261,6 +2364,14 @@ const messages = {
   "settingsShell.channels.removeCredentials.title":
     "Remove {{platform}} credentials?",
   "settingsShell.channels.retry": "Retry",
+  "settingsShell.channels.setup.unreadable":
+    "A saved credential could not be read. Enter a replacement value.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "This replaces only your personal credential; other users' credentials stay unchanged.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "This credential is owned by another settings area. Update it there before setting up this channel.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Some saved channel credentials could not be read. Replace them before enabling this channel.",
   "settingsShell.channels.setup.addToEnvironment":
     "Add this to the deployment environment",
   "settingsShell.channels.setup.body":
@@ -2270,6 +2381,8 @@ const messages = {
   "settingsShell.channels.setup.optional": "Optional",
   "settingsShell.channels.setup.replace": "Replace",
   "settingsShell.channels.setup.replaceAria": "Replace {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Replace this saved credential in its owning integration settings.",
   "settingsShell.channels.setup.save": "Save",
   "settingsShell.channels.setup.saveAndTurnOn": "Save and turn on",
   "settingsShell.channels.setup.saving": "Saving…",
@@ -2284,6 +2397,7 @@ const messages = {
   "settingsShell.channels.state.notSetUp": "Not set up",
   "settingsShell.channels.state.off": "Off",
   "settingsShell.channels.state.on": "On",
+  "settingsShell.channels.state.unavailable": "Unavailable",
   "settingsShell.channels.status": "Status",
   "settingsShell.channels.toggleFailed": "Couldn't update {{platform}}.",
   "settingsShell.channels.turnOnAria": "Turn on {{platform}}",
@@ -2587,6 +2701,8 @@ const messages = {
     "Model access, browser automation, file storage, and workspace identity. Free tier available.",
   "settingsShell.integrations.builderStatusFailed":
     "Connection status is unavailable. Retry to check again.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Some saved Builder account details could not be read.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engineering",
@@ -2655,6 +2771,7 @@ const messages = {
   "settingsShell.search.appDefaultModel": "App default model",
   "settingsShell.search.backgroundAgents": "Background agents",
   "settingsShell.search.browserAutomation": "Browser automation",
+  "settingsShell.search.webSearch": "Web search",
   "settingsShell.search.connectedAgents": "Connected agents",
   "settingsShell.search.database": "Database",
   "settingsShell.search.defaultModel": "Default model",
@@ -2788,6 +2905,8 @@ const messages = {
     "Keeps generated slides and designs on brand.",
   "settingsInfra.whyBackground": "Makes code changes from production.",
   "settingsInfra.whyBrowser": "Lets the agent use a browser in production.",
+  "settingsInfra.whyWebSearch":
+    "Finds current public information and official documentation.",
   "settingsInfra.provider": "Provider",
   "settingsInfra.keyOrg": "Uses the organization {{provider}} key.",
   "settingsInfra.manageKey": "Manage key",
@@ -2946,6 +3065,10 @@ const messages = {
     "Disconnected here. Access may remain active in ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+  "settingsModel.chatgptScopeUnresolved":
+    "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
   "settingsModel.chatgptReconnect": "Reconnect",
@@ -3037,11 +3160,16 @@ const messages = {
   "settingsModel.rejectedAskAdmin":
     "{{provider}} rejected this key on {{date}}. Ask an owner or admin to replace it.",
   "settingsModel.rejectedHeadline": "{{provider}} rejected this key",
+  "settingsModel.unreadable":
+    "Saved provider data is unreadable. Replace it to restore access.",
+  "settingsModel.unreadableAskAdmin":
+    "Saved provider data is unreadable. Ask an owner or admin to replace it.",
   "settingsModel.remove": "Remove",
   "settingsModel.removeProvider": "Remove provider",
   "settingsModel.removeTitle": "Remove {{provider}}?",
   "settingsModel.removing": "Removing",
   "settingsModel.replace": "Replace",
+  "settingsModel.replaceEndpoint": "Replace endpoint",
   "settingsModel.replaceKey": "Replace key",
   "settingsModel.restrictBody": "Members can only use organization providers.",
   "settingsModel.restrictConfirm": "Restrict keys",
@@ -3129,6 +3257,17 @@ const messages = {
   "reportProblem.notAttached": "The report was not attached.",
   "reportProblem.agentMessage":
     "Something went wrong in the app. Use the attached problem report to explain what happened.",
+  "unsupportedDevice.title": "Open this on a larger screen",
+  "unsupportedDevice.titleDeck": "Open this deck on a larger screen",
+  "unsupportedDevice.titleDesign": "Open this design on a larger screen",
+  "unsupportedDevice.body":
+    "{{app}} works on iPad, tablets, and desktops. Send yourself the link to pick it up there.",
+  "unsupportedDevice.email": "Email me the link",
+  "unsupportedDevice.share": "Share link",
+  "unsupportedDevice.copy": "Copy link",
+  "unsupportedDevice.copyFailed": "Couldn't copy the link",
+  "unsupportedDevice.copied": "Link copied",
+  "unsupportedDevice.emailSubject": "Open {{app}} on your computer",
 } as const;
 
 export default messages;

@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
 
-import { resolveNudgeTarget } from "./nudge-selection";
+import {
+  resolveNudgeTarget,
+  runNudgeSelection,
+  type NudgeSelectionArgs,
+} from "./nudge-selection";
 
 const element = (left: string): ElementInfo =>
   ({
@@ -54,5 +58,88 @@ describe("resolveNudgeTarget", () => {
         new Map([["screen-a:focused", rendered]]),
       ),
     ).toBe(rendered);
+  });
+});
+
+describe("runNudgeSelection — rapid translate nudges", () => {
+  const setup = () => {
+    let content =
+      '<div data-agent-native-node-id="box" style="position: absolute;left: 100px;top: 50px"></div>';
+    const commits: Array<Record<string, string>> = [];
+    const stale = {
+      selector: "[data-agent-native-node-id=box]",
+      sourceId: "box",
+      tagName: "div",
+      classes: [],
+      computedStyles: { position: "absolute", left: "100px", top: "50px" },
+    } as unknown as ElementInfo;
+    const args = {
+      activeFile: { id: "screen-a", content },
+      applyLocalContentUpdate: () => {},
+      boardFileId: undefined,
+      boardFrameGeometry: undefined,
+      canEditDesign: true,
+      isRunningAppSource: false,
+      commitVisualStyles: (
+        _selector: string,
+        styles: Record<string, string>,
+      ) => {
+        commits.push(styles);
+        content = content.replace(
+          /left: \d+px;top: \d+px/,
+          `left: ${styles.left};top: ${styles.top}`,
+        );
+      },
+      designDataJsonRef: { current: {} },
+      editorPreferences: { nudge: { small: 1, big: 10 } },
+      files: [],
+      getFreshActiveContent: () => content,
+      handleGeometryCommit: () => {},
+      hideSelectionChromeForNudge: () => {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      selectedElement: stale,
+      selectedLayerIdsState: [],
+      selectedLayerTargetsRef: { current: [] },
+      renderedElementInfoByLayerKeyRef: { current: new Map() },
+      setSelectedElement: () => {},
+      setSelectedLayerIdsState: () => {},
+      viewModeRef: { current: "single" },
+    } as unknown as NudgeSelectionArgs;
+    return {
+      args,
+      commits,
+      setContent: (next: string) => {
+        content = next;
+      },
+    };
+  };
+
+  it("adds every tap while the rendered position still shows the first one", () => {
+    const { args, commits } = setup();
+    runNudgeSelection(args, "right", true);
+    runNudgeSelection(args, "right", true);
+    runNudgeSelection(args, "right", true);
+    expect(commits.map((styles) => styles.left)).toEqual([
+      "110px",
+      "120px",
+      "130px",
+    ]);
+    expect(commits.every((styles) => styles.top === "50px")).toBe(true);
+  });
+
+  it("starts from the rendered position again after another edit changes the source", () => {
+    const { args, commits, setContent } = setup();
+    runNudgeSelection(args, "right", true);
+    runNudgeSelection(args, "right", true);
+    setContent(
+      '<div data-agent-native-node-id="box" style="position: absolute;left: 100px;top: 50px"></div>',
+    );
+    runNudgeSelection(args, "right", true);
+    expect(commits.map((styles) => styles.left)).toEqual([
+      "110px",
+      "120px",
+      "110px",
+    ]);
   });
 });

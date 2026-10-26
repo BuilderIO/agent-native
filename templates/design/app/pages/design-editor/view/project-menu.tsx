@@ -16,6 +16,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { getDesignHostMenuItems } from "@/host/host-menu-items";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
@@ -102,6 +103,7 @@ export function renderProjectMenu({
     handleRedo,
     handleViewModeToggle,
     handleShowKeyboardShortcutsFromMenu,
+    handleShowNudgeAmountFromMenu,
   } = editorModes;
   const { handleDownloadZip, handleCopyCodingHandoff, codingHandoffLoading } =
     editorExportAndHandoff;
@@ -129,6 +131,12 @@ export function renderProjectMenu({
           suppressProjectMenuReturnFocusRef.current = false;
         }}
       >
+        {getDesignHostMenuItems().map((item) => (
+          <DropdownMenuItem key={item.id} onClick={item.onSelect}>
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+        {getDesignHostMenuItems().length > 0 ? <DropdownMenuSeparator /> : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             {t("designEditor.appMenu.file")}
@@ -277,9 +285,7 @@ export function renderProjectMenu({
                 <ThemeRadioItems t={t} />
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <DropdownMenuItem
-              onClick={() => handleShowKeyboardShortcutsFromMenu("search")}
-            >
+            <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
               {t("designEditor.keyboardShortcuts.title")}
               <DropdownMenuShortcut>
                 {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
@@ -287,9 +293,7 @@ export function renderProjectMenu({
                 {shortcut("ctrl+shift+?")}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleShowKeyboardShortcutsFromMenu("nudge")}
-            >
+            <DropdownMenuItem onClick={handleShowNudgeAmountFromMenu}>
               {t("designEditor.appMenu.nudgeAmount")}
             </DropdownMenuItem>
           </DropdownMenuSubContent>

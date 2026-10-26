@@ -1,4 +1,5 @@
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
@@ -18,6 +19,10 @@ const messages = {
       chatgptDisconnecting: "Disconnecting…",
       chatgptLocalOnly:
         "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+      chatgptPersonalScopeOnly:
+        "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+      chatgptScopeUnresolved:
+        "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
       chatgptManageAccess: "Manage in ChatGPT",
       chatgptNoDirectUse:
         "Reconnect and allow direct model access to use this ChatGPT account.",
@@ -38,6 +43,7 @@ const messages = {
         "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
     },
   },
+  consentBanner: CONSENT_BANNER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
@@ -992,6 +998,32 @@ const messages = {
     cronExpression: "Cron expression",
     cronFormatHint: "minute hour day-of-month month day-of-week",
     cronFieldCount: "A cron expression needs exactly 5 fields.",
+    cronInvalid: "Enter a valid cron expression.",
+    scheduleFrequency: "Frequency",
+    scheduleFrequencyHourly: "Hourly",
+    scheduleFrequencyDaily: "Daily",
+    scheduleFrequencyWeekdays: "Weekdays",
+    scheduleFrequencyWeekly: "Weekly",
+    scheduleFrequencyMonthly: "Monthly",
+    scheduleMinute: "Minute",
+    scheduleTime: "Time",
+    scheduleWeekday: "Day",
+    scheduleMonthDay: "Day of month",
+    scheduleAdvancedDetected:
+      "This schedule uses a custom cron pattern. Edit it in Advanced mode.",
+    scheduleSummaryLabel: "Runs",
+    scheduleAdvanced: "Advanced",
+    scheduleSummaryHourly: "hourly at minute {{minute}} ({{timezone}})",
+    scheduleSummaryWeekly: "every {{weekday}} at {{time}} ({{timezone}})",
+    scheduleSummaryMonthly: "monthly on day {{day}} at {{time}} ({{timezone}})",
+    scheduleSummaryTimed: "{{frequency}} at {{time}} ({{timezone}})",
+    weekdaySunday: "Sunday",
+    weekdayMonday: "Monday",
+    weekdayTuesday: "Tuesday",
+    weekdayWednesday: "Wednesday",
+    weekdayThursday: "Thursday",
+    weekdayFriday: "Friday",
+    weekdaySaturday: "Saturday",
     saveSchedule: "Save schedule",
     details: "Details",
     viewDetails: "View details",
@@ -1024,6 +1056,11 @@ const messages = {
     },
     scheduledTrigger: "Scheduled",
     eventTrigger: "Event-triggered",
+    manualTrigger: "On demand",
+    emailTrigger: "Email received",
+    automationManualDetails: "Runs only when started on demand.",
+    automationEmailDetails: "Runs when an email is received.",
+    unknownEvent: "an app event fires",
     webhookTrigger: "Webhook-triggered",
     webhookUrl: "Webhook URL",
     webhookUrlHint:
@@ -1040,9 +1077,89 @@ const messages = {
     condition: "Condition",
     personal: "Personal",
     organization: "Organization",
+    editorEditTitle: "Edit automation",
+    editorCreateTitle: "Create an automation",
+    editorScopeDescription: "This automation is fixed to the {{scope}} scope.",
+    editorScopeOrganization: "organization",
+    editorScopePersonal: "personal",
+    editorNameLabel: "Name",
+    editorNamePlaceholder: "Weekly customer summary",
+    editorNameImmutable: "The name cannot be changed after creation.",
+    editorNameRequired: "Enter a name.",
+    editorTriggerLabel: "Trigger",
+    triggerScheduleTitle: "Schedule",
+    triggerScheduleDescription: "Run at a recurring time you choose.",
+    triggerAppEventTitle: "App event",
+    triggerAppEventDescription: "Run when a registered event happens.",
+    triggerManualTitle: "On demand",
+    triggerManualDescription: "Run only when someone starts it.",
+    triggerEmailTitle: "Email received",
+    triggerEmailDescription: "Run when an incoming email matches your filters.",
+    triggerEmailUnavailableDescription:
+      "Connect Mail to use email-triggered automations.",
+    editorEmailSetupHelp:
+      "Email received becomes available after a Mail connection registers its event.",
+    editorOpenConnections: "Open connections",
+    editorEventLabel: "App event",
+    editorEventPlaceholder: "Select an event",
+    editorEventSearch: "Search events…",
+    editorEventsLoading: "Loading events…",
+    editorEventsEmpty: "No matching events.",
+    editorEventRequired: "Select an app event.",
+    editorConditionLabel: "Condition (optional)",
+    editorConditionPlaceholder: "For example, only high-priority items",
+    editorEmailFrom: "From",
+    editorEmailTo: "To",
+    editorEmailSubject: "Subject",
+    editorAdditionalCondition: "Additional condition (optional)",
+    editorAdditionalConditionPlaceholder:
+      "For example, only messages with attachments",
+    editorInstructionsLabel: "Instructions",
+    editorInstructionsPlaceholder: "Describe what the agent should do…",
+    editorInstructionsRequired: "Enter instructions for the automation.",
+    editorReviewLabel: "Review",
+    editorReviewSchedule: "Runs on {{schedule}} in {{timezone}}.",
+    editorReviewManual: "Runs only when someone starts it on demand.",
+    editorReviewEmailFromFilter: "from contains “{{value}}”",
+    editorReviewEmailToFilter: "to contains “{{value}}”",
+    editorReviewEmailSubjectFilter: "subject contains “{{value}}”",
+    editorReviewEmailFiltered:
+      "Runs when an email is received and {{condition}}.",
+    editorReviewEmail: "Runs whenever an email is received.",
+    editorReviewConditionalEvent:
+      "Runs when {{event}} occurs and {{condition}}.",
+    editorReviewEvent: "Runs when {{event}} occurs.",
+    editorReviewEventPending:
+      "Choose the app event that starts this automation.",
+    editorSave: "Save changes",
+    editorCreate: "Create automation",
     settingsSummary:
-      "Manage scheduled, event-triggered, and webhook-triggered agent tasks together from the Automations page.",
+      "Manage on-demand, scheduled, event-triggered, and webhook-triggered agent tasks together from the Automations page.",
     openAutomations: "Open Automations",
+    manage: "Manage",
+    sharingLabel: "Sharing",
+    sharingPersonal: "Personal",
+    sharingPersonalDescription: "Only you can access this automation.",
+    sharingOrganization: "Organization",
+    sharingOrganizationDescription:
+      "Every current member of {{organization}} gets View access.",
+    sharingOrganizationUnavailable:
+      "Join an organization to share with members.",
+    sharingSpecific: "Specific people",
+    sharingSpecificDescription:
+      "Choose existing accounts and give each View or Collaborate access.",
+    sharingSpecificCount: "Shared with {{count}} people",
+    sharingSearchPlaceholder: "Search by name or email…",
+    sharingOutsideOrganization: "Outside organization",
+    sharingNoGrants: "No one has been added yet.",
+    sharingRoleView: "View",
+    sharingRoleCollaborate: "Collaborate",
+    sharingRemove: "Remove",
+    sharingAcknowledgement:
+      "I understand outside-organization collaborators can edit, pause/resume, and run this automation now. It will always execute using the creator's identity.",
+    sharingOwnerOnly: "Only the owner can change sharing.",
+    sharingBadgeSharedView: "Shared with you · View",
+    sharingBadgeSharedCollaborate: "Shared with you · Collaborate",
     nextRunNeverScheduler: "Never — no scheduler in this deploy",
     nextRunSchedulerUnknown:
       "{{date}} — unconfirmed, the scheduler check failed",
@@ -1537,6 +1654,24 @@ const messages = {
       "Complete provider setup before connecting your account.",
     continueToConnect: "Connect my account",
     setupTitle: "Connect {{name}}",
+    hubspot: {
+      setupTitle: "Set up HubSpot MCP",
+      dialogDescription:
+        "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+      workspaceSetupStatus: "Workspace setup required",
+      setupChecking: "Checking workspace setup…",
+      setupUnavailable: "Setup status unavailable",
+      setupUnavailableDescription:
+        "Couldn't check the workspace OAuth settings. Try again.",
+      ownerSetupDescription:
+        "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+      memberSetupDescription:
+        "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+      noWorkspaceDescription: "Join a workspace before connecting HubSpot MCP.",
+      configureWorkspaceCredentials: "Add workspace credentials",
+      refreshSetupStatus: "Check again",
+      retrySetupStatus: "Retry",
+    },
     personal: "Personal",
     personalConnection: "Personal connection",
     organization: "Organization",
@@ -1744,7 +1879,7 @@ const messages = {
           "Search and update HubSpot CRM records through its integration.",
         useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
         setupNote:
-          "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+          "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
       },
       pylon: {
         description: "Search and update Pylon support data.",

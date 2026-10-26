@@ -34,6 +34,7 @@ import http from "node:http";
 
 import { createRunner, RunError, type HostFunctions } from "run";
 
+import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
@@ -133,6 +134,13 @@ export function createRunCodeEntry(
   return {
     readOnly: true,
     allowInPlanMode: false,
+    // The bridge can write workspace files and send provider and web writes, so
+    // over MCP this is a write that a read-only token cannot reach.
+    mcpAnnotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    },
     timeoutMs: MAX_TIMEOUT_MS,
     maxResultChars: MAX_OUTPUT_CHARS,
     tool: {
@@ -747,9 +755,11 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
         });
       }
       // Name the child, not `run-code`: a service principal's grant is checked
-      // against the action actually being run.
+      // against the action actually being run. Its own frame, so a raw child
+      // records none of the caller's approval.
       const run = () =>
-        entry.run(
+        runActionInvocation(
+          entry,
           childArgs,
           options.context && { ...options.context, actionName: toolName },
         );

@@ -190,7 +190,8 @@ describe("HomePage", () => {
     );
     expect(state.markHomeHandoff).toHaveBeenCalledWith("chat");
     expect(state.markHomeHandoff.mock.invocationCallOrder[0]).toBeLessThan(
-      state.navigateWithTransition.mock.invocationCallOrder[0],
+      state.navigateWithTransition.mock.invocationCallOrder[0] ??
+        Number.NEGATIVE_INFINITY,
     );
     expect(onLocalSubmit).toHaveBeenCalledOnce();
   });

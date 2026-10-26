@@ -148,7 +148,36 @@ describe("save-factory-automation", () => {
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
   });
 
-  it("sets the fixed QA channel when enabling GitHub issue triage", async () => {
+  it("refuses to edit a workflow's job and points at save-factory-workflow", async () => {
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/support-triage/workflow-digest-1a2b3c4d",
+      resource: {
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/workflow-digest-1a2b3c4d.md",
+        content: existingContent,
+        updatedAt: 1,
+      },
+      meta: { domain: "factory", triggerType: "schedule", runner: "workflow" },
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/workflow-digest-1a2b3c4d",
+          prompt: "Rewrite the job.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("save-factory-workflow");
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("does not force a findings channel onto a GitHub job when enabling it", async () => {
     const githubContent = `---
 domain: factory
 factoryId: support-triage
@@ -157,7 +186,7 @@ triggerType: schedule
 schedule: "0 * * * *"
 enabled: false
 source: github
-template: github-issues
+template: blank
 repository: BuilderIO/agent-native
 ---
 Review GitHub issues.
@@ -193,12 +222,11 @@ Review GitHub issues.
       { userEmail: "teammate@example.com" },
     );
     const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
-    expect(saved).toContain("slackWorkspace: primary");
-    expect(saved).toContain("slackChannelId: C0C4U4XRT6X");
-    expect(saved).toContain("#qa-agent-native");
+    expect(saved).not.toContain("slackChannelId:");
+    expect(saved).not.toContain("qa-agent-native");
   });
 
-  it("checks Slack readiness when enabling an issue-reporting job", async () => {
+  it("checks only the source's connection when enabling a GitHub job", async () => {
     const githubContent = `---
 domain: factory
 factoryId: support-triage
@@ -207,7 +235,7 @@ triggerType: schedule
 schedule: "0 * * * *"
 enabled: false
 source: github
-template: github-issues
+template: blank
 repository: BuilderIO/agent-native
 ---
 Review GitHub issues.
@@ -238,26 +266,15 @@ Review GitHub issues.
         automationId: "resource-1",
         name: "factories/support-triage/factory-github-issues",
         prompt: "Review GitHub issues.",
-        slackChannelId: "CQA123",
         enabled: true,
       },
       { userEmail: "teammate@example.com" },
     );
-    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
-      1,
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledTimes(1);
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledWith(
       "github",
       "teammate@example.com",
       expect.objectContaining({ orgId: "org-1", verb: "saving" }),
-    );
-    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
-      2,
-      "slack",
-      "teammate@example.com",
-      expect.objectContaining({
-        orgId: "org-1",
-        slackWorkspace: "primary",
-        verb: "saving",
-      }),
     );
   });
 
@@ -537,22 +554,22 @@ Observe Slack.
     expect(action.schema.safeParse(omitted).success).toBe(true);
   });
 
-  it("writes github source for a PR babysit copy that lost YAML source", async () => {
+  it("writes github source for a PR governance copy that lost YAML source", async () => {
     const copyContent = `---
 schedule: "*/5 * * * *"
 enabled: false
-template: pr-babysit
+template: pr-governance
 repository: acme/widgets
 ---
-Babysit pull requests.
+Review pull requests.
 `;
     findFactoryAutomationDefinitionMock.mockResolvedValue({
-      name: "factories/support-triage/factory-pr-babysit-2",
-      body: "Babysit pull requests.",
+      name: "factories/support-triage/factory-pr-governance-2",
+      body: "Review pull requests.",
       resource: {
         id: "resource-copy",
         owner: "__organization__:org-1",
-        path: "jobs/factories/support-triage/factory-pr-babysit-2.md",
+        path: "jobs/factories/support-triage/factory-pr-governance-2.md",
         content: copyContent,
         updatedAt: 1,
       },
@@ -563,7 +580,7 @@ Babysit pull requests.
     resourceGetByPathMock.mockResolvedValue({
       id: "resource-copy",
       owner: "__organization__:org-1",
-      path: "jobs/factories/support-triage/factory-pr-babysit-2.md",
+      path: "jobs/factories/support-triage/factory-pr-governance-2.md",
       content: copyContent,
       updatedAt: 1,
     });
@@ -572,8 +589,8 @@ Babysit pull requests.
       {
         factoryId: "support-triage",
         automationId: "resource-copy",
-        name: "factories/support-triage/factory-pr-babysit-2",
-        prompt: "Babysit pull requests.",
+        name: "factories/support-triage/factory-pr-governance-2",
+        prompt: "Review pull requests.",
         repository: "acme/widgets",
         authorMode: "include",
         authorIds: ["138030887"],

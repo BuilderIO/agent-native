@@ -32,6 +32,7 @@ import {
 } from "h3";
 
 import type { ActionRunContext } from "../action.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -70,6 +71,8 @@ import {
   type McpPrincipal,
 } from "./principal.js";
 import {
+  InvalidMcpHeaderConfigurationError,
+  McpHeaderSecretUnavailableError,
   addRemoteServer,
   listRemoteServers,
   mergedConfigKey,
@@ -178,7 +181,7 @@ export interface ClientBuiltinCapability {
 }
 
 type ServerStatus =
-  | { state: "connected"; toolCount: number }
+  | { state: "connected"; toolCount: number; error?: string }
   | { state: "error"; error: string }
   | { state: "unknown" };
 
@@ -186,7 +189,10 @@ function statusFor(manager: McpClientManager, mergedId: string): ServerStatus {
   const snap = manager.getStatus();
   if (snap.connectedServers.includes(mergedId)) {
     const toolCount = snap.tools.filter((t) => t.source === mergedId).length;
-    return { state: "connected", toolCount };
+    const error = snap.errors[mergedId];
+    return error
+      ? { state: "connected", toolCount, error }
+      : { state: "connected", toolCount };
   }
   if (snap.errors[mergedId]) {
     return { state: "error", error: snap.errors[mergedId] };
@@ -265,8 +271,37 @@ export async function buildMergedConfig(
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
-      servers[mergedConfigKey(scope, stored, ownerId)] =
-        await toHttpServerConfigAsync(scope, ownerId, stored);
+      const mergedKey = mergedConfigKey(scope, stored, ownerId);
+      try {
+        servers[mergedKey] = await toHttpServerConfigAsync(
+          scope,
+          ownerId,
+          stored,
+        );
+      } catch (error) {
+        if (
+          !(
+            error instanceof InvalidMcpHeaderConfigurationError ||
+            error instanceof AppSecretDecryptionError ||
+            error instanceof McpHeaderSecretUnavailableError
+          )
+        ) {
+          throw error;
+        }
+        servers[mergedKey] = {
+          type: "http",
+          url: stored.url,
+          ...(stored.firstParty ? { firstParty: true } : {}),
+          ...(stored.firstPartyAppId
+            ? { firstPartyAppId: stored.firstPartyAppId }
+            : {}),
+          ...(stored.firstParty && scope === "org"
+            ? { firstPartyOrgId: ownerId }
+            : {}),
+          description: stored.description,
+          configurationError: error,
+        };
+      }
     }
   }
   if (includeBuiltins) {
@@ -367,9 +402,9 @@ async function resolveContextForRequest(event: H3Event): Promise<{
 async function reconfigureManager(
   manager: McpClientManager,
   principal: McpPrincipal,
-): Promise<void> {
+): ReturnType<McpClientManager["reconfigure"]> {
   const merged = await buildMergedConfig(principal);
-  await manager.reconfigure(merged);
+  return manager.reconfigure(merged);
 }
 
 export function mountMcpServersRoutes(
@@ -1167,7 +1202,37 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  let config: Awaited<ReturnType<typeof toHttpServerConfigAsync>>;
+  try {
+    config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  } catch (error) {
+    if (error instanceof InvalidMcpHeaderConfigurationError) {
+      setResponseStatus(event, 400);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    if (error instanceof AppSecretDecryptionError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error:
+          "A saved MCP server credential could not be read. Retry or replace it before testing.",
+        errorCode: error.errorCode,
+      };
+    }
+    if (error instanceof McpHeaderSecretUnavailableError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    throw error;
+  }
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
     setResponseStatus(event, 400);
@@ -1209,8 +1274,23 @@ async function handleReconnectExisting(
     return { error: "Server not found" };
   }
 
-  await reconfigureManager(manager, principal);
+  const { unchanged } = await reconfigureManager(manager, principal);
   const mergedId = mergedConfigKey(parsedScope, server, scopeId);
+  // Reconfiguring leaves a connected server alone, so its held-back tools are
+  // only checked again by listing them over the same connection.
+  if (unchanged.includes(mergedId)) {
+    try {
+      await manager.refreshTools(mergedId);
+    } catch (error) {
+      // A list refused over HTTP, as a revoked grant's 401 is, drops the
+      // connection the way a refused connect does. Its status, answered below
+      // like any reconnect that failed, is what offers OAuth again.
+      if (statusFor(manager, mergedId).state === "connected") {
+        setResponseStatus(event, 502);
+        return { ok: false, error: formatMcpConnectError(error) };
+      }
+    }
+  }
   const status = reconnectStatusForClient(manager, mergedId);
   const projected = projectForClient(server, parsedScope, scopeId, status);
   return {

@@ -11,7 +11,7 @@ import {
 
 export default defineAction({
   description:
-    'Set up, turn on, or turn off one of this app\'s messaging channels. Owners and admins only; the change applies to everyone who messages this app\'s agent. "save-credentials" saves `values` (credential name to value, names from list-messaging-channels) for the organization and replaces saved ones; a credential with saveable: false can only be set in the deployment environment. "enable" turns a set-up channel on and fails with channel_not_configured while required credentials are missing; "disable" turns it off. "remove-credentials" deletes the credentials saved from Channels (not deployment variables), so the agent stops replying there unless the deployment still provides them; confirm with the user first. "register-webhook" registers the webhook URL with the provider (Telegram). Call list-messaging-channels first.',
+    "Manage a messaging channel in this app from the signed-in Channels settings UI. Owners and admins only. Enable and disable apply to everyone who messages the app agent. Save-credentials saves values (credential name to value, names from list-messaging-channels) in the workspace by default, or replaces the exact unreadable scope reported by list-messaging-channels. A user repair changes only the caller credential, not credentials belonging to other users. A credential marked saveable false can only be set in the deployment environment. Enable fails while required credentials are missing or saved credentials cannot be read. Replace unreadable saveable credentials or remove Channels-managed credentials before enabling. Remove-credentials deletes only the exact removable credential references listed by list-messaging-channels; agent calls require human approval even when supplied a listed removalConfirmation. In Settings, the owner reviews and confirms selected credential keys and removal confirmations. Refresh the list and ask the owner to confirm again if a token is stale. This removes only Channels-managed credentials, not credentials stored elsewhere or deployment variables. Register-webhook registers the webhook URL with the provider Telegram. Call list-messaging-channels first.",
   schema: z.object({
     operation: z
       .enum([
@@ -37,10 +37,24 @@ export default defineAction({
       .describe(
         'save-credentials only: credential name to value, e.g. {"TELEGRAM_BOT_TOKEN": "..."}. Names come from the channel\'s credentials.',
       ),
+    confirmedCredentials: z
+      .array(
+        z.object({
+          key: z.string().min(1),
+          removalConfirmation: z.string().min(1),
+        }),
+      )
+      .optional()
+      .describe(
+        "remove-credentials only: the exact {key, removalConfirmation} pairs for credentials listed as removable by list-messaging-channels and explicitly confirmed by the owner. Refresh the list and confirm again if the token is stale.",
+      ),
   }),
+  needsApproval: (args) => args.operation === "remove-credentials",
   // Credentials for a deployment-wide bot are not something a sandboxed
   // extension should be able to swap.
   toolCallable: false,
+  agentTool: false,
+  uiOnly: true,
   audit: orgAdminAudit({
     targetType: "messaging-channel",
     targetId: (args) => args.platform,
@@ -58,7 +72,12 @@ export default defineAction({
       }
     },
   }),
-  run: async ({ operation, platform, values }, ctx) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
+  run: async ({ operation, platform, values, confirmedCredentials }, ctx) => {
     switch (operation) {
       case "save-credentials":
         return saveMessagingChannelCredentials(ctx, platform, values ?? {});
@@ -70,7 +89,11 @@ export default defineAction({
           operation === "enable",
         );
       case "remove-credentials":
-        return removeMessagingChannelCredentials(ctx, platform);
+        return removeMessagingChannelCredentials(
+          ctx,
+          platform,
+          confirmedCredentials ?? [],
+        );
       case "register-webhook":
         return registerMessagingChannelWebhook(ctx, platform);
     }

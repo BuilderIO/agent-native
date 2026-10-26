@@ -171,6 +171,27 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
+  "onboarding.creditsTitle": "جرّبه مع 60 من أرصدة Agent المجانية شهريًا",
+  "onboarding.creditsTitleClips":
+    "جرّبه مع تخزين فيديو مجاني و60 من أرصدة Agent شهريًا",
+  "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
+  "onboarding.creditsFinePrint":
+    "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
+  "onboarding.creditsMoreInfo": "المزيد من المعلومات",
+  "onboarding.creditsSubtitle":
+    "احصل على أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد لهذا التطبيق بنقرة واحدة من Builder.io.",
+  "onboarding.creditsLearnMore": "اعرف المزيد",
+  "onboarding.creditsSkip": "تخطي",
+  "onboarding.creditsSkipConfirmTitle": "هل أنت متأكد؟",
+  "onboarding.creditsSkipConfirmBody":
+    "تحتاج تطبيقات Agent-Native إلى نموذج LLM متصل لاستخدام معظم الميزات. لن تعمل معظم الوظائف بدونه.",
+  "onboarding.creditsSkipGoBack": "رجوع",
+  "onboarding.creditsSkipAnyway": "تخطي على أي حال",
+  "onboarding.creditsUseCustomKeys": "استخدام مفاتيحك الخاصة",
+  "onboarding.creditsAboutLabel": "حول الأرصدة المجانية",
+  "onboarding.creditsActivating": "جارٍ تفعيل الأرصدة المجانية",
+  "onboarding.creditsActivatingTooltip":
+    "توفر Builder أرصدة مجانية لنماذج LLM وJev والتخزين والمزيد، لتتمكن من استخدام ميزات الذكاء الاصطناعي في هذا التطبيق دون الحاجة إلى مفاتيحك الخاصة.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
@@ -206,6 +227,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
+  "onboarding.capability.webSearch.label": "البحث على الويب",
+  "onboarding.capability.webSearch.keySummary": "البحث على الويب",
+  "onboarding.capability.webSearch.why":
+    "ابحث في المصادر العامة الحديثة على الويب. يستخدم البحث المُدار من Builder أرصدة Builder AI المضمنة، لذلك لا تحتاج إلى مفتاح بحث منفصل.",
   "onboarding.capability.systemOne.why":
     "Jev نموذج قرار اختياري يساعد في اختيار الأدوات والمهارات المناسبة قبل أول طلب للنموذج من الوكيل.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
@@ -731,6 +756,23 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "جارٍ البحث...",
   "history.untitledChat": "محادثة",
   "history.yesterday": "أمس",
+  "history.mine": "محادثاتي",
+  "history.sharedWithYou": "تمت مشاركتها معك",
+  "history.showAll": "عرض الكل",
+  "history.showLess": "عرض أقل",
+  "history.loadMore": "تحميل المزيد",
+  "history.loadingMore": "جارٍ التحميل...",
+  "history.retry": "إعادة المحاولة",
+  "history.loadFailed": "تعذّر تحميل المحادثات",
+  "history.loadMoreFailed": "تعذّر تحميل المزيد من المحادثات",
+  "history.emptyMine": "لا توجد محادثات بعد",
+  "history.emptyShared": "لم تتم مشاركة أي محادثات معك",
+  "history.ownedBy": "المالك: {{name}}",
+  "history.accessDirect": "تمت مشاركتها معك",
+  "history.accessOrganization": "تمت مشاركتها مع مؤسستك",
+  "history.copyLink": "نسخ الرابط",
+  "history.linkCopied": "تم نسخ الرابط",
+  "history.copyLinkFailed": "تعذّر نسخ الرابط",
   "integrations.availableSection": "عمليات التكامل المتاحة",
   "integrations.connectedSection": "متصل",
   "integrations.goToApiKeys": "الانتقال إلى مفاتيح API",
@@ -978,7 +1020,25 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM، وجهات الاتصال، والشركات، والصفقات، والتذاكر، وتحليلات العملاء",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "عند إعداد HubSpot MCP Auth App تديره مساحة العمل، يمكن لأي عضو ربط حساب HubSpot شخصي باستخدام OAuth وPKCE. وإلا، فأنشئ التطبيق في HubSpot Developer Platform قبل الربط؛ ويظل موصل HubSpot OAuth الحالي متاحًا لإجراءات التطبيق.",
+    "يربط كل شخص حساب HubSpot الخاص به بعد أن يهيّئ مالك مساحة العمل تطبيق HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "إعداد HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "يهيّئ مالك مساحة العمل HubSpot MCP مرة واحدة، ثم يربط كل عضو حسابه الخاص.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "إعداد مساحة العمل مطلوب",
+  "mcpIntegrations.hubspot.setupChecking": "جارٍ التحقق من إعداد مساحة العمل…",
+  "mcpIntegrations.hubspot.setupUnavailable": "حالة الإعداد غير متاحة",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "تعذّر التحقق من إعدادات OAuth لمساحة العمل. حاول مرة أخرى.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "أنشئ HubSpot MCP Auth App، ثم أضف معرّف العميل وسرّه ضمن Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "اطلب من مالك مساحة العمل إنشاء HubSpot MCP Auth App وإضافة معرّف العميل وسرّه ضمن Agent-Native settings → API keys. بعد الإعداد، يمكنك ربط حساب HubSpot الخاص بك.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "انضم إلى مساحة عمل قبل ربط HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "إضافة بيانات اعتماد مساحة العمل",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "تحقق مرة أخرى",
+  "mcpIntegrations.hubspot.retrySetupStatus": "إعادة المحاولة",
   "mcpIntegrations.catalog.pylon.description":
     "البحث في بيانات الدعم في Pylon وتحديثها.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1403,6 +1463,18 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "مشاهد",
   "share.viewerDescription": "يمكنه العرض",
   "share.userGroup": "مجموعة مستخدمين",
+  "share.ownedByAnyone": "مملوك لأي شخص",
+  "share.ownedByMe": "مملوك لي",
+  "share.sharedWithMe": "تمت مشاركته معي",
+  "share.confirmOrganizationTitle": "هل تريد المشاركة مع مؤسستك؟",
+  "share.confirmOrganizationTitleNamed":
+    "هل تريد المشاركة مع {{organization}}؟",
+  "share.confirmOrganizationDescription":
+    "سيتمكن جميع أفراد مؤسستك، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmOrganizationDescriptionNamed":
+    "سيتمكن جميع أفراد {{organization}}، بمن فيهم الأعضاء الجدد، من فتح هذا وعرض كل ما فيه، بما في ذلك أي رسائل وملفات ومحتوى آخر. يمكنك تغيير ذلك لاحقًا.",
+  "share.confirmOrganizationAction": "المشاركة مع المؤسسة",
+  "share.confirmOrganizationSharing": "جارٍ المشاركة...",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
@@ -1457,6 +1529,10 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "عمل",
   "tool.workedFor": "عمل لمدة {{duration}}",
   "widget.chart": "مخطط",
+  "widget.chartActions": "إجراءات المخطط",
+  "widget.chartRowsOmitted": "يعرض هذا المخطط بعض الصفوف المتاحة فقط.",
+  "widget.dataSources": "مصادر البيانات",
+  "widget.tableActions": "إجراءات الجدول",
   "widget.dataChart": "مخطط بيانات",
   "widget.dataInsights": "رؤى البيانات",
   "widget.dataTable": "جدول بيانات",
@@ -1972,12 +2048,24 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.clearFailed": "تعذّر مسح بيانات اعتماد التخزين.",
   "settings.storage.loadFailed": "تعذّر تحميل إعدادات تخزين الملفات.",
   "settings.storage.retry": "إعادة المحاولة",
+  "settings.storage.unreadable":
+    "تعذّر التحقق من بعض إعدادات التخزين المحفوظة. أعد المحاولة أو استبدل القيم المطلوبة التي تعذّرت قراءتها قبل الحفظ.",
+  "settings.storage.unreadableField":
+    "تعذّرت قراءة القيمة المحفوظة. أدخلها مرة أخرى.",
+  "settings.storage.clearUnreadableField": "مسح {{field}} الذي تعذّرت قراءته",
+  "settings.storage.unreadableFieldCleared":
+    "ستتم إزالة هذه القيمة المحفوظة عند الحفظ.",
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
   "settings.audit.action": "الإجراء",
   "settings.audit.agentVia": "وكيل عبر {{protocol}}",
   "settings.audit.allApps": "كل التطبيقات",
   "settings.audit.app": "التطبيق",
+  "settings.audit.approval": "الموافقة",
+  "settings.audit.approvalAgentChat": "تمت الموافقة في محادثة الوكيل",
+  "settings.audit.approvalA2AReview":
+    "تمت الموافقة في صفحة مراجعة إجراء الوكيل",
+  "settings.audit.approvalMcpClient": "قبِله عميل MCP (غير موثّق)",
   "settings.audit.changedBy": "تم التغيير بواسطة",
   "settings.audit.close": "إغلاق",
   "settings.audit.empty": "لا توجد تغييرات في هذه الفترة.",
@@ -1991,9 +2079,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "آخر 90 يومًا",
   "settings.audit.loadFailed": "تعذّر تحميل سجل التدقيق.",
   "settings.audit.loading": "جارٍ تحميل سجل التدقيق",
+  "settings.audit.oauthClient": "عميل OAuth",
   "settings.audit.onBehalfOf": "نيابةً عن",
   "settings.audit.range": "النطاق الزمني",
   "settings.audit.refused": "مرفوض",
+  "settings.audit.reportedClient": "العميل المُبلَّغ ذاتيًا",
   "settings.audit.result": "النتيجة",
   "settings.audit.showMore": "عرض {{count}} أخرى",
   "settings.audit.succeeded": "تم بنجاح",
@@ -2066,9 +2156,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "مزيد من المعلومات",
   "settingsOrg.general.workspaceUrl": "عنوان URL لمساحة العمل",
   "settingsOrg.general.workspaceUrlDescription":
-    "وجّه الأعضاء إلى مساحة العمل هذه من نشر آخر.",
+    "اربط دليل تطبيقات هذه المؤسسة بين عمليات النشر.",
   "settingsOrg.general.workspaceUrlHelp":
-    "ينتقل الأعضاء الذين يصلون إلى نشر آخر إلى مساحة العمل هذه بدلًا من تطبيق فارغ.",
+    "تستخدم عمليات النشر الأخرى عنوان URL هذا لاكتشاف تطبيقات مساحة العمل. لا يعيد توجيه الأعضاء تلقائيًا.",
   "settingsOrg.general.editWorkspaceUrl": "تعديل عنوان URL لمساحة العمل",
   "settingsOrg.general.removeWorkspaceUrl": "إزالة عنوان URL لمساحة العمل",
   "settingsOrg.general.setWorkspaceUrl": "تعيين عنوان URL",
@@ -2085,6 +2175,9 @@ const messages: ToolkitAgentChatTranslation = {
     "معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
   "settingsOrg.auth.sharedSecretNotSet":
     "غير معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.memberDelegation": "تفويض هوية أعضاء المؤسسة",
+  "settingsOrg.auth.memberDelegationHelp":
+    "يمكن للتطبيقات المتصلة التي تستخدم السر المشترك لهذه المؤسسة ادّعاء هوية أي عضو حالي عند الاتصال بهذا التطبيق. يتحقق هذا التطبيق من قائمة الأعضاء الحالية ويقيّد الوصول المفوّض إلى المؤسسة بصلاحيات مستوى العضو.",
   "settingsOrg.auth.secretNotSetValue": "غير معيّن",
   "settingsOrg.auth.manage": "إدارة",
   "settingsOrg.auth.reveal": "إظهار",
@@ -2171,6 +2264,12 @@ const messages: ToolkitAgentChatTranslation = {
     "تحقق من بريدك الإلكتروني للاطلاع على تعليمات تأكيد هذا التغيير.",
   "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
   "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
+  "settingsShell.account.appearance": "المظهر",
+  "settingsShell.account.themeFamily": "نمط السمة",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "الألوان الأصلية للتطبيق",
+  "settingsShell.account.themeFamilySaveError":
+    "تعذّر تحديث نمط السمة. حاول مرة أخرى.",
   "settingsShell.account.manage": "إدارة",
   "settingsShell.account.name": "الاسم",
   "settingsShell.account.nameDescription":
@@ -2397,7 +2496,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "إزالة بيانات اعتماد {{platform}}",
   "settingsShell.channels.removeCredentials.body":
-    "يتوقف الوكيل عن الرد في {{platform}} للجميع، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
+    "قد تؤدي إزالة بيانات الاعتماد هذه من مساحة العمل إلى توقف الوكيل عن الرد على الجميع في {{platform}}، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "سيؤدي ذلك إلى إزالة بيانات اعتمادك الشخصية لـ {{platform}} فقط. لن تتغير بيانات اعتماد المستخدمين الآخرين ومساحة العمل.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "يؤدي ذلك إلى إزالة بيانات الاعتماد المحفوظة المحددة لـ {{platform}}. وتظل بيانات الاعتماد المحفوظة الأخرى دون تغيير.",
   "settingsShell.channels.removeCredentials.confirm": "إزالة",
   "settingsShell.channels.removeCredentials.failed":
     "تعذّرت إزالة بيانات الاعتماد.",
@@ -2405,6 +2508,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "هل تريد إزالة بيانات اعتماد {{platform}}؟",
   "settingsShell.channels.retry": "إعادة المحاولة",
+  "settingsShell.channels.setup.unreadable":
+    "تعذّرت قراءة بيانات اعتماد محفوظة. أدخل قيمة بديلة.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "يستبدل هذا بيانات اعتمادك الشخصية فقط؛ وتظل بيانات اعتماد المستخدمين الآخرين كما هي.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "تتم إدارة بيانات الاعتماد هذه في قسم إعدادات آخر. حدّثها هناك قبل إعداد هذه القناة.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "تعذّرت قراءة بعض بيانات اعتماد القناة المحفوظة. استبدلها قبل تفعيل هذه القناة.",
   "settingsShell.channels.setup.addToEnvironment": "أضفه إلى بيئة النشر",
   "settingsShell.channels.setup.body": "أضف هذه القيم إلى هذا النشر، ثم شغّله.",
   "settingsShell.channels.setup.close": "إغلاق",
@@ -2412,6 +2523,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "اختياري",
   "settingsShell.channels.setup.replace": "استبدال",
   "settingsShell.channels.setup.replaceAria": "استبدال {{key}}",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "استبدل بيانات الاعتماد المحفوظة هذه من إعدادات التكامل المالكة لها.",
   "settingsShell.channels.setup.save": "حفظ",
   "settingsShell.channels.setup.saveAndTurnOn": "حفظ وتشغيل",
   "settingsShell.channels.setup.saving": "جارٍ الحفظ…",
@@ -2425,6 +2538,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "غير مُعدّ",
   "settingsShell.channels.state.off": "متوقف",
   "settingsShell.channels.state.on": "مُشغّل",
+  "settingsShell.channels.state.unavailable": "غير متاح",
   "settingsShell.channels.status": "الحالة",
   "settingsShell.channels.toggleFailed": "تعذّر تحديث {{platform}}.",
   "settingsShell.channels.turnOnAria": "تشغيل {{platform}}",
@@ -2711,6 +2825,8 @@ const messages: ToolkitAgentChatTranslation = {
     "الوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
   "settingsShell.integrations.builderStatusFailed":
     "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "تعذّرت قراءة بعض بيانات حساب Builder المحفوظة.",
   "settingsShell.integrations.category.analytics": "التحليلات",
   "settingsShell.integrations.category.design": "التصميم",
   "settingsShell.integrations.category.engineering": "الهندسة",
@@ -2777,6 +2893,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "النموذج الافتراضي للتطبيق",
   "settingsShell.search.backgroundAgents": "الوكلاء في الخلفية",
   "settingsShell.search.browserAutomation": "أتمتة المتصفح",
+  "settingsShell.search.webSearch": "البحث على الويب",
   "settingsShell.search.connectedAgents": "الوكلاء المتصلون",
   "settingsShell.search.database": "قاعدة البيانات",
   "settingsShell.search.defaultModel": "النموذج الافتراضي",
@@ -2905,6 +3022,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
   "settingsInfra.whyBackground": "يُجري تغييرات في الكود من بيئة الإنتاج.",
   "settingsInfra.whyBrowser": "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsInfra.whyWebSearch": "يعثر على معلومات عامة حديثة ووثائق رسمية.",
   "settingsInfra.provider": "المزوّد",
   "settingsInfra.keyOrg": "يستخدم مفتاح {{provider}} الخاص بالمؤسسة.",
   "settingsInfra.manageKey": "إدارة المفتاح",
@@ -3068,6 +3186,10 @@ const messages: ToolkitAgentChatTranslation = {
     "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "يمكن استخدام تطبيقات المصدر المفتوح ذاتيًا عند تشغيلها محليًا باستخدام loopback callback، ولا حاجة إلى تقديم طلب شراكة. تحتاج التطبيقات المستضافة على *.agent-native.com إلى موافقة المشغّل وإلى hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "استخدم الوصول إلى خطة ChatGPT من حساب شخصي. في بيئة التطوير المحلية، اضبط access.autoCreateDefaultOrg على false قبل تسجيل الدخول.",
+  "settingsModel.chatgptScopeUnresolved":
+    "تعذر على التطبيق تأكيد نطاق حسابك. أكمل الإعداد المحلي ثم أعد تحميل الإعدادات.",
   "settingsModel.chatgptNoDirectUse":
     "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
   "settingsModel.chatgptReconnect": "إعادة الاتصال",
@@ -3161,11 +3283,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.rejectedAskAdmin":
     "رفض {{provider}} هذا المفتاح في {{date}}. اطلب من مالك أو مسؤول استبداله.",
   "settingsModel.rejectedHeadline": "رفض {{provider}} هذا المفتاح",
+  "settingsModel.unreadable":
+    "تعذّر قراءة إعداد المزوّد المحفوظ. استبدله لاستعادة الوصول.",
+  "settingsModel.unreadableAskAdmin":
+    "تعذّر قراءة إعداد المزوّد المحفوظ. اطلب من مالك أو مسؤول استبداله.",
   "settingsModel.remove": "إزالة",
   "settingsModel.removeProvider": "إزالة المزوّد",
   "settingsModel.removeTitle": "هل تريد إزالة {{provider}}؟",
   "settingsModel.removing": "جارٍ الإزالة",
   "settingsModel.replace": "استبدال",
+  "settingsModel.replaceEndpoint": "استبدال نقطة النهاية",
   "settingsModel.replaceKey": "استبدال المفتاح",
   "settingsModel.restrictBody": "يمكن للأعضاء استخدام مزوّدي المؤسسة فقط.",
   "settingsModel.restrictConfirm": "تقييد المفاتيح",
@@ -3267,6 +3394,17 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "لم يتم إرفاق التقرير.",
   "reportProblem.agentMessage":
     "حدث خطأ ما في التطبيق. استخدم تقرير المشكلة المرفق لشرح ما حدث.",
+  "unsupportedDevice.title": "افتحه على شاشة أكبر",
+  "unsupportedDevice.titleDeck": "افتح هذا العرض التقديمي على شاشة أكبر",
+  "unsupportedDevice.titleDesign": "افتح هذا التصميم على شاشة أكبر",
+  "unsupportedDevice.body":
+    "يعمل {{app}} على iPad والأجهزة اللوحية وأجهزة سطح المكتب. أرسل الرابط إلى نفسك لتتابع من هناك.",
+  "unsupportedDevice.email": "أرسل الرابط إلى بريدي",
+  "unsupportedDevice.share": "مشاركة الرابط",
+  "unsupportedDevice.copy": "نسخ الرابط",
+  "unsupportedDevice.copyFailed": "تعذّر نسخ الرابط",
+  "unsupportedDevice.copied": "تم نسخ الرابط",
+  "unsupportedDevice.emailSubject": "افتح {{app}} على حاسوبك",
 };
 
 export default messages;

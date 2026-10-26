@@ -27,6 +27,7 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
@@ -37,7 +38,7 @@ import {
   MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
-import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { hasSpecifiedDesignPrompt } from "../shared/specified-design-prompt.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -963,7 +964,7 @@ export default defineAction({
       const candidate = variant.content?.trim();
       if (!candidate) continue;
       assertDesignHtmlWellFormed({
-        content: annotateScreenHtmlForPersist(candidate, "html"),
+        content: annotateAgentScreenHtmlForPersist(candidate, "html"),
         filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
       });
     }
@@ -1019,7 +1020,7 @@ export default defineAction({
                 canvasIntent,
               )
             : initialSize;
-          const content = annotateScreenHtmlForPersist(rawContent, "html");
+          const content = annotateAgentScreenHtmlForPersist(rawContent, "html");
 
           await tx.insert(schema.designFiles).values({
             id: fileId,
@@ -1272,6 +1273,7 @@ export default defineAction({
       prompt: prompt ?? "Pick a direction",
       variantSetId,
       count: screens.length,
+      _receipt: designOutputWriteReceipt(designId, savedScreenCount),
       screens,
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,

@@ -2,7 +2,7 @@
 name: export-handoff
 description: >-
   Export Design work and produce developer handoff materials. Use when the user
-  wants HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
+  wants HubSpot email HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
   handoff for a selected design.
 ---
 
@@ -38,6 +38,20 @@ How to export designs and generate handoff documentation for developers converti
   that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
   fallback (lightness and hue kept, chroma reduced), not the browser's clip.
   HTML and SVG exports keep such colors as written.
+  Saved native shader scenes use the live editor's PNG path so GPU fills and
+  Liquid Glass keep their rendered appearance. The inspector exports selected
+  authored layers with transparent unselected surroundings. For agent exports,
+  discover the live tab with `get-native-render-contexts`, obtain the exact source
+  `versionHash` from `get-shader`, then call `request-native-local-export` with
+  that `targetTabId` and source hash. Its `export.viewport` is the unchanged CSS
+  layout viewport. Optional `cropRect: { x, y, width, height }` bounds the output
+  in that viewport's world coordinates; `selectedNodeIds` additionally isolates
+  those authored subtrees while backdrop inputs still sample the full scene.
+  Omitting `selectedNodeIds` captures the full composition inside the crop.
+  Output dimensions are the crop size times `pixelRatio`, bounded to 4096 pixels
+  per edge and 8,388,608 pixels total. Poll `get-native-local-export` with the
+  exact request and tab IDs; only `completed` provides the protected PNG URL.
+
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;
@@ -47,6 +61,17 @@ How to export designs and generate handoff documentation for developers converti
   publishing goes through the Builder Visual Editor's Publish flow.
 
 ## Export Formats
+
+### HubSpot email HTML
+
+`export-hubspot-html` validates any HTML frame and returns `{ html, filename,
+imageCount }` for manual import; no special frame type is required and saved
+source is unchanged. It inlines supported CSS and validates email markup,
+HubL, visible footer text and public images. For target resolution, authoring,
+conversion and completion checks, read `hubspot-email`; it is the single email
+workflow owner. An `invalid_hubspot_email` result identifies content to repair,
+not a missing frame category. Validation and sample browser previews do not
+prove HubSpot compilation or inbox rendering.
 
 ### HTML Export
 

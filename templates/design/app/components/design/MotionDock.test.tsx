@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { createMotionNativeStyleIdentity } from "./motion-native-style-identity";
 import {
   formatCurveAxisValue,
   formatMotionRulerTick,
@@ -72,7 +73,10 @@ const CATALOG_MESSAGES = {
       previousKeyframe: "Previous keyframe",
       toggleAnimationVisibility: "Toggle animation visibility",
       toggleLayerVisibility: "Toggle layer visibility",
-      textAnimation: { properties: { scale: "Scale" } },
+      textAnimation: {
+        title: "Text animation",
+        properties: { scale: "Scale" },
+      },
       animationStyles: {
         hide: "Hide",
         show: "Show",
@@ -165,6 +169,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  document
+    .querySelectorAll("iframe[data-motion-test-preview]")
+    .forEach((iframe) => iframe.remove());
   container.remove();
 });
 
@@ -393,6 +400,211 @@ describe("MotionDock audio preview bridge", () => {
   });
 });
 
+describe("MotionDock text preview timeline", () => {
+  it("persists the preview-expanded timebase with timeline track edits", async () => {
+    const contentWindow = { postMessage: vi.fn() };
+    const canvasIframeRef = {
+      current: {
+        contentWindow,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      } as unknown as HTMLIFrameElement,
+    };
+    const onDurationChange = vi.fn();
+    const onTracksChange = vi.fn();
+    const track: MotionDockTrack = {
+      targetNodeId: "hero",
+      property: "opacity",
+      label: "Hero",
+      keyframes: [
+        { t: 0, value: "0" },
+        { t: 1, value: "1" },
+      ],
+    };
+    await renderInteractive({
+      canvasIframeRef,
+      durationMs: 2000,
+      onDurationChange,
+      onTracksChange,
+      playhead: 0.5,
+      tracks: [track],
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "motion-preview-span", key: "html", durationMs: 4250 },
+          source: contentWindow as unknown as Window,
+        }),
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add or remove keyframe"]',
+        )!
+        .click();
+    });
+
+    expect(onDurationChange).toHaveBeenCalledExactlyOnceWith(4250);
+    expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ t: 0.5 })]),
+    );
+  });
+
+  it("extends the shared timeline to the reported HTML text stagger span", async () => {
+    const postMessage = vi.fn();
+    const contentWindow = { postMessage };
+    const iframe = {
+      contentWindow,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as HTMLIFrameElement;
+    const canvasIframeRef = { current: iframe };
+    const onDurationChange = vi.fn();
+    await renderInteractive({
+      canvasIframeRef,
+      durationMs: 2000,
+      onDurationChange,
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+    const handle = container.querySelector<HTMLButtonElement>(
+      "[data-motion-timeline-duration-handle]",
+    );
+    expect(handle?.getAttribute("aria-valuenow")).toBe("2000");
+
+    const reportSpan = async (key: string, durationMs: number) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "motion-preview-span", key, durationMs },
+            source: contentWindow as unknown as Window,
+          }),
+        );
+      });
+    };
+    await reportSpan("html", 4250);
+
+    expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+    expect(onDurationChange).toHaveBeenLastCalledWith(4250);
+    expect(
+      container
+        .querySelector("[data-motion-scrubber]")
+        ?.getAttribute("aria-valuemax"),
+    ).toBe("4250000");
+
+    await reportSpan("react:headline", 5000);
+    expect(handle?.getAttribute("aria-valuenow")).toBe("5000");
+    expect(onDurationChange).toHaveBeenLastCalledWith(5000);
+    const currentTime = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Current time"]',
+    );
+    const setInputValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    expect(currentTime).not.toBeNull();
+    expect(setInputValue).toBeDefined();
+    await act(async () => {
+      currentTime!.focus();
+      setInputValue!.call(currentTime, "4000");
+      currentTime!.dispatchEvent(new Event("input", { bubbles: true }));
+      currentTime!.blur();
+    });
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview", t: 0.8, durationMs: 5000 },
+      "*",
+    );
+
+    await reportSpan("react:headline", 0);
+    expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+
+    await reportSpan("react:removed-while-closed", 9000);
+    await renderInteractive({ canvasIframeRef, durationMs: 2000, open: false });
+    await renderInteractive({ canvasIframeRef, durationMs: 2000, open: true });
+    expect(handle?.getAttribute("aria-valuenow")).toBe("2000");
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+  });
+
+  it("tracks preview span messages and load events from a replacement iframe", async () => {
+    const firstWindow = { postMessage: vi.fn() };
+    const firstIframe = document.createElement("iframe");
+    firstIframe.dataset.motionTestPreview = "true";
+    Object.defineProperty(firstIframe, "contentWindow", {
+      configurable: true,
+      value: firstWindow,
+    });
+    document.body.append(firstIframe);
+
+    const nextWindow = { postMessage: vi.fn() };
+    const nextIframe = document.createElement("iframe");
+    nextIframe.dataset.motionTestPreview = "true";
+    Object.defineProperty(nextIframe, "contentWindow", {
+      configurable: true,
+      value: nextWindow,
+    });
+    let currentIframe = firstIframe;
+    const canvasIframeRef = {
+      get current() {
+        return currentIframe;
+      },
+    };
+    const onDurationChange = vi.fn();
+
+    await renderInteractive({
+      canvasIframeRef,
+      durationMs: 2000,
+      onDurationChange,
+    });
+    expect(firstWindow.postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+
+    await act(async () => {
+      firstIframe.replaceWith(nextIframe);
+      currentIframe = nextIframe;
+      nextIframe.dispatchEvent(new Event("load"));
+    });
+    expect(nextWindow.postMessage).toHaveBeenCalledWith(
+      { type: "motion-preview-duration-request" },
+      "*",
+    );
+
+    const handle = container.querySelector<HTMLButtonElement>(
+      "[data-motion-timeline-duration-handle]",
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "motion-preview-span", key: "html", durationMs: 9000 },
+          source: firstWindow as unknown as Window,
+        }),
+      );
+    });
+    expect(handle?.getAttribute("aria-valuenow")).toBe("2000");
+    expect(onDurationChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "motion-preview-span", key: "html", durationMs: 4250 },
+          source: nextWindow as unknown as Window,
+        }),
+      );
+    });
+    expect(handle?.getAttribute("aria-valuenow")).toBe("4250");
+    expect(onDurationChange).toHaveBeenCalledExactlyOnceWith(4250);
+  });
+});
+
 describe("Motion animation style menu", () => {
   async function renderMenu(
     isText: boolean,
@@ -468,21 +680,23 @@ describe("Motion animation style menu", () => {
     });
   }
 
-  it("matches Figma's animation choices and order for text layers", async () => {
-    await renderMenu(true);
+  it("adds Text before property animations for text layers", async () => {
+    await renderMenu(true, vi.fn());
     await openMenu("Add animation");
 
-    const menuItems = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    );
-    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+    expect(menuItemLabels()).toEqual([
+      "Text",
       "Position",
       "Scale",
       "Rotation",
       "Size",
       "Opacity",
     ]);
-    expect(menuItems.every((item) => item.querySelector("svg"))).toBe(true);
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLElement>("[role='menuitem']"),
+      ).every((item) => item.querySelector("svg")),
+    ).toBe(true);
     expect(
       Array.from(document.body.querySelectorAll(".sr-only")).some((element) =>
         element.textContent?.includes('Animate "Heading"'),
@@ -493,6 +707,9 @@ describe("Motion animation style menu", () => {
         .querySelector('[role="menu"]')
         ?.classList.contains("w-[7.5rem]"),
     ).toBe(true);
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
   });
 
   it("creates a composite Size style through one style callback", async () => {
@@ -591,30 +808,45 @@ describe("Motion animation style menu", () => {
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Position");
   });
 
-  it("keeps native Text Stagger out of Add animation and exposes it in More Motion", async () => {
+  it("creates the code-backed Text preset from Add animation", async () => {
     const onCreateNativeStyle = vi.fn();
     await renderMenu(true, vi.fn(), vi.fn(), onCreateNativeStyle);
     await openMenu("Add animation");
     expect(menuItemLabels()).toEqual([
+      "Text",
       "Position",
       "Scale",
       "Rotation",
       "Size",
       "Opacity",
     ]);
-
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await openMenu("More Motion");
-    expect(menuItemLabels()).toEqual(["Text", "Text Stagger"]);
-    await selectMenuItem("Text Stagger");
+    await selectMenuItem("Text");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
   });
 
-  it("offers Path trim only for SVG path targets", async () => {
+  it("keeps the text animation menu aligned when source tracks are supported", async () => {
+    const onCreateText = vi.fn();
+    const onCreateNativeStyle = vi.fn();
+    await renderMenu(true, onCreateText, vi.fn(), onCreateNativeStyle);
+    await openMenu("Add animation");
+
+    expect(menuItemLabels()).toEqual([
+      "Text",
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
+    await selectMenuItem("Text");
+    expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
+    expect(onCreateText).not.toHaveBeenCalled();
+  });
+
+  it("lists Path as the last style, only for outline-drawing targets", async () => {
     const onCreateNativeStyle = vi.fn();
     await renderMenu(false, vi.fn(), vi.fn(), onCreateNativeStyle, true);
     await openMenu("Add animation");
@@ -624,21 +856,21 @@ describe("Motion animation style menu", () => {
       "Rotation",
       "Size",
       "Opacity",
+      "Path",
     ]);
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await openMenu("More Motion");
-    expect(menuItemLabels()).toEqual(["Path"]);
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
     await selectMenuItem("Path");
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Path");
+
+    await renderMenu(false, vi.fn(), vi.fn(), onCreateNativeStyle, false);
+    await openMenu("Add animation");
+    expect(menuItemLabels()).not.toContain("Path");
   });
 
-  it("offers and creates Text animation only for text layers", async () => {
-    const onCreateText = vi.fn();
-    await renderMenu(true, onCreateText);
+  it("leaves Text out unless every selected layer is text", async () => {
+    await renderMenu(false, vi.fn(), vi.fn(), vi.fn());
     await openMenu("Add animation");
     expect(menuItemLabels()).toEqual([
       "Position",
@@ -647,13 +879,20 @@ describe("Motion animation style menu", () => {
       "Size",
       "Opacity",
     ]);
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
-    await openMenu("More Motion");
-    expect(menuItemLabels()).toEqual(["Text"]);
+  });
+
+  it("offers Text in Add animation only for text layers", async () => {
+    const onCreateText = vi.fn();
+    await renderMenu(true, onCreateText);
+    await openMenu("Add animation");
+    expect(menuItemLabels()).toEqual([
+      "Text",
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
     await selectMenuItem("Text");
     expect(onCreateText).toHaveBeenCalledOnce();
 
@@ -661,6 +900,75 @@ describe("Motion animation style menu", () => {
     expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
       null,
     );
+  });
+});
+
+describe("Motion add button disabled states", () => {
+  async function renderDisabled(
+    props: Partial<Parameters<typeof AddTrackMenu>[0]>,
+  ) {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          persistPreference={false}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          catalog={{ messages: CATALOG_MESSAGES }}
+        >
+          <TooltipProvider delayDuration={0}>
+            {createElement(AddTrackMenu, {
+              selectedTarget: { nodeId: "box", label: "Box" },
+              onCreateNativeStyle: vi.fn(),
+              ...props,
+            })}
+          </TooltipProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add animation"]',
+    );
+    expect(trigger).not.toBeNull();
+    return trigger!;
+  }
+
+  async function hover(trigger: HTMLElement) {
+    await act(async () => {
+      trigger.parentElement!.dispatchEvent(
+        new MouseEvent("pointermove", { bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    return document.body.querySelector('[role="tooltip"]')?.textContent;
+  }
+
+  it("greys the button with the reason when the layer cannot take motion", async () => {
+    const trigger = await renderDisabled({
+      disabledReason: "Motion cannot be written here",
+    });
+    expect(trigger.disabled).toBe(true);
+    expect(await hover(trigger)).toBe("Motion cannot be written here");
+  });
+
+  it("greys the button with the same tip for a top-level frame", async () => {
+    const trigger = await renderDisabled({
+      disabledReason: "Top-level frames can't be animated",
+    });
+    expect(trigger.disabled).toBe(true);
+    expect(await hover(trigger)).toBe("Top-level frames can't be animated");
+  });
+
+  it("asks for a selection when nothing is selected", async () => {
+    const trigger = await renderDisabled({ selectedTarget: null });
+    expect(trigger.disabled).toBe(true);
+    expect(await hover(trigger)).toBe("Select an element on the canvas first");
+  });
+
+  it("greys the button without a tip when no styles are listed", async () => {
+    const trigger = await renderDisabled({ onCreateNativeStyle: undefined });
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.parentElement?.hasAttribute("data-state")).toBe(false);
+    expect(await hover(trigger)).toBeUndefined();
   });
 });
 
@@ -735,7 +1043,7 @@ describe("MotionDock toolbar layout", () => {
     );
   });
 
-  it("formats ruler labels with Figma units", () => {
+  it("formats ruler labels with compact time units", () => {
     expect([0, 100, 900, 1000, 1500].map(formatMotionRulerTick)).toEqual([
       "0s",
       "100ms",
@@ -751,7 +1059,7 @@ describe("MotionDock toolbar layout", () => {
     expect(markup).toContain(">900ms</span>");
   });
 
-  it("matches Figma's 100ms ruler spacing and labels at 62% zoom", () => {
+  it("labels ruler ticks at 100ms intervals at the default zoom", () => {
     const markup = render({ durationMs: 1000 });
     const ticks = Array.from(
       markup.matchAll(
@@ -772,6 +1080,43 @@ describe("MotionDock toolbar layout", () => {
       { ms: 800, label: "800ms" },
       { ms: 900, label: "900ms" },
     ]);
+  });
+
+  it("reconciles untouched duration fields and preserves active edits", async () => {
+    const onDurationChange = vi.fn();
+    await renderInteractive({ onDurationChange });
+
+    const durationInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Duration"]',
+    );
+    expect(durationInput).not.toBeNull();
+    await act(async () => {
+      durationInput!.focus();
+    });
+    await renderInteractive({ durationMs: 1990, onDurationChange });
+    expect(durationInput!.value).toBe("2000");
+
+    await act(async () => durationInput!.blur());
+    expect(durationInput!.value).toBe("1990");
+    expect(onDurationChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      durationInput!.focus();
+      durationInput!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(durationInput!.value).toBe("1991");
+    expect(onDurationChange).toHaveBeenLastCalledWith(1991);
+
+    await renderInteractive({ durationMs: 1990, onDurationChange });
+    expect(durationInput!.value).toBe("1991");
+
+    await act(async () => durationInput!.blur());
+    expect(onDurationChange).toHaveBeenLastCalledWith(1991);
+
+    await renderInteractive({ durationMs: 1991, onDurationChange });
+    expect(durationInput!.value).toBe("1991");
   });
 
   it("switches editable fields to seconds while ruler units stay compact", async () => {
@@ -896,13 +1241,34 @@ describe("MotionDock selected animation settings", () => {
       'button[aria-label="Linear"]',
     );
     expect(easingPicker).not.toBeNull();
-    await act(async () => easingPicker!.click());
+    if (!easingPicker) throw new Error("Linear easing picker was not rendered");
+    await act(async () => easingPicker.click());
+    const springTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
+    ).find((tab) => tab.textContent === "Spring");
+    expect(springTab).toBeDefined();
+    if (!springTab) throw new Error("Spring easing tab was not rendered");
+    await act(async () => {
+      springTab.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+    expect(onTracksChange).toHaveBeenCalledTimes(2);
+    await renderInteractive({
+      tracks: onTracksChange.mock.lastCall?.[0],
+      durationMs: 2000,
+      onTracksChange,
+    });
     const bouncyPreset = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.trim() === "Bouncy");
     expect(bouncyPreset).toBeDefined();
     await act(async () => bouncyPreset!.click());
-    expect(onTracksChange).toHaveBeenCalledTimes(2);
+    expect(onTracksChange).toHaveBeenCalledTimes(3);
     expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes[0]?.ease).toBe(
       "spring(0.69)",
     );
@@ -910,7 +1276,7 @@ describe("MotionDock selected animation settings", () => {
 });
 
 describe("MotionDock time units and Size preset", () => {
-  it("opens at Figma's observed timeline zoom level", async () => {
+  it("opens at the default timeline zoom level", async () => {
     await renderInteractive();
     const zoom = container.querySelector(
       "[data-motion-timeline-zoom] [role=slider]",
@@ -1124,7 +1490,7 @@ describe("MotionDock time units and Size preset", () => {
     expect(motionTimelineContentWidth(0.5)).toBe("100%");
   });
 
-  it("matches Figma's duration-bounded scrubber and timeline guidance", () => {
+  it("bounds the scrubber to the duration and exposes timeline guidance", () => {
     const markup = render({ tracks: sampleTracks, durationMs: 2000 });
 
     expect(markup).toContain(
@@ -1180,6 +1546,296 @@ describe("MotionDock — timeline body anatomy", () => {
     expect(markup).toContain('aria-label="Position animation span"');
     expect(markup).toContain('aria-valuetext="300ms – 800ms"');
     expect(markup).not.toContain("data-motion-keyframe");
+  });
+
+  it("selects a native style row that was added while the dock was closed", async () => {
+    await renderInteractive({ nativeStyles: [sampleNativeStyle] });
+    expect(
+      container
+        .querySelector("[data-motion-native-style-row]")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("selects a native style row added while the dock is open", async () => {
+    await renderInteractive({ nativeStyles: [sampleNativeStyle] });
+    const added: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      targetNodeId: "other",
+    };
+    await renderInteractive({ nativeStyles: [sampleNativeStyle, added] });
+    const rows = Array.from(
+      container.querySelectorAll("[data-motion-native-style-row]"),
+    );
+    expect(rows.map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "true",
+    ]);
+  });
+
+  it("clears easing selection when an added native style is selected", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const addedStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+    };
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle, addedStyle],
+      onLiveStateChange,
+    });
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears the easing selection when selecting a native style row", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const nativeStyleButton = container.querySelector<HTMLButtonElement>(
+      "[data-motion-select-native-style]",
+    );
+    if (!nativeStyleButton)
+      throw new Error("Native style row was not rendered");
+    await act(async () => nativeStyleButton.click());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears easing selection when a native style is removed", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const removeButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove animation Position"]',
+    );
+    if (!removeButton)
+      throw new Error("Native-style remove button was not rendered");
+    await act(async () => removeButton.click());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("keeps a selected native style row from another layer selected", async () => {
+    const otherLayerStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      targetNodeId: "other",
+    };
+    const onNativeStyleSelectionChange = vi.fn();
+    await renderInteractive({
+      nativeStyles: [sampleNativeStyle, otherLayerStyle],
+      onNativeStyleSelectionChange,
+      selectedTarget: { nodeId: "hero", label: "Hero" },
+    });
+
+    const otherLayerRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    await act(async () => {
+      otherLayerRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+
+    expect(otherLayerRow.getAttribute("aria-selected")).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(otherLayerStyle, 1),
+    );
+  });
+
+  it("synchronizes timeline selection for two styles on one layer", async () => {
+    const scaleStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      props: { type: "scaleIn", delay: 0 },
+    };
+    const nativeStyles = [sampleNativeStyle, scaleStyle];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({ nativeStyles, onNativeStyleSelectionChange });
+
+    const positionRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Position"]',
+    )!;
+    const scaleRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      positionRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("true");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("false");
+    expect(onNativeStyleSelectionChange).toHaveBeenCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
+
+    await renderInteractive({
+      nativeStyles,
+      selectedNativeStyle: createMotionNativeStyleIdentity(scaleStyle, 1),
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("keeps the selected native style when an earlier duplicate row is removed", async () => {
+    const first: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0,
+    };
+    const second: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0.4,
+    };
+    const nativeStyles = [first, second];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-motion-native-style-row="Position"]',
+      ),
+    );
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Position"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [second],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    expect(
+      container
+        .querySelector('[data-motion-native-style-row="Position"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(second, 0),
+    );
+  });
+
+  it("does not change selection when removing a middle native style row", async () => {
+    const middle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+    };
+    const last: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Rotation",
+      nameKey: "designEditor.motion.animationStyles.rotation",
+    };
+    const nativeStyles = [sampleNativeStyle, middle, last];
+    const onNativeStyleSelectionChange = vi.fn();
+    const onNativeStyleRemove = vi.fn();
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove,
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-native-style-row]"),
+    );
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Scale"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [sampleNativeStyle, last],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove,
+    });
+
+    const remainingRows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-native-style-row]"),
+    );
+    expect(
+      remainingRows.map((row) => row.getAttribute("aria-selected")),
+    ).toEqual(["true", "false"]);
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
   });
 
   it("shows native style visibility/removal actions and preserves source props", async () => {
@@ -1256,7 +1912,7 @@ describe("MotionDock — timeline body anatomy", () => {
 });
 
 describe("MotionDock keyframe selection and deletion", () => {
-  it("cycles playback once, loop, ping-pong, then once like Figma", async () => {
+  it("cycles playback through once, loop, and ping-pong modes", async () => {
     const onPlaybackModeChange = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onPlaybackModeChange });
 
@@ -1279,7 +1935,7 @@ describe("MotionDock keyframe selection and deletion", () => {
     await cycle("ping-pong", "once");
   });
 
-  it("matches Figma's layer visibility control and updates its checked state", async () => {
+  it("toggles layer visibility and updates its checked state", async () => {
     const onToggleLayerHidden = vi.fn();
     await renderInteractive({ tracks: sampleTracks, onToggleLayerHidden });
     const visibility = container.querySelector<HTMLButtonElement>(
@@ -1336,6 +1992,50 @@ describe("MotionDock keyframe selection and deletion", () => {
     ).not.toBeNull();
   });
 
+  it("edits only the selected track when a target has repeated properties", async () => {
+    const onTracksChange = vi.fn();
+    const tracks: MotionDockTrack[] = [
+      {
+        id: "opacity-first",
+        label: "Opacity first",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.5" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        label: "Opacity second",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0.5" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+    await renderInteractive({ tracks, onTracksChange });
+
+    const rows = container.querySelectorAll(
+      "[data-motion-track-row][data-motion-track-id]",
+    );
+    expect(rows).toHaveLength(2);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-motion-property-row][data-motion-track-id="opacity-second"] [aria-label="Toggle animation visibility"]',
+        )!
+        .click();
+    });
+
+    expect(onTracksChange.mock.lastCall?.[0]).toEqual([
+      tracks[0],
+      { ...tracks[1], enabled: false },
+    ]);
+  });
+
   it("jumps to the previous keyframe in the selected property row", async () => {
     const onPlayheadChange = vi.fn();
     await renderInteractive({
@@ -1367,8 +2067,9 @@ describe("MotionDock keyframe selection and deletion", () => {
     await clickKeyframe(keyframe);
     expect(onLiveStateChange).toHaveBeenLastCalledWith({
       previewing: false,
-      selectedTrackId: "hero\u001ftranslate",
-      selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
+      selectedTrackId: "legacy-track-0",
+      selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
 
     await act(async () => {
@@ -1381,8 +2082,9 @@ describe("MotionDock keyframe selection and deletion", () => {
     ).not.toBeNull();
     expect(onLiveStateChange).toHaveBeenLastCalledWith({
       previewing: true,
-      selectedTrackId: "hero\u001ftranslate",
-      selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
+      selectedTrackId: "legacy-track-0",
+      selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
 
     await act(async () => {
@@ -1392,9 +2094,65 @@ describe("MotionDock keyframe selection and deletion", () => {
     });
     expect(onLiveStateChange).toHaveBeenLastCalledWith({
       previewing: false,
-      selectedTrackId: "hero\u001ftranslate",
-      selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
+      selectedTrackId: "legacy-track-0",
+      selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
+  });
+
+  it("publishes the selected easing segment and clears it when a keyframe is selected", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({ tracks: sampleTracks, onLiveStateChange });
+
+    const segments = container.querySelectorAll<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    await act(async () => segments[1]?.click());
+    expect(onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment).toEqual({
+      trackId: "legacy-track-0",
+      targetNodeId: "hero",
+      property: "translate",
+      label: "Hero",
+      isTextAnimation: false,
+      fromT: 0.5,
+      toT: 1,
+      ease: "linear",
+    });
+
+    const laterKeyframe = container.querySelector<SVGElement>(
+      '[aria-label="Keyframe at 1000ms"]',
+    );
+    if (!laterKeyframe) throw new Error("Later keyframe was not rendered");
+    await clickKeyframe(laterKeyframe);
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears the easing inspector selection when the inspector navigates back", async () => {
+    const onLiveStateChange = vi.fn();
+    let clearSelection: (() => void) | null = null;
+    await renderInteractive({
+      tracks: sampleTracks,
+      onLiveStateChange,
+      onRegisterEasingSelectionClear: (clear) => {
+        clearSelection = clear;
+      },
+    });
+
+    const segments = container.querySelectorAll<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    await act(async () => segments[1]?.click());
+    expect(onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment).not.toBe(
+      null,
+    );
+
+    await act(async () => clearSelection?.());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
   });
 
   it("uses the latest playback mode in an active animation frame", async () => {
@@ -1481,9 +2239,8 @@ describe("MotionDock keyframe selection and deletion", () => {
       onTracksChange,
       onPlayheadChange,
     });
-    const row = container.querySelector<HTMLElement>(
-      "[data-motion-track-row]",
-    )!;
+    const row = container.querySelector<HTMLElement>("[data-motion-track-row]");
+    if (!row) throw new Error("Motion track row was not rendered");
     setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
 
     await act(async () => {
@@ -1500,6 +2257,30 @@ describe("MotionDock keyframe selection and deletion", () => {
     expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes).toContainEqual(
       expect.objectContaining({ t: 0.75, value: "0px 2px" }),
     );
+  });
+
+  it("does not insert a keyframe when double-clicking an easing segment", async () => {
+    const onTracksChange = vi.fn();
+    await renderInteractive({ tracks: sampleTracks, onTracksChange });
+    const row = container.querySelector<HTMLElement>("[data-motion-track-row]");
+    if (!row) throw new Error("Motion track row was not rendered");
+    setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
+    const segment = container.querySelector<HTMLButtonElement>(
+      "[data-motion-easing-segment]",
+    );
+    if (!segment) throw new Error("Motion easing segment was not rendered");
+    onTracksChange.mockClear();
+
+    await act(async () => {
+      segment.dispatchEvent(
+        new MouseEvent("dblclick", {
+          bubbles: true,
+          clientX: 1350,
+        }),
+      );
+    });
+
+    expect(onTracksChange).not.toHaveBeenCalled();
   });
 
   it("double-clicks a keyframe to move the playhead to its timeline time", async () => {

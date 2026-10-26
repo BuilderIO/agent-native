@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { chromium, type FullConfig } from "@playwright/test";
+import {
+  chromium,
+  type FullConfig,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
@@ -28,6 +33,73 @@ const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
+const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
+const SEED_BUDGET_MS = 2 * 60_000;
+const HOME_WARMUP_BUDGET_MS = 3 * 60_000;
+const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
+const WARMUP_ATTEMPT_MS = 2 * 60_000;
+
+async function withDeadline<T>(
+  label: string,
+  deadline: number,
+  action: () => Promise<T>,
+): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error(`${label} budget expired`);
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} budget expired`)),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function timeoutBefore(deadline: number, requestedMs: number): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error("the warmup budget expired");
+  return Math.min(requestedMs, remainingMs);
+}
+
+/**
+ * Loads `url` until `ready` shows, and returns why it never did by `deadline`. The first compile of a
+ * route can outlast one attempt, and Vite's dependency optimizer can reload or abort a navigation
+ * partway, so a failed attempt navigates again instead of leaving the first test a cold server.
+ */
+async function warmupFailure(
+  page: Page,
+  url: string,
+  ready: Locator,
+  deadline: number,
+): Promise<string | null> {
+  let failure = "the warmup budget expired";
+  while (Date.now() < deadline) {
+    try {
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: timeoutBefore(deadline, WARMUP_ATTEMPT_MS),
+      });
+      await ready.waitFor({
+        state: "visible",
+        timeout: timeoutBefore(deadline, WARMUP_ATTEMPT_MS),
+      });
+      return null;
+    } catch (error) {
+      failure = (error as Error).message.split("\n")[0];
+      if (page.isClosed()) return failure;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  return failure;
+}
 
 export async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
@@ -331,6 +403,7 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
+  const globalSetupDeadline = Date.now() + GLOBAL_SETUP_BUDGET_MS;
   if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
     await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
     await startHttpsAttachmentStorage(
@@ -348,116 +421,123 @@ export default async function globalSetup(config: FullConfig) {
   const context = await browser.newContext();
 
   try {
-    const registration = await context.request.post(
-      `${baseURL}/_agent-native/auth/register`,
-      {
-        data: {
-          email: E2E_EMAIL,
-          password: E2E_PASSWORD,
-        },
-        headers: { "Content-Type": "application/json" },
+    const seedDeadline = Math.min(
+      Date.now() + SEED_BUDGET_MS,
+      globalSetupDeadline - HOME_WARMUP_BUDGET_MS - EDITOR_WARMUP_BUDGET_MS,
+    );
+    const designId = await withDeadline(
+      "Design E2E seeding",
+      seedDeadline,
+      async () => {
+        const registration = await context.request.post(
+          `${baseURL}/_agent-native/auth/register`,
+          {
+            data: {
+              email: E2E_EMAIL,
+              password: E2E_PASSWORD,
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        if (!registration.ok() && registration.status() !== 409) {
+          throw new Error(
+            `registration failed: ${registration.status()} ${await registration.text()}`,
+          );
+        }
+
+        const login = await context.request.post(
+          `${baseURL}/_agent-native/auth/login`,
+          {
+            data: {
+              email: E2E_EMAIL,
+              password: E2E_PASSWORD,
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        if (!login.ok()) {
+          throw new Error(
+            `login failed: ${login.status()} ${await login.text()}`,
+          );
+        }
+
+        await context.storageState({ path: STATE_PATH });
+
+        const created = await postAction(
+          context.request,
+          baseURL,
+          "create-design",
+          {
+            title: SEED_TITLE,
+            projectType: "prototype",
+          },
+        );
+        const createdDesignId: string =
+          created?.id ?? created?.data?.id ?? created?.design?.id;
+        if (!createdDesignId) {
+          throw new Error(
+            `create-design did not return an id: ${JSON.stringify(created)}`,
+          );
+        }
+        await seedMentionMember(browser, context, baseURL);
+        await postAction(context.request, baseURL, "create-file", {
+          designId: createdDesignId,
+          filename: "index.html",
+          content: FIXTURE_HTML,
+          fileType: "html",
+        });
+        await postAction(context.request, baseURL, "index-components", {
+          designId: createdDesignId,
+        });
+
+        await writeFile(
+          SEED_PATH,
+          JSON.stringify({ designId: createdDesignId }, null, 2),
+        );
+        // eslint-disable-next-line no-console
+        console.log(`[e2e] seeded design ${createdDesignId} for ${E2E_EMAIL}`);
+        return createdDesignId;
       },
     );
-    if (!registration.ok() && registration.status() !== 409) {
-      throw new Error(
-        `registration failed: ${registration.status()} ${await registration.text()}`,
-      );
-    }
-
-    const login = await context.request.post(
-      `${baseURL}/_agent-native/auth/login`,
-      {
-        data: {
-          email: E2E_EMAIL,
-          password: E2E_PASSWORD,
-        },
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-    if (!login.ok()) {
-      throw new Error(`login failed: ${login.status()} ${await login.text()}`);
-    }
-
-    await context.storageState({ path: STATE_PATH });
-
-    const created = await postAction(
-      context.request,
-      baseURL,
-      "create-design",
-      {
-        title: SEED_TITLE,
-        projectType: "prototype",
-      },
-    );
-    const designId: string =
-      created?.id ?? created?.data?.id ?? created?.design?.id;
-    if (!designId) {
-      throw new Error(
-        `create-design did not return an id: ${JSON.stringify(created)}`,
-      );
-    }
-    await seedMentionMember(browser, context, baseURL);
-    await postAction(context.request, baseURL, "create-file", {
-      designId,
-      filename: "index.html",
-      content: FIXTURE_HTML,
-      fileType: "html",
-    });
-    await postAction(context.request, baseURL, "index-components", {
-      designId,
-    });
-
-    await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
-    // eslint-disable-next-line no-console
-    console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
 
     const warmupPage = await context.newPage();
     try {
-      try {
-        await warmupPage.goto(`${baseURL}/design/${designId}`, {
-          waitUntil: "domcontentloaded",
-          timeout: 180_000,
-        });
-        await warmupPage
-          .getByRole("button", { name: "Move", exact: true })
-          .waitFor({ timeout: 180_000 });
-        // eslint-disable-next-line no-console
-        console.log("[e2e] editor warm");
-      } catch (error) {
-        // Not fatal — the suite still runs, the first test just pays the
-        // compile again. Say so out loud rather than reporting a warm editor.
+      const homeFailure = await warmupFailure(
+        warmupPage,
+        `${baseURL}/home`,
+        warmupPage.locator("[data-design-home-composer]"),
+        Math.min(
+          Date.now() + HOME_WARMUP_BUDGET_MS,
+          globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
+        ),
+      );
+      if (homeFailure) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-            "the first test will pay the compile.",
+          `[e2e] home warmup did not finish (${homeFailure}); the first test touching /home will pay the compile.`,
         );
-      }
-
-      if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
-        const homeURL = `${baseURL}/home`;
-        const homeComposer = warmupPage.locator("[data-design-home-composer]");
-        await warmupPage.goto(homeURL, {
-          waitUntil: "domcontentloaded",
-          timeout: 180_000,
-        });
-        try {
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-        } catch (error) {
-          if (
-            !new URL(warmupPage.url()).searchParams.has(
-              "__an_vite_dev_recovery",
-            )
-          ) {
-            throw error;
-          }
-          await warmupPage.goto(homeURL, {
-            waitUntil: "domcontentloaded",
-            timeout: 180_000,
-          });
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-        }
+      } else {
         // eslint-disable-next-line no-console
         console.log("[e2e] home composer warm");
+      }
+      const editorFailure = await warmupFailure(
+        warmupPage,
+        `${baseURL}/design/${designId}`,
+        warmupPage
+          .locator(
+            "[data-design-canvas-container] iframe[data-design-preview-iframe]",
+          )
+          .first(),
+        Math.min(Date.now() + EDITOR_WARMUP_BUDGET_MS, globalSetupDeadline),
+      );
+      if (editorFailure) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] editor warmup did not finish (${editorFailure}); the first test will pay the compile.`,
+        );
+      } else {
+        // eslint-disable-next-line no-console
+        console.log("[e2e] editor warm");
       }
     } finally {
       await warmupPage.close();

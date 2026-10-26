@@ -1,11 +1,6 @@
 import { type Page } from "@playwright/test";
 
-import {
-  indexHtml,
-  node,
-  openEditor,
-  setBaseURL,
-} from "./drag-and-drop.shared";
+import { indexHtml, node, openEditor } from "./drag-and-drop.shared";
 import { expect, test } from "./rails";
 
 const FIXTURE = `<!doctype html>
@@ -19,8 +14,6 @@ const FIXTURE = `<!doctype html>
 </body></html>`;
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => setBaseURL(testInfo));
 
 function preview(page: Page) {
   return page
@@ -77,8 +70,7 @@ async function heldPreview(page: Page) {
   });
 }
 
-// fixme: product bug: State-dependent drag failure: after double-click text editing on A and Escape, the next press-drag on A never starts. No insertion guide
-test.fixme("held canvas reorder tracks each intermediate insertion slot and is one undo step", async ({
+test("held canvas reorder tracks each intermediate insertion slot and is one undo step", async ({
   app,
   page,
 }) => {

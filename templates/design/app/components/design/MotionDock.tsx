@@ -2,11 +2,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { MotionAudioClip } from "@shared/motion-code";
 import {
   MOTION_CURVE_PRESETS,
+  MOTION_DEFAULT_CUSTOM_BEZIER,
   MOTION_SPRING_DEFAULT_BOUNCE,
   MOTION_SPRING_PRESETS,
   motionEaseVariableId,
   parseSpringToken,
-  sampleSpring,
   springToken,
 } from "@shared/motion-easing";
 import type { MotionEasingVariable } from "@shared/motion-easing";
@@ -25,6 +25,7 @@ import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   MOTION_KEYFRAME_TIME_EPSILON,
   MOTION_TIMELINE_MAX_DURATION_MS,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   MOTION_PROPERTY_PRESETS,
   getMotionTrackTiming,
   hasPreviousMotionKeyframe,
@@ -32,8 +33,11 @@ import {
   sampleMotionKeyframesAt,
   sortMotionKeyframes,
   timelineTimeToTrackTime,
+  motionTimelineDurationForTracks,
   upsertMotionKeyframeAtTime,
+  withMotionTrackIds,
   withTimelinePlaybackMode,
+  withMotionTrackIdsFromExisting,
 } from "@shared/motion-timeline";
 import {
   IconPlayerPlay,
@@ -44,7 +48,6 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  IconDots,
   IconPlus,
   IconRepeat,
   IconRepeatOnce,
@@ -65,6 +68,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -89,6 +93,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -97,8 +102,17 @@ import {
 import { cn } from "@/lib/utils";
 import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
 
+import {
+  createMotionNativeStyleIdentity,
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
-import { MotionEasingPicker } from "./MotionNativeStyleEditor";
+import {
+  MotionBezierCurveEditor,
+  MotionEasingPicker,
+  MotionSpringEditor,
+} from "./MotionNativeStyleEditor";
 
 const EMPTY_MOTION_AUDIO_CLIPS: MotionAudioClip[] = [];
 
@@ -212,11 +226,19 @@ const PLAYBACK_MODES: {
 ];
 
 function trackKey(track: MotionTrack): string {
-  return `${track.targetNodeId}\u001f${track.property}`;
+  return track.id ?? `${track.targetNodeId}\u001f${track.property}`;
 }
 
 function keyframeSelectionKey(track: MotionTrack, t: number): string {
   return JSON.stringify([trackKey(track), t]);
+}
+
+function easingSegmentSelectionKey(
+  id: string,
+  fromT: number,
+  toT: number,
+): string {
+  return JSON.stringify([id, fromT, toT]);
 }
 
 function motionTrackDisplayLabel(
@@ -261,7 +283,11 @@ function nativeStyleIdentityKey(
   instance: MotionNativeStyleInstance,
   index: number,
 ): string {
-  return `${instance.styleKey}\u001f${instance.targetNodeId}\u001f${index}`;
+  return createMotionNativeStyleIdentity(instance, index).key;
+}
+
+function nativeStyleAdditionKey(instance: MotionNativeStyleInstance): string {
+  return JSON.stringify(instance);
 }
 
 function nativeStyleDisplayLabel(
@@ -291,7 +317,7 @@ function nativeStyleTiming(
     delayMs < 0 ||
     startMs < 0 ||
     durationMs <= 0 ||
-    endMs > 120_000
+    endMs > MOTION_TIMELINE_MAX_CONTENT_END_MS
   ) {
     return null;
   }
@@ -357,6 +383,18 @@ export interface MotionDockLiveState {
   previewing: boolean;
   selectedTrackId: string | null;
   selectedKeyframeIds: string[];
+  selectedEasingSegment: MotionDockEasingSegment | null;
+}
+
+export interface MotionDockEasingSegment {
+  trackId: string;
+  targetNodeId: string;
+  property: string;
+  label: string;
+  isTextAnimation: boolean;
+  fromT: number;
+  toT: number;
+  ease: MotionEase;
 }
 
 export interface MotionDockProps {
@@ -386,6 +424,8 @@ export interface MotionDockProps {
     instance: MotionNativeStyleInstance,
     index: number,
   ) => void;
+  selectedNativeStyle?: MotionNativeStyleIdentity | null;
+  onNativeStyleSelectionChange?: (identity: MotionNativeStyleIdentity) => void;
   onDurationChange?: (ms: number) => void;
   playbackMode?: MotionPlaybackMode;
   onPlaybackModeChange?: (mode: MotionPlaybackMode) => void;
@@ -399,6 +439,7 @@ export interface MotionDockProps {
   onPlayheadChange?: (t: number) => void;
   livePlayheadRef?: React.MutableRefObject<number | null>;
   onLiveStateChange?: (state: MotionDockLiveState) => void;
+  onRegisterEasingSelectionClear?: (clear: (() => void) | null) => void;
   selectedTarget?: { nodeId: string; label: string } | null;
   layerSidebarInset?: number;
   hiddenLayerIds?: ReadonlySet<string>;
@@ -406,14 +447,14 @@ export interface MotionDockProps {
 }
 
 export function MotionDock({
-  tracks,
+  tracks: suppliedTracks,
   audioClips = EMPTY_MOTION_AUDIO_CLIPS,
   onAudioClipsChange,
   nativeStyles = [],
   easingVariables = [],
   onEasingVariablesChange,
   layerLabels,
-  durationMs,
+  durationMs: storedDurationMs,
   defaultEase = "ease",
   open: openProp,
   onOpenChange,
@@ -422,6 +463,8 @@ export function MotionDock({
   onNativeStyleChange,
   onNativeStyleSpanChange,
   onNativeStyleRemove,
+  selectedNativeStyle,
+  onNativeStyleSelectionChange,
   onDurationChange,
   playbackMode: playbackModeProp,
   onPlaybackModeChange,
@@ -435,15 +478,38 @@ export function MotionDock({
   onPlayheadChange,
   livePlayheadRef,
   onLiveStateChange,
+  onRegisterEasingSelectionClear,
   selectedTarget = null,
   layerSidebarInset = 0,
   hiddenLayerIds,
   onToggleLayerHidden,
 }: MotionDockProps) {
   const t = useT();
+  const tracks = useMemo(
+    () => withMotionTrackIds(suppliedTracks),
+    [suppliedTracks],
+  );
 
   const [openInternal, setOpenInternal] = useState(false);
   const isOpen = openProp !== undefined ? openProp : openInternal;
+  const [previewContentDurationsMs, setPreviewContentDurationsMs] = useState<
+    Record<string, number>
+  >({});
+  const durationMs = Math.max(
+    storedDurationMs,
+    ...Object.values(previewContentDurationsMs),
+  );
+  const previewContentDurationMs = Math.max(
+    0,
+    ...Object.values(previewContentDurationsMs),
+  );
+  const commitTracksChange = useCallback(
+    (nextTracks: MotionDockTrack[]) => {
+      if (!onTracksChange) return;
+      onTracksChange(withMotionTrackIdsFromExisting(nextTracks, tracks));
+    },
+    [onTracksChange, tracks],
+  );
   const setOpen = useCallback(
     (v: boolean) => {
       setOpenInternal(v);
@@ -451,6 +517,73 @@ export function MotionDock({
     },
     [onOpenChange],
   );
+
+  useEffect(() => {
+    const requestPreviewDuration = () => {
+      canvasIframeRef?.current?.contentWindow?.postMessage(
+        { type: "motion-preview-duration-request" },
+        "*",
+      );
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.source !== canvasIframeRef?.current?.contentWindow ||
+        event.data?.type !== "motion-preview-span"
+      ) {
+        return;
+      }
+      const key = event.data.key;
+      const nextDurationMs = event.data.durationMs;
+      if (
+        typeof key !== "string" ||
+        key.length === 0 ||
+        typeof nextDurationMs !== "number" ||
+        !Number.isFinite(nextDurationMs) ||
+        nextDurationMs < 0
+      ) {
+        return;
+      }
+      setPreviewContentDurationsMs((current) => {
+        if (nextDurationMs === 0) {
+          if (!(key in current)) return current;
+          const next = { ...current };
+          delete next[key];
+          return next;
+        }
+        if (current[key] === nextDurationMs) return current;
+        return { ...current, [key]: nextDurationMs };
+      });
+    };
+    const handleLoad = (event: Event) => {
+      if (event.target !== canvasIframeRef?.current) return;
+      setPreviewContentDurationsMs({});
+      requestPreviewDuration();
+    };
+
+    window.addEventListener("message", handleMessage);
+    document.addEventListener("load", handleLoad, true);
+    if (isOpen) {
+      setPreviewContentDurationsMs((current) =>
+        Object.keys(current).length === 0 ? current : {},
+      );
+      requestPreviewDuration();
+    }
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      document.removeEventListener("load", handleLoad, true);
+    };
+  }, [canvasIframeRef, isOpen]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !onDurationChange ||
+      previewContentDurationMs <= storedDurationMs
+    ) {
+      return;
+    }
+    onDurationChange(previewContentDurationMs);
+  }, [isOpen, onDurationChange, previewContentDurationMs, storedDurationMs]);
 
   const [playhead, setPlayhead] = useState(playheadProp ?? 0);
   const playheadRef = useRef(playheadProp ?? 0);
@@ -498,16 +631,46 @@ export function MotionDock({
     setPlaybackModeInternal(next);
     onPlaybackModeChange?.(next);
     if (onTracksChange && tracks.length > 0) {
-      onTracksChange(withTimelinePlaybackMode(tracks, next));
+      commitTracksChange(withTimelinePlaybackMode(tracks, next));
     }
-  }, [onPlaybackModeChange, onTracksChange, playbackMode, readOnly, tracks]);
+  }, [
+    commitTracksChange,
+    onPlaybackModeChange,
+    onTracksChange,
+    playbackMode,
+    readOnly,
+    tracks,
+  ]);
 
   const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(() =>
     tracks.length > 0 ? trackKey(tracks[tracks.length - 1]) : null,
   );
-  const [selectedNativeStyleKey, setSelectedNativeStyleKey] = useState<
+  const [selectedEasingSegmentKey, setSelectedEasingSegmentKey] = useState<
     string | null
   >(null);
+  useEffect(() => {
+    onRegisterEasingSelectionClear?.(() => setSelectedEasingSegmentKey(null));
+    return () => onRegisterEasingSelectionClear?.(null);
+  }, [onRegisterEasingSelectionClear]);
+  // A style added while the dock was closed is already in `nativeStyles` on
+  // mount, so the added-row effect below never sees it as new.
+  const [selectedNativeStyleIdentityInternal, setSelectedNativeStyleIdentity] =
+    useState<MotionNativeStyleIdentity | null>(() =>
+      resolveMotionNativeStyleIdentity(
+        nativeStyles,
+        selectedTarget?.nodeId ??
+          nativeStyles[nativeStyles.length - 1]?.targetNodeId,
+        null,
+      ),
+    );
+  const selectedNativeStyleIdentity = resolveMotionNativeStyleIdentity(
+    nativeStyles,
+    selectedTarget?.nodeId,
+    selectedNativeStyle !== undefined
+      ? selectedNativeStyle
+      : selectedNativeStyleIdentityInternal,
+  );
+  const selectedNativeStyleKey = selectedNativeStyleIdentity?.key ?? null;
   const [selectedKeyframeKeys, setSelectedKeyframeKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -524,34 +687,142 @@ export function MotionDock({
     );
     if (addedTrack) setSelectedTrackKey(trackKey(addedTrack));
   }, [tracks]);
-  const previousNativeStyleKeysRef = useRef(
-    new Set(
-      nativeStyles.map((instance, index) =>
-        nativeStyleIdentityKey(instance, index),
-      ),
-    ),
+  const previousNativeStyleAdditionKeysRef = useRef(
+    nativeStyles.map(nativeStyleAdditionKey),
   );
   useEffect(() => {
-    const previousKeys = previousNativeStyleKeysRef.current;
-    const entries = nativeStyles.map((instance, index) => ({
-      key: nativeStyleIdentityKey(instance, index),
-    }));
-    const nextKeys = new Set(entries.map(({ key }) => key));
-    let addedKey: string | null = null;
-    for (const { key } of entries) {
-      if (!previousKeys.has(key)) addedKey = key;
-    }
-    previousNativeStyleKeysRef.current = nextKeys;
-    if (addedKey) {
-      setSelectedNativeStyleKey(addedKey);
-    } else {
-      setSelectedNativeStyleKey((selected) =>
-        selected && nextKeys.has(selected) ? selected : null,
+    const previousKeys = previousNativeStyleAdditionKeysRef.current;
+    const nextKeys = nativeStyles.map(nativeStyleAdditionKey);
+    const remainingPreviousCounts = new Map<string, number>();
+    for (const key of previousKeys) {
+      remainingPreviousCounts.set(
+        key,
+        (remainingPreviousCounts.get(key) ?? 0) + 1,
       );
     }
-  }, [nativeStyles]);
+    const addedIndices: number[] = [];
+    for (const [index, key] of nextKeys.entries()) {
+      const previousCount = remainingPreviousCounts.get(key) ?? 0;
+      if (previousCount > 0) {
+        remainingPreviousCounts.set(key, previousCount - 1);
+      } else {
+        addedIndices.push(index);
+      }
+    }
+    previousNativeStyleAdditionKeysRef.current = nextKeys;
+    if (nextKeys.length > previousKeys.length && addedIndices.length === 1) {
+      const addedIndex = addedIndices[0]!;
+      const addedStyle = nativeStyles[addedIndex];
+      if (addedStyle) {
+        const identity = createMotionNativeStyleIdentity(
+          addedStyle,
+          addedIndex,
+        );
+        setSelectedEasingSegmentKey(null);
+        setSelectedNativeStyleIdentity(identity);
+        onNativeStyleSelectionChange?.(identity);
+      }
+    }
+  }, [nativeStyles, onNativeStyleSelectionChange]);
+  const handleNativeStyleSelection = useCallback(
+    (key: string) => {
+      const index = nativeStyles.findIndex(
+        (instance, currentIndex) =>
+          nativeStyleIdentityKey(instance, currentIndex) === key,
+      );
+      const instance = nativeStyles[index];
+      if (!instance) return;
+      const identity = createMotionNativeStyleIdentity(instance, index);
+      setSelectedEasingSegmentKey(null);
+      setSelectedNativeStyleIdentity(identity);
+      onNativeStyleSelectionChange?.(identity);
+    },
+    [nativeStyles, onNativeStyleSelectionChange],
+  );
+  const handleNativeStyleRemove = useCallback(
+    (instance: MotionNativeStyleInstance, index: number) => {
+      const nextStyles = nativeStyles.filter(
+        (_style, currentIndex) => currentIndex !== index,
+      );
+      const selected = selectedNativeStyleIdentity;
+      let nextSelection: MotionNativeStyleIdentity | null = null;
+      if (selected && selected.index !== index) {
+        const nextIndex =
+          selected.index > index ? selected.index - 1 : selected.index;
+        const nextInstance = nextStyles[nextIndex];
+        if (
+          nextInstance?.styleKey === selected.styleKey &&
+          nextInstance.targetNodeId === selected.targetNodeId &&
+          (!selected.sourceInstanceId ||
+            nextInstance.sourceInstanceId === selected.sourceInstanceId)
+        ) {
+          nextSelection = createMotionNativeStyleIdentity(
+            nextInstance,
+            nextIndex,
+          );
+        }
+      }
+      if (!nextSelection) {
+        nextSelection = resolveMotionNativeStyleIdentity(
+          nextStyles,
+          selected?.targetNodeId ?? selectedTarget?.nodeId,
+          null,
+        );
+      }
+      setSelectedEasingSegmentKey(null);
+      setSelectedNativeStyleIdentity(nextSelection);
+      if (nextSelection) onNativeStyleSelectionChange?.(nextSelection);
+      onNativeStyleRemove?.(instance, index);
+    },
+    [
+      nativeStyles,
+      onNativeStyleRemove,
+      onNativeStyleSelectionChange,
+      selectedNativeStyleIdentity,
+      selectedTarget?.nodeId,
+    ],
+  );
   const selectedTrack =
     tracks.find((track) => trackKey(track) === selectedTrackKey) ?? null;
+  const selectedEasingSegment = useMemo(() => {
+    if (!selectedEasingSegmentKey) return null;
+    for (const track of tracks) {
+      const id = trackKey(track);
+      const ordered = track.keyframes
+        .map((keyframe) => keyframe.t)
+        .sort((a, b) => a - b);
+      for (let index = 0; index < ordered.length - 1; index += 1) {
+        const fromT = ordered.find((_, currentIndex) => currentIndex === index);
+        const toT = ordered.find(
+          (_, currentIndex) => currentIndex === index + 1,
+        );
+        if (fromT === undefined || toT === undefined) continue;
+        if (
+          easingSegmentSelectionKey(id, fromT, toT) !== selectedEasingSegmentKey
+        ) {
+          continue;
+        }
+        const from = track.keyframes.find((keyframe) => keyframe.t === fromT);
+        if (!from) return null;
+        return {
+          trackId: id,
+          targetNodeId: track.targetNodeId,
+          property: track.property,
+          label: track.label,
+          isTextAnimation: track.isTextAnimation ?? false,
+          fromT,
+          toT,
+          ease: from.ease ?? defaultEase,
+        };
+      }
+    }
+    return null;
+  }, [defaultEase, selectedEasingSegmentKey, tracks]);
+  useEffect(() => {
+    if (selectedEasingSegmentKey && !selectedEasingSegment) {
+      setSelectedEasingSegmentKey(null);
+    }
+  }, [selectedEasingSegment, selectedEasingSegmentKey]);
   useEffect(() => {
     const availableKeyframes = new Set(
       tracks.flatMap((track) =>
@@ -572,20 +843,34 @@ export function MotionDock({
       previewing: playing,
       selectedTrackId: selectedTrack ? selectedTrackKey : null,
       selectedKeyframeIds: [...selectedKeyframeKeys].sort(),
+      selectedEasingSegment,
     });
   }, [
     onLiveStateChange,
     playing,
     selectedKeyframeKeys,
+    selectedEasingSegment,
     selectedTrack,
     selectedTrackKey,
   ]);
   const selectTrack = useCallback((track: MotionDockTrack) => {
     setSelectedTrackKey(trackKey(track));
     setSelectedKeyframeKeys(new Set());
+    setSelectedEasingSegmentKey(null);
   }, []);
+  const selectEasingSegment = useCallback(
+    (track: MotionDockTrack, fromT: number, toT: number) => {
+      setSelectedTrackKey(trackKey(track));
+      setSelectedKeyframeKeys(new Set());
+      setSelectedEasingSegmentKey(
+        easingSegmentSelectionKey(trackKey(track), fromT, toT),
+      );
+    },
+    [],
+  );
   const selectLayerKeyframes = useCallback(
     (layer: { nodeId: string; label: string; tracks: MotionDockTrack[] }) => {
+      setSelectedEasingSegmentKey(null);
       const firstTrack = layer.tracks[0];
       if (firstTrack) setSelectedTrackKey(trackKey(firstTrack));
       setSelectedKeyframeKeys(
@@ -604,6 +889,7 @@ export function MotionDock({
     (track: MotionDockTrack, t: number, extendSelection: boolean) => {
       const key = keyframeSelectionKey(track, t);
       setSelectedTrackKey(trackKey(track));
+      setSelectedEasingSegmentKey(null);
       setSelectedKeyframeKeys((current) => {
         if (!extendSelection) {
           return current.size === 1 && current.has(key)
@@ -820,7 +1106,11 @@ export function MotionDock({
   const [durationInput, setDurationInput] = useState(
     formatMotionTimeValue(durationMs, timeUnit),
   );
+  const durationInputEditingRef = useRef(false);
+  const durationInputDirtyRef = useRef(false);
   useEffect(() => {
+    if (durationInputEditingRef.current) return;
+    durationInputDirtyRef.current = false;
     setDurationInput(formatMotionTimeValue(durationMs, timeUnit));
   }, [durationMs, timeUnit]);
 
@@ -830,7 +1120,17 @@ export function MotionDock({
       motionZoomScale(timelineZoomLevel)
     ).toFixed(4),
   );
+  const timelineExtentMs = Math.max(
+    durationMs,
+    motionTimelineDurationForTracks(durationMs, tracks),
+    ...nativeStyles.flatMap((instance) => {
+      const timing = nativeStyleTiming(instance);
+      return timing ? [timing.endMs] : [];
+    }),
+  );
   const timelineTrackWidthPx =
+    Math.round(timelineExtentMs * timelinePixelsPerMs * 1000) / 1000;
+  const timelineDurationWidthPx =
     Math.round(durationMs * timelinePixelsPerMs * 1000) / 1000;
   const timelineContentWidthPx = Math.max(
     0,
@@ -839,8 +1139,8 @@ export function MotionDock({
   );
   const timelineScaleDurationMs =
     timelinePixelsPerMs > 0
-      ? Math.max(durationMs, timelineContentWidthPx / timelinePixelsPerMs)
-      : durationMs;
+      ? Math.max(timelineExtentMs, timelineContentWidthPx / timelinePixelsPerMs)
+      : timelineExtentMs;
   const timelineWidthStyle = `${timelineContentWidthPx}px`;
 
   const handleTimelineDurationPointerDown = useCallback(
@@ -1210,7 +1510,12 @@ export function MotionDock({
         moved: false,
       };
       if (event.nativeEvent.isTrusted) {
-        event.currentTarget.setPointerCapture(event.pointerId);
+        // Capturing the track container retargets row double-clicks away from their handlers.
+        const captureTarget =
+          event.target instanceof HTMLElement
+            ? event.target
+            : event.currentTarget;
+        captureTarget.setPointerCapture(event.pointerId);
       }
     },
     [selectedKeyframeKeys],
@@ -1278,20 +1583,17 @@ export function MotionDock({
 
   const updateTrack = useCallback(
     (
-      nodeId: string,
-      property: string,
+      targetTrack: MotionDockTrack,
       updater: (track: MotionDockTrack) => MotionDockTrack,
     ) => {
       if (readOnly || !onTracksChange) return;
-      onTracksChange(
+      commitTracksChange(
         tracks.map((tr) =>
-          tr.targetNodeId === nodeId && tr.property === property
-            ? updater(tr)
-            : tr,
+          trackKey(tr) === trackKey(targetTrack) ? updater(tr) : tr,
         ),
       );
     },
-    [onTracksChange, readOnly, tracks],
+    [commitTracksChange, onTracksChange, readOnly, tracks],
   );
 
   const updateTrackTiming = useCallback(
@@ -1299,11 +1601,15 @@ export function MotionDock({
       if (readOnly || !onTracksChange) return;
       const safeDuration = Math.max(
         50,
-        Math.min(durationMs, Math.round(trackDurationMs)),
+        Math.min(MOTION_TIMELINE_MAX_DURATION_MS, Math.round(trackDurationMs)),
       );
       const safeStart = Math.max(
         0,
-        Math.min(Math.round(startMs), durationMs - safeDuration),
+        Math.min(
+          Math.round(startMs),
+          MOTION_TIMELINE_MAX_DURATION_MS,
+          MOTION_TIMELINE_MAX_CONTENT_END_MS - safeDuration,
+        ),
       );
       let changed = false;
       const nextTracks = tracks.map((candidate) => {
@@ -1325,14 +1631,14 @@ export function MotionDock({
         }
         return candidate;
       });
-      if (changed) onTracksChange(nextTracks);
+      if (changed) commitTracksChange(nextTracks);
     },
-    [durationMs, onTracksChange, readOnly, tracks],
+    [commitTracksChange, durationMs, onTracksChange, readOnly, tracks],
   );
 
   const updateTrackEase = useCallback(
     (track: MotionDockTrack, ease: MotionEase) => {
-      updateTrack(track.targetNodeId, track.property, (current) => ({
+      updateTrack(track, (current) => ({
         ...current,
         keyframes: current.keyframes.map((keyframe, index) =>
           index === 0 ? { ...keyframe, ease } : keyframe,
@@ -1357,7 +1663,7 @@ export function MotionDock({
         value: sampled || "0",
         ease: defaultEase,
       };
-      updateTrack(track.targetNodeId, track.property, (tr) => ({
+      updateTrack(track, (tr) => ({
         ...tr,
         keyframes: upsertMotionKeyframeAtTime(tr.keyframes, newKf),
       }));
@@ -1377,13 +1683,13 @@ export function MotionDock({
         changed = true;
         return keyframes.length > 0 ? [{ ...track, keyframes }] : [];
       });
-      if (changed) onTracksChange(nextTracks);
+      if (changed) commitTracksChange(nextTracks);
       setSelectedKeyframeKeys((current) => {
         const next = new Set([...current].filter((key) => !selection.has(key)));
         return next.size === current.size ? current : next;
       });
     },
-    [onTracksChange, readOnly, tracks],
+    [commitTracksChange, onTracksChange, readOnly, tracks],
   );
 
   const deleteKeyframe = useCallback(
@@ -1440,7 +1746,7 @@ export function MotionDock({
 
   const toggleTrackVisibility = useCallback(
     (track: MotionDockTrack) => {
-      updateTrack(track.targetNodeId, track.property, (current) => ({
+      updateTrack(track, (current) => ({
         ...current,
         enabled: current.enabled === false,
       }));
@@ -1457,7 +1763,7 @@ export function MotionDock({
           keyframeSelectionKey(track, keyframe.t),
         ),
       );
-      onTracksChange(
+      commitTracksChange(
         tracks.filter((candidate) => trackKey(candidate) !== removedKey),
       );
       setSelectedTrackKey((current) =>
@@ -1470,7 +1776,7 @@ export function MotionDock({
         return next.size === current.size ? current : next;
       });
     },
-    [onTracksChange, readOnly, tracks],
+    [commitTracksChange, onTracksChange, readOnly, tracks],
   );
 
   const moveKeyframes = useCallback(
@@ -1576,9 +1882,16 @@ export function MotionDock({
         return { ...track, keyframes };
       });
       setSelectedKeyframeKeys(nextSelection);
-      if (changed) onTracksChange(nextTracks);
+      if (changed) commitTracksChange(nextTracks);
     },
-    [durationMs, onTracksChange, playhead, readOnly, tracks],
+    [
+      commitTracksChange,
+      durationMs,
+      onTracksChange,
+      playhead,
+      readOnly,
+      tracks,
+    ],
   );
 
   const moveKeyframesEnd = useCallback(
@@ -1587,7 +1900,7 @@ export function MotionDock({
       const affectedTrackKeys = new Set(
         targets.map((target) => target.trackKey),
       );
-      onTracksChange(
+      commitTracksChange(
         tracks.map((track) =>
           affectedTrackKeys.has(trackKey(track))
             ? { ...track, keyframes: sortMotionKeyframes(track.keyframes) }
@@ -1595,19 +1908,7 @@ export function MotionDock({
         ),
       );
     },
-    [onTracksChange, tracks],
-  );
-
-  const easeKeyframe = useCallback(
-    (track: MotionDockTrack, index: number, ease: MotionEase) => {
-      updateTrack(track.targetNodeId, track.property, (tr) => ({
-        ...tr,
-        keyframes: tr.keyframes.map((kf, i) =>
-          i === index ? { ...kf, ease } : kf,
-        ),
-      }));
-    },
-    [updateTrack],
+    [commitTracksChange, onTracksChange, tracks],
   );
 
   const updateLayerSpan = useCallback(
@@ -1628,17 +1929,26 @@ export function MotionDock({
       const spanEnd = Math.max(...timings.map((t) => t.endMs));
       const spanDur = Math.max(1, spanEnd - spanStart);
       const factor = Math.max(0.01, nextSpan.durationMs / spanDur);
-      onTracksChange(
+      commitTracksChange(
         tracks.map((tr) => {
           const timing = timingsByKey.get(trackKey(tr));
           if (!timing) return tr;
           const startMs = Math.max(
             0,
-            Math.round(
-              nextSpan.startMs + (timing.startMs - spanStart) * factor,
+            Math.min(
+              MOTION_TIMELINE_MAX_DURATION_MS,
+              Math.round(
+                nextSpan.startMs + (timing.startMs - spanStart) * factor,
+              ),
             ),
           );
-          const trackDur = Math.max(20, Math.round(timing.durationMs * factor));
+          const trackDur = Math.max(
+            20,
+            Math.min(
+              MOTION_TIMELINE_MAX_DURATION_MS,
+              Math.round(timing.durationMs * factor),
+            ),
+          );
           const out: MotionDockTrack = { ...tr };
           if (startMs > 0) out.delayMs = startMs;
           else delete out.delayMs;
@@ -1648,7 +1958,7 @@ export function MotionDock({
         }),
       );
     },
-    [durationMs, onTracksChange, readOnly, tracks],
+    [commitTracksChange, durationMs, onTracksChange, readOnly, tracks],
   );
 
   const commitTimeDraft = useCallback(() => {
@@ -2026,12 +2336,25 @@ export function MotionDock({
               type="text"
               inputMode={timeUnit === "s" ? "decimal" : "numeric"}
               value={durationInput}
-              onChange={(e) => setDurationInput(e.target.value)}
+              onChange={(e) => {
+                durationInputDirtyRef.current = true;
+                setDurationInput(e.target.value);
+              }}
+              onFocus={() => {
+                durationInputEditingRef.current = true;
+              }}
               onBlur={() => {
+                durationInputEditingRef.current = false;
                 if (skipNextDurationBlurCommitRef.current) {
                   skipNextDurationBlurCommitRef.current = false;
+                  durationInputDirtyRef.current = false;
                   return;
                 }
+                if (!durationInputDirtyRef.current) {
+                  setDurationInput(formatMotionTimeValue(durationMs, timeUnit));
+                  return;
+                }
+                durationInputDirtyRef.current = false;
                 commitDurationDraft();
               }}
               onKeyDown={(e) => {
@@ -2052,6 +2375,7 @@ export function MotionDock({
                       currentMs + (e.key === "ArrowUp" ? stepMs : -stepMs),
                     ),
                   );
+                  durationInputDirtyRef.current = true;
                   setDurationInput(formatMotionTimeValue(nextMs, timeUnit));
                   if (nextMs !== durationMs) onDurationChange(nextMs);
                   return;
@@ -2067,6 +2391,7 @@ export function MotionDock({
                 if (e.key === "Escape") {
                   e.preventDefault();
                   setDurationInput(formatMotionTimeValue(durationMs, timeUnit));
+                  durationInputDirtyRef.current = false;
                   skipNextDurationBlurCommitRef.current =
                     motionFieldKeyRequiresBlurGuard(e.key);
                   (e.target as HTMLInputElement).blur();
@@ -2220,7 +2545,7 @@ export function MotionDock({
                 aria-disabled={readOnly || !onDurationChange}
                 disabled={readOnly || !onDurationChange}
                 className="group absolute top-0 z-10 flex h-full w-3 -translate-x-1/2 cursor-ew-resize items-start justify-center bg-transparent p-0 outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
-                style={{ left: timelineTrackWidthPx }}
+                style={{ left: timelineDurationWidthPx }}
                 onPointerDown={handleTimelineDurationPointerDown}
                 onPointerMove={handleTimelineDurationPointerMove}
                 onPointerUp={handleTimelineDurationPointerEnd}
@@ -2251,7 +2576,7 @@ export function MotionDock({
               className="pointer-events-none absolute top-0 h-full outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
               style={{
                 left: TIMELINE_SCRUBBER_LEFT_PX,
-                width: `${timelineTrackWidthPx + TIMELINE_SCRUBBER_HORIZONTAL_INSET_PX}px`,
+                width: `${timelineDurationWidthPx + TIMELINE_SCRUBBER_HORIZONTAL_INSET_PX}px`,
               }}
               onKeyDown={handleRulerKeyDown}
             />
@@ -2395,9 +2720,9 @@ export function MotionDock({
                   onUpdateTrackEase={updateTrackEase}
                   onDeleteTrack={deleteTrackKeyframes}
                   selectedNativeStyleKey={selectedNativeStyleKey}
-                  onSelectNativeStyle={setSelectedNativeStyleKey}
+                  onSelectNativeStyle={handleNativeStyleSelection}
                   onNativeStyleChange={onNativeStyleChange}
-                  onNativeStyleRemove={onNativeStyleRemove}
+                  onNativeStyleRemove={handleNativeStyleRemove}
                 />
               ))
             ) : null}
@@ -2462,12 +2787,13 @@ export function MotionDock({
                     expanded={expandedNodeIds.has(layer.nodeId)}
                     playhead={playhead}
                     timelineDurationMs={durationMs}
+                    timelineExtentMs={timelineExtentMs}
                     defaultEase={defaultEase}
-                    easingVariables={easingVariables}
-                    onEasingVariablesChange={onEasingVariablesChange}
                     selectedTrackKey={selectedTrackKey}
                     selectedKeyframeKeys={selectedKeyframeKeys}
                     onSelectTrack={selectTrack}
+                    selectedEasingSegmentKey={selectedEasingSegmentKey}
+                    onSelectEasingSegment={selectEasingSegment}
                     onSelectKeyframe={selectKeyframe}
                     onJumpToPlayhead={jumpToPlayhead}
                     onDeleteKeyframe={deleteKeyframe}
@@ -2480,9 +2806,9 @@ export function MotionDock({
                     }
                     onMoveKeyframes={moveKeyframes}
                     onMoveKeyframesEnd={moveKeyframesEnd}
-                    onEaseKeyframe={easeKeyframe}
                     onLayerSpanChange={updateLayerSpan}
                     selectedNativeStyleKey={selectedNativeStyleKey}
+                    onSelectNativeStyle={handleNativeStyleSelection}
                     onNativeStyleSpanChange={onNativeStyleSpanChange}
                   />
                 ))}
@@ -2539,6 +2865,59 @@ interface AddTrackMenuProps {
   disabledReason?: string;
 }
 
+const NATIVE_STYLE_OPTIONS: ReadonlyArray<{
+  styleKey: MotionNativeStyleKey;
+  labelKey: string;
+  Icon: typeof IconArrowsMove;
+}> = [
+  {
+    styleKey: "Position",
+    labelKey: "designEditor.motion.animationStyles.position",
+    Icon: IconArrowsMove,
+  },
+  {
+    styleKey: "Scale",
+    labelKey: "designEditor.motion.animationStyles.scale",
+    Icon: IconScale,
+  },
+  {
+    styleKey: "Rotation",
+    labelKey: "designEditor.motion.animationStyles.rotation",
+    Icon: IconRotate,
+  },
+  {
+    styleKey: "Size",
+    labelKey: "designEditor.motion.animationStyles.size",
+    Icon: IconResize,
+  },
+  {
+    styleKey: "Opacity",
+    labelKey: "designEditor.motion.animationStyles.opacity",
+    Icon: IconCircleHalf,
+  },
+];
+
+const PATH_STYLE_OPTION = {
+  styleKey: "Path",
+  labelKey: "designEditor.motion.animationStyles.path",
+  Icon: IconVectorBezier2,
+} as const;
+
+function primaryStyleIcon(property: string): typeof IconArrowsMove {
+  switch (property) {
+    case "translate":
+      return IconArrowsMove;
+    case "scale":
+      return IconScale;
+    case "rotate":
+      return IconRotate;
+    case "size":
+      return IconResize;
+    default:
+      return IconCircleHalf;
+  }
+}
+
 export function AddTrackMenu({
   selectedTarget,
   onCreateTrack,
@@ -2549,8 +2928,59 @@ export function AddTrackMenu({
   disabledReason,
 }: AddTrackMenuProps) {
   const t = useT();
-  const disabled = !selectedTarget || Boolean(disabledReason);
   const addMotionLabel = t("designEditor.motion.addMotion");
+  const primaryStyles = getMotionDockPrimaryStyles(t);
+  // Styles that do not suit the selection are left out of the list, not greyed.
+  const options: Array<{
+    key: string;
+    label: string;
+    Icon: typeof IconArrowsMove;
+    disabled?: boolean;
+    onSelect: () => void;
+  }> = !selectedTarget
+    ? []
+    : [
+        ...(selectedTarget.isText && (onCreateNativeStyle || onCreateText)
+          ? [
+              {
+                key: "text",
+                label: t("designEditor.motion.text"),
+                Icon: IconTypography,
+                onSelect: () =>
+                  onCreateNativeStyle
+                    ? onCreateNativeStyle("TextStagger")
+                    : onCreateText?.(),
+              },
+            ]
+          : []),
+        ...(onCreateNativeStyle
+          ? [
+              ...NATIVE_STYLE_OPTIONS,
+              ...(selectedTarget.isPath ? [PATH_STYLE_OPTION] : []),
+            ].map(({ styleKey, labelKey, Icon }) => ({
+              key: styleKey,
+              label: t(labelKey),
+              Icon,
+              onSelect: () => onCreateNativeStyle(styleKey),
+            }))
+          : onCreateStyle || onCreateTrack
+            ? primaryStyles.map((style) => ({
+                key: `${style.preset.property}-${style.label}`,
+                label: style.label,
+                Icon: primaryStyleIcon(style.preset.property),
+                disabled: style.preset.additionalProperties
+                  ? style.preset.additionalProperties.every((property) =>
+                      disabledProperties.includes(property),
+                    )
+                  : disabledProperties.includes(style.preset.property),
+                onSelect: () => {
+                  if (onCreateStyle) onCreateStyle(style);
+                  else onCreateTrack?.(style.preset);
+                },
+              }))
+            : []),
+      ];
+  const disabled = Boolean(disabledReason) || options.length === 0;
   const trigger = (
     <Button
       type="button"
@@ -2567,201 +2997,52 @@ export function AddTrackMenu({
   );
 
   if (disabled) {
+    // A selection with no styles left to list gets no hover tip.
+    const disabledTip =
+      disabledReason ??
+      (selectedTarget
+        ? undefined
+        : t("designEditor.motion.selectElementFirst"));
+    if (!disabledTip) return <span className="inline-flex">{trigger}</span>;
     return (
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex">{trigger}</span>
         </TooltipTrigger>
-        <TooltipContent side="top">
-          {disabledReason ?? t("designEditor.motion.selectElementFirst")}
-        </TooltipContent>
+        <TooltipContent side="top">{disabledTip}</TooltipContent>
       </Tooltip>
     );
   }
-
-  const primaryStyles = getMotionDockPrimaryStyles(t);
-  const nativeStyleOptions: Array<{
-    styleKey: MotionNativeStyleKey;
-    labelKey: string;
-    Icon: typeof IconArrowsMove;
-  }> = [
-    {
-      styleKey: "Position",
-      labelKey: "designEditor.motion.animationStyles.position",
-      Icon: IconArrowsMove,
-    },
-    {
-      styleKey: "Scale",
-      labelKey: "designEditor.motion.animationStyles.scale",
-      Icon: IconScale,
-    },
-    {
-      styleKey: "Rotation",
-      labelKey: "designEditor.motion.animationStyles.rotation",
-      Icon: IconRotate,
-    },
-    {
-      styleKey: "Size",
-      labelKey: "designEditor.motion.animationStyles.size",
-      Icon: IconResize,
-    },
-    {
-      styleKey: "Opacity",
-      labelKey: "designEditor.motion.animationStyles.opacity",
-      Icon: IconCircleHalf,
-    },
-  ];
-  const productMotionOptions: Array<{
-    key: string;
-    labelKey: string;
-    Icon: typeof IconTypography;
-    onSelect: () => void;
-  }> = [
-    ...(selectedTarget.isText && onCreateText
-      ? [
-          {
-            key: "Text",
-            labelKey: "designEditor.motion.text",
-            Icon: IconTypography,
-            onSelect: onCreateText,
-          },
-        ]
-      : []),
-    ...(selectedTarget.isText && onCreateNativeStyle
-      ? [
-          {
-            key: "TextStagger",
-            labelKey: "designEditor.motion.nativeTextStagger.create",
-            Icon: IconTypography,
-            onSelect: () => onCreateNativeStyle("TextStagger"),
-          },
-        ]
-      : []),
-    ...(selectedTarget.isPath && onCreateNativeStyle
-      ? [
-          {
-            key: "Path",
-            labelKey: "designEditor.motion.animationStyles.path",
-            Icon: IconVectorBezier2,
-            onSelect: () => onCreateNativeStyle("Path"),
-          },
-        ]
-      : []),
-  ];
-  const moreMotionLabel = `${t("designEditor.motion.more")} ${t("designEditor.motion.tabLabel")}`;
 
   return (
     <div className="flex items-center gap-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
         <DropdownMenuContent
-          align="start"
+          align="end"
           className="w-[7.5rem] min-w-[7.5rem] p-[7px]"
         >
           <DropdownMenuLabel className="sr-only">
             {t("designEditor.motion.animateLayer", {
-              label: selectedTarget.label,
+              label: selectedTarget!.label,
             })}
           </DropdownMenuLabel>
-          {onCreateNativeStyle
-            ? nativeStyleOptions.map(({ styleKey, labelKey, Icon }) => (
-                <DropdownMenuItem
-                  key={styleKey}
-                  className="h-6 gap-2 px-2 text-[12px] leading-none"
-                  onSelect={() => onCreateNativeStyle(styleKey)}
-                >
-                  <Icon
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  {t(labelKey)}
-                </DropdownMenuItem>
-              ))
-            : null}
-          {!onCreateNativeStyle
-            ? primaryStyles.map((style) => (
-                <DropdownMenuItem
-                  key={`${style.preset.property}-${style.label}`}
-                  className="h-6 gap-2 px-2 text-[12px] leading-none"
-                  disabled={
-                    style.preset.additionalProperties
-                      ? style.preset.additionalProperties.every((property) =>
-                          disabledProperties.includes(property),
-                        )
-                      : disabledProperties.includes(style.preset.property)
-                  }
-                  onSelect={() => {
-                    if (onCreateStyle) onCreateStyle(style);
-                    else onCreateTrack?.(style.preset);
-                  }}
-                >
-                  {style.preset.property === "translate" ? (
-                    <IconArrowsMove
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : style.preset.property === "scale" ? (
-                    <IconScale
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : style.preset.property === "rotate" ? (
-                    <IconRotate
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : style.preset.property === "size" ? (
-                    <IconResize
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <IconCircleHalf
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {style.label}
-                </DropdownMenuItem>
-              ))
-            : null}
+          {options.map(({ key, label, Icon, disabled, onSelect }) => (
+            <DropdownMenuItem
+              key={key}
+              className="h-6 gap-2 px-2 text-[12px] leading-none"
+              disabled={disabled}
+              onSelect={onSelect}
+            >
+              <Icon
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              {label}
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      {productMotionOptions.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 px-0"
-              disabled={disabled}
-              aria-label={moreMotionLabel}
-              title={moreMotionLabel}
-            >
-              <IconDots className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-36 p-1">
-            <DropdownMenuLabel className="sr-only">
-              {moreMotionLabel}
-            </DropdownMenuLabel>
-            {productMotionOptions.map(({ key, labelKey, Icon, onSelect }) => (
-              <DropdownMenuItem
-                key={key}
-                className="h-6 gap-2 px-2 text-[12px] leading-none"
-                onSelect={onSelect}
-              >
-                <Icon
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                {t(labelKey)}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
     </div>
   );
 }
@@ -2976,8 +3257,10 @@ function LayerGroup({
             const animationEnabled = track.enabled !== false;
             return (
               <div
-                key={`${track.targetNodeId}-${track.property}`}
+                key={trackKey(track)}
                 data-motion-property-row={track.property}
+                data-motion-target-node-id={track.targetNodeId}
+                data-motion-track-id={track.id}
                 className={cn(
                   "group relative flex shrink-0 items-center cursor-pointer hover:bg-accent/20",
                   trackKey(track) === selectedTrackKey && "bg-accent/40",
@@ -3251,11 +3534,11 @@ function MotionTrackSettingsButton({
     }
     const nextDuration = Math.max(
       50,
-      Math.min(timelineDurationMs, parsedDuration),
+      Math.min(MOTION_TIMELINE_MAX_DURATION_MS, parsedDuration),
     );
     const nextStart = Math.max(
       0,
-      Math.min(parsedStart, timelineDurationMs - nextDuration),
+      Math.min(MOTION_TIMELINE_MAX_DURATION_MS, parsedStart),
     );
     onTimingChange(track, nextStart, nextDuration);
     setStartInput(formatMotionTimeValue(nextStart, timeUnit));
@@ -3366,10 +3649,14 @@ function MotionTrackSettingsButton({
           })}
           className="border-t border-border pt-2"
         >
-          <EasingPanel
+          <MotionEasingEditor
+            key={JSON.stringify([
+              trackKey(track),
+              track.keyframes[0]?.t ?? null,
+            ])}
             ease={firstEase}
             easingVariables={easingVariables}
-            onEasingVariablesChange={onEasingVariablesChange}
+            {...(onEasingVariablesChange ? { onEasingVariablesChange } : {})}
             disabled={readOnly}
             onChange={(ease) => onEaseChange(track, ease)}
           />
@@ -3390,12 +3677,17 @@ interface LayerTrackRowsProps {
   expanded: boolean;
   playhead: number;
   timelineDurationMs: number;
+  timelineExtentMs: number;
   defaultEase: MotionEase;
-  easingVariables: MotionEasingVariable[];
-  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   selectedTrackKey: string | null;
+  selectedEasingSegmentKey: string | null;
   selectedKeyframeKeys: ReadonlySet<string>;
   onSelectTrack: (track: MotionDockTrack) => void;
+  onSelectEasingSegment: (
+    track: MotionDockTrack,
+    fromT: number,
+    toT: number,
+  ) => void;
   onSelectKeyframe: (
     track: MotionDockTrack,
     t: number,
@@ -3415,16 +3707,12 @@ interface LayerTrackRowsProps {
     snapToTargets: boolean,
   ) => void;
   onMoveKeyframesEnd: (targets: MotionKeyframeDragTarget[]) => void;
-  onEaseKeyframe: (
-    track: MotionDockTrack,
-    index: number,
-    ease: MotionEase,
-  ) => void;
   onLayerSpanChange: (
     nodeId: string,
     span: { startMs: number; durationMs: number },
   ) => void;
   selectedNativeStyleKey: string | null;
+  onSelectNativeStyle: (key: string) => void;
   onNativeStyleSpanChange?: (
     instance: MotionNativeStyleInstance,
     index: number,
@@ -3438,12 +3726,13 @@ function LayerTrackRows({
   expanded,
   playhead: _playhead,
   timelineDurationMs,
+  timelineExtentMs,
   defaultEase,
-  easingVariables,
-  onEasingVariablesChange,
   selectedTrackKey,
+  selectedEasingSegmentKey,
   selectedKeyframeKeys,
   onSelectTrack,
+  onSelectEasingSegment,
   onSelectKeyframe,
   onJumpToPlayhead,
   onDeleteKeyframe,
@@ -3451,9 +3740,9 @@ function LayerTrackRows({
   onBeginKeyframeDrag,
   onMoveKeyframes,
   onMoveKeyframesEnd,
-  onEaseKeyframe,
   onLayerSpanChange,
   selectedNativeStyleKey,
+  onSelectNativeStyle,
   onNativeStyleSpanChange,
 }: LayerTrackRowsProps) {
   const t = useT();
@@ -3478,7 +3767,7 @@ function LayerTrackRows({
           <LayerSpanBar
             spanStartMs={spanStartMs}
             spanEndMs={spanEndMs}
-            timelineDurationMs={timelineDurationMs}
+            timelineDurationMs={timelineExtentMs}
             label={layer.label}
             disabled={readOnly}
             onSpanChange={(span) => onLayerSpanChange(layer.nodeId, span)}
@@ -3490,15 +3779,18 @@ function LayerTrackRows({
       {expanded &&
         layer.tracks.map((track) => (
           <TrackRow
-            key={`${track.targetNodeId}-${track.property}`}
+            key={trackKey(track)}
             track={track}
             readOnly={readOnly}
             timelineDurationMs={timelineDurationMs}
+            timelineExtentMs={timelineExtentMs}
             defaultEase={defaultEase}
-            easingVariables={easingVariables}
-            onEasingVariablesChange={onEasingVariablesChange}
             selected={trackKey(track) === selectedTrackKey}
             onSelect={() => onSelectTrack(track)}
+            selectedEasingSegmentKey={selectedEasingSegmentKey}
+            onSelectEasingSegment={(fromT, toT) =>
+              onSelectEasingSegment(track, fromT, toT)
+            }
             selectedKeyframeKeys={selectedKeyframeKeys}
             onSelectKeyframe={(t, extendSelection) =>
               onSelectKeyframe(track, t, extendSelection)
@@ -3511,7 +3803,6 @@ function LayerTrackRows({
             }
             onMoveKeyframes={onMoveKeyframes}
             onMoveKeyframesEnd={onMoveKeyframesEnd}
-            onEaseKeyframe={(index, ease) => onEaseKeyframe(track, index, ease)}
           />
         ))}
 
@@ -3527,9 +3818,10 @@ function LayerTrackRows({
               <NativeStyleSpanBar
                 entry={entry}
                 label={nativeStyleDisplayLabel(entry.instance, t)}
-                timelineDurationMs={timelineDurationMs}
+                timelineDurationMs={timelineExtentMs}
                 readOnly={readOnly}
                 selected={selectedNativeStyleKey === entry.key}
+                onSelect={() => onSelectNativeStyle(entry.key)}
                 onSpanChange={onNativeStyleSpanChange}
               />
             ) : null}
@@ -3545,6 +3837,7 @@ interface NativeStyleSpanBarProps {
   timelineDurationMs: number;
   readOnly: boolean;
   selected: boolean;
+  onSelect: () => void;
   onSpanChange?: (
     instance: MotionNativeStyleInstance,
     index: number,
@@ -3558,6 +3851,7 @@ function NativeStyleSpanBar({
   timelineDurationMs,
   readOnly,
   selected,
+  onSelect,
   onSpanChange,
 }: NativeStyleSpanBarProps) {
   const t = useT();
@@ -3584,6 +3878,7 @@ function NativeStyleSpanBar({
       event: ReactPointerEvent<HTMLElement>,
       kind: "move" | "left" | "right",
     ) => {
+      onSelect();
       if (disabled || !timing) return;
       const row = barRef.current?.parentElement;
       if (!row) return;
@@ -3600,7 +3895,7 @@ function NativeStyleSpanBar({
       };
       event.currentTarget.setPointerCapture?.(event.pointerId);
     },
-    [disabled, timelineDurationMs, timing],
+    [disabled, onSelect, timelineDurationMs, timing],
   );
 
   const handlePointerMove = useCallback(
@@ -3610,14 +3905,14 @@ function NativeStyleSpanBar({
       const deltaMs = (event.clientX - current.startX) / current.pxPerMs;
       const minimumStartMs = timing?.delayMs ?? 0;
       if (current.kind === "move") {
-        const maxStartMs = Math.max(
-          minimumStartMs,
+        const maxStartMs = Math.min(
           timelineDurationMs - current.durationMs,
+          MOTION_TIMELINE_MAX_DURATION_MS + (timing?.delayMs ?? 0),
         );
         changeSpan({
           startMs: Math.min(
             Math.max(minimumStartMs, current.startMs + deltaMs),
-            maxStartMs,
+            Math.max(minimumStartMs, maxStartMs),
           ),
           durationMs: current.durationMs,
         });
@@ -3626,6 +3921,7 @@ function NativeStyleSpanBar({
           50,
           Math.min(
             current.durationMs + deltaMs,
+            MOTION_TIMELINE_MAX_DURATION_MS,
             timelineDurationMs - current.startMs,
           ),
         );
@@ -3634,7 +3930,11 @@ function NativeStyleSpanBar({
         const endMs = current.startMs + current.durationMs;
         const startMs = Math.max(
           minimumStartMs,
-          Math.min(current.startMs + deltaMs, endMs - 50),
+          Math.min(
+            current.startMs + deltaMs,
+            endMs - 50,
+            endMs - MOTION_TIMELINE_MAX_DURATION_MS,
+          ),
         );
         changeSpan({ startMs, durationMs: endMs - startMs });
       }
@@ -3648,6 +3948,7 @@ function NativeStyleSpanBar({
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      onSelect();
       if (disabled || !timing || !onSpanChange) return;
       const direction =
         event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
@@ -3655,12 +3956,12 @@ function NativeStyleSpanBar({
       event.preventDefault();
       const stepMs = Math.max(1, Math.round(timelineDurationMs / 100));
       const minimumStartMs = timing.delayMs;
-      const maxStartMs = Math.max(
-        minimumStartMs,
+      const maxStartMs = Math.min(
         timelineDurationMs - (timing.endMs - timing.startMs),
+        MOTION_TIMELINE_MAX_DURATION_MS + minimumStartMs,
       );
       const startMs = Math.min(
-        maxStartMs,
+        Math.max(minimumStartMs, maxStartMs),
         Math.max(minimumStartMs, timing.startMs + direction * stepMs),
       );
       changeSpan({
@@ -3668,7 +3969,7 @@ function NativeStyleSpanBar({
         durationMs: timing.endMs - timing.startMs,
       });
     },
-    [changeSpan, disabled, onSpanChange, timelineDurationMs, timing],
+    [changeSpan, disabled, onSelect, onSpanChange, timelineDurationMs, timing],
   );
 
   if (!timing) return null;
@@ -3861,12 +4162,13 @@ interface TrackRowProps {
   track: MotionDockTrack;
   readOnly: boolean;
   timelineDurationMs: number;
+  timelineExtentMs: number;
   defaultEase: MotionEase;
-  easingVariables: MotionEasingVariable[];
-  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   selected: boolean;
   selectedKeyframeKeys: ReadonlySet<string>;
+  selectedEasingSegmentKey: string | null;
   onSelect: () => void;
+  onSelectEasingSegment: (fromT: number, toT: number) => void;
   onSelectKeyframe: (t: number, extendSelection: boolean) => void;
   onJumpToPlayhead: (t: number) => void;
   onAddKeyframeAtTime: (timeMs: number) => void;
@@ -3881,19 +4183,19 @@ interface TrackRowProps {
     snapToTargets: boolean,
   ) => void;
   onMoveKeyframesEnd: (targets: MotionKeyframeDragTarget[]) => void;
-  onEaseKeyframe: (index: number, ease: MotionEase) => void;
 }
 
 function TrackRow({
   track,
   readOnly,
   timelineDurationMs,
+  timelineExtentMs,
   defaultEase,
-  easingVariables,
-  onEasingVariablesChange,
   selected,
   selectedKeyframeKeys,
+  selectedEasingSegmentKey,
   onSelect,
+  onSelectEasingSegment,
   onSelectKeyframe,
   onJumpToPlayhead,
   onAddKeyframeAtTime,
@@ -3901,12 +4203,11 @@ function TrackRow({
   onBeginKeyframeDrag,
   onMoveKeyframes,
   onMoveKeyframesEnd,
-  onEaseKeyframe,
 }: TrackRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const timing = getMotionTrackTiming(track, timelineDurationMs);
   const fractionFor = (kfT: number) =>
-    (timing.startMs + kfT * timing.durationMs) / timelineDurationMs;
+    (timing.startMs + kfT * timing.durationMs) / timelineExtentMs;
 
   const dragging = useRef<{
     targets: MotionKeyframeDragTarget[];
@@ -3957,11 +4258,11 @@ function TrackRow({
       dragging.current.moved = true;
       onMoveKeyframes(
         dragging.current.targets,
-        (dx / rect.width) * timelineDurationMs,
+        (dx / rect.width) * timelineExtentMs,
         e.shiftKey,
       );
     },
-    [onMoveKeyframes, timelineDurationMs],
+    [onMoveKeyframes, timelineExtentMs],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -3979,6 +4280,7 @@ function TrackRow({
     <div
       ref={rowRef}
       data-motion-track-row
+      data-motion-track-id={track.id}
       className={cn(
         "relative border-b border-border/30",
         selected && "bg-accent/20",
@@ -3990,7 +4292,7 @@ function TrackRow({
         if (
           readOnly ||
           target.closest(
-            "[data-motion-keyframe], [role=slider], [data-motion-marquee-ignore]",
+            "[data-motion-keyframe], [data-motion-easing-segment], [role=slider], [data-motion-marquee-ignore]",
           )
         ) {
           return;
@@ -4002,9 +4304,9 @@ function TrackRow({
           0,
           Math.min(1, (event.clientX - rect.left) / rect.width),
         );
-        const timeMs = position * timelineDurationMs;
+        const timeMs = position * timelineExtentMs;
         onAddKeyframeAtTime(timeMs);
-        onJumpToPlayhead(position);
+        onJumpToPlayhead(timeMs / timelineDurationMs);
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -4022,15 +4324,16 @@ function TrackRow({
         const width = Math.max(0, fractionFor(to.t) - left);
         return (
           <EasingSegment
-            key={`segment-${kfIndex}`}
+            key={`segment-${kfIndex}-${to.t}`}
             left={left}
             width={width}
             ease={from.ease}
+            selected={
+              easingSegmentSelectionKey(trackKey(track), from.t, to.t) ===
+              selectedEasingSegmentKey
+            }
+            onSelect={() => onSelectEasingSegment(from.t, to.t)}
             defaultEase={defaultEase}
-            easingVariables={easingVariables}
-            onEasingVariablesChange={onEasingVariablesChange}
-            onEaseChange={(ease) => onEaseKeyframe(kfIndex, ease)}
-            disabled={readOnly}
           />
         );
       })}
@@ -4178,64 +4481,50 @@ interface EasingSegmentProps {
   left: number;
   width: number;
   ease: MotionEase | undefined;
+  selected: boolean;
+  onSelect: () => void;
   defaultEase: MotionEase;
-  easingVariables: MotionEasingVariable[];
-  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
-  disabled: boolean;
-  onEaseChange: (ease: MotionEase) => void;
 }
 
 function EasingSegment({
   left,
   width,
   ease,
+  selected,
+  onSelect,
   defaultEase,
-  easingVariables,
-  onEasingVariablesChange,
-  disabled,
-  onEaseChange,
 }: EasingSegmentProps) {
   const t = useT();
   const effective = ease ?? defaultEase;
   const effectiveLabel = easeLabel(effective, t);
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          className="absolute top-1/2 h-1.5 -translate-y-1/2 cursor-pointer rounded-full bg-primary/25 hover:bg-primary/50 data-[state=open]:bg-primary/60"
-          style={{
-            left: `${left * 100}%`,
-            width: `${width * 100}%`,
-            minWidth: 8,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label={t("designEditor.motion.segmentEasing", {
-            ease: effectiveLabel,
-          })}
-          title={effectiveLabel}
-        />
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="center"
-        className="w-60 p-2"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <EasingPanel
-          ease={effective}
-          easingVariables={easingVariables}
-          onEasingVariablesChange={onEasingVariablesChange}
-          disabled={disabled}
-          onChange={onEaseChange}
-        />
-      </PopoverContent>
-    </Popover>
+    <button
+      type="button"
+      data-motion-easing-segment
+      aria-pressed={selected}
+      className={cn(
+        "absolute top-1/2 h-1.5 -translate-y-1/2 cursor-pointer rounded-full bg-primary/25 hover:bg-primary/50",
+        selected && "bg-primary/70",
+      )}
+      style={{
+        left: `${left * 100}%`,
+        width: `${width * 100}%`,
+        minWidth: 8,
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+      aria-label={t("designEditor.motion.segmentEasing", {
+        ease: effectiveLabel,
+      })}
+      title={effectiveLabel}
+    />
   );
 }
 
-interface EasingPanelProps {
+export interface MotionEasingEditorProps {
   ease: MotionEase;
   easingVariables: MotionEasingVariable[];
   onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
@@ -4243,13 +4532,13 @@ interface EasingPanelProps {
   onChange: (ease: MotionEase) => void;
 }
 
-function EasingPanel({
+export function MotionEasingEditor({
   ease,
   easingVariables,
   onEasingVariablesChange,
   disabled,
   onChange,
-}: EasingPanelProps) {
+}: MotionEasingEditorProps) {
   const t = useT();
   const easeStr = String(ease);
   const variableId = motionEaseVariableId(easeStr);
@@ -4258,18 +4547,31 @@ function EasingPanel({
   );
   const curveValue = variable?.value ?? easeStr;
   const spring = parseSpringToken(curveValue);
-  const bezierMatch = /^cubic-bezier\(([^)]+)\)$/.exec(curveValue);
-  const bezierPoints: [number, number, number, number] = (() => {
-    if (bezierMatch) {
-      const parts = bezierMatch[1].split(",").map((part) => parseFloat(part));
-      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
-        return [parts[0], parts[1], parts[2], parts[3]];
+  const canEditValue =
+    !disabled && (!variableId || Boolean(variable && onEasingVariablesChange));
+  const previousCurve = useRef(
+    spring ? MOTION_DEFAULT_CUSTOM_BEZIER : curveValue,
+  );
+  const previousSpring = useRef(
+    spring
+      ? curveValue
+      : springToken({ bounce: MOTION_SPRING_DEFAULT_BOUNCE, settle: 1 }),
+  );
+  const lastSeenSpringValueRef = useRef(spring ? curveValue : undefined);
+  const springDraftCommitRef = useRef<
+    ((persist?: boolean) => string | undefined) | null
+  >(null);
+  useEffect(() => {
+    if (spring) {
+      if (curveValue !== lastSeenSpringValueRef.current) {
+        previousSpring.current = curveValue;
+        lastSeenSpringValueRef.current = curveValue;
       }
+    } else {
+      previousCurve.current = curveValue;
     }
-    return [0.42, 0, 0.58, 1];
-  })();
-  const bounce = spring?.bounce ?? MOTION_SPRING_DEFAULT_BOUNCE;
-  const settle = spring?.settle ?? 1;
+  }, [curveValue, spring]);
+
   const updateCurve = (value: string) => {
     if (variable && onEasingVariablesChange) {
       onEasingVariablesChange(
@@ -4284,298 +4586,73 @@ function EasingPanel({
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <Tabs
+      value={spring ? "spring" : "curve"}
+      onValueChange={(nextValue) => {
+        if (nextValue === "spring" && !spring) {
+          previousCurve.current = curveValue;
+          updateCurve(previousSpring.current);
+        } else if (nextValue === "curve" && spring) {
+          previousSpring.current =
+            springDraftCommitRef.current?.(false) ?? curveValue;
+          updateCurve(previousCurve.current);
+        }
+      }}
+      className="space-y-2"
+    >
       <MotionEasingPicker
         value={easeStr}
         easingVariables={easingVariables}
         onEasingVariablesChange={onEasingVariablesChange}
         disabled={disabled}
         t={t}
+        mode={spring ? "spring" : "curve"}
         onChange={(value) => onChange(value as MotionEase)}
+        side="left"
+        align="start"
+        sideOffset={8}
+        compactPopover
       />
-      {bezierMatch ? (
-        <CurveEditor
-          value={bezierPoints}
-          onChange={(points) =>
-            updateCurve(
-              `cubic-bezier(${points
-                .map((n) => Math.round(n * 100) / 100)
-                .join(", ")})`,
-            )
-          }
+      <TabsList
+        aria-label={t("designEditor.motion.animationStyles.easing")}
+        className="grid h-6 w-full grid-cols-2 p-0.5"
+      >
+        <TabsTrigger
+          value="curve"
+          disabled={!canEditValue}
+          className="h-5 px-2 text-[11px]"
+        >
+          {t("designEditor.motion.curveTab")}
+        </TabsTrigger>
+        <TabsTrigger
+          value="spring"
+          disabled={!canEditValue}
+          className="h-5 px-2 text-[11px]"
+        >
+          {t("designEditor.motion.springTab")}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="curve" className="mt-0">
+        <MotionBezierCurveEditor
+          value={curveValue}
+          disabled={!canEditValue}
+          onChange={updateCurve}
+          t={t}
         />
-      ) : null}
-      {spring ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] text-muted-foreground">
-              {t("designEditor.motion.bounce")}
-            </span>
-            <span className="text-[10px] tabular-nums">
-              {bounce.toFixed(2)}
-            </span>
-          </div>
-          <Slider
-            value={[bounce]}
-            min={0}
-            max={1}
-            step={0.01}
-            disabled={disabled || Boolean(variable && !onEasingVariablesChange)}
-            onValueChange={(values) =>
-              updateCurve(springToken({ bounce: values[0] ?? bounce, settle }))
-            }
-            aria-label={t("designEditor.motion.bounce")}
-          />
-          <SpringCurvePreview bounce={bounce} settle={settle} />
-        </div>
-      ) : null}
-    </div>
+      </TabsContent>
+      <TabsContent value="spring" className="mt-0">
+        <MotionSpringEditor
+          value={curveValue}
+          disabled={!canEditValue}
+          onChange={updateCurve}
+          t={t}
+          draftCommitRef={springDraftCommitRef}
+        />
+      </TabsContent>
+    </Tabs>
   );
-}
-
-const CURVE_W = 216;
-const CURVE_H = 132;
-const CURVE_PAD = 10;
-const CURVE_Y_MIN = -0.25;
-const CURVE_Y_MAX = 1.25;
-
-interface CurveEditorProps {
-  value: [number, number, number, number];
-  onChange: (value: [number, number, number, number]) => void;
 }
 
 export function formatCurveAxisValue(n: number): string {
   return String(Math.round(n * 100) / 100);
-}
-
-interface CurveNumberFieldProps {
-  label: string;
-  value: number;
-  onChange: (n: number) => void;
-}
-
-function CurveNumberField({ label, value, onChange }: CurveNumberFieldProps) {
-  const [draft, setDraft] = useState(() => formatCurveAxisValue(value));
-  const focusedRef = useRef(false);
-
-  useEffect(() => {
-    if (!focusedRef.current) setDraft(formatCurveAxisValue(value));
-  }, [value]);
-
-  return (
-    <label className="flex flex-col items-stretch gap-0.5">
-      <span className="text-center text-[9px] text-muted-foreground">
-        {label}
-      </span>
-      <Input
-        type="number"
-        step={0.01}
-        value={draft}
-        onFocus={() => {
-          focusedRef.current = true;
-        }}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          const n = parseFloat(e.target.value);
-          if (Number.isFinite(n)) onChange(n);
-        }}
-        onBlur={() => {
-          focusedRef.current = false;
-          setDraft(formatCurveAxisValue(value));
-        }}
-        className="h-5 px-1 !text-[10px] md:!text-[10px]"
-        aria-label={label}
-      />
-    </label>
-  );
-}
-
-function CurveEditor({ value, onChange }: CurveEditorProps) {
-  const t = useT();
-  const [x1, y1, x2, y2] = value;
-  const svgRef = useRef<SVGSVGElement>(null);
-  const draggingHandle = useRef<1 | 2 | null>(null);
-
-  const xPx = (x: number) => CURVE_PAD + x * (CURVE_W - 2 * CURVE_PAD);
-  const yPx = (y: number) =>
-    CURVE_PAD +
-    ((CURVE_Y_MAX - y) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-      (CURVE_H - 2 * CURVE_PAD);
-
-  const fromEvent = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const px = ((e.clientX - rect.left) / rect.width) * CURVE_W;
-    const py = ((e.clientY - rect.top) / rect.height) * CURVE_H;
-    const x = Math.max(
-      0,
-      Math.min(1, (px - CURVE_PAD) / (CURVE_W - 2 * CURVE_PAD)),
-    );
-    const y =
-      CURVE_Y_MAX -
-      ((py - CURVE_PAD) / (CURVE_H - 2 * CURVE_PAD)) *
-        (CURVE_Y_MAX - CURVE_Y_MIN);
-    return [x, Math.max(-1, Math.min(2, y))] as const;
-  };
-
-  const handleMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (!draggingHandle.current) return;
-    const point = fromEvent(e);
-    if (!point) return;
-    onChange(
-      draggingHandle.current === 1
-        ? [point[0], point[1], x2, y2]
-        : [x1, y1, point[0], point[1]],
-    );
-  };
-
-  const numberField = (
-    label: string,
-    fieldValue: number,
-    apply: (n: number) => [number, number, number, number],
-  ) => (
-    <CurveNumberField
-      label={label}
-      value={fieldValue}
-      onChange={(n) => onChange(apply(n))}
-    />
-  );
-
-  return (
-    <div className="flex flex-col gap-1">
-      <svg
-        ref={svgRef}
-        width="100%"
-        viewBox={`0 0 ${CURVE_W} ${CURVE_H}`}
-        className="rounded border border-border bg-muted/40 touch-none"
-        onPointerMove={handleMove}
-        onPointerUp={() => (draggingHandle.current = null)}
-        onPointerCancel={() => (draggingHandle.current = null)}
-        role="application"
-        aria-label={t("designEditor.motion.bezierCurveEditor")}
-      >
-        {/* Unit box (0..1) */}
-        <rect
-          x={xPx(0)}
-          y={yPx(1)}
-          width={xPx(1) - xPx(0)}
-          height={yPx(0) - yPx(1)}
-          className="fill-transparent stroke-border"
-          strokeDasharray="3 3"
-        />
-        {/* Handle arms */}
-        <line
-          x1={xPx(0)}
-          y1={yPx(0)}
-          x2={xPx(Math.max(0, Math.min(1, x1)))}
-          y2={yPx(y1)}
-          className="stroke-primary/50"
-        />
-        <line
-          x1={xPx(1)}
-          y1={yPx(1)}
-          x2={xPx(Math.max(0, Math.min(1, x2)))}
-          y2={yPx(y2)}
-          className="stroke-primary/50"
-        />
-        {/* The curve itself */}
-        <path
-          d={`M ${xPx(0)} ${yPx(0)} C ${xPx(Math.max(0, Math.min(1, x1)))} ${yPx(y1)}, ${xPx(Math.max(0, Math.min(1, x2)))} ${yPx(y2)}, ${xPx(1)} ${yPx(1)}`}
-          className="fill-none stroke-primary"
-          strokeWidth={1.5}
-        />
-        {/* Draggable control points */}
-        <circle
-          cx={xPx(Math.max(0, Math.min(1, x1)))}
-          cy={yPx(y1)}
-          r={5}
-          className="cursor-grab fill-primary stroke-background active:cursor-grabbing"
-          onPointerDown={(e) => {
-            draggingHandle.current = 1;
-            (e.target as Element).setPointerCapture(e.pointerId);
-          }}
-        />
-        <circle
-          cx={xPx(Math.max(0, Math.min(1, x2)))}
-          cy={yPx(y2)}
-          r={5}
-          className="cursor-grab fill-primary stroke-background active:cursor-grabbing"
-          onPointerDown={(e) => {
-            draggingHandle.current = 2;
-            (e.target as Element).setPointerCapture(e.pointerId);
-          }}
-        />
-      </svg>
-      <div className="grid grid-cols-4 gap-1">
-        {numberField("x1", x1, (n) => [
-          Math.max(0, Math.min(1, n)),
-          y1,
-          x2,
-          y2,
-        ])}
-        {numberField("y1", y1, (n) => [x1, n, x2, y2])}
-        {numberField("x2", x2, (n) => [
-          x1,
-          y1,
-          Math.max(0, Math.min(1, n)),
-          y2,
-        ])}
-        {numberField("y2", y2, (n) => [x1, y1, x2, n])}
-      </div>
-    </div>
-  );
-}
-
-function SpringCurvePreview({
-  bounce,
-  settle,
-}: {
-  bounce: number;
-  settle: number;
-}) {
-  const t = useT();
-  const points: string[] = [];
-  const samples = 72;
-  for (let i = 0; i <= samples; i++) {
-    const x = i / samples;
-    const y = sampleSpring({ bounce, settle }, x);
-    points.push(
-      `${(CURVE_PAD + x * (CURVE_W - 2 * CURVE_PAD)).toFixed(1)},${(
-        CURVE_PAD +
-        ((CURVE_Y_MAX - y) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-          (CURVE_H - 2 * CURVE_PAD)
-      ).toFixed(1)}`,
-    );
-  }
-  return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${CURVE_W} ${CURVE_H}`}
-      className="rounded border border-border bg-muted/40"
-      aria-label={t("designEditor.motion.springCurvePreview")}
-      role="img"
-    >
-      <line
-        x1={CURVE_PAD}
-        y1={
-          CURVE_PAD +
-          ((CURVE_Y_MAX - 1) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-            (CURVE_H - 2 * CURVE_PAD)
-        }
-        x2={CURVE_W - CURVE_PAD}
-        y2={
-          CURVE_PAD +
-          ((CURVE_Y_MAX - 1) / (CURVE_Y_MAX - CURVE_Y_MIN)) *
-            (CURVE_H - 2 * CURVE_PAD)
-        }
-        className="stroke-border"
-        strokeDasharray="3 3"
-      />
-      <polyline
-        points={points.join(" ")}
-        className="fill-none stroke-primary"
-        strokeWidth={1.5}
-      />
-    </svg>
-  );
 }

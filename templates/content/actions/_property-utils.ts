@@ -17,7 +17,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -30,6 +30,7 @@ import type {
   DocumentProperty,
 } from "../shared/api.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
+import { contentDatabaseItemLayoutField } from "../shared/database-item-layout.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
@@ -398,6 +399,7 @@ function defaultDatabaseView(
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
+    ...contentDatabaseItemLayoutField(values.itemLayout),
   };
 }
 
@@ -460,6 +462,7 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
+    ...contentDatabaseItemLayoutField(view.itemLayout),
   };
 }
 
@@ -979,9 +982,11 @@ export async function listPropertiesForDatabaseDocuments(
       })
     : null;
 
+  // Parsed once and shared by every row: a select's options can be large.
+  const propertyDefinitions = definitions.map(serializePropertyDefinition);
   const propertyLists = valueDocuments.map((document) => {
-    const properties = definitions.map((definition) => {
-      const propertyDefinition = serializePropertyDefinition(definition);
+    const properties = definitions.map((definition, index) => {
+      const propertyDefinition = propertyDefinitions[index]!;
       const storedValue = valueByDocumentAndProperty.get(
         propertyValueKey(document.id, definition.id),
       );
@@ -1411,15 +1416,20 @@ export async function writePrimaryBlocksContent(args: {
   now: string;
 }): Promise<void> {
   await assertAccess("document", args.documentId, "editor");
-  const db = getDb();
-  await db
-    .update(schema.documents)
-    .set({
+  await getDb().transaction(async (tx) => {
+    const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "writePrimaryBlocksContent",
       content: args.content,
-      bodyRevision: bodyRevisionForContent(args.content),
-      updatedAt: args.now,
-    })
-    .where(eq(schema.documents.id, args.documentId));
+    });
+    await tx
+      .update(schema.documents)
+      .set({
+        content: args.content,
+        bodyRevision: legacy.bodyRevision(args.content),
+        updatedAt: args.now,
+      })
+      .where(eq(schema.documents.id, args.documentId));
+  });
 }
 
 export async function getPropertyDefinitionForDatabase(args: {

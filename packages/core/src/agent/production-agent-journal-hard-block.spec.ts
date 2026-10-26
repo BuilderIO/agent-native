@@ -5,6 +5,7 @@ const currentTurnEventsMock = vi.hoisted(() =>
 );
 
 vi.mock("./run-store.js", () => ({
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   writeLedgerEntry: vi.fn(async () => {}),
   readLedgerEntry: vi.fn(async () => null),
   clearLedgerForThread: vi.fn(async () => {}),
@@ -52,6 +53,7 @@ const {
   MAX_IDENTICAL_TOOL_CALLS,
   AGENT_INTERNAL_CONTINUE_PROMPT,
 } = await import("./production-agent.js");
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
@@ -144,6 +146,26 @@ function completedLedger(
   return [
     { type: "tool_start", tool, input },
     { type: "tool_done", tool, result, ...(artifacts ? { artifacts } : {}) },
+  ];
+}
+
+/** A write that recorded its committed effect for these exact arguments. */
+function committedLedger(
+  tool: string,
+  input: Record<string, string>,
+  result: string,
+  artifacts?: unknown[],
+): unknown[] {
+  return [
+    { type: "tool_start", tool, input },
+    {
+      type: "tool_done",
+      tool,
+      result,
+      completedSideEffect: true,
+      argumentsHash: actionArgumentsHash(input),
+      ...(artifacts ? { artifacts } : {}),
+    },
   ];
 }
 
@@ -436,7 +458,7 @@ describe("tool-call journal hard-block", () => {
       { kind: "image", id: "asset-journal", url: "/asset/asset-journal" },
     ];
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT, artifacts),
+      committedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT, artifacts),
     );
 
     const action = makeWriteAction();
@@ -467,7 +489,7 @@ describe("tool-call journal hard-block", () => {
   });
 
   it("does not count a completed journal replay toward the repeated-call stop", async () => {
-    const priorWrite = completedLedger(
+    const priorWrite = committedLedger(
       "create-workspace-resource",
       { resourceId: "same" },
       "resource created",
@@ -534,7 +556,7 @@ describe("tool-call journal hard-block", () => {
 
   it("executes normally when a journaled call has a DIFFERENT input", async () => {
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "someone-else@b.com" }, "old"),
+      committedLedger("send-email", { to: "someone-else@b.com" }, "old"),
     );
 
     const action = makeWriteAction();
@@ -661,7 +683,7 @@ describe("tool-call journal hard-block", () => {
   it("does not replay a journaled read that a later write in the same turn invalidated", async () => {
     currentTurnEventsMock.mockResolvedValue([
       ...completedLedger("get-data", { id: "1" }, "stale-read"),
-      ...completedLedger("save-thing", { id: "9" }, "saved"),
+      ...committedLedger("save-thing", { id: "9" }, "saved"),
     ]);
 
     const readAction: ActionEntry = {

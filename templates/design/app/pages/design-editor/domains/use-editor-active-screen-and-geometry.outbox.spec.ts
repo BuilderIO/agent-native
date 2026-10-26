@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
@@ -5,6 +6,7 @@ import type { DesignDataOperation } from "@/pages/design-editor/data-operations"
 import {
   acknowledgeFrameGeometryRestoreClaims,
   createFrameGeometryDataSavePayload,
+  discardDesignReadsInFlight,
   frameGeometryRestoreClaimsForOperations,
   frameGeometryRestoreClaimsThroughRevision,
   persistReconciledFrameGeometryEntry,
@@ -283,5 +285,39 @@ describe("frame geometry save payload", () => {
 
     expect(designBPayload).not.toHaveProperty("restoreClaims");
     expect(designARetryPayload.restoreClaims).toEqual([claim]);
+  });
+});
+
+describe("design reads in flight when a frame geometry save is acknowledged", () => {
+  const queryKey = ["action", "get-design", { id: "design-1" }];
+
+  it("discards a read served before the save so it cannot roll the frame back", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKey, { x: 15 });
+    let resolveStaleRead!: (value: { x: number }) => void;
+    const staleRead = queryClient.fetchQuery({
+      queryKey,
+      queryFn: () =>
+        new Promise<{ x: number }>((resolve) => {
+          resolveStaleRead = resolve;
+        }),
+    });
+    queryClient.setQueryData(queryKey, { x: 16 });
+
+    discardDesignReadsInFlight(queryClient, "design-1");
+    resolveStaleRead({ x: 15 });
+
+    await expect(staleRead).resolves.toEqual({ x: 16 });
+    expect(queryClient.getQueryData(queryKey)).toEqual({ x: 16 });
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
+  });
+
+  it("leaves the design query alone when no read is in flight", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKey, { x: 16 });
+
+    discardDesignReadsInFlight(queryClient, "design-1");
+
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(false);
   });
 });

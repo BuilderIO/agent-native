@@ -178,7 +178,7 @@ test("browser local folder edits write the selected MDX file", async ({
       {
         headers: {
           "X-Agent-Native-Frontend": "1",
-          "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+          "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
           "X-Agent-Native-Build-Id": "development",
         },
       },
@@ -204,7 +204,7 @@ test("browser local folder edits write the selected MDX file", async ({
     .toBeTruthy();
 
   await page.goto(`/page/${importedDocId}`, { waitUntil: "domcontentloaded" });
-  const editor = page.locator(".notion-editor.ProseMirror").first();
+  const editor = page.locator(".content-editor.ProseMirror").first();
   await expect(editor).toBeVisible({ timeout: 30_000 });
   await expect(editor).toContainText("Original body from disk.", {
     timeout: 20_000,

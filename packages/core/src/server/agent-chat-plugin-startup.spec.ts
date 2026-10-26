@@ -87,7 +87,7 @@ describe("agent chat startup", () => {
     );
 
     for (const handler of [productionHandler, anonymousHandler, devHandler]) {
-      expect(handler).toContain('"run_started"');
+      expect(handler).toContain("trackAgentChatRunStarted(");
     }
   });
 
@@ -131,6 +131,30 @@ describe("agent chat startup", () => {
     );
 
     expect(triggerSetup).not.toContain("disableRecurringJobsRuntime");
+  });
+
+  it("provides workspace app routing context to scheduled and triggered prompts", () => {
+    // source-read-ok: this architectural test verifies startup dependency wiring.
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const schedulerSetup = source.slice(
+      source.indexOf("const schedulerDeps: SchedulerDeps = {"),
+      source.indexOf("runNowSchedulerDeps = schedulerDeps"),
+    );
+    const triggerSetup = source.slice(
+      source.indexOf("// ─── Trigger Dispatcher"),
+      source.indexOf("})().catch((err)"),
+    );
+
+    expect(schedulerSetup).toContain(
+      "getWorkspaceAppContext: getBackgroundWorkspaceAppContext",
+    );
+    expect(triggerSetup).toContain(
+      "getWorkspaceAppContext: getBackgroundWorkspaceAppContext",
+    );
+    expect(source).toContain('return preload.relevantAppsContext ?? "";');
   });
 
   it("drives stale reaping from the durable scheduled sweep", () => {

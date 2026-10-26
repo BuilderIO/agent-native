@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   ),
   isConnected: vi.fn(),
   getAuthStatus: vi.fn(),
+  getEvent: vi.fn(),
   createEvent: vi.fn(),
   updateEvent: vi.fn(),
   rsvpEvent: vi.fn(),
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => ({
 const { approvalAuth, approvalStore } = vi.hoisted(() => ({
   approvalAuth: () => ({
     getAuthSecret: () => "fake-test-only-mcp-approval-secret",
+    findBetterAuthUserIdForEmail: async () => undefined,
   }),
   approvalStore: () => ({
     createMcpApprovalGrant: vi.fn(),
@@ -68,6 +70,7 @@ vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 vi.mock("./google-calendar.js", () => ({
   isConnected: mocks.isConnected,
   getAuthStatus: mocks.getAuthStatus,
+  getEvent: mocks.getEvent,
   createEvent: mocks.createEvent,
   updateEvent: mocks.updateEvent,
   rsvpEvent: mocks.rsvpEvent,
@@ -174,6 +177,9 @@ describe("Calendar direct MCP writes", () => {
       accounts: [{ email: accountEmail }],
     });
     mocks.getUserSetting.mockResolvedValue(undefined);
+    mocks.getEvent.mockResolvedValue({
+      attendees: [{ email: "guest@example.com" }],
+    });
     mocks.createEvent.mockResolvedValue({ id: "event-1" });
     mocks.updateEvent.mockResolvedValue({});
     mocks.rsvpEvent.mockResolvedValue(undefined);
@@ -344,38 +350,41 @@ describe("Calendar direct MCP writes", () => {
     },
   );
 
-  it("retains update-event approval for attendee notifications", async () => {
-    const client = await clientFor();
-    const result = await client.callTool({
-      name: "update-event",
-      arguments: { ...writeInputs[1][1], sendUpdates: "all" },
-    });
-    expect(result.isError).toBe(true);
-    expect(result.content).toEqual([
-      expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("update-event was not approved"),
-      }),
-    ]);
-    expect(mocks.approval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "elicitation/create",
-        params: expect.objectContaining({
-          message: expect.stringContaining(
-            'Action "update-event" requires your approval',
-          ),
+  it.each([{}, { attendees: [] }])(
+    "retains update-event approval for existing guest notifications: %j",
+    async (patch) => {
+      const client = await clientFor();
+      const result = await client.callTool({
+        name: "update-event",
+        arguments: { ...writeInputs[1][1], ...patch, sendUpdates: "all" },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("update-event was not approved"),
         }),
-      }),
-      expect.anything(),
-    );
-    expectNoWrites();
-  });
+      ]);
+      expect(mocks.approval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "elicitation/create",
+          params: expect.objectContaining({
+            message: expect.stringContaining(
+              'Action "update-event" requires your approval',
+            ),
+          }),
+        }),
+        expect.anything(),
+      );
+      expectNoWrites();
+    },
+  );
 
   it.each([
     { attendees: "guest@example.com" },
     { attendees: [{ email: "guest@example.com", optional: true }] },
-    { sendUpdates: "all" },
-    { sendUpdates: "externalOnly" },
+    { sendUpdates: "all", attendees: "guest@example.com" },
+    { sendUpdates: "externalOnly", attendees: "guest@example.com" },
     { eventType: "outOfOffice" },
     {
       eventType: "outOfOffice",
@@ -429,8 +438,10 @@ describe("Calendar direct MCP writes", () => {
 
   it.each([
     { attendees: "guest@example.com", sendUpdates: "none" },
+    { sendUpdates: "all" },
+    { attendees: [], sendUpdates: "externalOnly" },
     { eventType: "outOfOffice", autoDeclineMode: "declineNone" },
-  ])("allows create-event with notifications disabled: %j", async (patch) => {
+  ])("allows create-event when nobody will be notified: %j", async (patch) => {
     const client = await clientFor();
     const result = await client.callTool({
       name: "create-event",
@@ -438,7 +449,20 @@ describe("Calendar direct MCP writes", () => {
     });
     expect(result.isError).not.toBe(true);
     expect(mocks.createEvent).toHaveBeenCalledOnce();
+    expect(mocks.approval).not.toHaveBeenCalled();
     expect(askAgent).not.toHaveBeenCalled();
+  });
+
+  it("updates an event with no remaining attendees without asking for approval", async () => {
+    mocks.getEvent.mockResolvedValue({ attendees: [] });
+    const client = await clientFor();
+    const result = await client.callTool({
+      name: "update-event",
+      arguments: { ...writeInputs[1][1], attendees: [], sendUpdates: "all" },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(mocks.updateEvent).toHaveBeenCalledOnce();
+    expect(mocks.approval).not.toHaveBeenCalled();
   });
 
   it("rejects invalid RSVP status and unsupported future-instance scope", async () => {

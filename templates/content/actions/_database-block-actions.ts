@@ -4,7 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -52,6 +52,7 @@ import {
   type MutationContext,
   type RowSnapshot,
 } from "./_database-row-mutation.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -242,6 +243,9 @@ async function loadField(args: {
   const storageTarget = blocksStorageTarget(
     parsePropertyOptions(definition.optionsJson),
   );
+  if (args.role === "editor" && storageTarget === "document_body") {
+    assertSourceAllowsPageEdit(row.document);
+  }
   let markdown: string;
   let storageRowExists = true;
   if (storageTarget === "document_body") {
@@ -485,11 +489,15 @@ async function writeMarkdown(
   now: string,
 ) {
   if (loaded.storageTarget === "document_body") {
+    const legacy = await lockLegacyBodyWrites(db, [target.rowDocumentId], {
+      operation: "mutate-content-database-block",
+      content: markdown,
+    });
     const updated = await db
       .update(schema.documents)
       .set({
         content: markdown,
-        bodyRevision: bodyRevisionForContent(markdown),
+        bodyRevision: legacy.bodyRevision(markdown),
         updatedAt: now,
       })
       .where(

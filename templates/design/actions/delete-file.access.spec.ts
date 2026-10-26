@@ -1,10 +1,16 @@
-import { orgMembers as distOrgMembers } from "@agent-native/core/org";
+import {
+  orgMembers as distOrgMembers,
+  organizations as distOrganizations,
+} from "@agent-native/core/org";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { registerFeatureFlags } from "../../../packages/core/src/feature-flags/registry.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../../../packages/core/src/org/feature-flags.js";
-import { orgMembers as sourceOrgMembers } from "../../../packages/core/src/org/schema.js";
+import {
+  orgMembers as sourceOrgMembers,
+  organizations as sourceOrganizations,
+} from "../../../packages/core/src/org/schema.js";
 import { runWithRequestContext } from "../../../packages/core/src/server/request-context.js";
 import { registerShareableResource } from "../../../packages/core/src/sharing/registry.js";
 import * as schema from "../server/db/schema.js";
@@ -14,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   db: undefined as any,
   executedStatements: [] as unknown[],
   linkedOrganization: false,
+  transactionPrincipalType: "user" as "user" | "org",
   restoreClaimInserts: [] as Array<{
     table: unknown;
     values: {
@@ -131,12 +138,24 @@ function makeChain(transaction: boolean) {
             if (mocks.linkedOrganization) return [{ id: "member-1" }];
             throw new Error('relation "org_members" does not exist');
           }
+          if (table === distOrganizations || table === sourceOrganizations) {
+            return mocks.linkedOrganization
+              ? [
+                  {
+                    identityAuthority: "https://dispatch.example.test",
+                    identityId: "dispatch-org-1",
+                  },
+                ]
+              : [];
+          }
           if (table === schema.designFiles) {
             return transaction ? [file, otherFile] : [file];
           }
           if (table === schema.designs) return [design];
           if (table === schema.designShares) {
-            return transaction ? [] : [{ role: "editor" }];
+            return transaction
+              ? []
+              : [{ role: "editor", principalType: "user" }];
           }
           return [];
         })
@@ -177,7 +196,12 @@ function makeDatabase() {
       }
       if (normalizedSql.includes("organizations")) {
         return {
-          rows: [{ identity_authority: "dispatch", identity_id: null }],
+          rows: [
+            {
+              identity_authority: "https://dispatch.example.test",
+              identity_id: "dispatch-org-1",
+            },
+          ],
           rowsAffected: 1,
         };
       }
@@ -207,7 +231,12 @@ function makeDatabase() {
         };
       }
       if (normalizedSql.includes("design_shares")) {
-        return { rows: [{ role: "editor" }], rowsAffected: 1 };
+        return {
+          rows: [
+            { role: "editor", principal_type: mocks.transactionPrincipalType },
+          ],
+          rowsAffected: 1,
+        };
       }
       return { rows: [], rowsAffected: 0 };
     }),
@@ -233,6 +262,7 @@ describe("delete-file transactional access compatibility", () => {
   beforeEach(() => {
     mocks.executedStatements = [];
     mocks.linkedOrganization = false;
+    mocks.transactionPrincipalType = "user";
     mocks.restoreClaimInserts = [];
     mocks.db = makeDatabase();
     registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
@@ -283,6 +313,7 @@ describe("delete-file transactional access compatibility", () => {
 
   it("translates feature-flag settings placeholders inside the transaction", async () => {
     mocks.linkedOrganization = true;
+    mocks.transactionPrincipalType = "org";
     mocks.db = makeDatabase();
 
     const result = await runWithRequestContext(

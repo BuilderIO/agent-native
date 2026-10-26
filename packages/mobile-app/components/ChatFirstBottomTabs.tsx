@@ -1,11 +1,11 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
-import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import {
   IconMessageCircle,
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react-native";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
+import type { BottomTabBarProps } from "expo-router/tabs";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Pressable,
@@ -25,7 +25,7 @@ import Animated, {
 import { AppIcon } from "@/components/AppCard";
 import { AppLauncherMenu } from "@/components/AppLauncherMenu";
 import {
-  ProgressiveBlur,
+  TabBarBackgroundFade,
   useTabBarMinimized,
 } from "@/components/TabBarEffects";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
@@ -34,7 +34,7 @@ import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
 import {
   TAB_BAR_ACTION_GAP,
   TAB_BAR_ACTION_SIZE,
-  TAB_BAR_BLUR_BLEED,
+  TAB_BAR_FADE_BLEED,
   TAB_BAR_MARGIN,
   TAB_BAR_MINIMIZED_HEIGHT,
   TAB_BAR_PILL_HEIGHT,
@@ -142,32 +142,35 @@ function TabButton({
   );
 }
 
-function navigateToTab({
+function handleTabPress({
   item,
   state,
-  navigation,
+  emitter,
+  navigateToTab,
 }: {
   item: TabItem;
   state: BottomTabBarProps["state"];
-  navigation: BottomTabBarProps["navigation"];
+  emitter: BottomTabBarProps["emitter"];
+  navigateToTab: BottomTabBarProps["navigateToTab"];
 }) {
   const route = state.routes.find(
     (candidate) => candidate.name === item.routeName,
   );
   if (!route) return;
-  const event = navigation.emit({
+  const event = emitter.emit({
     type: "tabPress",
     target: route.key,
     canPreventDefault: true,
   });
   if (state.index !== state.routes.indexOf(route) && !event.defaultPrevented) {
-    navigation.navigate(route.name);
+    navigateToTab(route.key);
   }
 }
 
 export default function ChatFirstBottomTabs({
   state,
-  navigation,
+  emitter,
+  navigateToTab,
 }: BottomTabBarProps) {
   const { border, card, foreground, secondary, theme } = useMobileThemeColors();
   const { bottom, contentInset } = useTabBarLayout();
@@ -305,11 +308,10 @@ export default function ChatFirstBottomTabs({
     >
       {/* Dissolves scrolling content into the bar instead of ending it at a
           hard edge. */}
-      <ProgressiveBlur
-        direction="bottom"
+      <TabBarBackgroundFade
         style={{
           bottom: 0,
-          height: contentInset + TAB_BAR_BLUR_BLEED,
+          height: contentInset + TAB_BAR_FADE_BLEED,
           left: 0,
           position: "absolute",
           right: 0,
@@ -354,7 +356,9 @@ export default function ChatFirstBottomTabs({
                 active={hasActiveTab && item.routeName === currentRouteName}
                 item={item}
                 key={item.key}
-                onPress={() => navigateToTab({ item, navigation, state })}
+                onPress={() =>
+                  handleTabPress({ item, emitter, navigateToTab, state })
+                }
               />
             ))}
           </View>

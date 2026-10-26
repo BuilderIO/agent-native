@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   readLiveSourceFile: vi.fn(),
@@ -103,6 +105,7 @@ describe("fill-figma-paste-image action", () => {
       hash: "abc123",
       resolved: 1,
       missing: 0,
+      _receipt: designOutputWriteReceipt("design-1", 1),
     });
     expect(writtenHtml()).toContain(
       `url('${UPLOADED}'); background-size: cover;`,

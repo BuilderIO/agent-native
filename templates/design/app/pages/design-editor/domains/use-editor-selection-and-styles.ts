@@ -78,7 +78,6 @@ import {
 } from "../commands/visual-structure-change";
 import { isSupersededSelectionEcho } from "../editor-helpers";
 import {
-  getPersistedContentHostSyncOptions,
   resolveOptimisticTextDecorationLine,
   type OptimisticTextDecorationLineEntry,
 } from "../editor-state";
@@ -167,12 +166,12 @@ export function useEditorSelectionAndStyles({
     pendingOverviewScreenSelectionRef,
     pendingOverviewLayerSelectionRef,
     clearPendingOverviewLayerSelectionTimer,
-    setShaderFillPreview,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
     linkedComponentMutationQueueRef,
     contentUndoStackRef,
+    localContentUndoStackRef,
     selectedLayerIdsStateRef,
     explicitOverviewScreenSelectionRef,
     recordContentHistoryEntry,
@@ -180,12 +179,8 @@ export function useEditorSelectionAndStyles({
     recordLocalContentHistoryChangeFallback,
     prepareTextCreationFinalization,
   } = editorHistory;
-  const {
-    recordSelectionHistoryAroundChange,
-    pendingQuestions,
-    design,
-    canEditDesign,
-  } = editorGenerationAndAccess;
+  const { applySelectionChange, pendingQuestions, design, canEditDesign } =
+    editorGenerationAndAccess;
   const {
     setPatchProof,
     queueFileContentSave,
@@ -254,7 +249,6 @@ export function useEditorSelectionAndStyles({
     replacePreviewContent,
   } = editorLiveEditsAndPresence;
   const {
-    clearShaderFillPreview,
     contentHistorySelectionAfterRef,
     suppressContentHistoryRef,
     canApplyContentEdit,
@@ -441,26 +435,6 @@ export function useEditorSelectionAndStyles({
       mode,
       activeTool,
       tweakValues: tweakSelections,
-      onShaderFillPreview: (_descriptor, css) => {
-        setShaderFillPreview({
-          selector: selectedElement?.selector ?? undefined,
-          nodeId:
-            selectedElement?.sourceId ?? selectedCodeLayerNode?.id ?? undefined,
-          css,
-        });
-      },
-      onShaderFillPreviewClear: clearShaderFillPreview,
-      onShaderFillApplied: (fileId, content, updatedAt) => {
-        applyFileContentUpdate(
-          fileId,
-          content,
-          getPersistedContentHostSyncOptions({
-            fileId,
-            activeFileId: activeFile?.id ?? null,
-            updatedAt,
-          }),
-        );
-      },
       onAssetInserted: handleAssetInserted,
     }),
     [
@@ -471,7 +445,6 @@ export function useEditorSelectionAndStyles({
       activeFile?.updatedAt,
       activeTool,
       applyFileContentUpdate,
-      clearShaderFillPreview,
       design?.title,
       files,
       handleAssetInserted,
@@ -546,14 +519,14 @@ export function useEditorSelectionAndStyles({
         return;
       }
       selectionRevisionRef.current += 1;
-      recordSelectionHistoryAroundChange(run);
+      applySelectionChange(run);
     },
     [
       activeFile?.id,
       applyFileContentUpdate,
       clearPendingOverviewLayerSelectionTimer,
       createdOverviewLayerSelection,
-      recordSelectionHistoryAroundChange,
+      applySelectionChange,
       getCodeLayerProjectionForScreen,
       getScreenContent,
       handleBreakpointBarSelect,
@@ -1652,6 +1625,7 @@ export function useEditorSelectionAndStyles({
         canEditDesign,
         contentHistorySelectionAfterRef,
         contentUndoStackRef,
+        localContentUndoStackRef,
         files,
         getFreshActiveContent,
         overviewSelectedScreenIds,
@@ -1670,6 +1644,7 @@ export function useEditorSelectionAndStyles({
       canEditDesign,
       files,
       getFreshActiveContent,
+      localContentUndoStackRef,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       t,

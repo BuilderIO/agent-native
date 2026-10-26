@@ -91,12 +91,14 @@ import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
+  assertCredentialStoreReadable,
   getBuilderCredentialAuthFailure,
   getBuilderKeyConnections,
   gatewayLaneUnavailableMessage,
@@ -184,6 +186,9 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_BASE_URL;
+  delete process.env.ANTHROPIC_BASE_URL;
+  delete process.env.NETLIFY_AI_GATEWAY_KEY;
+  delete process.env.NETLIFY_AI_GATEWAY_URL;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.GROQ_API_KEY;
   delete process.env.EMAIL_AGENT_ADDRESS;
@@ -934,6 +939,52 @@ describe("resolveBuilderCredential", () => {
     );
   });
 
+  it("ignores provider keys and endpoints that Netlify AI Gateway injected", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_AI_GATEWAY_KEY = "gateway-token";
+    process.env.NETLIFY_AI_GATEWAY_URL = "https://gw.example.test/ai";
+    process.env.ANTHROPIC_API_KEY = "gateway-token";
+    process.env.OPENAI_API_KEY = "gateway-token";
+    process.env.ANTHROPIC_BASE_URL = "https://app.netlify.app/.netlify/ai";
+    process.env.OPENAI_BASE_URL = "https://gw.example.test/ai/openai/v1";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    for (const key of [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_BASE_URL",
+      "OPENAI_BASE_URL",
+    ]) {
+      expect(canUseDeployCredentialFallbackForRequest(key)).toBe(false);
+      expect(readDeployCredentialEnv(key)).toBeUndefined();
+      expect(await resolveSecret(key)).toBeNull();
+    }
+  });
+
+  it("keeps a deployer's own provider key on Netlify when the gateway is also present", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_AI_GATEWAY_KEY = "gateway-token";
+    process.env.NETLIFY_AI_GATEWAY_URL = "https://gw.example.test/ai";
+    process.env.ANTHROPIC_API_KEY = "owner-anthropic-key";
+    process.env.OPENAI_BASE_URL = "https://llm.internal.example.test/v1";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "owner-anthropic-key",
+    );
+    expect(await resolveSecret("OPENAI_BASE_URL")).toBe(
+      "https://llm.internal.example.test/v1",
+    );
+  });
+
   it("does not share deployment LLM keys with anonymous public runs", async () => {
     process.env.NODE_ENV = "production";
     process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
@@ -1378,6 +1429,23 @@ describe("Builder org fallback (transient org-context dropout)", () => {
 });
 
 describe("resolveBuilderCredentialsDetailed", () => {
+  it("does not expose an env pair when saved credential lookup fails", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "deploy-space";
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    const error = new Error("connection terminated unexpectedly");
+    mockReadAppSecrets.mockRejectedValue(error);
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      source: null,
+      lookupFailed: true,
+      cause: error,
+    });
+  });
+
   it("sets lookupFailed=true when the secrets store read throws a db error", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
@@ -1389,6 +1457,105 @@ describe("resolveBuilderCredentialsDetailed", () => {
     expect(result.lookupFailed).toBe(true);
     expect(result.privateKey).toBeNull();
     expect(result.source).toBeNull();
+  });
+
+  it("preserves an undecryptable required pair as a failed Builder lookup", async () => {
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    const error = new AppSecretDecryptionError();
+    mockReadAppSecrets.mockRejectedValue(error);
+
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({
+      lookupFailed: true,
+      privateKey: null,
+      publicKey: null,
+      source: null,
+    });
+    expect(result.cause).toBe(error);
+    expect(mockReadAppSecrets).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a usable Builder pair when optional metadata is unreadable", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecrets.mockImplementation(
+      async ({ keys, scope, scopeId }: any) => {
+        if (keys.length > 2) {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        if (keys.length === 2) {
+          return scope === "org" && scopeId === "builder_io"
+            ? new Map([
+                ["BUILDER_PRIVATE_KEY", { value: "org-private-key" }],
+                ["BUILDER_PUBLIC_KEY", { value: "org-public-key" }],
+              ])
+            : new Map();
+        }
+        if (
+          scope === "org" &&
+          scopeId === "builder_io" &&
+          keys[0] === "BUILDER_USER_ID"
+        ) {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        return new Map();
+      },
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({
+      source: "org",
+      privateKey: "org-private-key",
+      publicKey: "org-public-key",
+      userId: null,
+      lookupFailed: false,
+      optionalMetadataLookupFailure: "unreadable",
+    });
+
+    await expect(resolveBuilderCredentials()).resolves.toMatchObject({
+      privateKey: "org-private-key",
+      optionalMetadataLookupFailure: "unreadable",
+    });
+  });
+
+  it("preserves transient optional metadata read failures", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    const transient = new Error("temporary metadata store failure");
+    mockReadAppSecrets.mockImplementation(
+      async ({ keys, scope, scopeId }: any) => {
+        if (keys.length > 2) {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        if (keys.length === 2) {
+          return scope === "org" && scopeId === "builder_io"
+            ? new Map([
+                ["BUILDER_PRIVATE_KEY", { value: "org-private-key" }],
+                ["BUILDER_PUBLIC_KEY", { value: "org-public-key" }],
+              ])
+            : new Map();
+        }
+        if (
+          scope === "org" &&
+          scopeId === "builder_io" &&
+          keys[0] === "BUILDER_USER_ID"
+        ) {
+          throw transient;
+        }
+        return new Map();
+      },
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({ lookupFailed: true, source: null });
+    expect(result.cause).toBe(transient);
+    await expect(resolveBuilderCredentials()).resolves.toMatchObject({
+      lookupFailed: true,
+    });
   });
 
   it("sets lookupFailed=false when the row is simply absent", async () => {
@@ -2450,12 +2617,48 @@ describe("unreadable credential store is not 'not configured'", () => {
     }
   });
 
+  it("does not use a trusted env fallback when a saved secret cannot be decrypted", async () => {
+    process.env.OPENAI_API_KEY = "deploy-key";
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecret.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+        if (scope === "org" || (scope === "workspace" && scopeId === "org-1")) {
+          throw new AppSecretDecryptionError({
+            scope: scope as "org" | "workspace",
+            scopeId,
+          });
+        }
+        return null;
+      },
+    );
+
+    await expect(
+      resolveSecretDetailed("OPENAI_API_KEY"),
+    ).resolves.toMatchObject({
+      value: null,
+      lookupFailed: true,
+      cause: expect.any(AppSecretDecryptionError),
+    });
+    await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+
   it("throws instead of reporting Builder as not connected", async () => {
     mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
 
     await expect(
       resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
     ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+  });
+
+  it("reports an undecryptable saved secret as unavailable instead of missing", () => {
+    expect(() =>
+      assertCredentialStoreReadable({
+        lookupFailed: true,
+        cause: new AppSecretDecryptionError(),
+      }),
+    ).toThrow(CredentialStoreUnavailableError);
   });
 
   it("does not report the retryable error as a missing-LLM-credential error", () => {
@@ -3191,6 +3394,55 @@ describe("Restrict personal API keys", () => {
     }
   });
 
+  it("lets an owner or admin use the org secret when their personal row is unreadable", async () => {
+    const personalError = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@b.com",
+    });
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ scope }: any) => {
+        if (scope === "user") throw personalError;
+        return scope === "org"
+          ? { value: "test-anthropic-org", last4: "org", updatedAt: 1 }
+          : null;
+      });
+
+      await expect(
+        resolveSecretDetailed("ANTHROPIC_API_KEY"),
+      ).resolves.toMatchObject({
+        value: "test-anthropic-org",
+        source: "org",
+        lookupFailed: false,
+      });
+    }
+  });
+
+  it("surfaces a member's unreadable personal secret instead of using an org secret", async () => {
+    restrictOrg("member", false);
+    const personalError = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@b.com",
+    });
+    mockReadAppSecret.mockImplementation(async ({ scope }: any) => {
+      if (scope === "user") throw personalError;
+      return scope === "org"
+        ? { value: "test-anthropic-org", last4: "org", updatedAt: 1 }
+        : null;
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({
+      value: null,
+      lookupFailed: true,
+      cause: personalError,
+    });
+    expect(mockReadAppSecret.mock.calls.map(([query]) => query.scope)).toEqual([
+      "user",
+    ]);
+  });
+
   it("uses the member's personal key again once the restriction is off", async () => {
     restrictOrg("member", false);
     storeRows({
@@ -3287,6 +3539,106 @@ describe("Restrict personal API keys", () => {
         resolveSecretPair(["SVC_ID", "SVC_SECRET"]),
       ).resolves.toEqual([`id-${expected}`, `secret-${expected}`]);
     }
+  });
+
+  it("uses an owner's or admin's org key when their personal row is unreadable", async () => {
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ scope, scopeId }: any) => {
+        if (scope === "user") {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        return scope === "org"
+          ? { value: "org-secret", last4: "cret", updatedAt: 1 }
+          : null;
+      });
+
+      await expect(
+        resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+      ).resolves.toMatchObject({
+        value: "org-secret",
+        lookupFailed: false,
+        source: "org",
+        scopeId: ORG,
+      });
+    }
+  });
+
+  it("uses an owner's or admin's org Builder pair when their personal pair is unreadable", async () => {
+    const personalError = new AppSecretDecryptionError({
+      scope: "user",
+      scopeId: "member@b.com",
+    });
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(async ({ key, scope }: any) => {
+        if (
+          scope === "user" &&
+          (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ) {
+          throw personalError;
+        }
+        if (
+          scope === "org" &&
+          (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ) {
+          return { value: `org-${key}`, last4: "-key", updatedAt: 1 };
+        }
+        return null;
+      });
+
+      await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+        source: "org",
+        privateKey: "org-BUILDER_PRIVATE_KEY",
+        publicKey: "org-BUILDER_PUBLIC_KEY",
+        lookupFailed: false,
+      });
+    }
+  });
+
+  it("checks an owner or admin org pair before falling back from an unreadable personal pair", async () => {
+    process.env.GOOGLE_CLIENT_ID = "deploy-client";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      mockReadAppSecret.mockImplementation(
+        async ({ key, scope, scopeId }: any) => {
+          if (scope === "user") {
+            throw new AppSecretDecryptionError({ scope, scopeId });
+          }
+          return scope === "org"
+            ? { value: `org-${key}`, last4: "-key", updatedAt: 1 }
+            : null;
+        },
+      );
+
+      await expect(
+        resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+      ).resolves.toEqual(["org-GOOGLE_CLIENT_ID", "org-GOOGLE_CLIENT_SECRET"]);
+    }
+  });
+
+  it("does not replace an unreadable member pair with an org or deploy pair", async () => {
+    process.env.GOOGLE_CLIENT_ID = "deploy-client";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
+    restrictOrg("member", false);
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) => {
+        if (scope === "user") {
+          throw new AppSecretDecryptionError({ scope, scopeId });
+        }
+        return scope === "org"
+          ? { value: `org-${key}`, last4: "-key", updatedAt: 1 }
+          : null;
+      },
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    expect(
+      mockReadAppSecret.mock.calls.some(([args]) => args.scope === "org"),
+    ).toBe(false);
   });
 
   it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {

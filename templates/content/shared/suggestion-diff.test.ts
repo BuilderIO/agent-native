@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "./nfm.js";
 import {
   markdownSuggestionOperations,
   markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
+  markdownSuggestionOperationsForFindReplaceEdits,
   markdownSuggestionOperationsForReplacements,
   suggestionDiffParts,
 } from "./suggestion-diff.js";
@@ -185,6 +187,80 @@ describe("suggestion decomposition", () => {
       anchor: { from: start, to: start + 3 },
     });
     expect(proposedFrom(before, operations)).toBe("The quick fox can sprint.");
+  });
+
+  const suggestsAnEdit = (before: string, find: string, replace: string) => {
+    const operations = markdownSuggestionOperationsForFindReplace({
+      before,
+      find,
+      replace,
+      start: before.indexOf(find),
+    });
+    expect(operations).toHaveLength(1);
+    expect(proposedFrom(before, operations)).toBe(
+      before.replace(find, replace),
+    );
+  };
+
+  it.each([
+    ["Call __init__ then **b**.", "then", "and then"],
+    ["Call snake\\_case then **b**.", "then", "and then"],
+    ["Say **a****b** now.", "now", "again"],
+    ["Say [a](u)[b](u) now.", "now", "again"],
+  ])(
+    "suggests an edit to %j, which spells formatting or an escape another way",
+    suggestsAnEdit,
+  );
+
+  // The parse reads these stored spellings, which the writer never writes.
+  // The L7 bridge in the source mapper maps them until L7 replaces it.
+  it.each([
+    ["Some _x_ text and **b**.", "text and", "words, and"],
+    ["Some _x_ text.", "Some _x_", "Some **x**"],
+  ])("suggests an edit to %j, which the L7 bridge maps", suggestsAnEdit);
+
+  it("replaces text that follows delimiters the stored source reopens", () => {
+    const before = "**b****b****b**";
+    const middle = before.indexOf("b", 3);
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after: "**bXb**",
+      replacements: [{ from: middle, to: middle + 1 }],
+    });
+    expect(operations).toHaveLength(1);
+    expect(canonicalizeNfm(proposedFrom(before, operations))).toBe("**bXb**");
+  });
+
+  it("keeps adjacent finds apart when whole words would join them", () => {
+    // Both finds split "two", so expanding either change to the whole word
+    // would overlap the other. Each stays inside its own find instead.
+    const before = "one two three";
+    const operations = markdownSuggestionOperationsForFindReplaceEdits({
+      before,
+      edits: [
+        { find: "one tw", replace: "one TW", start: 0 },
+        { find: "o three", replace: "O three", start: 6 },
+      ],
+    });
+    expect(operations.map(({ anchor }) => [anchor.from, anchor.to])).toEqual([
+      [0, 6],
+      [6, 13],
+    ]);
+
+    for (const order of [operations, [...operations].reverse()]) {
+      let current = before;
+      for (const operation of order.map(
+        (value) => JSON.parse(JSON.stringify(value)) as typeof value,
+      )) {
+        const range = resolveMarkdownSuggestionRange(current, operation);
+        expect(range, `operation ${operation.ordinal}`).not.toBeNull();
+        current =
+          current.slice(0, range!.from) +
+          operation.after.changedText +
+          current.slice(range!.to);
+      }
+      expect(current).toBe("one TWO three");
+    }
   });
 
   it("keeps selected sentence replacements granular", () => {
@@ -504,6 +580,87 @@ describe("suggestion decomposition", () => {
       ["Ready", "Ship"],
     ]);
     expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps text and a new paragraph as one edit when another block also changes", () => {
+    const before =
+      "Alpha one has a few words.\nBravo two sits in the middle.\nCharlie three is next.\nDelta four closes it out.";
+    const paragraphOnly = before.replace(
+      "words.\n",
+      "words. More alpha.\nAlpha follow-up paragraph.\n",
+    );
+    const after = paragraphOnly.replace("it out.", "it out. Delta extra.");
+    const changes = (
+      operations: ReturnType<typeof markdownSuggestionOperations>,
+    ) =>
+      operations.map((item) => [
+        item.anchor.from,
+        item.before.changedText,
+        item.after.changedText,
+      ]);
+
+    expect(
+      changes(markdownSuggestionOperations(before, paragraphOnly)),
+    ).toEqual([[26, "", " More alpha.\nAlpha follow-up paragraph."]]);
+    const operations = markdownSuggestionOperations(before, after);
+    expect(changes(operations)).toEqual([
+      [26, "", " More alpha.\nAlpha follow-up paragraph."],
+      [105, "", " Delta extra."],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps a deleted paragraph a deletion when another block also changes", () => {
+    const before =
+      "Alpha one has a few words.\nBravo two sits in the middle.\nCharlie three is next.\nDelta four closes it out.\nEcho five ends here.";
+    const after = before
+      .replace("Charlie three is next.\n", "")
+      .replace("it out.\nEcho", "it out.Echo");
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.anchor.from,
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      [57, "Charlie three is next.\n", ""],
+      [105, "\n", ""],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps edits at the end of one block and the start of the next separate", () => {
+    const before = "Alpha ends here\nBravo starts here\nCharlie";
+    const after = "Alpha ends here now\nSo Bravo starts here\nCharlie stays";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(operations.map((item) => item.after.changedText)).toEqual([
+      " now",
+      "So ",
+      " stays",
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps a replacement across a paragraph break as one edit", () => {
+    const before = "Alpha one has a few words.\nBravo two sits in the middle.";
+    const from = before.indexOf("has a few");
+    const to = before.indexOf(" sits");
+    const after = `${before.slice(0, from)}is now joined with${before.slice(to)}`;
+    const operations = markdownSuggestionOperationsForReplacements({
+      before,
+      after,
+      replacements: [{ from, to }],
+    });
+
+    expect(
+      operations.map((item) => [
+        item.anchor.from,
+        item.anchor.to,
+        item.after.changedText,
+      ]),
+    ).toEqual([[from, to, "is now joined with"]]);
+    expect(proposedFrom(before, operations)).toBe(after);
   });
 
   it("returns no edit for an unchanged replacement", () => {

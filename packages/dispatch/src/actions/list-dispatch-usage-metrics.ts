@@ -5,7 +5,7 @@ import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 
 export default defineAction({
   description:
-    "Get personal, workspace, or owner-authorized app adoption metrics for Dispatch, including LLM usage, spend or Builder.io credit spend, active users, tracked app actions, app attribution, prompt previews, and recent activity. billing.unit is unknown when historical usage lacks engine metadata or mixes billing sources; monthlyByUser credits are null in that case. Workspace results also include monthlyByUser credit rows and workspaceAppCreationsByUserMonth rows from the shared token_usage and Dispatch audit tables. App scope is aggregate-only and returns daily/weekly active users plus tracked action counts for the selected app.",
+    "Reports agent/LLM usage and spend for members of this organization (personal or workspace-wide) plus aggregate app adoption for Dispatch; it does NOT cover usage, credits, or activity of external customers, accounts, companies, or product usage, which belong to the app that owns that data (see <relevant-apps>, or search with describe-workspace-apps). Results may include active users, tracked app actions, app attribution, prompt previews, and recent activity. billing.unit is unknown when historical usage lacks engine metadata or mixes billing sources; monthlyByUser credits are null in that case. Workspace results also include monthlyByUser credit rows and workspaceAppCreationsByUserMonth rows from the shared token_usage and Dispatch audit tables. App scope is aggregate-only and returns daily/weekly active users plus tracked action counts for the selected app.",
   schema: z.object({
     sinceDays: z.coerce
       .number()
@@ -25,7 +25,9 @@ export default defineAction({
       .trim()
       .min(1)
       .optional()
-      .describe("Optional workspace member email to filter all usage to."),
+      .describe(
+        "Optional email of a member of this organization to filter all usage to. Not for customers or other external accounts.",
+      ),
     appId: z
       .string()
       .trim()

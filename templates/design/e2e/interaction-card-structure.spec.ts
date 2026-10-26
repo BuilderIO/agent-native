@@ -5,6 +5,7 @@ import {
   childrenOf,
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   savedNodeMap,
   styleOf,
   test,
@@ -58,17 +59,30 @@ async function selectCardRow(app: App) {
 }
 
 /** Every node under `rootId` in document order, without ids, so a copy can be compared to its source. */
-function subtreeShape(nodes: Map<string, SavedNode>, rootId: string) {
-  const shape: { tag: string; attrs: Record<string, string>; text: string }[] =
-    [];
+async function subtreeShape(
+  app: App,
+  nodes: Map<string, SavedNode>,
+  rootId: string,
+) {
+  const shape: {
+    tag: string;
+    attrs: Record<string, string>;
+    style: string | undefined;
+    text: string;
+  }[] = [];
   const visit = (id: string) => {
     const node = nodes.get(id)!;
-    const { "data-agent-native-node-id": _id, ...attrs } = node.attrs;
-    shape.push({ tag: node.tag, attrs, text: node.text });
+    const { "data-agent-native-node-id": _id, style, ...attrs } = node.attrs;
+    shape.push({ tag: node.tag, attrs, style, text: node.text });
     for (const child of childrenOf(nodes, id)) visit(child);
   };
   visit(rootId);
-  return shape;
+  return Promise.all(
+    shape.map(async ({ style, ...node }) => ({
+      ...node,
+      style: await normalizeStyleAttribute(app.page, style),
+    })),
+  );
 }
 
 function attrsBesidesStyle(node: SavedNode | undefined) {
@@ -144,7 +158,9 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     const after = await app.savedNodes(id);
     const copyId = childrenOf(after, "page")[1];
     expect(childrenOf(after, "page")).toStrictEqual(["card", copyId]);
-    expect(subtreeShape(after, copyId)).toEqual(subtreeShape(before, "card"));
+    expect(await subtreeShape(app, after, copyId)).toEqual(
+      await subtreeShape(app, before, "card"),
+    );
     const copyIds = subtreeIds(after, copyId);
     expect(
       copyIds.filter((nodeId) => before.has(nodeId)),
@@ -259,7 +275,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
   });
 
   // fixme: product bug: The saved group wrapper has no style, so inside the absolute Card it renders 320x0: a flat selection outline and inspector H 0px instead
-  test.fixme("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
+  test("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
     app,
   }) => {
     const id = await openSeeded(app, CARD_HTML);
@@ -299,7 +315,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
       .toEqual({ x: 40, y: 40, width: 320, height: 360 });
     await expect
       .soft(app.page.locator('input[aria-label="H size in pixels"]'))
-      .toHaveValue("360px");
+      .toHaveValue("360");
 
     await app.page.keyboard.press(`${MOD}+z`);
     await app.settled();
@@ -373,9 +389,7 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview&zoom=60`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens);
   await stableBox(page.locator("[data-screen-card]").first());
   await expect(page.getByRole("button", { name: "60%" })).toBeVisible();
   for (const card of await page.locator("[data-screen-card]").all()) {
@@ -622,7 +636,6 @@ test.describe("crossing the screen boundary", () => {
     expect(attrsBesidesStyle(board.get("price"))).toEqual({
       "data-agent-native-node-id": "price",
       "data-agent-native-layer-name": "Price",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
     const boardPrice = styleOf(board.get("price"));

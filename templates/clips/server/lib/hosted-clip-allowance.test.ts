@@ -66,8 +66,11 @@ beforeEach(async () => {
       owner_email TEXT
     );
     CREATE TABLE application_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      session_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (session_id, key)
     );
     CREATE TABLE clips_hosted_clip_allowances (
       recording_id TEXT PRIMARY KEY,
@@ -323,6 +326,56 @@ describe("hosted clip allowance", () => {
     });
   });
 
+  it("releases only old hosted reservations that have no recording row", async () => {
+    await reserve({ recordingId: "orphaned-reservation" });
+    await reserve({ recordingId: "live-reservation" });
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'uploading', 'hosted', 'owner@example.com')`,
+      ["live-reservation"],
+    );
+
+    await expect(
+      allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "orphaned-reservation",
+        userId: "user-1",
+        createdBefore: NOW,
+        now: NOW,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "live-reservation",
+        userId: "user-1",
+        createdBefore: new Date(NOW.getTime() + 1),
+        now: NOW,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "orphaned-reservation",
+        userId: "user-1",
+        createdBefore: new Date(NOW.getTime() + 1),
+        now: NOW,
+      }),
+    ).resolves.toBe(true);
+
+    const { rows } = await client.query(
+      `SELECT recording_id, status, quota_bytes FROM clips_hosted_clip_allowances ORDER BY recording_id`,
+    );
+    expect(rows).toEqual([
+      {
+        recording_id: "live-reservation",
+        status: "reserved",
+        quota_bytes: 100,
+      },
+      {
+        recording_id: "orphaned-reservation",
+        status: "released",
+        quota_bytes: 0,
+      },
+    ]);
+  });
+
   it("reacquires the same released grant for an explicit retry without spending a second daily grant", async () => {
     const capped = policy({
       perIdentityClipLimit: 1,
@@ -340,8 +393,22 @@ describe("hosted clip allowance", () => {
       now: NOW,
     });
     await client.query(
-      `INSERT INTO application_state (key, value) VALUES ($1, $2)`,
-      [allowance.hostedCleanupConfirmedKey("hosted-retry"), "old-marker"],
+      `INSERT INTO application_state (session_id, key, value, updated_at) VALUES ($1, $2, $3, $4)`,
+      [
+        "owner@example.com",
+        allowance.hostedCleanupConfirmedKey("hosted-retry"),
+        "old-marker",
+        NOW.getTime(),
+      ],
+    );
+    await client.query(
+      `INSERT INTO application_state (session_id, key, value, updated_at) VALUES ($1, $2, $3, $4)`,
+      [
+        "other@example.com",
+        allowance.hostedCleanupConfirmedKey("hosted-retry"),
+        "other-owner-marker",
+        NOW.getTime(),
+      ],
     );
 
     const result = await allowance.reacquireHostedClipAllowanceForRetry({
@@ -364,10 +431,15 @@ describe("hosted clip allowance", () => {
     expect(row).toMatchObject({ status: "reserved", quota_bytes: 100 });
     expect(row.created_at).toBe(NOW.toISOString());
     const state = await client.query(
-      `SELECT key FROM application_state WHERE key = $1`,
+      `SELECT session_id, key FROM application_state WHERE key = $1`,
       [allowance.hostedCleanupConfirmedKey("hosted-retry")],
     );
-    expect(state.rows).toHaveLength(0);
+    expect(state.rows).toEqual([
+      {
+        session_id: "other@example.com",
+        key: allowance.hostedCleanupConfirmedKey("hosted-retry"),
+      },
+    ]);
   });
 
   it("does not reacquire a hosted recording allowance for another owner", async () => {
@@ -401,8 +473,13 @@ describe("hosted clip allowance", () => {
     );
     await reserve({ recordingId: "hosted-cleanup" });
     await client.query(
-      `INSERT INTO application_state (key, value) VALUES ($1, $2)`,
-      [allowance.hostedCleanupConfirmedKey("hosted-cleanup"), "marker-v1"],
+      `INSERT INTO application_state (session_id, key, value, updated_at) VALUES ($1, $2, $3, $4)`,
+      [
+        "owner@example.com",
+        allowance.hostedCleanupConfirmedKey("hosted-cleanup"),
+        "marker-v1",
+        NOW.getTime(),
+      ],
     );
 
     await expect(
@@ -456,6 +533,56 @@ describe("hosted clip allowance", () => {
       ["hosted-cleanup"],
     );
     expect(row).toEqual({ status: "released", quota_bytes: 0 });
+  });
+
+  it("removes a mixed-case resumable session only for the matching owner", async () => {
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'failed', 'hosted', 'owner@example.com')`,
+      ["hosted-mixed-case-session"],
+    );
+    await reserve({ recordingId: "hosted-mixed-case-session" });
+    const sessionKey = "resumable-session-hosted-mixed-case-session";
+    await client.query(
+      `INSERT INTO application_state (session_id, key, value, updated_at)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        "owner@example.com",
+        allowance.hostedCleanupConfirmedKey("hosted-mixed-case-session"),
+        "marker-v1",
+        NOW.getTime(),
+      ],
+    );
+    await client.query(
+      `INSERT INTO application_state (session_id, key, value, updated_at)
+       VALUES ($1, $2, $3, $4), ($5, $2, $6, $4)`,
+      [
+        "OWNER@example.com",
+        sessionKey,
+        "legacy-session",
+        NOW.getTime(),
+        "other@example.com",
+        "other-owner-session",
+      ],
+    );
+
+    await expect(
+      allowance.releaseHostedClipAllowanceAfterCleanup({
+        recordingId: "hosted-mixed-case-session",
+        ownerEmail: "owner@example.com",
+        expectedUpdatedAt: NOW.toISOString(),
+        cleanupMarkerValue: "marker-v1",
+        sessionKey,
+        now: NOW,
+      }),
+    ).resolves.toBe(true);
+
+    const { rows } = await client.query(
+      `SELECT session_id, value FROM application_state WHERE key = $1 ORDER BY session_id`,
+      [sessionKey],
+    );
+    expect(rows).toEqual([
+      { session_id: "other@example.com", value: "other-owner-session" },
+    ]);
   });
 
   it("allows deletion accounting to release bytes without deleting consumed history", async () => {

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   normalizeAgentTeamProgressResult,
 } from "../../action-ui.js";
+import { fail, type ActionRunContext } from "../../action.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
@@ -16,7 +18,7 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
-import { getRequestUserEmail } from "../request-context.js";
+import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
 import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
@@ -494,8 +496,40 @@ export function createTeamTools(deps: {
     | ((event: import("../../agent/types.js").AgentChatEvent) => void)
     | null;
 }): Record<string, ActionEntry> {
+  const readTask = async (
+    taskId: string,
+    waitMs: number,
+    context?: ActionRunContext,
+  ) => {
+    if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 20_000)
+      fail("waitMs must be an integer between 0 and 20000.", {
+        errorCode: "invalid_input",
+        statusCode: 422,
+      });
+    const scope = {
+      ownerEmail: deps.getOwner(),
+      orgId:
+        context?.orgId !== undefined
+          ? context.orgId
+          : (getRequestOrgId() ?? null),
+    };
+    const signal = context?.signal;
+    signal?.throwIfAborted();
+    const { getTask } = await import("../agent-teams.js");
+    const deadline = Date.now() + waitMs;
+    let task = await getTask(taskId, scope);
+    signal?.throwIfAborted();
+    while (task?.status === "running" && Date.now() < deadline) {
+      await delay(Math.min(500, deadline - Date.now()), undefined, { signal });
+      signal?.throwIfAborted();
+      task = await getTask(taskId, scope);
+      signal?.throwIfAborted();
+    }
+    return task;
+  };
   return {
     "agent-teams": {
+      dedupe: false,
       tool: {
         description:
           "Manage background tasks that run in their own task thread. Use action 'spawn' to start one, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running task, or 'list' to see all tasks. A successful spawn only means the task started and is running; do not report it as finished until status/read-result shows a terminal status. This is a background task, not a source-control branch.",
@@ -536,6 +570,13 @@ export function createTeamTools(deps: {
               type: "string",
               description: "(send) Message to send to the sub-agent",
             },
+            waitMs: {
+              type: "integer",
+              minimum: 0,
+              maximum: 20000,
+              description:
+                "(status, read-result) Wait up to this many milliseconds for a terminal task. Defaults to 0 (immediate snapshot). A deadline can return queued/running; it does not mean completion or resume the parent automatically.",
+            },
           },
           required: ["action"],
         },
@@ -560,7 +601,19 @@ export function createTeamTools(deps: {
         description:
           "Plan mode allows listing tasks and reading their status or results.",
       },
-      run: async (args: Record<string, string>) => {
+      run: async (
+        args: {
+          action: string;
+          task?: string;
+          instructions?: string;
+          name?: string;
+          agent?: string;
+          taskId?: string;
+          message?: string;
+          waitMs?: number;
+        },
+        context?: ActionRunContext,
+      ) => {
         const action = args.action;
 
         if (action === "spawn") {
@@ -627,8 +680,11 @@ export function createTeamTools(deps: {
 
         if (action === "status") {
           if (!args.taskId) throw new Error("'taskId' is required for status");
-          const { getTask } = await import("../agent-teams.js");
-          const task = await getTask(args.taskId);
+          const task = await readTask(
+            args.taskId,
+            args.waitMs === undefined ? 0 : args.waitMs,
+            context,
+          );
           if (!task) return JSON.stringify({ error: "Task not found" });
           return JSON.stringify({
             taskId: task.taskId,
@@ -646,8 +702,11 @@ export function createTeamTools(deps: {
         if (action === "read-result") {
           if (!args.taskId)
             throw new Error("'taskId' is required for read-result");
-          const { getTask } = await import("../agent-teams.js");
-          const task = await getTask(args.taskId);
+          const task = await readTask(
+            args.taskId,
+            args.waitMs === undefined ? 0 : args.waitMs,
+            context,
+          );
           if (!task) return JSON.stringify({ error: "Task not found" });
           if (task.status === "running") {
             return JSON.stringify({

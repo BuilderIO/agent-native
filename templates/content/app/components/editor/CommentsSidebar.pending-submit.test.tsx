@@ -209,9 +209,11 @@ describe("reply real mutation observer lifetime", () => {
           queries: { retry: false },
         },
       });
+      // On text, so the margin rail shows it; a page comment stays in the
+      // Discussion panel.
       const thread: CommentThread = {
         threadId: "reply-root",
-        quotedText: null,
+        quotedText: "Quoted line",
         prefix: null,
         suffix: null,
         startOffset: null,
@@ -223,7 +225,7 @@ describe("reply real mutation observer lifetime", () => {
             thread_id: "reply-root",
             parent_id: null,
             content: "Original comment",
-            quoted_text: null,
+            quoted_text: "Quoted line",
             anchor_prefix: null,
             anchor_suffix: null,
             anchor_start_offset: null,

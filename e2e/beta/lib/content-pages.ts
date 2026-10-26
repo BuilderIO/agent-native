@@ -5,7 +5,7 @@ import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./test-traffic";
 export const CONTENT_ACTION_HEADERS = {
   ...BETA_E2E_TEST_TRAFFIC_HEADERS,
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 

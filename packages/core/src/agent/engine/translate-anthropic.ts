@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { toolCallInputSignature } from "../tool-call-input-signature.js";
 import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 import {
   createProviderToolNameMap,
@@ -152,8 +153,45 @@ export function backfillEngineMessagesToolResults(
   messages: EngineMessage[],
 ): EngineMessage[] {
   const toolUseById = new Map<string, { name: string; input: unknown }>();
+  const usedToolUseIds = new Set<string>();
+  const originalToolUseIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "assistant"
+        ? message.content.flatMap((part) =>
+            part.type === "tool-call" ? [part.id] : [],
+          )
+        : [],
+    ),
+  );
   const out: EngineMessage[] = [];
-  let pendingToolUses: Array<{ id: string; name: string; input: unknown }> = [];
+  type PendingToolUse = {
+    id: string;
+    originalId: string;
+    name: string;
+    input: unknown;
+    executionStepId?: string;
+  };
+
+  type ParsedToolInput =
+    | { status: "absent" }
+    | { status: "unreadable" }
+    | { status: "parsed"; value: unknown };
+  let pendingToolUses: PendingToolUse[] = [];
+
+  const uniqueToolUseId = (id: string) => {
+    if (!usedToolUseIds.has(id)) {
+      usedToolUseIds.add(id);
+      return id;
+    }
+    let suffix = 2;
+    let candidate = `${id}-${suffix}`;
+    while (usedToolUseIds.has(candidate) || originalToolUseIds.has(candidate)) {
+      suffix += 1;
+      candidate = `${id}-${suffix}`;
+    }
+    usedToolUseIds.add(candidate);
+    return candidate;
+  };
 
   const flushInterruptedToolResults = () => {
     if (pendingToolUses.length === 0) return;
@@ -164,25 +202,38 @@ export function backfillEngineMessagesToolResults(
     pendingToolUses = [];
   };
 
+  const parseToolInput = (value: unknown): ParsedToolInput => {
+    if (typeof value !== "string" || value.length === 0) {
+      return { status: "absent" };
+    }
+    try {
+      return { status: "parsed", value: JSON.parse(value) as unknown };
+    } catch (error) {
+      if (error instanceof SyntaxError) return { status: "unreadable" };
+      throw error;
+    }
+  };
+
   for (const msg of messages) {
     if (msg.role === "assistant") {
       flushInterruptedToolResults();
-      for (const part of msg.content) {
-        if (part.type === "tool-call") {
-          toolUseById.set(part.id, { name: part.name, input: part.input });
-        }
-      }
-      out.push(msg);
-      pendingToolUses = msg.content
-        .filter(
-          (part): part is Extract<EngineContentPart, { type: "tool-call" }> =>
-            part.type === "tool-call",
-        )
-        .map((part) => ({
-          id: part.id,
+      const content = msg.content.map((part) => {
+        if (part.type !== "tool-call") return part;
+        const id = uniqueToolUseId(part.id);
+        const pending = {
+          id,
+          originalId: part.id,
           name: part.name,
           input: part.input,
-        }));
+          ...(part.executionStepId
+            ? { executionStepId: part.executionStepId }
+            : {}),
+        };
+        pendingToolUses.push(pending);
+        toolUseById.set(id, { name: part.name, input: part.input });
+        return id === part.id ? part : { ...part, id };
+      });
+      out.push({ ...msg, content });
       continue;
     }
     if (msg.role !== "user") {
@@ -191,9 +242,31 @@ export function backfillEngineMessagesToolResults(
       continue;
     }
     const newContent: EngineContentPart[] = [];
-    const pendingById = new Map(
-      pendingToolUses.map((part) => [part.id, part] as const),
-    );
+    const pendingById = new Map<string, PendingToolUse[]>();
+    for (const pending of pendingToolUses) {
+      for (const id of new Set([pending.originalId, pending.id])) {
+        const matches = pendingById.get(id);
+        if (matches) matches.push(pending);
+        else pendingById.set(id, [pending]);
+      }
+    }
+    const legacyResultCounts = new Map<string, number>();
+    for (const part of msg.content) {
+      if (part.type !== "tool-result" || part.executionStepId) continue;
+      const parsedToolInput = parseToolInput(part.toolInput);
+      if (parsedToolInput.status !== "parsed") continue;
+      const toolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName.trim()
+          : undefined;
+      const key = JSON.stringify([
+        part.toolCallId,
+        toolName ?? null,
+        toolCallInputSignature(parsedToolInput.value),
+      ]);
+      legacyResultCounts.set(key, (legacyResultCounts.get(key) ?? 0) + 1);
+    }
+    const matchedPendingToolIds = new Set<string>();
     const matchedPendingToolResults = new Map<string, EngineContentPart>();
     for (const part of msg.content) {
       if (part.type !== "tool-result") {
@@ -201,7 +274,62 @@ export function backfillEngineMessagesToolResults(
         continue;
       }
       const lookup = toolUseById.get(part.toolCallId);
-      const pendingLookup = pendingById.get(part.toolCallId);
+      const pendingCandidates = (pendingById.get(part.toolCallId) ?? []).filter(
+        (pending) => !matchedPendingToolIds.has(pending.id),
+      );
+      const requestedToolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName.trim()
+          : undefined;
+      const namedPendingCandidates = requestedToolName
+        ? pendingCandidates.filter(
+            (pending) => pending.name === requestedToolName,
+          )
+        : pendingCandidates;
+      const legacyPendingCandidates = part.executionStepId
+        ? namedPendingCandidates.filter(
+            (pending) => pending.executionStepId === undefined,
+          )
+        : namedPendingCandidates;
+      const parsedToolInput = parseToolInput(part.toolInput);
+      const fingerprintMatches =
+        parsedToolInput.status === "parsed"
+          ? legacyPendingCandidates.filter(
+              (pending) =>
+                toolCallInputSignature(pending.input) ===
+                toolCallInputSignature(parsedToolInput.value),
+            )
+          : [];
+      const legacyResultKey =
+        part.executionStepId || parsedToolInput.status !== "parsed"
+          ? undefined
+          : JSON.stringify([
+              part.toolCallId,
+              requestedToolName ?? null,
+              toolCallInputSignature(parsedToolInput.value),
+            ]);
+      const canPairIdenticalLegacyCalls =
+        fingerprintMatches.length > 1 &&
+        legacyResultKey !== undefined &&
+        legacyResultCounts.get(legacyResultKey) === fingerprintMatches.length &&
+        new Set(fingerprintMatches.map((pending) => pending.name)).size === 1;
+      const stepMatches = part.executionStepId
+        ? namedPendingCandidates.filter(
+            (pending) => pending.executionStepId === part.executionStepId,
+          )
+        : [];
+      const pendingLookup = part.executionStepId
+        ? stepMatches.length === 1
+          ? stepMatches[0]
+          : undefined
+        : legacyPendingCandidates.length === 1
+          ? legacyPendingCandidates[0]
+          : fingerprintMatches.length === 1
+            ? fingerprintMatches[0]
+            : canPairIdenticalLegacyCalls
+              ? fingerprintMatches[0]
+              : undefined;
+      if (pendingLookup) matchedPendingToolIds.add(pendingLookup.id);
       const toolName =
         typeof part.toolName === "string" && part.toolName.trim().length > 0
           ? part.toolName
@@ -249,7 +377,7 @@ export function backfillEngineMessagesToolResults(
       const interrupted = part.content === INTERRUPTED_TOOL_RESULT_MARKER;
       const filled: EngineContentPart = {
         type: "tool-result",
-        toolCallId: part.toolCallId,
+        toolCallId: pendingLookup?.id ?? part.toolCallId,
         toolName,
         toolInput,
         content: interrupted ? INTERRUPTED_TOOL_RESULT_FOR_MODEL : part.content,
@@ -263,7 +391,7 @@ export function backfillEngineMessagesToolResults(
           : {}),
       };
       if (pendingLookup) {
-        matchedPendingToolResults.set(part.toolCallId, filled);
+        matchedPendingToolResults.set(pendingLookup.id, filled);
       } else {
         newContent.push(filled);
       }

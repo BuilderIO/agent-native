@@ -41,6 +41,8 @@ Every action has a schema; use `tool-search` for comments, sharing, Collections,
 | `list-content-database-blocks` / `mutate-content-database-block` | Read or mutate stable blocks in one exact collection row/property |
 | `migrate-content-database-rows` | Validate, apply, verify; terminal phases use `manage-content-database-migration` |
 
+A collection row's Blocks fields show on its page as tabs, so people call them tabs, page tabs, document tabs, or sections; `document-editing/references/databases.md` maps those requests to actions.
+
 Permanent deletion requires a frozen plan. Read `document-editing`; report blockers or conflicts instead of claiming Trash is empty. Sidebar order and active Views use the personal view `navigation` patch, never parentage. Recent means foreground visits; paging, active-path lookup, and visit recording are UI-owned.
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.

@@ -1670,6 +1670,20 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationNote).toBeDefined();
+    expect(continuationNote).toContain(
+      "Tool-call journal from the interrupted attempt",
+    );
+    expect(
+      messages.filter((message) =>
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text.includes(
+              "Tool-call journal from the interrupted attempt",
+            ),
+        ),
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps completed tool nextRequiredAction guidance visible on resume", async () => {
@@ -1933,6 +1947,68 @@ describe("chunk-boundary recovery", () => {
     expect(continuationNote).toBeDefined();
   });
 
+  it("recovers manager-owned chunk boundaries when no soft timeout is configured", async () => {
+    const turn = new AbortController();
+    const { control, checkpoint } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    const signals: AbortSignal[] = [];
+    const emitted: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      attempts++;
+      signals.push(opts.signal);
+      if (attempts === 1) {
+        opts.send({ type: "auto_continue", reason: "no_progress" });
+        checkpoint("no_progress");
+        await waitForAbort(opts.signal);
+        throw Object.assign(new Error("chunk aborted"), { name: "AbortError" });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        messages,
+        control.chunkSignal,
+        (event) => emitted.push(event),
+        "thread-zero-timeout",
+        outcomes,
+      ),
+      0,
+      { backgroundFunction: false },
+      control,
+    );
+
+    expect(attempts).toBe(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(emitted).toContainEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "user" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT),
+          ),
+      ),
+    ).toBe(true);
+    expect(outcomes.at(-1)).toEqual({ state: "completed" });
+  });
+
   it("interrupts a rate-limit cooldown when a recoverable chunk deadline expires", async () => {
     vi.useFakeTimers();
     try {
@@ -2006,7 +2082,7 @@ describe("chunk-boundary recovery", () => {
           message.content.some(
             (part) =>
               part.type === "text" &&
-              part.text.startsWith(
+              part.text.includes(
                 "Tool-call journal from the interrupted attempt",
               ),
           ),

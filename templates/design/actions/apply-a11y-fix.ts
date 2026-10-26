@@ -23,6 +23,7 @@ import {
   a11yFindingToEdit,
   type A11yFinding,
 } from "../shared/design-review.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const findingSchema = z
   .object({
@@ -268,6 +269,7 @@ export default defineAction({
       edit: plan.edit,
       result: patch.result,
       designId: file.designId,
+      _receipt: designOutputWriteReceipt(file.designId, persisted ? 1 : 0),
       fileId: file.id,
       filename: file.filename,
       finding,

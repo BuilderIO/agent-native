@@ -1,5 +1,6 @@
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { isBoardFile } from "@shared/board-file";
+import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
@@ -43,6 +44,10 @@ import {
   resolveOverviewScreenSourceType,
   shouldUseRuntimeLayerProjection,
 } from "../pending-edits";
+import {
+  getPrototypeDestinationFrameId,
+  runPrototypeNavigationTransition,
+} from "../prototype-navigation-transition";
 import { findInteractLinkTarget } from "../screen-command-utils";
 import {
   getContentSignature,
@@ -176,7 +181,6 @@ export function useEditorScreenRendering({
     lockedLayerIds,
     hiddenLayerIds,
     motionDockOpen,
-    shaderFillPreview,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,
@@ -262,6 +266,8 @@ export function useEditorScreenRendering({
     canEditLiveScreen,
     designFusionUrl,
     motionTracksWire,
+    motionPathTargetNodeId,
+    motionPathTrackId,
     motionSelectedTarget,
     motionOriginEditing,
   } = editorLiveEditsAndPresence;
@@ -450,17 +456,36 @@ export function useEditorScreenRendering({
   // A link to another screen in the Interact preview switches the previewed
   // screen, keeping Interact and its device, the same hop the screen picker makes.
   const handleInteractLinkNavigate = useCallback(
-    (screen: string) => {
+    (
+      screen: string,
+      _href: string,
+      transition: MotionPrototypeTransitionDecodeResult,
+      sourceFrame: HTMLIFrameElement,
+    ) => {
       const target = findInteractLinkTarget(
         files,
         screen,
         activeFileIdRef.current,
       );
       if (!target) return;
-      handleModeChange("interact", {
-        targetFileId: target.id,
-        keepInteractDevice: true,
-      });
+      runPrototypeNavigationTransition(
+        transition.status === "valid" ? transition.transition : undefined,
+        () => {
+          handleModeChange("interact", {
+            targetFileId: target.id,
+            keepInteractDevice: true,
+            fromPrototypeNavigation: true,
+          });
+        },
+        undefined,
+        {
+          sourceFrame,
+          destinationFrameId: getPrototypeDestinationFrameId(
+            target.id,
+            sourceFrame,
+          ),
+        },
+      );
     },
     [files, handleModeChange],
   );
@@ -526,7 +551,7 @@ export function useEditorScreenRendering({
       if (patch.status !== "applied") {
         toast.error(
           codeLayerPatchMessage(
-            patch.reason,
+            patch.status === "failed" ? patch.reason : null,
             t("designEditor.patchProof.selectorMissing"),
           ),
         );
@@ -964,7 +989,8 @@ export function useEditorScreenRendering({
             motionDockOpen &&
             (canEditDesign || canEditLiveScreen(screen.id))
           }
-          motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          motionPathTargetNodeId={motionPathTargetNodeId}
+          motionPathTrackId={motionPathTrackId}
           motionOriginEditingEnabled={
             screenIsActive &&
             motionOriginEditing &&
@@ -977,7 +1003,6 @@ export function useEditorScreenRendering({
               ? handleMotionCanvasPathTracksChange
               : undefined
           }
-          shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
               ? inScreenGradientEditTarget
@@ -1000,6 +1025,7 @@ export function useEditorScreenRendering({
               : getEmbeddedFrame(screen.id, geometry.width, geometry.height)
           }
           fitRootBodyToFrame={metadata.heightMode !== "hug"}
+          screenHeightMode={metadata.heightMode}
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
           editMode={
@@ -1192,6 +1218,8 @@ export function useEditorScreenRendering({
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionPathTargetNodeId,
+      motionPathTrackId,
       motionSelectedTarget,
       motionOriginEditing,
       motionDockOpen,
@@ -1199,7 +1227,6 @@ export function useEditorScreenRendering({
       motionDefaultEase,
       motionEasingVariables,
       motionDurationMs,
-      shaderFillPreview,
       inScreenGradientEditTarget,
       handleInScreenGradientEditChange,
       statePreviewTarget,

@@ -2,8 +2,8 @@ import { fail } from "@agent-native/core/action";
 
 import type { AnnotationScope } from "./annotation-scope.js";
 import { getReviewedDashboard } from "./dashboard-review-access.js";
-import { loadDashboardSeed } from "./dashboard-seeds.js";
-import { getDashboard, type DashboardRecord } from "./dashboards-store.js";
+import type { DashboardRecord } from "./dashboards-store.js";
+import { openDashboard } from "./open-dashboard.js";
 
 /**
  * Whose annotations a dashboard draws. A reader whose own writes would land
@@ -35,8 +35,9 @@ export function storedDashboardAnnotationScope(
 }
 
 /**
- * As `storedDashboardAnnotationScope`; a seed dashboard has no owner and draws
- * the caller's. A Human Review preview reads the dashboard as
+ * As `storedDashboardAnnotationScope`; a built-in has no owner and draws the
+ * caller's. A copy the deploy pass hid serves its built-in, as in
+ * `get-sql-dashboard`. A Human Review preview reads the dashboard as
  * `get-sql-dashboard`'s `reviewPreview` does, for a reviewer who may have no
  * ordinary access to it.
  */
@@ -56,8 +57,9 @@ export async function dashboardAnnotationScope(
     }
     return storedDashboardAnnotationScope(dashboard, caller);
   }
-  const dashboard = await getDashboard(dashboardId, caller);
-  if (dashboard) return storedDashboardAnnotationScope(dashboard, caller);
-  if (loadDashboardSeed(dashboardId)) return { scope: caller, editable: true };
+  const opened = await openDashboard(dashboardId, caller);
+  if (opened?.saved)
+    return storedDashboardAnnotationScope(opened.saved, caller);
+  if (opened?.builtin) return { scope: caller, editable: true };
   fail(`Dashboard "${dashboardId}" was not found.`, { statusCode: 404 });
 }

@@ -49,12 +49,24 @@ export type OnboardingMethod =
       kind: "file-storage";
     });
 
+/** The checklist a step belongs to when it does not name one: credential and connection setup. */
+export const DEFAULT_ONBOARDING_CHECKLIST = "setup";
+
 export interface OnboardingStep {
   id: string;
   title: string;
   description: string;
   order: number;
   required?: boolean;
+  /**
+   * Named checklist the step belongs to. The setup checklist (the default)
+   * and a progress checklist such as `getting-started` never share rows:
+   * each is served only when asked for by name.
+   */
+  checklist?: string;
+  /** In-app path a progress row opens so the user can complete the step. */
+  href?: string;
+  /** Progress steps that need no setup form pass an empty list. */
   methods: OnboardingMethod[];
   isAvailable?: (
     context?: OnboardingResolveContext,
@@ -77,24 +89,29 @@ export interface OnboardingStepStatus {
   order: number;
   required: boolean;
   complete: boolean;
+  href?: string;
   methods: OnboardingMethod[];
 }
 
 /** Services whose provider is picked per service (`manage-service-providers`). */
 export type WorkspaceProviderServiceId = "voice" | "images" | "embeddings";
 
-/** Services only Builder.io provides. */
+/** Services Builder.io provides with no bring-your-own path. */
 export type WorkspaceBuilderOnlyServiceId =
   | "design-system-intelligence"
   | "background-agents"
   | "browser-automation";
+
+/** Services Builder.io includes that also support bring-your-own keys. */
+export type WorkspaceBuilderIncludedServiceId = "web-search";
 
 /** A service every app in a workspace shares (`WORKSPACE_SERVICES`). */
 export type WorkspaceServiceId =
   | "model"
   | "storage"
   | WorkspaceProviderServiceId
-  | WorkspaceBuilderOnlyServiceId;
+  | WorkspaceBuilderOnlyServiceId
+  | WorkspaceBuilderIncludedServiceId;
 
 export interface OnboardingCapability {
   id: string;

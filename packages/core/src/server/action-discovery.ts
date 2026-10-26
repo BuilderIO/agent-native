@@ -130,6 +130,14 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
+  if (
+    entry.mcpOutputContract &&
+    typeof entry.mcpOutputContract === "object" &&
+    entry.mcpOutputContract.response &&
+    typeof entry.mcpOutputContract.response === "object"
+  ) {
+    out.mcpOutputContract = entry.mcpOutputContract;
+  }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
@@ -444,21 +452,33 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Connection setup UI needs the workspace prerequisite even in minimal apps.
+  "get-managed-mcp-oauth-readiness",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
+  "decide",
+  "decisions-status",
   // The client's same-tick GET batching depends on it, so it cannot be gated.
   "get-actions-batch",
-  // The shared Report a problem entry calls these in every app.
+  // Any app can mount ReportProblemButton, which needs these.
   "save-problem-report",
   "read-problem-report",
 ]);
 
-export async function mergeCoreSharingActions(
-  registry: Record<string, ActionEntry>,
-): Promise<void> {
-  const entries: Array<[string, () => Promise<any>]> = [
+/**
+ * The framework actions every app composes, by action name. Each loader imports
+ * one action module. `mergeCoreSharingActions` skips a loader that throws, so
+ * contract tests import this list directly to see a failed or invalid entry.
+ */
+export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
+  return [
+    ["decide", () => import("../decisions/actions/decide.js")],
+    [
+      "decisions-status",
+      () => import("../decisions/actions/decisions-status.js"),
+    ],
     ["share-resource", () => import("../sharing/actions/share-resource.js")],
     [
       "unshare-resource",
@@ -534,6 +554,14 @@ export async function mergeCoreSharingActions(
     ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
+    [
+      "list-organization-members",
+      () => import("../org/actions/list-organization-members.js"),
+    ],
+    [
+      "invite-organization-member",
+      () => import("../org/actions/invite-organization-member.js"),
+    ],
     [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
@@ -760,6 +788,10 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-builder-referral-info.js"),
     ],
     [
+      "search-automation-accounts",
+      () => import("../triggers/actions/search-automation-accounts.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],
@@ -803,6 +835,10 @@ export async function mergeCoreSharingActions(
       "get-auth-methods",
       () => import("../user-profile/actions/get-auth-methods.js"),
     ],
+    [
+      "get-managed-mcp-oauth-readiness",
+      () => import("../mcp-client/actions/get-managed-mcp-oauth-readiness.js"),
+    ],
     ["set-password", () => import("../user-profile/actions/set-password.js")],
     [
       "change-password",
@@ -815,6 +851,14 @@ export async function mergeCoreSharingActions(
     [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
+    ],
+    [
+      "get-theme-family",
+      () => import("../appearance/actions/get-theme-family.js"),
+    ],
+    [
+      "set-theme-family",
+      () => import("../appearance/actions/set-theme-family.js"),
     ],
     [
       "list-audit-events",
@@ -984,7 +1028,12 @@ export async function mergeCoreSharingActions(
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
     ["get-actions-batch", () => import("./get-actions-batch.js")],
   ];
-  for (const [name, loader] of entries) {
+}
+
+export async function mergeCoreSharingActions(
+  registry: Record<string, ActionEntry>,
+): Promise<void> {
+  for (const [name, loader] of coreActionLoaderEntries()) {
     if (registry[name]) continue;
     try {
       const mod = await loader();

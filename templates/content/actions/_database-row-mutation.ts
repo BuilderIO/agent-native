@@ -40,10 +40,15 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { lockExistingDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   normalizeDatabasePropertyInput,
   type DatabasePropertyEntry,
 } from "./_database-property-input.js";
+import {
+  assertCollectionAcceptsNewRows,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
@@ -51,6 +56,7 @@ import {
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("personal"), id: z.string().min(1) }),
@@ -1117,6 +1123,7 @@ async function createInsideTransaction(
     documentId?: string;
   },
 ) {
+  await assertCollectionAcceptsNewRows(context.database.id, tx);
   const now = new Date().toISOString();
   const actor = requireDocumentRequestActor();
   const documentId = args.documentId ?? nanoid();
@@ -1227,6 +1234,7 @@ async function writeRowTitle(
   before: RowSnapshot,
   args: { title: string; expectedRowRevision: string },
 ) {
+  assertSourceAllowsPageEdit(before.document);
   const [updatedDocument] = await tx
     .update(schema.documents)
     .set({
@@ -1263,6 +1271,17 @@ async function updateInsideTransaction(
   },
 ) {
   const actor = requireDocumentRequestActor();
+  // The membership before the page, as a save takes them.
+  await tx
+    .update(schema.contentDatabaseItems)
+    .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.id, args.itemId),
+        eq(schema.contentDatabaseItems.databaseId, context.database.id),
+        eq(schema.contentDatabaseItems.documentId, args.documentId),
+      ),
+    );
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1279,16 +1298,6 @@ async function updateInsideTransaction(
       statusCode: 404,
     });
   }
-  await tx
-    .update(schema.contentDatabaseItems)
-    .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.id, args.itemId),
-        eq(schema.contentDatabaseItems.databaseId, context.database.id),
-        eq(schema.contentDatabaseItems.documentId, args.documentId),
-      ),
-    );
   const before = await rowSnapshot(
     tx,
     context.database.id,
@@ -2186,24 +2195,10 @@ async function patchRowsInsideTransaction(
   const actor = requireDocumentRequestActor();
   const itemIds = rows.map((row) => row.itemId);
   const documentIds = rows.map((row) => row.documentId);
-  await tx
-    .update(schema.documents)
-    .set({ updatedAt: sql`${schema.documents.updatedAt}` })
-    .where(
-      and(
-        inArray(schema.documents.id, documentIds),
-        isNull(schema.documents.trashedAt),
-      ),
-    );
-  await tx
-    .update(schema.contentDatabaseItems)
-    .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
-    .where(
-      and(
-        inArray(schema.contentDatabaseItems.id, itemIds),
-        eq(schema.contentDatabaseItems.databaseId, context.database.id),
-      ),
-    );
+  // Memberships, then pages, each by id, as saves take them. The snapshot
+  // below reports any row that's missing.
+  await lockExistingDatabaseMemberships(tx, itemIds);
+  await lockDocumentRows(tx, documentIds);
   const revisionIds = revisionPropertyIds(context);
   const before = await rowSnapshots(tx, context.database.id, rows, revisionIds);
   // Missing and stale rows share one report so a single reread covers both.

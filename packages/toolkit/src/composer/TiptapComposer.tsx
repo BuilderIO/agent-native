@@ -17,6 +17,7 @@ import {
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
@@ -1325,6 +1326,33 @@ export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   return Boolean(editor && editor.isDestroyed !== true);
 }
 
+export function focusComposerEditorWhenVisible(
+  editor: Editor | null | undefined,
+): void {
+  if (!isComposerEditorUsable(editor)) return;
+  const dom = editor.view.dom;
+  if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
+    let observer: ResizeObserver;
+    const disconnect = () => {
+      observer.disconnect();
+      editor.off("destroy", disconnect);
+    };
+    observer = new ResizeObserver(() => {
+      if (!isComposerEditorUsable(editor)) {
+        disconnect();
+        return;
+      }
+      if (isInsideHiddenShell(dom)) return;
+      disconnect();
+      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+    });
+    editor.on("destroy", disconnect);
+    observer.observe(dom);
+    return;
+  }
+  editor.commands.focus("end");
+}
+
 export function createTiptapComposerExtensions(
   getPlaceholder: () => string | undefined,
 ) {
@@ -1569,6 +1597,25 @@ export function isOpenAiModelProviderGroup(group: {
     label.includes("openai") ||
     group.models.some(isOpenAiModelId)
   );
+}
+
+const BUILDER_GROUP_SUFFIX = / · Builder\.io$/i;
+
+// The suffix is the only thing separating Builder.io credits from a group
+// billed to the user's own key for the same family, so keep it on collision.
+export function modelProviderGroupLabel(
+  group: { engine: string; label: string },
+  groups: ReadonlyArray<{ engine: string; label: string }>,
+): string {
+  const short = group.label.replace(BUILDER_GROUP_SUFFIX, "");
+  if (short === group.label) return group.label;
+  const collides = groups.some(
+    (other) =>
+      other !== group &&
+      other.label.replace(BUILDER_GROUP_SUFFIX, "").toLowerCase() ===
+        short.toLowerCase(),
+  );
+  return collides ? group.label : short;
 }
 
 const HARNESS_AGENTS_DOCS_URL =
@@ -2105,10 +2152,9 @@ function ModelSelector({
               friendlyModelName(candidate, t)) === selectedModelFriendlyName,
         ),
     );
-  const selectedModelProviderLabel = selectedModelProviderGroup?.label.replace(
-    / · Builder\.io$/i,
-    "",
-  );
+  const selectedModelProviderLabel =
+    selectedModelProviderGroup &&
+    modelProviderGroupLabel(selectedModelProviderGroup, modelProviderGroups);
   const selectedModelDisplayLabel = selectedModelHasDuplicateName
     ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
     : selectedModelFriendlyName;
@@ -2161,7 +2207,7 @@ function ModelSelector({
               ? `. Agent: ${selectedAgentLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-0 max-w-none shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-0 max-w-none shrink items-center gap-1 overflow-hidden rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
             {selectedAgentOption?.icon ? (
@@ -2654,7 +2700,10 @@ function ModelSelector({
                             {showProviderLabels && (
                               <div className="group flex items-center px-2 py-1">
                                 <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  {group.label.replace(/ · Builder\.io$/i, "")}
+                                  {modelProviderGroupLabel(
+                                    group,
+                                    visibleProviderGroups,
+                                  )}
                                 </span>
                                 {!group.configured && statusLabel && (
                                   <button
@@ -4072,20 +4121,9 @@ export function TiptapComposer({
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      if (!isComposerEditorUsable(editor)) return;
       // An editor inside a hidden session shell cannot take focus, and nothing
       // re-runs this when the shell is shown. Focus on the first size change.
-      const dom = editor.view.dom;
-      if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
-        const observer = new ResizeObserver(() => {
-          if (isInsideHiddenShell(dom)) return;
-          observer.disconnect();
-          editor.commands.focus("end");
-        });
-        observer.observe(dom);
-        return;
-      }
-      editor.commands.focus("end");
+      focusComposerEditorWhenVisible(editor);
     },
     addAttachment(file: File) {
       return addAttachmentForCurrentScope(file);

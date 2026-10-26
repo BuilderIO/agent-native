@@ -219,17 +219,6 @@
   background: var(--shiki-dark-bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) .agent-conversation-shiki pre {
-    background: var(--shiki-dark-bg, hsl(var(--muted) / 0.72));
-    color: var(--shiki-dark, hsl(var(--foreground)));
-  }
-  :root:not(.light) .agent-conversation-shiki pre span {
-    color: var(--shiki-dark);
-    background: var(--shiki-dark-bg);
-  }
-}
-
 .agent-conversation-tool {
   width: 100%;
   border: 1px solid hsl(var(--border) / 0.9);
@@ -725,18 +714,6 @@
 .dark .agent-markdown-shiki pre span {
   color: var(--shiki-dark);
   background: var(--shiki-dark-bg);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) .agent-markdown-shiki pre {
-    background: var(--shiki-dark-bg);
-    color: var(--shiki-dark);
-  }
-
-  :root:not(.light) .agent-markdown-shiki pre span {
-    color: var(--shiki-dark);
-    background: var(--shiki-dark-bg);
-  }
 }
 
 .agent-tool-code .agent-markdown-shiki {

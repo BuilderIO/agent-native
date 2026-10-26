@@ -1,6 +1,7 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { getOrgContext } from "@agent-native/core/org";
 import {
+  type AgentChatPluginOptions,
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
@@ -67,7 +68,6 @@ function hasPlanEdit(
     return (
       record?.type === "tool_done" &&
       record.completedSideEffect === true &&
-      record.isError !== true &&
       typeof record.tool === "string" &&
       PLAN_EDIT_TOOLS.has(record.tool) &&
       (input?.planId ?? input?.id) === planId
@@ -217,6 +217,6 @@ const planAgentChatOptions = {
   },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
-};
+} satisfies AgentChatPluginOptions;
 
 export default createAgentChatPlugin(planAgentChatOptions);

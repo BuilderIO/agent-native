@@ -21,6 +21,37 @@ const GROUPED_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 const EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0h30v30q10 10 20 0L0 30Z" fill="#f97316"/></svg>';
+const RESIZED_EDITABLE_SVG_WITH_SIBLING = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body style="margin:0">
+    <main style="position:relative;width:640px;height:480px">
+      <svg
+        data-agent-native-node-id="resized-pasted-svg"
+        data-agent-native-layer-name="Pasted SVG"
+        data-an-primitive="pasted-svg"
+        data-an-pen-nodes='[1,[10,10,null,null,null,null,null],[70,10,null,null,null,null,null],[70,50,null,null,null,null,null],[10,50,null,null,null,null,null]]'
+        viewBox="0 0 120 80"
+        preserveAspectRatio="none"
+        style="position:absolute;left:100px;top:100px;width:240px;height:160px;overflow:visible"
+      >
+        <path
+          data-agent-native-node-id="resized-pasted-path"
+          d="M 10 10 L 70 10 L 70 50 L 10 50 Z"
+          fill="#f97316"
+        />
+        <rect
+          data-agent-native-node-id="resized-pasted-sibling"
+          x="90"
+          y="10"
+          width="20"
+          height="20"
+          fill="#16a34a"
+        />
+      </svg>
+    </main>
+  </body>
+</html>`;
 const GROUPED_EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z" fill="#f97316"/><path d="M50 0L80 0L80 30Z" fill="#16a34a"/></g></svg>';
 const OPEN_PASTED_SVG =
@@ -283,6 +314,94 @@ test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
   await expect.poll(() => path.getAttribute("d")).toBe(editedPathData);
 });
 
+test("editing a resized pasted SVG keeps its frame and non-path sibling", async ({
+  app,
+}) => {
+  const page = app.page;
+  const { designId, screenId } = await seedScreen(
+    app,
+    RESIZED_EDITABLE_SVG_WITH_SIBLING,
+  );
+  await gotoEditor(page, designId);
+  await enterDirectMode(page);
+  await expandAllLayers(page);
+
+  const frame = designFrame(page, screenId);
+  const svg = frame.locator('svg[data-agent-native-layer-name="Pasted SVG"]');
+  const path = svg.locator("path");
+  const sibling = svg.locator("rect");
+  await expect(path).toHaveCount(1);
+  await expect(sibling).toHaveCount(1);
+  const siblingBoxBefore = await sibling.boundingBox();
+  if (!siblingBoxBefore) throw new Error("pasted SVG sibling has no bounds");
+  const originalPathData = await path.getAttribute("d");
+  const svgId = await svg.getAttribute("data-agent-native-node-id");
+  const pathId = await path.getAttribute("data-agent-native-node-id");
+  if (!originalPathData || !svgId || !pathId)
+    throw new Error("resized pasted SVG identities were not persisted");
+
+  const screenScale = await page
+    .locator(`iframe[data-screen-iframe-id="${screenId}"]`)
+    .evaluate((iframe) => {
+      const element = iframe as HTMLIFrameElement;
+      return element.getBoundingClientRect().width / element.clientWidth;
+    });
+
+  await app.settled();
+  const originalNodes = pastedPathNodes(await app.savedHtml(designId));
+  const beforeEdit = await app.savedNodes(designId);
+  const originalSvg = beforeEdit.get(svgId);
+  expect(originalSvg?.attrs.viewBox).toBe("0 0 120 80");
+  expect(styleOf(originalSvg)).toMatchObject({
+    width: "240px",
+    height: "160px",
+  });
+
+  await selectLayer(page, "Pasted SVG");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+  const anchor = page.locator("[data-vector-anchor]").nth(1);
+  const box = await anchor.boundingBox();
+  if (!box) throw new Error("resized pasted SVG anchor has no bounds");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    box.x + box.width / 2 + 18,
+    box.y + box.height / 2 + 10,
+    { steps: 4 },
+  );
+  await page.mouse.up();
+  await expect.poll(() => path.getAttribute("d")).not.toBe(originalPathData);
+  const editedPathData = await path.getAttribute("d");
+  if (!editedPathData) throw new Error("edited SVG path data is missing");
+  await expect.poll(() => app.savedHtml(designId)).toContain(editedPathData);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-vector-edit-overlay]")).toHaveCount(0);
+  await app.settled();
+
+  const afterEditSource = await app.savedHtml(designId);
+  const afterNodes = pastedPathNodes(afterEditSource);
+  const afterEdit = savedNodeMap(afterEditSource);
+  const updatedSvg = afterEdit.get(svgId);
+  expect(updatedSvg?.attrs.viewBox).toBe("0 0 120 80");
+  expect(styleOf(updatedSvg)).toMatchObject({
+    width: "240px",
+    height: "160px",
+  });
+  expectOnlyChanged(beforeEdit, afterEdit, [pathId, svgId]);
+  expect(
+    Math.abs(afterNodes[2]![0] - originalNodes[2]![0] - 18 / screenScale / 2),
+  ).toBeLessThanOrEqual(1 / screenScale / 2);
+  expect(
+    Math.abs(afterNodes[2]![1] - originalNodes[2]![1] - 10 / screenScale / 2),
+  ).toBeLessThanOrEqual(1 / screenScale / 2);
+  expect(await sibling.boundingBox()).toEqual(siblingBoxBefore);
+  expect(await sibling.getAttribute("x")).toBe("90");
+  expect(await sibling.getAttribute("y")).toBe("10");
+  expect(await sibling.getAttribute("width")).toBe("20");
+  expect(await sibling.getAttribute("height")).toBe("20");
+});
+
 test("a grouped pasted SVG edits only the selected path through undo and reload", async ({
   app,
 }, testInfo) => {
@@ -403,8 +522,7 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
     .toBe(editedTargetPath);
 });
 
-// fixme: product bug: Closing the path with the Pen tool moves the Pasted SVG layer from left:400/top:300 to left:810/top:630 (its offset applied twice), off
-test.fixme("an open pasted SVG continues from its endpoint and closes without adding a fill", async ({
+test("an open pasted SVG continues from its endpoint and closes without adding a fill", async ({
   app,
 }) => {
   const page = app.page;
@@ -683,8 +801,7 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
     .toBe(14);
 });
 
-// fixme: product bug: Closing the path moves the layer from left:400/top:300 to left:810/top:630 (the inspector shows X 810, Y 630) and it disappears off the
-test.fixme("closing an edited pasted SVG restores authored fill opacity through history and reload", async ({
+test("closing an edited pasted SVG restores authored fill opacity through history and reload", async ({
   app,
 }) => {
   const page = app.page;
@@ -840,8 +957,7 @@ test.fixme("closing an edited pasted SVG restores authored fill opacity through 
   await expect(reloadedPath).toHaveAttribute("d", /Z\s*$/i);
 });
 
-// fixme: product bug: After Enter the appended node is saved, but [data-vector-edit-overlay] stays (count 1) and the Pen tool stays active.
-test.fixme("Pen continues an open vector from its selected endpoint while editing", async ({
+test("Pen continues an open vector from its selected endpoint while editing", async ({
   app,
 }) => {
   const page = app.page;
@@ -885,7 +1001,11 @@ test.fixme("Pen continues an open vector from its selected endpoint while editin
   ).toHaveCount(2);
   expect(await app.savedHtml(designId)).toBe(originalSource);
 
-  await page.mouse.click(start.x - 30, start.y + 28);
+  const appended = {
+    x: Math.round(start.x - 30),
+    y: Math.round(start.y + 28),
+  };
+  await page.mouse.click(appended.x, appended.y);
   await expect(
     page.locator("[data-pen-path-overlay] [data-pen-anchor]"),
   ).toHaveCount(3);
@@ -900,12 +1020,11 @@ test.fixme("Pen continues an open vector from its selected endpoint while editin
   const nodes = pastedPathNodes(await app.savedHtml(designId));
   expect(nodes[1]?.slice(0, 2)).toEqual([70, 30]);
   expect(nodes[2]?.slice(0, 2)).toEqual([10, 30]);
-  expect(nodes[3]?.[0]).toBeCloseTo(10 - 30 / pathScale, 3);
-  expect(nodes[3]?.[1]).toBeCloseTo(30 + 28 / pathScale, 3);
+  expect(nodes[3]?.[0]).toBeCloseTo(10 + (appended.x - start.x) / pathScale, 1);
+  expect(nodes[3]?.[1]).toBeCloseTo(30 + (appended.y - start.y) / pathScale, 1);
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).not.toBeNull()
-test.fixme("dragging a vector segment previews its bend and commits both handles", async ({
+test("dragging a vector segment previews its bend and commits both handles", async ({
   app,
 }) => {
   const page = app.page;
@@ -940,6 +1059,7 @@ test.fixme("dragging a vector segment previews its bend and commits both handles
   await expect
     .poll(() => renderedPath.getAttribute("d"))
     .not.toBe(originalPathData);
+  await expect.poll(() => app.savedHtml(designId)).not.toBe(originalSource);
   const nodes = nestedPathNodes(await app.savedHtml(designId));
   expect(nodes[1]?.slice(0, 2)).toEqual([0, 0]);
   expect(nodes[2]?.slice(0, 2)).toEqual([100, 0]);

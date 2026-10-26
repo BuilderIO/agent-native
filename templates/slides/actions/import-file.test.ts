@@ -261,7 +261,9 @@ describe("import-file PDF source extraction", () => {
     await expect(
       action.run({ filePath: "deck.pdf", format: "pdf" }, ctx),
     ).rejects.toBe(typedError);
-    expect(mockReadUserUploadedFile).toHaveBeenCalledWith("deck.pdf", ctx);
+    expect(mockReadUserUploadedFile).toHaveBeenCalledWith("deck.pdf", ctx, {
+      expectedExtensions: [".pdf"],
+    });
   });
 
   it("fails clearly when a private raster exceeds the vision tool limit", async () => {

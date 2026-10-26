@@ -25,7 +25,12 @@ export function databaseItemCanDuplicate(
   item: ContentDatabaseItem,
   isWorkspaceCatalog: boolean,
 ) {
-  return !isWorkspaceCatalog && databaseItemHasViewerAccess(item);
+  return (
+    !isWorkspaceCatalog &&
+    databaseItemHasViewerAccess(item) &&
+    // A copy would be a row with no file behind it in a GitHub collection.
+    item.document.source?.mode !== "github"
+  );
 }
 
 export function databaseItemCanRemoveFromDatabase(args: {

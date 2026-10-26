@@ -21,6 +21,12 @@ describe("export-png", () => {
       true,
     );
     expect(action.schema.safeParse({ fileId: "file_1" }).success).toBe(true);
+    expect(
+      action.schema.safeParse({
+        fileId: "file_1",
+        sampleContactValues: [{ field: "contact.firstname", value: "Alex" }],
+      }).success,
+    ).toBe(false);
   });
 
   it("exports one selected screen through the screenshot renderer", async () => {
@@ -39,6 +45,12 @@ describe("export-png", () => {
       fileId: "file_2",
       filename: "Quarterly results.html",
       capturedAt: "2026-09-09T00:00:00.000Z",
+      preview: {
+        mode: "hubspot-email",
+        sampleValues: true,
+        substitutedTokens: ["{{ site_settings.company_name }}"],
+        unresolvedTokens: [],
+      },
       screenshots: [
         {
           viewport: { label: "desktop-900", widthPx: 900, heightPx: 600 },
@@ -56,6 +68,8 @@ describe("export-png", () => {
         filename: "index.html",
         width: 900,
         height: 600,
+        templatePreview: "hubspot-email",
+        sampleContactValues: [{ field: "contact.firstname", value: "Alex" }],
       },
       { caller: "mcp" },
     );
@@ -66,6 +80,8 @@ describe("export-png", () => {
         filename: "index.html",
         widths: [900],
         heights: [600],
+        templatePreview: "hubspot-email",
+        sampleContactValues: [{ field: "contact.firstname", value: "Alex" }],
       },
       { caller: "mcp" },
     );
@@ -78,6 +94,11 @@ describe("export-png", () => {
       mimeType: "image/png",
       diagnostics,
       _agentImages: agentImages,
+      preview: {
+        mode: "hubspot-email",
+        sampleValues: true,
+        unresolvedTokens: [],
+      },
     });
   });
 

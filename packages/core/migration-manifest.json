@@ -3330,7 +3330,7 @@
       "to": "@agent-native/core/client/sharing",
       "symbols": {
         "VisibilityBadge": {
-          "to": "@agent-native/toolkit/sharing"
+          "to": "@agent-native/toolkit/app/sharing"
         },
         "ShareButton": {
           "to": "@agent-native/toolkit/app/sharing"
@@ -3596,9 +3596,6 @@
         },
         "InvitationBannerProps": {
           "to": "@agent-native/toolkit/app/org/InvitationBanner"
-        },
-        "WorkspaceNotice": {
-          "to": "@agent-native/toolkit/app/org/WorkspaceNotice"
         },
         "TeamPageProps": {
           "to": "@agent-native/toolkit/app/org/TeamPage"
@@ -5878,9 +5875,6 @@
         },
         "InvitationBannerProps": {
           "to": "@agent-native/toolkit/app/org/InvitationBanner"
-        },
-        "WorkspaceNotice": {
-          "to": "@agent-native/toolkit/app/org/WorkspaceNotice"
         },
         "TeamPage": {
           "to": "@agent-native/toolkit/app/org/TeamPage"

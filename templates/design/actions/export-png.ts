@@ -6,6 +6,10 @@ import {
   trackDesignExported,
   withDesignExportFailureTracking,
 } from "../server/lib/design-export-tracking.js";
+import {
+  sampleContactValuesSchema,
+  type SampleContactValues,
+} from "../server/lib/hubspot-email-preview.js";
 import takeDesignScreenshot, {
   getScreenshotPngData,
 } from "./take-design-screenshot.js";
@@ -26,6 +30,8 @@ const trackPngExportFailures = withDesignExportFailureTracking<{
   filename: string;
   width?: number;
   height?: number;
+  templatePreview?: "hubspot-email";
+  sampleContactValues?: SampleContactValues;
 }>("png");
 
 export default defineAction({
@@ -33,8 +39,11 @@ export default defineAction({
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
     "and filename, to choose the screen. Returns a durable image URL; MCP " +
     "callers also receive an inline PNG preview when it fits the image limit. " +
-    "The screen is rendered " +
-    "at 1440px wide by default and full-page height.",
+    "Screens with enabled native WebGPU effects require the foreground " +
+    "request-native-local-export action in an open editor tab; this " +
+    "headless action fails typed for those screens rather than returning " +
+    "pixels without the effect. Other screens render at 1440px wide " +
+    "by default and full-page height. Optional templatePreview=hubspot-email uses fake sample template values for browser-layout proof, not HubSpot compilation or inbox rendering; source and HTML export remain unchanged.",
   schema: z
     .object({
       designId: z
@@ -53,6 +62,17 @@ export default defineAction({
         .default("index.html")
         .describe(
           "Screen filename when fileId is not provided. Defaults to index.html.",
+        ),
+      templatePreview: z
+        .literal("hubspot-email")
+        .optional()
+        .describe(
+          "Optional hubspot-email sample preview using supported template tokens/contact defaults. Omit to render raw HTML unchanged.",
+        ),
+      sampleContactValues: sampleContactValuesSchema
+        .optional()
+        .describe(
+          "Optional in-memory recipient samples, only with templatePreview=hubspot-email: an array of at most 8 unique {field, value} entries, with contact.field names and 500 characters per value. Fields must match supported personalization_token calls; unknown or unused fields fail. Omit fields to use literal defaults; saved HTML is unchanged.",
         ),
       width: z.coerce
         .number()
@@ -74,17 +94,37 @@ export default defineAction({
     .refine(({ designId, fileId }) => Boolean(designId || fileId), {
       message: "Provide designId or fileId to select a screen.",
       path: ["designId"],
-    }),
+    })
+    .refine(
+      ({ templatePreview, sampleContactValues }) =>
+        sampleContactValues === undefined ||
+        templatePreview === "hubspot-email",
+      {
+        message:
+          'sampleContactValues requires templatePreview="hubspot-email".',
+        path: ["sampleContactValues"],
+      },
+    ),
   readOnly: false,
   http: { method: "POST" },
   run: trackPngExportFailures(async (args, ctx, facts) => {
-    const { designId, fileId, filename, width, height } = args;
+    const {
+      designId,
+      fileId,
+      filename,
+      width,
+      height,
+      templatePreview,
+      sampleContactValues,
+    } = args;
     const result = await takeDesignScreenshot.run(
       {
         ...(designId ? { designId } : {}),
         ...(fileId ? { fileId } : {}),
         filename,
         widths: [width ?? 1440],
+        ...(templatePreview ? { templatePreview } : {}),
+        ...(sampleContactValues === undefined ? {} : { sampleContactValues }),
         ...(height === undefined ? {} : { heights: [height] }),
       },
       ctx,
@@ -176,6 +216,8 @@ export default defineAction({
       viewport: screenshot.viewport,
       diagnostics: screenshot.diagnostics,
       capturedAt: result.capturedAt,
+      captureTimings: result.captureTimings,
+      ...(result.preview ? { preview: result.preview } : {}),
     };
   }),
 });

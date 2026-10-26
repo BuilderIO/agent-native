@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { iconValueSchema } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -9,6 +9,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
+import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
+import { withSavedContentDatabaseItemLayout } from "../shared/database-item-layout.js";
 import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
@@ -16,11 +18,17 @@ import {
   setupAuditSummary,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
+import {
+  contentDatabaseItemLayoutSchema,
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
+  viewConfigDateFilterError,
+  withSavableItemLayout,
 } from "./_database-view-setup.js";
 import {
   parseDatabaseViewConfig,
@@ -39,23 +47,12 @@ const filterSchema = z
   .object({
     key: z.string(),
     label: z.string(),
-    operator: z.enum([
-      "contains",
-      "equals",
-      "does_not_equal",
-      "greater_than",
-      "less_than",
-      "before",
-      "after",
-      "between",
-      "is_checked",
-      "is_unchecked",
-      "is_empty",
-      "is_not_empty",
-    ]),
+    operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
     value: z.string(),
     filterGroupId: z.string().optional(),
     parentFilterGroupId: z.string().optional(),
+    filterGroupMode: z.enum(["and", "or"]).optional(),
+    parentFilterGroupMode: z.enum(["and", "or"]).optional(),
   })
   .strict();
 
@@ -126,6 +123,7 @@ const viewSchema = z
       .default("default"),
     openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
     formQuestions: z.array(formQuestionSchema).default([]),
+    itemLayout: contentDatabaseItemLayoutSchema.nullable().optional(),
   })
   .strict();
 
@@ -155,7 +153,7 @@ const guardedViewReplacementSchema = setupGuardSchema
 
 export default defineAction({
   description:
-    "Create one named ordinary table view or sparsely update one exact saved table view using stable property IDs, fresh schema and configuration revisions, and an idempotency key.",
+    "Create one named ordinary table view, or sparsely update one exact saved table view or a list view's name, icon, and row layout (itemLayout, itemLayoutPreset), using stable property IDs, fresh schema and configuration revisions, and an idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: updateContentDatabaseViewAgentSchema,
@@ -225,13 +223,33 @@ export default defineAction({
       const currentViewConfig = parseDatabaseViewConfig(
         lockedDatabase.viewConfigJson,
       );
+      const definitions = await tx
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
       const nextViewConfig = {
         ...viewConfig,
         views: viewConfig.views?.map((view) =>
-          withSavedTableColumnPresentation(view, currentViewConfig.views),
+          withSavableItemLayout(
+            withSavedContentDatabaseItemLayout(
+              withSavedTableColumnPresentation(view, currentViewConfig.views),
+              currentViewConfig.views,
+            ),
+            currentViewConfig.views.find((saved) => saved.id === view.id)
+              ?.itemLayout,
+            definitions,
+          ),
         ),
       };
       const nextViewConfigJson = serializeDatabaseViewConfig(nextViewConfig);
+      const dateError = viewConfigDateFilterError(
+        parseDatabaseViewConfig(nextViewConfigJson),
+        currentViewConfig,
+        definitions,
+      );
+      if (dateError) {
+        fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+      }
 
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");
@@ -259,7 +277,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
+      context,
+    );
   },
   link: ({ result }) => {
     const receipt = (

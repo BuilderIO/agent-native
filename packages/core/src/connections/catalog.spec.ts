@@ -156,7 +156,12 @@ describe("workspace connection provider catalog", () => {
         (provider) => provider.id,
       ),
     ).toContain("sigma");
-    expect(getWorkspaceConnectionProvider("sigma")?.oauth).toBeUndefined();
+    expect(getWorkspaceConnectionProvider("sigma")?.oauth).toMatchObject({
+      provider: "sigma",
+      authorizationUrl: "https://aws-api.sigmacomputing.com/mcp/authorize",
+      tokenUrl: "https://aws-api.sigmacomputing.com/mcp/token",
+      scopes: ["api:access"],
+    });
   });
 
   it("registers dbt's token and non-secret Semantic Layer connection settings", () => {
@@ -224,6 +229,19 @@ describe("workspace connection provider catalog", () => {
         (provider) => provider.id,
       ),
     ).toEqual(expect.arrayContaining(["slack", "github", "sentry"]));
+  });
+
+  it("offers the Slides workspace connections to Slides 2 under its own id", () => {
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("slides-2").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(["figma", "google_drive", "google_docs", "google_slides"]);
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("slides").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(["figma", "google_drive", "google_docs", "google_slides"]);
   });
 
   it("checks provider capabilities without exposing credential values", () => {

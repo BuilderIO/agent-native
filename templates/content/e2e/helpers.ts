@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import {
   expect,
+  type APIRequestContext,
   type BrowserContext,
   type Page,
   type Request,
@@ -11,12 +19,15 @@ import {
   type Route,
   type TestInfo,
 } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 
+import { AUTH_FILES } from "./auth-files";
 import {
   appendFixtureInput,
   captureFixtureInput,
   type FixtureInputSnapshot,
 } from "./editor-input-lineage";
+import { GATE_ARM } from "./gate-arm";
 import {
   SaveLineageCapture,
   type SaveLineageCheckpointName,
@@ -26,16 +37,69 @@ import {
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
-export const EDITOR = ".notion-editor.ProseMirror";
+export const EDITOR = ".content-editor.ProseMirror";
+export const ACTIVE_EDITOR = `${EDITOR}:not([hidden] *)`;
+
+export async function getActionResponse(
+  page: Page,
+  name: string,
+  params: Record<string, string>,
+) {
+  return page.request.get(`/_agent-native/actions/${name}`, {
+    params,
+    headers: ACTION_HEADERS,
+    timeout: 30_000,
+  });
+}
+
+export async function readAppState<T>(
+  page: Page,
+  key: string,
+): Promise<T | null> {
+  const response = await page.request.get(
+    `/_agent-native/application-state/${encodeURIComponent(key)}`,
+  );
+  const body = await response.text();
+  expect(
+    response.ok(),
+    `application-state (${response.status()}): ${body}`,
+  ).toBe(true);
+  return body === "" ? null : (JSON.parse(body) as T | null);
+}
 
 const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";
 const EVENTS_PATH = "/_agent-native/events";
 const POLL_PATH = "/_agent-native/poll";
+const COLLAB_UPDATE_PATH = /^\/_agent-native\/collab\/[^/]+\/update$/;
+export const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
+
+/**
+ * The request that saves a tab's typing. A legacy page saves its whole body
+ * through update-document. A page switched to its live copy sends no body
+ * saves: its collab updates are the save, and it keeps the ones the server
+ * has not acknowledged in its outbox. Gate-on tests switch their page before
+ * any tab opens it, so the arm decides.
+ */
+export const BODY_SAVES: "update-document" | "collab-update" =
+  GATE_ARM === "on" ? "collab-update" : "update-document";
+
+function savesBody(pathname: string): boolean {
+  return BODY_SAVES === "collab-update"
+    ? COLLAB_UPDATE_PATH.test(pathname)
+    : pathname === SAVE_PATH;
+}
+
+/** update-document, and on a switched page the collab updates that carry its body. */
+function isSave(request: Request): boolean {
+  if (request.method() !== "POST") return false;
+  const { pathname } = new URL(request.url());
+  return pathname === SAVE_PATH || savesBody(pathname);
+}
 
 // The text a person sees when a save did not go through cleanly. Read from
 // app/i18n-data.ts; a renamed string makes these needles go quiet, so the
@@ -53,6 +117,73 @@ export const RECOVERY_UI = [
   "Something went wrong",
 ];
 
+export interface SignInResult {
+  loginStatus: number;
+  loginError?: string;
+  registerStatus?: number;
+  registerError?: string;
+  sessionEmail?: string;
+  firstRunStatus?: number;
+}
+
+/**
+ * Sign the request's browser context in as `email`, registering the account
+ * the first time this database sees it, and complete first-run so its survey
+ * does not cover the page. Every call goes through the request client: the
+ * sign-in page reloads once a session appears, which destroys a page script
+ * still awaiting the login.
+ */
+export async function signInAccount(
+  request: APIRequestContext,
+  baseURL: string,
+  account: { email: string; password: string; name: string },
+): Promise<SignInResult> {
+  const headers = {
+    Origin: new URL(baseURL).origin,
+    Referer: new URL("/sign-in", baseURL).href,
+  };
+  const credentials = { email: account.email, password: account.password };
+  const logIn = () =>
+    request.post("/_agent-native/auth/login", { data: credentials, headers });
+  let login = await logIn();
+  const result: SignInResult = { loginStatus: login.status() };
+  if (!login.ok()) {
+    const register = await request.post("/_agent-native/auth/register", {
+      data: { ...credentials, name: account.name, callbackURL: "/" },
+      headers,
+    });
+    result.registerStatus = register.status();
+    if (!register.ok())
+      result.registerError = (await register.text()).slice(0, 300);
+    login = await logIn();
+    result.loginStatus = login.status();
+    if (!login.ok()) result.loginError = (await login.text()).slice(0, 300);
+  }
+  const session = await request.get(SESSION_PATH, {
+    headers: { Accept: "application/json" },
+  });
+  if (session.ok())
+    result.sessionEmail = ((await session.json()) as { email?: string }).email;
+  if (login.ok()) {
+    const firstRun = await request.post(
+      "/_agent-native/onboarding/first-run/complete",
+      { data: {}, headers },
+    );
+    result.firstRunStatus = firstRun.status();
+  }
+  return result;
+}
+
+/**
+ * Actions that need approval run over HTTP only for the signed-in app UI, which
+ * proves itself with this capability cookie. A spec that calls one directly
+ * mints it first, as the app's client does before its writes.
+ */
+export async function presentUiCapability(page: Page): Promise<void> {
+  const response = await page.request.get("/_agent-native/ui-capability");
+  expect(response.ok(), `ui-capability (${response.status()})`).toBe(true);
+}
+
 export async function postAction<T = Record<string, unknown>>(
   page: Page,
   name: string,
@@ -66,6 +197,30 @@ export async function postAction<T = Record<string, unknown>>(
   const text = await response.text();
   expect(response.ok(), `${name} (${response.status()}): ${text}`).toBe(true);
   return JSON.parse(text) as T;
+}
+
+/**
+ * POST a uiOnly action the way the app UI does. The server answers those only
+ * for a same-origin request carrying the capability cookie that
+ * /_agent-native/ui-capability sets; without either it refuses with 403
+ * ui_capability_required, which the caller must see as a failure.
+ */
+export async function postUiAction(
+  page: Page,
+  name: string,
+  data: Record<string, unknown>,
+) {
+  const capability = await page.request.get("/_agent-native/ui-capability", {
+    headers: ACTION_HEADERS,
+  });
+  expect(
+    capability.ok(),
+    `ui-capability (${capability.status()}): ${await capability.text()}`,
+  ).toBe(true);
+  return page.request.post(`/_agent-native/actions/${name}`, {
+    data,
+    headers: { ...ACTION_HEADERS, Origin: new URL(capability.url()).origin },
+  });
 }
 
 export async function getDocument(page: Page, id: string) {
@@ -158,13 +313,18 @@ export class Markers {
 }
 
 /** Open a page and wait until its editor accepts input. */
-export async function gotoEditor(page: Page, id: string): Promise<void> {
+export async function gotoEditor(
+  page: Page,
+  id: string,
+  { tabs, label = "editor" }: { tabs?: TabSet; label?: string } = {},
+): Promise<void> {
+  if (tabs) await tabs.track(label, page);
   await page.goto(`/page/${id}`, { waitUntil: "domcontentloaded" });
   await expectEditorReady(page);
 }
 
 export async function expectEditorReady(page: Page): Promise<void> {
-  await expect(page.locator(EDITOR)).toHaveAttribute(
+  await expect(page.locator(ACTIVE_EDITOR)).toHaveAttribute(
     "contenteditable",
     "true",
     { timeout: 60_000 },
@@ -235,6 +395,33 @@ const OBSERVER = `
 })();
 `;
 
+const CLIENT_SAVE_PATH =
+  /^\/_agent-native\/(?:actions\/update-document|collab\/[^/]+\/update)$/;
+
+// Counts the saves a tab's own code still awaits. A save the tab gives up on,
+// such as one its collab client aborts and resends, leaves this count even when
+// the browser never reports a response for it, which a count of intercepted
+// requests cannot tell from a save still on its way.
+const PENDING_SAVES = `
+(() => {
+  const save = new RegExp(${JSON.stringify(CLIENT_SAVE_PATH.source)});
+  const send = globalThis.fetch;
+  globalThis.__pendingSaves = 0;
+  globalThis.fetch = function (input, init) {
+    const request = input instanceof Request ? input : null;
+    const method = String(init?.method ?? request?.method ?? "GET").toUpperCase();
+    const url = new URL(request ? request.url : String(input), location.href);
+    if (method !== "POST" || !save.test(url.pathname))
+      return send.apply(this, arguments);
+    globalThis.__pendingSaves++;
+    const settle = () => { globalThis.__pendingSaves--; };
+    const sent = send.apply(this, arguments);
+    sent.then(settle, settle);
+    return sent;
+  };
+})();
+`;
+
 export type SaveOutcome =
   | "written"
   | "replayed"
@@ -253,8 +440,13 @@ export interface TabRecord {
   errorToasts: string[];
   saveRequests: number;
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
-  /** Refusal codes, and the reason the server gave for a History diversion. */
+  /**
+   * Refusal codes, the reason the server gave for a History diversion, and
+   * `stranded` for a save still in flight when its page went away.
+   */
   saveCodes: Record<string, number>;
+  /** Answers to aborted saves, which already count once in `saveOutcomes`. */
+  lateSaveOutcomes: Partial<Record<SaveOutcome, number>>;
   saveLineage: SaveLineageEvent[];
   saveLineageDropped: number;
   inputLineage: FixtureInputSnapshot[];
@@ -275,6 +467,7 @@ function emptyTab(label: string): TabRecord {
     saveRequests: 0,
     saveOutcomes: {},
     saveCodes: {},
+    lateSaveOutcomes: {},
     saveLineage: [],
     saveLineageDropped: 0,
     inputLineage: [],
@@ -296,7 +489,10 @@ function pageOf(request: Request): Page | null {
   }
 }
 
-export async function classifySave(response: Response): Promise<{
+/** A save's answer as the tab got it, or as a SaveGate fetched it to hold. */
+type SaveAnswer = Pick<Response, "ok" | "status" | "text">;
+
+export async function classifySave(response: SaveAnswer): Promise<{
   outcome: SaveOutcome;
   code?: string;
   bodyState: "absent" | "invalid" | "valid";
@@ -351,6 +547,35 @@ export async function classifySave(response: Response): Promise<{
   return { outcome: "written", bodyState, body };
 }
 
+/** The save-code prefix of a collab update the server did not build the body from. */
+export const NOT_DERIVED = "live-copy:not_derived:";
+
+/**
+ * A collab update's answer on a switched page. The tab drops an update from
+ * its outbox only on a readable acknowledgment, and `not_derived` sends it
+ * back to update-document saves for the rest of the visit.
+ */
+async function classifyCollabUpdate(
+  response: SaveAnswer,
+): Promise<{ outcome: SaveOutcome; code?: string }> {
+  if (!response.ok())
+    return { outcome: "refused", code: `HTTP ${response.status()}` };
+  let ack: { liveCopy?: unknown; liveCopyReason?: unknown } | null;
+  try {
+    ack = JSON.parse(await response.text()) as typeof ack;
+  } catch {
+    // coercion-ok: the tab keeps and resends an update whose acknowledgment it
+    // cannot read, so the tally counts it as refused, under its own code.
+    return { outcome: "refused", code: "collab-update:unreadable-ack" };
+  }
+  if (ack?.liveCopy === "not_derived")
+    return {
+      outcome: "written",
+      code: `${NOT_DERIVED}${String(ack.liveCopyReason ?? "no reason")}`,
+    };
+  return { outcome: "written" };
+}
+
 export function isCollabPollQuery(params: URLSearchParams): boolean {
   const since = params.get("since");
   const cursor = params.has("cursor");
@@ -365,11 +590,15 @@ function refuseRealtimeStream(route: Route) {
   return route.fulfill({ status: 204, body: "" });
 }
 
+// A SaveGate asks its context's TabSet whether a save it holds is still awaited.
+const tabSets = new WeakMap<BrowserContext, TabSet>();
+
 /**
  * One browser context with the tabs a scenario opens. Every tab gets the
  * visibility shim and the observer. Unless the server already refuses it, every
  * realtime stream request is answered 204, as a Netlify function answers it,
  * so both tabs fall back to the 12 s poll that beta and production run on.
+ * Saves are counted and timed as `BODY_SAVES` describes.
  */
 export class TabSet {
   readonly tabs = new Map<Page, TabRecord>();
@@ -382,7 +611,20 @@ export class TabSet {
     { record: TabRecord; entry: UpdateDocumentRequestLineage }
   >();
   private readonly activeSaveLineage = new Set<UpdateDocumentRequestLineage>();
-  private savesInFlight = 0;
+  private readonly inFlight = new Set<Request>();
+  private readonly recordsByRequest = new WeakMap<Request, TabRecord>();
+  // Once a tab's document is gone, Playwright drops the saves it had in flight:
+  // no answer or failure event follows, and a SaveGate's continue() or fulfill()
+  // resolves. The set numbers each tab's documents so it can settle them itself.
+  private readonly documents = new WeakMap<Page, number>();
+  private readonly documentOf = new WeakMap<
+    Request,
+    { tab: Page; document: number }
+  >();
+  private readonly stranded = new WeakSet<Request>();
+  private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
+  private readonly answered = new WeakSet<Request>();
+  private readonly fetching = new Set<Request>();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -391,8 +633,10 @@ export class TabSet {
     { refuseRealtime = true }: { refuseRealtime?: boolean } = {},
   ): Promise<TabSet> {
     const set = new TabSet(context);
+    tabSets.set(context, set);
     await context.addInitScript(TAB_VISIBILITY);
     await context.addInitScript(OBSERVER);
+    await context.addInitScript(PENDING_SAVES);
     await context.exposeBinding(
       "__convergenceReport",
       ({ page }, kind: string, detail: string) =>
@@ -411,13 +655,28 @@ export class TabSet {
 
   async open(label: string, id: string, page?: Page): Promise<Page> {
     const tab = page ?? (await this.context.newPage());
+    await this.track(label, tab);
+    await gotoEditor(tab, id);
+    return tab;
+  }
+
+  async track(label: string, tab: Page): Promise<void> {
     this.tabs.set(tab, emptyTab(label));
     tab.on("load", () => {
       const record = this.tabs.get(tab);
       if (record) record.loads++;
     });
-    await gotoEditor(tab, id);
-    return tab;
+    this.documents.set(tab, 0);
+    // Playwright's framenavigated also fires for a same-page history change,
+    // and a navigation that never commits (a 204 answer, a download) leaves the
+    // document in place. Chromium's frameNavigated fires only when a new
+    // document commits; a same-page change is navigatedWithinDocument instead.
+    const cdp = await this.context.newCDPSession(tab);
+    cdp.on("Page.frameNavigated", ({ frame }) => {
+      if (!frame.parentId) this.leaveDocument(tab);
+    });
+    await cdp.send("Page.enable");
+    tab.on("close", () => this.leaveDocument(tab));
   }
 
   record(page: Page): TabRecord {
@@ -463,9 +722,28 @@ export class TabSet {
       .toBeGreaterThanOrEqual(count);
   }
 
+  /**
+   * Wait until everything a tab has typed is saved. A legacy tab saves it in
+   * one debounced save. A switched tab sends its collab updates one at a
+   * time, so its first can be answered while the rest still wait to go; its
+   * typing is saved once its outbox is empty.
+   */
+  async waitForTypingSaved(page: Page, documentId: string): Promise<void> {
+    await this.waitForSaveAnswers(page, 1);
+    if (BODY_SAVES === "update-document") return;
+    await expect
+      .poll(() => outboxEntries(page, documentId), {
+        message: `${this.record(page).label}'s outbox should empty once its updates are answered`,
+        timeout: 30_000,
+      })
+      .toEqual([]);
+  }
+
   /** Wait until an open tab's editor shows text another tab or agent wrote. */
   async waitForText(page: Page, text: string): Promise<void> {
-    await expect(page.locator(EDITOR)).toContainText(text, { timeout: 30_000 });
+    await expect(page.locator(ACTIVE_EDITOR)).toContainText(text, {
+      timeout: 30_000,
+    });
   }
 
   /** Wait for every classified save response the tabs have produced. */
@@ -485,7 +763,7 @@ export class TabSet {
       contentHash: document.contentHash,
       bodyRevision: document.bodyRevision,
       revision: document.revision,
-      savesInFlight: this.savesInFlight,
+      savesInFlight: this.inFlight.size,
       pendingRequestOrders: [...this.activeSaveLineage]
         .map((entry) => entry.order)
         .sort((left, right) => left - right),
@@ -493,18 +771,152 @@ export class TabSet {
   }
 
   /**
-   * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
-   * off its save in flight, which is a race of its own; without this wait the
-   * refresh check races whichever save the tab sent last.
+   * Wait until every open tab's client awaits no save and has no outbox
+   * update, and no save is on the wire or being fetched at a gate. Reloading
+   * before both settle would race the refresh check with the last save.
    */
   async quiet(): Promise<void> {
     await expect
-      .poll(() => this.savesInFlight, {
-        message: "saves still in flight after the scenario ended",
-        timeout: CONVERGENCE_DEADLINE_MS,
-      })
-      .toBe(0);
+      .poll(
+        async () => [...(await this.unsettledClients()), ...this.unanswered()],
+        {
+          message:
+            "a client, outbox or save answer is still pending after the scenario ended",
+          timeout: CONVERGENCE_DEADLINE_MS,
+        },
+      )
+      .toEqual([]);
     await this.settled();
+  }
+
+  private async unsettledClients(): Promise<string[]> {
+    const unsettled: string[] = [];
+    for (const [page, record] of this.tabs) {
+      if (page.isClosed()) continue;
+      const state = await page
+        .evaluate((prefix) => {
+          let outbox = 0;
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (key?.startsWith(prefix) && localStorage.getItem(key)) outbox++;
+          }
+          const pending = (globalThis as { __pendingSaves?: unknown })
+            .__pendingSaves;
+          return {
+            pending: typeof pending === "number" ? pending : null,
+            outbox,
+          };
+        }, OUTBOX_PREFIX)
+        .catch((error: unknown) => String(error).slice(0, 120));
+      if (typeof state === "string")
+        unsettled.push(`${record.label}: unreadable (${state})`);
+      else if (state.pending === null)
+        unsettled.push(`${record.label}: its save counter never loaded`);
+      else if (state.pending > 0 || state.outbox > 0)
+        unsettled.push(
+          `${record.label}: ${state.pending} saves awaited, ${state.outbox} outbox entries`,
+        );
+    }
+    return unsettled;
+  }
+
+  /** True once a save's page went away with the save in flight. */
+  isStranded(request: Request): boolean {
+    return this.stranded.has(request);
+  }
+
+  /**
+   * Fetch the answer to a save a SaveGate holds, and keep it. If the save
+   * already settled, the set records the answer as late instead.
+   * The fetch outlives the save's page, so `quiet()` waits for it either way.
+   */
+  async fetchAnswer<T extends SaveAnswer>(
+    request: Request,
+    fetch: () => Promise<T>,
+  ): Promise<T> {
+    this.recordOf(request);
+    this.fetching.add(request);
+    try {
+      const answer = await fetch();
+      if (!this.inFlight.has(request)) this.recordAnswer(request, answer);
+      else this.heldAnswers.set(request, answer);
+      return answer;
+    } finally {
+      this.fetching.delete(request);
+    }
+  }
+
+  /** Settle as stranded every save a tab's departing document had in flight. */
+  private leaveDocument(tab: Page) {
+    const document = this.documents.get(tab) ?? 0;
+    this.documents.set(tab, document + 1);
+    for (const request of this.inFlight) {
+      const sender = this.documentOf.get(request);
+      if (sender?.tab !== tab || sender.document !== document) continue;
+      this.stranded.add(request);
+      this.settleAborted(request, "stranded");
+    }
+  }
+
+  /**
+   * Settle a save as aborted, never as answered: its request failed, or its
+   * page went away with the save in flight, which `code` names.
+   */
+  private settleAborted(request: Request, code?: string) {
+    if (!this.inFlight.delete(request)) return;
+    const record = this.recordOf(request);
+    record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
+    if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+    const lineage = this.lineageByRequest.get(request);
+    if (lineage) {
+      this.activeSaveLineage.delete(lineage.entry);
+      this.saveLineage.failRequest(lineage.entry);
+    }
+    const answer = this.heldAnswers.get(request);
+    if (answer) this.recordAnswer(request, answer);
+  }
+
+  /**
+   * The saves still on the wire or held at a gate, including stranded saves
+   * whose answer a gate is still fetching, and whose they are.
+   */
+  private unanswered(): string[] {
+    const now = Date.now();
+    return [...new Set([...this.inFlight, ...this.fetching])].map(
+      (request) =>
+        `${this.recordOf(request).label}'s ${this.stranded.has(request) ? "stranded " : ""}save sent ${now - (this.sentAt.get(request) ?? now)} ms ago`,
+    );
+  }
+
+  private recordOf(request: Request): TabRecord {
+    const record = this.recordsByRequest.get(request);
+    if (!record) throw new Error("save answer has no tracked request");
+    return record;
+  }
+
+  diagnosticSnapshot() {
+    const activeLineageOrders = [...this.activeSaveLineage]
+      .map((entry) => entry.order)
+      .sort((left, right) => left - right);
+
+    return {
+      savesInFlight: this.inFlight.size,
+      pendingAnswerFetches: this.fetching.size,
+      unanswered: this.unanswered(),
+      retainedLineageInFlight: activeLineageOrders.length,
+      unmatchedSavesInFlight: this.inFlight.size - activeLineageOrders.length,
+      activeLineageOrders,
+      tabs: [...this.tabs.values(), this.detached].map((record) => ({
+        label: record.label,
+        saveRequests: record.saveRequests,
+        saveOutcomes: record.saveOutcomes,
+        saveCodes: record.saveCodes,
+        lateSaveOutcomes: record.lateSaveOutcomes,
+        saveLineage: record.saveLineage,
+        saveLineageDropped: record.saveLineageDropped,
+        saveDurationsMs: record.saveDurationsMs,
+      })),
+    };
   }
 
   private observe(page: Page, kind: string, detail: string) {
@@ -529,11 +941,19 @@ export class TabSet {
     const url = new URL(request.url());
     const page = pageOf(request);
     const record = (page && this.tabs.get(page)) || this.detached;
-    if (url.pathname === SAVE_PATH && request.method() === "POST") {
+    if (isSave(request)) {
+      if (this.recordsByRequest.has(request)) return;
       record.saveRequests++;
-      this.savesInFlight++;
+      this.inFlight.add(request);
       this.sentAt.set(request, Date.now());
-      const entry = this.saveLineage.captureRequest(record, request.postData());
+      this.recordsByRequest.set(request, record);
+      const document = page ? this.documents.get(page) : undefined;
+      if (page && document !== undefined)
+        this.documentOf.set(request, { tab: page, document });
+      const entry =
+        url.pathname === SAVE_PATH
+          ? this.saveLineage.captureRequest(record, request.postData())
+          : undefined;
       if (entry) {
         this.lineageByRequest.set(request, { record, entry });
         this.activeSaveLineage.add(entry);
@@ -557,17 +977,42 @@ export class TabSet {
       if (response.status() === 200) record.realtimeStreams++;
       return;
     }
-    if (pathname !== SAVE_PATH || request.method() !== "POST") return;
-    this.savesInFlight--;
+    if (!isSave(request)) return;
+    this.recordAnswer(request, response);
+  }
+
+  private recordAnswer(request: Request, answer: SaveAnswer) {
+    // A reload racing a gate's release can deliver both the gate's held copy
+    // of an answer and the tab's own; the first one is the save's answer.
+    if (this.answered.has(request)) return;
+    const record = this.recordOf(request);
+    this.answered.add(request);
+    this.heldAnswers.delete(request);
+    // A save settled as aborted already counted once. Its answer
+    // is still the server's word on it, so a History diversion stays noise.
+    const late = !this.inFlight.delete(request);
     const sentAt = this.sentAt.get(request);
-    if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
+    if (
+      !late &&
+      sentAt !== undefined &&
+      savesBody(new URL(request.url()).pathname)
+    )
+      record.saveDurationsMs.push(Date.now() - sentAt);
+    if (new URL(request.url()).pathname !== SAVE_PATH) {
+      this.pending.push(
+        classifyCollabUpdate(answer).then(({ outcome, code }) =>
+          tallySave(record, outcome, code, late),
+        ),
+      );
+      return;
+    }
     const lineage = this.lineageByRequest.get(request);
     const lineageResponse = lineage
-      ? this.saveLineage.beginResponse(lineage.entry, response.status())
+      ? this.saveLineage.beginResponse(lineage.entry, answer.status())
       : undefined;
     if (lineage) this.activeSaveLineage.delete(lineage.entry);
     this.pending.push(
-      classifySave(response).then(({ outcome, code, bodyState, body }) => {
+      classifySave(answer).then(({ outcome, code, bodyState, body }) => {
         if (lineage && lineageResponse)
           this.saveLineage.finishResponse(
             lineage.entry,
@@ -575,38 +1020,36 @@ export class TabSet {
             bodyState,
             bodyState === "valid" ? body : undefined,
           );
-        record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
-        if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+        tallySave(record, outcome, code, late);
       }),
     );
   }
 
   private onRequestFailed(request: Request) {
-    if (
-      new URL(request.url()).pathname !== SAVE_PATH ||
-      request.method() !== "POST"
-    )
-      return;
-    this.savesInFlight--;
-    const page = pageOf(request);
-    const record = (page && this.tabs.get(page)) || this.detached;
-    record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
-    const lineage = this.lineageByRequest.get(request);
-    if (lineage) {
-      this.activeSaveLineage.delete(lineage.entry);
-      this.saveLineage.failRequest(lineage.entry);
-    }
+    if (!isSave(request)) return;
+    this.settleAborted(request);
   }
 }
 
+function tallySave(
+  record: TabRecord,
+  outcome: SaveOutcome,
+  code?: string,
+  late = false,
+) {
+  const outcomes = late ? record.lateSaveOutcomes : record.saveOutcomes;
+  outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
+  if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+}
+
 type Held = { release: () => Promise<void> };
-type HeldSave = Held & { cutOff: () => Promise<void> };
+type HeldSave = Held & { request: Request; cutOff: () => Promise<void> };
 
 /**
- * Controls when one tab's saves reach the server and when their answers
- * reach the tab. Holding at arrival keeps a save unsent; holding the answer
- * lets the server apply it while the tab still thinks it is in flight. Both
- * make a race happen in the same order on every run.
+ * Controls when one tab's body saves (see `BODY_SAVES`) reach the server and
+ * when their answers reach the tab. Holding at arrival keeps a save unsent;
+ * holding the answer lets the server apply it while the tab still thinks it is
+ * in flight. Both make a race happen in the same order on every run.
  */
 export class SaveGate {
   private mode: "pass" | "arrival" | "answer" = "pass";
@@ -614,12 +1057,17 @@ export class SaveGate {
   private queue: HeldSave[] = [];
   heldCount = 0;
 
-  private constructor(private readonly page: Page) {}
+  private constructor(
+    private readonly page: Page,
+    private readonly tabs: TabSet,
+  ) {}
 
   static async install(page: Page): Promise<SaveGate> {
-    const gate = new SaveGate(page);
+    const tabs = tabSets.get(page.context());
+    if (!tabs) throw new Error("a SaveGate's page must belong to a TabSet");
+    const gate = new SaveGate(page, tabs);
     await page.route(
-      (url) => url.pathname === SAVE_PATH,
+      (url) => savesBody(url.pathname),
       (route) => gate.handle(route),
     );
     return gate;
@@ -643,12 +1091,12 @@ export class SaveGate {
   }
 
   get queued(): number {
-    return this.queue.length;
+    return this.held().length;
   }
 
   async waitForHeld(count = 1): Promise<void> {
     await expect
-      .poll(() => this.queue.length, {
+      .poll(() => this.held().length, {
         message: `a save should be held at the gate`,
         timeout: 30_000,
       })
@@ -657,7 +1105,7 @@ export class SaveGate {
 
   /** Let every held save through, in the order the tab sent them. */
   async release(): Promise<void> {
-    const held = this.queue;
+    const held = this.held();
     this.queue = [];
     for (const item of held) await item.release();
   }
@@ -667,38 +1115,57 @@ export class SaveGate {
    * request fail, whether or not the server applied it.
    */
   async cutOff(): Promise<void> {
-    const held = this.queue;
+    const held = this.held();
     this.queue = [];
     for (const item of held) await item.cutOff();
   }
 
+  /** The held saves, without any whose page has since gone away. */
+  private held(): HeldSave[] {
+    this.queue = this.queue.filter(
+      (item) => !this.tabs.isStranded(item.request),
+    );
+    return this.queue;
+  }
+
   private async handle(route: Route) {
-    if (route.request().method() !== "POST") return route.continue();
+    const request = route.request();
+    if (request.method() !== "POST") return route.continue();
     if (this.latencyMs > 0) await delay(this.latencyMs);
+    // A save whose page went away is settled, and Playwright has dropped it.
+    if (this.tabs.isStranded(request)) return;
     if (this.mode === "arrival") {
       this.heldCount++;
       this.queue.push({
-        release: () => forward(() => route.continue()),
-        cutOff: () => forward(() => route.abort("aborted")),
+        request,
+        release: () => this.send(request, () => route.continue()),
+        cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
     if (this.mode === "answer") {
-      this.heldCount++;
       let response: Awaited<ReturnType<Route["fetch"]>>;
       try {
-        response = await route.fetch();
+        response = await this.tabs.fetchAnswer(request, () => route.fetch());
       } catch (error) {
         if (this.page.isClosed()) return;
         throw error;
       }
+      if (this.tabs.isStranded(request)) return;
+      this.heldCount++;
       this.queue.push({
-        release: () => forward(() => route.fulfill({ response })),
-        cutOff: () => forward(() => route.abort("aborted")),
+        request,
+        release: () => this.send(request, () => route.fulfill({ response })),
+        cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
-    await forward(() => route.continue());
+    await this.send(request, () => route.continue());
+  }
+
+  /** Pass on a save unless its page went away, which settled it already. */
+  private async send(request: Request, step: () => Promise<void>) {
+    if (!this.tabs.isStranded(request)) await forward(step);
   }
 }
 
@@ -759,6 +1226,34 @@ async function forward(send: () => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * The outbox keys a switched page holds in this browser: collab updates the
+ * server has not acknowledged, one entry per connection. Tabs of one browser
+ * share it, and an entry leaves once its updates are acknowledged.
+ */
+export async function outboxEntries(
+  page: Page,
+  documentId: string,
+): Promise<string[]> {
+  return page.evaluate(
+    ({ prefix, doc }) => {
+      const keys: string[] = [];
+      for (let index = 0; index < localStorage.length; index++) {
+        const key = localStorage.key(index);
+        if (
+          key?.startsWith(prefix) &&
+          key.includes(doc) &&
+          localStorage.getItem(key)
+        )
+          keys.push(key);
+      }
+      return keys;
+    },
+    // A key names the doc as encodeURIComponent(`${baseUrl}\0${docId}`).
+    { prefix: OUTBOX_PREFIX, doc: `%00${encodeURIComponent(documentId)}:` },
+  );
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -773,7 +1268,7 @@ export async function typeAtParagraphEnd(
     const snapshot = await page.evaluate(captureFixtureInput, {
       phase,
       text,
-      editor: EDITOR,
+      editor: ACTIVE_EDITOR,
     });
     if (!snapshot) return;
     await page.evaluate((detail) => {
@@ -786,39 +1281,93 @@ export async function typeAtParagraphEnd(
     }, JSON.stringify(snapshot));
   };
   await capture("before-caret");
-  await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
-  // "End" stops at a wrapped visual line; place the caret at the true end.
+  await page
+    .locator(`${ACTIVE_EDITOR} > p`, { hasText: anchor })
+    .first()
+    .click();
+  // "End" stops at a wrapped visual line, and a caret set only in the DOM is
+  // lost when a remote update re-renders before ProseMirror reads it: the
+  // keys then land where the click put them. Set it in the editor's state.
   await page.evaluate(
     ({ needle, editor }) => {
-      const paragraph = [...document.querySelectorAll(`${editor} > p`)].find(
-        (element) => element.textContent?.includes(needle),
-      );
-      if (!paragraph) throw new Error(`No paragraph contains ${needle}`);
-      const walker = document.createTreeWalker(
-        paragraph,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode: (node) =>
-            node.parentElement?.closest(
-              "[class*='caret'],[class*='collaboration']",
-            )
-              ? NodeFilter.FILTER_REJECT
-              : NodeFilter.FILTER_ACCEPT,
-        },
-      );
-      let last: Text | null = null;
-      while (walker.nextNode()) last = walker.currentNode as Text;
-      if (!last) throw new Error(`No text in ${needle}`);
-      const range = document.createRange();
-      range.setStart(last, last.length);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
+      const tiptap = (
+        document.querySelector(editor) as (Element & { editor?: Editor }) | null
+      )?.editor;
+      if (!tiptap) throw new Error(`No TipTap editor on ${editor}`);
+      const { doc } = tiptap.state;
+      for (let index = 0, offset = 0; index < doc.childCount; index++) {
+        const node = doc.child(index);
+        if (
+          node.type.name === "paragraph" &&
+          node.textContent.includes(needle)
+        ) {
+          tiptap.commands.setTextSelection(offset + node.nodeSize - 1);
+          tiptap.view.focus();
+          return;
+        }
+        offset += node.nodeSize;
+      }
+      throw new Error(`No paragraph contains ${needle}`);
     },
-    { needle: anchor, editor: EDITOR },
+    { needle: anchor, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
   await capture("after-input");
+  await expectTypedAtEnd(page, anchor, text);
+}
+
+/**
+ * Stop when the keys typed into a paragraph do not end it: a marker typed
+ * into another breaks both, and the counts after would report a loss. The
+ * text alone cannot say whether the caret moved before the keys landed or
+ * the editor moved them after, so the error names neither as the cause.
+ */
+async function expectTypedAtEnd(
+  page: Page,
+  anchor: string,
+  text: string,
+): Promise<void> {
+  // A space typed at a paragraph's end can arrive as a no-break space.
+  const spaced = (value: string) => value.replace(/\s/g, " ");
+  const typed = spaced(text);
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const read = await page.evaluate(
+      ({ needle, editor }) => {
+        const tiptap = (
+          document.querySelector(editor) as
+            | (Element & { editor?: Editor })
+            | null
+        )?.editor;
+        if (!tiptap) throw new Error(`No TipTap editor on ${editor}`);
+        const { doc } = tiptap.state;
+        let paragraph: string | null = null;
+        for (
+          let index = 0;
+          index < doc.childCount && paragraph === null;
+          index++
+        ) {
+          const node = doc.child(index);
+          if (
+            node.type.name === "paragraph" &&
+            node.textContent.includes(needle)
+          )
+            paragraph = node.textContent;
+        }
+        return { paragraph, body: doc.textContent };
+      },
+      { needle: anchor, editor: ACTIVE_EDITOR },
+    );
+    if (read.paragraph !== null && spaced(read.paragraph).endsWith(typed))
+      return;
+    if (Date.now() > deadline)
+      throw new Error(
+        spaced(read.body).includes(typed.trim())
+          ? `The keys typed for ${JSON.stringify(typed)} are in the editor, but the paragraph containing ${JSON.stringify(anchor)} does not end with them: it reads ${JSON.stringify(read.paragraph)}. Either the caret moved before they landed or the editor moved them after.`
+          : `The editor does not hold the keys typed for ${JSON.stringify(typed)} at all; the paragraph containing ${JSON.stringify(anchor)} reads ${JSON.stringify(read.paragraph)}.`,
+      );
+    await delay(50);
+  }
 }
 
 /** Select `text` in the editor and delete it with the keyboard, as a person would. */
@@ -845,10 +1394,10 @@ export async function deleteEditorText(
       }
       throw new Error(`The editor has no text node containing ${needle}`);
     },
-    { needle: text, editor: EDITOR },
+    { needle: text, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.press("Backspace");
-  await expect(page.locator(EDITOR)).not.toContainText(text);
+  await expect(page.locator(ACTIVE_EDITOR)).not.toContainText(text);
 }
 
 export function countMarkers(
@@ -861,6 +1410,27 @@ export function countMarkers(
 }
 
 const MCP_TOKENS_PATH = "/_agent-native/mcp/connect/tokens";
+
+// The run's one shared connector, written by global setup and revoked by
+// global teardown. The device flow allows 20 starts a minute per server, and
+// the token list cannot tell apart tokens two workers mint at once, so specs
+// that call many tools share this connection instead of each making one.
+const SHARED_CONNECTOR_FILE = AUTH_FILES.connector;
+
+interface SharedConnector {
+  headers: Record<string, string>;
+  tokenId: string | null;
+}
+
+function readSharedConnector(): SharedConnector | null {
+  if (!existsSync(SHARED_CONNECTOR_FILE)) return null;
+  const saved = JSON.parse(
+    readFileSync(SHARED_CONNECTOR_FILE, "utf8"),
+  ) as Partial<SharedConnector>;
+  if (!saved.headers || !Object.keys(saved.headers).length)
+    throw new Error(`${SHARED_CONNECTOR_FILE} names no connector headers`);
+  return { headers: saved.headers, tokenId: saved.tokenId ?? null };
+}
 
 async function activeMcpTokenIds(page: Page): Promise<Set<string>> {
   const response = await page.request.get(MCP_TOKENS_PATH);
@@ -944,6 +1514,35 @@ export class AgentClient {
     return new AgentClient(page, headers, minted[0]);
   }
 
+  /** Connect the run's shared connector; only global setup calls this. */
+  static async connectShared(page: Page): Promise<void> {
+    const agent = await AgentClient.connect(page);
+    const saved: SharedConnector = {
+      headers: agent.connectorHeaders,
+      tokenId: agent.tokenId,
+    };
+    writeFileSync(SHARED_CONNECTOR_FILE, JSON.stringify(saved));
+  }
+
+  /** The connector global setup made, acting through this test's page. */
+  static shared(page: Page): AgentClient {
+    const saved = readSharedConnector();
+    if (!saved)
+      throw new Error(
+        `No shared MCP connector: global setup writes ${SHARED_CONNECTOR_FILE}.`,
+      );
+    // No token id: a test's disconnect() leaves the shared token alone.
+    return new AgentClient(page, saved.headers, null);
+  }
+
+  /** Revoke the shared connector; only global teardown calls this. */
+  static async revokeShared(page: Page): Promise<void> {
+    const saved = readSharedConnector();
+    if (!saved) return;
+    await new AgentClient(page, saved.headers, saved.tokenId).disconnect();
+    rmSync(SHARED_CONNECTOR_FILE);
+  }
+
   /** Connect, apply one edit, and revoke the connection even if the edit fails. */
   static async editOnce(
     page: Page,
@@ -974,29 +1573,30 @@ export class AgentClient {
     ).toBe(false);
   }
 
-  /** Apply one find/replace and fail unless the server reports it applied. */
-  async edit(id: string, find: string, replace: string): Promise<void> {
-    const { revision } = await getDocument(this.page, id);
+  /**
+   * Call one tool over the MCP transport, exactly as a connector does, and
+   * return what the connector would see: the tool's text and whether the
+   * server marked it an error. Transport failures fail the test.
+   */
+  async call(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpToolResult> {
     const response = await this.page.request.post("/_agent-native/mcp", {
       headers: {
         ...this.connectorHeaders,
         Accept: "application/json, text/event-stream",
         "mcp-protocol-version": "2026-07-28",
         "mcp-method": "tools/call",
-        "mcp-name": "edit-document",
+        "mcp-name": name,
       },
       data: {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
         params: {
-          name: "edit-document",
-          arguments: {
-            id,
-            baseRevision: revision,
-            idempotencyKey: `${id}-${find}-${Date.now()}`,
-            edits: [{ find, replace }],
-          },
+          name,
+          arguments: args,
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientInfo": {
@@ -1009,7 +1609,7 @@ export class AgentClient {
       },
     });
     const raw = await response.text();
-    expect(response.ok(), `edit-document over MCP: ${raw}`).toBe(true);
+    expect(response.ok(), `${name} over MCP: ${raw}`).toBe(true);
     const payload = raw.trimStart().startsWith("{")
       ? JSON.parse(raw)
       : JSON.parse(
@@ -1019,19 +1619,91 @@ export class AgentClient {
             .map((line) => line.slice("data:".length))
             .join(""),
         );
-    expect(payload.result?.isError, `edit-document over MCP: ${raw}`).not.toBe(
-      true,
-    );
+    expect(payload.error, `${name} over MCP: ${raw}`).toBeUndefined();
     const text = payload.result?.content?.[0]?.text;
-    expect(typeof text, `edit-document over MCP returned no text: ${raw}`).toBe(
+    expect(typeof text, `${name} over MCP returned no text: ${raw}`).toBe(
       "string",
     );
-    const receipt = JSON.parse(text) as { applied?: number; total?: number };
-    expect(
-      receipt.applied,
-      `edit-document applied ${receipt.applied} of ${receipt.total}: ${text}`,
-    ).toBe(receipt.total);
+    const structured = payload.result?.structuredContent;
+    return {
+      isError: payload.result?.isError === true,
+      text,
+      structured:
+        structured && typeof structured === "object" ? structured : null,
+      raw,
+    };
   }
+
+  /**
+   * Call a tool that must succeed and return the object a connector can read
+   * from it: its structured content, or its text when that is JSON. A tool
+   * that answers with prose alone fails here, naming the prose.
+   */
+  async callJson<T = Record<string, any>>(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<T> {
+    const result = await this.call(name, args);
+    expect(result.isError, `${name} over MCP: ${result.raw}`).toBe(false);
+    if (result.structured) return result.structured as T;
+    try {
+      return JSON.parse(result.text) as T;
+    } catch {
+      throw new Error(
+        `${name} over MCP returned prose, not a result object: ${result.text}`,
+      );
+    }
+  }
+
+  /**
+   * Create a page as a connector does. create-document may answer with a
+   * one-line summary rather than a result object; a connector then finds the
+   * new page's id in the summary's link, and so does this.
+   */
+  async createPage(
+    title: string,
+    content: string,
+  ): Promise<{ id: string; result: McpToolResult }> {
+    const result = await this.call("create-document", { title, content });
+    expect(result.isError, result.raw).toBe(false);
+    return { id: createdPageId(result), result };
+  }
+
+  /** Apply one find/replace and fail unless the server reports it applied. */
+  async edit(id: string, find: string, replace: string): Promise<void> {
+    const { revision } = await getDocument(this.page, id);
+    const receipt = await this.callJson<{ applied?: number; total?: number }>(
+      "edit-document",
+      {
+        id,
+        baseRevision: revision,
+        idempotencyKey: `${id}-${find}-${Date.now()}`,
+        edits: [{ find, replace }],
+      },
+    );
+    expect(
+      { applied: receipt.applied, total: receipt.total },
+      `edit-document receipt: ${JSON.stringify(receipt)}`,
+    ).toEqual({ applied: 1, total: 1 });
+  }
+}
+
+export interface McpToolResult {
+  isError: boolean;
+  text: string;
+  /** The tool's `structuredContent`, when it sent one. */
+  structured: Record<string, unknown> | null;
+  raw: string;
+}
+
+/** The id of the page a successful create-document over MCP made. */
+export function createdPageId(result: McpToolResult): string {
+  const id =
+    (typeof result.structured?.id === "string" && result.structured.id) ||
+    result.text.match(/"id":\s*"([\w-]+)"/)?.[1] ||
+    result.text.match(/\/page\/([\w-]+)/)?.[1];
+  if (!id) throw new Error(`create-document named no page: ${result.raw}`);
+  return id;
 }
 
 export interface IntegrityObservation {
@@ -1064,7 +1736,7 @@ function judge(
 }
 
 async function editorText(page: Page): Promise<string> {
-  return page.locator(EDITOR).innerText();
+  return page.locator(ACTIVE_EDITOR).innerText();
 }
 
 const CONVERGENCE_DEADLINE_MS = 45_000;
@@ -1126,6 +1798,8 @@ export async function observeIntegrity(
   await tabs.quiet();
   tabs.captureReadback("before-refresh", id, await getDocument(reader, id));
   for (const page of open) {
+    // Reloading a peer can start another tab's save after the earlier check.
+    await tabs.quiet();
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
   }
@@ -1133,10 +1807,18 @@ export async function observeIntegrity(
 
   await tabs.quiet();
   tabs.captureReadback("before-close", id, await getDocument(reader, id));
-  for (const page of open) await page.close();
+  for (const page of open) {
+    await tabs.quiet();
+    await page.close();
+  }
+  await tabs.quiet();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
+  await tabs.quiet();
   await alone.close();
+  // Closing the tabs strands any save they sent after the last wait, and a
+  // gate may still be fetching its answer; the record must include it.
+  await tabs.quiet();
   return observations;
 }
 
@@ -1146,10 +1828,15 @@ export interface ScenarioRecord {
   tags: string[];
   notes: Record<string, unknown>;
   build: string;
+  /** The side of the D2 live-body gate the scenario ran on. */
+  gate: "off" | "on";
   authoredEdits: number;
   markers: number;
   durationMs: number;
-  integrity: IntegrityObservation[];
+  /** Null when the scenario stopped early, before the page was observed. */
+  integrity: IntegrityObservation[] | null;
+  /** Why the scenario stopped before its last step, if it did. */
+  stoppedEarly?: string;
   tabs: TabRecord[];
 }
 
@@ -1172,6 +1859,8 @@ export function integrityProblem(entry: IntegrityObservation): boolean {
 }
 
 export function integrityFailures(record: ScenarioRecord): string[] {
+  if (record.integrity === null)
+    return [`${record.scenario} stopped before its page was observed`];
   return record.integrity
     .filter(integrityProblem)
     .map(
@@ -1190,6 +1879,10 @@ export function noiseFailures(tabs: readonly TabRecord[]): string[] {
     ...HISTORY_OUTCOMES.filter((outcome) => tab.saveOutcomes[outcome]).map(
       (outcome) =>
         `${tab.label} had ${tab.saveOutcomes[outcome]} saves ${outcome}`,
+    ),
+    ...HISTORY_OUTCOMES.filter((outcome) => tab.lateSaveOutcomes[outcome]).map(
+      (outcome) =>
+        `${tab.label} had ${tab.lateSaveOutcomes[outcome]} stranded saves ${outcome}`,
     ),
   ]);
 }

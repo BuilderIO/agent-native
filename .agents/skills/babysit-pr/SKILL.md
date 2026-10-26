@@ -19,16 +19,20 @@ follow-up. Do not use PR leases.
 
 A request to monitor or fix a PR does not authorize pushing to a PR authored by
 someone else. Push to that PR only when the user explicitly authorizes a push to
-that exact PR in the current request. A linked PR or inherited general ship
-authorization is insufficient. That permits only a push; merging that PR needs
-separate authorization in the current request. Before an authorized push,
-verify the live PR author, head repository, branch, head OID, and base; recheck
-the head before every normal fast-forward push.
+that exact PR in the active task. A linked PR or inherited general ship
+authorization is insufficient. Once given, exact-PR authorization persists
+across resumed turns, heartbeats, and context compaction until its scope is
+complete or revoked; do not ask again for a covered step. It permits a normal
+fast-forward push; merge still needs explicit authorization for that PR.
+Follow `AGENTS.md` for authorization persistence. Before an authorized push,
+verify the live PR author, head
+repository, branch, head OID, and base; recheck the head before every normal
+fast-forward push.
 
 Before each push, resolve the active GitHub login with `gh api user --jq .login`,
 include `author` in the live PR query, and compare `author.login` with that
-login. If they differ, require the current-request authorization for that exact
-PR.
+login. If they differ, require the user's exact-PR authorization from this
+active task.
 
 Determine comment authorization from the live PR author before drafting or
 posting any PR communication. On a PR authored by the active user, concise
@@ -139,10 +143,12 @@ an unexpected merge without rotating.
    resolve and test, then recheck the live head before pushing normally to the
    same remote and ref. Never retry the same stale push, rebase, or force-push.
    If peer or unpublished work or unresolvable conflicts block recovery,
-   preserve state and report exact blockers. Never
-   update from `origin/main` unless GitHub reports a confirmed `CONFLICTING`
-   PR; then use a normal merge, never a rebase. A behind count or pending
-   checks are not conflicts. Guard PR merges with
+   preserve state and report exact blockers. During an explicitly authorized
+   `/ship` for this same PR, also update from `origin/main` when a failing
+   required check is traced to a fix already on that branch, even if GitHub
+   reports `MERGEABLE`. In either case, use a normal merge, never a rebase; the
+   local tree must be clean and HEAD must exactly match the live PR head. A
+   behind count or pending checks alone are not a reason to sync. Guard PR merges with
    `--match-head-commit <live_head_oid>`; a stale-head rejection is a retry
    signal, not a reason to stop the requested work.
 3. Track the last actionable item: new human/bot feedback, a CI fix, conflict
@@ -226,10 +232,12 @@ can change within minutes, so re-check before every actionable push.
 
 **Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work gets lost. If you see local changes you don't recognize, preserve them for their owner; do not hide them in a stash or commit them here.
 
-**Step 1 — check for merge conflicts:**
+**Step 1 — check whether a main sync is needed:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. First inspect the worktree
+2. If `CONFLICTING`, or an authorized `/ship` needs a confirmed required-check
+   fix already on `origin/main`, bring `main` in and resolve. Do not ask for
+   another approval for this safe update. First inspect the worktree
    and unpushed commits; do not run the merge until the publishable-path check
    `git status --short -- . ':(exclude)learnings.md' ':(exclude)bridge/**'
    ':(exclude)data/**'` and the branch-specific unpublished-commit check in
@@ -268,10 +276,10 @@ can change within minutes, so re-check before every actionable push.
    timer. If unrelated or incomplete concurrent work keeps the worktree dirty,
    preserve it and wait for its owner instead of stashing, restoring, or
    forcing the merge. Do not merge `origin/main` again while the PR is
-   `MERGEABLE` or `UNKNOWN`, or while checks are merely pending; a conflict-free
-   PR does not need another main sync. Merge from main only to resolve a
-   confirmed conflict. Because this branch is shared, use a normal merge;
-   never rebase.
+   `MERGEABLE` or `UNKNOWN`, or while checks are merely pending, unless the
+   confirmed required-check repair case above applies. Merge from main only to
+   resolve a confirmed conflict or bring in that repair. Because this branch
+   may be shared, use a normal merge; never rebase.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 ## Latest-feedback handoff
