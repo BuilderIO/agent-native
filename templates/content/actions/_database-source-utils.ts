@@ -165,7 +165,7 @@ import {
   withPositionLock,
 } from "./_position-utils.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
-import { lockDocumentRows } from "./_row-lock-order.js";
+import { lockDocumentRows, sortRowIds } from "./_row-lock-order.js";
 import { isEffectivelyEmptyDocumentContent } from "./update-document.js";
 
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
@@ -2470,8 +2470,9 @@ async function processBuilderBodyHydrationJob(
   if (!hasBody(nextValues, nextContent)) {
     const attempts = row.attempts;
     await db.transaction(async (tx) => {
-      // The membership before the queue row and the page, as enqueue and a
-      // save take them.
+      // The collection, then the membership before the queue row and the
+      // page, as binding a field, enqueue and a save take them.
+      await lockSourceCollections(tx, [row.sourceId]);
       await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
       const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
         row,
@@ -2503,6 +2504,9 @@ async function processBuilderBodyHydrationJob(
           await markPendingIfReplaced();
           return;
         }
+        await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
+          row.documentId,
+        ]);
         const [document] = await tx
           .select({ content: schema.documents.content })
           .from(schema.documents)
@@ -2512,8 +2516,9 @@ async function processBuilderBodyHydrationJob(
         const writtenEntry = {
           ...emptyBodyRead.entry,
           updatedAt: emptyBodyRead.entry.updatedAt ?? now,
-          // The page keeps its body here, edited or not. Builder returned this
-          // body, so the review can offer to push the page's body over it.
+          // Only a row that stores no Builder body gets here: a body Builder
+          // emptied comes back known-empty and is written like any other. The
+          // page keeps its body, and the review can offer to push it.
           sourceValues: withBodyReadEditConflict({
             previousValues: sourceValues,
             nextValues: {
@@ -2655,40 +2660,13 @@ async function processBuilderBodyHydrationJob(
     });
     return;
   }
-  const documentContent =
-    preloaded?.documentContent != null
-      ? preloaded.documentContent
-      : (
-          await db
-            .select({ content: schema.documents.content })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, row.documentId))
-        )[0]?.content;
   const previousContent =
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
-  const currentContent = documentContent ?? "";
-  const shouldWriteBody =
-    currentContent === "" ||
-    isEffectivelyEmptyDocumentContent(currentContent) ||
-    currentContent === previousContent ||
-    currentContent.trim() === "" ||
-    builderBodyIsRawPlaceholderOnly(currentContent) ||
-    builderBodyHasLegacyPreservedComponentPlaceholders(currentContent) ||
-    builderBodyNeedsSourceComponentWrite({
-      currentContent,
-      nextContent,
-    });
-  nextValues = withBodyReadEditConflict({
-    previousValues: sourceValues,
-    nextValues,
-    bodyKept: !shouldWriteBody,
-    localContent: currentContent,
-    nextContent,
-  });
   let wroteBody = false;
   await db.transaction(async (tx) => {
-    // The membership before the queue row and the page, as enqueue and a
-    // save take them.
+    // The collection, then the membership before the queue row and the page,
+    // as binding a field, enqueue and a save take them.
+    await lockSourceCollections(tx, [row.sourceId]);
     await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
     const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
       row,
@@ -2721,6 +2699,35 @@ async function processBuilderBodyHydrationJob(
       await markPendingIfReplaced();
       return;
     }
+    // Whether the page keeps its body, and whether that is flagged, rests on
+    // the body as it stands under the page's lock.
+    await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
+      row.documentId,
+    ]);
+    const [document] = await tx
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
+    const documentContent = document?.content;
+    const currentContent = documentContent ?? "";
+    const shouldWriteBody =
+      currentContent === "" ||
+      isEffectivelyEmptyDocumentContent(currentContent) ||
+      currentContent === previousContent ||
+      currentContent.trim() === "" ||
+      builderBodyIsRawPlaceholderOnly(currentContent) ||
+      builderBodyHasLegacyPreservedComponentPlaceholders(currentContent) ||
+      builderBodyNeedsSourceComponentWrite({
+        currentContent,
+        nextContent,
+      });
+    nextValues = withBodyReadEditConflict({
+      previousValues: sourceValues,
+      nextValues,
+      bodyKept: !shouldWriteBody,
+      localContent: currentContent,
+      nextContent,
+    });
     if (shouldWriteBody) {
       const contentCas =
         isEffectivelyEmptyDocumentContent(currentContent) &&
@@ -2871,11 +2878,29 @@ function withBodyReadEditConflict(args: {
 }
 
 /**
+ * Takes the collections' locks for these sources, as binding and unbinding a
+ * field take them, so the field mappings read afterwards stay current until
+ * commit. Take it before the rows' membership locks.
+ */
+async function lockSourceCollections(tx: any, sourceIds: string[]) {
+  const sources = await tx
+    .select({ databaseId: schema.contentDatabaseSources.databaseId })
+    .from(schema.contentDatabaseSources)
+    .where(inArray(schema.contentDatabaseSources.id, sortRowIds(sourceIds)));
+  for (const databaseId of sortRowIds(
+    sources.map((source: { databaseId: string }) => source.databaseId),
+  )) {
+    await lockContentDatabaseMutation(tx, databaseId);
+  }
+}
+
+/**
  * A live body read also returns Builder's current field values and title,
  * which can be newer than the refresh that queued it. The row's properties
  * and page title follow them as a refresh's do; otherwise the next refresh
- * would take a value left behind for Content's edit. Call it under the rows'
- * membership locks, after their source rows are written.
+ * would take a value left behind for Content's edit. Call it under
+ * `lockSourceCollections` and the rows' membership locks, after their source
+ * rows are written.
  */
 async function materializeBodyReadFieldValues(
   tx: any,
@@ -3145,8 +3170,13 @@ async function persistPristineBuilderBodyHydrationsInBulk(
         const queueOwnership = batch.map(({ job }) =>
           builderBodyHydrationQueueOwnershipFilter(job),
         );
-        // Memberships, then pages, each by id, as saves take them; the
-        // writes below take pages first and in scan order.
+        // Collections, memberships, then pages, each by id, as binding a
+        // field and saves take them; the writes below take pages first and in
+        // scan order.
+        await lockSourceCollections(
+          tx,
+          batch.map((row) => row.job.sourceId),
+        );
         await lockExistingDatabaseMemberships(
           tx,
           batch.map((row) => row.job.databaseItemId),
@@ -6495,8 +6525,8 @@ export async function replaceMockSourceRows(args: {
   existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
   builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
   documentIds?: string[];
-  /** The source's fields, to write the refreshed values into properties. */
-  fields?: ContentDatabaseSourceFieldRowDb[];
+  /** Writes the refreshed values into the source's mapped properties. */
+  materializeFields?: boolean;
 }) {
   if (args.sourceType === "builder-cms") {
     await ensureBuilderStatusProperty({
@@ -6507,6 +6537,11 @@ export async function replaceMockSourceRows(args: {
   const db = getDb();
   const lockRows = mockSourceRowsForSeed(args);
   await db.transaction(async (tx) => {
+    // Before the memberships, as binding and unbinding a field take it, so
+    // the mappings read below stay current until the refresh commits.
+    if (args.materializeFields) {
+      await lockSourceCollections(tx, [args.sourceId]);
+    }
     const scope = args.documentIds?.length
       ? and(
           eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
@@ -6560,13 +6595,18 @@ export async function replaceMockSourceRows(args: {
         now: args.now,
       });
     }
-    if (args.fields && rows.length > 0) {
+    if (args.materializeFields && rows.length > 0) {
       // Under the membership lock, so a property saved during the refresh's
       // Builder read is compared, not overwritten.
       await materializeSourceFieldPropertyValues({
         database: { ownerEmail: args.ownerEmail },
         sourceId: args.sourceId,
-        fields: args.fields,
+        fields: await tx
+          .select()
+          .from(schema.contentDatabaseSourceFields)
+          .where(
+            eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId),
+          ),
         documentIds: rows.map((row) => row.documentId),
         now: args.now,
         db: tx,
@@ -8104,12 +8144,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         existingBuilderRows,
         builderEntriesByDocumentId,
         documentIds: fetchedDocumentIds,
-        fields: await db
-          .select()
-          .from(schema.contentDatabaseSourceFields)
-          .where(
-            eq(schema.contentDatabaseSourceFields.sourceId, args.source.id),
-          ),
+        materializeFields: true,
       });
       await enqueueBuilderBodyHydrationForItems({
         sourceId: args.source.id,
@@ -8220,10 +8255,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     now: args.now,
     existingBuilderRows,
     builderEntriesByDocumentId,
-    fields: await db
-      .select()
-      .from(schema.contentDatabaseSourceFields)
-      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id)),
+    materializeFields: true,
   });
   if (builderRead.state === "live") {
     await enqueueBuilderBodyHydrationForItems({

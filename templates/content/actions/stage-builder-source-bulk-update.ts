@@ -325,9 +325,10 @@ type LockedSourceRow = {
 
 /**
  * Locks the rows a stage writes, re-reads their open review items, and checks
- * each row still has the Builder value and Content value the stage read. A
- * push starts under the database lock and needs its change set still
- * approved, so it either shows up as running here or finds its item changed.
+ * the field still has the mapping, and each row the Builder value and Content
+ * value, that the stage read. A push starts under the database lock and needs
+ * its change set still approved, so it either shows up as running here or
+ * finds its item changed.
  */
 async function lockRowsForStage(args: {
   db: ReturnType<typeof getDb>;
@@ -380,6 +381,30 @@ async function lockRowsForStage(args: {
     [args.sourceId],
     openChangeSets.map((changeSet) => changeSet.id),
   );
+  // Binding and unbinding a field take the same lock.
+  const [lockedField] = await db
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      localFieldKey: schema.contentDatabaseSourceFields.localFieldKey,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceFields.id, args.field.id),
+        eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId),
+      ),
+    );
+  if (
+    lockedField?.propertyId !== args.propertyId ||
+    lockedField.localFieldKey !== args.field.localFieldKey ||
+    lockedField.sourceFieldKey !== args.field.sourceFieldKey
+  ) {
+    fail(
+      "The field's mapping changed while this update was staging. Choose the field and stage it again.",
+      { errorCode: "builder_bulk_stage_field_changed", statusCode: 409 },
+    );
+  }
   const sourceRows = (
     await db
       .select({

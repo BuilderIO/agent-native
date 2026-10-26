@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -9,6 +9,7 @@ import type {
   ContentDatabaseResponsePayload,
   ReviewContentDatabaseSourceChangeSetRequest,
 } from "../shared/api.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSourceForWrite,
   resolveDatabaseForSourceMutation,
@@ -92,9 +93,36 @@ export default defineAction({
     const reviewerEmail =
       getRequestUserEmail() ?? "agent-runtime@agent-native.local";
 
-    await getDb()
-      .insert(schema.contentDatabaseSourceChangeReviews)
-      .values({
+    await getDb().transaction(async (tx) => {
+      const db = tx as unknown as ReturnType<typeof getDb>;
+      // Staging and pushes change review items under this lock. The decision
+      // applies only to the item as the reviewer read it.
+      await lockContentDatabaseMutation(db, database.id);
+      const [decided] = await db
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          state: stateTo,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id),
+            eq(schema.contentDatabaseSourceChangeSets.state, changeSet.state),
+            eq(
+              schema.contentDatabaseSourceChangeSets.updatedAt,
+              changeSet.updatedAt,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+      if (!decided) {
+        fail(
+          "This change set changed while it was being reviewed. Review it again.",
+          { errorCode: "source_change_set_changed", statusCode: 409 },
+        );
+      }
+
+      await db.insert(schema.contentDatabaseSourceChangeReviews).values({
         id: crypto.randomUUID(),
         ownerEmail: database.ownerEmail,
         sourceId: source.id,
@@ -107,18 +135,11 @@ export default defineAction({
         createdAt: now,
       });
 
-    await getDb()
-      .update(schema.contentDatabaseSourceChangeSets)
-      .set({
-        state: stateTo,
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id));
-
-    await getDb()
-      .update(schema.contentDatabaseSources)
-      .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
+      await db
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(eq(schema.contentDatabaseSources.id, source.id));
+    });
 
     return contentDatabaseResponseForCaller(
       await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),

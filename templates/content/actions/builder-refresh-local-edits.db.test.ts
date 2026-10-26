@@ -23,7 +23,7 @@ const SPACE_ID = "space_local_edits";
 const builder = vi.hoisted(() => ({
   entries: new Map<
     string,
-    { title: string; author: string; updatedAt: string }
+    { title: string; author: string; topic?: string; updatedAt: string }
   >(),
   // Builder can leave out the time an entry last changed.
   bodyReadOmitsUpdateTime: false,
@@ -38,7 +38,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
   >("./_builder-cms-read-client.js");
   const toEntry = (
     id: string,
-    entry: { title: string; author: string; updatedAt: string },
+    entry: { title: string; author: string; topic?: string; updatedAt: string },
   ) => ({
     id,
     model: MODEL,
@@ -49,6 +49,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       "data.title": entry.title,
       "data.url": `/blog/${id}`,
       "data.author": entry.author,
+      ...(entry.topic === undefined ? {} : { "data.topic": entry.topic }),
       lastUpdated: entry.updatedAt,
       published: "draft",
     },
@@ -172,6 +173,26 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
     async lockExistingDatabaseMemberships(tx: any, itemIds: string[]) {
       await membershipLock.onLockExisting?.(tx);
       return actual.lockExistingDatabaseMemberships(tx, itemIds);
+    },
+  };
+});
+
+const databaseLock = vi.hoisted(() => ({
+  beforeNextLock: null as null | ((tx: any) => Promise<void>),
+}));
+
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    async lockContentDatabaseMutation(tx: any, databaseId: string) {
+      const beforeLock = databaseLock.beforeNextLock;
+      databaseLock.beforeNextLock = null;
+      await beforeLock?.(tx);
+      return actual.lockContentDatabaseMutation(tx, databaseId);
     },
   };
 });
@@ -310,8 +331,10 @@ async function hydrateBody(entryId: string, body: string | null) {
         "data.author": entry.author,
         lastUpdated: updatedAt,
         published: "draft",
-        // Without a body the job reads the live entry.
+        // Without a body the job reads the live entry. An empty one is how
+        // Builder's read of an emptied body comes back.
         ...(body === null ? {} : { [BUILDER_CMS_BODY_CONTENT_KEY]: body }),
+        ...(body === "" ? { [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0 } : {}),
       },
     },
     now: updatedAt,
@@ -697,6 +720,157 @@ it.each(["blocks", "blocksString"] as const)(
   },
 );
 
+it("empties a body Content didn't edit when Builder empties it, and keeps an edited one", async () => {
+  for (const id of ["entry-emptied-unedited", "entry-emptied-edited"]) {
+    builder.entries.set(id, { title: id, author: "Ed", updatedAt: tick() });
+  }
+  await refresh();
+  await hydrateBody("entry-emptied-unedited", "Body E");
+  await hydrateBody("entry-emptied-edited", "Body F");
+  await editBody("entry-emptied-edited", "Body F, mine");
+  for (const id of ["entry-emptied-unedited", "entry-emptied-edited"]) {
+    await hydrateBody(id, "");
+  }
+
+  expect(await localBody("entry-emptied-unedited")).toBe("");
+  expect(await editConflicts("entry-emptied-unedited")).toBe("none");
+  expect(await pendingEdit("entry-emptied-unedited")).toBeNull();
+  expect(await localBody("entry-emptied-edited")).toBe("Body F, mine");
+  expect(await editConflicts("entry-emptied-edited")).toEqual([
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  ]);
+});
+
+it("flags a body edit saved while the body read waited for its locks", async () => {
+  const id = "entry-body-saved-meanwhile";
+  builder.entries.set(id, { title: id, author: "Mo", updatedAt: tick() });
+  await refresh();
+  await hydrateBody(id, "Body P");
+  const documentId = await documentIdFor(id);
+  let saved = false;
+  membershipLock.onLockExisting = async (tx) => {
+    const queued = await tx
+      .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+      .from(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        eq(schema.contentDatabaseBodyHydrationQueue.documentId, documentId),
+      );
+    // Only the read's own transaction finds the job queued.
+    if (saved || queued.length === 0) return;
+    saved = true;
+    await tx
+      .update(schema.documents)
+      .set({ content: "Body mine", updatedAt: tick() })
+      .where(eq(schema.documents.id, documentId));
+  };
+  try {
+    await hydrateBody(id, "Body N");
+  } finally {
+    membershipLock.onLockExisting = null;
+  }
+
+  expect(saved).toBe(true);
+  expect(await localBody(id)).toBe("Body mine");
+  expect(await editConflicts(id)).toEqual([BUILDER_CMS_BODY_CONTENT_KEY]);
+});
+
+it("doesn't put back a field's values when it is unbound before the refresh writes its rows", async () => {
+  const db = getDb();
+  const now = tick();
+  const topicPropertyId = "prop_local_edits_topic";
+  const topicFieldId = "field_local_edits_topic";
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id: topicPropertyId,
+    ownerEmail: OWNER,
+    databaseId: DATABASE_ID,
+    name: "Topic",
+    type: "text",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceFields).values({
+    id: topicFieldId,
+    ownerEmail: OWNER,
+    sourceId: SOURCE_ID,
+    propertyId: topicPropertyId,
+    localFieldKey: topicPropertyId,
+    sourceFieldKey: "data.topic",
+    sourceFieldLabel: "Topic",
+    sourceFieldType: "text",
+    mappingType: "property",
+    writeOwner: "source",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const topicValues = async () =>
+    db
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, topicPropertyId));
+  const id = "entry-unbound-meanwhile";
+  try {
+    builder.entries.set(id, {
+      title: id,
+      author: "Una",
+      topic: "Sync",
+      updatedAt: tick(),
+    });
+    await refresh();
+    expect(await topicValues()).not.toEqual([]);
+
+    editInBuilder(id, { author: "Una B" });
+    const [beforeRefresh] = await db
+      .select({ lastSyncedAt: schema.contentDatabaseSourceFields.lastSyncedAt })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+    // What unbinding the field writes, committed after the refresh synced
+    // its fields and before it writes the rows. Body reads the refresh runs
+    // first take the same lock.
+    let unbound = false;
+    const unbindOnceSynced = async (tx: any) => {
+      const [field] = await tx
+        .select({
+          lastSyncedAt: schema.contentDatabaseSourceFields.lastSyncedAt,
+        })
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+      if (field.lastSyncedAt === beforeRefresh.lastSyncedAt) {
+        databaseLock.beforeNextLock = unbindOnceSynced;
+        return;
+      }
+      unbound = true;
+      await tx
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, topicPropertyId));
+      await tx
+        .update(schema.contentDatabaseSourceFields)
+        .set({ propertyId: null, localFieldKey: "data.topic" })
+        .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+    };
+    databaseLock.beforeNextLock = unbindOnceSynced;
+    try {
+      await refresh();
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    expect(unbound).toBe(true);
+    expect(await topicValues()).toEqual([]);
+    expect(await localAuthor(id)).toBe("Una B");
+  } finally {
+    builder.entries.set(id, { ...builder.entries.get(id)!, topic: undefined });
+    await db
+      .delete(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, topicPropertyId));
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, topicFieldId));
+    await db
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, topicPropertyId));
+  }
+});
+
 it("moves unedited properties to the values a bulk body read brings and flags an edited one", async () => {
   const ids = Array.from({ length: 20 }, (_, index) => `entry-bulk-${index}`);
   for (const id of ids) {
@@ -804,22 +978,34 @@ it("keeps the title's conflict apart from a property mapped to Builder's title",
   }
 });
 
-it("locks the membership before the hydration queue row, as enqueue does", async () => {
+it("locks the collection, then the membership before the hydration queue row, as binding a field and enqueue do", async () => {
   const id = "entry-lock-order";
   builder.entries.set(id, { title: id, author: "Lou", updatedAt: tick() });
   await refresh();
   const documentId = await documentIdFor(id);
   // Whether the hydration's transaction already wrote the queue row when it
-  // took the membership lock.
+  // took the membership lock, and whether it held the collection's lock.
   const queueRowWrittenFirst: boolean[] = [];
+  const collectionLockedFirst: boolean[] = [];
   membershipLock.onLockExisting = async (tx) => {
     const result = await tx.execute(
       sql`select xmin::text = (txid_current() % 4294967296)::text as written
         from content_database_body_hydration_queue
         where document_id = ${documentId}`,
     );
-    for (const row of result.rows ?? result) {
+    const rows = result.rows ?? result;
+    for (const row of rows) {
       queueRowWrittenFirst.push(row.written);
+    }
+    // Enqueueing finds no job yet; only the read's own transaction does.
+    if (rows.length === 0) return;
+    const collection = await tx.execute(
+      sql`select xmin::text = (txid_current() % 4294967296)::text as locked
+        from content_databases
+        where id = ${DATABASE_ID}`,
+    );
+    for (const row of collection.rows ?? collection) {
+      collectionLockedFirst.push(row.locked);
     }
   };
   try {
@@ -832,4 +1018,6 @@ it("locks the membership before the hydration queue row, as enqueue does", async
 
   expect(queueRowWrittenFirst.length).toBeGreaterThanOrEqual(2);
   expect(queueRowWrittenFirst).not.toContain(true);
+  expect(collectionLockedFirst.length).toBeGreaterThanOrEqual(2);
+  expect(collectionLockedFirst).not.toContain(false);
 });

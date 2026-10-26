@@ -57,6 +57,26 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
   };
 });
 
+const databaseLock = vi.hoisted(() => ({
+  beforeNextLock: null as null | (() => Promise<void>),
+}));
+
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    async lockContentDatabaseMutation(tx: any, databaseId: string) {
+      const beforeLock = databaseLock.beforeNextLock;
+      databaseLock.beforeNextLock = null;
+      await beforeLock?.();
+      return actual.lockContentDatabaseMutation(tx, databaseId);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `stage-builder-source-bulk-update-${process.pid}-${Date.now()}.pglite`,
@@ -69,6 +89,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let stageBulkUpdate: typeof import("./stage-builder-source-bulk-update.js").default;
 let prepareReview: typeof import("./prepare-builder-source-review.js").default;
+let reviewChangeSet: typeof import("./review-content-database-source-change-set.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -80,6 +101,9 @@ beforeAll(async () => {
   stageBulkUpdate = (await import("./stage-builder-source-bulk-update.js"))
     .default;
   prepareReview = (await import("./prepare-builder-source-review.js")).default;
+  reviewChangeSet = (
+    await import("./review-content-database-source-change-set.js")
+  ).default;
 }, 60000);
 
 afterAll(() => {
@@ -680,6 +704,140 @@ describe("stage-builder-source-bulk-update", () => {
         proposedValue: "Retitled",
       }),
     ]);
+  });
+
+  it("keeps a staged value up for review when its review item is rejected while the stage waits", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    snapshotRead.after = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({ state: "rejected", updatedAt: new Date().toISOString() })
+        .where(
+          eq(
+            schema.contentDatabaseSourceChangeSets.id,
+            `change_${seeded.sourceId.slice("src_".length)}`,
+          ),
+        );
+    };
+    let response: Awaited<ReturnType<typeof stageBulkUpdate.run>>;
+    try {
+      response = await asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value: "Architects" },
+          dryRun: false,
+        }),
+      );
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    // The review rebuilds an item from the staged value.
+    expect(
+      response.review?.rows.map((reviewRow) => ({
+        documentId: reviewRow.documentId,
+        proposedValue: reviewRow.fieldChanges[0]?.proposedValue,
+      })),
+    ).toEqual([{ documentId: row.documentId, proposedValue: "Architects" }]);
+  });
+
+  it("refuses to stage when the field is unbound after the stage read it", async () => {
+    const seeded = await seedBuilderDatabase({});
+    const [row] = seeded.rows;
+    snapshotRead.after = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceFields)
+        .set({ propertyId: null, localFieldKey: seeded.sourceFieldKey })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, seeded.sourceId),
+            eq(
+              schema.contentDatabaseSourceFields.propertyId,
+              seeded.propertyId,
+            ),
+          ),
+        );
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          stageBulkUpdate.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            itemIds: [row.itemId],
+            field: { propertyId: seeded.propertyId, value: "Architects" },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_bulk_stage_field_changed",
+      });
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    expect(
+      await valuesFor(seeded.propertyId, [row.documentId]),
+    ).not.toContainEqual(
+      expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+    );
+  });
+
+  it("refuses a review decision on an item the stage set back after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    // What setting the only change back writes, before the decision saves.
+    databaseLock.beforeNextLock = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          state: "rejected",
+          fieldChangesJson: "[]",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(changeSetFilter);
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId: `change_${seeded.sourceId.slice("src_".length)}`,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "source_change_set_changed",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).not.toBe("approved");
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeReviews)
+        .where(
+          eq(
+            schema.contentDatabaseSourceChangeReviews.changeSetId,
+            changeSet.id,
+          ),
+        ),
+    ).toEqual([]);
   });
 
   it("keeps an edit when staging the other selected rows fails", async () => {
