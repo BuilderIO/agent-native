@@ -47,6 +47,12 @@ export {
   type AgentComposerFrameProps,
 } from "./AgentComposerFrame.js";
 export {
+  ComposerNotice,
+  ComposerNoticeScope,
+  type ComposerNoticeProps,
+  type ComposerNoticeTone,
+} from "./composer-notice.js";
+export {
   AgentSuggestionBar,
   agentSuggestionPrompt,
   normalizeAgentSuggestion,
@@ -68,6 +74,9 @@ export {
   sameComposerDraft,
   type ComposerDraftSnapshot,
   type ComposerSubmitIntent,
+  type ComposerSubmitStart,
+  type ComposerSubmitStartAttachment,
+  type ComposerSubmitStartHandle,
   type TiptapComposerHandle,
   type ComposerTextReference,
   type ComposerTextSelection,
@@ -102,11 +111,7 @@ export {
 export { useEagerFileUploads } from "./use-eager-file-uploads.js";
 export type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 export {
-  RealtimeVoiceModeDock,
-  RealtimeVoiceModeEntry,
   type RealtimeVoiceModeCopy,
-  type RealtimeVoiceModeDockProps,
-  type RealtimeVoiceModeEntryProps,
   type RealtimeVoiceModeInlineSettings,
   type RealtimeVoiceModeSelectSetting,
   type RealtimeVoiceModeSettingOption,
@@ -145,6 +150,8 @@ export { useMentionSearch } from "./use-mention-search.js";
 export {
   ComposerRuntimeAdaptersProvider,
   useComposerRuntimeAdapters,
+  type ComposerModelBilling,
+  type ComposerModelDescription,
   type ComposerRuntimeAdapters,
   type ComposerTranslate,
 } from "./runtime-adapters.js";

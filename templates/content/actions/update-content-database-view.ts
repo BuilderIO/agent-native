@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { iconValueSchema } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -27,6 +27,7 @@ import {
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
+  viewConfigDateFilterError,
   withSavableItemLayout,
 } from "./_database-view-setup.js";
 import {
@@ -241,6 +242,14 @@ export default defineAction({
         ),
       };
       const nextViewConfigJson = serializeDatabaseViewConfig(nextViewConfig);
+      const dateError = viewConfigDateFilterError(
+        parseDatabaseViewConfig(nextViewConfigJson),
+        currentViewConfig,
+        definitions,
+      );
+      if (dateError) {
+        fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+      }
 
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");

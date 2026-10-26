@@ -88,9 +88,9 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "出力が一致しなかった場合の挙動。",
         },
         {
@@ -98,7 +98,14 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
           type: "TReturn",
           optional: true,
           description:
-            '`outputErrorStrategy` が "fallback" のとき、無効な結果の代わりに返されます。',
+            '非推奨です。`outputErrorStrategy` が "fallback" のとき、無効な結果の代わりに返されます。',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "アクションが失敗時に使うエラーコードの閉じた集合で、defineActionErrors から作ります。下記の「エラーコードを宣言する」を参照してください。",
         },
         {
           name: "mcpOutputSchema",
@@ -240,24 +247,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+アクションの戻り値の型は `outputSchema` から決まり、`run` はスキーマが受け入れる値を返す必要があります。そのため、スキーマからずれた結果は、実行時エラーになる前にコンパイルエラーになります。
+
 `outputErrorStrategy` は、不一致が起きたときの挙動を制御します。
 
-| 戦略         | 不一致時の挙動                                                                                      |
-| ------------ | --------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **デフォルト。** 問題点を `console.warn` に出力し、**元の**結果をそのまま返します。破壊的変更なし。 |
-| `"strict"`   | 明確なエラーをスローするため、アクションのバグに気づきやすくなります。                              |
-| `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` の値を返します。                                  |
+| 戦略         | 不一致時の挙動                                                                                            |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **デフォルト。** `ActionOutputContractError` をスローするため、アクションのバグがはっきり表面化します。   |
+| `"warn"`     | 問題点を `console.warn` に出力し、**元の**結果をそのまま返します。スキーマを修正している間に使います。    |
+| `"fallback"` | **非推奨。** 無効な結果の代わりに `outputFallback` を返しますが、呼び出し側は本物の結果と区別できません。 |
 
 `run()` が成功すると、フレームワークは検証済みの値を返すため、`outputSchema` に設定されたデフォルト値や型変換が、入力の場合と同じように反映されます。`outputSchema` を渡さない場合、戻り値は変更されません。
 
 strict の検証は `run()` の後に実行されるため、エラー（`ActionOutputContractError`、`errorCode: "output_contract_violation"`）はすでに起きたことを報告します。`effect` は、呼び出し自体またはそこから呼び出したアクションで（読み取り専用アクションからであっても）書き込みがハンドラーに入った時点で `"committed"` となり、呼び出し側は再試行してはいけません。それ以外は `"none"` です。メッセージには宣言されたフィールドのパスと問題コードだけが含まれ、返された値は含まれません。
+
+### エラーコードを宣言する {#error-codes}
+
+`defineActionErrors` は、アクションが失敗するときの `errorCode` の閉じた集合を宣言します。`fail` と `noWrite` はそれらのコードだけを受け付けるため、綴りを間違えたコードはコンパイルできず、`errors` として渡すと、そのコードが定義上の `errorCodes` として公開されます。
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### MCP で契約を公開する {#mcp-output-schema}
 

@@ -52,6 +52,13 @@ export const PREFERENCES_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
       "voice transcription speech dictation microphone speech to text mac native google realtime batch",
     anchor: "voice",
   },
+  {
+    id: "voice-chat",
+    labelKey: key("voiceChat"),
+    keywords:
+      "voice chat realtime conversation microphone device language intelligence voice style speaker",
+    anchor: "voice-chat",
+  },
 ];
 
 export const SECURITY_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [

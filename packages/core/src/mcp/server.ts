@@ -394,6 +394,7 @@ async function handleMcpRequestInternal(
         (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
       resourceUrl: getMcpOAuthAudiences(event, routePath),
       requestOrigin: getOrigin(event),
+      event,
     });
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {

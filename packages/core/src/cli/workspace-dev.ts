@@ -975,7 +975,7 @@ export async function runWorkspaceDev(
       scheduleAppRestart(app, {
         code,
         signal,
-        installing: wasInstalling,
+        installing: wasInstalling === true,
         output: app.outputTail ?? "",
         logMessage: `exited with code ${code}`,
       });

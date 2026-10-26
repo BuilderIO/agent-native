@@ -17,9 +17,16 @@ private struct AgentNativeSharedCaptureManifest: Codable {
 
 @objc(AgentNativeIOSCompanion)
 final class AgentNativeIOSCompanion: RCTEventEmitter, WCSessionDelegate {
+  private static let pendingQuickActionPathKey = "agentNative.pendingQuickActionPath"
+  private static let quickActionPathLock = NSLock()
+  private static let quickActionMaxAge: TimeInterval = 120
+  private static let quickActionAvailableNotification = Notification.Name(
+    "AgentNativeQuickActionAvailable"
+  )
   @MainActor
   private static var activities: [String: Activity<AgentNativeCaptureAttributes>] = [:]
   private var hasListeners = false
+  private var quickActionObserver: NSObjectProtocol?
   private var stopObserver: NSObjectProtocol?
 
   override init() {
@@ -34,6 +41,13 @@ final class AgentNativeIOSCompanion: RCTEventEmitter, WCSessionDelegate {
       }
       self?.emit("captureStopRequested", body: ["captureId": captureId])
     }
+    quickActionObserver = NotificationCenter.default.addObserver(
+      forName: Self.quickActionAvailableNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.emit("quickActionAvailable", body: [:])
+    }
     if WCSession.isSupported() {
       WCSession.default.delegate = self
       WCSession.default.activate()
@@ -41,6 +55,9 @@ final class AgentNativeIOSCompanion: RCTEventEmitter, WCSessionDelegate {
   }
 
   deinit {
+    if let quickActionObserver {
+      NotificationCenter.default.removeObserver(quickActionObserver)
+    }
     if let stopObserver {
       NotificationCenter.default.removeObserver(stopObserver)
     }
@@ -52,7 +69,7 @@ final class AgentNativeIOSCompanion: RCTEventEmitter, WCSessionDelegate {
   }
 
   override func supportedEvents() -> [String]! {
-    ["captureStopRequested", "sharedCaptureAvailable"]
+    ["captureStopRequested", "quickActionAvailable", "sharedCaptureAvailable"]
   }
 
   override func startObserving() {
@@ -68,6 +85,82 @@ final class AgentNativeIOSCompanion: RCTEventEmitter, WCSessionDelegate {
       return
     }
     sendEvent(withName: name, body: body)
+  }
+
+  static func enqueueQuickActionPath(_ path: String) {
+    guard ["/capture/audio", "/capture/video", "/capture/dictate"].contains(path) else {
+      return
+    }
+    quickActionPathLock.lock()
+    UserDefaults.standard.set(
+      [
+        "id": UUID().uuidString,
+        "path": path,
+        "queuedAt": Date().timeIntervalSince1970,
+      ],
+      forKey: pendingQuickActionPathKey
+    )
+    quickActionPathLock.unlock()
+    NotificationCenter.default.post(name: quickActionAvailableNotification, object: nil)
+  }
+
+  @objc(peekPendingQuickAction:rejecter:)
+  func peekPendingQuickAction(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Self.quickActionPathLock.lock()
+    let pending = UserDefaults.standard.dictionary(
+      forKey: Self.pendingQuickActionPathKey
+    )
+    Self.quickActionPathLock.unlock()
+    guard let pending else {
+      resolve(nil)
+      return
+    }
+    guard
+      let id = pending["id"] as? String,
+      let path = pending["path"] as? String,
+      let queuedAt = pending["queuedAt"] as? TimeInterval,
+      ["/capture/audio", "/capture/video", "/capture/dictate"].contains(path)
+    else {
+      reject(
+        "invalid_pending_quick_action",
+        "The pending quick-action record is invalid.",
+        nil
+      )
+      return
+    }
+    if Date().timeIntervalSince1970 - queuedAt > Self.quickActionMaxAge {
+      Self.quickActionPathLock.lock()
+      let current = UserDefaults.standard.dictionary(
+        forKey: Self.pendingQuickActionPathKey
+      )
+      if current?["id"] as? String == id {
+        UserDefaults.standard.removeObject(forKey: Self.pendingQuickActionPathKey)
+      }
+      Self.quickActionPathLock.unlock()
+      resolve(nil)
+      return
+    }
+    resolve(["id": id, "path": path])
+  }
+
+  @objc(acknowledgeQuickAction:resolver:rejecter:)
+  func acknowledgeQuickAction(
+    _ id: String,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter _: @escaping RCTPromiseRejectBlock
+  ) {
+    Self.quickActionPathLock.lock()
+    let pending = UserDefaults.standard.dictionary(
+      forKey: Self.pendingQuickActionPathKey
+    )
+    if pending?["id"] as? String == id {
+      UserDefaults.standard.removeObject(forKey: Self.pendingQuickActionPathKey)
+    }
+    Self.quickActionPathLock.unlock()
+    resolve(nil)
   }
 
   @objc(startCaptureActivity:kind:startedAtMs:resolver:rejecter:)

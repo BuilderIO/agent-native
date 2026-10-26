@@ -20,6 +20,7 @@ import {
   type BoundedTaskRunner,
   type BoundedTaskSource,
 } from "./bounded-tasks.js";
+import { SNAPSHOT_ADOPTION_MAP } from "./live-copy-tasks.js";
 
 type Manager = typeof import("./ydoc-manager.js");
 type LiveCopyModule = typeof import("./live-copy.js");
@@ -324,6 +325,43 @@ describe("stored state classification", () => {
     expect(
       await rejection(manager.readLiveCopy(binding, "live:stray")),
     ).toMatchObject({ code: "unsupported_content", reason: "notes" });
+  });
+
+  it("reads a page whose live doc recorded a snapshot adoption", async () => {
+    const binding = define();
+    const doc = new Y.Doc();
+    doc.getXmlFragment("default").insert(0, [paragraph("body")]);
+    doc.getMap(SNAPSHOT_ADOPTION_MAP).set("revision", "body:2:sha256:0");
+    await insertRow("live:adopted", base64(Y.encodeStateAsUpdate(doc)));
+    await expect(
+      manager.readLiveCopy(binding, "live:adopted"),
+    ).resolves.toMatchObject({ kind: "live", text: "body" });
+  });
+
+  it("clears a snapshot adoption marker when it edits the live copy", async () => {
+    const binding = define();
+    const doc = new Y.Doc();
+    doc.getXmlFragment("default").insert(0, [paragraph("body")]);
+    doc.getMap(SNAPSHOT_ADOPTION_MAP).set("revision", "body:2:sha256:0");
+    doc.getMap(SNAPSHOT_ADOPTION_MAP).set("body", "body");
+    await insertRow("live:adopted", base64(Y.encodeStateAsUpdate(doc)));
+
+    const result = await manager.mutateLiveCopy(binding, "live:adopted", {
+      edit: "append",
+      input: { text: "more" },
+    });
+
+    expect(result).toMatchObject({ changed: true, text: "body\nmore" });
+    const stored = new Y.Doc();
+    Y.applyUpdate(stored, result.state);
+    // A server from before the marker refuses any live entry outside the
+    // field, so none may be left.
+    expect(stored.getMap(SNAPSHOT_ADOPTION_MAP).size).toBe(0);
+    expect(
+      [...stored.getMap(SNAPSHOT_ADOPTION_MAP)._map.values()].every(
+        (item) => item.deleted,
+      ),
+    ).toBe(true);
   });
 
   it("refuses bytes after a whole update, stored or sent", async () => {

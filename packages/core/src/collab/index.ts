@@ -47,6 +47,8 @@ export {
   withPreparedYDocMutation,
   applyUpdate,
   seedXmlFragmentIfEmpty,
+  adoptSnapshotOnce,
+  type SnapshotAdoptionStatus,
   applyText,
   getText,
   getState,

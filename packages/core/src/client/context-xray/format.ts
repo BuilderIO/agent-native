@@ -1,10 +1,20 @@
-import { getContextWindowForModel } from "../../agent/model-config.js";
+import {
+  getContextWindowForModel,
+  getKnownContextWindowForModel,
+} from "../../agent/model-config.js";
 
 export const CONTEXT_XRAY_MODEL_LIMIT = 200_000;
 
 export function resolveContextWindow(modelId?: string | null): number {
   if (!modelId) return CONTEXT_XRAY_MODEL_LIMIT;
   return getContextWindowForModel(modelId);
+}
+
+/** The model's window when a table or family heuristic knows it, else undefined. */
+export function resolveKnownContextWindow(
+  modelId?: string | null,
+): number | undefined {
+  return modelId ? getKnownContextWindowForModel(modelId) : undefined;
 }
 
 export function formatTokens(tokens: number | undefined): string {

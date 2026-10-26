@@ -48,6 +48,7 @@ import {
   parseQueueMessageResult,
   parseResolveApprovalInput,
   parseResumeRunInput,
+  parseReorderQueuedMessagesInput,
   parseResolveConnectionRequestInput,
   parseStartRunInput,
   parseStartRunResult,
@@ -543,6 +544,17 @@ export function createAgentKitHttpTransport(
         `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/move-to-top`,
         parseVoidResponse,
         { method: "POST" },
+        context,
+      );
+    },
+    async reorderQueuedMessages(input, context) {
+      await request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue`,
+        parseVoidResponse,
+        {
+          method: "PUT",
+          body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
+        },
         context,
       );
     },
@@ -1225,6 +1237,18 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
             await invoke((context) => queueMessage(input, context)),
             201,
           );
+        }
+        if (request.method === "PUT") {
+          const reorderQueuedMessages = transport.reorderQueuedMessages;
+          if (!reorderQueuedMessages)
+            return notSupported(
+              "reorderQueuedMessages",
+              "Queue reordering is not supported.",
+            );
+          const input = await readPayload(parseReorderQueuedMessagesInput);
+          assertRouteIdentifier(threadId, input.threadId, "threadId");
+          await invoke((context) => reorderQueuedMessages(input, context));
+          return respond(undefined);
         }
       }
       const threadMatch = path.match(/^\/threads\/([^/]+)$/);

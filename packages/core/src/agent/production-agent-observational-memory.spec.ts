@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { runWithRequestContext } from "../server/request-context.js";
 
 vi.mock("./run-store.js", () => ({
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   writeLedgerEntry: vi.fn(async () => {}),
   readLedgerEntry: vi.fn(async () => null),
   clearLedgerForThread: vi.fn(async () => {}),

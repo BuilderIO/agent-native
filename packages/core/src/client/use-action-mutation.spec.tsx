@@ -133,6 +133,56 @@ describe("useActionMutation", () => {
       expect(payload).toEqual({ id: "page" });
     },
   );
+
+  it("mints a signed UI capability before a uiOnly mutation", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    let mutation:
+      | ReturnType<typeof useActionMutation<{ ok: boolean }, { id: string }>>
+      | undefined;
+    function Probe() {
+      mutation = useActionMutation<{ ok: boolean }, { id: string }>(
+        "confirm-messaging-channel-credential-removal" as never,
+        { uiOnly: true },
+      );
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => {
+      await mutation!.mutateAsync({ id: "telegram" });
+    });
+
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "/_agent-native/ui-capability",
+      "/_agent-native/actions/confirm-messaging-channel-credential-removal",
+    ]);
+  });
 });
 
 describe("useActionMutation resource-scoped invalidation", () => {

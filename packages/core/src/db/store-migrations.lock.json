@@ -43,6 +43,34 @@
     {
       "name": "agent-harness-sessions-generation",
       "checksum": "e93055de6007e793"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim",
+      "checksum": "80b46ffbdbf7f298"
+    },
+    {
+      "name": "agent-harness-sessions-approval-resolution",
+      "checksum": "11882889ef267cdb"
+    },
+    {
+      "name": "agent-harness-sessions-expiry-cleanup",
+      "checksum": "3313363904158445"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim-id",
+      "checksum": "80b46ffbdbf7f298"
+    },
+    {
+      "name": "agent-harness-follow-up-recovery",
+      "checksum": null
+    },
+    {
+      "name": "agent-harness-approval-resolution-claim-lease",
+      "checksum": "67a8c1a568d3e4b8"
+    },
+    {
+      "name": "agent-harness-transcript-order-runtime-schema",
+      "checksum": null
     }
   ],
   "agent_runs": [
@@ -101,6 +129,14 @@
     {
       "name": "thread-projection-retry-quarantine-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "agent-run-harness-transcript-order-runtime-schema",
+      "checksum": null
+    },
+    {
+      "name": "agent-run-admission-order",
+      "checksum": "b4cd3c0f84735807"
     }
   ],
   "agent_team_run_queue": [
@@ -392,6 +428,30 @@
   "collab_awareness": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "client-sequence",
+      "checksum": null
+    },
+    {
+      "name": "client-sequence-raw",
+      "checksum": null
+    },
+    {
+      "name": "actor-email",
+      "checksum": null
+    },
+    {
+      "name": "clear-token-hash",
+      "checksum": null
+    },
+    {
+      "name": "actor-reservation-expiry",
+      "checksum": null
+    },
+    {
+      "name": "expiry-indexes",
       "checksum": null
     }
   ],

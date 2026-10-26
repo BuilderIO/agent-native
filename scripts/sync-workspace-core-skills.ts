@@ -19,6 +19,7 @@ import { missingInstructionSkillReferences } from "../packages/core/src/cli/temp
 import {
   CLIPS_TEMPLATE_SHARED_SKILLS,
   CHAT_STARTER_SKILLS,
+  COMMUNITY_TEMPLATE_SHARED_SKILLS,
   DEFAULT_TEMPLATE_LOCAL_SKILLS,
   DEFAULT_TEMPLATE_SHARED_SKILLS,
   DISPATCH_TEMPLATE_SHARED_SKILLS,
@@ -49,6 +50,7 @@ const targetDir = join(
   "skills",
 );
 const templatesDir = join(rootDir, "templates");
+const communityTemplatesDir = join(rootDir, "community-templates");
 const defaultTemplateSkillsDir = join(
   rootDir,
   "packages",
@@ -111,6 +113,10 @@ const defaultTemplateSyncedSkillIncludes =
 
 const headlessTemplateSharedSkillIncludes = [
   ...HEADLESS_TEMPLATE_SHARED_SKILLS,
+];
+
+const communityTemplateSharedSkillIncludes = [
+  ...COMMUNITY_TEMPLATE_SHARED_SKILLS,
 ];
 
 const templateSharedSkillIncludesByTemplate: Record<string, string[]> = {
@@ -515,6 +521,20 @@ function listTemplateDirs() {
     .sort();
 }
 
+function listCommunityTemplateDirs() {
+  if (!existsSync(communityTemplatesDir)) return [];
+  return readdirSync(communityTemplatesDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        isDirEntry(communityTemplatesDir, entry) &&
+        !entry.name.startsWith(".") &&
+        entry.name !== "node_modules" &&
+        existsSync(join(communityTemplatesDir, entry.name, "package.json")),
+    )
+    .map((entry) => entry.name)
+    .sort();
+}
+
 function listInstructionFiles() {
   const files = [...actionFirstInstructionFiles];
   for (const template of listTemplateDirs()) {
@@ -860,6 +880,16 @@ function forEachExistingTemplateSharedSkill(fn) {
       );
     }
   }
+
+  for (const template of listCommunityTemplateDirs()) {
+    for (const skill of communityTemplateSharedSkillIncludes) {
+      fn(
+        `community-templates/${template}/.agents/skills`,
+        skill,
+        join(communityTemplatesDir, template, ".agents", "skills", skill),
+      );
+    }
+  }
 }
 
 function checkTemplateSharedSkillsInSync() {
@@ -886,36 +916,42 @@ function forEachTemplateSkillsDir(fn) {
   fn(
     "packages/core/src/templates/default/.agents/skills",
     defaultTemplateSkillsDir,
-    "default",
+    includedSkillsForTemplate("default"),
   );
   fn(
     "packages/core/src/templates/headless/.agents/skills",
     headlessTemplateSkillsDir,
-    "headless",
+    includedSkillsForTemplate("headless"),
   );
   fn(
     "packages/core/src/templates/chat/.agents/skills",
     chatStarterSkillsDir,
-    "chat",
+    includedSkillsForTemplate("chat"),
   );
   fn(
     "packages/core/src/templates/factory/.agents/skills",
     factoryBundleSkillsDir,
-    "factory",
+    includedSkillsForTemplate("factory"),
   );
   for (const template of listTemplateDirs()) {
     fn(
       `templates/${template}/.agents/skills`,
       join(templatesDir, template, ".agents", "skills"),
-      template,
+      includedSkillsForTemplate(template),
+    );
+  }
+  for (const template of listCommunityTemplateDirs()) {
+    fn(
+      `community-templates/${template}/.agents/skills`,
+      join(communityTemplatesDir, template, ".agents", "skills"),
+      communityTemplateSharedSkillIncludes,
     );
   }
 }
 
 function checkNoStaleTemplateSharedSkills() {
   const extra = [];
-  forEachTemplateSkillsDir((label, skillsDir, template) => {
-    const includedSkills = includedSkillsForTemplate(template);
+  forEachTemplateSkillsDir((label, skillsDir, includedSkills) => {
     const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
       (skill) => !includedSkills.includes(skill),
     );
@@ -963,6 +999,7 @@ function validateSourceSkills() {
     ...workspaceSkillIncludes,
     ...defaultTemplateSyncedSkillIncludes,
     ...headlessTemplateSharedSkillIncludes,
+    ...communityTemplateSharedSkillIncludes,
     ...Object.values(templateSharedSkillIncludesByTemplate).flat(),
   ])) {
     resolveSourceSkill(skill);
@@ -1010,8 +1047,7 @@ function syncTemplateSharedSkills() {
       copySkill(skill, targetSkillDir, factoryTarget);
     },
   );
-  forEachTemplateSkillsDir((_label, skillsDir, template) => {
-    const includedSkills = includedSkillsForTemplate(template);
+  forEachTemplateSkillsDir((_label, skillsDir, includedSkills) => {
     const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
       (skill) => !includedSkills.includes(skill),
     );
@@ -1040,7 +1076,7 @@ try {
     checkInstructionSkillReferences();
     checkSyncedSkillFrontmatter();
     console.log(
-      "Workspace-core, default-template, and template shared skills are in sync.",
+      "Workspace-core, default-template, template, and community-template shared skills are in sync.",
     );
   } else {
     syncWorkspaceCoreSkills();
@@ -1053,7 +1089,7 @@ try {
     checkInstructionSkillReferences();
     checkSyncedSkillFrontmatter();
     console.log(
-      "Synced workspace-core, default-template, and template shared skills from .agents/skills.",
+      "Synced workspace-core, default-template, template, and community-template shared skills from .agents/skills.",
     );
   }
 } catch (error) {
