@@ -253,26 +253,33 @@ describe("delete-recording-permanent", () => {
     mockDiagnosticsWhere.mockResolvedValue([]);
   });
 
-  it("deletes stored agent frames before the recording rows", async () => {
+  it("deletes stored agent frames after the recording rows", async () => {
     await deleteRecordingPermanent.run({ id: "rec_1" });
 
     expect(mockDeleteStoredAgentFrames).toHaveBeenCalledWith(
       mockExistingRecording,
     );
-    expect(
+    expect(mockDb.transaction.mock.invocationCallOrder[0]).toBeLessThan(
       mockDeleteStoredAgentFrames.mock.invocationCallOrder[0],
-    ).toBeLessThan(mockDb.transaction.mock.invocationCallOrder[0]);
+    );
   });
 
-  it("keeps the recording when a stored agent frame cannot be deleted", async () => {
+  it("still finishes the delete when a stored agent frame cannot be removed", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     mockDeleteStoredAgentFrames.mockRejectedValueOnce(
       new Error("1 stored agent frame(s) could not be deleted."),
     );
 
-    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
-      "The recording was kept",
+    await expect(
+      deleteRecordingPermanent.run({ id: "rec_1" }),
+    ).resolves.toMatchObject({ success: true });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("stored agent frames could not all be removed"),
+      expect.any(String),
     );
-    expect(mockDb.transaction).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("deletes the app activity blob once the recording rows are gone", async () => {

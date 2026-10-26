@@ -246,17 +246,6 @@ export default defineAction({
       .from(schema.recordingBrowserDiagnostics)
       .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
 
-    // Derived from the footage, so they go with it; a frame that cannot be
-    // deleted keeps the row, since nothing else points at it afterwards.
-    try {
-      await deleteStoredAgentFrames(existing);
-    } catch (err) {
-      fail(
-        `${err instanceof Error ? err.message : String(err)} The recording was kept. Try again later.`,
-        { errorCode: "recording_frames_not_deleted", statusCode: 503 },
-      );
-    }
-
     const { deleted, protectedUrls } = await db.transaction(async (tx) => {
       // The recording is locked before anything that hangs off it, the order
       // apply-rewind-extension takes, so the two cannot deadlock. Its media is
@@ -325,6 +314,17 @@ export default defineAction({
         .where(eq(schema.recordings.id, args.id));
       return { deleted: locked, protectedUrls };
     });
+
+    // After the rows: a fill locks the recording before it records a frame, so
+    // once the recording is gone no frame can be added behind this.
+    try {
+      await deleteStoredAgentFrames(deleted);
+    } catch (err) {
+      console.error(
+        `[delete-recording-permanent] deleted ${args.id}, but its stored agent frames could not all be removed from storage.`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
 
     // Media goes only once its rows are gone, so a failed delete above leaves
     // the Clip whole. A file that fails here stays in storage and nothing

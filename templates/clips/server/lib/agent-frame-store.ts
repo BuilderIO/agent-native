@@ -157,6 +157,12 @@ async function storeAgentFrame(
   frame: Uint8Array,
   previousUrl: string | null,
 ): Promise<void> {
+  // The object being replaced goes first and must be confirmed gone: once the
+  // row points at the new object nothing records the old one, so a failed
+  // delete afterwards would leak it for good. Left as is, the next fill
+  // retries.
+  if (previousUrl && !(await deleteFrameObject(recording, previousUrl))) return;
+
   let uploaded: Awaited<ReturnType<typeof uploadRecordingMedia>>;
   try {
     uploaded = await uploadRecordingMedia({
@@ -185,30 +191,50 @@ async function storeAgentFrame(
     sizeBytes: frame.byteLength,
     createdAt: new Date().toISOString(),
   };
+  let recorded: boolean;
   try {
-    await getDb()
-      .insert(schema.recordingAgentFrames)
-      .values({ id: randomUUID(), recordingId: recording.id, atMs, ...values })
-      .onConflictDoUpdate({
-        target: [
-          schema.recordingAgentFrames.recordingId,
-          schema.recordingAgentFrames.atMs,
-        ],
-        set: values,
-      });
+    recorded = await getDb().transaction(async (tx) => {
+      // Locked and re-read: a burn or delete changes the recording first and
+      // deletes its frames after, so a frame cut from media that has since
+      // been replaced must not be recorded behind that cleanup.
+      const current = await tx
+        .select({
+          videoUrl: schema.recordings.videoUrl,
+          editsJson: schema.recordings.editsJson,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, recording.id))
+        .for("update");
+      if (current.length === 0 || agentFrameMediaKey(current[0]) !== mediaKey) {
+        return false;
+      }
+      await tx
+        .insert(schema.recordingAgentFrames)
+        .values({
+          id: randomUUID(),
+          recordingId: recording.id,
+          atMs,
+          ...values,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.recordingAgentFrames.recordingId,
+            schema.recordingAgentFrames.atMs,
+          ],
+          set: values,
+        });
+      return true;
+    });
   } catch (error) {
     console.warn("[agent-frame-store] could not record frame", {
       recordingId: recording.id,
       atMs,
       error: error instanceof Error ? error.message : String(error),
     });
-    // The row never pointed at this object, so nothing else can find it.
-    await deleteFrameObject(recording, uploaded.url);
-    return;
+    recorded = false;
   }
-  if (previousUrl && previousUrl !== uploaded.url) {
-    await deleteFrameObject(recording, previousUrl);
-  }
+  // The row never pointed at this object, so nothing else can find it.
+  if (!recorded) await deleteFrameObject(recording, uploaded.url);
 }
 
 /**
@@ -243,7 +269,11 @@ export function fillRecommendedAgentFrames(
           const rowsByAtMs = new Map(rows.map((row) => [row.atMs, row]));
           for (const atMs of times) {
             const existing = rowsByAtMs.get(atMs);
-            if (existing?.mediaKey === mediaKey) continue;
+            // The requested frame reaches here only after its stored copy was
+            // missed, so a current row for it points at an unreadable object.
+            if (existing?.mediaKey === mediaKey && known?.atMs !== atMs) {
+              continue;
+            }
             let frame = known?.atMs === atMs ? known.frame : null;
             if (!frame) {
               try {
