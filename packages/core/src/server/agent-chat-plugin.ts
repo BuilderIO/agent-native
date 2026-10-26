@@ -3494,11 +3494,15 @@ export function createAgentChatPlugin(
           "tool",
           lazyContext ? effectiveInitialToolNames : undefined,
         ) + corpusToolsPrompt;
-      const devActionsPrompt =
-        generateActionsPrompt(
-          { ...discoveredActions, ...templateScripts },
-          "cli",
-        ) + corpusToolsPrompt;
+      // The CLI listing reads every action's parameters, which converts each
+      // schema, so it waits for the first dev prompt that asks for it.
+      let devActionsPromptText: string | undefined;
+      const devActionsPrompt = (): string =>
+        (devActionsPromptText ??=
+          generateActionsPrompt(
+            { ...discoveredActions, ...templateScripts },
+            "cli",
+          ) + corpusToolsPrompt);
 
       const filterPromptActionsForRequest = (
         actions: Record<string, ActionEntry>,
@@ -3512,7 +3516,7 @@ export function createAgentChatPlugin(
       const resolveRequestActionsPrompt = (mode: "tool" | "cli"): string => {
         const allowedNames = getRequestRunContext()?.allowedActionNames;
         if (!allowedNames) {
-          return mode === "tool" ? prodActionsPrompt : devActionsPrompt;
+          return mode === "tool" ? prodActionsPrompt : devActionsPrompt();
         }
         const promptActions = filterPromptActionsForRequest(
           mode === "tool"
