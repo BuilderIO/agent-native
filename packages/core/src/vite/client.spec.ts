@@ -2231,9 +2231,13 @@ describe("agent-native app config", () => {
     }
   });
 
+  // oracle-change: the AGENT_NATIVE_TYPEGEN skip is gone because typecheck's
+  // typegen no longer loads this plugin; the production warning still fires.
   it("warns about production configuration errors during a production build", async () => {
     const previousCwd = process.cwd();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-typegen-config-"));
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-production-config-"),
+    );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     fs.writeFileSync(
       path.join(tmpDir, "agent-native.json"),

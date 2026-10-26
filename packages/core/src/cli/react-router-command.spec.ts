@@ -4,6 +4,8 @@ import path from "path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+// oracle-change: reactRouterTypegenEnv and its test are gone because
+// typecheck's typegen gets an empty Vite config, so no Core plugin reads it.
 import { findReactRouterInvocation } from "./react-router-command.js";
 
 const roots: string[] = [];
