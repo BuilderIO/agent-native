@@ -87,7 +87,7 @@ other_uses:
       body: Get a summary, notes and action items from every meeting, with no bot in the call.
     - title: AI Dictation
       url: https://www.agent-native.com/use-cases/ai-dictation/
-      body: On a Mac, hold a key, talk, and the cleaned-up text lands wherever your cursor is.
+      body: Talk instead of typing, and clean text lands in whatever app you are using.
 faqs:
   heading: Questions? We have answers
   items:
