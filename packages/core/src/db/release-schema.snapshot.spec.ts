@@ -4,22 +4,17 @@ import path from "node:path";
 
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
-import {
-  closeDbExec,
-  getDbExec,
-  withDbExec,
-  type DbExec,
-} from "../db/client.js";
-import { withMigrationRuntime } from "../db/migration-runtime.js";
-import { schemaFingerprint } from "../db/schema-catalog.js";
-import { SCHEMA_SNAPSHOT } from "../db/schema-snapshot.generated.js";
-import { FRAMEWORK_STORES } from "../db/store-registry.generated.js";
+import { runFrameworkReleaseMigrations } from "../server/release-migrations.js";
+import { closeDbExec, getDbExec, withDbExec, type DbExec } from "./client.js";
+import { withMigrationRuntime } from "./migration-runtime.js";
+import { schemaFingerprint } from "./schema-catalog.js";
+import { SCHEMA_SNAPSHOT } from "./schema-snapshot.generated.js";
+import { FRAMEWORK_STORES } from "./store-registry.generated.js";
 import {
   __resetStoreLedgerSnapshotForTests,
   __setSchemaSnapshotForTests,
   migrationChecksum,
-} from "../db/store-registry.js";
-import { runFrameworkReleaseMigrations } from "./release-migrations.js";
+} from "./store-registry.js";
 
 const previousUrl = process.env.DATABASE_URL;
 const dirs: string[] = [];
