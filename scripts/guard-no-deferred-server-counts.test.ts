@@ -1,4 +1,13 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
@@ -74,6 +83,18 @@ describe("deferred server counts guard", () => {
     ].join("\n");
 
     assert.deepEqual(flagged(source), [3, 4]);
+  });
+
+  it("flags timers reached by a computed name", () => {
+    const source = [
+      'globalThis["setTimeout"](() => countOutcome("content_editor_mount_counts", {}), 0);',
+      'const defer = globalThis["queueMicrotask"];',
+      'defer(() => track("page_saved"));',
+      'globalThis[`setInterval`](() => track("page_saved"), 60_000);',
+      'timers["sleep"](() => track("page_saved"));',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [1, 3, 4]);
   });
 
   it("follows timer aliases through any number of hops", () => {
@@ -921,5 +942,43 @@ describe("deferred server counts guard", () => {
       ),
       false,
     );
+  });
+});
+
+describe("guard command", () => {
+  it("exits 2, not 0, when there are no server files to inspect", () => {
+    // The guard finds the repo from its own path, so this copies it into an
+    // ignored folder in the repo, where `typescript` still resolves and git
+    // lists no files.
+    const scriptsDir = import.meta.dirname;
+    const cache = path.join(scriptsDir, "..", "node_modules", ".cache");
+    mkdirSync(cache, { recursive: true });
+    const root = mkdtempSync(path.join(cache, "deferred-counts-guard-"));
+    try {
+      mkdirSync(path.join(root, "scripts", "lib"), { recursive: true });
+      writeFileSync(path.join(root, "package.json"), '{ "type": "module" }\n');
+      for (const name of [
+        "guard-no-deferred-server-counts.ts",
+        "lib/changed-lines.mjs",
+      ]) {
+        copyFileSync(
+          path.join(scriptsDir, name),
+          path.join(root, "scripts", name),
+        );
+      }
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          import.meta.resolve("tsx"),
+          path.join(root, "scripts", "guard-no-deferred-server-counts.ts"),
+        ],
+        { cwd: root, encoding: "utf8" },
+      );
+      assert.equal(result.status, 2, result.stderr);
+      assert.match(result.stderr, /found no server source files to inspect/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

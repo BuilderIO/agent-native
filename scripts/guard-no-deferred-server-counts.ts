@@ -408,6 +408,14 @@ function isTimerReference(
   seen: Set<ts.Node>,
 ): boolean {
   const target = unbound(expression);
+  // `globalThis["setTimeout"]` names the timer too.
+  if (
+    ts.isElementAccessExpression(target) &&
+    ts.isStringLiteralLike(target.argumentExpression) &&
+    TIMERS.has(target.argumentExpression.text)
+  ) {
+    return true;
+  }
   if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
     return false;
   }
@@ -1525,6 +1533,12 @@ function main() {
   } catch (error) {
     console.error(
       `${GUARD_NAME}: could not list files: ${(error as Error).message}`,
+    );
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
+  }
+  if (files.server.length === 0) {
+    console.error(
+      `${GUARD_NAME}: found no server source files to inspect, so the check did not run.`,
     );
     process.exit(GUARD_EXIT_COULD_NOT_RUN);
   }
