@@ -762,6 +762,90 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(flagged(source), [14, 15, 16]);
   });
 
+  it("follows helpers another server file exports that hand a callback on to a timer", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_timers.ts",
+        [
+          "export const later = (fn: () => void) => setTimeout(fn, 0);",
+          "export function soon(run: () => void) {",
+          "  queueMicrotask(() => run());",
+          "}",
+          "export const scheduler = {",
+          "  defer(fn: () => void) {",
+          "    later(fn);",
+          "  },",
+          "  now(fn: () => void) {",
+          "    fn();",
+          "  },",
+          "};",
+          "export function store(fn: () => void) {",
+          "  pending.push(fn);",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_jobs.ts",
+        [
+          'import { later } from "./_timers.js";',
+          "export function schedule(task: () => void) {",
+          "  later(() => task());",
+          "}",
+          'export { soon as eventually } from "./_timers.js";',
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_outcomes.ts",
+        [
+          "export function recordSave() {",
+          '  countOutcome("content_save_outcome_counts", {});',
+          "}",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_wrapped.ts",
+        [
+          'import { recordSave } from "./_outcomes.js";',
+          "export function save() {",
+          "  recordSave();",
+          "}",
+          "export const wait = (fn: () => void) => setTimeout(fn, 0);",
+        ].join("\n"),
+      ],
+    ]);
+    assert.deepEqual(listedFiles(sources), {
+      "templates/content/actions/_jobs.ts": ["eventually.(0)", "schedule.(0)"],
+      "templates/content/actions/_outcomes.ts": ["recordSave"],
+      "templates/content/actions/_wrapped.ts": ["save", "wait.(0)"],
+      // A file that names no count is read only for what it defers.
+      "templates/content/actions/_timers.ts": [
+        "later.(0)",
+        "scheduler.defer.(0)",
+        "soon.(0)",
+      ],
+    });
+    const source = [
+      'import { later, scheduler, store } from "./_timers.js";',
+      'import * as timers from "./_timers.js";',
+      'import { eventually, schedule } from "./_jobs.js";',
+      'later(() => countOutcome("content_save_outcome_counts", {}));',
+      'timers.soon(() => track("page_saved"));',
+      'scheduler.defer(() => track("page_saved"));',
+      'scheduler.now(() => track("page_saved"));',
+      'store(() => track("page_saved"));',
+      'schedule(() => countOutcome("content_save_outcome_counts", {}));',
+      'eventually(() => track("page_saved"));',
+      "later(() => sweepExpired());",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, countingExportsOf(sources)).map(
+        (finding) => finding.line,
+      ),
+      [4, 5, 6, 9, 10],
+    );
+  });
+
   it("doesn't take a function the file names setTimeout for a timer", () => {
     const source = [
       'import { countOutcome } from "@agent-native/core/tracking";',

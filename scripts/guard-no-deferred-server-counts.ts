@@ -18,38 +18,39 @@
  *     // coercion-ok: a count cannot change the response.
  *   }
  *
- * The guard scans every server source file (actions and server directories
- * of templates, community templates, apps and packages) for a timer callback
- * that calls `track`, a `track…` wrapper such as `trackLifecycleEvent`, or a
- * count helper. TypeScript resolves each name in that one file the way its
- * scope sees it, so the guard follows callbacks passed by name or as methods
+ * The guard scans every server source file (actions and server directories of
+ * templates, community templates, apps and packages) for a timer callback that
+ * calls `track`, a `track…` wrapper such as `trackLifecycleEvent`, or a count
+ * helper. TypeScript resolves each name in that one file the way its scope sees
+ * it, so the guard follows callbacks passed by name or as methods
  * (`this.flush`, `queue.flush`), the functions and methods they call, names
  * bound by destructuring, timers renamed through any chain of aliases or
  * imports (`const defer = setTimeout`, `import { setTimeout as defer }`), and
- * functions in the file that hand a callback on to a timer, as `later` does in
+ * functions that hand a callback on to a timer, as `later` does in
  * `const later = (fn) => setTimeout(fn, 0)`; a function the file itself names
  * `setTimeout` isn't a timer. A function the file shows is judged by its body,
  * whatever it's called, and so is a function another scanned server file
  * exports, named or default, when it's imported by a relative path:
  * `recordContentSaveOutcome` counts because its own file shows it calling
- * `countOutcome`, and so does a wrapper of it, while an imported `trackRetry`
- * whose file shows it only retrying doesn't. That holds through re-exports,
- * including `export *` and `export * as`, for members of exported objects,
- * classes and instances, with what they spread or inherit and don't override
- * (`counters.record()`, `new Reporter().record()`), and for names destructured
- * from them. A package import is judged by its name, and so is a `count…`
- * helper the repo's packages export, such as `countAutomationCredentialState`,
- * once a package file shows it counting. Any other name whose function the
- * guard can't see (a global, a parameter, a factory's result, a member of an
- * object it can't list) is judged by its name. A function a callback only
- * defines or passes along counts where it runs: where a call to it is
- * followed, or when it's handed to a call that runs it (a function in the file
- * that calls that parameter, or else an array iteration or promise method, a
- * promise executor, or `Array.from`'s mapper). A call that may only keep the
- * function, such as `register(flush)`, `cache.set(key, flush)` or a helper
- * from another file, isn't taken to run it. A timer that has to defer a count,
- * or a call to a helper that hands one on, says why, on any line of the call
- * or the line above:
+ * `countOutcome`, and so does a wrapper of it; an imported `later` hands its
+ * callback on because its file shows it calling `setTimeout`; and an imported
+ * `trackRetry` whose file shows it only retrying doesn't count. That holds
+ * through re-exports, including `export *` and `export * as`, for members of
+ * exported objects, classes and instances, with what they spread or inherit and
+ * don't override (`counters.record()`, `new Reporter().record()`), and for
+ * names destructured from them. A package import is judged by its name, and so
+ * is a `count…` helper the repo's packages export, such as
+ * `countAutomationCredentialState`, once a package file shows it counting. Any
+ * other name whose function the guard can't see (a global, a parameter, a
+ * factory's result, a member of an object it can't list) is judged by its name.
+ * A function a callback only defines or passes along counts where it runs:
+ * where a call to it is followed, or when it's handed to a call that runs it (a
+ * function in the file that calls that parameter, or else an array iteration or
+ * promise method, a promise executor, or `Array.from`'s mapper). A call that
+ * may only keep the function, such as `register(flush)`,
+ * `cache.set(key, flush)` or a helper from another file, isn't taken to run it.
+ * A timer that has to defer a count, or a call to a helper that hands one on,
+ * says why, on any line of the call or the line above:
  *
  *   // guard:allow-deferred-count — <why the count can wait>
  */
@@ -141,8 +142,15 @@ function isCountName(name: string): boolean {
  * listed, so a member not listed doesn't count; the members of other exports
  * are judged by name. A file's own exports are all listed unless it has `*`,
  * from re-exporting everything from a module the guard doesn't scan.
+ * `later.(0)` marks an export or member that hands its first argument on to a
+ * timer, as `const later = (fn) => setTimeout(fn, 0)` does.
  */
 export type CountingExports = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** The `CountingExports` entry for handing argument `index` to a timer. */
+function deferredEntry(path: string, index: number): string {
+  return `${path}.(${index})`;
+}
 
 /**
  * What a scanned module's exports say about calling the export or member at
@@ -818,19 +826,48 @@ function isDefault(statement: ts.Statement): boolean {
  * What this file exports that counts when called, listed as `CountingExports`
  * lists it: exported functions and consts, the members of exported objects,
  * classes and instances (with what they spread or inherit), and re-exports,
- * given what `known` says other files export.
+ * given what `known` says other files export. With `deferredOnly`, it lists
+ * only the arguments its exports hand on to a timer.
  */
 export function findCountingExports(
   file: string,
   source: string,
   known: CountingExports = new Map(),
   scopes?: Map<string, FileScope>,
+  deferredOnly = false,
 ): string[] {
   const scope = fileScope(file, source, known, scopes);
   const { sourceFile, checker } = scope;
   const counts = (expression: ts.Expression) =>
-    countsWhenCalled(scope, expression, new Set());
+    !deferredOnly && countsWhenCalled(scope, expression, new Set());
   const counting = new Set<string>();
+
+  // Only a file that names a timer, or imports something that hands an
+  // argument on to one, can export a function that does.
+  const mayDefer =
+    TIMER_WORD.test(source) ||
+    sourceFile.statements.some(
+      (statement) =>
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        [...(scope.exportsOf(statement.moduleSpecifier.text) ?? [])].some(
+          (entry) => entry.endsWith(")"),
+        ),
+    );
+  // Lists under `path` the arguments a function hands on to a timer.
+  const addDeferred = (path: string, node: ts.Node | undefined) => {
+    if (!mayDefer || !node) return;
+    const fn = bodyOf(node)
+      ? (node as ts.FunctionLikeDeclaration)
+      : ts.isExpression(node)
+        ? resolvedFunction(checker, node, new Set())
+        : undefined;
+    fn?.parameters.forEach((_, index) => {
+      if (defersParameter(scope, fn, index, new Set())) {
+        counting.add(deferredEntry(path, index));
+      }
+    });
+  };
 
   // Lists under `prefix` what `from` lists at `path` and below, and returns
   // the levels it lists in full: `prefix`, and for a class `prefix.prototype`.
@@ -995,9 +1032,14 @@ export function findCountingExports(
       const path = `${prefix}.${key}`;
       let value: ts.Expression | undefined;
       if (ts.isMethodDeclaration(member)) {
-        if (member.body && callsCount(scope, member.body, new Set())) {
+        if (
+          !deferredOnly &&
+          member.body &&
+          callsCount(scope, member.body, new Set())
+        ) {
           counting.add(path);
         }
+        addDeferred(path, member);
       } else if (ts.isShorthandPropertyAssignment(member)) {
         value = member.name;
       } else if (
@@ -1007,6 +1049,7 @@ export function findCountingExports(
         value = member.initializer;
       }
       if (value && counts(value)) counting.add(path);
+      addDeferred(path, value);
       for (const level of listMembers(path, value, false, seen)) {
         counting.add(`${level}.`);
       }
@@ -1070,6 +1113,7 @@ export function findCountingExports(
     const reference = ts.getNameOfDeclaration(declaration);
     if (reference && ts.isIdentifier(reference)) {
       if (counts(reference)) counting.add(name);
+      addDeferred(name, reference);
       addMembers(name, reference);
     }
   };
@@ -1092,6 +1136,7 @@ export function findCountingExports(
       // `export default () => track(...)`, `export default { record() {...} }`
       if (statement.isExportEquals) continue;
       if (counts(statement.expression)) counting.add("default");
+      addDeferred("default", statement.expression);
       addMembers("default", statement.expression);
     } else if (
       isExported(statement) &&
@@ -1105,12 +1150,16 @@ export function findCountingExports(
         addDeclaration(name, statement);
       } else if (ts.isClassDeclaration(statement)) {
         addMembers(name, statement);
-      } else if (
+      } else {
         // `export default function () {...}` has no name to resolve.
-        statement.body &&
-        callsCount(scope, statement.body, new Set())
-      ) {
-        counting.add(name);
+        if (
+          !deferredOnly &&
+          statement.body &&
+          callsCount(scope, statement.body, new Set())
+        ) {
+          counting.add(name);
+        }
+        addDeferred(name, statement);
       }
     } else if (isExported(statement) && ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
@@ -1145,7 +1194,9 @@ export function findCountingExports(
       }
     }
   }
-  return [...counting].sort();
+  return [...counting]
+    .filter((entry) => !deferredOnly || entry.endsWith(")"))
+    .sort();
 }
 
 const EXPORTS = /\bexport\b/;
@@ -1205,6 +1256,18 @@ export function countingExportsOf(
       )
       .map(([file]) => file),
   );
+  // A file that names only a timer is first read just for the arguments its
+  // exports hand on to one: anything that counts in it comes from an import,
+  // and reaches it when that import's file is checked.
+  const deferredOnly = new Set(
+    [...sources]
+      .filter(
+        ([file, source]) =>
+          !pending.has(file) && EXPORTS.test(source) && TIMER_WORD.test(source),
+      )
+      .map(([file]) => file),
+  );
+  for (const file of deferredOnly) pending.add(file);
   while (pending.size > 0) {
     const [file] = pending;
     pending.delete(file);
@@ -1213,6 +1276,7 @@ export function countingExportsOf(
       sources.get(file) ?? "",
       known,
       scopes,
+      deferredOnly.delete(file),
     );
     const before = known.get(file) ?? new Set<string>();
     const added = names.filter((name) => !before.has(name));
@@ -1238,6 +1302,7 @@ export function countingExportsOf(
           packaged.some((name) => source.includes(name))
         ) {
           pending.add(other);
+          deferredOnly.delete(other);
         }
       }
     }
@@ -1262,6 +1327,7 @@ export function countingExportsOf(
         )
       ) {
         pending.add(other);
+        deferredOnly.delete(other);
       }
     }
   }
@@ -1271,15 +1337,16 @@ export function countingExportsOf(
 /**
  * Whether a function this file shows hands the function at parameter `index`
  * to a timer: as the timer's callback, inside a callback that runs it, or
- * through another local function that does, as `later` does in
+ * through another function that does, as `later` does in
  * `const later = (fn) => setTimeout(fn, 0)`.
  */
 function defersParameter(
-  checker: ts.TypeChecker,
+  scope: FileScope,
   fn: ts.FunctionLikeDeclaration,
   index: number,
   seen: Set<ts.Node>,
 ): boolean {
+  const { checker } = scope;
   const parameter = fn.parameters[index];
   const symbol =
     parameter &&
@@ -1287,23 +1354,21 @@ function defersParameter(
     checker.getSymbolAtLocation(parameter.name);
   if (!symbol || !fn.body || seen.has(fn)) return false;
   seen.add(fn);
+  // The parameter itself, or a function here that runs it.
+  const handsOn = (argument: ts.Expression) => {
+    if (refersTo(checker, argument, symbol)) return true;
+    const run = resolvedFunction(checker, argument, new Set());
+    return !!run?.body && runsParameter(checker, run.body, symbol, new Set());
+  };
   const visit = (node: ts.Node): boolean => {
     if (ts.isCallExpression(node)) {
       const [callback] = node.arguments;
       if (callback && isTimerReference(checker, node.expression, new Set())) {
-        if (refersTo(checker, callback, symbol)) return true;
-        const run = resolvedFunction(checker, callback, new Set());
-        if (run?.body && runsParameter(checker, run.body, symbol, new Set())) {
-          return true;
-        }
-      }
-      const local = resolvedFunction(checker, node.expression, new Set());
-      if (
-        local &&
+        if (handsOn(callback)) return true;
+      } else if (
         node.arguments.some(
           (argument, at) =>
-            refersTo(checker, argument, symbol) &&
-            defersParameter(checker, local, at, seen),
+            handsOn(argument) && defersArgument(scope, node, at, seen),
         )
       ) {
         return true;
@@ -1320,6 +1385,34 @@ function defersParameter(
   return visit(fn.body);
 }
 
+/**
+ * Whether a call hands its argument at `index` on to a timer: a function this
+ * file shows does, or another scanned server file lists its export as doing.
+ */
+function defersArgument(
+  scope: FileScope,
+  call: ts.CallExpression,
+  index: number,
+  seen: Set<ts.Node>,
+): boolean {
+  const { checker } = scope;
+  const local = resolvedFunction(checker, call.expression, new Set());
+  if (local) return defersParameter(scope, local, index, seen);
+  const target = unbound(call.expression);
+  if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
+    return false;
+  }
+  const imported = importedPath(
+    checker,
+    target,
+    declarationOf(checker, target),
+  );
+  const exports = imported && scope.exportsOf(imported.specifier);
+  return (
+    !!exports && exports.has(deferredEntry(imported.path.join("."), index))
+  );
+}
+
 export function findDeferredCounts(
   file: string,
   source: string,
@@ -1331,21 +1424,17 @@ export function findDeferredCounts(
   const lines = source.split(/\r?\n/);
   const findings: DeferredCountFinding[] = [];
 
-  // A timer, or a function in this file that hands it on to one, given a
-  // function that counts.
+  // A timer, or a function that hands it on to one, given a function that
+  // counts.
   const defersCount = (call: ts.CallExpression): boolean => {
     const [first] = call.arguments;
     if (first && isTimerReference(checker, call.expression, new Set())) {
       return countsWhenCalled(scope, first, new Set());
     }
-    const helper = resolvedFunction(checker, call.expression, new Set());
-    return (
-      !!helper &&
-      call.arguments.some(
-        (argument, index) =>
-          countsWhenCalled(scope, argument, new Set()) &&
-          defersParameter(checker, helper, index, new Set()),
-      )
+    return call.arguments.some(
+      (argument, index) =>
+        countsWhenCalled(scope, argument, new Set()) &&
+        defersArgument(scope, call, index, new Set()),
     );
   };
 
@@ -1385,6 +1474,27 @@ function isPackageHelperPath(relPath: string): boolean {
     !SKIPPED.test(relPath) &&
     !isServerSourcePath(relPath)
   );
+}
+
+/**
+ * Whether a file imports, by a relative path, a scanned module that exports
+ * something handing an argument on to a timer, so it can defer a count without
+ * naming a timer itself.
+ */
+function importsDeferral(
+  file: string,
+  source: string,
+  known: CountingExports,
+): boolean {
+  for (const [, specifier] of source.matchAll(RELATIVE_SPECIFIER)) {
+    for (const candidate of importCandidates(file, specifier)) {
+      const names = known.get(candidate);
+      if (!names) continue;
+      if ([...names].some((entry) => entry.endsWith(")"))) return true;
+      break;
+    }
+  }
+  return false;
 }
 
 function sourceFiles(): { server: string[]; helpers: string[] } {
@@ -1439,7 +1549,9 @@ function main() {
   const findings: DeferredCountFinding[] = [];
   for (const rel of files.server) {
     const source = sources.get(rel) ?? "";
-    if (!TIMER_WORD.test(source)) continue;
+    if (!TIMER_WORD.test(source) && !importsDeferral(rel, source, known)) {
+      continue;
+    }
     findings.push(...findDeferredCounts(rel, source, known, scopes));
   }
 
