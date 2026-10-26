@@ -627,7 +627,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                   {hideable && (
                     <>
                       <DropdownMenuSeparator className="an-chat-history-row__menu-separator" />
-                      <ChatHistoryMenuItem onSelect={() => onHide!(item.id)}>
+                      <ChatHistoryMenuItem onSelect={() => onHide?.(item.id)}>
                         {labels.hide}
                       </ChatHistoryMenuItem>
                     </>
