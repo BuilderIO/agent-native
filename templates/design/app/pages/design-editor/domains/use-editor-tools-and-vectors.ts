@@ -1074,11 +1074,9 @@ export function useEditorToolsAndVectors({
         setVectorEditingState((latest) =>
           latest?.layerId === current.layerId &&
           latest.screenId === current.screenId
-            ? {
-                ...latest,
-                path: nextPath,
-                pendingCommit: pendingCommit ?? latest.pendingCommit,
-              }
+            ? pendingCommit === undefined
+              ? { ...latest, path: nextPath }
+              : { ...latest, path: nextPath, pendingCommit }
             : latest,
         );
       };

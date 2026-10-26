@@ -42,7 +42,7 @@ export function pngDensityScale(bytes: Uint8Array): number {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (signature.some((byte, index) => bytes[index] !== byte)) return 1;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  for (let offset = 8; offset + 8 <= bytes.length;) {
+  for (let offset = 8; offset + 8 <= bytes.length; ) {
     const length = view.getUint32(offset);
     const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
     if (type === "IDAT" || type === "IEND") return 1;
