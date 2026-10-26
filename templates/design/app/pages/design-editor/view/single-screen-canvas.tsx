@@ -102,7 +102,6 @@ export function renderSingleScreenCanvas({
     handlePreviewThemeStatus,
     mode,
     activeTool,
-    activeFileId,
     setActiveTool,
     setSelectedElement,
     setHoveredElement,
@@ -258,7 +257,7 @@ export function renderSingleScreenCanvas({
   const { handleIframeHotkey, handleKScaleStyleBatchChange } =
     editorScreenRendering;
 
-  if (!activeFileId) return null;
+  if (!activeFile) return null;
 
   const visibleCursorOthers = multiplayerCursors
     ? othersWithAgentCursor

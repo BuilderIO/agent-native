@@ -487,7 +487,7 @@ export function useEditorToolsAndVectors({
         reparentTargetIdentity?: ScreenProjectionNodeIdentity;
       },
     ) => {
-      if (!activeFileId) return false;
+      if (!activeFile) return false;
       return runCreatePrimitive(
         {
           activeBreakpointWidthState,
@@ -1028,7 +1028,7 @@ export function useEditorToolsAndVectors({
               current.screenId,
               nextContent,
               {
-                skipPreview: current.screenId !== activeFile.id,
+                skipPreview: current.screenId !== activeFile?.id,
                 historyBeforeContent: baseContent,
               },
             );

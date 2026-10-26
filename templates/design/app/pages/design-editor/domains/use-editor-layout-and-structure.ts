@@ -876,12 +876,12 @@ export function useEditorLayoutAndStructure({
         collectLiveSizeHints(
           nodeIds,
           projection,
-          activeFile && activeBreakpointWidthStateRef.current !== undefined
+          activeBreakpointWidthStateRef.current !== undefined
             ? getBreakpointIframeId(
                 activeFile.id,
                 activeBreakpointWidthStateRef.current,
               )
-            : (activeFile?.id ?? ""),
+            : activeFile.id,
           boardFileId,
         ),
       codeLayerOwnerByNodeIdRef,

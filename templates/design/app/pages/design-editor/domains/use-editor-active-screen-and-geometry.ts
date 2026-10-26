@@ -1367,7 +1367,7 @@ export function useEditorActiveScreenAndGeometry({
     retryDesignSaveOutbox,
   ]);
 
-  const defaultActiveFile =
+  const defaultActiveFile: (typeof files)[number] | undefined =
     files.find(
       (file) =>
         normalizedDesignFileType(file.fileType) === "html" &&
@@ -1379,7 +1379,7 @@ export function useEditorActiveScreenAndGeometry({
         normalizedDesignFileType(file.fileType) === "html" &&
         !isBoardFile(file.filename),
     ) ??
-    files[0];
+    (files.length > 0 ? files[0] : undefined);
 
   useEffect(() => {
     const nextActiveFileId = resolveAvailableActiveFileId({
