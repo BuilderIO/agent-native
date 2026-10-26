@@ -954,7 +954,7 @@ export async function sendAgentHarnessFollowUp(input: {
             session.id,
             dispatchGeneration,
             claimId,
-            () => {
+            (assertCurrent) => {
               try {
                 if (
                   softTimeoutDeadlineAt === undefined &&
@@ -1095,6 +1095,7 @@ export async function sendAgentHarnessFollowUp(input: {
                   undefined,
                   {
                     ...followUpRunOptions,
+                    afterRunInsert: (tx) => assertCurrent(tx),
                     ...(softTimeoutDeadlineAt === undefined
                       ? {}
                       : { softTimeoutDeadlineAt }),

@@ -2214,6 +2214,49 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("waits for the transactional admission check before starting the driver", async () => {
+    let releaseAdmission!: () => void;
+    let notifyAdmission!: () => void;
+    const admissionGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const admissionStarted = new Promise<void>((resolve) => {
+      notifyAdmission = resolve;
+    });
+    const afterRunInsert = vi.fn(async () => {
+      notifyAdmission();
+      await admissionGate;
+    });
+    vi.mocked(insertRun).mockImplementationOnce(
+      async (_runId, _threadId, _turnId, options) => {
+        await options?.afterInsert?.({} as never);
+      },
+    );
+    const runFn = vi.fn(async () => {});
+    try {
+      const run = startRun(
+        "run-transactional-admission",
+        "thread-transactional-admission",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease: true, afterRunInsert },
+      );
+      await admissionStarted;
+      expect(runFn).not.toHaveBeenCalled();
+      releaseAdmission();
+      await run.finalized;
+      expect(insertRun).toHaveBeenCalledWith(
+        "run-transactional-admission",
+        "thread-transactional-admission",
+        undefined,
+        expect.objectContaining({ afterInsert: afterRunInsert }),
+      );
+      expect(runFn).toHaveBeenCalledOnce();
+    } finally {
+      releaseAdmission();
+    }
+  });
+
   it("waits for the run row before persisting and flushing a tool start", async () => {
     let releaseInsert!: () => void;
     vi.mocked(insertRun).mockReturnValueOnce(

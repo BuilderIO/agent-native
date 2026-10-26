@@ -45,6 +45,7 @@ import type {
   AgentHarnessAdapter,
   AgentHarnessSession,
 } from "./harness/types.js";
+import { lockThreadRunSlot } from "./run-slot-lock.js";
 import {
   beginAgentExecutionStep,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
@@ -60,6 +61,8 @@ import {
   reapIfStale,
   recordLateAgentExecutionStepOutcome,
   renewTaskExecutionLease,
+  lockTaskExecutionLease,
+  tryClaimRunSlot,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
 import {
@@ -77,7 +80,7 @@ const repositoryRoot = resolve(
   "../../../../",
 );
 const workerPath = fileURLToPath(
-  new URL("./run-store.fencing.worker.ts", import.meta.url),
+  new URL("./run-store.fencing.worker.test.support.ts", import.meta.url),
 );
 const fireInternalDispatchMock = vi.fn(async () => {});
 
@@ -476,6 +479,90 @@ async function removeHarnessSessionUpdateGate(
 describe.skipIf(!databaseUrl)(
   "execution lease and journal process failures",
   () => {
+    it("acquires the thread slot before the fenced lease during admission", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const holderSql = postgres(databaseUrl!, { max: 1 });
+        const admissionSql = postgres(databaseUrl!, { max: 1 });
+        const threadId = `${prefix}:lock-order-thread`;
+        const turnId = `${prefix}:lock-order-turn`;
+        const runId = `${prefix}:lock-order-current`;
+        const fence = await claimInProcess(sql, threadId, turnId, runId);
+
+        let releaseSlot!: () => void;
+        let notifySlotLocked!: () => void;
+        const slotGate = new Promise<void>((resolve) => {
+          releaseSlot = resolve;
+        });
+        const slotLocked = new Promise<void>((resolve) => {
+          notifySlotLocked = resolve;
+        });
+        let holderAcquiredLease = false;
+        let admissionPid: number | undefined;
+        const holderDb = executor(holderSql);
+        const admissionDb = executor(admissionSql, async (tx) => {
+          const [{ pid }] = await tx`SELECT pg_backend_pid() AS pid`;
+          admissionPid = Number(pid);
+        });
+        if (!holderDb.transaction) {
+          throw new Error(
+            "Expected the PostgreSQL test client to support transactions",
+          );
+        }
+
+        const holder = withDbExec(holderDb, () =>
+          holderDb.transaction!(async (tx) => {
+            await lockThreadRunSlot(tx, threadId);
+            notifySlotLocked();
+            await slotGate;
+            await lockTaskExecutionLease(tx, threadId, turnId);
+            holderAcquiredLease = true;
+          }),
+        );
+        let admission:
+          | Promise<Awaited<ReturnType<typeof tryClaimRunSlot>>>
+          | undefined;
+        try {
+          await slotLocked;
+          admission = withDbExec(admissionDb, () =>
+            withExecutionFence(fence, () =>
+              tryClaimRunSlot(
+                threadId,
+                `${prefix}:lock-order-contender`,
+                undefined,
+                { turnId },
+              ),
+            ),
+          );
+          await expect
+            .poll(async () => {
+              if (admissionPid === undefined) return null;
+              const [activity] = await sql`
+                SELECT wait_event FROM pg_stat_activity WHERE pid = ${admissionPid}
+              `;
+              return activity?.wait_event ?? null;
+            })
+            .toBe("advisory");
+          releaseSlot();
+
+          const [holderResult, admissionResult] = await Promise.allSettled([
+            holder,
+            admission,
+          ]);
+          expect(holderResult.status).toBe("fulfilled");
+          expect(holderAcquiredLease).toBe(true);
+          expect(admissionResult).toMatchObject({
+            status: "fulfilled",
+            value: { claimed: false, activeRunId: runId },
+          });
+        } finally {
+          releaseSlot();
+          await Promise.allSettled([holder, admission]);
+          await holderSql.end();
+          await admissionSql.end();
+        }
+      }, 4);
+    }, 45_000);
+
     it("recovers a killed dispatched follow-up as unknown without replaying its effect", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const sessionId = `${prefix}:harness-follow-up-crash`;

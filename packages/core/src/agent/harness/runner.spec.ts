@@ -1145,7 +1145,10 @@ describe("startAgentHarnessRun", () => {
       ]!,
     );
     expect(mocks.startRun.mock.calls[0]?.[4]).toEqual(
-      expect.objectContaining({ recoverChunkBoundaries: true }),
+      expect.objectContaining({
+        recoverChunkBoundaries: true,
+        useHostedSoftTimeoutDefault: true,
+      }),
     );
   });
 

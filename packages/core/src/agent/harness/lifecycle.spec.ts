@@ -1192,6 +1192,7 @@ describe("agent harness lifecycle", () => {
         engineName: "fake-engine",
         model: "model-v1",
         attemptCount: 2,
+        afterRunInsert: expect.any(Function),
       }),
     );
     expect(mocks.claimFollowUp).toHaveBeenCalledWith(

@@ -152,7 +152,10 @@ class SubprocessApprovalSession implements AgentHarnessSession {
   ) {
     this.id = storedSessionId;
     const fixturePath = fileURLToPath(
-      new URL("./run-store.fencing.native-harness.fixture.ts", import.meta.url),
+      new URL(
+        "./run-store.fencing.native-harness.fixture.test.support.ts",
+        import.meta.url,
+      ),
     );
     this.child = spawn(
       process.execPath,

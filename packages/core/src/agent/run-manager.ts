@@ -4,6 +4,7 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import type { DbExec } from "../db/client.js";
 import {
   getCurrentRequestDbPoolScope,
   retainRequestDbPoolScope,
@@ -418,6 +419,8 @@ export interface StartRunOptions {
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
   turnInitiator?: AgentTurnInitiator;
   runRowAlreadyInserted?: boolean;
+  /** Serialized with the run insert before the run driver starts. */
+  afterRunInsert?: (tx: DbExec) => Promise<void>;
   executionLease?: boolean;
   model?: string;
   engineName?: string;
@@ -836,6 +839,9 @@ export function startRun(
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
 ): StartedRun {
+  if (options?.runRowAlreadyInserted && options.afterRunInsert) {
+    throw new Error("Run admission checks require a new run row.");
+  }
   if (
     options?.softTimeoutDeadlineAt !== undefined &&
     !Number.isFinite(options.softTimeoutDeadlineAt)
@@ -987,13 +993,16 @@ export function startRun(
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
   const insertOptions =
-    options?.dispatchMode || options?.turnInitiator
+    options?.dispatchMode || options?.turnInitiator || options?.afterRunInsert
       ? {
           ...(options?.dispatchMode
             ? { dispatchMode: options.dispatchMode }
             : {}),
           ...(options?.turnInitiator
             ? { turnInitiator: options.turnInitiator }
+            : {}),
+          ...(options?.afterRunInsert
+            ? { afterInsert: options.afterRunInsert }
             : {}),
         }
       : undefined;

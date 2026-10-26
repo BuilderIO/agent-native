@@ -63,6 +63,7 @@ interface RecoveryRun {
   terminalReason: string | null;
   dispatchMode: string | null;
   dispatchPayload: Record<string, unknown> | null;
+  continuationOrder: number | null;
   startedAt: number;
   heartbeatAt: number | null;
   lastProgressAt: number | null;
@@ -277,7 +278,7 @@ async function readSnapshot(
     const [runs, eventRows, leases, threads, schedulerRows] = await Promise.all(
       [
         tx`SELECT id, status, terminal_reason, dispatch_mode, dispatch_payload,
-                started_at, heartbeat_at, last_progress_at
+                continuation_order, started_at, heartbeat_at, last_progress_at
            FROM agent_runs
           WHERE thread_id = ${ids.threadId}
             AND COALESCE(turn_id, id) = ${ids.turnId}
@@ -333,6 +334,7 @@ async function readSnapshot(
       dispatchMode:
         typeof row.dispatch_mode === "string" ? row.dispatch_mode : null,
       dispatchPayload: parseJsonRecord(row.dispatch_payload),
+      continuationOrder: asNumber(row.continuation_order),
       startedAt: asNumber(row.started_at) ?? 0,
       heartbeatAt: asNumber(row.heartbeat_at),
       lastProgressAt: asNumber(row.last_progress_at),
@@ -472,6 +474,16 @@ export function validateScheduledRecoveryOutcome(
     "recovered continuation is not complete",
   );
   assert.equal(
+    successor.dispatchMode,
+    "background",
+    "recovered continuation was not dispatched in the background",
+  );
+  // Terminal transitions clear dispatch_payload; continuation order survives.
+  assert.ok(
+    (successor.continuationOrder ?? 0) > (predecessor.continuationOrder ?? 0),
+    "successor does not follow the checkpointed predecessor in the turn",
+  );
+  assert.equal(
     snapshot.successorTerminalCounts[successor.id],
     1,
     "successor has duplicate or missing terminal events",
@@ -481,17 +493,6 @@ export function validateScheduledRecoveryOutcome(
     1,
     "expected outcome marker is missing or duplicated",
   );
-  assert.equal(
-    successor.dispatchPayload?.internalContinuation,
-    true,
-    "successor is not marked as an internal continuation",
-  );
-  assert.equal(
-    successor.dispatchPayload?.__agentChatRecoveryOfRunId,
-    ids.runId,
-    "successor is not linked to the checkpointed predecessor",
-  );
-
   const schedulerCheckedAt = Math.max(
     ...snapshot.schedulerChecks.map((row) => row.lastCheckedAt ?? 0),
   );

@@ -2086,7 +2086,6 @@ export async function tryClaimRunSlot(
     await prepareServicePrincipalRunStart(options.turnInitiator);
   }
   const transactionResult = await client.transaction(async (tx) => {
-    await lockAndAssertCurrentExecutionFences(tx);
     if (options?.turnInitiator) {
       const denied = await lockAndAssertServicePrincipalMayStartRun(tx, {
         email: options.turnInitiator.email,
@@ -2095,6 +2094,7 @@ export async function tryClaimRunSlot(
       if (denied) return { refused: denied } as const;
     }
     await lockThreadRunSlot(tx, threadId);
+    await lockAndAssertCurrentExecutionFences(tx);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,

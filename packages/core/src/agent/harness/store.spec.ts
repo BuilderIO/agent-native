@@ -742,15 +742,18 @@ describe("agent harness session store", () => {
       notifyTransactionBodyComplete = resolve;
     });
     const originalTransaction = rawClient.transaction;
+    let gateFirstTransaction = true;
     rawClient.transaction = async (run) =>
       pglite.transaction(async (tx) => {
         const result = await run(tx);
-        notifyTransactionBodyComplete();
-        await commitGate;
+        if (gateFirstTransaction) {
+          gateFirstTransaction = false;
+          notifyTransactionBodyComplete();
+          await commitGate;
+        }
         return result;
       });
     const order: string[] = [];
-    let stopFinished = false;
     try {
       const dispatch = startAgentHarnessSessionFollowUpDispatch(
         id,
@@ -764,19 +767,16 @@ describe("agent harness session store", () => {
       );
       await transactionBodyComplete;
       expect(order).toEqual([]);
+      releaseCommit();
+      await providerStarted;
+      expect(order).toEqual(["provider-start"]);
       const stop = markAgentHarnessSessionStopped(id, "stopped").then(
         (session) => {
           order.push("stop-complete");
-          stopFinished = true;
           return session;
         },
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(stopFinished).toBe(false);
-      releaseCommit();
-      await providerStarted;
       await stop;
-      expect(stopFinished).toBe(true);
       releaseProviderDispatch();
 
       const admitted = await dispatch;
@@ -786,13 +786,88 @@ describe("agent harness session store", () => {
         generation: claimed!.generation + 1,
       });
       expect(order[0]).toBe("provider-start");
-      expect(order).toContain("stop-complete");
+      expect(order).toEqual(["provider-start", "stop-complete"]);
     } finally {
       releaseCommit();
       releaseProviderDispatch();
       rawClient.transaction = originalTransaction;
     }
 
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "stopped",
+      followUpClaimId: null,
+    });
+  });
+
+  it("does not dispatch after a stop commits between claim and provider start", async () => {
+    const id = "session-follow-up-stop-after-claim";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-stop-after-claim",
+      runId: "run-follow-up-stop-after-claim",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "stop-after-claim",
+    );
+
+    let releaseValidationRead!: () => void;
+    let notifyValidationRead!: () => void;
+    const validationReadGate = new Promise<void>((resolve) => {
+      releaseValidationRead = resolve;
+    });
+    const validationReadStarted = new Promise<void>((resolve) => {
+      notifyValidationRead = resolve;
+    });
+    const originalExecute = rawClient.execute;
+    let gateValidationRead = true;
+    rawClient.execute = async (input) => {
+      if (
+        gateValidationRead &&
+        typeof input !== "string" &&
+        input.sql.trim() ===
+          "SELECT * FROM agent_harness_sessions WHERE id = ?" &&
+        input.args?.[0] === id
+      ) {
+        const result = await originalExecute(input);
+        gateValidationRead = false;
+        notifyValidationRead();
+        await validationReadGate;
+        return result;
+      }
+      return originalExecute(input);
+    };
+    const providerStarted = vi.fn();
+    const start = vi.fn(async (assertCurrent) => {
+      await rawClient.transaction!(async (tx) => {
+        await assertCurrent(tx);
+        providerStarted();
+      });
+    });
+    try {
+      const dispatch = startAgentHarnessSessionFollowUpDispatch(
+        id,
+        claimed!.generation,
+        "stop-after-claim",
+        start,
+      );
+      await validationReadStarted;
+      await markAgentHarnessSessionStopped(id, "stopped");
+      releaseValidationRead();
+
+      await expect(dispatch).rejects.toThrow("changed concurrently");
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(providerStarted).not.toHaveBeenCalled();
+    } finally {
+      releaseValidationRead();
+      rawClient.execute = originalExecute;
+    }
     await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
       status: "stopped",
       followUpClaimId: null,

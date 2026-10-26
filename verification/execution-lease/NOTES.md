@@ -217,3 +217,7 @@ tests.
 | `agent/production-agent.ts` `invokeAction`, `jobs/background-automation-runner.ts` `confirmAutomationWork` | `MarkDispatched`, then `InvokeHandler` before `Effect`; reset may win in between |
 | `agent/production-agent.ts` step-intent region (fence lookup through `beginAgentExecutionStep`)            | `BeginStep` preconditions: intent only under a fence, policy per run             |
 | `currentExecutionFence`, `currentExecutionFenceForScope`, `withExecutionFence`, `lockTurnExecutionLease`   | `Current`, `Claim`, reaper and abort lease locks                                 |
+
+`tryClaimRunSlot` takes the thread run-slot lock before checking inherited
+execution fences, matching the reaper and turn-abort transaction order. The
+`InsertRun` action models the generation guard, not database lock ordering.

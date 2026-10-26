@@ -1827,7 +1827,7 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
   id: string,
   expectedGeneration: number,
   claimId: string,
-  start: () => T | Promise<T>,
+  start: (assertCurrent: (tx: DbExec) => Promise<void>) => T | Promise<T>,
 ): Promise<{ session: StoredAgentHarnessSession; started: T } | null> {
   await ensureAgentHarnessSessionTables();
   const client = getDbExec();
@@ -1858,7 +1858,49 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
 
   // Starting a run can use the same pool as this store. Release the row lock
   // before its run admission needs another database connection.
-  return { session, started: await start() };
+  const current = await getAgentHarnessSession(id);
+  if (
+    !current ||
+    current.status !== "running" ||
+    current.followUpClaimId !== claimId ||
+    current.generation !== session.generation ||
+    (current.followUpClaimExpiresAt ?? 0) <= Date.now() ||
+    (current.followUpDeadlineAt ?? 0) <= Date.now() ||
+    current.expiryCleanupId
+  ) {
+    return null;
+  }
+  return {
+    session: current,
+    started: await start((tx) =>
+      assertAgentHarnessSessionFollowUpClaimCurrent(
+        tx,
+        id,
+        current.generation,
+        claimId,
+      ),
+    ),
+  };
+}
+
+export async function assertAgentHarnessSessionFollowUpClaimCurrent(
+  tx: DbExec,
+  id: string,
+  generation: number,
+  claimId: string,
+): Promise<void> {
+  const { rows } = await tx.execute({
+    sql: `UPDATE agent_harness_sessions
+          SET updated_at = updated_at
+          WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
+            AND generation = ?
+            AND follow_up_claim_expires_at > ${DATABASE_NOW_MS_SQL}
+            AND follow_up_deadline_at > ${DATABASE_NOW_MS_SQL}
+            AND expiry_cleanup_id IS NULL
+          RETURNING id`,
+    args: [id, claimId, generation],
+  });
+  if (!rows[0]) throw new AgentHarnessSessionConflictError(id);
 }
 
 export async function startAgentHarnessSessionApprovalDispatch<T>(

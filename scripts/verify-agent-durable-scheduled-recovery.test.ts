@@ -48,6 +48,7 @@ function snapshot(
         terminalReason: null,
         dispatchMode: "background",
         dispatchPayload: { prompt: `Continue and emit ${marker}` },
+        continuationOrder: 1,
         startedAt: 1_000,
         heartbeatAt: 1_000,
         lastProgressAt: 1_000,
@@ -180,6 +181,7 @@ describe("scheduled-recovery outcome", () => {
           terminalReason: "run_timeout",
           dispatchMode: "background",
           dispatchPayload: { prompt: `Continue and emit ${marker}` },
+          continuationOrder: 1,
           startedAt: 1_000,
           heartbeatAt: 1_000,
           lastProgressAt: 1_000,
@@ -189,10 +191,8 @@ describe("scheduled-recovery outcome", () => {
           status: "completed",
           terminalReason: null,
           dispatchMode: "background",
-          dispatchPayload: {
-            internalContinuation: true,
-            __agentChatRecoveryOfRunId: ids.runId,
-          },
+          dispatchPayload: null,
+          continuationOrder: 2,
           startedAt: 2_000,
           heartbeatAt: 2_000,
           lastProgressAt: 2_000,
@@ -237,6 +237,23 @@ describe("scheduled-recovery outcome", () => {
           1_000,
         ),
       /missing or duplicated/,
+    );
+    assert.throws(
+      () =>
+        validateScheduledRecoveryOutcome(
+          snapshot({
+            ...completed,
+            runs: completed.runs.map((run) =>
+              run.id === `${ids.runId}-successor`
+                ? { ...run, continuationOrder: 1 }
+                : run,
+            ),
+          }),
+          ids,
+          marker,
+          1_000,
+        ),
+      /does not follow the checkpointed predecessor/,
     );
   });
 });
