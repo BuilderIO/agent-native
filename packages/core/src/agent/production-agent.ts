@@ -452,9 +452,10 @@ import { toolCallInputSignature } from "./tool-call-input-signature.js";
 import {
   ambiguousLegacyCallEffectKey,
   findAmbiguousLegacyJournalEntryForCall,
-  findInterruptedJournalEntryForCall,
+  findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
   journalEntriesRepresentedInHistory,
@@ -7716,6 +7717,11 @@ export async function runAgentLoop(opts: {
   const journalEntriesAmbiguous = toolCallJournal
     ? journalEntriesAmbiguousInHistory(toolCallJournal, journalHistory)
     : new Set<string>();
+  const unseenFinishedJournalSteps = (toolCallJournal?.completed ?? []).filter(
+    (entry) =>
+      !journalEntriesAlreadyRepresented.has(entry.key) &&
+      !journalEntriesAmbiguous.has(entry.key),
+  );
   const journaledPriorToolCalls =
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
@@ -8678,13 +8684,8 @@ export async function runAgentLoop(opts: {
     const historyIndexByCall = new Map(
       allToolCallParts.map((toolCall, index) => [toolCall, index]),
     );
-    const logicalExecutionStepIds = new Map(
-      toolCallParts.map((toolCall, index) => [
-        toolCall,
-        `model-step:${createHash("sha256")
-          .update(`${durableStepCheckpointId}:${index}`)
-          .digest("hex")}`,
-      ]),
+    const toolCallIndexes = new Map(
+      toolCallParts.map((toolCall, index) => [toolCall, index]),
     );
     const historyToolCallByCall = new Map(
       toolCallParts.map((toolCall) => [
@@ -9716,12 +9717,40 @@ export async function runAgentLoop(opts: {
       );
 
       const executionFence = currentExecutionFence();
+      const toolCallIndex = toolCallIndexes.get(originalToolCall);
+      // A continuation re-asks the model from the same checkpoint and may
+      // reorder or replace its calls, so a step is named by the call itself;
+      // the occurrence count only separates identical calls in one response.
+      // Every earlier call was prepared before this one runs. A step named
+      // under another scheme is found through the run ledger, whose tool_start
+      // persists before any dispatch.
       const logicalExecutionStepId =
-        logicalExecutionStepIds.get(originalToolCall);
-      const interruptedStep =
+        toolCallIndex === undefined
+          ? undefined
+          : `model-step:${createHash("sha256")
+              .update(
+                JSON.stringify([
+                  durableStepCheckpointId,
+                  toolCall.name,
+                  argumentsHash,
+                  toolCallParts.slice(0, toolCallIndex).filter((earlier) => {
+                    const earlierPrepared = toolCallIntents.get(earlier);
+                    return (
+                      earlier.name === toolCall.name &&
+                      earlierPrepared?.status === "prepared" &&
+                      earlierPrepared.intent.valid &&
+                      earlierPrepared.intent.argumentsHash === argumentsHash
+                    );
+                  }).length,
+                ]),
+              )
+              .digest("hex")}`;
+      // The ledger names the step whichever scheme recorded it.
+      const journaledStep =
         executionFence && toolCallJournal
-          ? findInterruptedJournalEntryForCall(
+          ? findUnresolvedJournalStepForCall(
               toolCallJournal,
+              unseenFinishedJournalSteps,
               toolCall.name,
               argumentsHash,
               toolCall.input,
@@ -9729,7 +9758,7 @@ export async function runAgentLoop(opts: {
             )
           : undefined;
       const legacyInterruptedStep =
-        executionFence && toolCallJournal && !interruptedStep
+        executionFence && toolCallJournal && !journaledStep
           ? findInterruptedLegacyJournalEntryForCall(
               toolCallJournal,
               toolCall.name,
@@ -9745,7 +9774,7 @@ export async function runAgentLoop(opts: {
           ? legacyInterruptedStep.stepId
           : undefined;
       const interruptedStepId =
-        interruptedStep?.executionStepId ?? legacyInterruptedStepId;
+        journaledStep?.executionStepId ?? legacyInterruptedStepId;
       const ambiguousLegacyInterruptedWrite =
         !actionIsReadOnly && legacyInterruptedStep.status === "ambiguous";
       executionStepId = executionFence
@@ -9919,7 +9948,7 @@ export async function runAgentLoop(opts: {
               : undefined;
         const [recordedCause, attempts] = (
           [
-            () => [interruptedStep?.unknownCause, 1],
+            () => [journaledStep?.unknownCause, 1],
             () => [
               keyedCause(`call:${preparedCallKey}`),
               unknownOutcomes.calls.get(preparedCallKey),
@@ -11010,10 +11039,13 @@ export async function runAgentLoop(opts: {
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
         return null;
       }
+      // Journal steps are claimed in call order, which a batch's concurrent
+      // awaits would not keep.
       if (
         toolCallJournal &&
-        findInterruptedJournalEntryForCall(
+        hasJournalStepForCall(
           toolCallJournal,
+          unseenFinishedJournalSteps,
           toolCall.name,
           prepared?.status === "prepared" && prepared.intent.valid
             ? prepared.intent.argumentsHash

@@ -768,6 +768,25 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
+const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
+
+/**
+ * A model step's input snapshot keeps the arguments' key order, which a
+ * re-emitted call need not repeat; its exact arguments hash does not.
+ */
+function executionStepInputIdentity(
+  inputJson: string | undefined,
+): string | undefined {
+  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) return inputJson;
+  const { argumentsHash } = JSON.parse(inputJson) as {
+    argumentsHash?: unknown;
+  };
+  if (typeof argumentsHash !== "string") {
+    throw new Error("Execution step input has an unreadable arguments hash");
+  }
+  return `arguments:${argumentsHash}`;
+}
+
 /** Persist intent before dispatch and decide whether an interrupted call may run again. */
 export async function beginAgentExecutionStep(
   intent: AgentExecutionStepIntent,
@@ -818,7 +837,8 @@ export async function beginAgentExecutionStep(
       if (
         row.operation_id !== intent.operationId ||
         row.tool_name !== intent.toolName ||
-        row.input_json !== intent.inputJson
+        executionStepInputIdentity(row.input_json) !==
+          executionStepInputIdentity(intent.inputJson)
       ) {
         throw new Error(
           `Execution step ${intent.stepId} was retried with a different intent`,
