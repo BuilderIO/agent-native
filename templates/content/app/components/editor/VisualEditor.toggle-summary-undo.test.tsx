@@ -213,6 +213,28 @@ describe("undo in a Toggle's summary", () => {
     expect(storedSummaries(editor)).toEqual([TITLE, "Love it. Yeah."]);
   });
 
+  it("undoes only the summary while the body's cursor sits after a slash command being typed", async () => {
+    const { editor } = await open();
+    // A new paragraph holding "/ab" after "Intro.", with the cursor after it.
+    act(() => {
+      editor
+        .chain()
+        .insertContentAt(8, {
+          type: "paragraph",
+          content: [{ type: "text", text: "/ab" }],
+        })
+        .setTextSelection(12)
+        .run();
+    });
+    // Far enough apart that the history keeps the two edits as separate steps.
+    await settle(700);
+    await type(0, "Love it. Yeah.");
+
+    await press(0, { key: "z", ctrlKey: true });
+    expect(storedSummaries(editor)).toEqual([TITLE, OPEN_TITLE]);
+    expect(editor.state.doc.textContent).toContain("/ab");
+  });
+
   it("leaves other shortcuts in the summary to the browser", async () => {
     await open();
     const selectAll = await press(0, { key: "a", ctrlKey: true });

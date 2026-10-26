@@ -41,7 +41,9 @@ export function isActiveSlashCommandDraft(editor: Editor): boolean {
 
 // Undo can empty the page, so its changes are marked as the user's. A field
 // inside a block, such as a Toggle's summary, keeps focus when it undoes, so
-// the editor doesn't take focus or scroll to its selection.
+// the editor doesn't take focus or scroll to its selection. A slash command
+// being typed is skipped as one step only in the body: the body's selection
+// says nothing about an edit made in a field.
 export function runPersistableHistoryCommand(
   editor: Editor,
   command: "undo" | "redo",
@@ -58,7 +60,7 @@ export function runPersistableHistoryCommand(
       [command]()
       .run();
     applied ||= changed;
-    if (!changed || !isActiveSlashCommandDraft(editor)) break;
+    if (!changed || !focusEditor || !isActiveSlashCommandDraft(editor)) break;
   }
   return applied;
 }
