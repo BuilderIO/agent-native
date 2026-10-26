@@ -1139,14 +1139,17 @@ export function useEditorToolsAndVectors({
   );
 
   useEffect(() => {
-    if (
-      vectorEditingState &&
+    if (!vectorEditingState) return;
+    const screenStillExists = files.some(
+      (file) => file.id === vectorEditingState.screenId,
+    );
+    const layerWasDeselected =
       !vectorEditingState.pendingCommit &&
-      !selectedLayerIdsState.includes(vectorEditingState.layerId)
-    ) {
+      !selectedLayerIdsState.includes(vectorEditingState.layerId);
+    if (!screenStillExists || layerWasDeselected) {
       setVectorEditingState(null);
     }
-  }, [selectedLayerIdsState, vectorEditingState]);
+  }, [files, selectedLayerIdsState, vectorEditingState]);
 
   const vectorEditOverlayState = useMemo<VectorEditOverlayState | null>(() => {
     if (!vectorEditingState) return null;
