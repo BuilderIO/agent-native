@@ -360,6 +360,7 @@ async function runReview(
   fixture: Fixture,
   body: (review: Review) => Promise<void>,
 ) {
+  // oracle-change: a new spec, skipped only when the run's app selection leaves out Content, like every beta app spec.
   test.skip(!selected.has("content"), "content is not in this run's selection");
   const site = siteById("content");
   const origin = originFor(site);
