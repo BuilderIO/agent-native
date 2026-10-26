@@ -41,7 +41,7 @@ features:
     - title: コーディングエージェント向けに設計
       body: リンクをClaude CodeやCursor、Codexに貼り付けるだけです。エージェントは動画をダウンロードせずに、文字起こし、フレーム、ログを読み取ります。
     - title: コンソールログとネットワークログ
-      body: Clipsは、最大5つのタブからコンソールメッセージ、エラー、リクエストを保存します。各リクエストのステータス、所要時間、失敗したかどうかも記録されます。
+      body: 最大5つのタブのコンソールメッセージ、エラー、リクエストを保存し、ステータスと所要時間、失敗の有無も記録します。
     - title: 録画前の30秒間も
       body: Clipsは録画ボタンを押す最大30秒前までさかのぼるため、ページの読み込み中に起きたエラーも報告に含められます。
     - title: 機密情報は保存しない
@@ -65,13 +65,13 @@ integrations:
         - name: ChatGPT
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
           mono: true
-      body: クリップをClaude CodeやCodexで開くか、そのリンクをCursorやChatGPTに貼り付ければ、エージェントは何があったかを尋ねることなく作業を始められます。
+      body: クリップをClaude CodeやCodexで開くか、リンクをCursorやChatGPTに貼れば、エージェントは質問なしで作業を始めます。
     - title: バグを登録する場所にそのまま共有
       logos:
         - name: Slack
         - name: GitHub
         - name: Jira
-      body: Clips Slackアプリを使うと、公開された録画がSlack内でそのまま再生されます。拡張機能をインストールしていれば、そのリンクはGitHubのIssueやJiraのチケットでもプレビューされます。
+      body: Clips Slackアプリなら公開録画がSlack内で再生され、拡張機能があればGitHubのIssueやJiraでもリンクがプレビューされます。
     - title: MCPであらゆるツールと連携
       logos:
         - name: Sentry

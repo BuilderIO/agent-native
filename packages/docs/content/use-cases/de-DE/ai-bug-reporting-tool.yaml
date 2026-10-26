@@ -6,7 +6,7 @@ seo_title: KI-Tool für Fehlerberichte mit Konsolen- und Netzwerk-Logs
 meta_description: Agent-Native Clips ist ein kostenloses KI-Tool für Fehlerberichte. Nehmen Sie den Fehler in Chrome auf und teilen Sie einen Link mit den Konsolen- und Netzwerk-Logs, die Ihr Coding-Agent lesen kann.
 updated: 2026-10-26
 hero:
-  body: Agent-Native Clips macht aus einer Aufnahme des Fehlers einen Bericht, mit dem Ihre Entwickler und Ihr Coding-Agent arbeiten können. Sie zeigen den Fehler in Chrome, und die Fehler und fehlgeschlagenen Anfragen der Seite kommen mit dem Link.
+  body: Agent-Native Clips macht aus einer Fehleraufnahme einen Bericht für Entwickler und Coding-Agent. Fehler und fehlgeschlagene Anfragen der Seite kommen mit dem Link.
   button:
     label: Fehler aufnehmen
     url: https://clips.agent-native.com
@@ -65,13 +65,13 @@ integrations:
         - name: ChatGPT
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
           mono: true
-      body: Öffnen Sie den Clip in Claude Code oder Codex oder fügen Sie seinen Link in Cursor oder ChatGPT ein, und der Agent legt los, ohne nachzufragen, was passiert ist.
+      body: Öffnen Sie den Clip in Claude Code oder Codex oder fügen Sie den Link in Cursor oder ChatGPT ein. Der Agent startet sofort.
     - title: Dort ablegen, wo Fehler gemeldet werden
       logos:
         - name: Slack
         - name: GitHub
         - name: Jira
-      body: Mit der Clips-Slack-App werden öffentliche Aufnahmen direkt in Slack abgespielt. Mit installierter Erweiterung zeigen auch GitHub-Issues und Jira-Tickets eine Vorschau der Links.
+      body: Öffentliche Aufnahmen spielen direkt in Slack. Mit der Erweiterung zeigen auch GitHub-Issues und Jira-Tickets eine Linkvorschau.
     - title: Alles per MCP verbinden
       logos:
         - name: Sentry

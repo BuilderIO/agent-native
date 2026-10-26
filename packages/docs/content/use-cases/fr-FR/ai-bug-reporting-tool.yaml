@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: Outil de signalement de bugs par IA
+title: Rapport de bug par IA
 seo_title: Outil de signalement de bugs par IA avec logs console et réseau
 meta_description: Agent-Native Clips est un outil gratuit de signalement de bugs par IA. Enregistrez le bug dans Chrome et partagez un lien avec les logs console et réseau que votre agent de code peut lire.
 updated: 2026-10-26
 hero:
-  body: Agent-Native Clips transforme un enregistrement du bug en rapport exploitable par votre ingénieur et votre agent de code. Vous montrez le bug dans Chrome, et les erreurs de la page et les requêtes échouées viennent avec le lien.
+  body: Agent-Native Clips transforme l'enregistrement d'un bug en rapport pour votre équipe et votre agent de code. Les erreurs de page et requêtes échouées suivent avec le lien.
   button:
     label: Enregistrer un bug
     url: https://clips.agent-native.com
@@ -43,9 +43,9 @@ features:
     - title: Logs console et réseau
       body: Clips sauvegarde les messages console, les erreurs et les requêtes de jusqu'à cinq onglets, avec le statut et la durée de chaque requête et son éventuel échec.
     - title: Les 30 secondes d'avant
-      body: Clips remonte jusqu'à 30 secondes avant que vous n'appuyiez sur enregistrer, donc une erreur survenue pendant le chargement de la page peut figurer dans le rapport.
+      body: Clips remonte jusqu'à 30 secondes avant l'enregistrement, donc une erreur au chargement de la page entre dans le rapport.
     - title: Pas de secrets
-      body: Clips ne sauvegarde jamais les corps de requêtes, les en-têtes, les cookies ni ce que vous tapez, et masque les valeurs qui ressemblent à des tokens ou des mots de passe.
+      body: Clips ne sauvegarde jamais corps de requêtes, en-têtes, cookies ni saisies, et masque tokens et mots de passe.
     - title: Allez droit à l'erreur
       body: Dans l'onglet Débogage du clip, cliquez sur l'heure à côté d'une erreur ou d'une requête échouée et la vidéo saute à ce moment.
     - title: Recherchez tous vos rapports de bug
@@ -71,7 +71,7 @@ integrations:
         - name: Slack
         - name: GitHub
         - name: Jira
-      body: Avec l'app Clips pour Slack, les enregistrements publics se lisent directement dans Slack. Avec l'extension installée, leurs liens s'affichent aussi en aperçu dans les issues GitHub et les tickets Jira.
+      body: Avec l'app Clips pour Slack, les enregistrements publics se lisent dans Slack. L'extension affiche aussi l'aperçu des liens dans GitHub et Jira.
     - title: Connectez n'importe quoi via MCP
       logos:
         - name: Sentry

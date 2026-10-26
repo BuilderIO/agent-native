@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: Ferramenta de relatório de bugs com IA
+title: Relatório de bugs com IA
 seo_title: Ferramenta de relatório de bugs com IA e logs de console e de rede
 meta_description: O Agent-Native Clips é uma ferramenta gratuita de relatório de bugs com IA. Grave o bug no Chrome e compartilhe um link com os logs de console e de rede que seu agente de código consegue ler.
 updated: 2026-10-26
 hero:
-  body: O Agent-Native Clips transforma a gravação do bug em um relatório que seu engenheiro e seu agente de código conseguem usar. Você mostra o bug no Chrome, e os erros e as requisições com falha da página vão junto no link.
+  body: O Agent-Native Clips transforma a gravação de um bug em um relatório para sua equipe e seu agente de código. Erros e requisições com falha da página vão junto no link.
   button:
     label: Grave um bug
     url: https://clips.agent-native.com
@@ -71,7 +71,7 @@ integrations:
         - name: Slack
         - name: GitHub
         - name: Jira
-      body: Com o app do Clips para Slack, as gravações públicas tocam direto no Slack. Com a extensão instalada, os links delas também aparecem em prévia nas issues do GitHub e nos tickets do Jira.
+      body: Com o app do Clips para Slack, as gravações públicas tocam direto no Slack. Com a extensão, o GitHub e o Jira mostram prévia dos links.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Sentry
