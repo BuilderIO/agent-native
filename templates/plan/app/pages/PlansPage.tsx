@@ -3892,7 +3892,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           )?.type
         : undefined;
       const quoteContext = textQuoteContextForBlock({
-        block: blockElement,
+        block: blockElement ?? null,
         quote: textQuote,
       });
       const snippet = textQuote.slice(0, 220);
@@ -4331,6 +4331,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         await nextFrame();
         setNativeMarkerVersion((version) => version + 1);
         const point = nativePointForAnchor(anchor, reader);
+        if (!point) continue;
         const surfaceRect = surface.getBoundingClientRect();
         const readerRect = reader.getBoundingClientRect();
         const pointX = readerRect.left - surfaceRect.left + point.left;
@@ -4725,7 +4726,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       createdBy: "human",
       authorEmail: collabUser?.email ?? null,
       authorName: collabUser?.name ?? null,
-      resolutionTarget: thread.root.resolutionTarget ?? null,
+      resolutionTarget: thread.root.resolutionTarget ?? undefined,
       mentions: [],
       mentionsJson: null,
       resolvedBy: null,
@@ -4980,7 +4981,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
               accessRequestSent={accessRequestSentPlanId === selectedId}
               viewerEmail={session?.email ?? null}
             />
-          ) : showInitialPlanSkeleton ? (
+          ) : showInitialPlanSkeleton || !bundle ? (
             <PlanSkeleton isRecap={location.pathname.includes("/recaps/")} />
           ) : (
             <div

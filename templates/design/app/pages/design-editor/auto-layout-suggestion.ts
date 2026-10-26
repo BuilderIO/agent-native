@@ -3,11 +3,9 @@ import {
   buildCodeLayerProjection,
   type CodeLayerSource,
 } from "@shared/code-layer";
+import { inferFlowArrangement } from "@shared/layout-model";
 
-import {
-  inferFlowAxisFromRects,
-  type AlignableRect,
-} from "./layout-operations";
+import type { AlignableRect } from "./layout-operations";
 
 export interface AutoLayoutInsets {
   top: number;
@@ -75,140 +73,20 @@ export function isExistingFlowLayout(args: {
   );
 }
 
-const round = (value: number) => Math.max(0, Math.round(value));
-const FLEX_ALIGN_STRETCH = "stretch"; // i18n-ignore CSS keyword
-const FLEX_ALIGN_END = "flex-end"; // i18n-ignore CSS keyword
-const FLEX_ALIGN_START = "flex-start"; // i18n-ignore CSS keyword
-const FLEX_ALIGN_CENTER = "center"; // i18n-ignore CSS keyword
-
-function median(values: readonly number[]): number {
-  const ordered = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2 === 0
-    ? (ordered[middle - 1]! + ordered[middle]!) / 2
-    : ordered[middle]!;
-}
-
-function relativeVariance(values: readonly number[]): number {
-  if (values.length < 2) return 0;
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  if (Math.abs(average) < 1) return 0;
-  return (
-    values.reduce((sum, value) => sum + Math.abs(value - average), 0) /
-    values.length /
-    Math.abs(average)
-  );
-}
-
 export function inferAutoLayoutSuggestion(args: {
   container: AlignableRect;
   children: readonly SuggestionRect[];
 }): AutoLayoutSuggestion | null {
-  const children = args.children.filter(
-    (child) =>
-      Number.isFinite(child.x) &&
-      Number.isFinite(child.y) &&
-      Number.isFinite(child.width) &&
-      Number.isFinite(child.height) &&
-      child.width >= 0 &&
-      child.height >= 0,
+  const arrangement = inferFlowArrangement(
+    args.container,
+    args.children.map((child) => ({ id: child.id, rect: child })),
   );
-  if (children.length === 0) return null;
-
-  const minX = Math.min(...children.map((child) => child.x));
-  const maxX = Math.max(...children.map((child) => child.x + child.width));
-  const minY = Math.min(...children.map((child) => child.y));
-  const maxY = Math.max(...children.map((child) => child.y + child.height));
-  const spreadX = maxX - minX;
-  const spreadY = maxY - minY;
-  const direction = inferFlowAxisFromRects(children);
-  const primaryStart = (child: SuggestionRect) =>
-    direction === "row" ? child.x : child.y;
-  const primarySize = (child: SuggestionRect) =>
-    direction === "row" ? child.width : child.height;
-  const crossStart = (child: SuggestionRect) =>
-    direction === "row" ? child.y : child.x;
-  const crossSize = (child: SuggestionRect) =>
-    direction === "row" ? child.height : child.width;
-  const ordered = [...children].sort(
-    (a, b) => primaryStart(a) - primaryStart(b) || a.id.localeCompare(b.id),
+  if (!arrangement) return null;
+  const arranged = new Set(arrangement.order);
+  const transformed = args.children.some(
+    (child) => arranged.has(child.id) && child.transformed,
   );
-  const rawGaps = ordered.slice(1).map((child, index) => {
-    const previous = ordered[index]!;
-    return (
-      primaryStart(child) - (primaryStart(previous) + primarySize(previous))
-    );
-  });
-  const overlaps = rawGaps.some((gap) => gap < -1);
-  const positiveGaps = rawGaps.filter((gap) => gap >= 0);
-  const gap =
-    children.length === 1
-      ? 10
-      : round(median(positiveGaps.length ? positiveGaps : [0]));
-  const irregular = relativeVariance(positiveGaps) > 0.35;
-  const transformed = children.some((child) => child.transformed);
-
-  const padding = {
-    top: round(minY - args.container.y),
-    right: round(args.container.x + args.container.width - maxX),
-    bottom: round(args.container.y + args.container.height - maxY),
-    left: round(minX - args.container.x),
-  };
-
-  const crossContainerStart =
-    direction === "row" ? args.container.y : args.container.x;
-  const crossContainerSize =
-    direction === "row" ? args.container.height : args.container.width;
-  const crossPaddingLeading = direction === "row" ? padding.top : padding.left;
-  const crossPaddingTrailing =
-    direction === "row" ? padding.bottom : padding.right;
-  const crossInnerStart = crossContainerStart + crossPaddingLeading;
-  const innerCrossSize = Math.max(
-    0,
-    crossContainerSize - crossPaddingLeading - crossPaddingTrailing,
-  );
-  const crossInnerEnd = crossInnerStart + innerCrossSize;
-  const stretches = children.every(
-    (child) => Math.abs(crossSize(child) - innerCrossSize) <= 2,
-  );
-  const startsAligned = children.every(
-    (child) => Math.abs(crossStart(child) - crossInnerStart) <= 2,
-  );
-  const endsAligned = children.every(
-    (child) =>
-      Math.abs(crossStart(child) + crossSize(child) - crossInnerEnd) <= 2,
-  );
-  const crossCenters = children.map(
-    (child) => crossStart(child) + crossSize(child) / 2,
-  );
-  const centersAligned =
-    Math.max(...crossCenters) - Math.min(...crossCenters) <= 2;
-  const alignItems = stretches
-    ? FLEX_ALIGN_STRETCH
-    : startsAligned
-      ? FLEX_ALIGN_START
-      : endsAligned
-        ? FLEX_ALIGN_END
-        : centersAligned
-          ? FLEX_ALIGN_CENTER
-          : FLEX_ALIGN_START;
-
-  const primaryLeading = direction === "row" ? padding.left : padding.top;
-  const primaryTrailing = direction === "row" ? padding.right : padding.bottom;
-  const justifyContent =
-    children.length > 2 &&
-    relativeVariance(positiveGaps) <= 0.08 &&
-    Math.abs(primaryLeading - primaryTrailing) <= 2
-      ? "space-between"
-      : "flex-start";
-  const tightWidth =
-    Math.abs(args.container.width - (spreadX + padding.left + padding.right)) <=
-    2;
-  const tightHeight =
-    Math.abs(
-      args.container.height - (spreadY + padding.top + padding.bottom),
-    ) <= 2;
-
+  const { overlaps, irregular } = arrangement;
   const warnings: AutoLayoutSuggestion["warnings"] = [];
   if (overlaps) warnings.push("overlap");
   if (irregular) warnings.push("irregular");
@@ -226,14 +104,14 @@ export function inferAutoLayoutSuggestion(args: {
 
   return {
     containerId: args.container.id,
-    direction,
-    orderedChildIds: ordered.map((child) => child.id),
-    gap,
-    padding,
-    alignItems,
-    justifyContent,
-    horizontalSizing: tightWidth ? "hug" : "fixed",
-    verticalSizing: tightHeight ? "hug" : "fixed",
+    direction: arrangement.direction === "horizontal" ? "row" : "column",
+    orderedChildIds: arrangement.order,
+    gap: arrangement.gap,
+    padding: arrangement.padding,
+    alignItems: arrangement.alignItems,
+    justifyContent: arrangement.justifyContent,
+    horizontalSizing: arrangement.hugs.horizontal ? "hug" : "fixed",
+    verticalSizing: arrangement.hugs.vertical ? "hug" : "fixed",
     confidence,
     safeToApply: !overlaps && !transformed,
     warnings,

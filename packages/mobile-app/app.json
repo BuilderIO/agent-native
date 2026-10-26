@@ -27,11 +27,24 @@
         "backgroundColor": "#111111"
       }
     },
+    "experiments": {
+      "typedRoutes": true
+    },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "output": "static"
     },
     "plugins": [
+      [
+        "expo-router",
+        {
+          "apiRoutes": true,
+          "asyncRoutes": {
+            "web": false
+          }
+        }
+      ],
       [
         "expo-splash-screen",
         {

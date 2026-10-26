@@ -20,8 +20,20 @@ vi.mock("../server/poll.js", () => ({
 }));
 
 const mockReadBody = vi.fn();
-vi.mock("../server/h3-helpers.js", () => ({
-  readBody: (...args: unknown[]) => mockReadBody(...args),
+const mockReadCollabBody = vi.fn(async (event: any) => {
+  const body = await mockReadBody(event);
+  const maxBytes = event.context?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
+  const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  if (Buffer.byteLength(encoded, "utf8") > maxBytes) {
+    event._status = 413;
+    throw Object.assign(new Error("Request body too large"), {
+      statusCode: 413,
+    });
+  }
+  return body;
+});
+vi.mock("./payload.js", () => ({
+  readCollabBody: (...args: unknown[]) => mockReadCollabBody(...args),
 }));
 
 vi.mock("./ydoc-manager.js", () => ({
@@ -151,9 +163,10 @@ describe("postCollabUpdate payload limit", () => {
     const oversized = { update: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-1" });
-    const res = await postCollabUpdate(ev);
+    await expect(postCollabUpdate(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through when body is within the limit", async () => {
@@ -169,7 +182,9 @@ describe("postCollabUpdate payload limit", () => {
     const oversized = { update: bigString(customLimit + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-1" }, customLimit);
-    const res = await postCollabUpdate(ev);
+    await expect(postCollabUpdate(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
   });
 });
@@ -199,9 +214,8 @@ describe("postCollabText payload limit", () => {
     const oversized = { text: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-2" });
-    const res = await postCollabText(ev);
+    await expect(postCollabText(ev)).rejects.toMatchObject({ statusCode: 413 });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through when text is within the limit", async () => {
@@ -217,7 +231,9 @@ describe("postCollabSearchReplace payload limit", () => {
     const oversized = { find: bigString(DEFAULT_MAX_BYTES + 1), replace: "" };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-3" });
-    const res = await postCollabSearchReplace(ev);
+    await expect(postCollabSearchReplace(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
   });
 });
@@ -227,9 +243,8 @@ describe("postCollabJson payload limit", () => {
     const oversized = { json: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-4" });
-    const res = await postCollabJson(ev);
+    await expect(postCollabJson(ev)).rejects.toMatchObject({ statusCode: 413 });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through when json body is within the limit", async () => {
@@ -245,9 +260,10 @@ describe("postCollabPatch payload limit", () => {
     const oversized = { ops: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-5" });
-    const res = await postCollabPatch(ev);
+    await expect(postCollabPatch(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through valid ops array within the limit", async () => {

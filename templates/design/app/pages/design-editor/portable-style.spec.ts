@@ -134,6 +134,28 @@ describe("applyPortableStyleSnapshotToHtml", () => {
     expect(result).toBe(DEST_BARE_SCREEN);
   });
 
+  it("carries portable styles onto a dropped layer without the runtime clone marker", () => {
+    const result = applyPortableStyleSnapshotToHtml(
+      DEST_BARE_SCREEN,
+      "dropped",
+      {
+        version: 1,
+        rootSourceId: "dropped",
+        nodes: [
+          {
+            sourceId: "dropped",
+            path: [],
+            styles: { color: "rgb(255, 255, 255)" },
+          },
+        ],
+      },
+    );
+
+    expect(result).toContain("color: rgb(255, 255, 255)");
+    expect(result).toContain('data-agent-native-preserve-styles="true"');
+    expect(result).not.toContain("data-agent-native-clone-root");
+  });
+
   it("recognizes a raw legacy Group wrapper when carrying portable styles", () => {
     const content = `<!doctype html><html><body><div data-agent-native-node-id="an-legacygroup" layer-name="Group" data-agent-native-preserve-styles="true"></div></body></html>`;
     const result = applyPortableStyleSnapshotToHtml(content, "an-legacygroup", {

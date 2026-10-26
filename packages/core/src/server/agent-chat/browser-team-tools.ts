@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   normalizeAgentTeamProgressResult,
 } from "../../action-ui.js";
+import {
+  fail,
+  isActionContractError,
+  type ActionRunContext,
+} from "../../action.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
@@ -16,7 +22,8 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
-import { getRequestUserEmail } from "../request-context.js";
+import type { BuilderOAuthPermissionScope } from "../builder-oauth.js";
+import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
 import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
@@ -149,6 +156,48 @@ function buildExtensionPromotionPrompt(
   };
 }
 
+type BuilderRequestConnection =
+  | { status: "connected" }
+  | { status: "disconnected" }
+  /** The grant exists but is expired or lacks `requiredScope`. */
+  | { status: "reauthorize"; message: string };
+
+/**
+ * New Builder connections store only an OAuth grant, so a missing legacy key
+ * pair does not mean Builder is disconnected. An unusable grant must not fall
+ * back to a deploy-level key the user never authorized. `requiredScope` is
+ * the scope of the Builder call the tool makes next, so a grant without it
+ * is reported before that call fails.
+ */
+async function builderConnectionForRequest(
+  creds: {
+    privateKey: string | null;
+    publicKey: string | null;
+  },
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestConnection> {
+  const { resolveBuilderRequestAuthorization } =
+    await import("../builder-api-auth.js");
+  try {
+    const authorization = await resolveBuilderRequestAuthorization({
+      requiredScope,
+    });
+    if (authorization?.source === "oauth") return { status: "connected" };
+  } catch (error) {
+    if (isActionContractError(error)) {
+      return { status: "reauthorize", message: error.message };
+    }
+    throw error;
+  }
+  const { getBuilderCredentialAuthFailure } =
+    await import("../credential-provider.js");
+  return creds.privateKey &&
+    creds.publicKey &&
+    !(await getBuilderCredentialAuthFailure(creds))
+    ? { status: "connected" }
+    : { status: "disconnected" };
+}
+
 export function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
   getOwner?: () => string | null | undefined;
@@ -224,15 +273,17 @@ export function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const { getBuilderCredentialAuthFailure, resolveBuilderCredentials } =
-          await import("../credential-provider.js");
+        const [{ resolveBuilderCredentials }, { BUILDER_OAUTH_SCOPE }] =
+          await Promise.all([
+            import("../credential-provider.js"),
+            import("../builder-oauth.js"),
+          ]);
         const creds = await resolveBuilderCredentials();
-        const authFailure = await getBuilderCredentialAuthFailure(creds);
-        const configured = !!(
-          creds.privateKey &&
-          creds.publicKey &&
-          !authFailure
-        );
+        // The same scope the Builder status route checks. A grant that needs
+        // re-authorizing renders unconfigured, so the card offers to connect.
+        const configured =
+          (await builderConnectionForRequest(creds, BUILDER_OAUTH_SCOPE))
+            .status === "connected";
         const branchProjectId = await resolveBuilderBranchProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
@@ -409,7 +460,20 @@ export function createBuilderBrowserTool(deps: {
         const { resolveBuilderCredentials } =
           await import("../credential-provider.js");
         const creds = await resolveBuilderCredentials();
-        if (!creds.privateKey || !creds.publicKey) {
+        // requestBuilderBrowserConnection authorizes with this scope.
+        const builderConnection = await builderConnectionForRequest(
+          creds,
+          "builder:browser:connect",
+        );
+        if (builderConnection.status === "reauthorize") {
+          // connect-builder may still show this grant as connected (it checks
+          // a different scope), so point at re-authorizing, not at the card.
+          return JSON.stringify({
+            error: "builder-reauthorization-required",
+            message: builderConnection.message,
+          });
+        }
+        if (builderConnection.status === "disconnected") {
           return JSON.stringify({
             error: "builder-not-connected",
             message:
@@ -494,8 +558,40 @@ export function createTeamTools(deps: {
     | ((event: import("../../agent/types.js").AgentChatEvent) => void)
     | null;
 }): Record<string, ActionEntry> {
+  const readTask = async (
+    taskId: string,
+    waitMs: number,
+    context?: ActionRunContext,
+  ) => {
+    if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 20_000)
+      fail("waitMs must be an integer between 0 and 20000.", {
+        errorCode: "invalid_input",
+        statusCode: 422,
+      });
+    const scope = {
+      ownerEmail: deps.getOwner(),
+      orgId:
+        context?.orgId !== undefined
+          ? context.orgId
+          : (getRequestOrgId() ?? null),
+    };
+    const signal = context?.signal;
+    signal?.throwIfAborted();
+    const { getTask } = await import("../agent-teams.js");
+    const deadline = Date.now() + waitMs;
+    let task = await getTask(taskId, scope);
+    signal?.throwIfAborted();
+    while (task?.status === "running" && Date.now() < deadline) {
+      await delay(Math.min(500, deadline - Date.now()), undefined, { signal });
+      signal?.throwIfAborted();
+      task = await getTask(taskId, scope);
+      signal?.throwIfAborted();
+    }
+    return task;
+  };
   return {
     "agent-teams": {
+      dedupe: false,
       tool: {
         description:
           "Manage background tasks that run in their own task thread. Use action 'spawn' to start one, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running task, or 'list' to see all tasks. A successful spawn only means the task started and is running; do not report it as finished until status/read-result shows a terminal status. This is a background task, not a source-control branch.",
@@ -536,6 +632,13 @@ export function createTeamTools(deps: {
               type: "string",
               description: "(send) Message to send to the sub-agent",
             },
+            waitMs: {
+              type: "integer",
+              minimum: 0,
+              maximum: 20000,
+              description:
+                "(status, read-result) Wait up to this many milliseconds for a terminal task. Defaults to 0 (immediate snapshot). A deadline can return queued/running; it does not mean completion or resume the parent automatically.",
+            },
           },
           required: ["action"],
         },
@@ -560,7 +663,19 @@ export function createTeamTools(deps: {
         description:
           "Plan mode allows listing tasks and reading their status or results.",
       },
-      run: async (args: Record<string, string>) => {
+      run: async (
+        args: {
+          action: string;
+          task?: string;
+          instructions?: string;
+          name?: string;
+          agent?: string;
+          taskId?: string;
+          message?: string;
+          waitMs?: number;
+        },
+        context?: ActionRunContext,
+      ) => {
         const action = args.action;
 
         if (action === "spawn") {
@@ -627,8 +742,11 @@ export function createTeamTools(deps: {
 
         if (action === "status") {
           if (!args.taskId) throw new Error("'taskId' is required for status");
-          const { getTask } = await import("../agent-teams.js");
-          const task = await getTask(args.taskId);
+          const task = await readTask(
+            args.taskId,
+            args.waitMs === undefined ? 0 : args.waitMs,
+            context,
+          );
           if (!task) return JSON.stringify({ error: "Task not found" });
           return JSON.stringify({
             taskId: task.taskId,
@@ -646,8 +764,11 @@ export function createTeamTools(deps: {
         if (action === "read-result") {
           if (!args.taskId)
             throw new Error("'taskId' is required for read-result");
-          const { getTask } = await import("../agent-teams.js");
-          const task = await getTask(args.taskId);
+          const task = await readTask(
+            args.taskId,
+            args.waitMs === undefined ? 0 : args.waitMs,
+            context,
+          );
           if (!task) return JSON.stringify({ error: "Task not found" });
           if (task.status === "running") {
             return JSON.stringify({

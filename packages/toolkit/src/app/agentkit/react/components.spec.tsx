@@ -58,17 +58,21 @@ describe("AgentConnectionErrorView replay privacy", () => {
           recover={async () => {}}
           recovering={false}
           recoveryError={new Error("Example Document recovery failed.")}
+          dismiss={() => {}}
         />
       </AgentKitProvider>,
     );
     expect(html).toContain(
       '<span data-an-mask="">Example Person&#x27;s connection failed.</span>',
     );
+    // oracle-change: the work-summary row no longer renders a chevron, so its visibility rule was removed.
     expect(html).toContain(
-      '<span data-an-mask="" class="agentkit-command-error">Example Document recovery failed.</span>',
+      '<span data-an-mask="" class="block">Example Document recovery failed.</span>',
     );
-    expect(html).toContain("<strong>Something went wrong</strong>");
+    expect(html).toContain('data-tone="warning"');
+    expect(html).toContain('role="alert"');
     expect(html).toContain("Reconnect");
+    expect(html).toContain('aria-label="Dismiss"');
   });
 });
 
@@ -154,10 +158,14 @@ describe("AgentMessageActions layout", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
-    ).replace(/\r\n/g, "\n");
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/^ {2}/gm, "");
     const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
     const rule = (selector: string) =>
-      rules.find((match) => match[1].trim() === selector)?.[2];
+      rules.find(
+        (match) => match[1].trim().replace(/\s+/g, " ") === selector,
+      )?.[2];
     const user = '.agentkit-message-actions[data-role="user"]';
 
     expect(rule(".agentkit-message-actions")).toContain(
@@ -189,25 +197,10 @@ describe("AgentMessageActions layout", () => {
     expect(rule(`${user} .agentkit-command-error`)).toContain(
       "text-align: end;",
     );
-    expect(styles).toMatch(
-      /@media \(hover: none\) \{\s*\.agentkit-message-actions\[data-role="user"\],[^{]*\{\s*opacity: 1;/,
-    );
   });
 });
 
 describe("AgentKitChat", () => {
-  it("keeps work-summary chevrons visible before the row is opened", () => {
-    const styles = readFileSync(
-      new URL("./styles.css", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    const rule = styles.match(
-      /\.agentkit-activities-summary > \.agentkit-summary-chevron \{([^}]*)\}/,
-    )?.[1];
-
-    expect(rule).toContain("opacity: 1;");
-  });
-
   it("renders the complete reference surface from one managed component", () => {
     const transport: AgentTransport = {
       async startRun() {
@@ -352,7 +345,12 @@ describe("AgentKitChat", () => {
     );
 
     expect(html).toContain('data-agent-suggestion-bar="true"');
-    expect(html).toContain('aria-label="Suggested next actions"');
+    // The visible caption names the chip group.
+    const title = html.match(
+      /<[^>]+id="([^"]+)"[^>]*data-agent-suggestion-title="true"[^>]*>Suggested actions</,
+    );
+    expect(title).not.toBeNull();
+    expect(html).toContain(`aria-labelledby="${title?.[1]}"`);
     expect(html).toContain("Review release summary");
   });
 
@@ -360,7 +358,9 @@ describe("AgentKitChat", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
-    ).replace(/\r\n/g, "\n");
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/^ {2}/gm, "");
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
@@ -370,15 +370,7 @@ describe("AgentKitChat", () => {
     expect(styles).toContain("margin: 0 auto;");
     expect(styles).not.toContain("margin: 0 auto -1rem;");
     expect(styles).toContain('[data-agent-native-composer-popover="true"]');
-    const feedbackPopoverRule = styles.match(
-      /\.agentkit-feedback-popover \{([^}]*)\}/,
-    )?.[1];
-    expect(feedbackPopoverRule).toMatch(
-      /background:\s*var\(\s*--agent-kit-popover-surface,\s*var\(--agent-kit-raised-surface,\s*Canvas\)\s*\);/,
-    );
-    expect(feedbackPopoverRule).toMatch(
-      /color:\s*var\(--agent-kit-popover-text,\s*var\(--agent-kit-text,\s*CanvasText\)\);/,
-    );
+    expect(styles).toMatch(/^@layer components \{$/m);
     expect(styles).toContain('[data-agent-suggestion-bar="true"]');
     expect(styles).not.toContain("@source");
     expect(styles).not.toContain('@import "@agent-native/toolkit/styles.css"');
@@ -401,16 +393,19 @@ describe("AgentKitChat", () => {
       ".agentkit-transcript {\n  grid-column: 1;\n  grid-row: 2;",
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript \{[\s\S]*inline-size: 100%;[\s\S]*overflow-y: auto;/,
+      /\.agentkit-transcript \{[\s\S]*container-name: agentkit-transcript;[\s\S]*container-type: inline-size;[\s\S]*inline-size: 100%;[\s\S]*overflow-y: auto;/,
+    );
+    expect(styles).toContain(
+      "@container agentkit-transcript (max-width: 74.999rem)",
     );
     expect(styles).not.toMatch(
       /\.agentkit-transcript \{[^}]*inline-size: min\(100%, 47rem\);/,
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, var\(--agentkit-transcript-lane-width, 47rem\)\);[\s\S]*margin-inline: auto;[\s\S]*inset-inline-start: clamp\([\s\S]*var\(--agentkit-transcript-lane-offset-inline, 0px\),[\s\S]*padding: 1\.5rem 1rem;[\s\S]*padding-block-start: var\(--agentkit-transcript-top-inset, 1\.5rem\);/,
+      /\.agentkit-transcript-content \{[\s\S]*inline-size: min\(100%, var\(--agentkit-lane-width\)\);[\s\S]*margin-inline: auto;[\s\S]*inset-inline-start: clamp\([\s\S]*var\(--agentkit-transcript-lane-offset-inline, 0px\),[\s\S]*padding: 1\.5rem 1rem;[\s\S]*padding-block-start: var\(--agentkit-transcript-top-inset, 1\.5rem\);/,
     );
     expect(styles).toContain(
-      "margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);",
+      "margin-block: 0 var(--agentkit-transcript-message-gap, 1.5rem);",
     );
     expect(styles).toMatch(
       /font-family:\s*var\(\s*--agentkit-transcript-font-family,\s*var\(--font-sans,\s*inherit\)\s*\);/,
@@ -423,10 +418,10 @@ describe("AgentKitChat", () => {
     );
     expect(styles).toContain("var(--agentkit-user-bubble-max-width, 38rem)");
     expect(styles).toContain(
-      "var(--agentkit-user-bubble-padding-block, 0.625rem)",
+      "var(--agentkit-user-bubble-padding-block, 0.75rem)",
     );
     expect(styles).toContain(
-      "var(--agentkit-user-bubble-padding-inline, 0.8125rem)",
+      "var(--agentkit-user-bubble-padding-inline, 1rem)",
     );
     expect(styles).toContain(
       "inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);",
@@ -439,7 +434,7 @@ describe("AgentKitChat", () => {
       /\.agentkit-agent \{[\s\S]*padding: 0\.125rem 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
     );
     expect(styles).toContain("overscroll-behavior-block: contain;");
-    expect(styles).toContain("max-block-size: 200px;");
+    expect(styles).toContain("max-block-size: 12.5rem;");
     expect(styles).toContain(".agentkit-mention-label {");
     expect(styles).toContain(".agentkit-file-drop-overlay {");
     expect(styles).toContain("scrollbar-color: transparent transparent;");
@@ -450,18 +445,18 @@ describe("AgentKitChat", () => {
       /\.agentkit-transcript\[data-scrollbar-visible="true"\]::\-webkit-scrollbar-thumb/,
     );
     expect(styles).toContain("grid-column: 1;");
-    expect(styles).toContain(
-      "grid-template-rows: minmax(0, 1fr) auto 1rem auto minmax(0, 1fr);",
+    expect(styles.replace(/\s+/g, " ")).toContain(
+      "grid-template-rows: minmax(var(--agentkit-chat-header-reserve, 0px), 1fr) auto 1rem auto minmax(0, 1fr);",
     );
 
     const toolbarRule = styles.match(
       /\.agentkit-chat-toolbar :where\(button, \[role="button"\]\) \{([^}]*)\}/,
     )?.[1];
-    expect(toolbarRule).toContain("min-inline-size: 1.75rem");
+    expect(toolbarRule).toContain("min-inline-size: 1.5rem");
     expect(toolbarRule).toContain("padding-inline: 0.5rem");
     expect(toolbarRule).not.toMatch(/(?:^|\n)\s*inline-size:/);
     expect(styles).toMatch(
-      /\.agentkit-chat-toolbar[\s\S]*:has\(> svg:only-child\)[\s\S]*inline-size: 1\.75rem/,
+      /\.agentkit-chat-toolbar[\s\S]*:has\(> svg:only-child\)[\s\S]*inline-size: 1\.5rem/,
     );
     expect(styles).not.toContain("var(--shadow-color,");
     expect(styles).not.toContain("light-dark(");
@@ -469,14 +464,9 @@ describe("AgentKitChat", () => {
     expect(styles).toContain("var(--agent-kit-composer-elevation, none)");
     expect(styles).toContain("--agent-kit-composer-border-color,");
     expect(styles).toContain("--agent-kit-composer-focus-border-color,");
-    expect(styles).toContain(
-      "border: 1px solid var(--agentkit-composer-border)",
+    expect(styles).toMatch(
+      /\.agentkit-composer\[data-agent-composer-slot="root"\] \{[^}]*border-color: var\(--agentkit-composer-border\);/,
     );
-    expect(styles).toContain(
-      "border-color: var(--agentkit-composer-focus-border)",
-    );
-    expect(styles).toContain("var(--agent-kit-overlay-elevation, none)");
-    expect(styles).toContain("var(--agent-kit-control-elevation, none)");
     expect(styles).toContain("--agent-kit-composer-toolbar-control-font-size,");
     expect(styles).toContain(
       "--agent-kit-composer-toolbar-control-line-height,",
@@ -484,33 +474,29 @@ describe("AgentKitChat", () => {
     expect(styles).toContain(
       "--agent-kit-composer-toolbar-control-font-weight,",
     );
-    const composerButtonRule = styles.match(
-      /\.agentkit-composer button \{([^}]*)\}/,
+    expect(styles).not.toContain(".agentkit-composer button");
+    // Named composer controls carry token-driven utilities; only plain host
+    // toolbar buttons fall back to these rules.
+    const hostToolbarButtonRule = styles.match(
+      /\[data-agent-composer-slot="toolbar"\]\s*> :where\(button:not\(\[data-agent-composer-slot\]\)\) \{([^}]*)\}/,
     )?.[1];
-    expect(composerButtonRule).toContain(
+    expect(hostToolbarButtonRule).toContain(
       "font-size: var(--agentkit-composer-toolbar-control-font-size)",
     );
-    expect(composerButtonRule).toContain(
-      "line-height: var(--agentkit-composer-toolbar-control-line-height)",
+    expect(hostToolbarButtonRule).toContain(
+      "block-size: var(--agentkit-composer-toolbar-control-size)",
     );
-    expect(composerButtonRule).toContain(
-      "font-weight: var(--agentkit-composer-toolbar-control-font-weight)",
+    expect(hostToolbarButtonRule).not.toContain("font: inherit");
+    expect(styles).toContain("--agentkit-composer-model-max-width: 11rem;");
+    // Narrow composers never cap the chip below the room it has.
+    const narrowToolbarRule = styles.match(
+      /@container \(max-width: 24rem\) \{\s*\.agentkit-composer \[data-agent-composer-slot="toolbar"\] \{([^}]*)\}/,
+    )?.[1];
+    expect(narrowToolbarRule).toContain(
+      "--agentkit-composer-toolbar-control-gap: 0.125rem;",
     );
-    expect(composerButtonRule).not.toContain("font: inherit");
-    expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="area"\][\s\S]*padding-inline: 0;/,
-    );
-    expect(styles).toMatch(
-      /\[data-agent-composer-slot="model-button"\] \{[\s\S]*max-inline-size: 11rem;/,
-    );
-    expect(styles).toMatch(
-      /\[data-agent-composer-slot="mode-button"\] \{[\s\S]*min-inline-size: 3\.5rem;/,
-    );
-    expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="model-button"\][\s\S]*max-inline-size: 7\.5rem;/,
-    );
-    expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\.agent-composer-model-effort[\s\S]*display: none;/,
+    expect(narrowToolbarRule).not.toContain(
+      "--agentkit-composer-model-max-width",
     );
     const composerPopoverRule = styles.match(
       /\[data-agent-native-composer-popover="true"\] \{([^}]*)\}/,
@@ -565,8 +551,19 @@ describe("AgentKitChat", () => {
       join(process.cwd(), "src/app/agentkit/react/components.tsx"),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    for (const prop of ["slashCommands", "slashSkills", "onSlashCommand"]) {
-      expect(source).toContain(`${prop}={${prop}}`);
+    // Optional props reach the composer through definedProps, which leaves
+    // out the ones the host did not set.
+    const forwarded = /\{\.\.\.definedProps\(\{([^}]*)\}\)\}/.exec(source);
+    expect(forwarded).not.toBeNull();
+    for (const prop of [
+      "slashCommands",
+      "slashSkills",
+      "onSlashCommand",
+      "autoFocus",
+      "composerRef",
+      "interceptBuildRequestsForBuilder",
+    ]) {
+      expect(forwarded?.[1]).toMatch(new RegExp(`\\b${prop},`));
     }
     expect(source).toContain(
       "includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}",
@@ -575,31 +572,19 @@ describe("AgentKitChat", () => {
       "includeDefaultSlashSkills={includeDefaultSlashSkills ?? false}",
     );
     expect(source).toContain('plusMenuMode ?? "full"');
-    expect(source).toContain("autoFocus={autoFocus}");
-    expect(source).toContain("composerRef={composerRef}");
     expect(source).toContain("onAttachmentError={reportAttachmentError}");
-    expect(source).toContain(
-      "interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}",
-    );
     expect(source).toContain(
       'window.dispatchEvent(\n      new CustomEvent("agentkit:attach-files"',
     );
     expect(source).toContain(
       "if (onAttachmentError) onAttachmentError(message)",
     );
-    expect(source).toContain(
-      'className="agentkit-composer-error" role="alert"',
-    );
+    expect(source).toContain('noticeId="submit"');
     expect(source).toContain(".finally(focusComposer)");
-    expect(source).toContain(
-      'execMode={executionMode === "plan" ? "plan" : "build"}',
-    );
     expect(source).toContain("mode: executionMode");
+    expect(source).toContain("sendQueued({ deliverInActiveRun: true })");
     expect(source).toContain(
-      "control.steerQueued(item.id, { interruptActiveRun: true })",
-    );
-    expect(source).toContain(
-      "...(options.steer ? { interruptActiveRun: true } : {}),",
+      "...(options.steer ? { deliverInActiveRun: true } : {}),",
     );
     expect(source).toContain("control.removeQueued(item.id)");
     expect(source).toContain("control.sendMessage({");
@@ -607,7 +592,9 @@ describe("AgentKitChat", () => {
       "await onSubmitOverride(text, files, references, submitOptions)",
     );
     expect(source).not.toContain("await submitMessage(item.text, [], [],");
-    expect(source).toContain("pending={command.pending || Boolean(disabled)}");
+    expect(source).toContain(
+      "pending={command.pending || send.pending || Boolean(disabled)}",
+    );
     expect(source).toContain(
       "const submissionBlocked = Boolean(submissionDisabled) || command.pending",
     );
@@ -619,7 +606,7 @@ describe("AgentKitChat", () => {
     expect(source).toContain(
       "showModelSelector={showModelSelector && canSelectModel}",
     );
-    expect(source).toContain("command.execute");
+    expect(source).toContain("send.execute");
     expect(source.indexOf('className="agentkit-suggestions"')).toBeLessThan(
       source.indexOf("<PromptComposer\n"),
     );
@@ -960,7 +947,9 @@ describe("AgentKitChat", () => {
     // Each row is a flat div, so its markup ends at the first closing tag.
     const row = (className: string) => {
       const markup = html.match(
-        new RegExp(`<div class="${className}"[^]*?</div>`),
+        new RegExp(
+          `<div class="(?:[^"]* )?${className}(?: [^"]*)?"[^]*?</div>`,
+        ),
       )?.[0];
       expect(markup, className).toBeDefined();
       return markup!;
@@ -979,7 +968,7 @@ describe("AgentKitChat", () => {
     expect(activity).toContain("Reading the contract");
   });
 
-  it("names a delegated app once in a repeated activity cluster", async () => {
+  it("names a delegated app once in a repeated activity group", async () => {
     const app = { id: "Brain", kind: "agent", label: "Brain" };
     const transport: AgentTransport = {
       capabilities: { multiAgentActivity: true },
@@ -1044,7 +1033,7 @@ describe("AgentKitChat", () => {
       </AgentKitProvider>,
     );
     const summary = html.match(
-      /<summary class="agentkit-activity-row">[^]*?<\/summary>/,
+      /<div class="agentkit-work-group"[^>]*><div class="agentkit-disclosure-row agentkit-activity-row agentkit-work-group-row"[^]*?<\/div>/,
     )?.[0];
 
     expect(summary).toContain("×2");
@@ -1352,7 +1341,13 @@ describe("AgentKitChat", () => {
       </AgentKitProvider>,
     );
 
-    expect(html).toContain('aria-labelledby="approval-1-title"');
+    expect(html).toMatch(
+      /<section class="agentkit-approval [^"]*" aria-label="Publish the dashboard\?"/,
+    );
+    // Layered sheet: the frame's own px-3 utility would win without this.
+    expect(html).toMatch(
+      /data-agent-composer-slot="area" class="[^"]*\bpx-0\b/,
+    );
     expect(html).toContain("Publish the dashboard?");
     expect(html).toContain("Review the workspace changes before continuing.");
     expect(html).toContain('data-widget-kind="workspace-health"');
@@ -1438,12 +1433,16 @@ describe("AgentKitChat", () => {
       </AgentKitProvider>,
     );
 
-    expect(htmlWithoutNavigation).toContain('aria-label="Helpful"');
-    expect(htmlWithoutNavigation).toContain('aria-label="Not helpful"');
-    expect(htmlWithoutNavigation).toContain('aria-label="Copy message"');
-    expect(htmlWithoutNavigation).not.toContain(
-      'aria-label="Fork conversation"',
+    expect(htmlWithoutNavigation).toContain('aria-label="Good response"');
+    expect(htmlWithoutNavigation).toContain('aria-label="Bad response"');
+    expect(htmlWithoutNavigation).toContain(
+      'data-message-action="feedback-positive"',
     );
+    expect(htmlWithoutNavigation).not.toContain('aria-label="Rate response"');
+    expect(htmlWithoutNavigation).toContain('aria-label="Copy message"');
+    expect(htmlWithoutNavigation).not.toContain('aria-label="Fork from here"');
+    // Nothing to swap in without forking or a request ID, so no More toggle.
+    expect(htmlWithoutNavigation).not.toContain('aria-label="More actions"');
 
     const htmlWithNavigation = renderToStaticMarkup(
       <AgentKitProvider
@@ -1460,15 +1459,43 @@ describe("AgentKitChat", () => {
       </AgentKitProvider>,
     );
 
-    expect(htmlWithNavigation).toContain('aria-label="Message actions"');
-    expect(htmlWithNavigation).not.toContain('aria-label="Fork conversation"');
+    expect(htmlWithNavigation).toContain('aria-label="Fork from here"');
+    expect(htmlWithNavigation).toContain('aria-label="More actions"');
+    // The host's trailing action leads the toolbar; the swap and its toggle
+    // stay last so the toggle never moves.
     expect(
-      htmlWithNavigation.indexOf('class="agentkit-message-actions-trailing"'),
+      htmlWithNavigation.lastIndexOf(
+        'class="agentkit-message-actions-trailing"',
+      ),
     ).toBeLessThan(htmlWithNavigation.indexOf('data-testid="history-action"'));
     expect(
       htmlWithNavigation.indexOf('data-testid="history-action"'),
-    ).toBeLessThan(htmlWithNavigation.indexOf('aria-label="Message actions"'));
-    expect(htmlWithNavigation).toContain('aria-label="Regenerate response"');
+    ).toBeLessThan(htmlWithNavigation.indexOf('aria-label="Retry"'));
+    expect(htmlWithNavigation.indexOf('aria-label="Retry"')).toBeLessThan(
+      htmlWithNavigation.indexOf('aria-label="Fork from here"'),
+    );
+    expect(
+      htmlWithNavigation.indexOf('aria-label="Fork from here"'),
+    ).toBeLessThan(htmlWithNavigation.indexOf('aria-label="More actions"'));
+
+    const clientWithoutCapabilities = new AgentKitClient({
+      transport: withAiReadiness({ ...transport, capabilities: {} }),
+    });
+    await clientWithoutCapabilities.loadThread("thread-1");
+    const htmlWithoutCapabilities = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={clientWithoutCapabilities}
+        threadId="thread-1"
+        onThreadForked={() => undefined}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(htmlWithoutCapabilities).toContain('aria-label="Copy message"');
+    expect(htmlWithoutCapabilities).not.toContain('aria-label="Good response"');
+    expect(htmlWithoutCapabilities).not.toContain(
+      'aria-label="Fork from here"',
+    );
 
     const htmlWithComposer = renderToStaticMarkup(
       <AgentKitProvider

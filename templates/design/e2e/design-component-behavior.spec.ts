@@ -505,7 +505,7 @@ test("real component instances propagate, detach, and persist a variant", async 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   html = await source(request, designId);
   expect(nodeText(html, attachedTitleId)).toBe("Attached only edit");
   expect(tagForNode(html, attached.nodeId)).toContain(
@@ -947,9 +947,7 @@ test("Design components preserve identity across inline and URL-backed React bou
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect
     .poll(async () =>
       parentIdentity(await source(request, designId), referenceButtonId!),

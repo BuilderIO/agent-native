@@ -7,6 +7,15 @@ description: "/turn-into-app skill 可将对话、skill、电子表格或 Claude
 
 `/turn-into-app` 是一个 skill，可将你已验证的工作流转换为 Agent-Native 应用。来源可以是对话、skill、电子表格，或 Claude 或 ChatGPT 项目。应用会在你的业务场景中打开，填充了与来源结构一致的示例数据，应用内的智能体在其操作对象的控件背后工作。步骤条下方的一个表单，正是该 skill 想要避免的结果。
 
+## 开始之前 {#before-you-start}
+
+- 一个能够运行终端命令的 AI 智能体，例如 Claude Code、Codex 或 Cursor。网页版 Claude 或 ChatGPT 可以改为把任务交给 Builder。请参阅 [运行位置](#hosts)。
+- [Node.js](https://nodejs.org) 22.22 或更高版本。nodejs.org 的安装程序包含 `npx`，下方的安装命令由它运行。请用 `node --version` 检查你的版本。
+- [pnpm](https://pnpm.io) 位于你的 `PATH` 中。如果 `pnpm --version` 失败，请运行 `corepack enable`，它随 Node.js 一起提供。
+- 一个用于新应用的空文件夹，以及约 45 分钟。
+
+构建应用不需要 AI 提供商的密钥。只有当你希望应用内的智能体回复你时，才需要它。
+
 ## 安装 {#install}
 
 ```bash
@@ -43,10 +52,6 @@ npx @agent-native/core@latest skills add turn-into-app
 
 在浏览器宿主上，skill 需要 Agent-Native Dispatch MCP 连接器（`https://dispatch.agent-native.com/mcp`，OAuth），并调用其 `start-workspace-app-creation` 操作。宿主无法运行或检查应用，因此在 Dispatch 返回的分支构建完成之前，报告会保持待处理或未验证状态。skill 只报告 Dispatch 实际返回的内容，绝不编造分支 URL。对于 ChatGPT 项目，或任何仅暴露 MCP 的宿主，请将 skill 指令放入项目指令或知识文件中。
 
-## 本地前置条件
-
-在本地宿主上，请先安装 Node.js 22.22.0 或更高版本（包含 npm 和 npx）以及 pnpm，再开始操作。浏览器宿主使用 Dispatch，不会运行这些命令。
-
 ## 来源 {#sources}
 
 - **对话。** 最近一次具体且可重复的工作就是产品。
@@ -67,7 +72,7 @@ skill 会将来源简报保存为 `docs/brief.md`，并将界面设计追加到 
 ## 一次运行的流程 {#how-it-works}
 
 1. **简报。** 读取完整来源，并编写一份简短的简报：工作内容、最多三个智能体时刻、不变量、数据风险、事实来源和假设。
-2. **设计。** 确定原型、方向、外壳、首屏视口与示例数据以及智能体时刻，并将简报作为检查点发布一次。无需等待，直接继续。
+2. **设计。** 确定原型、方向、外壳、首屏视口与示例数据以及智能体时刻，并将简报作为检查点发布一次，同时说明其余部分还需要多长时间。无需等待，直接继续。
 3. **脚手架。** 使用 chat 模板创建真正的应用，且绝不覆盖现有应用。
 
    ```bash
@@ -82,6 +87,8 @@ skill 会将来源简报保存为 `docs/brief.md`，并将界面设计追加到 
 
 skill 的目标用时约为 45 分钟。如果审查开始时已过去 35 分钟，则只运行一轮，并列出未满足的标准。
 
+如果运行中途停止，请在同一个文件夹中再次调用该 skill。它会找到已构建一半的应用，说明哪些已完成、哪些还剩下，并从第一个未完成的步骤继续，而不是新建第二个应用。
+
 ## 截图审查循环 {#review-loop}
 
 交付之前，skill 会启动开发服务器，在桌面和手机尺寸下的浅色和深色模式中对 `/` 截图，并在点击后对主要智能体控件截图。它按照包含 12 项的评分标准给截图打分，涵盖首屏视口冲击力、领域契合度、层次结构、界面装饰克制度、示例数据、字体排印、色彩、细节打磨、智能体与 UI 的整体配合、390px 布局、深色模式和无障碍。
@@ -92,7 +99,7 @@ skill 的目标用时约为 45 分钟。如果审查开始时已过去 35 分钟
 
 ## 运行与部署 {#run-deploy}
 
-为了进行本地审查，skill 会在应用被忽略的 `.env` 中设置 `AUTH_DISABLED=1`，因为全新的截图浏览器并未登录。这仅用于回环地址的开发。它会在最终的 `pnpm build` 之前被移除，绝不能提交或部署。没有它时，打开应用会显示一张 "Continue as local dev" 卡片。
+为了进行本地审查，skill 会在应用被忽略的 `.env` 中设置 `AUTH_DISABLED=1`，因为全新的截图浏览器并未登录。这仅用于回环地址的开发。它会在最终的 `pnpm build` 之前被移除，绝不能提交或部署。此后，第一个打开应用的浏览器会自动以本地开发账号登录。之后打开的全新浏览器会显示一张 "Continue as local dev" 卡片。
 
 要自行运行应用：
 
@@ -100,7 +107,7 @@ skill 的目标用时约为 45 分钟。如果审查开始时已过去 35 分钟
 pnpm dev
 ```
 
-要在本地使用你自己的模型提供商，请在同一个 `.env` 中放入诸如 `ANTHROPIC_API_KEY` 之类的密钥。否则，智能体侧边栏会显示共享的 Use Builder.io 或 Custom keys 设置。
+要在本地使用你自己的模型提供商，请在同一个 `.env` 中放入诸如 `ANTHROPIC_API_KEY` 之类的密钥。否则，应用仍会以示例数据打开，而在你使用智能体时，智能体侧边栏会提供共享的 Use Builder.io 或 Custom keys 设置。
 
 只有在你要求部署或提供商已配置时，skill 才会部署。一次正常的本地构建仍会打印一个 "production configuration errors" 块，退出码为 0。这就是部署清单：稳定的 `BETTER_AUTH_SECRET` 和持久的 `DATABASE_URL`，以及工作区内应用所需的 `A2A_SECRET`。skill 会将这些报告为待办步骤，并且不会创建占位值。请参阅[部署应用](/docs/deploy-an-app)和[部署工作区](/docs/workspace-deployment)。
 

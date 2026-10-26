@@ -106,6 +106,7 @@ export function fileStorageProviderPreset(id: FileStorageProviderId): {
 
 type FormValues = Record<FileStorageField, string>;
 type FieldErrors = Partial<Record<FileStorageField, string>>;
+type TouchedFields = Partial<Record<FileStorageField, true>>;
 
 const EMPTY_VALUES: FormValues = {
   endpoint: "",
@@ -223,6 +224,7 @@ function LoadedStorageSettingsForm({
   const [values, setValues] = useState<FormValues>(() =>
     valuesFromStatus(status),
   );
+  const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<string | null>(null);
@@ -248,11 +250,13 @@ function LoadedStorageSettingsForm({
       accessKeyId: current.accessKeyId,
       secretAccessKey: current.secretAccessKey,
     }));
+    setTouchedFields({});
     if (status.provider) setProvider(status.provider);
   }, [savedSignature]);
 
   const setValue = (field: FileStorageField, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
+    setTouchedFields((current) => ({ ...current, [field]: true }));
     setFieldErrors((current) => {
       if (!current[field]) return current;
       const next = { ...current };
@@ -267,6 +271,10 @@ function LoadedStorageSettingsForm({
   const missingRequired =
     !trimmed("endpoint") ||
     !trimmed("bucket") ||
+    (!trimmed("accessKeyId") &&
+      status.unreadableFields.includes("accessKeyId")) ||
+    (!trimmed("secretAccessKey") &&
+      status.unreadableFields.includes("secretAccessKey")) ||
     (!trimmed("accessKeyId") && !status.saved.accessKeyId) ||
     (!trimmed("secretAccessKey") && !status.saved.secretAccessKey) ||
     (status.publicUrlRequired && !trimmed("publicBaseUrl"));
@@ -295,9 +303,16 @@ function LoadedStorageSettingsForm({
       operation: "save",
       endpoint: values.endpoint.trim(),
       bucket: values.bucket.trim(),
-      region: values.region.trim(),
-      publicBaseUrl: values.publicBaseUrl.trim(),
     };
+    if (!status.unreadableFields.includes("region") || touchedFields.region) {
+      input.region = values.region.trim();
+    }
+    if (
+      !status.unreadableFields.includes("publicBaseUrl") ||
+      touchedFields.publicBaseUrl
+    ) {
+      input.publicBaseUrl = values.publicBaseUrl.trim();
+    }
     if (values.accessKeyId.trim())
       input.accessKeyId = values.accessKeyId.trim();
     if (values.secretAccessKey.trim()) {
@@ -313,6 +328,7 @@ function LoadedStorageSettingsForm({
           accessKeyId: "",
           secretAccessKey: "",
         }));
+        setTouchedFields({});
         setNotice(
           t("agentChat.settings.storage.savedNotice", {
             bucket: result.status.bucket ?? input.bucket,
@@ -345,6 +361,7 @@ function LoadedStorageSettingsForm({
         onSuccess: (result) => {
           setConfirmClear(false);
           setValues(EMPTY_VALUES);
+          setTouchedFields({});
           setFieldErrors({});
           setNotice(
             result.status.builderUploadConfigured
@@ -369,7 +386,9 @@ function LoadedStorageSettingsForm({
 
   const fieldId = (field: FileStorageField) => `${idPrefix}-${field}`;
   const savedPlaceholder = (field: FileStorageField) =>
-    status.saved[field] ? t("agentChat.settings.storage.saved") : undefined;
+    status.saved[field] && !status.unreadableFields.includes(field)
+      ? t("agentChat.settings.storage.saved")
+      : undefined;
   const providerLabel = (entry: (typeof PROVIDERS)[number]) =>
     entry.name ?? t("agentChat.settings.storage.providerOther");
 
@@ -383,7 +402,20 @@ function LoadedStorageSettingsForm({
     } = {},
   ) => {
     const fieldError = fieldErrors[field];
-    const note = fieldError ?? options.hint;
+    const unreadable = status.unreadableFields.includes(field);
+    const unreadableOptional =
+      unreadable &&
+      (field === "region" ||
+        (field === "publicBaseUrl" && !status.publicUrlRequired));
+    const clearingUnreadableOptional =
+      unreadableOptional && touchedFields[field] && !values[field].trim();
+    const note =
+      fieldError ??
+      (unreadable
+        ? clearingUnreadableOptional
+          ? t("agentChat.settings.storage.unreadableFieldCleared")
+          : t("agentChat.settings.storage.unreadableField")
+        : options.hint);
     const noteId = `${fieldId(field)}-note`;
     return (
       <div className="grid content-start gap-2">
@@ -410,6 +442,22 @@ function LoadedStorageSettingsForm({
           >
             {note}
           </p>
+        ) : null}
+        {unreadableOptional &&
+        !values[field].trim() &&
+        !touchedFields[field] ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto w-fit p-0 text-xs"
+            disabled={pending !== null}
+            onClick={() => setValue(field, "")}
+          >
+            {t("agentChat.settings.storage.clearUnreadableField", {
+              field: label,
+            })}
+          </Button>
         ) : null}
       </div>
     );
@@ -478,6 +526,14 @@ function LoadedStorageSettingsForm({
             : t("agentChat.settings.storage.optional"),
         })}
       </div>
+      {status.configurationUnavailable ? (
+        <Alert>
+          <IconAlertCircle aria-hidden />
+          <AlertDescription>
+            {t("agentChat.settings.storage.unreadable")}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {error ? (
         <Alert variant="destructive">
           <IconAlertCircle aria-hidden />

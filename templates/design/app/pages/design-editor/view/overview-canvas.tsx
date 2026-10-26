@@ -243,6 +243,7 @@ export function renderOverviewCanvas({
     gradientEditTarget,
     handleBoardElementMarqueeSelect,
     handleCanvasLayerMarqueeSelectionChange,
+    layerPanelCallbacks,
   } = editorLayerActions;
   const { frameToolDraws } = editorSourceAndSync;
   const {
@@ -495,6 +496,9 @@ export function renderOverviewCanvas({
         onPick={handleOverviewScreenPick}
         onSelectForGesture={handleOverviewScreenGestureSelect}
         onEdit={handleOverviewFrameAction}
+        onRenameScreen={
+          canEditDesign ? layerPanelCallbacks.onRename : undefined
+        }
         onDuplicate={handleDuplicateScreen}
         renderScreenContent={renderScreenContent}
         screenContentRenderKey={overviewScreenContentRenderKey}

@@ -28,6 +28,10 @@ import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
+  decodeMotionPrototypeTransitionAttribute,
+  type MotionPrototypeTransitionDecodeResult,
+} from "@shared/motion-prototype-transition";
+import {
   appendPenNode,
   clonePenPath,
   closePenPath,
@@ -85,8 +89,10 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import {
+  FRAME_BRIDGE_KEY_PARAM,
   isSameOriginRoutePath,
   resolveSameOriginRoutePath,
+  routePathWithoutBridgeKey,
 } from "@/lib/route-path";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
@@ -726,6 +732,7 @@ interface DesignCanvasProps {
   boardSurface?: boolean;
   nativeAnimationEpochMs?: number;
   fitRootBodyToFrame?: boolean;
+  screenHeightMode?: "auto" | "fixed" | "hug";
   runtimeReplacementContent?: string;
   authoredSourceContent?: string;
   runtimeReplacementKey?: string;
@@ -951,7 +958,12 @@ interface DesignCanvasProps {
   repromptDraftRequest?: RepromptDraftRequest | null;
   onRepromptDraftConsumed?: (nonce: number) => void;
   nodeRewriteCanvasTarget?: boolean;
-  onPrototypeNavigate?: (screen: string, href: string) => void;
+  onPrototypeNavigate?: (
+    screen: string,
+    href: string,
+    transition: MotionPrototypeTransitionDecodeResult,
+    sourceFrame: HTMLIFrameElement,
+  ) => void;
   motionTracks?: MotionTrackWire[];
   motionEasingVariables?: MotionEasingVariable[];
   motionDefaultEase?: string;
@@ -1034,7 +1046,9 @@ function isCurrentLiveEditReadyMessage(
         ? new URL(targetPathParam, liveEdit.origin)
         : null;
     if (!targetPath) return "invalid";
-    const expectedRoutePath = targetPath.pathname + targetPath.search;
+    const expectedRoutePath = routePathWithoutBridgeKey(
+      targetPath.pathname + targetPath.search,
+    );
     if (routePath !== undefined && routePath !== null && routePath !== "") {
       if (!isSameOriginRoutePath(routePath)) return "invalid";
       return routePath === expectedRoutePath ? "current" : "stale";
@@ -1049,7 +1063,6 @@ function isCurrentLiveEditReadyMessage(
 
 // A re-resolved live-edit URL and the live page's route both add the frame's
 // bridge key to a URL the iframe was pinned to without it: same document.
-const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
 
 function liveEditDocumentIdentityUrl(liveEditUrl: string): string {
   if (!URL.canParse(liveEditUrl)) return liveEditUrl;
@@ -1510,6 +1523,7 @@ export function DesignCanvas({
   boardSurface = false,
   nativeAnimationEpochMs,
   fitRootBodyToFrame,
+  screenHeightMode,
   runtimeReplacementContent,
   authoredSourceContent,
   runtimeReplacementKey,
@@ -3636,6 +3650,7 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+        heightMode: screenHeightMode,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -3725,7 +3740,10 @@ export function DesignCanvas({
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
-      frameDocument = appendContentSizeReporter(frameDocument);
+      frameDocument = appendContentSizeReporter(
+        frameDocument,
+        screenHeightMode,
+      );
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
@@ -3739,6 +3757,7 @@ export function DesignCanvas({
     boardSurface,
     designStylesheets,
     fitRootBodyToFrame,
+    screenHeightMode,
     rawExternalPreviewUrl,
     isEmbeddedFrame,
     embeddedFrameBackground,
@@ -4046,6 +4065,13 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      // The live route ref, onRoutePathChange and every stored routePath compare
+      // against this one key-free value; stripping the bridge key anywhere
+      // later would make keyed frames drop pending style, text and rename replays.
+      const frameRoutePath: unknown =
+        typeof e.data?.routePath === "string"
+          ? routePathWithoutBridgeKey(e.data.routePath)
+          : e.data?.routePath;
       if (
         trustedCurrentFrame &&
         e.data?.type === "motion-origin-marker-position"
@@ -4221,7 +4247,7 @@ export function DesignCanvas({
           if (
             isCurrentLiveEditReadyMessage(
               externalPreviewUrlRef.current,
-              e.data.routePath,
+              frameRoutePath,
               liveRoutePathRef.current,
             ) !== "current"
           ) {
@@ -4229,16 +4255,16 @@ export function DesignCanvas({
           }
         } else {
           if (
-            e.data.routePath !== undefined &&
-            e.data.routePath !== null &&
-            typeof e.data.routePath !== "string"
+            frameRoutePath !== undefined &&
+            frameRoutePath !== null &&
+            typeof frameRoutePath !== "string"
           ) {
             return;
           }
-          if (typeof e.data.routePath === "string" && e.data.routePath) {
+          if (typeof frameRoutePath === "string" && frameRoutePath) {
             const routeIdentity = liveEditDocumentIdentityForRoute(
               externalPreviewUrlRef.current,
-              e.data.routePath,
+              frameRoutePath,
             );
             if (routeIdentity.status === "invalid") return;
             readyDocumentIdentity = routeIdentity.identity;
@@ -4482,11 +4508,11 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
-        if (isSameOriginRoutePath(e.data.routePath)) {
+        if (isSameOriginRoutePath(frameRoutePath)) {
           const routeChanged =
             liveRoutePathRef.current !== null &&
-            liveRoutePathRef.current !== e.data.routePath;
-          liveRoutePathRef.current = e.data.routePath;
+            liveRoutePathRef.current !== frameRoutePath;
+          liveRoutePathRef.current = frameRoutePath;
           if (
             routeChanged &&
             iframeRef.current &&
@@ -4505,7 +4531,7 @@ export function DesignCanvas({
               }
             });
           }
-          onRoutePathChange?.(screenId, e.data.routePath);
+          onRoutePathChange?.(screenId, frameRoutePath);
           requestSharedSnapshotAfterEdit();
         }
         return;
@@ -4633,9 +4659,9 @@ export function DesignCanvas({
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
-      if (isSameOriginRoutePath(e.data.routePath)) {
-        liveRoutePathRef.current = e.data.routePath;
-        onRoutePathChange?.(screenId, e.data.routePath);
+      if (isSameOriginRoutePath(frameRoutePath)) {
+        liveRoutePathRef.current = frameRoutePath;
+        onRoutePathChange?.(screenId, frameRoutePath);
       }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
         const payload = e.data.payload;
@@ -4901,8 +4927,8 @@ export function DesignCanvas({
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
               routePath:
-                typeof e.data.routePath === "string"
-                  ? e.data.routePath
+                typeof frameRoutePath === "string"
+                  ? frameRoutePath
                   : (liveRoutePathRef.current ?? undefined),
             },
           );
@@ -4988,8 +5014,8 @@ export function DesignCanvas({
             sourceId,
           );
           const routePath =
-            typeof e.data.routePath === "string"
-              ? e.data.routePath
+            typeof frameRoutePath === "string"
+              ? frameRoutePath
               : (liveRoutePathRef.current ?? undefined);
           // The iframe shares this thread, so its ended edit only paints once the commit yields.
           commitAfterPaint(() => {
@@ -5042,8 +5068,8 @@ export function DesignCanvas({
               ? e.data.transactionId
               : undefined,
           routePath:
-            typeof e.data.routePath === "string"
-              ? e.data.routePath
+            typeof frameRoutePath === "string"
+              ? frameRoutePath
               : (liveRoutePathRef.current ?? undefined),
           selector: typeof e.data.selector === "string" ? e.data.selector : "",
           sourceId:
@@ -5063,8 +5089,8 @@ export function DesignCanvas({
           sourceId:
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
           routePath:
-            typeof e.data.routePath === "string"
-              ? e.data.routePath
+            typeof frameRoutePath === "string"
+              ? frameRoutePath
               : (liveRoutePathRef.current ?? undefined),
           info: isElementInfoPayload(e.data.payload)
             ? e.data.payload
@@ -5083,8 +5109,8 @@ export function DesignCanvas({
               ? e.data.transactionId
               : undefined,
           routePath:
-            typeof e.data.routePath === "string"
-              ? e.data.routePath
+            typeof frameRoutePath === "string"
+              ? frameRoutePath
               : (liveRoutePathRef.current ?? undefined),
           reason: String(e.data.reason || "unknown"),
         });
@@ -5101,8 +5127,8 @@ export function DesignCanvas({
               ? e.data.transactionId
               : undefined,
           routePath:
-            typeof e.data.routePath === "string"
-              ? e.data.routePath
+            typeof frameRoutePath === "string"
+              ? frameRoutePath
               : (liveRoutePathRef.current ?? undefined),
           reason: "cancelled",
           sourcePresent: e.data.sourcePresent === true,
@@ -5133,8 +5159,8 @@ export function DesignCanvas({
           sourceId:
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
           routePath:
-            typeof e.data.routePath === "string"
-              ? e.data.routePath
+            typeof frameRoutePath === "string"
+              ? frameRoutePath
               : (liveRoutePathRef.current ?? undefined),
           name,
           previousName:
@@ -5288,8 +5314,8 @@ export function DesignCanvas({
                       ? e.data.transactionId
                       : undefined,
                   routePath:
-                    typeof e.data.routePath === "string"
-                      ? e.data.routePath
+                    typeof frameRoutePath === "string"
+                      ? frameRoutePath
                       : (liveRoutePathRef.current ?? undefined),
                   sourceId: replaced ? anchorSourceId : sourceId,
                   anchorSourceId: replaced ? undefined : anchorSourceId,
@@ -5783,9 +5809,16 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "prototype-navigate") {
+        const sourceFrame = iframeRef.current;
+        if (!sourceFrame || sourceFrame.contentWindow !== e.source) return;
+        const transition = decodeMotionPrototypeTransitionAttribute(
+          e.data.transition,
+        );
         onPrototypeNavigate?.(
           String(e.data.screen || ""),
           String(e.data.href || ""),
+          transition,
+          sourceFrame,
         );
         return;
       }
@@ -8497,6 +8530,7 @@ export function DesignCanvas({
                 ? ""
                 : undefined,
             }}
+            data-an-prototype-preview={interactMode ? "" : undefined}
             data-screen-iframe-id={
               boardSurface
                 ? undefined

@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
     "target": "ES2022",
     "useDefineForClassFields": true,
     "module": "ESNext",
