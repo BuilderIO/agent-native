@@ -109,6 +109,21 @@ import type { EditorGenerationAndAccess } from "./use-editor-generation-and-acce
 import type { EditorHistory } from "./use-editor-history";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
 
+type VectorEditingState = {
+  screenId: string;
+  nodeId: string;
+  layerId: string;
+  path: PenPath;
+  selectedAnchorIndex: number | null;
+  sourceOffset: { x: number; y: number };
+  sourceMapping: PenPathVectorEditSourceMapping | null;
+  pendingCommit?: boolean;
+  primitiveSource: {
+    geometry: PenGeometry;
+    fill: string;
+  } | null;
+};
+
 export function useEditorToolsAndVectors({
   editorCore,
   editorHistory,
@@ -253,19 +268,24 @@ export function useEditorToolsAndVectors({
   } = editorContentAndComponents;
 
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
-  const [vectorEditingState, setVectorEditingState] = useState<{
-    screenId: string;
-    nodeId: string;
-    layerId: string;
-    path: PenPath;
-    selectedAnchorIndex: number | null;
-    sourceOffset: { x: number; y: number };
-    sourceMapping: PenPathVectorEditSourceMapping | null;
-    primitiveSource: {
-      geometry: PenGeometry;
-      fill: string;
-    } | null;
-  } | null>(null);
+  const [vectorEditingState, setVectorEditingState] =
+    useState<VectorEditingState | null>(null);
+  const setVectorEditingStateFromMode = useCallback(
+    (next: VectorEditingState | null) => {
+      setVectorEditingState((current) => {
+        if (!current?.pendingCommit) return next;
+        if (
+          !next ||
+          next.screenId !== current.screenId ||
+          next.layerId !== current.layerId
+        ) {
+          return current;
+        }
+        return { ...next, pendingCommit: true };
+      });
+    },
+    [],
+  );
   const runtimeStructureInsertRevisionRef = useRef(0);
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
     nonce: number;
@@ -932,7 +952,7 @@ export function useEditorToolsAndVectors({
         const baseContent = getScreenContent(current.screenId);
         if (!baseContent) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          return exitIfCurrent();
+          return current.pendingCommit ? false : exitIfCurrent();
         }
 
         const sourcePath = penPathForVectorEditCommit(
@@ -955,30 +975,44 @@ export function useEditorToolsAndVectors({
             );
         if (nextContent === null) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          return exitIfCurrent();
+          return current.pendingCommit ? false : exitIfCurrent();
         }
         if (nextContent !== baseContent) {
           const result = applyFileContentUpdate(current.screenId, nextContent, {
             skipPreview: current.screenId !== activeFile?.id,
             historyBeforeContent: baseContent,
+            deferWhenLinkedMutationPending: true,
           });
-          if (result.status === "deferred") {
+          if (result.status !== "accepted") {
+            if (result.status === "refused") {
+              toast.error(t("editPanel.shaders.saveFailed"));
+            }
             setVectorEditingState((latest) =>
               latest?.layerId === current.layerId &&
               latest.screenId === current.screenId
-                ? { ...latest, path: nextPath, primitiveSource }
+                ? {
+                    ...latest,
+                    path: nextPath,
+                    primitiveSource,
+                    pendingCommit: true,
+                  }
                 : latest,
             );
-            return true;
+            return false;
           }
-          if (result.status !== "accepted") return exitIfCurrent();
           if (current.primitiveSource) primitiveSource = null;
         }
       }
       setVectorEditingState((latest) =>
         latest?.layerId === current.layerId &&
         latest.screenId === current.screenId
-          ? { ...latest, path: nextPath, primitiveSource }
+          ? {
+              ...latest,
+              path: nextPath,
+              primitiveSource,
+              pendingCommit:
+                phase === "commit" ? false : latest.pendingCommit,
+            }
           : latest,
       );
       return true;
@@ -993,8 +1027,14 @@ export function useEditorToolsAndVectors({
   );
 
   const handleVectorEditExit = useCallback(() => {
+    if (
+      vectorEditingState?.pendingCommit &&
+      !handleVectorEditChange(vectorEditingState.path, "commit")
+    ) {
+      return;
+    }
     setVectorEditingState(null);
-  }, []);
+  }, [handleVectorEditChange, vectorEditingState]);
 
   const handleVectorAnchorSelection = useCallback(
     (selectedAnchorIndex: number | null) => {
@@ -1026,7 +1066,9 @@ export function useEditorToolsAndVectors({
           const baseContent = getScreenContent(current.screenId);
           if (!baseContent) {
             toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return null;
+            return current.pendingCommit
+              ? { ...current, path: nextPath }
+              : null;
           }
           const sourcePath = penPathForVectorEditCommit(
             nextPath,
@@ -1040,7 +1082,9 @@ export function useEditorToolsAndVectors({
           );
           if (nextContent === null) {
             toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return null;
+            return current.pendingCommit
+              ? { ...current, path: nextPath }
+              : null;
           }
           if (nextContent !== baseContent) {
             const publication = applyFileContentUpdate(
@@ -1049,12 +1093,27 @@ export function useEditorToolsAndVectors({
               {
                 skipPreview: current.screenId !== activeFile?.id,
                 historyBeforeContent: baseContent,
+                deferWhenLinkedMutationPending: true,
               },
             );
-            if (publication.status === "refused") return null;
+            if (publication.status !== "accepted") {
+              if (publication.status === "refused") {
+                toast.error(t("editPanel.shaders.saveFailed"));
+              }
+              return {
+                ...current,
+                path: nextPath,
+                pendingCommit: true,
+              };
+            }
           }
         }
-        return { ...current, path: nextPath };
+        return {
+          ...current,
+          path: nextPath,
+          pendingCommit:
+            phase === "commit" ? false : current.pendingCommit,
+        };
       });
     },
     [activeFile?.id, applyFileContentUpdate, getScreenContent, t],
@@ -1063,6 +1122,7 @@ export function useEditorToolsAndVectors({
   useEffect(() => {
     if (
       vectorEditingState &&
+      !vectorEditingState.pendingCommit &&
       !selectedLayerIdsState.includes(vectorEditingState.layerId)
     ) {
       setVectorEditingState(null);
@@ -1767,7 +1827,7 @@ export function useEditorToolsAndVectors({
     composerContextHasOurKeyRef,
     shapeTool,
     vectorEditingState,
-    setVectorEditingState,
+    setVectorEditingState: setVectorEditingStateFromMode,
     runtimeStructureInsertRevisionRef,
     reviewFocusRequest,
     activeCodeFile,

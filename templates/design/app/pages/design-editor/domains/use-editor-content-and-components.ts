@@ -1529,6 +1529,7 @@ export function useEditorContentAndComponents({
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
+        deferWhenLinkedMutationPending?: boolean;
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
@@ -1537,7 +1538,9 @@ export function useEditorContentAndComponents({
     ) => {
       if (!activeFile) return { status: "refused" as const };
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
-        return { status: "deferred" as const };
+        return options.deferWhenLinkedMutationPending
+          ? { status: "deferred" as const }
+          : { status: "refused" as const };
       }
       const result = runApplyFileContentUpdate(
         {
