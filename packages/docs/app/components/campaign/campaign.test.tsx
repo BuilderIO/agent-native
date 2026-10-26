@@ -2377,12 +2377,6 @@ describe("public campaign frontend", () => {
 
   it.each([
     {
-      useCaseSlug: "ai-meeting-notes",
-      slug: "how-to-use-ai-to-take-meeting-notes",
-      oldSlug: "what-should-meeting-notes-include",
-      title: "How do you use AI to take meeting notes?",
-    },
-    {
       useCaseSlug: "design-brief-to-prototype",
       slug: "how-to-turn-a-design-brief-into-a-prototype-with-ai",
       oldSlug: "what-goes-in-a-design-brief",
@@ -2433,44 +2427,40 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("loads both real meeting next jobs and SSR renders their cards in declared order", async () => {
+  it("links an article to its new-style use-case page", async () => {
+    const actual = await vi.importActual<
+      typeof import("../../../lib/campaign-content.server")
+    >("../../../lib/campaign-content.server");
+    const content = actual.loadCampaignContent();
+    vi.mocked(loadCampaignContent).mockReturnValue(content);
+    const page = content.useCasePages.find(
+      (item) => item.slug === "ai-meeting-notes",
+    )!;
+    const data = articleLoader(
+      args({ slug: "how-to-use-ai-to-take-meeting-notes" }),
+    );
+    expect(data.useCase).toEqual({ slug: page.slug, title: page.title });
+  });
+
+  it("loads real next jobs and SSR renders their cards in declared order", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const content = actual.loadCampaignContent();
     vi.mocked(loadCampaignContent).mockReturnValue(content);
     const data = originalUseCase(
-      useCaseLoader(args({ slug: "ai-meeting-notes" })),
+      useCaseLoader(args({ slug: "design-brief-to-prototype" })),
     );
-    const expected = ["crm-and-call-questions", "dictate-instead-of-typing"];
+    const expected = [
+      "landing-page-prototypes",
+      "wireframe-before-agent-builds",
+    ];
     expect(data.item.next_jobs).toEqual(expected);
     expect(data.useCases.map((item) => item.slug).sort()).toEqual(
       [...expected].sort(),
     );
     const document = dom(markup(<UseCasePage {...data} />));
-    const recipeSection = expectRecipeAccordion(document, data.item.recipes!);
-    expect(data.item.recipes!.map((recipe) => recipe.prompt)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
-    expect(data.item.recipes!.map((recipe) => !!recipe.tip)).toEqual([
-      true,
-      false,
-      false,
-    ]);
-    const answers = [
-      ...recipeSection.querySelectorAll(".campaign-recipe-content"),
-    ];
-    expect(answers.map((answer) => answer.children.length)).toEqual([4, 3, 3]);
-    expect(recipeSection.querySelector(".campaign-recipe-empty")).toBeNull();
-    for (const answer of answers)
-      expect(
-        answer.querySelector(".campaign-recipe-prompt, pre, code, button"),
-      ).toBeNull();
-    expect(recipeSection.querySelectorAll(".campaign-recipe-tip")).toHaveLength(
-      1,
-    );
+    expectRecipeAccordion(document, data.item.recipes!);
     const section = [...document.querySelectorAll("section")].find(
       (node) => node.querySelector("h2")?.textContent === "What to do next",
     )!;
@@ -2483,21 +2473,14 @@ describe("public campaign frontend", () => {
         (slug) => content.useCases.find((item) => item.slug === slug)!.title,
       ),
     );
-    const crm = originalUseCase(
-      useCaseLoader(args({ slug: "crm-and-call-questions" })),
-    );
-    expect(crm.item.slug).toBe("crm-and-call-questions");
-    expect(
-      dom(markup(<UseCasePage {...crm} />)).querySelector("h1")?.textContent,
-    ).toBe(crm.item.title);
   });
 
-  it("SSR renders all fifteen real replacement lists and every recipe answer, including closed panels, without tables or column headings", async () => {
+  it("SSR renders every real replacement list and every recipe answer, including closed panels, without tables or column headings", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(15);
+    expect(useCases).toHaveLength(14);
     for (const item of useCases) {
       const document = dom(markup(<UseCasePage item={item} articles={[]} />));
       expect(document.querySelector("table, th, td"), item.slug).toBeNull();
@@ -2528,12 +2511,12 @@ describe("public campaign frontend", () => {
     }
   });
 
-  it("SSR includes all fifteen real use-case cards despite filters and renders Content screenshots", async () => {
+  it("SSR includes every real use-case card despite filters and renders Content screenshots", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(15);
+    expect(useCases).toHaveLength(14);
     const document = dom(
       markup(
         <UseCasesIndex items={useCases} />,
@@ -2541,7 +2524,7 @@ describe("public campaign frontend", () => {
       ),
     );
     const wrappers = [...document.querySelectorAll(".grid.gap-px > div")];
-    expect(wrappers).toHaveLength(15);
+    expect(wrappers).toHaveLength(14);
     expect(document.querySelectorAll("[hidden]")).toHaveLength(0);
     const cards = wrappers.map(
       (wrapper) => wrapper.querySelector(":scope > a")!,

@@ -139,7 +139,15 @@ function ThemedImage({
 // Logos run one after another; the product name is the alt text. A tool the
 // logo set doesn't have yet shows its name instead, so a missing logo is
 // visible rather than an empty gap.
-function ToolLogo({ name, src: link }: { name: string; src?: string }) {
+function ToolLogo({
+  name,
+  src: link,
+  mono,
+}: {
+  name: string;
+  src?: string;
+  mono?: boolean;
+}) {
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -163,7 +171,7 @@ function ToolLogo({ name, src: link }: { name: string; src?: string }) {
       width={28}
       height={28}
       className={`size-7 object-contain ${
-        mcpIntegrationLogoNeedsDarkModeFilter(id)
+        mono || (!link && mcpIntegrationLogoNeedsDarkModeFilter(id))
           ? "invert [.light_&]:invert-0"
           : ""
       }`}

@@ -14,9 +14,9 @@ export function loader({ params }: LoaderFunctionArgs) {
   const content = loadCampaignContent();
   const item = content.articles.find((article) => article.slug === params.slug);
   if (!item) throw new Response(null, { status: 404 });
-  const useCase = content.useCases.find(
-    (useCase) => useCase.slug === item.use_case,
-  );
+  const useCase =
+    content.useCases.find((useCase) => useCase.slug === item.use_case) ??
+    content.useCasePages.find((page) => page.slug === item.use_case);
   const candidates = newestArticles(
     content.articles.filter((article) => article.slug !== item.slug),
   );
