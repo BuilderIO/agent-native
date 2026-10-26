@@ -582,7 +582,8 @@ describe("comment review interactions", () => {
   const clickAiSend = () => {
     const send = container.querySelector<HTMLButtonElement>(
       "[data-comment-ai-send-mode]",
-    )!;
+    );
+    if (!send) throw new Error("The composer has no AI send button");
     // Send names the response it asks for, not a bare "Send".
     expect(send.getAttribute("data-comment-ai-send-mode")).toBe("suggest");
     expect(send.textContent).toBe("comments.aiSendSuggest");

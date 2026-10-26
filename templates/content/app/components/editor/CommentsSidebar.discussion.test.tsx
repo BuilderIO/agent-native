@@ -260,7 +260,7 @@ describe("the Discussion panel", () => {
         comments: [
           ...textThread.comments,
           ...ids.map((id) => ({
-            ...textThread.comments[0]!,
+            ...textThread.comments[0],
             id,
             parent_id: "text-1-root",
             content: `Entry ${id}`,
@@ -269,9 +269,10 @@ describe("the Discussion panel", () => {
       },
     ];
     render("inline", "text-1");
-    const body = card("text-1")!.querySelector<HTMLElement>(
-      "[data-comment-thread-body]",
-    )!;
+    const body = container.querySelector<HTMLElement>(
+      '[data-thread-card="text-1"] [data-comment-thread-body]',
+    );
+    if (!body) throw new Error("The thread card has no body");
     Object.defineProperty(body, "scrollHeight", { value: 1200 });
     Object.defineProperty(body, "clientHeight", { value: 384 });
     const scrollTo = vi.fn();

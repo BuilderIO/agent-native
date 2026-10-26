@@ -4834,8 +4834,7 @@ function ThreadView({
     seenEntryCount.current = thread.comments.length;
     const body = bodyRef.current;
     const latest = thread.comments[thread.comments.length - 1];
-    if (!added || !body || !latest || body.scrollHeight <= body.clientHeight)
-      return;
+    if (!added || !body || body.scrollHeight <= body.clientHeight) return;
     const entry = body.querySelector<HTMLElement>(
       `[data-comment-entry="${cssEscape(latest.id)}"]`,
     );
