@@ -31,13 +31,31 @@ export function discoveredActionMcpAnnotations(readOnly: boolean) {
   return readOnly ? DISCOVERED_READ_ONLY_HINTS : DISCOVERED_WRITE_HINTS;
 }
 
+/** A flag's type once its runtime check has passed. */
+type Flag<K extends keyof ActionEntry> = NonNullable<ActionEntry[K]>;
+
+function isPlainObject(value: unknown): value is object {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Annotations that set each of the three required hints to a boolean. */
+function isMcpAnnotations(value: unknown): value is Flag<"mcpAnnotations"> {
+  if (!isPlainObject(value)) return false;
+  const hints = value as Record<string, unknown>;
+  return (
+    typeof hints.readOnlyHint === "boolean" &&
+    typeof hints.destructiveHint === "boolean" &&
+    typeof hints.openWorldHint === "boolean"
+  );
+}
+
 /**
  * The flags of a loaded action module that every registry keeps, so an action
  * validates, asks for approval, and checks access the same way however it was
- * loaded.
+ * loaded. Each flag is kept only when its value has the right shape.
  */
 export function preserveActionFlags(
-  entry: Record<string, any>,
+  entry: Record<string, unknown>,
 ): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (
@@ -47,32 +65,23 @@ export function preserveActionFlags(
   ) {
     out.schema = entry.schema;
   }
-  if (
-    entry.access &&
-    typeof entry.access === "object" &&
-    !Array.isArray(entry.access)
-  ) {
-    out.access = entry.access;
+  if (isPlainObject(entry.access)) {
+    out.access = entry.access as Flag<"access">;
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
-  if (
-    entry.mcpAnnotations &&
-    typeof entry.mcpAnnotations === "object" &&
-    !Array.isArray(entry.mcpAnnotations) &&
-    typeof entry.mcpAnnotations.readOnlyHint === "boolean" &&
-    typeof entry.mcpAnnotations.destructiveHint === "boolean" &&
-    typeof entry.mcpAnnotations.openWorldHint === "boolean"
-  ) {
+  if (isMcpAnnotations(entry.mcpAnnotations)) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
+  const outputContract = entry.mcpOutputContract;
   if (
-    entry.mcpOutputContract &&
-    typeof entry.mcpOutputContract === "object" &&
-    entry.mcpOutputContract.response &&
-    typeof entry.mcpOutputContract.response === "object"
+    outputContract &&
+    typeof outputContract === "object" &&
+    "response" in outputContract &&
+    outputContract.response &&
+    typeof outputContract.response === "object"
   ) {
-    out.mcpOutputContract = entry.mcpOutputContract;
+    out.mcpOutputContract = outputContract as Flag<"mcpOutputContract">;
   }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
@@ -86,12 +95,8 @@ export function preserveActionFlags(
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
   }
-  if (
-    entry.planMode &&
-    typeof entry.planMode === "object" &&
-    !Array.isArray(entry.planMode)
-  ) {
-    out.planMode = entry.planMode;
+  if (isPlainObject(entry.planMode)) {
+    out.planMode = entry.planMode as Flag<"planMode">;
   }
   if (typeof entry.changeEvents === "boolean") {
     out.changeEvents = entry.changeEvents;
@@ -100,7 +105,7 @@ export function preserveActionFlags(
     out.persistInBrowser = entry.persistInBrowser;
   }
   if (typeof entry.changeResource === "function") {
-    out.changeResource = entry.changeResource;
+    out.changeResource = entry.changeResource as Flag<"changeResource">;
   }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
@@ -109,7 +114,7 @@ export function preserveActionFlags(
     typeof entry.retrySafe === "boolean" ||
     typeof entry.retrySafe === "function"
   ) {
-    out.retrySafe = entry.retrySafe;
+    out.retrySafe = entry.retrySafe as Flag<"retrySafe">;
   }
   carryExecutionKey(entry, out);
   if (typeof entry.endsTurn === "boolean") {
@@ -122,7 +127,8 @@ export function preserveActionFlags(
     out.toolCallable = entry.toolCallable;
   }
   if (typeof entry.agentDiscoveryAvailable === "function") {
-    out.agentDiscoveryAvailable = entry.agentDiscoveryAvailable;
+    out.agentDiscoveryAvailable =
+      entry.agentDiscoveryAvailable as Flag<"agentDiscoveryAvailable">;
   }
   if (
     Array.isArray(entry.capabilityScopes) &&
@@ -131,29 +137,17 @@ export function preserveActionFlags(
   ) {
     out.capabilityScopes = entry.capabilityScopes;
   }
-  if (
-    entry.publicAgent &&
-    typeof entry.publicAgent === "object" &&
-    !Array.isArray(entry.publicAgent)
-  ) {
-    out.publicAgent = entry.publicAgent;
+  if (isPlainObject(entry.publicAgent)) {
+    out.publicAgent = entry.publicAgent as Flag<"publicAgent">;
   }
   if (typeof entry.link === "function") {
-    out.link = entry.link;
+    out.link = entry.link as Flag<"link">;
   }
-  if (
-    entry.mcpApp &&
-    typeof entry.mcpApp === "object" &&
-    !Array.isArray(entry.mcpApp)
-  ) {
-    out.mcpApp = entry.mcpApp;
+  if (isPlainObject(entry.mcpApp)) {
+    out.mcpApp = entry.mcpApp as Flag<"mcpApp">;
   }
-  if (
-    entry.chatUI &&
-    typeof entry.chatUI === "object" &&
-    !Array.isArray(entry.chatUI)
-  ) {
-    out.chatUI = entry.chatUI;
+  if (isPlainObject(entry.chatUI)) {
+    out.chatUI = entry.chatUI as Flag<"chatUI">;
   }
   if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
   if (typeof entry.maxResultChars === "number") {
@@ -166,7 +160,7 @@ export function preserveActionFlags(
     typeof entry.needsApproval === "boolean" ||
     typeof entry.needsApproval === "function"
   ) {
-    out.needsApproval = entry.needsApproval;
+    out.needsApproval = entry.needsApproval as Flag<"needsApproval">;
   }
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;
@@ -190,10 +184,7 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
       ? { mcpAnnotations: def.mcpAnnotations }
       : {
           mcpAnnotationDefaults: discoveredActionMcpAnnotations(
-            isMcpReadOnlyTool({
-              readOnly: flags.readOnly,
-              planMode: flags.planMode,
-            }),
+            isMcpReadOnlyTool(flags),
           ),
         }),
   };

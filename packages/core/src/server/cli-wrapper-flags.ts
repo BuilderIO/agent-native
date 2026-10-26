@@ -11,7 +11,40 @@ export type CliWrapperFlags = {
   toolCallable?: false;
 };
 
-type BabelNode = { type: string; [key: string]: any };
+/**
+ * The parts of a Babel AST node the reader looks at. Each node type has only
+ * some of them, so the reader checks `type` before reading one. `value` is a
+ * node on an object property and the literal itself on a literal.
+ */
+type BabelNode = {
+  type: string;
+  name?: string;
+  value?: BabelNode | string | number | boolean;
+  computed?: boolean;
+  kind?: string;
+  exportKind?: string;
+  expression?: BabelNode;
+  key?: BabelNode;
+  object?: BabelNode;
+  property?: BabelNode;
+  left?: BabelNode;
+  right?: BabelNode;
+  argument?: BabelNode | null;
+  callee?: BabelNode;
+  declaration?: BabelNode | null;
+  id?: BabelNode | null;
+  init?: BabelNode | null;
+  exported?: BabelNode;
+  imported?: BabelNode;
+  local?: BabelNode;
+  arguments?: BabelNode[];
+  declarations?: BabelNode[];
+  specifiers?: BabelNode[];
+  properties?: BabelNode[];
+  expressions?: BabelNode[];
+  quasis?: Array<{ value?: { cooked?: string | null } }>;
+};
+type BabelProgram = { type: string; body: BabelNode[] };
 
 /** The flags the reader checks, each with the value that keeps an action safe. */
 const SAFE_VALUES = {
@@ -43,11 +76,11 @@ const FUNCTIONS = new Set([
   "ClassExpression",
 ]);
 
-function parseProgram(src: string): BabelNode | null {
+function parseProgram(src: string): BabelProgram | null {
   for (const plugins of [["typescript"], ["typescript", "jsx"]] as const) {
     try {
       return parse(src, { sourceType: "unambiguous", plugins: [...plugins] })
-        .program as unknown as BabelNode;
+        .program as unknown as BabelProgram;
     } catch {
       // coercion-ok: try the next syntax. If neither parses, the null return
       // makes the caller gate the action and keep its results out of the
@@ -81,26 +114,48 @@ function forEachNode(node: unknown, visit: (node: BabelNode) => void): void {
   }
 }
 
+/** An identifier's name, or undefined for any other node. */
+function identifierName(
+  node: BabelNode | null | undefined,
+): string | undefined {
+  return node?.type === "Identifier" ? node.name : undefined;
+}
+
+/** The name an import or export specifier gives, which may be a string. */
+function specifierName(node: BabelNode | undefined): string | undefined {
+  const name = identifierName(node) ?? node?.value;
+  return typeof name === "string" ? name : undefined;
+}
+
+/** A `true` or `false` literal's value, or "unknown" for anything else. */
+function booleanLiteral(
+  node: BabelNode | "unknown" | undefined,
+): boolean | "unknown" {
+  if (node === "unknown" || node?.type !== "BooleanLiteral") return "unknown";
+  return typeof node.value === "boolean" ? node.value : "unknown";
+}
+
 function propertyName(prop: BabelNode): string | null {
   const key = prop.key;
-  if (!prop.computed && key.type === "Identifier") return key.name;
-  if (key.type === "StringLiteral") return key.value;
+  if (!key) return null;
+  if (!prop.computed && key.type === "Identifier") return key.name ?? null;
+  if (key.type === "StringLiteral" && typeof key.value === "string") {
+    return key.value;
+  }
   if (key.type === "NumericLiteral") return String(key.value);
-  if (key.type === "TemplateLiteral" && key.expressions.length === 0) {
-    const text = key.quasis[0]?.value?.cooked;
+  if (key.type === "TemplateLiteral" && key.expressions?.length === 0) {
+    const text = key.quasis?.[0]?.value?.cooked;
     return typeof text === "string" ? text : null;
   }
   return null;
 }
 
-function isModuleExports(node: BabelNode): boolean {
+function isModuleExports(node: BabelNode | undefined): boolean {
   return (
-    node.type === "MemberExpression" &&
+    node?.type === "MemberExpression" &&
     !node.computed &&
-    node.object.type === "Identifier" &&
-    node.object.name === "module" &&
-    node.property.type === "Identifier" &&
-    node.property.name === "exports"
+    identifierName(node.object) === "module" &&
+    identifierName(node.property) === "exports"
   );
 }
 
@@ -120,7 +175,7 @@ function mentions(node: unknown, name: string): boolean {
  * its properties.
  */
 function isTouched(
-  program: BabelNode,
+  program: BabelProgram,
   name: string,
   value: BabelNode | undefined,
 ): boolean {
@@ -153,28 +208,31 @@ function isTouched(
  * top-level binding the module leaves alone. `"unknown"` for a default
  * re-exported from another file or a binding it changes.
  */
-function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
+function exportedValue(
+  program: BabelProgram,
+): BabelNode | "unknown" | undefined {
   let value: BabelNode | "unknown" | undefined;
   for (const statement of program.body) {
     if (statement.type === "ExportDefaultDeclaration") {
       value = unwrap(statement.declaration);
     } else if (
       statement.type === "ExpressionStatement" &&
-      statement.expression.type === "AssignmentExpression" &&
+      statement.expression?.type === "AssignmentExpression" &&
       isModuleExports(statement.expression.left)
     ) {
       value = unwrap(statement.expression.right);
     } else if (
       statement.type === "ExportNamedDeclaration" &&
-      statement.specifiers.some(
-        (spec: BabelNode) =>
-          (spec.exported.name ?? spec.exported.value) === "default",
+      statement.specifiers?.some(
+        (spec) => specifierName(spec.exported) === "default",
       )
     ) {
       value = "unknown";
     }
   }
-  if (value === "unknown" || value?.type !== "Identifier") return value;
+  if (value === "unknown") return value;
+  const name = identifierName(value);
+  if (!value || name === undefined) return value;
   const found: BabelNode[] = [];
   for (const statement of program.body) {
     const declaration =
@@ -182,22 +240,20 @@ function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
         ? statement.declaration
         : statement;
     if (
-      FUNCTIONS.has(declaration?.type) &&
-      declaration.id?.name === value.name
+      declaration &&
+      FUNCTIONS.has(declaration.type) &&
+      identifierName(declaration.id) === name
     ) {
       found.push(declaration);
     }
     if (declaration?.type !== "VariableDeclaration") continue;
-    for (const declarator of declaration.declarations) {
-      if (
-        declarator.id.type === "Identifier" &&
-        declarator.id.name === value.name
-      ) {
+    for (const declarator of declaration.declarations ?? []) {
+      if (identifierName(declarator.id) === name) {
         found.push(unwrap(declarator.init) ?? value);
       }
     }
   }
-  if (found.length > 1 || isTouched(program, value.name, found[0])) {
+  if (found.length > 1 || isTouched(program, name, found[0])) {
     return "unknown";
   }
   return found[0] ?? value;
@@ -208,7 +264,7 @@ function exportedValue(program: BabelNode): BabelNode | "unknown" | undefined {
  * or a declared function, and whether it might export more than it names:
  * a whole file re-exported, or CommonJS `exports.x = ...` writes.
  */
-function namedExports(program: BabelNode): {
+function namedExports(program: BabelProgram): {
   names: Map<string, BabelNode | "unknown">;
   star: boolean;
 } {
@@ -219,7 +275,7 @@ function namedExports(program: BabelNode): {
     if (statement.type === "ExportAllDeclaration") star = true;
     if (
       statement.type === "ExpressionStatement" &&
-      statement.expression.type === "AssignmentExpression" &&
+      statement.expression?.type === "AssignmentExpression" &&
       isModuleExports(statement.expression.left)
     ) {
       wholeModuleExports++;
@@ -232,24 +288,28 @@ function namedExports(program: BabelNode): {
     }
     const declaration = statement.declaration;
     if (declaration?.type === "VariableDeclaration") {
-      for (const declarator of declaration.declarations) {
-        if (declarator.id.type === "Identifier") {
+      for (const declarator of declaration.declarations ?? []) {
+        const name = identifierName(declarator.id);
+        if (name !== undefined) {
           const value =
             declaration.kind === "const" ? unwrap(declarator.init) : undefined;
-          names.set(declarator.id.name, value ?? "unknown");
+          names.set(name, value ?? "unknown");
         } else {
           // Destructured: any name in the pattern might be exported.
           forEachNode(declarator.id, (node) => {
-            if (node.type === "Identifier") names.set(node.name, "unknown");
+            const bound = identifierName(node);
+            if (bound !== undefined) names.set(bound, "unknown");
           });
         }
       }
-    } else if (declaration?.id) {
+    } else if (declaration?.id?.name !== undefined) {
       names.set(declaration.id.name, declaration);
     }
-    for (const spec of statement.specifiers) {
-      const name = spec.exported.name ?? spec.exported.value;
-      if (name !== "default") names.set(name, "unknown");
+    for (const spec of statement.specifiers ?? []) {
+      const name = specifierName(spec.exported);
+      if (name !== undefined && name !== "default") {
+        names.set(name, "unknown");
+      }
     }
   }
   // Each `module.exports = value` names `exports` once; any other mention
@@ -271,15 +331,19 @@ function namedExports(program: BabelNode): {
  * the export proves nothing about the action that is.
  */
 function defaultActionOptions(
-  program: BabelNode,
+  program: BabelProgram,
 ): BabelNode | "unknown" | null {
   const names = new Set(["defineAction"]);
   for (const statement of program.body) {
     if (statement.type !== "ImportDeclaration") continue;
-    for (const spec of statement.specifiers) {
+    for (const spec of statement.specifiers ?? []) {
       if (spec.type !== "ImportSpecifier") continue;
-      if ((spec.imported.name ?? spec.imported.value) === "defineAction") {
-        names.add(spec.local.name);
+      const local = identifierName(spec.local);
+      if (
+        specifierName(spec.imported) === "defineAction" &&
+        local !== undefined
+      ) {
+        names.add(local);
       }
     }
   }
@@ -287,18 +351,19 @@ function defaultActionOptions(
   forEachNode(program, (node) => {
     if (node.type !== "CallExpression") return;
     const callee = unwrap(node.callee);
+    const calleeName = identifierName(callee);
     if (
-      (callee?.type === "Identifier" && names.has(callee.name)) ||
+      (calleeName !== undefined && names.has(calleeName)) ||
       (callee?.type === "MemberExpression" &&
         !callee.computed &&
-        callee.property.name === "defineAction")
+        identifierName(callee.property) === "defineAction")
     ) {
       calls.push(node);
     }
   });
   const exported = exportedValue(program);
   const call = calls.find((c) => c === exported);
-  if (call) return unwrap(call.arguments[0]) ?? "unknown";
+  if (call) return unwrap(call.arguments?.[0]) ?? "unknown";
   if (calls.length > 0 || exported === "unknown") return "unknown";
   if (!exported || FUNCTIONS.has(exported.type)) return null;
   return isActionObject(exported) ? exported : "unknown";
@@ -312,7 +377,7 @@ function defaultActionOptions(
 function isActionObject(node: BabelNode): boolean {
   if (node.type !== "ObjectExpression") return false;
   const names = new Set(
-    node.properties.map((prop: BabelNode) =>
+    (node.properties ?? []).map((prop) =>
       prop.type === "SpreadElement" ? null : propertyName(prop),
     ),
   );
@@ -325,16 +390,17 @@ function readOptionFlags(options: BabelNode | "unknown"): ReadFlags {
     return { ...UNKNOWN_FLAGS };
   }
   const flags: ReadFlags = {};
-  for (const prop of options.properties) {
+  for (const prop of options.properties ?? []) {
     const name = prop.type === "SpreadElement" ? null : propertyName(prop);
     if (name === null) {
       // A spread or a computed key can set any flag.
       Object.assign(flags, UNKNOWN_FLAGS);
     } else if ((READ_FLAGS as readonly string[]).includes(name)) {
       const value =
-        prop.type === "ObjectProperty" ? unwrap(prop.value) : undefined;
-      flags[name as ReadFlag] =
-        value?.type === "BooleanLiteral" ? value.value : "unknown";
+        prop.type === "ObjectProperty" && typeof prop.value === "object"
+          ? unwrap(prop.value)
+          : undefined;
+      flags[name as ReadFlag] = booleanLiteral(value);
     }
   }
   return flags;
@@ -346,7 +412,7 @@ function readOptionFlags(options: BabelNode | "unknown"): ReadFlags {
  * named `tool` and `run` exports, and don't agree on which comes first, so a
  * module offering both, or re-exporting a whole file, gets every limit.
  */
-function actionFlags(program: BabelNode): ReadFlags | null {
+function actionFlags(program: BabelProgram): ReadFlags | null {
   const fromDefault = defaultActionOptions(program);
   const { names, star } = namedExports(program);
   const named = names.has("tool") && names.has("run");
@@ -360,10 +426,7 @@ function actionFlags(program: BabelNode): ReadFlags | null {
     if (value === undefined) {
       if (star) flags[name] = "unknown";
     } else {
-      flags[name] =
-        value !== "unknown" && value.type === "BooleanLiteral"
-          ? value.value
-          : "unknown";
+      flags[name] = booleanLiteral(value);
     }
   }
   return flags;
