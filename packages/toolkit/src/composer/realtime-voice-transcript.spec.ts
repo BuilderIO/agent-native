@@ -100,21 +100,26 @@ describe("realtime voice transcript registry", () => {
     expect(registry.activeThreadId()).toBe("thread-1");
   });
 
-  it("queues a tool call until its thread's sink takes it, finished over running", () => {
+  it("queues a reply's work until its thread's sink takes it, finished over running", () => {
     const registry = createRealtimeVoiceTranscriptRegistry();
-    const call = {
+    const running = {
       id: "call-1",
       threadId: "thread-1",
-      name: "web-search",
-      startedAt: "2026-07-10T20:00:00.000Z",
+      calls: [
+        {
+          id: "call-1",
+          name: "web-search",
+          status: "running" as const,
+          startedAt: "2026-07-10T20:00:00.000Z",
+        },
+      ],
     };
-    registry.publishWork({ ...call, status: "running" });
+    registry.publishWork(running);
     registry.publishWork({
-      ...call,
-      status: "completed",
+      ...running,
       completedAt: "2026-07-10T20:00:02.000Z",
     });
-    registry.publishWork({ ...call, status: "running" });
+    registry.publishWork(running);
     expect(registry.pendingCount()).toBe(1);
 
     const appendWork = vi.fn(() => true);
@@ -126,7 +131,7 @@ describe("realtime voice transcript registry", () => {
     });
     expect(appendWork).toHaveBeenCalledOnce();
     expect(appendWork).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "completed" }),
+      expect.objectContaining({ completedAt: "2026-07-10T20:00:02.000Z" }),
     );
     expect(registry.pendingCount()).toBe(0);
   });

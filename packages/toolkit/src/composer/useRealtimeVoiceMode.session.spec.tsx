@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
+  type RealtimeVoiceWorkUpdate,
 } from "./realtime-voice-transcript.js";
 import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
@@ -121,6 +122,68 @@ async function startSession(
 }
 
 describe("realtime voice session controls", () => {
+  it("groups one reply's tool calls into one piece of work", async () => {
+    const work: RealtimeVoiceWorkUpdate[] = [];
+    const unregister = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-work",
+      active: true,
+      append: () => true,
+      appendWork: (update) => {
+        work.push(update);
+        return true;
+      },
+    });
+    const results: Array<(value: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => results.push(resolve))),
+    );
+    const session = await startSession();
+
+    for (const [callId, name] of [
+      ["call-search", "web-search"],
+      ["call-read", "web-request"],
+    ] as const) {
+      await session.send({
+        type: "response.function_call_arguments.done",
+        call_id: callId,
+        name,
+        arguments: "{}",
+      });
+    }
+    // The reply ends before its tools return; the work ends with them.
+    await session.send({
+      type: "response.done",
+      response: { status: "completed", output: [] },
+    });
+    expect(work.every((update) => !update.completedAt)).toBe(true);
+
+    for (const [index, resolve] of results.entries()) {
+      await act(async () => {
+        resolve(
+          Response.json({
+            callId: index === 0 ? "call-search" : "call-read",
+            status: "completed",
+            output: "{}",
+          }),
+        );
+        await new Promise((done) => setTimeout(done, 0));
+      });
+    }
+
+    const last = work.at(-1);
+    expect(new Set(work.map((update) => update.id))).toEqual(
+      new Set(["call-search"]),
+    );
+    expect(last?.calls.map((call) => [call.id, call.status])).toEqual([
+      ["call-search", "completed"],
+      ["call-read", "completed"],
+    ]);
+    expect(last?.completedAt).toBe(last?.calls.at(-1)?.completedAt);
+    unregister();
+    session.unmount();
+  });
+
   it("reports each turn's timing without the words spoken", async () => {
     const trackEvent = vi.fn();
     const session = await startSession(undefined, trackEvent);

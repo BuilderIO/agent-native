@@ -42,60 +42,100 @@ function voiceWorkLabel(name: string): string {
 }
 
 /**
- * The events of a local run for one voice tool call, so the transcript shows
- * it as work. The run never starts on the server, so it never counts as an
- * active run that would hold the composer or the transcript.
+ * The events a voice reply's work still needs in its thread, as one local
+ * run. The run never starts on the server, so it never counts as an active
+ * run that would hold the composer or the transcript. `existingIds` and
+ * `lastSequence` describe the run as the thread already has it.
  */
 export function realtimeVoiceWorkEvents(
   update: RealtimeVoiceWorkUpdate,
+  existingIds: ReadonlySet<string> = new Set(),
+  lastSequence = 0,
 ): AgentEvent[] {
   const runId = `voice:${update.id}`;
-  const toolCall: AgentToolCall = {
-    id: update.id,
-    name: update.name,
-    status: "running",
-    runId,
-    ...(update.input ? { input: update.input } : {}),
-  };
-  const activity: AgentActivity = {
-    id: update.id,
-    kind: inferAgentActivityKind(update.name),
-    label: voiceWorkLabel(update.name),
-    status: "running",
-    runId,
-    startedAt: update.startedAt,
-  };
-  const base = (sequence: number, occurredAt: string) => ({
-    id: `${runId}:${sequence}`,
+  const base = (id: string, occurredAt: string) => ({
+    id: `${runId}:${id}`,
     threadId: update.threadId,
     runId,
-    sequence,
+    // Numbered below, once the events this run already has are left out.
+    sequence: 0,
     occurredAt,
   });
-  const events: AgentEvent[] = [
-    { ...base(1, update.startedAt), type: "tool.started", toolCall },
-    { ...base(2, update.startedAt), type: "activity.started", activity },
-  ];
-  const { completedAt } = update;
-  if (!completedAt || update.status === "running") return events;
-  events.push(
-    {
-      ...base(3, completedAt),
-      type: "tool.updated",
-      toolCall: {
-        ...toolCall,
-        status: update.status,
-        ...(update.output !== undefined ? { output: update.output } : {}),
+  const steps: { at: string; event: AgentEvent }[] = [];
+  for (const call of update.calls) {
+    const toolCall: AgentToolCall = {
+      id: call.id,
+      name: call.name,
+      status: "running",
+      runId,
+      ...(call.input ? { input: call.input } : {}),
+    };
+    const activity: AgentActivity = {
+      id: call.id,
+      kind: inferAgentActivityKind(call.name),
+      label: voiceWorkLabel(call.name),
+      status: "running",
+      runId,
+      startedAt: call.startedAt,
+    };
+    steps.push(
+      {
+        at: call.startedAt,
+        event: {
+          ...base(`${call.id}:tool-started`, call.startedAt),
+          type: "tool.started",
+          toolCall,
+        },
       },
-    },
-    {
-      ...base(4, completedAt),
-      type: "activity.completed",
-      activity: { ...activity, status: update.status, completedAt },
-    },
-    { ...base(5, completedAt), type: "run.completed" },
-  );
-  return events;
+      {
+        at: call.startedAt,
+        event: {
+          ...base(`${call.id}:activity-started`, call.startedAt),
+          type: "activity.started",
+          activity,
+        },
+      },
+    );
+    const { completedAt } = call;
+    if (!completedAt || call.status === "running") continue;
+    steps.push(
+      {
+        at: completedAt,
+        event: {
+          ...base(`${call.id}:tool-ended`, completedAt),
+          type: "tool.updated",
+          toolCall: {
+            ...toolCall,
+            status: call.status,
+            ...(call.output !== undefined ? { output: call.output } : {}),
+          },
+        },
+      },
+      {
+        at: completedAt,
+        event: {
+          ...base(`${call.id}:activity-ended`, completedAt),
+          type: "activity.completed",
+          activity: { ...activity, status: call.status, completedAt },
+        },
+      },
+    );
+  }
+  // Stable: a call's start keeps its place before its end at the same time.
+  steps.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+  if (update.completedAt) {
+    steps.push({
+      at: update.completedAt,
+      event: {
+        ...base("completed", update.completedAt),
+        type: "run.completed",
+      },
+    });
+  }
+  let sequence = lastSequence;
+  return steps
+    .filter(({ event }) => !existingIds.has(event.id))
+    .map(({ event }) => ({ ...event, sequence: ++sequence }));
 }
 
 /** A voice chat turn still being spoken; hosts must not save it. */
@@ -138,7 +178,21 @@ export function useRealtimeVoiceTranscripts(
               if (hasActiveAgentRuns(controller.getThread(threadId))) {
                 return false;
               }
-              appendEvents(threadId, realtimeVoiceWorkEvents(update));
+              const thread = controller.getThread(threadId);
+              const runId = `voice:${update.id}`;
+              appendEvents(
+                threadId,
+                realtimeVoiceWorkEvents(
+                  update,
+                  new Set(
+                    thread.events
+                      .filter((event) => event.runId === runId)
+                      .map((event) => event.id),
+                  ),
+                  new Map(Object.entries(thread.runs)).get(runId)
+                    ?.lastSequence ?? 0,
+                ),
+              );
               if (update.completedAt) persist();
               return true;
             },

@@ -10,17 +10,27 @@ export interface RealtimeVoiceTranscriptMessage {
   status?: "streaming" | "complete";
 }
 
-/** A tool call a voice turn made, so the chat can show it as work. */
-export interface RealtimeVoiceWorkUpdate {
-  /** The provider's call id; every update for one call repeats it. */
+/** One tool call in a voice reply's work. */
+export interface RealtimeVoiceWorkCall {
+  /** The provider's call id. */
   id: string;
-  threadId: string;
   name: string;
   input?: Record<string, unknown>;
   status: "running" | "completed" | "failed" | "cancelled";
   output?: string;
   startedAt: string;
-  /** Set once the call has finished. */
+  completedAt?: string;
+}
+
+/**
+ * The tool calls one voice reply made, so the chat can show them as one work
+ * item. Each update is the whole reply so far under the same id.
+ */
+export interface RealtimeVoiceWorkUpdate {
+  id: string;
+  threadId: string;
+  calls: RealtimeVoiceWorkCall[];
+  /** Set once the reply has finished and every call in it has ended. */
   completedAt?: string;
 }
 
@@ -30,7 +40,7 @@ export interface RealtimeVoiceTranscriptSink {
   active: boolean | (() => boolean);
   /** False keeps the message queued, newest text per id, until the sink re-registers. */
   append: (message: RealtimeVoiceTranscriptMessage) => boolean;
-  /** False keeps the update queued, newest per call, until the sink re-registers. */
+  /** False keeps the update queued, newest per reply, until the sink re-registers. */
   appendWork?: (update: RealtimeVoiceWorkUpdate) => boolean;
 }
 
@@ -120,7 +130,7 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
       const id = update.id.trim();
       const threadId = update.threadId.trim();
       if (!id || !threadId) return;
-      // A finished call outranks a late "running" update for it.
+      // A finished reply outranks a late update from while it ran.
       if (pendingWork.get(id)?.completedAt && !update.completedAt) return;
       pendingWork.set(id, { ...update, id, threadId });
       flush();

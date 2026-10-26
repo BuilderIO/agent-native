@@ -1331,9 +1331,11 @@ describe("Realtime voice startup and transcript ordering", () => {
       start_ms: 2_300,
       end_ms: 2_500,
     });
+    // The reply starting after the question ended finishes the question.
     expect(published).toEqual([
       { role: "user", text: "Can you help me?" },
       { role: "assistant", text: "Absolutely." },
+      { role: "user", text: "Next question." },
     ]);
 
     sequencer.handle({ type: "session.closed" });
@@ -1342,6 +1344,61 @@ describe("Realtime voice startup and transcript ordering", () => {
       { role: "assistant", text: "Absolutely." },
       { role: "user", text: "Next question." },
       { role: "assistant", text: "Next answer." },
+    ]);
+  });
+
+  it("keeps a GPT-Live reply spoken with pauses as one message", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    for (const [delta, start_ms] of [
+      ["I found a solid overview. ", 0],
+      ["They explain the meaning of life, ", 2_000],
+      ["and meaning in life.", 4_500],
+    ] as const) {
+      sequencer.handle({
+        type: "session.output_transcript.delta",
+        delta,
+        start_ms,
+        end_ms: start_ms + 1_000,
+      });
+    }
+    sequencer.handle({ type: "session.closed" });
+
+    expect(published).toEqual([
+      {
+        role: "assistant",
+        text: "I found a solid overview. They explain the meaning of life, and meaning in life.",
+      },
+    ]);
+  });
+
+  it("ends the GPT-Live turns in progress when a tool call starts", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Sure, on it.",
+      start_ms: 0,
+      end_ms: 500,
+    });
+    sequencer.endLiveTurns();
+    sequencer.handle({
+      type: "session.output_transcript.delta",
+      delta: "Here is what I found.",
+      start_ms: 4_000,
+      end_ms: 5_000,
+    });
+    sequencer.handle({ type: "session.closed" });
+
+    expect(published).toEqual([
+      { role: "assistant", text: "Sure, on it." },
+      { role: "assistant", text: "Here is what I found." },
     ]);
   });
 

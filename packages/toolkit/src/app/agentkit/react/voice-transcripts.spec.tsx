@@ -195,15 +195,20 @@ describe("voice chat transcripts in AgentKitChat", () => {
     expect(messages(container)).toEqual([]);
   });
 
-  it("shows a voice tool call as work between the turns and saves it", async () => {
+  it("shows a reply's tool calls as one work item between the turns and saves it", async () => {
     const threadId = "thread-voice-work";
     const { container, client, saved } = await mountChat(threadId);
-    const work = {
+    const search = {
       id: "call-search",
-      threadId,
       name: "web-search",
       input: { query: "cats" },
       startedAt: "2026-10-24T00:00:02.000Z",
+    };
+    const read = {
+      id: "call-read",
+      name: "web-request",
+      input: { url: "https://example.com/cats" },
+      startedAt: "2026-10-24T00:00:03.000Z",
     };
     const publishWork = async (update: RealtimeVoiceWorkUpdate) => {
       await act(async () => {
@@ -211,6 +216,7 @@ describe("voice chat transcripts in AgentKitChat", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     };
+    const reply = { id: "call-search", threadId };
 
     await publish(threadId, {
       id: `${threadId}:user-1`,
@@ -223,7 +229,7 @@ describe("voice chat transcripts in AgentKitChat", () => {
       text: "On it, searching now.",
       createdAt: "2026-10-24T00:00:01.000Z",
     });
-    await publishWork({ ...work, status: "running" });
+    await publishWork({ ...reply, calls: [{ ...search, status: "running" }] });
 
     const running = container.textContent ?? "";
     expect(running.indexOf("Searched 1 query")).toBeGreaterThan(
@@ -232,24 +238,46 @@ describe("voice chat transcripts in AgentKitChat", () => {
     // The local run never holds the composer the way a server run does.
     expect(client.getThread(threadId).activeRunIds).toEqual([]);
 
-    await publishWork({
-      ...work,
-      status: "completed",
+    const finishedSearch = {
+      ...search,
+      status: "completed" as const,
       output: "{}",
-      completedAt: "2026-10-24T00:00:03.000Z",
+      completedAt: "2026-10-24T00:00:02.500Z",
+    };
+    await publishWork({
+      ...reply,
+      calls: [finishedSearch, { ...read, status: "running" }],
+    });
+    await publishWork({
+      ...reply,
+      calls: [
+        finishedSearch,
+        {
+          ...read,
+          status: "completed",
+          output: "<html>",
+          completedAt: "2026-10-24T00:00:04.000Z",
+        },
+      ],
+      completedAt: "2026-10-24T00:00:04.000Z",
     });
     await publish(threadId, {
       id: `${threadId}:assistant-2`,
       role: "assistant",
       text: "Cats are great.",
-      createdAt: "2026-10-24T00:00:04.000Z",
+      createdAt: "2026-10-24T00:00:05.000Z",
     });
 
     const done = container.textContent ?? "";
-    const row = done.indexOf("Searched 1 query");
+    expect(done.match(/Worked/g)).toHaveLength(1);
+    const row = done.indexOf("Worked");
     expect(row).toBeGreaterThan(done.indexOf("On it, searching now."));
     expect(row).toBeLessThan(done.indexOf("Cats are great."));
     expect(saved.at(-1)?.events?.map((event) => event.type)).toEqual([
+      "tool.started",
+      "activity.started",
+      "tool.updated",
+      "activity.completed",
       "tool.started",
       "activity.started",
       "tool.updated",

@@ -15,7 +15,10 @@ import {
   smoothRealtimeVoiceLevel,
   type RealtimeVoiceAudioLevelStore,
 } from "./realtime-voice-audio-level.js";
-import { realtimeVoiceTranscriptRegistry } from "./realtime-voice-transcript.js";
+import {
+  realtimeVoiceTranscriptRegistry,
+  type RealtimeVoiceWorkCall,
+} from "./realtime-voice-transcript.js";
 import { createRealtimeVoiceTurnMetrics } from "./realtime-voice-turn-metrics.js";
 import type {
   RealtimeVoiceModeCopy,
@@ -49,7 +52,6 @@ const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
 const REALTIME_VOICE_TOOL_UPDATE_TIMEOUT_MS = 5_000;
 const REALTIME_VOICE_LIVE_CLOSE_DRAIN_TIMEOUT_MS = 2_000;
-const REALTIME_VOICE_LIVE_TRANSCRIPT_GAP_MS = 750;
 const REALTIME_VOICE_PRIORITY_TOOL_NAMES = [
   "navigate",
   "set-url-path",
@@ -433,6 +435,61 @@ export function createRealtimeVoiceLanguageUpdate(
   };
 }
 
+interface RealtimeVoiceWorkSegment {
+  id: string;
+  threadId: string;
+  calls: RealtimeVoiceWorkCall[];
+  /** The reply is over; the segment ends once its last call does. */
+  closing: boolean;
+}
+
+function publishRealtimeVoiceWorkSegment(
+  segment: RealtimeVoiceWorkSegment,
+  completedAt?: string,
+): void {
+  if (segment.calls.length === 0) return;
+  realtimeVoiceTranscriptRegistry.publishWork({
+    id: segment.id,
+    threadId: segment.threadId,
+    calls: segment.calls.map((call) => ({ ...call })),
+    ...(completedAt ? { completedAt } : {}),
+  });
+}
+
+/** The reply's open work a new call joins, or new work; none without a thread. */
+function openRealtimeVoiceWorkSegment(
+  ref: { current: RealtimeVoiceWorkSegment | null },
+  threadId: string | undefined,
+  callId: string,
+): RealtimeVoiceWorkSegment | null {
+  if (!threadId) return null;
+  const current = ref.current;
+  if (current?.threadId === threadId) return current;
+  if (current) closeRealtimeVoiceWorkSegment(ref, current);
+  const segment = { id: callId, threadId, calls: [], closing: false };
+  ref.current = segment;
+  return segment;
+}
+
+/**
+ * Ends a reply's work. It ends at its last call's completion, so the reply
+ * that follows the work reads below it.
+ */
+function closeRealtimeVoiceWorkSegment(
+  ref: { current: RealtimeVoiceWorkSegment | null },
+  segment: RealtimeVoiceWorkSegment | null = ref.current,
+): void {
+  if (!segment) return;
+  if (ref.current === segment) ref.current = null;
+  segment.closing = true;
+  if (segment.calls.some((call) => call.status === "running")) return;
+  const completedAt = segment.calls
+    .map((call) => call.completedAt ?? call.startedAt)
+    .sort()
+    .at(-1);
+  publishRealtimeVoiceWorkSegment(segment, completedAt);
+}
+
 export interface CompletedRealtimeVoiceTranscript {
   role: "user" | "assistant";
   text: string;
@@ -441,6 +498,8 @@ export interface CompletedRealtimeVoiceTranscript {
 
 export interface RealtimeVoiceTranscriptSequencer {
   handle: (event: RealtimeServerEvent) => void;
+  /** Ends the GPT-Live turns in progress, such as when a tool call starts. */
+  endLiveTurns: () => void;
   flush: () => void;
   reset: (options?: { preserveQueuedTranscripts?: boolean }) => void;
 }
@@ -456,6 +515,8 @@ interface LiveRealtimeVoiceTranscriptBuffer {
   text: string;
   lastEndMs?: number;
   sequence: number;
+  /** The other speaker has spoken since this turn began. */
+  answered: boolean;
 }
 
 /**
@@ -578,21 +639,34 @@ export function createRealtimeVoiceTranscriptSequencer(
         const startMs =
           typeof event.start_ms === "number" ? event.start_ms : undefined;
         const endMs = typeof event.end_ms === "number" ? event.end_ms : startMs;
-        let buffer = liveBuffers.get(role);
-        if (
-          buffer &&
-          startMs !== undefined &&
-          buffer.lastEndMs !== undefined &&
-          startMs - buffer.lastEndMs > REALTIME_VOICE_LIVE_TRANSCRIPT_GAP_MS
-        ) {
-          flushLiveTranscript(role);
-          buffer = undefined;
+        // Turns change with the speaker, never with a pause: a reply spoken
+        // in several breaths is one message. The two speakers can overlap on
+        // the session timeline, so the other side's turn ends only once this
+        // delta starts after it, and this side's turn ends once it was answered.
+        const otherRole = role === "user" ? "assistant" : "user";
+        const other = liveBuffers.get(otherRole);
+        const ending: LiveRealtimeVoiceTranscriptBuffer[] = [];
+        if (other) {
+          other.answered = true;
+          if (
+            startMs !== undefined &&
+            other.lastEndMs !== undefined &&
+            startMs >= other.lastEndMs
+          ) {
+            ending.push(other);
+          }
         }
+        const own = liveBuffers.get(role);
+        if (own?.answered) ending.push(own);
+        ending.sort((left, right) => left.sequence - right.sequence);
+        for (const ended of ending) flushLiveTranscript(ended.role);
+        let buffer = liveBuffers.get(role);
         if (!buffer) {
           buffer = {
             role,
             text: "",
             sequence: ++liveSequence,
+            answered: false,
           };
           liveBuffers.set(role, buffer);
         }
@@ -729,6 +803,9 @@ export function createRealtimeVoiceTranscriptSequencer(
           });
         }
       }
+    },
+    endLiveTurns() {
+      flushLiveTranscripts();
     },
     reset(options) {
       liveBuffers.clear();
@@ -1090,10 +1167,10 @@ export async function executeRealtimeVoiceTool(input: {
   name: string;
   args: Record<string, unknown>;
   callId: string;
-  sessionId?: string;
-  browserTabId?: string;
-  capability?: string;
-  signal?: AbortSignal;
+  sessionId?: string | undefined;
+  browserTabId?: string | undefined;
+  capability?: string | undefined;
+  signal?: AbortSignal | undefined;
 }): Promise<RealtimeVoiceToolResult> {
   const response = await fetch(REALTIME_VOICE_TOOL_PATH, {
     method: "POST",
@@ -1774,6 +1851,7 @@ function useRealtimeVoiceModeController(
   const toolAbortControllersRef = useRef(new Set<AbortController>());
   const transcriptSequenceRef = useRef(0);
   const transcriptCreatedAtRef = useRef(new Map<string, string>());
+  const workSegmentRef = useRef<RealtimeVoiceWorkSegment | null>(null);
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -2083,6 +2161,7 @@ function useRealtimeVoiceModeController(
 
   const cleanupTransport = useCallback(() => {
     turnMetrics.sessionEnded();
+    closeRealtimeVoiceWorkSegment(workSegmentRef);
     if (liveCloseDrainTimerRef.current !== null) {
       window.clearTimeout(liveCloseDrainTimerRef.current);
       liveCloseDrainTimerRef.current = null;
@@ -2148,78 +2227,6 @@ function useRealtimeVoiceModeController(
     [cleanupTransport, transition],
   );
 
-  const handleFunctionCall = useCallback(
-    async (call: { name: string; callId: string; argumentsText: string }) => {
-      if (handledCallsRef.current.has(call.callId)) return;
-      handledCallsRef.current.add(call.callId);
-      const transportGeneration = transportGenerationRef.current;
-      const transportChannel = channelRef.current;
-      const toolAbortController = new AbortController();
-      toolAbortControllersRef.current.add(toolAbortController);
-      transition("working");
-      turnMetrics.toolCallStarted();
-      const workThreadId = transcriptThreadIdRef.current;
-      const startedAt = new Date().toISOString();
-      let input: Record<string, unknown> | undefined;
-      let result: RealtimeVoiceToolResult;
-      try {
-        const args = parseFunctionArguments(call.argumentsText);
-        input = args;
-        if (workThreadId) {
-          realtimeVoiceTranscriptRegistry.publishWork({
-            id: call.callId,
-            threadId: workThreadId,
-            name: call.name,
-            input: args,
-            status: "running",
-            startedAt,
-          });
-        }
-        result = await executeRealtimeVoiceTool({
-          name: call.name,
-          args,
-          callId: call.callId,
-          sessionId: sessionIdRef.current,
-          browserTabId,
-          capability: capabilityRef.current,
-          signal: toolAbortController.signal,
-        });
-      } catch (toolError) {
-        result = {
-          callId: call.callId,
-          status: "failed",
-          output: errorMessage(toolError),
-        };
-      } finally {
-        toolAbortControllersRef.current.delete(toolAbortController);
-      }
-      if (workThreadId) {
-        // An approval-gated call did not run; the user approves it in chat.
-        realtimeVoiceTranscriptRegistry.publishWork({
-          id: call.callId,
-          threadId: workThreadId,
-          name: call.name,
-          ...(input ? { input } : {}),
-          status:
-            result.status === "approval_required" ? "cancelled" : result.status,
-          output: result.output,
-          startedAt,
-          completedAt: new Date().toISOString(),
-        });
-      }
-      if (
-        transportGeneration !== transportGenerationRef.current ||
-        channelRef.current !== transportChannel
-      ) {
-        return;
-      }
-      if (result.capability) capabilityRef.current = result.capability;
-      turnMetrics.toolCallFinished(performance.now(), result);
-      toolManifestCoordinator.enqueue(result);
-    },
-    [browserTabId, toolManifestCoordinator, transition, turnMetrics],
-  );
-
   const publishTranscript = useCallback(
     (
       transcript: CompletedRealtimeVoiceTranscript,
@@ -2273,6 +2280,89 @@ function useRealtimeVoiceModeController(
     [responseCoordinator],
   );
 
+  const handleFunctionCall = useCallback(
+    async (call: { name: string; callId: string; argumentsText: string }) => {
+      if (handledCallsRef.current.has(call.callId)) return;
+      handledCallsRef.current.add(call.callId);
+      const transportGeneration = transportGenerationRef.current;
+      const transportChannel = channelRef.current;
+      const toolAbortController = new AbortController();
+      toolAbortControllersRef.current.add(toolAbortController);
+      transition("working");
+      turnMetrics.toolCallStarted();
+      // What was said before the call reads above its work row.
+      transcriptSequencer.endLiveTurns();
+      const workCall: RealtimeVoiceWorkCall = {
+        id: call.callId,
+        name: call.name,
+        status: "running",
+        startedAt: new Date().toISOString(),
+      };
+      const workSegment = openRealtimeVoiceWorkSegment(
+        workSegmentRef,
+        transcriptThreadIdRef.current,
+        call.callId,
+      );
+      let result: RealtimeVoiceToolResult;
+      try {
+        const args = parseFunctionArguments(call.argumentsText);
+        workCall.input = args;
+        if (workSegment) {
+          workSegment.calls.push(workCall);
+          publishRealtimeVoiceWorkSegment(workSegment);
+        }
+        result = await executeRealtimeVoiceTool({
+          name: call.name,
+          args,
+          callId: call.callId,
+          sessionId: sessionIdRef.current,
+          browserTabId,
+          capability: capabilityRef.current,
+          signal: toolAbortController.signal,
+        });
+      } catch (toolError) {
+        result = {
+          callId: call.callId,
+          status: "failed",
+          output: errorMessage(toolError),
+        };
+      } finally {
+        toolAbortControllersRef.current.delete(toolAbortController);
+      }
+      // An approval-gated call did not run; the user approves it in chat.
+      workCall.status =
+        result.status === "approval_required" ? "cancelled" : result.status;
+      workCall.output = result.output;
+      workCall.completedAt = new Date().toISOString();
+      if (workSegment) {
+        if (!workSegment.calls.includes(workCall)) {
+          workSegment.calls.push(workCall);
+        }
+        if (workSegment.closing) {
+          closeRealtimeVoiceWorkSegment(workSegmentRef, workSegment);
+        } else {
+          publishRealtimeVoiceWorkSegment(workSegment);
+        }
+      }
+      if (
+        transportGeneration !== transportGenerationRef.current ||
+        channelRef.current !== transportChannel
+      ) {
+        return;
+      }
+      if (result.capability) capabilityRef.current = result.capability;
+      turnMetrics.toolCallFinished(performance.now(), result);
+      toolManifestCoordinator.enqueue(result);
+    },
+    [
+      browserTabId,
+      toolManifestCoordinator,
+      transcriptSequencer,
+      transition,
+      turnMetrics,
+    ],
+  );
+
   const handleServerEvent = useCallback(
     (event: RealtimeServerEvent, draining = false) => {
       if (draining) {
@@ -2312,6 +2402,7 @@ function useRealtimeVoiceModeController(
         greetingStarter.start();
         transition("working");
       } else if (event.type === "input_audio_buffer.speech_started") {
+        closeRealtimeVoiceWorkSegment(workSegmentRef);
         turnMetrics.userSpeechStarted(performance.now());
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_stopped") {
@@ -2342,6 +2433,7 @@ function useRealtimeVoiceModeController(
         }
         syncAppState("working");
       } else if (event.type === "session.input_transcript.delta") {
+        closeRealtimeVoiceWorkSegment(workSegmentRef);
         const now = performance.now();
         turnMetrics.userSpeechStarted(now);
         turnMetrics.userSpeechEnded(
@@ -2429,6 +2521,7 @@ function useRealtimeVoiceModeController(
       const calls = extractRealtimeVoiceFunctionCalls(event);
       for (const call of calls) void handleFunctionCall(call);
       if (responseBoundary && calls.length === 0) {
+        closeRealtimeVoiceWorkSegment(workSegmentRef);
         transition("listening");
       }
       if (responseBoundary) {
