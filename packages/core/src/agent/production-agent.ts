@@ -3687,14 +3687,15 @@ export async function hydrateStructuredHistoryImageReferences(
       if (result.kind === "hydrated") {
         const parsed = parseBase64DataUrl(result.dataUrl);
         const mediaType = normalizeImageMediaType(result.mediaType);
-        if (parsed && mediaType) {
-          const resized = await downscaleInlineImageBase64(
-            parsed.data,
-            mediaType,
-          );
+        const resized =
+          parsed && mediaType
+            ? await downscaleInlineImageBase64(parsed.data, mediaType)
+            : null;
+        const data = resized?.base64 ?? parsed?.data;
+        if (data && mediaType && data.length <= MAX_INLINE_IMAGE_BASE64_CHARS) {
           const resolution = {
             type: "image" as const,
-            data: resized?.base64 ?? parsed.data,
+            data,
             mediaType: normalizeImageMediaType(resized?.mediaType) ?? mediaType,
           };
           urlResolutions.set(hydrationKey, { kind: "image", resolution });
