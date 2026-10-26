@@ -1,7 +1,7 @@
 ===================================================================
 --- a/server/plugins/agent-chat.ts
 +++ b/server/plugins/agent-chat.ts
-@@ -4,24 +4,20 @@
+@@ -4,25 +4,21 @@
    loadActionsFromStaticRegistry,
  } from "@agent-native/core/server";
 
