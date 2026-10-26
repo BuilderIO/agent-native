@@ -235,8 +235,7 @@ const { default: playbackRoute } =
 const { createRecordingUploadTicket } =
   await import("./recording-upload-ticket.js");
 const { runWithRequestContext } = await import("@agent-native/core/server");
-const { readAppState, writeAppState } =
-  await import("@agent-native/core/application-state");
+const { writeAppState } = await import("@agent-native/core/application-state");
 const { default: listRecordings } =
   await import("../../actions/list-recordings.js");
 
