@@ -30,18 +30,30 @@ export async function getFileUploadStatusForRequest() {
       id: provider.id,
       name: provider.name,
       configured:
-        provider.id === "builder" ? builderUploadConfigured : configured,
-      unavailable: provider.id === "builder" ? builderUnavailable : unavailable,
+        configured && (provider.id !== "builder" || builderUploadConfigured),
+      unavailable:
+        unavailable || (provider.id === "builder" && builderUnavailable),
     }),
   );
-  const activeProvider =
-    providers.find((provider) => provider.configured) ??
-    (builderUploadConfigured ? { id: "builder", name: "Builder.io" } : null);
+  const first = providerStatuses.find(
+    (status) => status.configured || status.unavailable,
+  );
+  const candidate = first?.provider ?? { id: "builder", name: "Builder.io" };
+  const usesBuilder = candidate.id === "builder";
+  const unavailable =
+    Boolean(first?.unavailable) || (usesBuilder && builderUnavailable);
+  // Null keeps an indeterminate read out of existing clients' setup path.
+  const configured = unavailable
+    ? null
+    : usesBuilder
+      ? builderUploadConfigured
+      : true;
 
   return {
-    configured: activeProvider !== null,
-    activeProvider: activeProvider
-      ? { id: activeProvider.id, name: activeProvider.name }
+    configured,
+    unavailable,
+    activeProvider: configured
+      ? { id: candidate.id, name: candidate.name }
       : null,
     providers,
     builderConfigured,

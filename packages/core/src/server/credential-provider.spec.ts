@@ -3630,10 +3630,11 @@ describe("Restrict personal API keys", () => {
     async (failureAt) => {
       restrictOrg("admin", false);
       process.env.BUILDER_PRIVATE_KEY = "bpk-example-deploy";
+      const laterFailure = new Error("permission denied");
       if (failureAt === "role") {
         mockGetDbExec.mockReturnValue({
           execute: vi.fn(async () => {
-            throw new Error("permission denied");
+            throw laterFailure;
           }),
         });
       }
@@ -3641,13 +3642,16 @@ describe("Restrict personal API keys", () => {
         async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
           if (scope === "user")
             throw new AppSecretDecryptionError({ scope, scopeId });
-          throw new Error("permission denied");
+          throw laterFailure;
         },
       );
 
       await expect(
         resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
-      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+      ).rejects.toMatchObject({
+        name: "CredentialStoreUnavailableError",
+        cause: laterFailure,
+      });
     },
   );
 

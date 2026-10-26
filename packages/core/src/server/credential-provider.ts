@@ -588,7 +588,6 @@ async function resolveScopedBuilderCredential(
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
   let orgLookupCause: unknown;
-  let personalReadError: AppSecretDecryptionError | undefined;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const requestScope =
@@ -668,6 +667,7 @@ async function resolveScopedBuilderCredential(
       };
     }
     let personal: ScopedCredentialResult | null = null;
+    let personalReadError: AppSecretDecryptionError | undefined;
     try {
       personal = await readPersonal();
     } catch (error) {
@@ -769,7 +769,7 @@ async function resolveScopedBuilderCredential(
       value: null,
       source: null,
       lookupFailed: true,
-      cause: personalReadError ?? err,
+      cause: err,
     };
   }
   return {
@@ -978,6 +978,8 @@ export async function resolveBuilderCredential(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key, identity);
+  if (scoped.lookupFailed)
+    throw new CredentialStoreUnavailableError(scoped.cause);
   if (scoped.value) return scoped.value;
   const storageOnly =
     identity === undefined && getRequestBuilderCredentialScope().storageOnly;
@@ -985,14 +987,7 @@ export async function resolveBuilderCredential(
     !storageOnly && canUseBuilderDeployCredentialFallbackForRequest()
       ? (readDeployCredentialEnv(key) ?? null)
       : null;
-  if (envValue) {
-    // A deploy fallback is still useful, but it must not turn a transient
-    // credential-store failure into a clean connected result for Builder.
-    assertCredentialStoreReadable(scoped);
-    return envValue;
-  }
-  assertCredentialStoreReadable(scoped);
-  return null;
+  return envValue;
 }
 
 export function isBuilderEnvManaged(): boolean {
