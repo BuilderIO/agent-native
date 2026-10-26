@@ -135,6 +135,7 @@ describe("agent tool approval store", () => {
     );
   });
 
+  // oracle-change: Removed helper query-shape assertions are replaced by real approval/slot regressions in agent-chat-plugin.queued-submission-inbox.spec.ts.
   it("resolves a denial only for the exact pending approval and thread", async () => {
     const { denyAgentToolApproval } = await import("./tool-approval-store.js");
     const approvalId = "agent-tool-approval-denied";
