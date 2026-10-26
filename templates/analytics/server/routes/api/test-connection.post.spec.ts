@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   body: { source: "clay" } as { source?: string },
   ctx: { userEmail: "user@example.test", orgId: "org-example" },
+  setResponseStatus: vi.fn(),
   executeProviderApiRequest: vi.fn(),
   runQuery: vi.fn(),
   assertCredentialCanReachEndpoint: vi.fn(),
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   readBody: vi.fn(async () => mocks.body),
+}));
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
+  setResponseStatus: mocks.setResponseStatus,
 }));
 
 vi.mock("../../lib/credentials", () => ({
@@ -53,6 +58,7 @@ describe("test-connection", () => {
     mocks.resolveCredentialDetailed.mockReset();
     mocks.resolveAnalyticsGongCredentials.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
+    mocks.setResponseStatus.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -124,6 +130,24 @@ describe("test-connection", () => {
         headers: { Authorization: "Bearer hubspot-oauth-token" },
       },
     );
+  });
+
+  it("preserves retryable workspace credential lookup status for HubSpot", async () => {
+    mocks.body = { source: "hubspot" };
+    const event = {};
+    mocks.resolveAnalyticsProviderCredential.mockRejectedValue(
+      Object.assign(new Error("HubSpot workspace credential lookup failed"), {
+        statusCode: 503,
+      }),
+    );
+
+    await expect(handler(event as never)).resolves.toEqual({
+      ok: false,
+      error: "HubSpot workspace credential lookup failed",
+    });
+
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("does not call HubSpot without an OAuth or legacy credential", async () => {

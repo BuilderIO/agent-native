@@ -16,6 +16,9 @@ import {
   getCameraForBounds,
   getDraftGeometryFromPoints,
   quantizeToStep,
+  keepsPixelGrid,
+  roundGeometryStylePx,
+  roundGeometryStylesPx,
   WHOLE_PIXEL_SNAP_STEP,
   getElementWorldBoundsForZoomFit,
   getFrameBounds,
@@ -2330,5 +2333,84 @@ describe("3D transform parse/compose", () => {
         }),
       ).toBe(true);
     });
+  });
+});
+
+describe("roundGeometryStylesPx in a transformed containing block", () => {
+  const half = Math.SQRT1_2;
+  const rotated = { a: half, b: -half, c: half, d: half };
+
+  it("keeps a typed position exact where whole local pixels miss the screen grid", () => {
+    expect(
+      roundGeometryStylesPx(
+        { left: "32.93px", top: "32.93px", width: "20.4px" },
+        { containingBlockTransform: rotated },
+      ),
+    ).toEqual({ left: "32.93px", top: "32.93px", width: "20px" });
+    expect(keepsPixelGrid(rotated)).toBe(false);
+    expect(keepsPixelGrid({ a: 1.5, b: 0, c: 0, d: 1.5 })).toBe(false);
+  });
+
+  it("still rounds positions in an axis-aligned or quarter-turned block", () => {
+    for (const transform of [
+      undefined,
+      { a: 1, b: 0, c: 0, d: 1 },
+      { a: 0, b: 1, c: -1, d: 0 },
+    ]) {
+      expect(
+        roundGeometryStylesPx(
+          { left: "32.93px", top: "12.5px" },
+          { containingBlockTransform: transform },
+        ),
+      ).toEqual({ left: "33px", top: "13px" });
+    }
+  });
+});
+
+describe("roundGeometryStylePx", () => {
+  it("lands plain px geometry on whole pixels", () => {
+    expect(roundGeometryStylePx("left", "256.96px")).toBe("257px");
+    expect(roundGeometryStylePx("top", "301.29px")).toBe("301px");
+    expect(roundGeometryStylePx("width", "333.33px")).toBe("333px");
+    expect(roundGeometryStylePx("minHeight", "40.5px")).toBe("41px");
+    expect(roundGeometryStylePx("max-width", "99.4px")).toBe("99px");
+    expect(roundGeometryStylePx("insetInlineStart", "-0.4px")).toBe("0px");
+    expect(roundGeometryStylePx("inset", "1.5px 2px 3.25px 0")).toBe(
+      "2px 2px 3px 0",
+    );
+    expect(roundGeometryStylePx("translate", "10.6px -4.2px")).toBe(
+      "11px -4px",
+    );
+  });
+
+  it("leaves non-px geometry values untouched", () => {
+    for (const value of [
+      "50%",
+      "calc(100% - 12.5px)",
+      "auto",
+      "var(--gap)",
+      "1.5em",
+      "2.5rem",
+      "fit-content",
+    ]) {
+      expect(roundGeometryStylePx("width", value)).toBe(value);
+    }
+  });
+
+  it("leaves non-geometry properties untouched", () => {
+    expect(roundGeometryStylePx("borderTopWidth", "0.5px")).toBe("0.5px");
+    expect(roundGeometryStylePx("font-size", "13.5px")).toBe("13.5px");
+    expect(roundGeometryStylePx("letterSpacing", "0.25px")).toBe("0.25px");
+    expect(roundGeometryStylePx("lineHeight", "18.75px")).toBe("18.75px");
+    expect(roundGeometryStylePx("opacity", "0.5")).toBe("0.5");
+    expect(roundGeometryStylePx("filter", "blur(1.5px)")).toBe("blur(1.5px)");
+  });
+
+  it("returns the same map when nothing needed rounding", () => {
+    const styles = { left: "12px", fontSize: "13.5px" };
+    expect(roundGeometryStylesPx(styles)).toBe(styles);
+    expect(
+      roundGeometryStylesPx({ left: "12.4px", fontSize: "13.5px" }),
+    ).toEqual({ left: "12px", fontSize: "13.5px" });
   });
 });

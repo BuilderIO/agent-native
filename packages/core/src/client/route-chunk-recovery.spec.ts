@@ -7,6 +7,7 @@ import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
+  EXTERNAL_EMBED_WINDOW_KEY,
 } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   createRouteChunkRecoveryState,
@@ -1014,6 +1015,48 @@ describe("route chunk recovery", () => {
       expect(fakeLocation.assign).not.toHaveBeenCalled();
       expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
         reason: "desktop",
+      });
+      expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports once and never navigates inside a transplanted MCP App embed", () => {
+      const {
+        fakeWindow,
+        fakeLocation,
+        originalReplaceState,
+        dispatchDocument,
+        dispatchWindow,
+      } = createFakeWindow(
+        "https://abc123.claudemcpcontent.com/crm/records/1?embedded=1",
+      );
+      (fakeWindow as unknown as Record<string, unknown>)[
+        EXTERNAL_EMBED_WINDOW_KEY
+      ] = { origin: "https://app.example.test" };
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+      installRouteChunkRecovery(fakeWindow);
+      fakeWindow.history.pushState(null, "", "/crm/records/2");
+      originalReplaceState.mockClear();
+
+      dispatchDocument("error", {
+        target: {
+          getAttribute: (name: string) =>
+            name === "rel" ? "modulepreload" : null,
+          hasAttribute: () => false,
+          rel: "modulepreload",
+          tagName: "LINK",
+        },
+      } as unknown as Event);
+      dispatchWindow("unhandledrejection", {
+        reason: staleChunk,
+        preventDefault: vi.fn(),
+      } as unknown as PromiseRejectionEvent);
+
+      expect(fakeLocation.assign).not.toHaveBeenCalled();
+      expect(originalReplaceState).not.toHaveBeenCalled();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "external-embed",
       });
       expect(dispatchEvent).toHaveBeenCalledTimes(1);
     });

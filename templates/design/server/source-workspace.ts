@@ -18,6 +18,8 @@ import {
   assertDesignHtmlEditIntegrity,
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
+import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
@@ -576,6 +578,14 @@ export async function writeInlineSourceFile(args: {
         content: liveContent,
         versionHash: sourceContentHash(liveContent),
       };
+      const assertEmailCandidate = (content: string) =>
+        assertHubSpotEmailFrameContent({
+          content,
+          fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+          previousContent: isHubSpotEmailHtml(current.content)
+            ? current.content
+            : (currentFile.content ?? ""),
+        });
       const validatePreparedNoop = async () => {
         const preparedCollaboration = await lockPreparedSourceCollaboration(
           getDesignSourceMutationExec(tx),
@@ -710,6 +720,7 @@ export async function writeInlineSourceFile(args: {
         }
       }
 
+      assertEmailCandidate(args.content);
       const changed = args.content !== current.content;
       const updatedAt = new Date().toISOString();
       if (!changed && !identityOnly) {
@@ -762,6 +773,7 @@ export async function writeInlineSourceFile(args: {
 
       const authoritativeContent = readPreparedSourceText(lease);
       try {
+        assertEmailCandidate(authoritativeContent);
         if (identityOnly && authoritativeContent !== args.content) {
           throw new SourceWorkspaceEditConflictError(
             "A concurrent source edit prevented identity-only publication.",
@@ -1023,6 +1035,11 @@ export async function writeInlineSourceFilesBatch(args: {
           );
         }
         assertLockedLayersPreserved(liveContent, content);
+        assertHubSpotEmailFrameContent({
+          content,
+          fileType: currentFile.fileType ?? file.fileType ?? "html",
+          previousContent: liveContent,
+        });
         assertDesignHtmlEditIntegrity({
           previousContent: liveContent,
           nextContent: content,
@@ -1100,6 +1117,11 @@ export async function writeInlineSourceFilesBatch(args: {
             );
           }
           assertLockedLayersPreserved(liveContent, item.content);
+          assertHubSpotEmailFrameContent({
+            content: item.content,
+            fileType: current.fileType ?? "html",
+            previousContent: liveContent,
+          });
           assertDesignHtmlEditIntegrity({
             previousContent: liveContent,
             nextContent: item.content,

@@ -73,7 +73,7 @@ function OrganizationHelpIcon({
         <Button
           type="button"
           aria-label={t("agentChat.settingsOrg.moreInformation")}
-          className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&_svg]:!size-3"
+          className="relative inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 after:absolute after:inset-x-0 after:top-1/2 after:h-6 after:-translate-y-1/2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&_svg]:!size-3"
         >
           <IconHelpCircle className="size-3" />
         </Button>

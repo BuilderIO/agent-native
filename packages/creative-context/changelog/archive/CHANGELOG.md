@@ -1,3 +1,27 @@
+## 0.5.4
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
+## 0.5.3
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.5.2
+
+### Patch Changes
+
+- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
+
+## 0.5.1
+
+### Patch Changes
+
+- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
+
 ## 0.5.0
 
 ### Minor Changes

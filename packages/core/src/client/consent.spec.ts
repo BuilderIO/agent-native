@@ -108,6 +108,29 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalledTimes(1);
   });
 
+  it("applies a choice on this page when the browser drops the cookie", async () => {
+    installBrowser({ region: "consent" });
+    vi.stubGlobal("document", {
+      get cookie() {
+        return "";
+      },
+      set cookie(_value: string) {},
+    });
+    const consent = await freshConsent();
+    const performance = vi.fn();
+    consent.whenConsentAllows("performance", performance);
+    await consent.resolveConsentRegion();
+
+    consent.setConsentChoice({ performance: true, targeting: false });
+
+    expect(performance).toHaveBeenCalledTimes(1);
+    expect(consent.shouldShowConsentBanner()).toBe(false);
+    expect(consent.getConsentChoice()).toEqual({
+      performance: true,
+      targeting: false,
+    });
+  });
+
   it("still revokes later waiters when an earlier callback throws", async () => {
     installBrowser({ region: "consent" });
     const consent = await freshConsent();
@@ -127,6 +150,7 @@ describe("client consent", () => {
       throw failure;
     });
     consent.whenConsentAllows("targeting", vi.fn(), { revoke });
+    revoke.mockClear();
 
     consent.setConsentChoice({ performance: true, targeting: false });
 
@@ -246,6 +270,20 @@ describe("client consent", () => {
     expect(revoke).toHaveBeenCalled();
   });
 
+  it("revokes at once for a caller that asks after a reject is known", async () => {
+    const { session } = installBrowser();
+    session.set("an_consent_region", "consent");
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    const consent = await freshConsent();
+    consent.whenConsentAllows("performance", () => {});
+    await tick();
+    const revoke = vi.fn();
+
+    consent.whenConsentAllows("performance", () => {}, { revoke });
+
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
   it("runs scripts the page queued before the module loaded", async () => {
     const { windowMock } = installBrowser({ region: "none" });
     const queued = vi.fn();
@@ -260,6 +298,119 @@ describe("client consent", () => {
       later,
     ]);
     expect(later).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells Google's tags on the page about each choice", async () => {
+    const { windowMock } = installBrowser({ region: "consent" });
+    windowMock.__AN_CONSENT_LAYERS__ = ["dataLayer"];
+    const consent = await freshConsent();
+    const updates = () =>
+      ((windowMock.dataLayer ?? []) as ArrayLike<unknown>[])
+        .filter((entry) => entry[0] === "consent")
+        .map((entry) => [entry[1], entry[2]]);
+
+    await consent.resolveConsentRegion();
+    consent.setConsentChoice({ performance: true, targeting: true });
+    consent.setConsentChoice({ performance: false, targeting: false });
+
+    const denied = {
+      analytics_storage: "denied",
+      ad_storage: "denied",
+      ad_user_data: "denied",
+      ad_personalization: "denied",
+    };
+    expect(updates()).toEqual([
+      ["update", denied],
+      [
+        "update",
+        {
+          analytics_storage: "granted",
+          ad_storage: "granted",
+          ad_user_data: "granted",
+          ad_personalization: "granted",
+        },
+      ],
+      ["update", denied],
+    ]);
+  });
+
+  it("decides nothing on the time zone's guess alone", async () => {
+    installBrowser({ region: "consent" });
+    const consent = await freshConsent();
+
+    expect(consent.consentAllowsNow("performance")).toBe(true);
+    expect(consent.consentDecision("performance")).toBeNull();
+    await consent.resolveConsentRegion();
+    expect(consent.consentDecision("performance")).toBe(false);
+  });
+
+  it("applies a reject another tab stored when this one regains focus", async () => {
+    const { windowMock } = installBrowser({ region: "none" });
+    const listeners = new Map<string, () => void>();
+    windowMock.addEventListener = (event: string, listener: () => void) =>
+      listeners.set(event, listener);
+    windowMock.removeEventListener = () => {};
+    const consent = await freshConsent();
+    const revoke = vi.fn();
+    consent.whenConsentAllows("performance", () => {}, { revoke });
+    await consent.resolveConsentRegion();
+    expect(revoke).not.toHaveBeenCalled();
+
+    // Another app on the site stores a reject.
+    document.cookie = "an_consent=1.p0.t0; path=/";
+    listeners.get("focus")!();
+
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again when the visitor clears the cookie while the page is open", async () => {
+    const { windowMock } = installBrowser({ region: "consent" });
+    const listeners = new Map<string, () => void>();
+    windowMock.addEventListener = (event: string, listener: () => void) =>
+      listeners.set(event, listener);
+    windowMock.removeEventListener = () => {};
+    const consent = await freshConsent();
+    const revoke = vi.fn();
+    consent.whenConsentAllows("performance", () => {}, { revoke });
+    await consent.resolveConsentRegion();
+    consent.setConsentChoice({ performance: true, targeting: false });
+    revoke.mockClear();
+
+    document.cookie = "an_consent=; path=/; max-age=0";
+    listeners.get("focus")!();
+
+    expect(consent.getConsentChoice()).toBeNull();
+    expect(consent.shouldShowConsentBanner()).toBe(true);
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a send until the region is known", async () => {
+    const { windowMock } = installBrowser({ region: "consent" });
+    windowMock.addEventListener = () => {};
+    windowMock.removeEventListener = () => {};
+    const consent = await freshConsent();
+    const send = vi.fn();
+
+    consent.whenConsentDecided(send);
+    expect(send).not.toHaveBeenCalled();
+    await consent.resolveConsentRegion();
+    await tick();
+
+    expect(send).toHaveBeenCalledWith(true);
+  });
+
+  it("releases held sends once a choice decides before the region", async () => {
+    const { windowMock, fetchMock } = installBrowser({ region: "consent" });
+    windowMock.addEventListener = () => {};
+    windowMock.removeEventListener = () => {};
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    const consent = await freshConsent();
+    const send = vi.fn();
+
+    consent.whenConsentDecided(send);
+    consent.setConsentChoice({ performance: true, targeting: false });
+
+    expect(send).toHaveBeenCalledWith(true);
   });
 
   it("reopens the banner from the settings link", async () => {

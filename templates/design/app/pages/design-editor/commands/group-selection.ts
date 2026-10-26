@@ -135,12 +135,15 @@ export function runGroupSelection({
     activeBreakpointWidthState !== undefined
       ? getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
       : activeFile.id;
-  const sizeHints = collectLiveSizeHints(
+  const { hints: sizeHints, unmeasured } = collectLiveSizeHints(
     nodeIds,
     baseProjection,
     activeIframeId,
     boardFileId,
   );
+  if (unmeasured.length > 0) {
+    trace("structure", "group-unmeasured", { unmeasured });
+  }
   const wrapIntent = {
     kind: "wrapNodes" as const,
     targetIds: nodeIds,

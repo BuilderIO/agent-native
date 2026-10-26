@@ -54,7 +54,7 @@ If this workflow eyed an out-of-scope item, keep the eye and post one concise
 before `🎫`. Correct any mistaken reply to **Skipped**.
 New messages must pass the clear-bug gate before any external write.
 
-Follow `review-latest-feedback` for status reactions; never remove reactions.
+Follow `review-latest-feedback` for status-reaction rules. Preserve this actor's accurate marks and every other actor's reaction. After a fresh root reaction read, correct and record this actor's stale or misapplied root mark.
 
 Follow `review-latest-feedback` for ownership and cluster status; a claimed
 report keeps its `👀`, and an unresolved eye cannot be taken over.
@@ -115,9 +115,11 @@ public URL.
   parent, and workspace. A reaction read-back must include the invoking user
   in the reaction's user list.
 - After every reaction or reply, re-read through the same connected identity
-  and verify the reaction or reply exists before continuing.
-- Never remove or clean up reactions on a feedback item, including `👀`,
-  `✅`, `🎫`, or another person's reaction.
+  and verify the intended result before continuing: additions must be present
+  and removals must be absent.
+- Preserve this actor's accurate marks and every other actor's reaction. After
+  a fresh root reaction read, correct and record this actor's stale or
+  misapplied root mark. Do not remove reply reactions.
 
 ## Decision Gate
 

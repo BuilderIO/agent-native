@@ -1,1 +1,1 @@
-export { defaultChatFirstCopy } from "../chat-first-copy.js";
+export { defaultChatFirstCopy, useChatFirstCopy } from "../chat-first-copy.js";

@@ -20,6 +20,10 @@ const client = {
     if (/^\s*select/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
+    if (/\bRETURNING\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
+    }
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
@@ -27,6 +31,7 @@ const client = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => client,
+  getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
@@ -120,13 +125,17 @@ await import("./durable-background.js");
 
 const {
   beginAgentExecutionStep,
+  claimBackgroundRun,
   claimTurnExecutionLease,
   completeAgentExecutionStep,
+  getRunById,
   insertRun,
   insertRunEvent,
+  listRunsForThread,
   markAgentExecutionStepDispatched,
   reapAllStaleRuns,
   reapIfStale,
+  retryRunThreadProjection,
   updateRunStatusIfRunning,
 } = await import("./run-store.js");
 const { withExecutionFence } = await import("./execution-fence.js");
@@ -218,6 +227,153 @@ describe("a run the server reaps after its worker died", () => {
       turnId: turn,
       runError: { errorCode: "stale_run", recoverable: true, runId: run },
     });
+  });
+
+  it("saves a message sent into the run between the replies around it", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    await insertRunEvent(
+      run,
+      3,
+      JSON.stringify({
+        type: "user_message",
+        message: {
+          id: "queued-cc",
+          text: "Copy Ben too",
+          createdAt: "2026-10-24T10:00:05.000Z",
+        },
+        continuationMessageId: `server-${run}:after:queued-cc`,
+      }),
+    );
+    await insertRunEvent(
+      run,
+      4,
+      JSON.stringify({ type: "text", text: "Adding Ben." }),
+    );
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    const [, sent, steered, after] = savedMessages(thread);
+    expect(sent).toMatchObject({ role: "assistant", id: `server-${run}` });
+    expect(steered).toMatchObject({
+      role: "user",
+      id: "queued-cc",
+      content: [{ type: "text", text: "Copy Ben too" }],
+    });
+    expect(after).toMatchObject({
+      role: "assistant",
+      id: `server-${run}:after:queued-cc`,
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("Adding Ben."),
+        }),
+      ],
+      // The run's failure belongs to the reply it stopped in.
+      metadata: { custom: { runError: { errorCode: "stale_run" } } },
+    });
+    expect(sent.metadata.custom).not.toHaveProperty("runError");
+  });
+
+  it("keeps legacy flat messages when projecting a reaped run", async () => {
+    const thread = `thread-reaped-flat-${seq}`;
+    const turn = `turn-reaped-flat-${seq}`;
+    const run = `run-reaped-flat-${seq}`;
+    threads.set(
+      thread,
+      JSON.stringify({
+        messages: [
+          {
+            id: `user-flat-${seq}`,
+            role: "user",
+            content: [{ type: "text", text: "Bill Ana" }],
+          },
+        ],
+      }),
+    );
+    await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(savedMessages(thread).map((message) => message.id)).toContain(
+      `user-flat-${seq}`,
+    );
+  });
+
+  it("quarantines unreadable projections until repaired data is retried", async () => {
+    const thread = `thread-reaped-repair-${seq}`;
+    const turn = `turn-reaped-repair-${seq}`;
+    const run = `run-reaped-repair-${seq}`;
+    const corruptThreadData = JSON.stringify({
+      messages: [
+        { message: { role: "assistant", content: "lost" } },
+        userTurn("Bill Ana"),
+      ],
+    });
+    threads.set(thread, corruptThreadData);
+    await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+    expect(threads.get(thread)).toBe(corruptThreadData);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending, thread_projection_error_code FROM agent_runs WHERE id = ?",
+        )
+        .get(run),
+    ).toEqual({
+      thread_projection_pending: true,
+      thread_projection_error_code: "tool_call_journal_unreadable",
+    });
+    await expect(getRunById(run)).resolves.toMatchObject({
+      threadProjectionErrorCode: "tool_call_journal_unreadable",
+    });
+    await expect(listRunsForThread(thread, { runIds: [run] })).resolves.toEqual(
+      [
+        expect.objectContaining({
+          id: run,
+          threadProjectionErrorCode: "tool_call_journal_unreadable",
+        }),
+      ],
+    );
+
+    const successor = `run-reaped-repair-successor-${seq}`;
+    await insertRun(successor, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ message: "Continue the turn" }),
+    });
+    expect(await claimBackgroundRun(successor)).toBe(false);
+    await expect(reapAllStaleRuns()).resolves.toMatchObject({
+      failed: 1,
+      reaped: 0,
+    });
+    await expect(reapAllStaleRuns()).resolves.toMatchObject({
+      failed: 1,
+      reaped: 0,
+    });
+
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await expect(retryRunThreadProjection(run)).resolves.toEqual({
+      state: "projected",
+    });
+
+    expect(
+      await pglite
+        .prepare(
+          "SELECT thread_projection_pending FROM agent_runs WHERE id = ?",
+        )
+        .get(run),
+    ).toEqual({ thread_projection_pending: false });
+    await expect(getRunById(run)).resolves.toMatchObject({
+      threadProjectionErrorCode: null,
+    });
+    expect(await claimBackgroundRun(successor)).toBe(true);
+    expect(
+      savedMessages(thread).some((message) => message.role === "assistant"),
+    ).toBe(true);
   });
 
   it("projects a completed journal receipt when tool_done was not persisted", async () => {

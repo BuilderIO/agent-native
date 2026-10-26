@@ -420,6 +420,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  dedupe: false,
   http: { method: "GET" },
   run: async ({
     designId,

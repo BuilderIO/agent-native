@@ -11,7 +11,17 @@ export const REASONING_EFFORTS = [
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
+/**
+ * No choice made: requests carry no effort and the provider's own default
+ * applies. "auto" is that unset state wherever a value is required.
+ */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "auto";
+
+export function isUnsetReasoningEffort(
+  effort: ReasoningEffort | undefined,
+): effort is "auto" | undefined {
+  return effort === undefined || effort === "auto";
+}
 
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   auto: "Auto",
@@ -70,9 +80,8 @@ export function normalizeReasoningEffortForModel(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
 ): ReasoningEffort | undefined {
-  if (!model) return undefined;
-  let normalized =
-    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  if (!model || isUnsetReasoningEffort(effort)) return undefined;
+  let normalized: ReasoningEffort = effort;
   if (
     normalized === "xhigh" &&
     isClaudeReasoningModel(model) &&
@@ -99,21 +108,16 @@ export function normalizeReasoningEffortForRequest(
 }
 
 export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
-  return REASONING_EFFORT_LABELS[
-    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort
-  ];
+  return REASONING_EFFORT_LABELS[effort ?? "auto"];
 }
 
 export function resolveReasoningEffortSelection(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
 ): ReasoningEffort {
-  const requested =
-    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  if (isUnsetReasoningEffort(effort)) return "auto";
   const options = getReasoningEffortOptionsForModel(model);
-  return options.length === 0 || options.includes(requested)
-    ? requested
-    : DEFAULT_REASONING_EFFORT;
+  return options.length === 0 || options.includes(effort) ? effort : "auto";
 }
 
 const REASONING_EFFORT_STEP_DOWN: Partial<

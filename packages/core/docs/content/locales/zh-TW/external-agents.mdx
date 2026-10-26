@@ -262,7 +262,7 @@ npx skills@latest add BuilderIO/agent-native --skill assets
 | -------- | ------------------ | ------------- |
 | `assets` | `image-generation` | 圖片/影片生成 |
 
-預設用戶端選取是所有支援的本機用戶端；新增 `--client codex`、`--client claude-code` 或其他特定目標以縮小設定範圍。行內主機（ChatGPT、Claude.ai、Claude 桌面主聊天）在聊天中呈現選取器/變體網格； CLI/僅連結主機（Codex、Claude 程式碼、Claude 桌面“程式碼”分頁）返回“在…中開啟”連結，使用者在瀏覽器中選取並將交接摘要貼上回該連結。
+預設用戶端選取是所有支援的本機用戶端；新增 `--client codex`、`--client claude-code` 或其他特定目標以縮小設定範圍。行內主機（ChatGPT、網頁版、桌面版和行動版 Claude 聊天，以及 Claude Desktop 的 Code 分頁）會在聊天中顯示選取器或變體網格；CLI/僅連結主機（Codex CLI、Claude Code 終端機、Cowork、claude.ai 網頁版 Code）會傳回「在…中開啟 →」連結。使用者在瀏覽器中選取後，將交接摘要貼回聊天。 [Cowork 尚未宣告支援 MCP Apps，在同一連接器上使用它可能會導致 Chat 中的行內應用程式消失，直到您重新連接該連接器。](https://github.com/anthropics/claude-code/issues/103924)
 
 當您確實需要一個獨立的應用程式而不是 Dispatch 的工作區閘道時，
 使用該應用程式的主機執行相同的指令：

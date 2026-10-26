@@ -711,6 +711,19 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
+const PROMO_ARTWORK_READABILITY_RE =
+  /\b(?:promo(?:tional)?|social(?: media)?|(?:static\s+)?(?:ad|advert(?:isement)?|artwork|creative)|flyer|poster|banner|campaign graphic)\b[^.!?\n]{0,120}\b(?:text|type|font|headline|copy|typography|hierarchy|legibility|readability)\b[^.!?\n]{0,80}\b(?:too small|tiny|unreadable|hard to read|illegible|not legible|poorly readable|poor readability|weak hierarchy|poor hierarchy|bad hierarchy)\b|\b(?:text|type|font|headline|copy|typography|hierarchy|legibility|readability)\b[^.!?\n]{0,80}\b(?:too small|tiny|unreadable|hard to read|illegible|not legible|poorly readable|poor readability|weak hierarchy|poor hierarchy|bad hierarchy)\b[^.!?\n]{0,120}\b(?:promo(?:tional)?|social(?: media)?|(?:static\s+)?(?:ad|advert(?:isement)?|artwork|creative)|flyer|poster|banner|campaign graphic)\b|\b(?:text|type|font|headline|copy|typography|hierarchy|legibility|readability)\b[^.!?\n]{0,80}\b(?:promo(?:tional)?|social(?: media)?|(?:static\s+)?(?:ad|advert(?:isement)?|artwork|creative)|flyer|poster|banner|campaign graphic)\b[^.!?\n]{0,80}\b(?:too small|tiny|unreadable|hard to read|illegible|not legible|poorly readable|poor readability|weak hierarchy|poor hierarchy|bad hierarchy)\b/i;
+const PROMO_ARTWORK_READABILITY_REGEX_CASES = [
+  [true, "The promo artwork headline is too small to read at feed size."],
+  [true, "The social ad has tiny text and weak hierarchy."],
+  [true, "Font sizes on this flyer are illegible in the final export."],
+  [true, "The headline is unreadable in this campaign graphic."],
+  [false, "The settings UI text is too small."],
+  [false, "The Design toolbar has poor hierarchy."],
+  [false, "The promo image export is blurry."],
+  [false, "The promo art looks poor."],
+];
+
 const FEEDBACK_EYES_RE =
   /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
 
@@ -952,6 +965,61 @@ function isOtherProductMergeGate(sentence, gate) {
   );
 }
 
+const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:#(?:issuecomment-\d+|discussion_r\d+|pullrequestreview-\d+)|\/comments\/\d+)`;
+const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+should\s+(?:the\s+author|the\s+contributor|they|them)\s+do(?:\s+next)?|what\s+(?:(?:they|the\s+author|the\s+contributor)\s+)?(?:(?:should\s+)?do|to\s+do)(?:\s+next)?|what\s+happens\s+next)`;
+const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending|end|ending|close|closing)`;
+const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
+const PR_REVIEW_NO_FEEDBACK_GAP = String.raw`(?:(?!\b(?:and|but|or|while)\b)[^.!?;\n])`;
+const PR_REVIEW_CONTEXT_KIND = String.raw`(?:comments?|repl(?:y|ies)|responses?|reviews?|threads?)`;
+const PR_REVIEW_NON_RESPONSE_OBJECT = String.raw`(?:(?:PR|pull\s+request)\s+)?(?:(?:comment|reply|review)\s+)?(?:templates?|descriptions?|titles?|bodies|commits?(?:\s+messages?)?|release\s+notes?|docs?|documentation|guides?|examples?|samples?|readmes?)`;
+const PR_REVIEW_NON_RESPONSE_CONTEXT = String.raw`(?!\s+(?:${PR_REVIEW_NON_RESPONSE_OBJECT}\b|${PR_REVIEW_CONTEXT_KIND}\s+${PR_REVIEW_NON_RESPONSE_OBJECT}\b|(?:in|within|inside|from|as|about)\s+(?:the\s+)?${PR_REVIEW_NON_RESPONSE_OBJECT}\b))`;
+const PR_REVIEW_NON_RESPONSE_TAIL = String.raw`(?![^.!?\n]{0,80}\b(?:in|within|inside|from|as|about)\s+(?:the\s+)?${PR_REVIEW_NON_RESPONSE_OBJECT}\b)`;
+const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+${PR_REVIEW_CONTEXT_KIND})?\b${PR_REVIEW_NON_RESPONSE_CONTEXT}`;
+const PR_REVIEW_DIRECT_REPLY_CONTEXT = String.raw`\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)\s+${PR_REVIEW_CONTEXT_KIND}\b${PR_REVIEW_NON_RESPONSE_CONTEXT}`;
+const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:PRs?|pull\s+requests?)\s+(?:authors?|contributors?)(?:['’]s)?\b|\bto\s+(?:the\s+)?(?:PR|pull\s+request)\s+(?:author|contributor)s?\b|\b(?:PRs?|pull\s+requests?)\s+${PR_REVIEW_CONTEXT_KIND}\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)s?\b|\b${PR_REVIEW_CONTEXT_KIND}\s+(?:to|for)\s+(?:the\s+)?(?:PR|pull\s+request)\s+(?:author|contributor)s?\b|\b(?:PR|pull\s+request)\s+(?:review\s+)?threads?\b)${PR_REVIEW_NON_RESPONSE_CONTEXT}`;
+const PR_REVIEW_NO_FEEDBACK_CONTEXT = String.raw`(?:${PR_REVIEW_PR_CONTEXT}|${PR_REVIEW_DIRECT_REPLY_CONTEXT}|${PR_REVIEW_AUDIENCE_CONTEXT})`;
+const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:(?:I|you|we)\s+have\s+)?no\s+(?:further|more)\s+(?:check\s+)?feedback(?:\s+or\s+thanks?)?`;
+const PR_REVIEW_NO_FEEDBACK_END = String.raw`(?:[.!?]?['"”’]?)`;
+const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}${PR_REVIEW_NON_RESPONSE_TAIL}(?:${PR_REVIEW_NO_FEEDBACK_GAP}{0,80}${PR_REVIEW_NO_FEEDBACK_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_GAP}{0,40}${PR_REVIEW_NO_FEEDBACK_CONTEXT}${PR_REVIEW_NO_FEEDBACK_GAP}{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}${PR_REVIEW_NON_RESPONSE_TAIL})`,
+  "i",
+);
+const PR_REVIEW_NO_FEEDBACK_LIST_RE = new RegExp(
+  String.raw`\b(?:don['’]t|do\s+not|never|avoid|stop)\b[^.!?\n]{0,40}\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b[^.!?\n]{0,100}\b${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^.!?\n]{0,80}:\s*\r?\n\s*(?:[-*]|\d+[.)])\s*['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}`,
+  "i",
+);
+const PR_REVIEW_NO_FEEDBACK_OBSERVATION_RE = new RegExp(
+  String.raw`\b(?:why\s+)?(?:does|did)\s+${PR_REVIEW_DIRECT_REPLY_CONTEXT}\s+(?:say|read|end|close|contain)\b[^.!?\n]{0,60}['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}${PR_REVIEW_NON_RESPONSE_TAIL}`,
+  "i",
+);
+const PR_REVIEW_AMBIGUOUS_COMMENT_CORE = String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`;
+const PR_REVIEW_AUTHOR_NEXT_STEP_CUE = String.raw`(?:\b(?:tell|say|state|name|explain)\b[^.!?\n]{0,80}\b(?:author|contributor|them)\b[^.!?\n]{0,80}\bnext\s+steps?\b|\bnext\s+steps?\b[^.!?\n]{0,80}\b(?:PR\s+)?(?:author|contributor|they|them)\b)`;
+const PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE = String.raw`(?:\b(?:tell|say|state|name|explain)\s+(?:(?:the|this|their|our|your)\s+)?(?:PR\s+)?(?:author|contributor|them)\b[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,80}\b(?:PR\s+)?(?:author|contributor)\b|${PR_REVIEW_AUTHOR_NEXT_STEP_CUE})`;
+const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
+  String.raw`(?:${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}|${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}|${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}|${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,80}[.!?]\s*[^.!?\n]{0,80}${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}|${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}[^.!?\n]{0,80}[.!?]\s*[^.!?\n]{0,80}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE})`,
+  "i",
+);
+const PR_REVIEW_AMBIGUOUS_OBSERVATION_RE = new RegExp(
+  String.raw`(?:\bwhy\s+(?:is|was)\s+${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^?\n]{0,80}\b(?:ambiguous|vague|unclear)\b[^?\n]{0,20}\?\s*[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b(?:the|this|that)\s+${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^.!?\n]{0,80}\b(?:ambiguous|vague|unclear)\b\s*[,;]\s*(?:the\s+)?(?:author|contributor)\b[^.!?\n]{0,60}\b(?:doesn't|does\s+not|can't|cannot)\s+know\b[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b)`,
+  "i",
+);
+const PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE = new RegExp(
+  String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+it\s+(?:ambiguous|vague|unclear)\s+like\s+this\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL}|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+it\s+(?:ambiguous|vague|unclear)\s+like\s+this\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})`,
+  "i",
+);
+const PR_REVIEW_VAGUE_CLOSURE_RE = {
+  test(text) {
+    return (
+      PR_REVIEW_NO_FEEDBACK_RE.test(text) ||
+      PR_REVIEW_NO_FEEDBACK_LIST_RE.test(text) ||
+      PR_REVIEW_NO_FEEDBACK_OBSERVATION_RE.test(text) ||
+      PR_REVIEW_AMBIGUOUS_COMMENT_RE.test(text) ||
+      PR_REVIEW_AMBIGUOUS_OBSERVATION_RE.test(text) ||
+      PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE.test(text)
+    );
+  },
+};
+
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
     String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
@@ -1056,7 +1124,198 @@ const PR_REVIEW_HANDOFF_MATCHER = {
   },
 };
 
+const PR_REVIEW_DISPOSITION_MATCHER = {
+  test(text) {
+    return PR_REVIEW_VAGUE_CLOSURE_RE.test(text);
+  },
+};
+
+const PR_REVIEW_DISPOSITION_REGEX_CASES = [
+  [true, "Stop saying 'I have no further feedback' on PRs."],
+  [true, "Don't say 'I have no further feedback.' in the PR reply."],
+  [true, "Why does the PR reply say ‘I have no further feedback.’?"],
+  [true, "The PR reply is vague; the author doesn't know what to do next."],
+  [true, "Why is the PR reply unclear? What should the author do next?"],
+  [
+    true,
+    "Don't say 'no further feedback' during PR review; tell them what to do next.",
+  ],
+  [true, "Don't say 'I have no more feedback' on your PR."],
+  [
+    true,
+    "Don't tell the PR author 'I have no further feedback'; tell them what to do next.",
+  ],
+  [true, "Don't say 'I have no further feedback' to the PR author."],
+  [
+    true,
+    "Don't say 'no further feedback' in PR replies; tell them what to do next.",
+  ],
+  [true, "Don't reply with 'no further feedback' to the PR contributor."],
+  [
+    false,
+    "Don't tell the author 'I have no further feedback' in the customer-support thread.",
+  ],
+  [false, "Don't reply with 'no further feedback' to the contributor."],
+  [
+    true,
+    "Don't end the PR reply with 'no further feedback'; say what they should do next.",
+  ],
+  [
+    true,
+    "Don't close the reply to the PR contributor with 'no further feedback'.",
+  ],
+  [
+    true,
+    "Don't close the PR review thread with 'no further feedback'; tell the author what to do next.",
+  ],
+  [false, "Don't close the Slack thread with 'no further feedback'."],
+  [
+    false,
+    "Don't close the reply to the contributor with 'no further feedback'.",
+  ],
+  [false, "Don't close the review thread with 'no further feedback'."],
+  [
+    false,
+    "Don't reply on the PR thread; the implementation has no further feedback.",
+  ],
+  [
+    false,
+    "Don't reply on the PR thread and say that the data loader has no further feedback.",
+  ],
+  [
+    false,
+    "Don't post the release notes on the PR; no further feedback is needed from you.",
+  ],
+  [
+    true,
+    "Don't ever say 'I have no further feedback' in a PR comment; state what they should do next.",
+  ],
+  [
+    true,
+    "I should never leave the PR comment ambiguous about the next action.",
+  ],
+  [true, "Don't leave the PR reply vague; tell the author what to do next."],
+  [true, "Don't leave the PR reply vague. Tell the author what to do next."],
+  [
+    true,
+    "Tell the PR author what they should do next. Don't leave the PR reply vague.",
+  ],
+  [
+    false,
+    "Don't leave the PR reply vague. The next action is updating the docs.",
+  ],
+  [false, "Don't leave the PR reply vague. Tell support what to do next."],
+  [
+    false,
+    "The template says don't leave the PR comment vague when documenting the artifact.",
+  ],
+  [
+    true,
+    "Don’t say in the pull request reply that ‘I have no further feedback’; name the next action.",
+  ],
+  [
+    false,
+    "Don't say 'I have no further feedback' in PR templates; the wording is generic.",
+  ],
+  [
+    true,
+    "Don't say 'I have no further feedback' in the PR thread; say what happens next.",
+  ],
+  [true, "Never say 'I have no further feedback' on the PR."],
+  [true, "Don't say that you have no further feedback on the PR."],
+  [true, "Don't end a PR reply with no further feedback or thanks."],
+  [
+    true,
+    "Don't end PR replies with this closing:\n- ‘I have no further feedback’.",
+  ],
+  [false, "Don't say 'I have no further feedback' in the PR description."],
+  [false, "Don't say 'I have no further feedback' in the PR commit message."],
+  [false, "Don't say 'I have no further feedback' in a PR comment template."],
+  [false, "Don't say 'I have no further feedback' in the PR release notes."],
+  [false, "Don't end a PR reply with 'no further feedback' in the docs."],
+  [false, "Don't end the PR reply with no further feedback about the docs."],
+  [false, "The PR reply is vague about the docs."],
+  [true, "Don't leave the PR reply vague. Tell the author the next step."],
+  [true, "Don't leave the PR reply vague. Tell them the next step."],
+  [
+    false,
+    "Don't leave the PR reply vague. The next step is updating the docs.",
+  ],
+  [
+    false,
+    "No further feedback or thanks are needed from me about the data loader.",
+  ],
+  [
+    true,
+    "Don't ever say 'I have no further feedback'; people look to me for what they should do. https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [true, "I should never leave the PR review ambiguous about the next action."],
+  [
+    true,
+    "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
+    false,
+    "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629.",
+  ],
+  [
+    false,
+    "I should never leave it ambiguous. This unrelated note links to https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
+    false,
+    "I should never leave it ambiguous; this unrelated note links to https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
+    true,
+    "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629#discussion_r123.",
+  ],
+  [
+    true,
+    "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629#pullrequestreview-123.",
+  ],
+  [true, "Don't tell the author 'I have no further feedback' on your PR."],
+  [true, "Don't reply with 'I have no further feedback' on your PR."],
+  [true, "Never post 'I have no further feedback' in your PR."],
+  [true, "Don't send 'I have no further feedback' in your PR comment."],
+  [true, "Avoid saying 'I have no further feedback' on your PR."],
+  [true, "Don't reply that I have no further feedback in the pull request."],
+  [
+    false,
+    "I should never leave the customer report ambiguous about the next action.",
+  ],
+  [
+    false,
+    "Don't ever say 'I have no further feedback' in the customer report.",
+  ],
+  [
+    false,
+    "Don't say 'I have no further feedback'. Separately, the PR comment is vague: https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
+    false,
+    "Don't say 'I have no further feedback'; this PR comment link is only incidental: https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [false, "The PR reply was vague after the latest author update."],
+  [false, "A PR review can be vague without requiring a follow-up."],
+  [false, "The pull request comment is unclear to me."],
+  [false, "Don't change the test; the PR comment is vague and unclear."],
+  [false, "I should never leave a test unclear; the PR reply is vague."],
+  [false, "I should never leave this PR vague about our plan."],
+  [false, "Don't modify the test because the PR is unclear."],
+  [false, "We should never merge an ambiguous PR."],
+  [false, "I have no further feedback on this check."],
+  [
+    false,
+    "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
+  ],
+];
+
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    false,
+    "Don't ever say 'I have no further feedback' in a PR comment; state what they should do next.",
+  ],
   [
     true,
     "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
@@ -3708,6 +3967,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...PROMO_ARTWORK_READABILITY_REGEX_CASES.filter(
+      ([expected, message]) =>
+        PROMO_ARTWORK_READABILITY_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_EYES_REGEX_CASES.filter(
       ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
@@ -3728,6 +3993,12 @@ if (process.argv.includes("--self-test")) {
     ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
       ([expected, message]) =>
         PR_REVIEW_HANDOFF_MATCHER.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...PR_REVIEW_DISPOSITION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        PR_REVIEW_DISPOSITION_MATCHER.test(message) !== expected,
     ),
   );
   failures.push(
@@ -3760,7 +4031,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4045,6 +4316,13 @@ const PATTERNS = [
     re: PR_REVIEW_HANDOFF_MATCHER,
   },
   {
+    key: "pr-review-reply-disposition",
+    label: "Had to correct vague PR reply dispositions",
+    fixedBy:
+      ".agents/skills/review-prs + ship (no vague closing; next action and owner)",
+    re: PR_REVIEW_DISPOSITION_MATCHER,
+  },
+  {
     key: "feedback-eyes-missed",
     label: "Had to demand correct 👀 ownership and release",
     fixedBy:
@@ -4150,6 +4428,14 @@ const PATTERNS = [
     fixedBy:
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
+  },
+  {
+    key: "promo-artwork-readability",
+    label:
+      "Had to ask for promo artwork text/hierarchy readable at delivery size",
+    fixedBy:
+      "templates/design/.agents/skills/design-generation (conditional fixed-canvas typography and intended-display-scale check; added 2026-10-23; first measurement 0 in the prior 2 weeks, with no earlier trend baseline)",
+    re: PROMO_ARTWORK_READABILITY_RE,
   },
   {
     key: "starter-patch-drift",
