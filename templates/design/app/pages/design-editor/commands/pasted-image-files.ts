@@ -437,7 +437,7 @@ export function runPastedImageFiles(
           applyFileContentUpdateRef?.current ?? applyFileContentUpdate
         )(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
-          skipPreview: true,
+          skipPreview: !isTargetFileActive(targetFileId),
         });
         return !publication || publication.status === "accepted";
       }
@@ -559,9 +559,6 @@ export function runPastedImageFiles(
           const activePreviewContent = isCapturedActiveTarget(targetFileId)
             ? (getFreshActivePreviewContent?.() ?? null)
             : null;
-          const deletedWhilePending =
-            activePreviewContent !== null &&
-            !activePreviewContent.includes(`"${insertedNodeId}"`);
           const currentContent = activePreviewContent ?? durableContent;
           const replacedContent = replacePastedMediaSource(
             currentContent,
@@ -569,9 +566,7 @@ export function runPastedImageFiles(
             durableMediaUrl,
           );
           const nextContent =
-            replacedContent !== currentContent ||
-            !durableMediaUrl ||
-            deletedWhilePending
+            replacedContent !== currentContent || !durableMediaUrl
               ? replacedContent
               : (insertClonedHtmlLayers(
                   durableContent,

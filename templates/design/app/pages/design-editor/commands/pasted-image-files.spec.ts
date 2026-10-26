@@ -321,27 +321,30 @@ describe("runPastedImageFiles", () => {
         }),
     );
     let previewContent: string | null = null;
+    let cancelled = false;
     const replacePreviewContent = vi.fn((content: string) => {
       previewContent = content;
     });
-
-    runPastedImageFiles(
-      args(
-        applyLocalContentUpdate,
-        replacePreviewContent,
-        upload,
-        () => "<main></main>",
-        () => previewContent,
-      ),
-      [file],
-      { fileId: "screen-1", point: { x: 0, y: 0 } },
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      () => "<main></main>",
+      () => previewContent,
     );
+    pasteArgs.isPendingPastedMediaCancelled = () => cancelled;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 0, y: 0 },
+    });
 
     await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
     await vi.waitFor(() =>
       expect(replacePreviewContent).toHaveBeenCalledOnce(),
     );
     previewContent = "<main></main>";
+    cancelled = true;
     await vi.waitFor(() => expect(upload).toHaveBeenCalled());
     resolveUpload("https://cdn.example/deleted.png");
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -398,6 +401,50 @@ describe("runPastedImageFiles", () => {
     expect(clearPendingPastedMedia).toHaveBeenCalledWith(
       "screen-1",
       expect.any(String),
+    );
+  });
+
+  it("keeps a pending paste when switching away and back rebuilds its preview", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:screen-switch-back");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const applyLocalContentUpdate = vi.fn();
+    let previewContent: string | null = null;
+    const replacePreviewContent = vi.fn((content: string) => {
+      previewContent = content;
+    });
+    const activeFileIdRef = ref<string | null | undefined>("screen-1");
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      () => "<main></main>",
+      () => previewContent,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 40, y: 60 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+    await vi.waitFor(() => expect(previewContent).toContain("blob:"));
+
+    activeFileIdRef.current = "screen-2";
+    await Promise.resolve();
+    activeFileIdRef.current = "screen-1";
+    previewContent = "<main></main>";
+    resolveUpload("https://cdn.example/screen-switch-back.png");
+
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain(
+      "https://cdn.example/screen-switch-back.png",
     );
   });
 
@@ -557,7 +604,7 @@ describe("runPastedImageFiles durable base", () => {
     expect(getFreshActiveContent).toHaveBeenCalledOnce();
   });
 
-  it("keeps an explicit inactive target routed by the captured active file", async () => {
+  it("refreshes the preview when an explicit inactive target becomes active", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:inactive-target");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const screenOne = '<main data-screen="one"></main>';
@@ -602,7 +649,7 @@ describe("runPastedImageFiles durable base", () => {
     expect(applyFileContentUpdate).toHaveBeenCalledWith(
       "screen-2",
       expect.stringContaining('data-screen="two"'),
-      expect.objectContaining({ skipPreview: true }),
+      expect.objectContaining({ skipPreview: false }),
     );
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
     expect(getFreshActiveContent).not.toHaveBeenCalled();

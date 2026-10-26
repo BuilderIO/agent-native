@@ -47,6 +47,8 @@ import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits"
 import { removeElementFromHtml } from "@/pages/design-editor/text-edit-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
 import type { LinkedComponentEdit } from "./linked-component-mutation";
 
 export interface DeleteSelectionArgs {
@@ -79,7 +81,7 @@ export interface DeleteSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -93,7 +95,7 @@ export interface DeleteSelectionArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   canEditLiveScreen?: boolean;
   onPendingPastedMediaDelete?: (screenId: string, nodeId: string) => void;
@@ -608,6 +610,7 @@ export function runDeleteSelection({
         .sort((a, b) => (b.source?.start ?? 0) - (a.source?.start ?? 0));
       if (nodes.length === 0) continue;
       const removedSelectors: string[] = [];
+      const removedPendingMediaNodeIds = new Set<string>();
       const formerParentAttrIds = new Set<string>();
       // Item 7b — while a breakpoint is the active edit target, Delete
       // must not structurally remove the element (that would remove it at
@@ -658,7 +661,7 @@ export function runDeleteSelection({
           ...collectCodeLayerSubtreeDataNodeIds(tree, node.id, nodesById),
         ]);
         for (const nodeId of removedSourceIds) {
-          onPendingPastedMediaDelete?.(file.id, nodeId);
+          removedPendingMediaNodeIds.add(nodeId);
         }
         const selector = preferredCodeLayerSelector(node);
         if (selector) removedSelectors.push(selector);
@@ -687,22 +690,30 @@ export function runDeleteSelection({
         shouldDeleteActiveLiveDom = true;
       }
       didDelete = true;
+      let publicationAccepted = false;
       if (liveSnapshot) {
         const updated = updateLiveScreenSnapshotContent(file.id, content);
+        publicationAccepted = updated;
         if (updated && useBreakpointScopedDelete) {
           syncLiveScreenSnapshotPreview(file.id, content);
         }
       } else {
-        applyFileContentUpdate(file.id, content, {
+        const publication = applyFileContentUpdate(file.id, content, {
           refreshPreview: false,
           forcePreviewFullDocument: useBreakpointScopedDelete,
         });
-        if (file.id === activeFile?.id) {
+        publicationAccepted = publication.status === "accepted";
+      }
+      if (publicationAccepted) {
+        if (file.id === activeFile?.id && !liveSnapshot) {
           stampYjsUndoSelection(
             undoManagerRef.current,
             undoStackTopBeforeDelete,
             selectionBeforeDelete,
           );
+        }
+        for (const nodeId of removedPendingMediaNodeIds) {
+          onPendingPastedMediaDelete?.(file.id, nodeId);
         }
       }
     }
@@ -786,32 +797,27 @@ export function runDeleteSelection({
     selectedElement.selector,
   );
   if (!removedContent) return;
-  if (activeFile) {
-    const projection = buildCodeLayerProjection(baseContent, {
-      ...(source ? { source } : {}),
-    });
-    const targetNode = resolveCodeLayerNodeFromElementInfo(
-      projection,
-      selectedElement,
-    );
-    const removedSourceIds = new Set([
-      selectedElement.runtimeSourceId ?? selectedElement.sourceId,
-      ...(targetNode
-        ? [
-            targetNode.dataAttributes["data-agent-native-node-id"] ??
-              targetNode.id,
-            ...collectCodeLayerSubtreeDataNodeIds(
-              buildCodeLayerTree(projection),
-              targetNode.id,
-              new Map(projection.nodes.map((node) => [node.id, node])),
-            ),
-          ]
-        : []),
-    ]);
-    for (const nodeId of removedSourceIds) {
-      if (nodeId) onPendingPastedMediaDelete?.(activeFile.id, nodeId);
-    }
-  }
+  const projection = buildCodeLayerProjection(baseContent, {
+    ...(source ? { source } : {}),
+  });
+  const targetNode = resolveCodeLayerNodeFromElementInfo(
+    projection,
+    selectedElement,
+  );
+  const removedSourceIds = new Set([
+    selectedElement.runtimeSourceId ?? selectedElement.sourceId,
+    ...(targetNode
+      ? [
+          targetNode.dataAttributes["data-agent-native-node-id"] ??
+            targetNode.id,
+          ...collectCodeLayerSubtreeDataNodeIds(
+            buildCodeLayerTree(projection),
+            targetNode.id,
+            new Map(projection.nodes.map((node) => [node.id, node])),
+          ),
+        ]
+      : []),
+  ]);
   const nextContent = pruneDeletedNativeEffects(baseContent, removedContent);
   if (
     selectedElement.sourceId &&
@@ -836,15 +842,21 @@ export function runDeleteSelection({
     }
   }
   deleteFromLiveDom([selectedElement.selector]);
-  if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile!.id, nextContent);
-  } else {
-    applyLocalContentUpdate(nextContent, { refreshPreview: false });
-    stampYjsUndoSelection(
-      undoManagerRef.current,
-      undoStackTopBeforeDelete,
-      selectionBeforeDelete,
-    );
+  const publicationAccepted = activeLiveSnapshot
+    ? updateLiveScreenSnapshotContent(activeFile.id, nextContent)
+    : applyLocalContentUpdate(nextContent, { refreshPreview: false }).status ===
+      "accepted";
+  if (publicationAccepted) {
+    for (const nodeId of removedSourceIds) {
+      if (nodeId) onPendingPastedMediaDelete?.(activeFile.id, nodeId);
+    }
+    if (!activeLiveSnapshot) {
+      stampYjsUndoSelection(
+        undoManagerRef.current,
+        undoStackTopBeforeDelete,
+        selectionBeforeDelete,
+      );
+    }
   }
   setSelectedElement(null);
   setSelectedLayerIdsState([]);

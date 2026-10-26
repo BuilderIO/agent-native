@@ -1,10 +1,23 @@
 // @vitest-environment happy-dom
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
+import type { SelectedCanvasLayerSnapshot } from "@/pages/design-editor/command-types";
 import { readYjsUndoSelection } from "@/pages/design-editor/history";
 
 import { runDeleteSelection } from "./delete-selection";
+
+function acceptedContentUpdate() {
+  return {
+    status: "accepted" as const,
+    content: "",
+    nodeIdMap: new Map<string, string>(),
+  };
+}
 
 function baseDeleteArgs(overrides: {
   undoManagerRef: { current: { stopCapturing: () => void; undoStack: any[] } };
@@ -60,6 +73,7 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     };
     const applyLocalContentUpdate = vi.fn(() => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
+      return acceptedContentUpdate();
     });
     const setSelectedElement = vi.fn();
     const setSelectedLayerIdsState = vi.fn();
@@ -89,7 +103,7 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [priorItem] },
     };
-    const applyLocalContentUpdate = vi.fn();
+    const applyLocalContentUpdate = vi.fn(() => acceptedContentUpdate());
 
     const { args } = baseDeleteArgs({
       undoManagerRef,
@@ -121,6 +135,7 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     };
     const applyLocalContentUpdate = vi.fn(() => {
       undoManagerRef.current.undoStack.push({ meta: new Map() });
+      return acceptedContentUpdate();
     });
     const { selectedElement, args } = baseDeleteArgs({
       undoManagerRef,
@@ -148,7 +163,7 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     const undoManagerRef = {
       current: { stopCapturing: vi.fn(), undoStack: [] },
     };
-    const applyLocalContentUpdate = vi.fn();
+    const applyLocalContentUpdate = vi.fn(() => acceptedContentUpdate());
     const { args } = baseDeleteArgs({
       undoManagerRef,
       applyLocalContentUpdate,
@@ -160,4 +175,83 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
 
     expect(onPendingPastedMediaDelete).toHaveBeenCalledWith("file-1", "box-a");
   });
+
+  it("does not cancel pending media when a structural delete is refused", () => {
+    const undoManagerRef = {
+      current: { stopCapturing: vi.fn(), undoStack: [] },
+    };
+    const applyLocalContentUpdate = vi.fn(() => ({
+      status: "refused" as const,
+    }));
+    const { args } = baseDeleteArgs({
+      undoManagerRef,
+      applyLocalContentUpdate,
+    });
+    const onPendingPastedMediaDelete = vi.fn();
+    args.onPendingPastedMediaDelete = onPendingPastedMediaDelete;
+
+    runDeleteSelection(args);
+
+    expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+    expect(onPendingPastedMediaDelete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: "accepted", shouldCancel: true },
+    { status: "refused", shouldCancel: false },
+  ] as const)(
+    "cancels pending media only after a multi-layer delete is $status",
+    ({ status, shouldCancel }) => {
+      const undoManagerRef = {
+        current: { stopCapturing: vi.fn(), undoStack: [] },
+      };
+      const applyLocalContentUpdate = vi.fn(() => acceptedContentUpdate());
+      const { args } = baseDeleteArgs({
+        undoManagerRef,
+        applyLocalContentUpdate,
+      });
+      const content = `<!doctype html><html><body>
+      <div id="box-a" data-agent-native-node-id="box-a" data-agent-native-layer-name="Box">Box</div>
+    </body></html>`;
+      const source = {
+        kind: "design-file" as const,
+        fileId: "file-1",
+        filename: "index.html",
+      };
+      const projection = buildCodeLayerProjection(content, { source });
+      const node = projection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] === "box-a",
+      );
+      expect(node?.source).toBeTruthy();
+      if (!node?.source) return;
+      const snapshot: SelectedCanvasLayerSnapshot = {
+        html: content.slice(node.source.start, node.source.end),
+        rootNodeId: "box-a",
+        sourceFileId: "file-1",
+        node,
+        sourceIndex: 0,
+        tree: buildCodeLayerTree(projection),
+      };
+      args.getSelectedLayerSnapshots = () => [snapshot];
+      args.getScreenContent = () => content;
+      args.applyFileContentUpdate = vi.fn(() =>
+        status === "accepted" ? acceptedContentUpdate() : { status },
+      );
+      const onPendingPastedMediaDelete = vi.fn();
+      args.onPendingPastedMediaDelete = onPendingPastedMediaDelete;
+
+      runDeleteSelection(args);
+
+      expect(args.applyFileContentUpdate).toHaveBeenCalledOnce();
+      if (shouldCancel) {
+        expect(onPendingPastedMediaDelete).toHaveBeenCalledWith(
+          "file-1",
+          "box-a",
+        );
+      } else {
+        expect(onPendingPastedMediaDelete).not.toHaveBeenCalled();
+      }
+    },
+  );
 });
