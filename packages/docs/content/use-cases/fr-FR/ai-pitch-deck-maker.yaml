@@ -62,7 +62,7 @@ integrations:
         - name: Word
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
       body: Partez des notes et docs que vous avez déjà, et l'agent les transforme en slides modifiables.
-    - title: Envoyez-le comme les investisseurs le veulent
+    - title: Au format des investisseurs
       logos:
         - name: PowerPoint
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a

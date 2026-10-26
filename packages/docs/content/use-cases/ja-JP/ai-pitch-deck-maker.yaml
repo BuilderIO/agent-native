@@ -6,7 +6,7 @@ seo_title: メモから作れるAIピッチデッキメーカー
 meta_description: Agent-Native Slidesは、創業者のための無料AIピッチデッキメーカーです。メモやドキュメント、ウェブサイトからデッキを作成し、手作業でもエージェントでも編集できます。
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slidesは、メモやドキュメント、PDF、ウェブサイトから、スタートアップ創業者向けのピッチデッキを作成します。エージェントがスライドを1枚ずつ作成し、どのスライドも手作業または指示ひとつで編集できます。
+  body: Agent-Native Slidesは、メモやPDF、ウェブサイトから創業者向けのピッチデッキを作成します。エージェントが1枚ずつ作り、編集は手作業でも指示でも可能です。
   button:
     label: デッキを作成する
     url: https://slides.agent-native.com

@@ -82,13 +82,13 @@ integrations:
 other_uses:
   heading: Otros decks que puedes hacer en Slides
   cards:
-    - title: Creador de presentaciones para el consejo con IA
+    - title: Creador de board decks con IA
       url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
       body: Convierte tus métricas y notas en una presentación para el consejo que puedes actualizar cada trimestre.
     - title: Creador de presentaciones de ventas con IA
       url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
       body: Crea una presentación de ventas a partir de tus notas de producto y tu web, con tu marca.
-    - title: Creador de actualizaciones para inversores con IA
+    - title: Creador de updates a inversores
       url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
       body: Convierte las cifras y los logros de este mes en una breve actualización para tus inversores.
 faqs:

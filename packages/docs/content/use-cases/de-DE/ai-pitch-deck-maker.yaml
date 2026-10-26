@@ -39,7 +39,7 @@ features:
   heading: Alles, was Sie zum Erstellen und Pitchen Ihres Decks brauchen
   items:
     - title: Pitch Decks aus Ihren Notizen
-      body: Starten Sie mit einem Prompt, Ihren Notizen, einem Dokument oder Ihrem letzten Deck. Erzählen Sie dem Agenten von Ihrem Unternehmen und Ihrer Runde, und er baut das Deck.
+      body: Starten Sie mit Prompt, Notizen, Dokument oder letztem Deck. Beschreiben Sie Unternehmen und Runde, und der Agent baut das Deck.
     - title: Bearbeiten mit KI und visuell
       body: Ändern Sie Text und Layout direkt auf der Folie oder markieren Sie eine Zeile und fragen Sie den Agenten. Nur das Angefragte ändert sich.
     - title: Ihre Marke auf jeder Folie
