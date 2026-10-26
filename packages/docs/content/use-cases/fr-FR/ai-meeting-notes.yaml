@@ -6,7 +6,7 @@ seo_title: Notes de réunion par IA, sans bot dans vos appels
 meta_description: "Agent-Native Clips est un moyen gratuit et open source de prendre des notes de réunion par IA depuis votre ordinateur : transcription, résumé et actions à faire pour chaque appel."
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips transforme vos appels en notes : une transcription, un résumé et les actions à faire par participant. Il enregistre depuis votre propre ordinateur, donc aucun bot ne rejoint l'appel, et vous pouvez rechercher une réunion ou l'interroger."
+  body: "Agent-Native Clips transforme vos appels en notes : transcription, résumé et actions par participant. Il enregistre depuis votre ordinateur, sans bot, et chaque réunion est interrogeable."
   button:
     label: Prendre des notes de réunion
     url: https://clips.agent-native.com
@@ -77,7 +77,7 @@ integrations:
 other_uses:
   heading: Autres usages de Clips
   cards:
-    - title: Outil de signalement de bugs par IA
+    - title: Rapport de bug par IA
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: Enregistrez un bug avec les logs console et réseau du navigateur, prêt pour votre agent de code.
     - title: Dictée par IA

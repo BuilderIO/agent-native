@@ -6,7 +6,7 @@ seo_title: ボット不要のAI議事録作成
 meta_description: Agent-Native Clipsは、ご自身のパソコンからAI議事録を作成できる無料のオープンソースツールです。すべての通話について、文字起こし、要約、アクションアイテムを作成します。
 updated: 2026-10-26
 hero:
-  body: Agent-Native Clipsは、通話を議事録にまとめます。文字起こし、要約、参加者ごとのアクションアイテムが手に入ります。録音はご自身のパソコンから行うのでボットは参加せず、どの会議も検索したり質問したりできます。
+  body: Agent-Native Clipsは、通話から文字起こし、要約、参加者ごとのアクションアイテムを作成。パソコンで録音するのでボット不要で、検索や質問もできます。
   button:
     label: 議事録を作成する
     url: https://clips.agent-native.com
@@ -65,7 +65,7 @@ integrations:
       logos:
         - name: Slack
         - name: Microsoft Teams
-      body: SlackまたはMicrosoft Teamsを連携すると、そこからClipsエージェントにメッセージを送り、会議やそのノート、自分が担当するアクションアイテムを探せます。
+      body: SlackやMicrosoft Teams経由でClipsエージェントに頼めば、会議やノート、自分のアクションアイテムを探せます。
     - title: MCPであらゆるツールと連携
       logos:
         - name: Notion

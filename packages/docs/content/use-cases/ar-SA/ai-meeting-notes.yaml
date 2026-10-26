@@ -1,7 +1,7 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: "ملاحظات الاجتماعات بالذكاء الاصطناعي"
+title: ملاحظات الاجتماعات الذكية
 seo_title: "ملاحظات اجتماعات بالذكاء الاصطناعي دون بوت في مكالمتك"
 meta_description: "Agent-Native Clips طريقة مجانية ومفتوحة المصدر لتدوين ملاحظات الاجتماعات بالذكاء الاصطناعي من جهازك: نص وملخص وعناصر عمل لكل مكالمة."
 updated: 2026-10-26
@@ -77,7 +77,7 @@ integrations:
 other_uses:
   heading: "أشياء أخرى يمكنك فعلها مع Clips"
   cards:
-    - title: "أداة الإبلاغ عن الأخطاء بالذكاء الاصطناعي"
+    - title: تقارير الأخطاء الذكية
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: "سجّل الخطأ مع سجلات وحدة تحكم المتصفح والشبكة، جاهزًا لوكيل البرمجة لديك."
     - title: "الإملاء بالذكاء الاصطناعي"

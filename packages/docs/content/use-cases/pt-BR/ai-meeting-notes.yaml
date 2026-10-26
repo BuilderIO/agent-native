@@ -6,7 +6,7 @@ seo_title: Notas de reunião com IA, sem bot na sua chamada
 meta_description: "O Agent-Native Clips é um jeito gratuito e open source de fazer notas de reunião com IA direto do seu computador: transcrição, resumo e itens de ação de cada chamada."
 updated: 2026-10-26
 hero:
-  body: "O Agent-Native Clips transforma suas chamadas em notas: transcrição, resumo e itens de ação por participante. Ele grava do seu próprio computador, então nenhum bot entra na chamada, e você pode pesquisar ou perguntar sobre qualquer reunião."
+  body: "O Agent-Native Clips transforma chamadas em notas: transcrição, resumo e itens de ação por participante. Grava no seu computador, sem bot, e qualquer reunião é pesquisável."
   button:
     label: Faça notas de reunião
     url: https://clips.agent-native.com
@@ -45,7 +45,7 @@ features:
     - title: Pergunte durante a chamada
       body: "Pergunte sobre a reunião enquanto ela acontece: o que você perdeu, um resumo dos últimos cinco minutos ou uma boa pergunta para fazer em seguida."
     - title: Pesquise pelo que foi dito
-      body: Encontre uma reunião por uma palavra da transcrição, das notas ou pelo nome de um participante, ou peça ao agente a chamada em que algo foi discutido.
+      body: Encontre uma reunião por palavras da transcrição, das notas ou pelo nome de um participante, ou peça ao agente.
     - title: Notas que levam de volta
       body: Clique em qualquer ponto principal das notas de IA para ir ao momento em que ele foi dito na transcrição.
     - title: Notas de reunião para compartilhar
@@ -65,7 +65,7 @@ integrations:
       logos:
         - name: Slack
         - name: Microsoft Teams
-      body: Depois de conectar o Slack ou o Microsoft Teams, envie uma mensagem ao agente do Clips por lá para achar uma reunião, as notas dela ou os itens de ação que você deve.
+      body: Conecte o Slack ou o Microsoft Teams e escreva ao agente do Clips para achar reuniões, notas ou seus itens de ação.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Notion
@@ -77,7 +77,7 @@ integrations:
 other_uses:
   heading: Outras coisas que você pode fazer com o Clips
   cards:
-    - title: Ferramenta de relatório de bugs com IA
+    - title: Relatório de bugs com IA
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
       body: Grave um bug com os logs de console e de rede do navegador, pronto para o seu agente de código.
     - title: Ditado com IA

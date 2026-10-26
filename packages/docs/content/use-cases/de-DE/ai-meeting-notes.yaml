@@ -6,7 +6,7 @@ seo_title: KI-Meeting-Notizen ohne Bot im Gespräch
 meta_description: "Agent-Native Clips ist eine kostenlose Open-Source-Lösung für KI-Meeting-Notizen von Ihrem eigenen Computer: Transkript, Zusammenfassung und Aufgaben für jeden Anruf."
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips macht aus Ihren Anrufen Notizen: ein Transkript, eine Zusammenfassung und Aufgaben pro Teilnehmer. Es nimmt von Ihrem eigenen Computer auf, es tritt also kein Bot bei, und Sie können jedes Meeting durchsuchen oder dazu Fragen stellen."
+  body: "Agent-Native Clips macht aus Anrufen Notizen: Transkript, Zusammenfassung und Aufgaben pro Teilnehmer. Es nimmt auf Ihrem Computer auf, ohne Bot, und Meetings lassen sich durchsuchen."
   button:
     label: Meeting-Notizen erstellen
     url: https://clips.agent-native.com
@@ -41,11 +41,11 @@ features:
     - title: Kein Bot in Ihren Anrufen
       body: Clips Desktop nimmt Ihr Mikrofon und den Ton des Anrufs auf Ihrem eigenen Computer auf, damit das Meeting für alle anderen unverändert aussieht.
     - title: Aufgaben pro Person
-      body: Jede Aufgabe nennt die zuständige Person, abgeleitet davon, wer im Anruf was gesagt hat. Ergänzen, ändern oder löschen Sie Aufgaben vor dem Teilen.
+      body: Jede Aufgabe nennt, wer zuständig ist, abgeleitet aus dem Anruf. Vor dem Teilen lässt sie sich bearbeiten.
     - title: Fragen während des Anrufs
       body: "Fragen Sie live zum Meeting: was Sie verpasst haben, eine Zusammenfassung der letzten fünf Minuten oder eine gute nächste Frage."
     - title: Suche nach Gesagtem
-      body: Finden Sie ein Meeting über ein Wort aus Transkript oder Notizen oder über den Namen eines Teilnehmers, oder fragen Sie den Agenten nach dem Anruf zu einem Thema.
+      body: Finden Sie Meetings über Wörter aus Transkript oder Notizen oder über Teilnehmernamen, oder fragen Sie den Agenten.
     - title: Notizen mit Rücksprung
       body: Klicken Sie in den KI-Notizen auf einen Kernpunkt, um im Transkript zu der Stelle zu springen, an der er gesagt wurde.
     - title: Meeting-Notizen teilen
@@ -65,7 +65,7 @@ integrations:
       logos:
         - name: Slack
         - name: Microsoft Teams
-      body: Sobald Sie Slack oder Microsoft Teams verbunden haben, schreiben Sie dort dem Clips-Agenten, um ein Meeting, dessen Notizen oder Ihre offenen Aufgaben zu finden.
+      body: Mit verbundenem Slack oder Microsoft Teams fragen Sie den Clips-Agenten nach Meetings, Notizen oder Ihren offenen Aufgaben.
     - title: Alles per MCP verbinden
       logos:
         - name: Notion
