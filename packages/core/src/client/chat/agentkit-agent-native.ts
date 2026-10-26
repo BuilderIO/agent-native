@@ -1315,8 +1315,6 @@ function reconcileDurableMessages(
       eventMessageIds.has(snapshotReply.id) &&
       snapshotReply.parts.length > 0 &&
       snapshotReply.parts.every((part) => part.type === "text") &&
-      durableReply.parts.length > 0 &&
-      durableReply.parts.every((part) => part.type === "text") &&
       snapshotText.length > 0 &&
       durableText.length > 0 &&
       snapshotText !== durableText &&
@@ -1484,6 +1482,27 @@ function reconcileDurableMessages(
     if (shownByInterruptedRun(message)) continue;
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
+  }
+  // A restored reply takes the id its run's events name. Under the saved id,
+  // nothing ties the run's work, timing or later deltas to the reply.
+  const eventIdByRestoredId = new Map<string, string>();
+  const shownIds = new Set(deduplicatedMessages.map((message) => message.id));
+  for (const message of missingMessages) {
+    const runId = asRecord(message.metadata)?.runId;
+    if (
+      message.role !== "assistant" ||
+      typeof runId !== "string" ||
+      durableByRun.get(runId) !== message
+    ) {
+      continue;
+    }
+    const eventIds = assistantIdsByRun.get(runId);
+    const eventId = eventIds?.size === 1 ? [...eventIds][0]! : undefined;
+    if (!eventId || shownIds.has(eventId) || durableById.has(eventId)) {
+      continue;
+    }
+    eventIdByRestoredId.set(message.id, eventId);
+    shownIds.add(eventId);
   }
 
   const durableIdBySnapshotId = new Map<string, string>();
@@ -1669,7 +1688,10 @@ function reconcileDurableMessages(
     }
     return { ...reconciled, parts };
   });
-  return reconciledMessages;
+  return reconciledMessages.map((message) => {
+    const eventId = eventIdByRestoredId.get(message.id);
+    return eventId ? { ...message, id: eventId } : message;
+  });
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
