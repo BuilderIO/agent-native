@@ -65,7 +65,9 @@ vi.mock("@agent-native/toolkit/app/agent-select", () => ({
 }));
 
 function pickedPanel(index = 0) {
-  const call = clientMocks.selectAgentSelectable.mock.calls.at(index);
+  const call = clientMocks.selectAgentSelectable.mock.calls.find(
+    (_, callIndex) => callIndex === index,
+  );
   if (!call) throw new Error(`No pick at call ${index}`);
   const [target, options] = call;
   return { ...target, context: target.getContext(), options };

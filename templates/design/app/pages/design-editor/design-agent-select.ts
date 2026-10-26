@@ -4,7 +4,7 @@ import {
   useAgentSelectableSource,
   type AgentSelectable,
 } from "@agent-native/toolkit/app/agent-select";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
 
@@ -184,19 +184,15 @@ export function useDesignAgentSelect(
     .map((screen) => `${screen.id}\u0000${screen.filename}`)
     .join("\n");
 
+  // Re-register only when the screen list's content changes, not its identity.
+  const screensRef = useRef(screens);
+  screensRef.current = screens;
+
   useEffect(() => {
     if (!designId || !screenKey) return;
-    const unregister = screenKey.split("\n").flatMap((entry) => {
-      const parts = entry.split("\u0000");
-      const id = parts.at(0);
-      const filename = parts.at(1);
-      if (!id || filename === undefined) return [];
-      return [
-        registerAgentSelectable(
-          designScreenSelectable(designId, title, { id, filename }),
-        ),
-      ];
-    });
+    const unregister = screensRef.current.map((screen) =>
+      registerAgentSelectable(designScreenSelectable(designId, title, screen)),
+    );
     return () => unregister.forEach((release) => release());
   }, [designId, screenKey, title]);
 
