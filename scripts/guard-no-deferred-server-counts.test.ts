@@ -329,6 +329,26 @@ describe("deferred server counts guard", () => {
     );
   });
 
+  it("takes a scanned file's answer for what it exports, default included", () => {
+    const known = new Map([
+      ["templates/content/actions/_outcomes.ts", new Set(["default"])],
+      ["templates/content/actions/_retry.ts", new Set<string>()],
+    ]);
+    const source = [
+      'import record from "./_outcomes.js";',
+      'import { trackRetry } from "./_retry.js";',
+      'import { trackEvent } from "./_unscanned.js";',
+      "setTimeout(() => record({}), 0);",
+      "setTimeout(() => trackRetry(), 0);",
+      "setTimeout(() => trackEvent(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, known).map((finding) => finding.line),
+      [4, 6],
+    );
+  });
+
   it("finds the exports that count, through wrappers and re-exports", () => {
     const sources = new Map([
       [
@@ -374,6 +394,71 @@ describe("deferred server counts guard", () => {
           "recordSaved",
         ],
         "templates/content/server/lib/index.ts": ["recordAgain", "recordSaved"],
+      },
+    );
+  });
+
+  it("finds default exports that count and leaves out ones that don't", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_record.ts",
+        [
+          'import { countOutcome } from "@agent-native/core/tracking";',
+          "export default function record(outcome: string) {",
+          '  countOutcome("content_save_outcome_counts", { outcome });',
+          "}",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_track-saved.ts",
+        [
+          'import { track } from "@agent-native/core/tracking";',
+          'export default () => track("page_saved");',
+        ].join("\n"),
+      ],
+      [
+        "templates/content/actions/_track-opened.ts",
+        [
+          'import { track } from "@agent-native/core/tracking";',
+          "export default function () {",
+          '  track("page_opened");',
+          "}",
+        ].join("\n"),
+      ],
+      [
+        "templates/content/server/lib/record-wrapper.ts",
+        [
+          'import save from "../../actions/_record.js";',
+          'export const recordSaved = () => save("saved");',
+          'export { default as recordAgain } from "../../actions/_record.js";',
+        ].join("\n"),
+      ],
+      [
+        "templates/content/server/lib/retry.ts",
+        [
+          "export function trackRetry(attempt: number) {",
+          "  return attempt + 1;",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+
+    assert.deepEqual(
+      Object.fromEntries(
+        [...countingExportsOf(sources)].map(([file, names]) => [
+          file,
+          [...names].sort(),
+        ]),
+      ),
+      {
+        "templates/content/actions/_record.ts": ["default"],
+        "templates/content/actions/_track-saved.ts": ["default"],
+        "templates/content/actions/_track-opened.ts": ["default"],
+        "templates/content/server/lib/record-wrapper.ts": [
+          "recordAgain",
+          "recordSaved",
+        ],
+        "templates/content/server/lib/retry.ts": [],
       },
     );
   });
