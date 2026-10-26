@@ -240,15 +240,19 @@ describe("document save ownership after a rejected CAS", () => {
     expect(persist).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps an indented empty closing line as the tab's own edit", async () => {
+  it("keeps an indented empty closing line beside the agent's replacement", async () => {
     const headingBase = { ...base, content: "## Heading" };
     const localDraft = "## Heading\n\t<empty-block/>";
     const replaced = { ...winner, content: "Replacement." };
+    const merged = "Replacement.\n\t<empty-block/>";
     const persist = vi
       .fn()
       .mockResolvedValueOnce({ conflict: true, document: replaced })
-      .mockResolvedValueOnce({ ...replaced, content: localDraft });
+      .mockResolvedValueOnce({ ...replaced, content: merged });
 
+    // oracle-change: the indented line is the tab's insertion after the
+    // replaced heading, not inside it, so the agent's replacement merges
+    // instead of being saved over. Read as filler, the line would be lost.
     await expect(
       saveDocumentWithRebase({
         base: headingBase,
@@ -261,8 +265,8 @@ describe("document save ownership after a rejected CAS", () => {
           confirm: vi.fn(),
         },
       }),
-    ).resolves.toMatchObject({ status: "saved", content: localDraft });
-    expect(persist).toHaveBeenNthCalledWith(2, localDraft, {
+    ).resolves.toMatchObject({ status: "saved", content: merged });
+    expect(persist).toHaveBeenNthCalledWith(2, merged, {
       content: replaced.content,
       updatedAt: replaced.updatedAt,
     });

@@ -129,6 +129,9 @@ export function diffTopLevelHunks(
   return hunks;
 }
 
+// An insertion beside a replaced range, rather than inside it, has one place
+// to go: next to the replacement, on the side it was inserted. Two insertions
+// at the same index have no order, so they overlap.
 function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
   const leftInsert = left.baseFromIndex === left.baseToIndex;
   const rightInsert = right.baseFromIndex === right.baseToIndex;
@@ -137,14 +140,14 @@ function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
   }
   if (leftInsert) {
     return (
-      left.baseFromIndex >= right.baseFromIndex &&
-      left.baseFromIndex <= right.baseToIndex
+      left.baseFromIndex > right.baseFromIndex &&
+      left.baseFromIndex < right.baseToIndex
     );
   }
   if (rightInsert) {
     return (
-      right.baseFromIndex >= left.baseFromIndex &&
-      right.baseFromIndex <= left.baseToIndex
+      right.baseFromIndex > left.baseFromIndex &&
+      right.baseFromIndex < left.baseToIndex
     );
   }
   return (
@@ -153,13 +156,20 @@ function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
   );
 }
 
+/**
+ * Where a base index falls in the live doc. A local insertion exactly at the
+ * index stays before a `"start"` and after an `"end"`, so a server replacement
+ * that starts or ends there doesn't take the inserted blocks with it.
+ */
 function mappedLocalIndex(
   baseIndex: number,
   localHunks: readonly TopLevelHunk[],
+  side: "start" | "end" = "start",
 ): number {
   let mapped = baseIndex;
   for (const hunk of localHunks) {
     if (hunk.baseToIndex > baseIndex) break;
+    if (side === "end" && hunk.baseFromIndex === baseIndex) break;
     mapped +=
       hunk.changedToIndex -
       hunk.changedFromIndex -
@@ -285,7 +295,7 @@ export function planDocReconcile(
     const tr = new Transform(liveDoc);
     for (const hunk of [...serverHunks].reverse()) {
       const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
-      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks);
+      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks, "end");
       tr.replaceWith(
         positionOfChild(tr.doc, fromIndex),
         positionOfChild(tr.doc, toIndex),
