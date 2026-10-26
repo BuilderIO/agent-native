@@ -29,7 +29,7 @@ export interface ModeChangeArgs {
   enterSingleScreen: (
     fileId?: string | null,
     options?: { keepInteractDevice?: boolean },
-  ) => void;
+  ) => boolean | void;
   files: DesignFile[];
   pendingLiveNonStyleEdits: PendingLiveNonStyleEdit[];
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
@@ -153,13 +153,12 @@ export function runModeChange(
     viewMode: viewModeRef.current,
   });
   if (routing === "enter-single-interact") {
+    const entered = options?.keepInteractDevice
+      ? enterSingleScreen(nextActiveFile!.id, { keepInteractDevice: true })
+      : enterSingleScreen(nextActiveFile!.id);
+    if (entered === false) return false;
     rememberOverviewScreenSelection(nextActiveFile!.id);
     setOverviewInteractScreenId(nextActiveFile!.id);
-    if (options?.keepInteractDevice) {
-      enterSingleScreen(nextActiveFile?.id, { keepInteractDevice: true });
-    } else {
-      enterSingleScreen(nextActiveFile?.id);
-    }
     return true;
   }
   if (routing === "enter-overview") {
@@ -168,19 +167,19 @@ export function runModeChange(
     return true;
   }
   if (next === "interact" && overviewInteractScreenId) {
-    setOverviewInteractScreenId(nextActiveFile!.id);
     if (
       options?.targetFileId &&
       nextActiveFile!.id !== overviewInteractScreenId
     ) {
+      const entered = options.keepInteractDevice
+        ? enterSingleScreen(nextActiveFile.id, { keepInteractDevice: true })
+        : enterSingleScreen(nextActiveFile.id);
+      if (entered === false) return false;
       rememberOverviewScreenSelection(nextActiveFile!.id);
-      if (options.keepInteractDevice) {
-        enterSingleScreen(nextActiveFile!.id, { keepInteractDevice: true });
-      } else {
-        enterSingleScreen(nextActiveFile!.id);
-      }
+      setOverviewInteractScreenId(nextActiveFile.id);
       return true;
     }
+    setOverviewInteractScreenId(nextActiveFile!.id);
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
   else if (
