@@ -534,6 +534,43 @@ describe("useCollabReconcile — snapshot adoption", () => {
     }
   });
 
+  it("counts a write the server takes in after a newer one cancelled it", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    const third = {
+      value: `${OUTSIDE}\n\nLater paragraph.`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.adoptionCalls).toHaveLength(1);
+      // The server takes revision 2 in; its answer arrives after revision 3.
+      tabs.holdAnswersFor(0);
+      tabs.settleAdoptions();
+      tabs.saveRevision(third.revision);
+      tabs.render(third);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.deliverHeldAnswers();
+      for (let step = 0; step < 3; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        tabs.settleAdoptions();
+      }
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.markdown()).toEqual([third.value]);
+      expect(merges).toEqual([{ setAside: 0 }, { setAside: 0 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("leaves a snapshot the server calls stale for the newer one", async () => {
     vi.useFakeTimers();
     const tabs = makeTabs(1, { visible: true, adoption: "server" });

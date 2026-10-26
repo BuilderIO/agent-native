@@ -1111,9 +1111,13 @@ export function useCollabReconcile({
           collab && ydoc && contentRevision && requestSnapshotAdoption
             ? requestSnapshotAdoption
             : null;
+        // `onTaken` runs once the server takes the proposal in, even when a
+        // newer snapshot has cancelled this one; `settle` runs only when
+        // nothing has.
         const adoptThroughServer = (
           target: ProseMirrorNode,
           settle: () => void,
+          onTaken?: () => void,
         ) => {
           if (!adoptSnapshot || !ydoc || !contentRevision) return;
           let update: Uint8Array;
@@ -1218,6 +1222,7 @@ export function useCollabReconcile({
                 const taken =
                   result.status === "adopted" ||
                   result.status === "already-adopted";
+                if (taken) onTaken?.();
                 // For `rebase`, a marker past the one this proposal held is
                 // another editor's adoption, whose body is the new base. With
                 // the marker unchanged, the server held live edits the
@@ -1393,10 +1398,9 @@ export function useCollabReconcile({
           }
           // The server can send a proposal back to plan again, or call it
           // stale; only the one it takes in is counted.
-          adoptThroughServer(plan.mergedDoc, () => {
-            countMerge(plan.setAside);
-            settleMerged();
-          });
+          adoptThroughServer(plan.mergedDoc, settleMerged, () =>
+            countMerge(plan.setAside),
+          );
           return;
         }
         const settleApplied = () => {
