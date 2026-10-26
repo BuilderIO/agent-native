@@ -9,6 +9,7 @@ import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { deleteAppActivityBlob } from "../server/lib/app-activity.js";
 import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
@@ -244,6 +245,17 @@ export default defineAction({
       })
       .from(schema.recordingBrowserDiagnostics)
       .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
+
+    // Derived from the footage, so they go with it; a frame that cannot be
+    // deleted keeps the row, since nothing else points at it afterwards.
+    try {
+      await deleteStoredAgentFrames(existing);
+    } catch (err) {
+      fail(
+        `${err instanceof Error ? err.message : String(err)} The recording was kept. Try again later.`,
+        { errorCode: "recording_frames_not_deleted", statusCode: 503 },
+      );
+    }
 
     const { deleted, protectedUrls } = await db.transaction(async (tx) => {
       // The recording is locked before anything that hangs off it, the order

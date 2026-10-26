@@ -59,6 +59,7 @@ const mockDiagnosticsTable = vi.hoisted(() => ({
   appActivityBlobJson: "recordingBrowserDiagnostics.appActivityBlobJson",
 }));
 const mockDiagnosticsWhere = vi.hoisted(() => vi.fn());
+const mockDeleteStoredAgentFrames = vi.hoisted(() => vi.fn());
 const mockDeleteAppActivityBlob = vi.hoisted(() =>
   vi.fn(
     async (
@@ -189,6 +190,11 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/lib/agent-frame-store.js", () => ({
+  deleteStoredAgentFrames: (...args: unknown[]) =>
+    mockDeleteStoredAgentFrames(...args),
+}));
+
 vi.mock("../server/lib/app-activity.js", () => ({
   deleteAppActivityBlob: (blobJson: string, recordingId: string) =>
     mockDeleteAppActivityBlob(blobJson, recordingId),
@@ -245,6 +251,28 @@ describe("delete-recording-permanent", () => {
       .mockResolvedValueOnce([]);
     mockContextItemsWhere.mockResolvedValue([]);
     mockDiagnosticsWhere.mockResolvedValue([]);
+  });
+
+  it("deletes stored agent frames before the recording rows", async () => {
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockDeleteStoredAgentFrames).toHaveBeenCalledWith(
+      mockExistingRecording,
+    );
+    expect(
+      mockDeleteStoredAgentFrames.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockDb.transaction.mock.invocationCallOrder[0]);
+  });
+
+  it("keeps the recording when a stored agent frame cannot be deleted", async () => {
+    mockDeleteStoredAgentFrames.mockRejectedValueOnce(
+      new Error("1 stored agent frame(s) could not be deleted."),
+    );
+
+    await expect(deleteRecordingPermanent.run({ id: "rec_1" })).rejects.toThrow(
+      "The recording was kept",
+    );
+    expect(mockDb.transaction).not.toHaveBeenCalled();
   });
 
   it("deletes the app activity blob once the recording rows are gone", async () => {

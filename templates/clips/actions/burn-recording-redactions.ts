@@ -21,6 +21,7 @@ import {
   type VideoRedaction,
 } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
+import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import { loadRecordingMediaBytes } from "../server/lib/public-agent-context.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
@@ -350,6 +351,15 @@ export async function burnRedactionsFor(args: {
     .filter((url) => !keep.has(url));
 
   const failedDeletes: string[] = [];
+  try {
+    await deleteStoredAgentFrames(existing);
+  } catch (err) {
+    failedDeletes.push(`agent frames of ${args.recordingId}`);
+    console.warn(
+      `[burn-recording-redactions] could not delete stored agent frames for ${args.recordingId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   for (const url of stale) {
     try {
       const deleted = await deleteStoredMediaUrl(url, {

@@ -12,6 +12,9 @@ const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
 const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
+const mockLoadStoredAgentFrame = vi.hoisted(() => vi.fn());
+const mockIsRecommendedAgentFrame = vi.hoisted(() => vi.fn());
+const mockStoreAgentFrame = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
     class VideoFrameExtractionError extends Error {
@@ -61,6 +64,13 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   },
 }));
 
+vi.mock("../../lib/agent-frame-store.js", () => ({
+  loadStoredAgentFrame: (...args: unknown[]) =>
+    mockLoadStoredAgentFrame(...args),
+  isRecommendedAgentFrame: (...args: unknown[]) =>
+    mockIsRecommendedAgentFrame(...args),
+  storeAgentFrame: (...args: unknown[]) => mockStoreAgentFrame(...args),
+}));
 vi.mock("../../lib/video-frame.js", () => ({
   extractJpegFrameFromFile: (...args: unknown[]) =>
     mockExtractJpegFrameFromFile(...args),
@@ -86,6 +96,7 @@ function makeAccess(overrides: Record<string, unknown> = {}) {
       password: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
       durationMs: 10_000,
+      ownerEmail: "owner@example.com",
       ...((recordingOverrides as Record<string, unknown> | undefined) ?? {}),
     },
     viewerIsOwner: false,
@@ -136,6 +147,9 @@ describe("agent-frame.jpg route", () => {
     });
     mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
+    mockLoadStoredAgentFrame.mockResolvedValue(null);
+    mockIsRecommendedAgentFrame.mockResolvedValue(false);
+    mockStoreAgentFrame.mockResolvedValue(undefined);
     mockCleanupMediaFile.mockResolvedValue(undefined);
     mockEnsureRecordingThumbnail.mockResolvedValue({
       recordingId: "rec-1",
@@ -179,6 +193,7 @@ describe("agent-frame.jpg route", () => {
       nextStep: expect.stringContaining("redactions"),
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 409);
+    expect(mockLoadStoredAgentFrame).not.toHaveBeenCalled();
     expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
   });
 
@@ -300,6 +315,73 @@ describe("agent-frame.jpg route", () => {
     expect(event.status).toBe(409);
     expect(result).toMatchObject({ failureKind: "processing" });
     expect(mockLoadScreenshotImage).not.toHaveBeenCalled();
+  });
+
+  it("serves a stored frame of a private clip without downloading the video", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        apiToken: "token",
+        recording: { id: "private-stored", visibility: "private" },
+      }),
+    });
+    mockLoadStoredAgentFrame.mockResolvedValue(new Uint8Array([9, 8, 7]));
+
+    const event = makeEvent({ id: "private-stored", atMs: "1000" });
+    const result = await handler(event as never);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([9, 8, 7]));
+    expect(headerValue(event, "Content-Type")).toBe("image/jpeg");
+    expect(mockLoadStoredAgentFrame).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "private-stored" }),
+      1000,
+    );
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("falls back to extraction when the stored frame lookup throws", async () => {
+    mockLoadStoredAgentFrame.mockRejectedValue(new Error("db down"));
+
+    const event = makeEvent({ id: "rec-1", atMs: "2000" });
+    const result = await handler(event as never);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a freshly extracted recommended frame", async () => {
+    mockIsRecommendedAgentFrame.mockResolvedValue(true);
+
+    const event = makeEvent({ id: "rec-1", atMs: "3000" });
+    await handler(event as never);
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: undefined },
+      expect.any(Function),
+    );
+    expect(mockStoreAgentFrame).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "rec-1" }),
+      3000,
+      new Uint8Array([1, 2, 3]),
+    );
+  });
+
+  it("does not store a frame outside the recommended list", async () => {
+    const event = makeEvent({ id: "rec-1", atMs: "4000" });
+    const result = await handler(event as never);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockStoreAgentFrame).not.toHaveBeenCalled();
+  });
+
+  it("serves the frame even when persisting it fails", async () => {
+    mockIsRecommendedAgentFrame.mockRejectedValue(new Error("db down"));
+
+    const event = makeEvent({ id: "rec-1", atMs: "5000" });
+    const result = await handler(event as never);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
   });
 
   it("caches anonymous public frames without shared caching", async () => {

@@ -24,6 +24,11 @@ import {
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
 import {
+  isRecommendedAgentFrame,
+  loadStoredAgentFrame,
+  storeAgentFrame,
+} from "../../lib/agent-frame-store.js";
+import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
@@ -126,6 +131,46 @@ async function persistDefaultThumbnailIfMissing(
     );
   } catch (err: unknown) {
     console.warn("[agent-frame] thumbnail persistence skipped", {
+      recordingId: access.recording.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function loadStoredFrameOrNull(
+  access: PublicAgentAccess,
+  atMs: number,
+): Promise<Uint8Array | null> {
+  try {
+    return await loadStoredAgentFrame(access.recording, atMs);
+  } catch (err: unknown) {
+    console.warn("[agent-frame] stored frame lookup failed", {
+      recordingId: access.recording.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+async function storeRecommendedFrame(
+  access: PublicAgentAccess,
+  atMs: number,
+  frame: Uint8Array,
+): Promise<void> {
+  try {
+    if (await isRecommendedAgentFrame(access.recording, atMs)) {
+      // The frame belongs to the clip's owner, not to the agent asking: the
+      // upload resolves storage and quota from the owner's context.
+      await runWithRequestContext(
+        {
+          userEmail: access.recording.ownerEmail,
+          orgId: access.recording.orgId ?? undefined,
+        },
+        () => storeAgentFrame(access.recording, atMs, frame),
+      );
+    }
+  } catch (err: unknown) {
+    console.warn("[agent-frame] frame persistence skipped", {
       recordingId: access.recording.id,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -259,6 +304,19 @@ export default defineEventHandler(async (event: H3Event) => {
     return cached;
   }
 
+  const stored = await loadStoredFrameOrNull(access, atMs);
+  if (stored) {
+    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+      await persistDefaultThumbnailIfMissing(
+        access,
+        stored,
+        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
+      );
+    }
+    applyFrameHeaders(event);
+    return Buffer.from(stored);
+  }
+
   try {
     const media = await loadRecordingMediaFile(recording);
     try {
@@ -279,6 +337,7 @@ export default defineEventHandler(async (event: H3Event) => {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
+      await storeRecommendedFrame(access, atMs, resolved.frame);
       applyFrameHeaders(event);
       const buffer = Buffer.from(resolved.frame);
       if (cacheable) setCachedFrame(key, buffer);

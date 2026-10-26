@@ -1091,7 +1091,7 @@ function isLocalRecordingBlob(videoUrl: string): boolean {
   );
 }
 
-async function fetchRecordingMediaResponse(
+export async function fetchRecordingMediaResponse(
   videoUrl: string,
   options: {
     recordingId?: string;
