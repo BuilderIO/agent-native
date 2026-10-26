@@ -974,6 +974,24 @@ describe("a turn that only answered", () => {
     }
   });
 
+  it("shows text when the run has no details to open to", async () => {
+    const unnamed: AgentMessage = { ...reply, metadata: {} };
+    const container = await renderThread(
+      [user, unnamed],
+      answeredAt(4_000, [startingAgent]).map((event) =>
+        event.type === "message.completed"
+          ? { ...event, message: unnamed }
+          : event,
+      ),
+    );
+    const row = container.querySelector<HTMLElement>(".agentkit-activities");
+    expect(row?.dataset.expandable).toBe("false");
+    expect(
+      row?.querySelector(".agentkit-activities-summary")?.textContent,
+    ).toBe("Worked for 4s");
+    expect(row?.querySelector("button")).toBeNull();
+  });
+
   it("shows no row under a second, untimed, or still running", async () => {
     const instant = await renderThread(
       [user, reply],

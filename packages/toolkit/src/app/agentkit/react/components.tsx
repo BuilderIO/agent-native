@@ -2277,8 +2277,14 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   /** This segment is its run's whole turn, so it shows a row with no work. */
   summarizesTurn?: boolean;
 }) {
-  const { threadId, slots, registry, labels, formatWorkedForDuration } =
-    useAgentKit();
+  const {
+    threadId,
+    slots,
+    registry,
+    labels,
+    formatWorkedForDuration,
+    loadRunUsage,
+  } = useAgentKit();
   const thread = useAgentThreadSlice((previous, next) =>
     sameRunWork(previous, next, runId),
   );
@@ -2599,12 +2605,18 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     ) {
       return null;
     }
-    // With no steps, the run's details (cost, model) are what it opens to.
+    // With no steps, the run's details (cost, model) are what it opens to, so
+    // it opens only when it can show one of them.
+    const selectedModel = selectedRunModel(thread.messages, messageId);
+    const hasRunDetails =
+      runId !== undefined &&
+      (loadRunUsage !== undefined ||
+        (selectedModel !== undefined && selectedModel !== "auto"));
     return (
       <AgentWorkDisclosure
         label={workedSummaryLabel(durationMs, labels, formatDuration)}
         icon={<IconClock aria-hidden="true" className="agentkit-icon" />}
-        expandable={runId !== undefined}
+        expandable={hasRunDetails}
         {...(runId === undefined ? {} : { runId })}
         {...(messageId === undefined ? {} : { messageId })}
       >
@@ -4854,6 +4866,21 @@ function messageMetadataString(
   return undefined;
 }
 
+/** The model a reply, or the request before it, was sent with. */
+function selectedRunModel(
+  messages: readonly AgentMessage[],
+  messageId: string | undefined,
+): string | undefined {
+  if (!messageId) return undefined;
+  return (
+    messageMetadataString(
+      agentMessagesById(messages).get(messageId)?.message,
+      "model",
+    ) ??
+    messageMetadataString(findPreviousUserMessage(messages, messageId), "model")
+  );
+}
+
 /**
  * A finished reply's footer offers a host under its message id, and the
  * reply's work row portals into it so it shares the line with the controls.
@@ -5052,17 +5079,9 @@ function AgentRunDetails({
           toolIds.add(event.activity.id);
         }
       }
-      const reply = messageId
-        ? agentMessagesById(thread.messages).get(messageId)?.message
-        : undefined;
-      const request = messageId
-        ? findPreviousUserMessage(thread.messages, messageId)
-        : undefined;
       return {
         toolCalls: toolIds.size,
-        model:
-          messageMetadataString(reply, "model") ??
-          messageMetadataString(request, "model"),
+        model: selectedRunModel(thread.messages, messageId),
       };
     },
     (previous, next) =>
@@ -5093,9 +5112,6 @@ function AgentRunDetails({
     if (billing.incomplete) {
       return { key: labels.runCreditsUsed, value: labels.runDetailIncomplete };
     }
-    // A measured zero has nothing to tell; only a missing or failed reading
-    // still shows, so it is never mistaken for a free run.
-    if (billing.builderCredits === 0) return null;
     if (billing.builderCredits !== null) {
       return {
         key: labels.runCreditsUsed,
@@ -5107,9 +5123,9 @@ function AgentRunDetails({
           billing.builderCreditsSource,
           labels,
         ),
+        measuredZero: billing.builderCredits === 0,
       };
     }
-    if (billing.providerCostUsd === 0) return null;
     if (billing.providerCostUsd !== null) {
       const usd = billing.providerCostUsd;
       return {
@@ -5126,6 +5142,7 @@ function AgentRunDetails({
           billing.providerCostSource,
           labels,
         ),
+        measuredZero: usd === 0,
       };
     }
     return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
@@ -5138,7 +5155,6 @@ function AgentRunDetails({
     details.model;
   const model = reportedModel === "auto" ? undefined : reportedModel;
   const rows: { id: string; key: string; value: ReactNode }[] = [
-    ...(credits ? [{ id: "credits", ...credits }] : []),
     ...(details.toolCalls > 0
       ? [
           {
@@ -5158,6 +5174,12 @@ function AgentRunDetails({
         ]
       : []),
   ];
+  // A measured zero has nothing to tell beside other details; a missing or
+  // failed reading always shows, so it is never mistaken for a free run. Alone,
+  // the zero still shows, so a row that opened to its details is never empty.
+  if (credits && (!credits.measuredZero || rows.length === 0)) {
+    rows.unshift({ id: "credits", key: credits.key, value: credits.value });
+  }
   if (rows.length === 0) return null;
   return (
     <dl

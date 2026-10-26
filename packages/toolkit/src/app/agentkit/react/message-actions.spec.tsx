@@ -618,6 +618,30 @@ describe("Worked for run details", () => {
       ).toBe("1");
     }
 
+    // Auto names no model, so with no steps the zero is the only detail left
+    // and still shows.
+    const alone = await renderChat({
+      followUpModel: "auto",
+      loadRunUsage: async () => ({
+        durationMs: null,
+        billing: {
+          providerCostUsd: 0,
+          providerCostSource: "reported" as const,
+          builderCredits: 0,
+          builderCreditsSource: "estimated" as const,
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [], latestAnswer),
+    });
+    await press(alone.container.querySelector(".agentkit-activities-summary"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      alone.container.querySelector('[data-detail="credits"] dd')?.textContent,
+    ).toMatch(/^0\.0\b/);
+
     const unrecorded = await renderChat({
       loadRunUsage: async () => ({ durationMs: null, billing: null }),
       events: runEvents("run-latest", [...toolWork], latestAnswer),
