@@ -53,7 +53,7 @@ export interface LocalhostWriteConsentPayload {
     grantedUntil: string;
   }) => void;
   onCancel: () => void;
-  onError?: (error: unknown) => void;
+  onError?: ((error: unknown) => void) | undefined;
 }
 
 type ConsentRefusal = "sign-in" | "denied";
@@ -158,7 +158,7 @@ export function LocalhostWriteConsentDialog({
     const returnPath = window.location.pathname;
     setPreparingFor(requested);
     try {
-      const queued = await callAction<{ requestId?: string }>(
+      const queued = await callAction<{ requestId?: string } | null>(
         "request-localhost-write-consent",
         {
           designId,
@@ -328,7 +328,7 @@ export interface LocalhostWriteConsentLocalRequest {
   rootPath: string;
   files: string[];
   onGranted: LocalhostWriteConsentPayload["onGranted"];
-  onCancel?: () => void;
+  onCancel?: (() => void) | undefined;
   onError?: LocalhostWriteConsentPayload["onError"];
 }
 
@@ -338,7 +338,7 @@ interface PendingConsentRequest {
   rootPath: string;
   files: string[];
   requestedAt: string;
-  requestId?: string;
+  requestId?: string | undefined;
 }
 
 function consentRequestKey(designId: string, request: PendingConsentRequest) {

@@ -159,8 +159,34 @@ export interface ActionAutomationContext {
   policyId?: string;
 }
 
+export const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+
+/**
+ * The most characters of a pretty-printed result the agent keeps for a call:
+ * the action's own limit, else the agent-wide limit, else the default, bounded
+ * by any hard limit. The agent loop and actions that fit their own results
+ * resolve it here so they cannot disagree.
+ */
+export function resolveToolMaxResultChars(
+  action: { maxResultChars?: number },
+  limits?: { maxResultChars?: number; hardMaxResultChars?: number },
+): number {
+  const configured =
+    action.maxResultChars ??
+    limits?.maxResultChars ??
+    DEFAULT_TOOL_RESULT_CHARS;
+  return typeof limits?.hardMaxResultChars === "number"
+    ? Math.min(configured, limits.hardMaxResultChars)
+    : configured;
+}
+
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /**
+   * Result cap the agent loop enforces on this call, from
+   * `resolveToolMaxResultChars`. Absent outside the agent loop.
+   */
+  maxResultChars?: number;
   userEmail?: string;
   /**
    * Request headers for server-only actions that must delegate to an
@@ -271,6 +297,40 @@ export function fail(message: string, options: FailOptions = {}): never {
     statusCode: options.statusCode ?? 400,
     ...(options.details === undefined ? {} : { details: options.details }),
   });
+}
+
+/**
+ * The closed set of `errorCode`s an action fails with. Its `fail` and
+ * `noWrite` accept only these codes, so a misspelled code is a compile error
+ * and a caller can switch over the action's failures exhaustively. Pass it to
+ * `defineAction` as `errors` to publish the codes on the definition.
+ */
+export interface ActionErrors<TCode extends string> {
+  readonly codes: readonly TCode[];
+  fail(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+  noWrite(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+}
+
+export function defineActionErrors<const TCode extends string>(
+  ...codes: [TCode, ...TCode[]]
+): ActionErrors<TCode> {
+  const errors: ActionErrors<TCode> = {
+    codes: Object.freeze([...new Set(codes)]),
+    fail: (message, errorCode, options = {}) =>
+      fail(message, { ...options, errorCode }),
+    noWrite: (message, errorCode, options = {}) => {
+      throw new NoWriteError(message, { ...options, errorCode });
+    },
+  };
+  return Object.freeze(errors);
 }
 
 /**
@@ -861,7 +921,27 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What a result that does not match `outputSchema` does. Defaults to
+ * `"strict"`. `"fallback"` is deprecated: it replaces a broken result with a
+ * value callers cannot tell from a real one.
+ */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
+/**
+ * What an action with `outputSchema` returns under `TStrategy`. `"warn"` can
+ * pass `run`'s unvalidated value through; `"fallback"` returns
+ * `outputFallback` as given, `undefined` when it is unset.
+ */
+export type ActionOutputResult<
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy,
+> = TStrategy extends "strict"
+  ? StandardSchemaV1.InferOutput<TOutputSchema>
+  :
+      | StandardSchemaV1.InferOutput<TOutputSchema>
+      | StandardSchemaV1.InferInput<TOutputSchema>
+      | (TStrategy extends "fallback" ? undefined : never);
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
@@ -874,6 +954,7 @@ interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
@@ -881,8 +962,12 @@ interface DefineActionWithSchema<
   parameters?: never;
   agentInputSchema?: StandardSchemaV1;
   outputSchema?: TOutputSchema;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated `outputErrorStrategy: "fallback"` hides a broken result
+   *  behind a plausible one. Fix the result or use `"strict"`. */
   outputFallback?: TReturn;
+  /** The action's closed error-code set, from `defineActionErrors`. */
+  errors?: ActionErrors<string>;
   /** Advertise `outputSchema` to MCP clients as the tool's `outputSchema`
    *  and validate every `structuredContent` against it. Set it only after
    *  auditing that every value `run` can return meets the schema; it requires
@@ -1019,15 +1104,21 @@ interface DefineActionWithParams<
     | Record<string, ParameterSchema>
     | undefined,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined =
+    | StandardSchemaV1
+    | undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
   parameters?: TParams;
   schema?: never;
   agentInputSchema?: never;
-  outputSchema?: StandardSchemaV1;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputSchema?: TOutputSchema;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   outputFallback?: TReturn;
+  errors?: ActionErrors<string>;
   mcpOutputSchema?: boolean;
   run: (
     args: InferParams<TParams>,
@@ -1115,7 +1206,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxResultChars?: number;
   readonly outputSchema?: StandardSchemaV1;
   readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   readonly outputFallback?: TReturn;
+  /** Present only when the action declared `errors`. */
+  readonly errorCodes?: readonly string[];
   /** Present only when the action opted in with `mcpOutputSchema: true`. */
   readonly mcpOutputContract?: ActionMcpOutputContract;
   readonly needsApproval?:
@@ -1126,19 +1220,50 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly access?: ActionAccessConfig;
 }
 
-export function defineAction<
-  TSchema extends StandardSchemaV1,
-  TReturn,
-  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
->(
-  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
+export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
+  options: DefineActionWithSchema<TSchema, TReturn, undefined>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
   TReturn,
 >(
-  options: DefineActionWithParams<TParams, TReturn>,
+  options: DefineActionWithParams<TParams, TReturn, undefined>,
 ): ActionDefinition<InferParams<TParams>, TReturn>;
+// With an `outputSchema`, `run` must return the schema's input. Under the
+// default strict strategy the action returns the schema's output; `"warn"`
+// can pass `run`'s value through and `"fallback"` returns `outputFallback`,
+// so those also admit the input shape. These come last, so a `run` whose
+// result does not match is reported against them.
+export function defineAction<
+  TParams extends Record<string, ParameterSchema> | undefined,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithParams<
+    TParams,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  InferParams<TParams>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithSchema<
+    TSchema,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  StandardSchemaV1.InferInput<TSchema>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
@@ -1218,7 +1343,7 @@ export function defineAction(options: any) {
     options.outputErrorStrategy === "warn" ||
     options.outputErrorStrategy === "fallback"
       ? options.outputErrorStrategy
-      : "warn";
+      : "strict";
 
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
@@ -1508,6 +1633,7 @@ export function defineAction(options: any) {
         }
       : {}),
     ...(mcpOutputContract ? { mcpOutputContract } : {}),
+    ...(options.errors ? { errorCodes: options.errors.codes } : {}),
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
@@ -1535,7 +1661,9 @@ export function defineAction(options: any) {
   if (inputSchemaVerdict) {
     recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
   }
-  return entry;
+  // `never` input keeps the implementation compatible with every overload,
+  // which `exactOptionalPropertyTypes` rejects for the inferred entry type.
+  return entry as ActionDefinition<never, unknown>;
 }
 
 export function isActionExposedToExternalAgents(entry: {

@@ -74,7 +74,7 @@ export default defineAction({
       );
     }
 
-    const [grant] = await db
+    const grants = await db
       .select({
         grantedUntil: schema.designLocalhostWriteGrants.grantedUntil,
       })
@@ -90,6 +90,7 @@ export default defineAction({
         ),
       )
       .limit(1);
+    const grant = grants.length > 0 ? grants[0] : undefined;
     if (
       !resumeAfterSignIn &&
       grant &&

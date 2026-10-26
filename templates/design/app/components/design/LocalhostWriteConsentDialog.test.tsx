@@ -4,6 +4,7 @@ import type { useSession } from "@agent-native/core/client/hooks";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  assert,
   afterEach,
   beforeEach,
   describe,
@@ -12,6 +13,11 @@ import {
   vi,
   type Mock,
 } from "vitest";
+
+function required<T>(value: T | null | undefined): T {
+  assert(value !== null && value !== undefined);
+  return value;
+}
 
 type SessionStatus = ReturnType<typeof useSession>["status"];
 
@@ -146,13 +152,13 @@ describe("LocalhostWriteConsentDialog", () => {
 
   function button(label: string) {
     return [...document.body.querySelectorAll("button")].find(
-      (candidate) => candidate.textContent?.trim() === label,
+      (candidate) => candidate.textContent.trim() === label,
     );
   }
 
   function signInLink() {
     return [...document.body.querySelectorAll("a")].find(
-      (candidate) => candidate.textContent?.trim() === "Sign in",
+      (candidate) => candidate.textContent.trim() === "Sign in",
     );
   }
 
@@ -207,7 +213,7 @@ describe("LocalhostWriteConsentDialog", () => {
     await allowWrites();
 
     expect(grantCalls()).toHaveLength(1);
-    const [, init] = grantCalls()[0]!;
+    const [, init] = required(grantCalls()[0]);
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({
       designId: "design-1",
       connectionId: "connection-1",
@@ -308,7 +314,7 @@ describe("LocalhostWriteConsentDialog", () => {
         },
       ]);
       expect(assigned).toHaveLength(1);
-      const target = new URL(assigned[0]!, window.location.origin);
+      const target = new URL(required(assigned[0]), window.location.origin);
       expect(target.pathname).toBe("/sign-in");
       expect(decodeContinuation(target.searchParams.get("c"))).toBe(
         "/visual-edit/design-1?localhostConsent=request-2",
@@ -335,7 +341,13 @@ describe("LocalhostWriteConsentDialog", () => {
       Response.json({ designId: "design-1", alreadyGranted: true });
     expect(await clickSignIn()).toEqual([]);
 
-    expect(requestBodies).toHaveLength(2);
+    requestResponse = () => Response.json(null);
+    expect(await clickSignIn()).toEqual([]);
+    expect(mocks.toastError).toHaveBeenLastCalledWith(
+      "Couldn't save this request before sign-in. Try again.",
+    );
+
+    expect(requestBodies).toHaveLength(3);
     expect(signInLink()).toBeDefined();
     expect(grantCalls()).toHaveLength(0);
     expect(payload.onGranted).not.toHaveBeenCalled();
@@ -457,7 +469,10 @@ describe("LocalhostWriteConsentDialog", () => {
       window.history.replaceState(null, "", "/somewhere-else");
       await release();
       expect(assign.assigned).toHaveLength(1);
-      const target = new URL(assign.assigned[0]!, window.location.origin);
+      const target = new URL(
+        required(assign.assigned[0]),
+        window.location.origin,
+      );
       expect(decodeContinuation(target.searchParams.get("c"))).toBe(
         "/visual-edit/design-1?localhostConsent=request-2",
       );

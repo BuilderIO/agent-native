@@ -4,7 +4,15 @@ import { sourceContentHash } from "@shared/source-workspace";
 import { QueryClient } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  assert,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import * as Y from "yjs";
 
 import type { DesignSaveOutboxEntry } from "@/lib/design-save-outbox";
@@ -23,6 +31,11 @@ import type { DesignData, DesignFile } from "../types";
 import type { EditorCore } from "./use-editor-core";
 import { useEditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
+
+function required<T>(value: T | null | undefined): T {
+  assert(value !== null && value !== undefined);
+  return value;
+}
 
 const mocks = vi.hoisted(() => ({
   design: { current: undefined as unknown },
@@ -199,7 +212,7 @@ async function mountAccess(
       editorCore: editorCore(surface),
       editorHistory,
     });
-    useWithAccess?.(() => latest.current!);
+    useWithAccess?.(() => required(latest.current));
     return null;
   }
   mocks.design.current = design;
@@ -211,7 +224,7 @@ async function mountAccess(
     act(async () => root.unmount()).then(() => host.remove()),
   );
   return {
-    access: () => latest.current!,
+    access: () => required(latest.current),
     queryClient,
     rerender: (next: Surface, nextDesign: DesignData) => {
       mocks.design.current = nextDesign;
@@ -362,7 +375,7 @@ describe("automatic canonical source persistence", () => {
   });
 
   afterEach(async () => {
-    while (unmounts.length) await unmounts.pop()!();
+    while (unmounts.length) await required(unmounts.pop())();
   });
 
   it("syncs on a Visual Edit link when the account itself can edit", async () => {
@@ -540,17 +553,21 @@ describe("automatic canonical source persistence", () => {
       designData({ canPersistSource: false }),
       useActiveScreen,
     );
-    await sync!.settle();
-    expect(sync!.updateFileMutation.mutateAsync).not.toHaveBeenCalled();
+    await required(sync).settle();
+    expect(
+      required(sync).updateFileMutation.mutateAsync,
+    ).not.toHaveBeenCalled();
 
     await rerender(
       VISUAL_EDIT_SIGNED_IN,
       designData({ canPersistSource: true }),
     );
-    await sync!.settle();
+    await required(sync).settle();
 
-    expect(sync!.updateFileMutation.mutateAsync).toHaveBeenCalledTimes(1);
-    expect(sync!.updateFileMutation.mutateAsync).toHaveBeenCalledWith(
+    expect(required(sync).updateFileMutation.mutateAsync).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(required(sync).updateFileMutation.mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         id: FILE_ID,
         identityOnly: true,

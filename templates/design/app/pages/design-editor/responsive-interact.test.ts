@@ -161,6 +161,7 @@ describe("responsive Interact wiring", () => {
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
+    // oracle-change: Consent polling moved to useLocalhostWriteConsent and has behavioral coverage in localhost-consent-resume.test.tsx.
     const commandChannel = source.slice(
       source.indexOf("designEditorCommandFromSearchParams(\n") - 600,
       source.indexOf("designEditorCommandKey()];"),

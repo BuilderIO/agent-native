@@ -129,7 +129,7 @@ async function openOnBoard(app: App, id: string) {
   await app.page.goto(appPath(`/design/${id}?view=overview&zoom=30`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(app.page.locator(LIVE_SCREEN)).toBeVisible({ timeout: 30_000 });
+  await expect(app.page.locator(LIVE_SCREEN)).toBeVisible();
   await expect(app.node("page")).toBeVisible();
   await expect(app.page.getByRole("tree", { name: "Layers" })).toBeVisible();
 }

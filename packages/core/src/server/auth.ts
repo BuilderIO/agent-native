@@ -4874,12 +4874,10 @@ async function resolveBrowserCookieSession(
   if (cookie) {
     try {
       const ba = getBetterAuthSync() ?? (await getBetterAuth());
-      if (ba) {
-        const baSession = await ba.api.getSession({
-          headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
-        });
-        if (baSession?.user?.email) return mapBetterAuthSession(baSession);
-      }
+      const baSession = await ba.api.getSession({
+        headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
+      });
+      if (baSession?.user.email) return mapBetterAuthSession(baSession);
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
       (event.context as Record<string, unknown>)[

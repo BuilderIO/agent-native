@@ -2,7 +2,7 @@ name: Nightly full fast-test suite
 
 on:
   schedule:
-    - cron: "17 0,6,12,18 * * *"
+    - cron: "17 6,18 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -13,10 +13,37 @@ permissions:
   contents: read
 
 jobs:
-  full-tests:
-    name: Full fast-test suite
+  plan:
+    name: Plan full test lanes
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
+    outputs:
+      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      # No CI_WORKSPACE_FILTERS here, so the planner emits every package lane.
+      - name: Partition test packages into sharded lanes
+        id: lanes
+        env:
+          LANES: 8
+        run: node --experimental-strip-types scripts/ci-test-lanes.ts
+
+  full-tests:
+    name: Fast tests ${{ matrix.lane }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # One worker per core. The shared config's 25% default is for laptops.
+      VITEST_CONCURRENCY: "100%"
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -46,5 +73,88 @@ jobs:
             sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
           fi
 
-      - name: Run full fast-test suite
-        run: TEST_WORKSPACE_CONCURRENCY=1 VITEST_CONCURRENCY=100% pnpm test:fast
+      - name: Run core fast-test shard
+        if: matrix.coreShard != ''
+        run: >-
+          pnpm --filter @agent-native/core exec vitest run --dir src
+          --shard=${{ matrix.coreShard }}
+          --exclude "**/*.db.test.ts"
+          --exclude "**/*.integration.spec.ts"
+          --exclude "**/*.integration.test.ts"
+          --exclude "**/*.e2e.spec.ts"
+          --exclude "**/*.e2e.test.ts"
+          --exclude "**/e2e/**"
+          --exclude "**/*.live.spec.ts"
+          --exclude "**/*.live.test.ts"
+          --exclude "**/*.perf.spec.ts"
+          --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
+
+      - name: Run package fast tests for lane
+        if: matrix.filters != ''
+        run: >-
+          pnpm -r --no-bail --workspace-concurrency=1 ${{ matrix.filters }} run test
+          --exclude "**/*.db.test.ts"
+          --exclude "**/*.integration.spec.ts"
+          --exclude "**/*.integration.test.ts"
+          --exclude "**/*.e2e.spec.ts"
+          --exclude "**/*.e2e.test.ts"
+          --exclude "**/e2e/**"
+          --exclude "**/*.live.spec.ts"
+          --exclude "**/*.live.test.ts"
+          --exclude "**/*.perf.spec.ts"
+          --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
+
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
+          )
+          exit "$status"
+
+      - name: Run isolated Design HTML integrity performance checks
+        if: matrix.lane == 'lane-1'
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm run test:perf
+
+  root-tests:
+    name: Root test guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+
+      # Root-level suites that the lane shards above do not cover.
+      - name: Run root fast-test guards
+        run: node scripts/agent-friction-report.mjs --self-test && pnpm test:core-package-reachability && pnpm test:toolkit-must-not-import-core

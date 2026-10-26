@@ -164,16 +164,13 @@ export default defineAction({
     }
 
     const row = access.resource;
-    const accessContext = ctx?.userEmail ? currentAccess() : undefined;
-    const sourceAccess = accessContext?.authCapability?.startsWith(
-      "capability:visual-edit:",
-    )
-      ? await resolveAccess(
-          "design",
-          id,
-          { ...accessContext, authCapability: undefined },
-          { skipResourceBody: true },
-        )
+    const { authCapability, ...accountAccess } = ctx?.userEmail
+      ? currentAccess()
+      : {};
+    const sourceAccess = authCapability?.startsWith("capability:visual-edit:")
+      ? await resolveAccess("design", id, accountAccess, {
+          skipResourceBody: true,
+        })
       : access;
     const canPersistSource = Boolean(
       !reviewPreview &&

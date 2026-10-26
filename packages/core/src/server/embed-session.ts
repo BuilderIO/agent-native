@@ -196,7 +196,7 @@ export type ResolvedEmbedSession = {
 
 export function isEmbedCapabilityScope(
   scope: string | undefined | null,
-): boolean {
+): scope is `${typeof EMBED_CAPABILITY_SCOPE_PREFIX}${string}` {
   return (
     typeof scope === "string" && scope.startsWith(EMBED_CAPABILITY_SCOPE_PREFIX)
   );
@@ -660,7 +660,16 @@ function requestPathname(event: H3Event): string | null {
 }
 
 function requestUrl(event: H3Event): URL | null {
-  return event.url ?? null;
+  const request: { url?: URL } = event;
+  return request.url ?? null;
+}
+
+function requestMethod(event: H3Event): string {
+  const request: {
+    req?: { method?: string | undefined } | undefined;
+    node?: { req?: { method?: string | undefined } | undefined } | undefined;
+  } = event;
+  return request.req?.method ?? request.node?.req?.method ?? "GET";
 }
 
 function requestHostname(event: H3Event): string | null {
@@ -824,8 +833,7 @@ function isEmbedCapabilityRuntimeRequest(
     )
   )
     return true;
-  const method =
-    (event as any).req?.method ?? (event as any).node?.req?.method ?? "GET";
+  const method = requestMethod(event);
   return (
     (scope.startsWith("capability:visual-edit:design:") ||
       isMcpDirectoryWidgetCapabilityScope(scope)) &&
@@ -858,11 +866,10 @@ function embedSessionAllowsRequest(
 ): boolean {
   if (
     isEmbedCapabilityScope(claims.scope) &&
-    isEmbedCapabilityRuntimeRequest(event, claims.scope!)
+    isEmbedCapabilityRuntimeRequest(event, claims.scope)
   )
     return true;
-  const method =
-    (event as any).req?.method ?? (event as any).node?.req?.method ?? "GET";
+  const method = requestMethod(event);
   return (
     (method === "GET" || method === "HEAD") &&
     (requestMatchesEmbedTarget(event, claims.targetPath) ||
@@ -1966,7 +1973,7 @@ export function hasEmbedSessionRequestMarker(event: H3Event): boolean {
     queryToken(event) ||
     isEmbedModeRequest(event) ||
     getHeader(event, EMBED_TARGET_HEADER) !== undefined ||
-    getQuery(event)?.[EMBED_TARGET_QUERY_PARAM] !== undefined
+    getQuery(event)[EMBED_TARGET_QUERY_PARAM] !== undefined
   ) {
     return true;
   }

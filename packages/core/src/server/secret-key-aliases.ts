@@ -3,6 +3,7 @@
  * and why they exist, are in `secrets/key-aliases.ts`.
  */
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { GEMINI_API_KEY, secretKeyNames } from "../secrets/key-aliases.js";
 import {
   assertCredentialStoreReadable,
@@ -44,6 +45,26 @@ function precedence(detail: ResolvedSecretDetail): number {
   }
 }
 
+function isLowerPriorityAliasFailure(
+  failed: { name: string; detail: ResolvedSecretDetail },
+  best: { name: string; detail: ResolvedSecretDetail },
+  names: readonly string[],
+): boolean {
+  if (
+    failed.name === names[0] ||
+    best.name !== names[0] ||
+    best.detail.source !== "org" ||
+    !(failed.detail.cause instanceof AppSecretDecryptionError)
+  ) {
+    return false;
+  }
+  return (
+    failed.detail.cause.scope === "workspace" ||
+    (failed.detail.cause.scope === "org" &&
+      failed.detail.cause.scopeId === best.detail.scopeId)
+  );
+}
+
 /**
  * `resolveSecretDetailed` across every name of the credential. The best
  * scope wins regardless of name; at the same scope the canonical name wins.
@@ -65,8 +86,6 @@ export async function resolveSecretWithAliasesDetailed(
     details.push({ name, detail });
     if (detail.value && precedence(detail) === 0) break;
   }
-  const lookupFailed = details.some(({ detail }) => detail.lookupFailed);
-  const cause = details.find(({ detail }) => detail.lookupFailed)?.detail.cause;
   let best: (typeof details)[number] | undefined;
   for (const entry of details) {
     if (!entry.detail.value) continue;
@@ -74,6 +93,14 @@ export async function resolveSecretWithAliasesDetailed(
       best = entry;
     }
   }
+  const failedLookups = details.filter(({ detail }) => detail.lookupFailed);
+  const unresolvedFailures = best
+    ? failedLookups.filter(
+        (entry) => !isLowerPriorityAliasFailure(entry, best, names),
+      )
+    : failedLookups;
+  const lookupFailed = unresolvedFailures.length > 0;
+  const cause = unresolvedFailures[0]?.detail.cause;
   if (!best) {
     return { value: null, lookupFailed, ...(lookupFailed ? { cause } : {}) };
   }
@@ -95,6 +122,7 @@ export async function resolveSecretWithAliases(
 ): Promise<string | null> {
   if (secretKeyNames(key).length === 1) return resolveSecret(key);
   const resolved = await resolveSecretWithAliasesDetailed(key);
+  if (resolved.lookupFailed) assertCredentialStoreReadable(resolved);
   if (resolved.value) return resolved.value;
   assertCredentialStoreReadable(resolved);
   return null;

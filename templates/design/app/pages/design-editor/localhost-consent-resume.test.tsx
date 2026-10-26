@@ -5,7 +5,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  assert,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+function required<T>(value: T | null | undefined): T {
+  assert(value !== null && value !== undefined);
+  return value;
+}
 
 type SessionStatus = ReturnType<typeof useSession>["status"];
 
@@ -133,6 +146,7 @@ import {
   type LocalhostWriteConsentState,
 } from "@/components/design/LocalhostWriteConsentDialog";
 import { i18nCatalog } from "@/i18n";
+import enUSMessages from "@/i18n/en-US";
 
 import clearAction from "../../../actions/clear-localhost-write-consent-request";
 import getAction from "../../../actions/get-localhost-write-consent-request";
@@ -293,7 +307,7 @@ describe("localhost write consent across sign-in", () => {
       defaultOptions: { queries: { retry: false } },
     });
     act(() =>
-      root!.render(
+      required(root).render(
         <QueryClientProvider client={queryClient}>
           <MemoryRouter initialEntries={[path]}>
             <Harness canEditDesign={canEditDesign} />
@@ -306,7 +320,7 @@ describe("localhost write consent across sign-in", () => {
 
   function unmount() {
     if (!root) return;
-    act(() => root!.unmount());
+    act(() => required(root).unmount());
     root = null;
   }
 
@@ -320,13 +334,13 @@ describe("localhost write consent across sign-in", () => {
 
   function dialogTitled(title: string) {
     return [...document.body.querySelectorAll('[role="dialog"]')].find(
-      (dialog) => dialog.textContent?.includes(title),
+      (dialog) => dialog.textContent.includes(title),
     );
   }
 
   function button(label: string) {
     return [...document.body.querySelectorAll("button")].find(
-      (candidate) => candidate.textContent?.trim() === label,
+      (candidate) => candidate.textContent.trim() === label,
     );
   }
 
@@ -340,7 +354,7 @@ describe("localhost write consent across sign-in", () => {
   function openLocalRequest(files: string[]) {
     const events: string[] = [];
     act(() =>
-      latest!.openLocalConsent({
+      required(latest).openLocalConsent({
         connectionId: CONNECTION_ID,
         rootPath: "/repo",
         files,
@@ -410,7 +424,7 @@ describe("localhost write consent across sign-in", () => {
       });
     try {
       const link = [...document.body.querySelectorAll("a")].find(
-        (candidate) => candidate.textContent?.trim() === "Sign in",
+        (candidate) => candidate.textContent.trim() === "Sign in",
       );
       if (!link) throw new Error("Sign in was not rendered");
       await act(async () => link.click());
@@ -420,7 +434,7 @@ describe("localhost write consent across sign-in", () => {
     }
     expect(assigned).toHaveLength(1);
     unmount();
-    const target = new URL(assigned[0]!, window.location.origin);
+    const target = new URL(required(assigned[0]), window.location.origin);
     expect(target.pathname).toBe("/sign-in");
     const returnTo = decodeContinuation(target.searchParams.get("c"));
     if (!returnTo) throw new Error("Sign-in link has no return path");
@@ -436,11 +450,7 @@ describe("localhost write consent across sign-in", () => {
     return matching[matching.length - 1]?.body;
   }
 
-  const copy = () =>
-    (i18nCatalog.messages as any).designEditor.localhostConsent as Record<
-      string,
-      string
-    >;
+  const copy = () => enUSMessages.designEditor.localhostConsent;
 
   it("reopens an agent's request after sign-in and offers an explicit retry", async () => {
     await requestAction.run({
@@ -448,7 +458,7 @@ describe("localhost write consent across sign-in", () => {
       connectionId: CONNECTION_ID,
       files: ["src/App.tsx"],
     });
-    const agentRequest = serverRecord()!;
+    const agentRequest = required(serverRecord());
     expect(agentRequest.requestId).toEqual(expect.any(String));
 
     // A Visual Edit link session reads as signed in on the client; only the
@@ -464,7 +474,7 @@ describe("localhost write consent across sign-in", () => {
     expect(callsTo("grant-localhost-write-consent")).toHaveLength(1);
     const returnTo = await signInAndLeave();
 
-    const resumable = serverRecord()!;
+    const resumable = required(serverRecord());
     expect(resumable.requestId).not.toBe(agentRequest.requestId);
     expect(returnTo).toBe(
       `/visual-edit/${DESIGN_ID}?localhostConsent=${resumable.requestId}`,
@@ -511,7 +521,7 @@ describe("localhost write consent across sign-in", () => {
     const onGranted = vi.fn();
     const onCancel = vi.fn();
     act(() =>
-      latest!.openLocalConsent({
+      required(latest).openLocalConsent({
         connectionId: CONNECTION_ID,
         rootPath: "/repo",
         files: ["src/Card.tsx"],
@@ -547,7 +557,7 @@ describe("localhost write consent across sign-in", () => {
     const onGranted = vi.fn();
     const onCancel = vi.fn();
     act(() =>
-      latest!.openLocalConsent({
+      required(latest).openLocalConsent({
         connectionId: CONNECTION_ID,
         rootPath: "/repo",
         files: ["src/Card.tsx"],
@@ -608,7 +618,7 @@ describe("localhost write consent across sign-in", () => {
     ["the editor unmounts", () => unmount()],
     [
       "the editor closes the request",
-      () => act(() => latest!.onOpenChange(false)),
+      () => act(() => required(latest).onOpenChange(false)),
     ],
   ];
 
@@ -739,7 +749,7 @@ describe("localhost write consent across sign-in", () => {
       connectionId: CONNECTION_ID,
       files: ["src/App.tsx"],
     });
-    const pending = serverRecord()!;
+    const pending = required(serverRecord());
 
     grantStatus = 500;
     await mountAt(`/design/${DESIGN_ID}`);
@@ -787,12 +797,12 @@ describe("localhost write consent across sign-in", () => {
       });
     try {
       const link = [...document.body.querySelectorAll("a")].find(
-        (candidate) => candidate.textContent?.trim() === "Sign in",
+        (candidate) => candidate.textContent.trim() === "Sign in",
       );
       if (!link) throw new Error("Sign in was not rendered");
       await act(async () => link.click());
       await settle();
-      const saved = serverRecord()!;
+      const saved = required(serverRecord());
 
       unmount();
       requestHold = null;

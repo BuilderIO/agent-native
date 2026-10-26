@@ -2739,6 +2739,7 @@ describe("direct tools/call after the action has run", () => {
                 path: kind.path ? [value.startUrl] : [],
               });
             }),
+          outputErrorStrategy: "warn",
           run: async () => ({ startUrl: start }),
         });
       });

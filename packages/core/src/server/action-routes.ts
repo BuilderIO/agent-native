@@ -641,7 +641,7 @@ function allowsMcpDirectoryWidgetReadManifestAction(
       appId: options?.mcpDirectoryWidgetAppId ?? options?.appId,
       resourceUri: options?.mcpDirectoryWidgetResourceUri,
       userEmail: session.email,
-      orgId: session.orgId,
+      ...(session.orgId !== undefined ? { orgId: session.orgId } : {}),
       allowedArgumentNames,
       requireArgumentMatch: false,
     })
@@ -656,10 +656,11 @@ function allowsWebMcpCapabilityResource(
   const prefix = "capability:visual-edit:";
   if (!authCapability?.startsWith(prefix)) return true;
   const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
+  const encodedDesignId = match?.[1];
   const designId = actionName === "get-design" ? params.id : params.designId;
-  if (!match || typeof designId !== "string") return false;
+  if (!encodedDesignId || typeof designId !== "string") return false;
   try {
-    return decodeURIComponent(match[1]) === designId;
+    return decodeURIComponent(encodedDesignId) === designId;
   } catch {
     // coercion-ok: malformed capability scope is invalid and must fail closed.
     return false;

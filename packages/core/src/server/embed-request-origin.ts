@@ -7,7 +7,8 @@ import { getForwardedRequestOrigin } from "./request-origin.js";
 export function resolveEmbedRequestOrigin(event: H3Event): string {
   const fallback = getForwardedRequestOrigin(event);
   const requestOrigin = new URL(fallback);
-  const headers = getRequestHeaders(event);
+  const headers: Partial<ReturnType<typeof getRequestHeaders>> =
+    getRequestHeaders(event);
   const rawHost = headers["x-forwarded-host"];
   const rawProto = headers["x-forwarded-proto"];
   const host = rawHost?.split(",")[0]?.trim() ?? requestOrigin.host;

@@ -1222,6 +1222,14 @@ export default {
         animation: "アニメーション",
         distance: "距離",
         amount: "量",
+        axis: "軸",
+        axisBoth: "両方",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "開始幅",
+        endWidth: "終了幅",
+        startHeight: "開始高さ",
+        endHeight: "終了高さ",
         delay: "遅延",
         easing: "イージング",
         editCurve: "イージングカーブを編集",
@@ -1900,8 +1908,12 @@ export default {
         small: "小さい移動量",
         big: "大きい移動量",
         unit: "px",
-        description:
-          "矢印キーは小さい移動量、Shift 矢印キーは大きい移動量で移動します。オートレイアウトフレーム内では、矢印キーはレイヤーの順序を変更します。",
+        close: "移動量を閉じる",
+        done: "完了",
+        smallDescription:
+          "矢印キーを使用したときにオブジェクトが移動するピクセル数を設定します。",
+        bigDescription:
+          "Shift + 矢印キーを使用したときにオブジェクトが移動するピクセル数を設定します。",
       },
       keys: {
         or: "または",

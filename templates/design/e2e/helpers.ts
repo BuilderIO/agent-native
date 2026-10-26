@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { waitForEditorBoot } from "./editor-boot";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 
 export async function readSeedDesignId(): Promise<string> {
@@ -171,9 +172,7 @@ export async function enableFeatureFlag(
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
 const BOARD_SURFACE_IFRAME_SELECTOR = `[data-board-surface-layer] ${DESIGN_PREVIEW_IFRAME_SELECTOR}`;
-const E2E_BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const E2E_BASE_URL = e2eBaseURL();
 const E2E_BASE_PATH = (() => {
   try {
     return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
@@ -458,7 +457,7 @@ export async function expandAllLayers(page: Page): Promise<void> {
     .getByRole("tree", { name: "Layers" })
     .getByRole("treeitem")
     .first()
-    .waitFor({ timeout: 30_000 });
+    .waitFor();
   for (let depth = 0; depth < 128; depth += 1) {
     const expand = page.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
@@ -555,13 +554,15 @@ export async function openAppMenuSubmenu(
 
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await resetPersistedCanvasState(page);
+  const startedAt = Date.now();
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
+  await waitForEditorBoot(page, startedAt);
   const designMode = page.locator(
     '[data-design-top-bar] [data-design-mode="edit"]',
   );
-  await expect(designMode).toBeVisible({ timeout: 30_000 });
+  await expect(designMode).toBeVisible();
   await expect(designMode).toHaveAttribute("aria-pressed", "true");
   await waitForDesignPreviewReady(page);
 }

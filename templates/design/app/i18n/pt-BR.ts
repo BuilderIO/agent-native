@@ -1219,6 +1219,14 @@ export default {
         animation: "Animação",
         distance: "Distância",
         amount: "Quantidade",
+        axis: "Eixo",
+        axisBoth: "Ambos",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Largura inicial",
+        endWidth: "Largura final",
+        startHeight: "Altura inicial",
+        endHeight: "Altura final",
         delay: "Atraso",
         easing: "Aceleração",
         editCurve: "Editar curva de aceleração",
@@ -1895,8 +1903,12 @@ export default {
         small: "Deslocamento pequeno",
         big: "Deslocamento grande",
         unit: "px",
-        description:
-          "As setas movem pela distância pequena e Shift seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
+        close: "Fechar distância de deslocamento",
+        done: "Concluído",
+        smallDescription:
+          "Define quantos pixels um objeto se move ao usar as setas.",
+        bigDescription:
+          "Define quantos pixels um objeto se move ao usar Shift + setas.",
       },
       keys: {
         or: "ou",

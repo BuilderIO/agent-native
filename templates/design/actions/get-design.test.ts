@@ -1,3 +1,4 @@
+import type { currentAccess } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -55,7 +56,7 @@ const mocks = vi.hoisted(() => {
     sql: vi.fn((strings, ...values) => ({ strings, values })),
     getDb: vi.fn(() => ({ select })),
     resolveAccess: vi.fn(),
-    currentAccess: vi.fn(() => ({})),
+    currentAccess: vi.fn<() => ReturnType<typeof currentAccess>>(() => ({})),
     currentRequestUserIsOrgAdmin: vi.fn(),
     getAppConfig: vi.fn(() => ({
       observability: { superOrgId: state.superOrgId },
@@ -260,21 +261,24 @@ describe("get-design", () => {
       mocks.resolveAccess.mockResolvedValueOnce({ role: "editor", resource });
       mocks.resolveAccess.mockResolvedValueOnce({ role: sourceRole, resource });
       mocks.currentAccess.mockReturnValue({
-        userEmail,
+        ...(userEmail ? { userEmail } : {}),
         orgId: "org-a",
         authCapability: "capability:visual-edit:design:design_123",
-      } as any);
-      const result = await action.run({ id: "design_123" }, {
-        userEmail,
-        orgId: "org-a",
-        caller: "frontend",
-      } as any);
+      });
+      const result = await action.run(
+        { id: "design_123" },
+        {
+          ...(userEmail ? { userEmail } : {}),
+          orgId: "org-a",
+          caller: "frontend",
+        },
+      );
       expect(result).toMatchObject({ accessRole: "editor", canPersistSource });
       if (userEmail)
         expect(mocks.resolveAccess).toHaveBeenLastCalledWith(
           "design",
           "design_123",
-          { userEmail, orgId: "org-a", authCapability: undefined },
+          { userEmail, orgId: "org-a" },
           { skipResourceBody: true },
         );
       else expect(mocks.resolveAccess).toHaveBeenCalledTimes(1);

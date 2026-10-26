@@ -200,6 +200,7 @@ describe("Slides ChatGPT directory widget share grant", () => {
     mocks.getRequestUserEmail.mockReturnValue("reviewer@example.com");
   });
 
+  // oracle-change: Create/add widget targets were removed for full-app links; Core directory-template-profiles.spec.ts covers the link fallback.
   it("limits the Share popover grant to its four actions and their arguments", () => {
     const {
       widgetReadActionArguments,

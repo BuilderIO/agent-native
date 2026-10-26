@@ -432,6 +432,7 @@ test.describe("public visual edit", () => {
       }
       if (pathname === "/slow-image.svg") {
         response.writeHead(200, {
+          "access-control-allow-origin": "*",
           "cache-control": "no-store",
           "content-type": "image/svg+xml",
         });

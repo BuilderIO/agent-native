@@ -21,6 +21,7 @@ import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime";
 import { e2eBaseURL } from "./base-url";
+import { waitForEditorBoot } from "./editor-boot";
 import {
   appPath,
   cdpScreenshot,
@@ -296,6 +297,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     );
@@ -475,6 +477,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       unsafeSource: string,
       expectedError: string,
       verifyRenderedBoundary?: () => Promise<void>,
+      readRenderedBoundary?: () => Promise<unknown>,
     ) => {
       const unsafeHash = createHash("sha256")
         .update(unsafeSource)
@@ -487,6 +490,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
           { timeout: 20_000 },
         );
         await verifyRenderedBoundary?.();
+        const renderedBoundaryBeforeWrite = await readRenderedBoundary?.();
 
         const refused = await request.post(
           `${baseURL}/_agent-native/actions/apply-motion-edit`,
@@ -522,6 +526,11 @@ test.describe.serial("HTML Motion source browser writeback", () => {
         expect(refused.ok()).toBe(false);
         expect(await refused.text()).toContain(expectedError);
         expect(fs.readFileSync(sourceFilePath, "utf8")).toBe(unsafeSource);
+        if (readRenderedBoundary) {
+          expect(await readRenderedBoundary()).toEqual(
+            renderedBoundaryBeforeWrite,
+          );
+        }
       } finally {
         fs.writeFileSync(sourceFilePath, source);
       }
@@ -540,6 +549,57 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await rejectUnsafeSource(alpineMarkupMutationSource, "x-html", async () => {
       await expect(frame.locator("main style")).toHaveCount(1);
     });
+
+    const runtimeSiblingSelectorSource = source.replace(
+      "<head>",
+      `<head><style>main > section:nth-child(1) { opacity: 0 !important; }</style>`,
+    );
+    expect(runtimeSiblingSelectorSource).not.toBe(source);
+    await rejectUnsafeSource(
+      runtimeSiblingSelectorSource,
+      "runtime HTML state can change CSS",
+    );
+
+    const filteredSelectorSource = source
+      .replace(
+        "<head>",
+        `<head><style>main > section:nth-child(1 of :lang(en)) { opacity: 0 !important; }</style>`,
+      )
+      .replace('@click="open = !open"', "")
+      .replace('id="alpine-toggle"', 'id="alpine-toggle" lang="fr"')
+      .replace(
+        `id="${nodeId}" data-agent-native-node-id="${nodeId}"`,
+        `id="${nodeId}" lang="en" data-agent-native-node-id="${nodeId}"`,
+      );
+    expect(filteredSelectorSource).not.toBe(source);
+    await rejectUnsafeSource(
+      filteredSelectorSource,
+      "runtime HTML state can change CSS",
+    );
+
+    const alpineStyleMutationSource = source.replace(
+      `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open"`,
+      `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open" x-init="$el.style.color = 'rgb(1, 2, 3)'"`,
+    );
+    expect(alpineStyleMutationSource).not.toBe(source);
+    const readAlpineStyleMutationPreview = async () => {
+      await expect(frame.locator(`#${nodeId}`)).toBeVisible();
+      return frame.locator(`#${nodeId}`).evaluate((element) => ({
+        style: element.getAttribute("style"),
+        color: getComputedStyle(element).color,
+      }));
+    };
+    await rejectUnsafeSource(
+      alpineStyleMutationSource,
+      "inline x-init handler",
+      async () => {
+        expect(await readAlpineStyleMutationPreview()).toEqual({
+          style: "color: rgb(1, 2, 3);",
+          color: "rgb(1, 2, 3)",
+        });
+      },
+      readAlpineStyleMutationPreview,
+    );
 
     const importantInlineAnimationSource = source.replace(
       `id="${nodeId}" data-agent-native-node-id="${nodeId}" x-show="open"`,
@@ -1063,6 +1123,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await page.goto(appPath(`/design/${designId}?editorView=overview`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     await selectHtmlNodeFromCanvas(page, screenId, nativeNodeId);
     await page
       .getByRole("button", { name: "Motion dock", exact: true })

@@ -1380,11 +1380,7 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   await expect(
     dialog.locator('[data-code-shortcut-id="workbench.save"]'),
   ).toBeVisible();
-  await dialog.locator('[data-shortcuts-category="cursor"]').click();
-  const bigNudge = dialog.locator('[data-nudge-amount="big"]');
-  await expect(bigNudge).toBeVisible();
-  await bigNudge.fill("25");
-  await expect(bigNudge).toHaveValue("25");
+  // oracle-change: nudge fields moved out of this dialog into their own popup, covered by the nudge amount popup test below.
 
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -1419,11 +1415,45 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).click();
   await expect(dialog).toBeVisible();
   await expect(search).toBeFocused();
-  // The nudge size set above survived the close and reopen.
-  await expect(dialog.locator('[data-nudge-amount="big"]')).toHaveValue("25");
+  // oracle-change: the nudge persistence check moved to the nudge amount popup test below.
   await dialog.locator("[data-keyboard-shortcuts-close]").click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
+});
+
+test("nudge amount popup opens from Preferences and keeps its values", async ({
+  page,
+}) => {
+  await openAppMenuSubmenu(page, "Preferences");
+  await page.getByRole("menuitem", { name: /Nudge amount/ }).click();
+  const popup = page.getByRole("dialog", { name: "Nudge amount" });
+  await expect(popup).toBeVisible();
+  await expect(popup.locator('[data-nudge-amount="small"]')).toBeFocused();
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toHaveCount(0);
+
+  const bigNudge = popup.locator('[data-nudge-amount="big"]');
+  await bigNudge.fill("25");
+  await expect(bigNudge).toHaveValue("25");
+
+  // The Help chord passes through this popup but must not stack the
+  // shortcuts dialog on top of it.
+  await page.keyboard.press("Control+Shift+?");
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toHaveCount(0);
+  await expect(popup).toBeVisible();
+
+  await popup.getByRole("button", { name: "Done" }).click();
+  await expect(popup).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "More" })).toBeFocused();
+
+  await openAppMenuSubmenu(page, "Preferences");
+  await page.getByRole("menuitem", { name: /Nudge amount/ }).click();
+  await expect(popup.locator('[data-nudge-amount="big"]')).toHaveValue("25");
+  await page.keyboard.press("Escape");
+  await expect(popup).toHaveCount(0);
 });
 
 test("keyboard shortcuts dialog fits a narrow window and stacks its categories", async ({

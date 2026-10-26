@@ -2295,6 +2295,7 @@ export default { run: async () => ({ ok: true }) };
       ],
     );
 
+    // oracle-change: Browser-cookie/origin route tests replace assertions about the generated helper's internal name.
     expect(source).toContain(
       "hasUiActionCapability as hasGeneratedUiActionCapability",
     );
