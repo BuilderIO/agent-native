@@ -8247,6 +8247,57 @@ describe("run manager soft timeout", () => {
     await reader.cancel();
   });
 
+  it("delivers a persisted event when a reconnect lands before live publication", async () => {
+    let releasePersistence!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const persistenceGate = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    const persisted = Promise.withResolvers<void>();
+    vi.mocked(insertRunEvent).mockImplementationOnce(async () => {
+      markWriteStarted();
+      await persistenceGate;
+      persisted.resolve();
+    });
+
+    const run = startRun(
+      "run-reconnect-after-persist-before-publish",
+      "thread-reconnect-after-persist-before-publish",
+      async (send) => {
+        await send({ type: "text", text: "persisted before reconnect" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await writeStarted;
+
+    releasePersistence();
+    await persisted.promise;
+    expect(run.events).toEqual([]);
+
+    const reader = subscribeToRun(
+      "run-reconnect-after-persist-before-publish",
+      0,
+    )!.getReader();
+    const ping = await reader.read();
+    expect(new TextDecoder().decode(ping.value)).toContain(": ping ");
+    const delivered = await reader.read();
+
+    expect(delivered.done).toBe(false);
+    const data = new TextDecoder().decode(delivered.value);
+    expect(data).toContain('"seq":0');
+    expect(data).toContain(
+      '"eventId":"run-reconnect-after-persist-before-publish:0"',
+    );
+    expect(data).toContain('"text":"persisted before reconnect"');
+
+    await run.finalized;
+    await reader.cancel();
+  });
+
   it("does not advance a reconnect cursor before the event is durably retried", async () => {
     let startRunFn!: () => void;
     let startSecondSend!: () => void;

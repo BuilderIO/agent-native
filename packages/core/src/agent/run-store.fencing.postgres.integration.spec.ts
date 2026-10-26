@@ -1862,6 +1862,55 @@ describe.skipIf(!databaseUrl)(
             (entry: any) => (entry.message ?? entry).role === "assistant",
           ),
         ).toHaveLength(1);
+
+        const successorId = String(successors[0]!.id);
+        const effectId = `${prefix}:checkpoint-recovery-effect`;
+        const resumedWorker = await runWorkerWithTimeout(
+          60_000,
+          "production-loop-resume",
+          threadId,
+          turnId,
+          successorId,
+          effectId,
+          JSON.stringify({
+            replayPolicy: "never",
+            providerCallId: `${prefix}:checkpoint-recovery-call`,
+          }),
+        );
+        expect(resumedWorker.exitCode).toBe(0);
+        expect(workerJson<{ status: string }>(resumedWorker).status).toBe(
+          "completed",
+        );
+
+        const [effect] = await sql`
+          SELECT effect_count FROM agent_harness_test_effects
+          WHERE effect_id = ${effectId}
+        `;
+        expect(Number(effect?.effect_count)).toBe(1);
+        const executionSteps = await sql`
+          SELECT status, run_id FROM agent_execution_steps
+          WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+            AND tool_name = 'test-external-effect'
+        `;
+        expect(executionSteps).toHaveLength(1);
+        const executionStep = executionSteps[0];
+        expect(executionStep).toMatchObject({
+          status: "completed",
+          run_id: successorId,
+        });
+        const resumedEvents = await sql`
+          SELECT event_data::jsonb AS event_data
+          FROM agent_run_events
+          WHERE run_id = ${successorId}
+          ORDER BY seq
+        `;
+        const toolDoneEvents = resumedEvents.filter(
+          (row) => row.event_data.type === "tool_done",
+        );
+        expect(toolDoneEvents).toHaveLength(1);
+        expect(toolDoneEvents[0]?.event_data).toMatchObject({
+          result: `Recorded effect ${effectId}`,
+        });
       }, 2);
     }, 180_000);
 
