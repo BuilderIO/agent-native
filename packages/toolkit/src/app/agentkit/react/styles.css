@@ -704,13 +704,14 @@
     line-height: var(--agentkit-transcript-message-line-height, 1.52);
   }
 
-  /* A user message's footer overlays the 24px zone under its bubble on hover
-   or focus, so the agent turn starts a full turn gap below that zone and its
-   summary row never sits against the user's toolbar. */
+  /* A user message's footer overlays the 27px zone under its bubble on hover
+   or focus (its 3px drop plus the 24px row), so the agent turn starts a full
+   turn gap below that zone and its summary row never sits against the user's
+   toolbar. */
   .agentkit-message[data-role="user"] {
     align-items: flex-end;
     margin-block: var(--agentkit-transcript-message-gap, 1.5rem)
-      calc(1.5rem + var(--agentkit-transcript-message-gap, 1.5rem));
+      calc(1.6875rem + var(--agentkit-transcript-message-gap, 1.5rem));
     line-height: var(
       --agentkit-user-bubble-line-height,
       var(--agentkit-transcript-message-line-height, 1.52)
@@ -1198,6 +1199,13 @@
     inset-block-start: 100%;
     inset-inline: 0;
     margin-block-start: 0;
+  }
+
+  /* Reply text ends on its last line's leading, the bubble on a hard edge, so
+   the user row drops 3px to sit as far below the bubble as a reply's row sits
+   below its lowest glyphs. The user message's bottom zone includes the drop. */
+  .agentkit-message-actions[data-role="user"]:not([data-has-error="true"]) {
+    margin-block-start: 0.1875rem;
   }
 
   /* One line under the reply: the finished work row, then the controls. The
