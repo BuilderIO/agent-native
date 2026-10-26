@@ -31,18 +31,22 @@
  * it's imported by a relative path: `recordContentSaveOutcome` counts because
  * its own file shows it calling `countOutcome`, and so does a wrapper of it,
  * while an imported `trackRetry` whose file shows it only retrying doesn't.
- * That holds through re-exports, including `export *` and `export * as`, and
- * for members of an exported object or an exported class's statics, as in
- * `counters.record()`. A name whose function the guard can't see (a package
- * import, a global, a parameter, a factory's result, a member of an object it
- * can't list) is judged by its name. A function a callback
- * only defines or passes along counts where it runs: where a call to it is
- * followed, or when it's handed to a call that runs it (a function in the file
- * that calls that parameter, or else an array iteration or promise method, a
- * promise executor, or `Array.from`'s mapper). A call that may only keep the
- * function, such as `register(flush)`, `cache.set(key, flush)` or a helper
- * from another file, isn't taken to run it. A timer that has to defer a count
- * says why, on any line of the timer call or the line above:
+ * That holds through re-exports, including `export *` and `export * as`, for
+ * members of exported objects, classes and instances, with what they spread
+ * or inherit (`counters.record()`, `new Reporter().record()`), and for names
+ * destructured from them. A package import is judged by its name, and so is
+ * a `count…` helper the repo's packages export, such as
+ * `countAutomationCredentialState`, once a package file shows it counting.
+ * Any other name whose function the guard can't see (a global, a parameter,
+ * a factory's result, a member of an object it can't list) is judged by its
+ * name. A function a callback only defines or passes along counts where it
+ * runs: where a call to it is followed, or when it's handed to a call that
+ * runs it (a function in the file that calls that parameter, or else an array
+ * iteration or promise method, a promise executor, or `Array.from`'s mapper).
+ * A call that may only keep the function, such as `register(flush)`,
+ * `cache.set(key, flush)` or a helper from another file, isn't taken to run
+ * it. A timer that has to defer a count says why, on any line of the timer
+ * call or the line above:
  *
  *   // guard:allow-deferred-count — <why the count can wait>
  */
@@ -154,6 +158,16 @@ function exportCounts(
   return listed ? false : undefined;
 }
 
+/**
+ * The `CountingExports` key for the `count…` helpers the repo's packages
+ * export, such as `countAutomationCredentialState`, with `*`. An import from
+ * `@agent-native/...` can't be traced to its file, so a name listed here
+ * counts and any other is judged by its spelling. Only `count…` names join:
+ * `track…` names already count by spelling, and a generic name such as `run`
+ * would stand for every package's `run`.
+ */
+export const PACKAGE_EXPORTS = "@agent-native/*";
+
 /** What a file's names resolve to. */
 interface FileScope {
   sourceFile: ts.SourceFile;
@@ -212,6 +226,9 @@ function fileScope(
     sourceFile,
     checker: fileChecker(sourceFile),
     exportsOf: (specifier) => {
+      if (specifier.startsWith("@agent-native/")) {
+        return known.get(PACKAGE_EXPORTS);
+      }
       for (const candidate of importCandidates(file, specifier)) {
         const names = known.get(candidate);
         if (names) return names;
@@ -437,28 +454,88 @@ function importBinding(
 }
 
 /**
+ * Where in its module a value comes from, when it comes from an import:
+ * through members (`counters.record`), destructuring (`const { record } =
+ * counters`), aliases, and instances (`new Reporter()` reaches
+ * `Reporter.prototype`). The path is empty for `import * as` itself.
+ */
+function valuePath(
+  checker: ts.TypeChecker,
+  expression: ts.Expression,
+  seen: Set<ts.Node>,
+): ImportedPath | undefined {
+  const target = unwrapped(expression);
+  if (ts.isNewExpression(target)) {
+    const made = valuePath(checker, target.expression, seen);
+    return made && made.path.length > 0
+      ? { specifier: made.specifier, path: [...made.path, "prototype"] }
+      : undefined;
+  }
+  if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
+    return undefined;
+  }
+  const declaration = declarationOf(checker, target);
+  if (declaration) return declaredPath(checker, declaration, seen);
+  if (!ts.isPropertyAccessExpression(target)) return undefined;
+  const object = valuePath(checker, target.expression, seen);
+  return (
+    object && {
+      specifier: object.specifier,
+      path: [...object.path, target.name.text],
+    }
+  );
+}
+
+/** Where in an import a declaration's value comes from, if it does. */
+function declaredPath(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+  seen: Set<ts.Node>,
+): ImportedPath | undefined {
+  if (seen.has(declaration)) return undefined;
+  seen.add(declaration);
+  const binding = importBinding(declaration);
+  if (binding) return binding;
+  if (
+    ts.isBindingElement(declaration) &&
+    ts.isObjectBindingPattern(declaration.parent)
+  ) {
+    const key = sourceName(declaration);
+    const holder = declaration.parent.parent;
+    const object = ts.isBindingElement(holder)
+      ? declaredPath(checker, holder, seen)
+      : ts.isVariableDeclaration(holder) && holder.initializer
+        ? valuePath(checker, holder.initializer, seen)
+        : undefined;
+    return key && object
+      ? { specifier: object.specifier, path: [...object.path, key] }
+      : undefined;
+  }
+  if (
+    (ts.isVariableDeclaration(declaration) ||
+      ts.isPropertyDeclaration(declaration)) &&
+    declaration.initializer
+  ) {
+    return valuePath(checker, declaration.initializer, seen);
+  }
+  return undefined;
+}
+
+/**
  * The module and export path a reference imports: `record` itself, or a member
- * reached through an import, as `counters.record` after `import { counters }`
- * or `outcomes.record` after `import * as outcomes`.
+ * reached through an import, as `counters.record` after `import { counters }`,
+ * `const { record } = counters`, or `outcomes.record` after
+ * `import * as outcomes`.
  */
 function importedPath(
   checker: ts.TypeChecker,
   target: ts.Identifier | ts.PropertyAccessExpression,
   declaration: ts.Declaration | undefined,
 ): ImportedPath | undefined {
-  const direct = importBinding(declaration);
-  if (direct) return direct.path.length > 0 ? direct : undefined;
-  const members: string[] = [];
-  let object: ts.Expression = target;
-  while (ts.isPropertyAccessExpression(object)) {
-    members.unshift(object.name.text);
-    object = unwrapped(object.expression);
-  }
-  if (!ts.isIdentifier(object) || members.length === 0) return undefined;
-  const root = importBinding(declarationOf(checker, object));
-  return (
-    root && { specifier: root.specifier, path: [...root.path, ...members] }
-  );
+  const found = declaration
+    ? declaredPath(checker, declaration, new Set())
+    : valuePath(checker, target, new Set());
+  return found && found.path.length > 0 ? found : undefined;
 }
 
 /**
@@ -717,9 +794,9 @@ function isDefault(statement: ts.Statement): boolean {
 
 /**
  * What this file exports that counts when called, listed as `CountingExports`
- * lists it: exported functions and consts, the members of exported objects and
- * the statics of exported classes, and re-exports, given what `known` says
- * other files export.
+ * lists it: exported functions and consts, the members of exported objects,
+ * classes and instances (with what they spread or inherit), and re-exports,
+ * given what `known` says other files export.
  */
 export function findCountingExports(
   file: string,
@@ -733,30 +810,140 @@ export function findCountingExports(
     countsWhenCalled(scope, expression, new Set());
   const counting = new Set<string>();
 
-  // The members of an object, or a class's statics, that count, under
-  // `prefix`, and whether those are all its members.
-  const addMembers = (prefix: string, node: ts.Node | undefined) => {
-    const value = node && ts.isExpression(node) ? unwrapped(node) : node;
-    let members: readonly (ts.ObjectLiteralElementLike | ts.ClassElement)[];
-    let listed = true;
-    if (value && ts.isObjectLiteralExpression(value)) {
-      members = value.properties;
-    } else if (
-      value &&
-      (ts.isClassDeclaration(value) || ts.isClassExpression(value))
-    ) {
-      members = value.members.filter((member) =>
-        hasModifier(member, ts.SyntaxKind.StaticKeyword),
-      );
-      // A static it inherits isn't written here.
-      listed = !value.heritageClauses?.some(
-        (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword,
-      );
-    } else {
-      return;
+  // Lists under `prefix` what `from` says counts at `path` and below.
+  const copyCounting = (
+    from: ReadonlySet<string>,
+    path: readonly string[],
+    prefix: string,
+  ) => {
+    const at = path.join(".");
+    for (const entry of from) {
+      if (entry === "*" || entry.endsWith(".")) continue;
+      if (path.length === 0) counting.add(`${prefix}.${entry}`);
+      else if (entry.startsWith(`${at}.`)) {
+        counting.add(prefix + entry.slice(at.length));
+      }
     }
+  };
+
+  // Lists what counts among a value's members under `prefix`: an object's
+  // properties, a class's statics and, under `prefix.prototype`, its instance
+  // members, or with `instance` the members of an instance. Returns the
+  // levels whose members are all listed.
+  const listMembers = (
+    prefix: string,
+    node: ts.Node | undefined,
+    instance: boolean,
+    seen: Set<ts.Node>,
+  ): Set<string> => {
+    const levels = new Set<string>();
+    const value = node && ts.isExpression(node) ? unwrapped(node) : node;
+    if (!value || seen.has(value)) return levels;
+    seen.add(value);
+    try {
+      if (ts.isNewExpression(value)) {
+        return listMembers(prefix, value.expression, true, seen);
+      }
+      if (ts.isIdentifier(value) || ts.isPropertyAccessExpression(value)) {
+        const declaration = declarationOf(checker, value);
+        const local =
+          declaration &&
+          (ts.isClassDeclaration(declaration)
+            ? declaration
+            : boundValue(checker, declaration));
+        if (local) return listMembers(prefix, local, instance, seen);
+        // A value from another scanned file has what that file lists, and
+        // what it doesn't list is left to the name.
+        const imported = declaration
+          ? declaredPath(checker, declaration, new Set())
+          : valuePath(checker, value, new Set());
+        const from = imported && scope.exportsOf(imported.specifier);
+        if (imported && from) {
+          copyCounting(
+            from,
+            instance ? [...imported.path, "prototype"] : imported.path,
+            prefix,
+          );
+        }
+        return levels;
+      }
+      if (ts.isObjectLiteralExpression(value)) {
+        if (!instance && listProperties(prefix, value.properties, seen)) {
+          levels.add(prefix);
+        }
+        return levels;
+      }
+      if (ts.isClassDeclaration(value) || ts.isClassExpression(value)) {
+        const isStatic = (member: ts.ClassElement) =>
+          hasModifier(member, ts.SyntaxKind.StaticKeyword);
+        const own = instance ? prefix : `${prefix}.prototype`;
+        if (
+          !instance &&
+          listProperties(prefix, value.members.filter(isStatic), seen)
+        ) {
+          levels.add(prefix);
+        }
+        if (
+          listProperties(
+            own,
+            value.members.filter((member) => !isStatic(member)),
+            seen,
+          )
+        ) {
+          levels.add(own);
+        }
+        const base = value.heritageClauses?.find(
+          (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword,
+        )?.types[0]?.expression;
+        if (base) {
+          // A subclass has what its base has, and lists a level only when
+          // the base lists it too.
+          const inherited = listMembers(prefix, base, instance, seen);
+          for (const level of levels) {
+            if (!inherited.has(level)) levels.delete(level);
+          }
+        }
+      }
+      return levels;
+    } finally {
+      seen.delete(value);
+    }
+  };
+
+  // Lists the members that count under `prefix`, and says whether these are
+  // all the members.
+  const listProperties = (
+    prefix: string,
+    members: readonly (ts.ObjectLiteralElementLike | ts.ClassElement)[],
+    seen: Set<ts.Node>,
+  ): boolean => {
+    let listed = true;
     for (const member of members) {
-      if (ts.isClassStaticBlockDeclaration(member)) continue;
+      if (
+        ts.isClassStaticBlockDeclaration(member) ||
+        ts.isSemicolonClassElement(member) ||
+        ts.isIndexSignatureDeclaration(member)
+      ) {
+        continue;
+      }
+      if (ts.isConstructorDeclaration(member)) {
+        // `constructor(private save: Save)` adds a member this can't list.
+        if (
+          member.parameters.some((parameter) =>
+            ts.isParameterPropertyDeclaration(parameter, member),
+          )
+        ) {
+          listed = false;
+        }
+        continue;
+      }
+      if (ts.isSpreadAssignment(member)) {
+        // `{ ...counters }` has what `counters` has.
+        if (!listMembers(prefix, member.expression, false, seen).has(prefix)) {
+          listed = false;
+        }
+        continue;
+      }
       const key =
         member.name &&
         (ts.isIdentifier(member.name) ||
@@ -765,28 +952,36 @@ export function findCountingExports(
           ? member.name.text
           : undefined;
       if (!key || ts.isGetAccessor(member) || ts.isSetAccessor(member)) {
-        // A spread, a computed name or an accessor hides what's there.
+        // A computed name or an accessor hides what's there.
         listed = false;
         continue;
       }
       const path = `${prefix}.${key}`;
+      let value: ts.Expression | undefined;
       if (ts.isMethodDeclaration(member)) {
         if (member.body && callsCount(scope, member.body, new Set())) {
           counting.add(path);
         }
       } else if (ts.isShorthandPropertyAssignment(member)) {
-        if (counts(member.name)) counting.add(path);
+        value = member.name;
       } else if (
         ts.isPropertyAssignment(member) ||
         ts.isPropertyDeclaration(member)
       ) {
-        if (member.initializer && counts(member.initializer)) {
-          counting.add(path);
-        }
-        addMembers(path, member.initializer);
+        value = member.initializer;
+      }
+      if (value && counts(value)) counting.add(path);
+      for (const level of listMembers(path, value, false, seen)) {
+        counting.add(`${level}.`);
       }
     }
-    if (listed) counting.add(`${prefix}.`);
+    return listed;
+  };
+
+  const addMembers = (prefix: string, node: ts.Node | undefined) => {
+    for (const level of listMembers(prefix, node, false, new Set())) {
+      counting.add(`${level}.`);
+    }
   };
 
   // Lists as `name` what `from` lists at `path`: one export and its members,
@@ -832,21 +1027,28 @@ export function findCountingExports(
       passOn(scope.exportsOf(imported.specifier), imported.path, name);
       return;
     }
-    const reference = ts.getNameOfDeclaration(declaration);
-    if (
-      !ts.isClassDeclaration(declaration) &&
-      reference &&
-      ts.isIdentifier(reference) &&
-      counts(reference)
-    ) {
-      counting.add(name);
+    if (ts.isClassDeclaration(declaration)) {
+      addMembers(name, declaration);
+      return;
     }
-    addMembers(
-      name,
-      ts.isVariableDeclaration(declaration)
-        ? declaration.initializer
-        : declaration,
-    );
+    const reference = ts.getNameOfDeclaration(declaration);
+    if (reference && ts.isIdentifier(reference)) {
+      if (counts(reference)) counting.add(name);
+      addMembers(name, reference);
+    }
+  };
+
+  // `export const { record } = counters` exports each name it binds.
+  const addBound = (
+    declaration: ts.VariableDeclaration | ts.BindingElement,
+  ) => {
+    if (ts.isIdentifier(declaration.name)) {
+      addDeclaration(declaration.name.text, declaration);
+      return;
+    }
+    for (const element of declaration.name.elements) {
+      if (ts.isBindingElement(element)) addBound(element);
+    }
   };
 
   for (const statement of sourceFile.statements) {
@@ -876,9 +1078,7 @@ export function findCountingExports(
       }
     } else if (isExported(statement) && ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name)) {
-          addDeclaration(declaration.name.text, declaration);
-        }
+        addBound(declaration);
       }
     } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       const module = statement.moduleSpecifier;
@@ -913,6 +1113,11 @@ export function findCountingExports(
 }
 
 const EXPORTS = /\bexport\b/;
+/** A file that calls a count helper or `track` itself. */
+const COUNTS_ITSELF = new RegExp(
+  `\\b(?:${[...COUNTS].join("|")})\\b|(?:^|[^.\\w])track\\s*\\(`,
+  "m",
+);
 const EXPORT_STAR = /\bexport\s*\*/;
 /** `export * from` a package or another module the guard doesn't scan. */
 const PACKAGE_STAR = /\bexport\s*\*\s*from\s*["'][^.]/;
@@ -936,6 +1141,8 @@ export function countingExportsOf(
   const known = new Map(
     [...sources.keys()].map((file) => [file, new Set<string>()]),
   );
+  const fromPackages = new Set(["*"]);
+  known.set(PACKAGE_EXPORTS, fromPackages);
   // A file starts with what it names itself, or what it re-exports whole from
   // a module the guard doesn't scan.
   const pending = new Set(
@@ -961,6 +1168,28 @@ export function countingExportsOf(
     const removed = [...before].filter((name) => !names.includes(name));
     if (added.length === 0 && removed.length === 0) continue;
     known.set(file, new Set(names));
+    // A package's `count…` helpers join the names its importers look up.
+    const packaged = file.startsWith("packages/")
+      ? added.filter(
+          (name) =>
+            /^count[A-Z]\w*$/.test(name) &&
+            !isCountName(name) &&
+            !fromPackages.has(name),
+        )
+      : [];
+    for (const name of packaged) fromPackages.add(name);
+    if (packaged.length > 0) {
+      for (const [other, source] of sources) {
+        if (
+          other !== file &&
+          EXPORTS.test(source) &&
+          source.includes("@agent-native/") &&
+          packaged.some((name) => source.includes(name))
+        ) {
+          pending.add(other);
+        }
+      }
+    }
     // Files that pass the exports on import their module by a path that names
     // it. They're checked again when a counting export or member appears,
     // when anything is dropped, or when the file gains `*`; a new `counters.`
@@ -973,13 +1202,20 @@ export function countingExportsOf(
     const opened = added.includes("*");
     if (counting.length === 0 && !opened) continue;
     const stem = path.posix.basename(file).replace(/\.[^.]+$/, "");
-    const module =
-      stem === "index" ? path.posix.basename(path.posix.dirname(file)) : stem;
+    const literal = (text: string) =>
+      text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tail =
+      stem === "index"
+        ? `${literal(path.posix.basename(path.posix.dirname(file)))}(?:/index)?`
+        : literal(stem);
+    const importsModule = new RegExp(
+      `["'][^"'\\n]*/${tail}(?:\\.[cm]?[jt]sx?)?["']`,
+    );
     for (const [other, source] of sources) {
       if (
         other !== file &&
         EXPORTS.test(source) &&
-        source.includes(module) &&
+        importsModule.test(source) &&
         (EXPORT_STAR.test(source) ||
           // A name re-exported from a file with `*` is judged by its name.
           (opened && COUNT_WORD.test(source)) ||
@@ -1034,7 +1270,22 @@ export function findDeferredCounts(
   return findings;
 }
 
-function serverSourceFiles(): string[] {
+/**
+ * Package sources outside the server directories, read only for what they
+ * export when they count themselves: core's count helpers, such as
+ * `countAutomationCredentialState` in `packages/core/src/jobs/`, live there.
+ */
+function isPackageHelperPath(relPath: string): boolean {
+  return (
+    /^packages\/[^/]+\/src\//.test(relPath) &&
+    /\.[cm]?ts$/.test(relPath) &&
+    !/\.d\.[cm]?ts$/.test(relPath) &&
+    !SKIPPED.test(relPath) &&
+    !isServerSourcePath(relPath)
+  );
+}
+
+function sourceFiles(): { server: string[]; helpers: string[] } {
   const listed = execFileSync(
     "git",
     [
@@ -1048,13 +1299,17 @@ function serverSourceFiles(): string[] {
     ],
     { cwd: rootDir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
-  return listed.split("\0").filter((rel) => rel && isServerSourcePath(rel));
+  const files = listed.split("\0").filter(Boolean);
+  return {
+    server: files.filter(isServerSourcePath),
+    helpers: files.filter(isPackageHelperPath),
+  };
 }
 
 function main() {
-  let files: string[];
+  let files: { server: string[]; helpers: string[] };
   try {
-    files = serverSourceFiles();
+    files = sourceFiles();
   } catch (error) {
     console.error(
       `${GUARD_NAME}: could not list files: ${(error as Error).message}`,
@@ -1063,9 +1318,12 @@ function main() {
   }
 
   const sources = new Map<string, string>();
-  for (const rel of files) {
+  for (const rel of [...files.server, ...files.helpers]) {
     try {
-      sources.set(rel, readFileSync(path.join(rootDir, rel), "utf8"));
+      const source = readFileSync(path.join(rootDir, rel), "utf8");
+      if (isServerSourcePath(rel) || COUNTS_ITSELF.test(source)) {
+        sources.set(rel, source);
+      }
     } catch (error) {
       console.error(
         `${GUARD_NAME}: could not read ${rel}: ${(error as Error).message}`,
@@ -1073,11 +1331,12 @@ function main() {
       process.exit(GUARD_EXIT_COULD_NOT_RUN);
     }
   }
-  const inspected = sources.size;
+  const inspected = files.server.length;
   const scopes = new Map<string, FileScope>();
   const known = countingExportsOf(sources, scopes);
   const findings: DeferredCountFinding[] = [];
-  for (const [rel, source] of sources) {
+  for (const rel of files.server) {
+    const source = sources.get(rel) ?? "";
     if (!TIMER_WORD.test(source)) continue;
     findings.push(...findDeferredCounts(rel, source, known, scopes));
   }

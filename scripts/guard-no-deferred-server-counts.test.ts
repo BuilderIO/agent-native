@@ -5,12 +5,22 @@ import {
   countingExportsOf,
   findDeferredCounts,
   isServerSourcePath,
+  PACKAGE_EXPORTS,
 } from "./guard-no-deferred-server-counts.js";
 
 const FILE = "templates/content/actions/record-editor-mount.ts";
 
 function flagged(source: string) {
   return findDeferredCounts(FILE, source).map((finding) => finding.line);
+}
+
+/** What `countingExportsOf` lists for each file, sorted. */
+function listedFiles(sources: ReadonlyMap<string, string>) {
+  return Object.fromEntries(
+    [...countingExportsOf(sources)]
+      .filter(([file]) => file !== PACKAGE_EXPORTS)
+      .map(([file, names]) => [file, [...names].sort()]),
+  );
 }
 
 describe("deferred server counts guard", () => {
@@ -380,22 +390,14 @@ describe("deferred server counts guard", () => {
       ],
     ]);
 
-    assert.deepEqual(
-      Object.fromEntries(
-        [...countingExportsOf(sources)].map(([file, names]) => [
-          file,
-          [...names].sort(),
-        ]),
-      ),
-      {
-        "templates/content/actions/_outcomes.ts": ["recordOutcome"],
-        "templates/content/server/lib/outcome-wrappers.ts": [
-          "recordAgain",
-          "recordSaved",
-        ],
-        "templates/content/server/lib/index.ts": ["recordAgain", "recordSaved"],
-      },
-    );
+    assert.deepEqual(listedFiles(sources), {
+      "templates/content/actions/_outcomes.ts": ["recordOutcome"],
+      "templates/content/server/lib/outcome-wrappers.ts": [
+        "recordAgain",
+        "recordSaved",
+      ],
+      "templates/content/server/lib/index.ts": ["recordAgain", "recordSaved"],
+    });
   });
 
   it("finds default exports that count and leaves out ones that don't", () => {
@@ -443,24 +445,16 @@ describe("deferred server counts guard", () => {
       ],
     ]);
 
-    assert.deepEqual(
-      Object.fromEntries(
-        [...countingExportsOf(sources)].map(([file, names]) => [
-          file,
-          [...names].sort(),
-        ]),
-      ),
-      {
-        "templates/content/actions/_record.ts": ["default"],
-        "templates/content/actions/_track-saved.ts": ["default"],
-        "templates/content/actions/_track-opened.ts": ["default"],
-        "templates/content/server/lib/record-wrapper.ts": [
-          "recordAgain",
-          "recordSaved",
-        ],
-        "templates/content/server/lib/retry.ts": [],
-      },
-    );
+    assert.deepEqual(listedFiles(sources), {
+      "templates/content/actions/_record.ts": ["default"],
+      "templates/content/actions/_track-saved.ts": ["default"],
+      "templates/content/actions/_track-opened.ts": ["default"],
+      "templates/content/server/lib/record-wrapper.ts": [
+        "recordAgain",
+        "recordSaved",
+      ],
+      "templates/content/server/lib/retry.ts": [],
+    });
   });
 
   it("lists the members of exported objects and namespace re-exports", () => {
@@ -497,34 +491,32 @@ describe("deferred server counts guard", () => {
       ],
     ]);
 
-    assert.deepEqual(
-      Object.fromEntries(
-        [...countingExportsOf(sources)].map(([file, names]) => [
-          file,
-          [...names].sort(),
-        ]),
-      ),
-      {
-        "templates/content/actions/_counters.ts": [
-          "Tally.",
-          "Tally.record",
-          "analytics.",
-          "analytics.trackSave",
-          "counters.",
-          "counters.record",
-        ],
-        "templates/content/actions/_barrel.ts": [
-          "*",
-          "outcomes.",
-          "outcomes.Tally.",
-          "outcomes.Tally.record",
-          "outcomes.analytics.",
-          "outcomes.analytics.trackSave",
-          "outcomes.counters.",
-          "outcomes.counters.record",
-        ],
-      },
-    );
+    assert.deepEqual(listedFiles(sources), {
+      "templates/content/actions/_counters.ts": [
+        "Tally.",
+        "Tally.prototype.",
+        "Tally.record",
+        "analytics.",
+        "analytics.trackSave",
+        "counters.",
+        "counters.record",
+        "loose.",
+        "loose.record",
+      ],
+      "templates/content/actions/_barrel.ts": [
+        "*",
+        "outcomes.",
+        "outcomes.Tally.",
+        "outcomes.Tally.prototype.",
+        "outcomes.Tally.record",
+        "outcomes.analytics.",
+        "outcomes.analytics.trackSave",
+        "outcomes.counters.",
+        "outcomes.counters.record",
+        "outcomes.loose.",
+        "outcomes.loose.record",
+      ],
+    });
   });
 
   it("follows members and re-exports into the files that list them", () => {
@@ -572,6 +564,92 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(
       findDeferredCounts(FILE, source, known).map((finding) => finding.line),
       [4, 6, 7, 9, 10, 11, 12],
+    );
+  });
+
+  it("follows spreads, destructuring, instances and inherited methods", () => {
+    const sources = new Map([
+      [
+        "templates/content/actions/_counters.ts",
+        [
+          'import { countOutcome } from "@agent-native/core/tracking";',
+          "export const counters = {",
+          "  record() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  },",
+          "};",
+          "export const copy = { ...counters, retry() {} };",
+          "export const { record } = counters;",
+          "export class Base {",
+          "  static record() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  }",
+          "}",
+          "export class Child extends Base {}",
+          "export class Reporter {",
+          "  record() {",
+          '    countOutcome("content_save_outcome_counts", {});',
+          "  }",
+          "  retry() {}",
+          "}",
+          "export const reporter = new Reporter();",
+        ].join("\n"),
+      ],
+    ]);
+    const known = countingExportsOf(sources);
+    const source = [
+      'import { copy, counters, Child, Reporter, reporter, record } from "./_counters.js";',
+      "const { record: save } = counters;",
+      "const local = new Reporter();",
+      "class Job {",
+      "  reporter = new Reporter();",
+      "  start() {",
+      "    setTimeout(() => this.reporter.record(), 0);",
+      "  }",
+      "}",
+      "setTimeout(() => copy.record(), 0);",
+      "setTimeout(() => copy.retry(), 0);",
+      "setTimeout(save, 0);",
+      "setTimeout(record, 0);",
+      "setTimeout(() => Child.record(), 0);",
+      "setTimeout(() => new Reporter().record(), 0);",
+      "setTimeout(() => local.record(), 0);",
+      "setTimeout(() => local.retry(), 0);",
+      "setTimeout(() => reporter.record(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, known).map((finding) => finding.line),
+      [7, 10, 12, 13, 14, 15, 16, 18],
+    );
+  });
+
+  it("looks up count helpers the repo's packages export by name", () => {
+    const sources = new Map([
+      [
+        "packages/core/src/jobs/automation-events.ts",
+        [
+          'import { countCredentialState } from "../tracking/failure-counters.js";',
+          "export function countAutomationCredentialState(code: string): void {",
+          "  countCredentialState({ code });",
+          "}",
+          "export function countLines(text: string): number {",
+          '  return text.split("\\n").length;',
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+    const known = countingExportsOf(sources);
+    const source = [
+      'import { countAutomationCredentialState, countLines, trackEvent } from "@agent-native/core/server";',
+      'setTimeout(() => countAutomationCredentialState("expired"), 0);',
+      'setTimeout(() => countLines("a"), 0);',
+      'setTimeout(() => trackEvent("saved"), 0);',
+    ].join("\n");
+
+    assert.deepEqual(
+      findDeferredCounts(FILE, source, known).map((finding) => finding.line),
+      [2, 4],
     );
   });
 
